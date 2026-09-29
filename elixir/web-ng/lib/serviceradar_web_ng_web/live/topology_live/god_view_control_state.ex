@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewControlState do
         "root_cause" -> :root_cause
         "affected" -> :affected
         "healthy" -> :healthy
+        "unavailable" -> :unavailable
         _ -> :unknown
       end
 

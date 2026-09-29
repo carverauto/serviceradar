@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.Identity.BatchResolver
   alias ServiceRadar.Inventory.Identity.Fence
@@ -89,6 +90,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
       StateEvents.invalidate_identity_cache_for_device_records(effect.device_records)
       StateEvents.invalidate_identity_cache_for_identifier_records(effect.identifier_records)
+      invalidate_written_devices(effect.device_records, effect.remap)
     end)
 
     :ok
@@ -292,6 +294,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     if !defer_state_events? do
       StateEvents.publish_device_state_transitions(device_records, previous_device_states, remap)
       StateEvents.invalidate_identity_cache_for_device_records(device_records)
+      invalidate_written_devices(device_records, remap)
     end
 
     interface_records = apply_uid_remap_to_interface_records(interface_records, remap)
@@ -315,6 +318,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       remap: remap,
       identifier_records: identifier_records
     })
+  end
+
+  defp invalidate_written_devices(records, remap) do
+    records
+    |> Stream.map(&Map.get(remap, &1.uid, &1.uid))
+    |> DevicePubSub.broadcast_invalidated()
   end
 
   # Updates whose pin went stale are resolved again from scratch and written once

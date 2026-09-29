@@ -2,16 +2,33 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphVirtualizationInventoryTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.Topology.RuntimeGraph
+
+  @moduletag :topology_atlas_db
 
   test "virtualization inventory SQL returns hosted topology rows for host and guest devices" do
     unique = System.unique_integer([:positive])
     observed_at = DateTime.truncate(DateTime.utc_now(), :second)
     host_uid = "sr:topology-pve-#{unique}"
     guest_uid = "sr:topology-vm-#{unique}"
+    integration_id = Ecto.UUID.generate()
+    controller_id = Ecto.UUID.generate()
+
+    {:ok, host_identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        integration_id,
+        controller_id,
+        "synthetic-cluster",
+        "node",
+        "pve-topology-#{unique}"
+      )
+
+    {:ok, guest_identity} =
+      IntegrationIdentity.proxmox_v3_fields(integration_id, controller_id, "synthetic-cluster", "qemu", "100")
 
     Repo.insert_all("ocsf_devices", [
       %{
@@ -36,29 +53,33 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphVirtualizationInventoryTest do
 
     {:ok, host} =
       VirtualizationHost
-      |> Ash.Changeset.for_create(:create, %{
-        provider: "proxmox",
-        provider_ref: "proxmox:node:pve-topology-#{unique}",
-        device_uid: host_uid,
-        name: "pve-topology-#{unique}",
-        status: "online",
-        observed_at: observed_at
-      })
+      |> Ash.Changeset.for_create(
+        :create,
+        Map.merge(host_identity, %{
+          provider: "proxmox",
+          device_uid: host_uid,
+          name: "pve-topology-#{unique}",
+          status: "online",
+          observed_at: observed_at
+        })
+      )
       |> Ash.create(actor: system_actor())
 
     {:ok, _guest} =
       VirtualizationGuest
-      |> Ash.Changeset.for_create(:create, %{
-        provider: "proxmox",
-        provider_ref: "proxmox:guest:pve-topology-#{unique}:qemu:100",
-        host_id: host.id,
-        device_uid: guest_uid,
-        name: "vm-topology-#{unique}",
-        guest_type: "vm",
-        vmid: 100,
-        status: "running",
-        observed_at: observed_at
-      })
+      |> Ash.Changeset.for_create(
+        :create,
+        Map.merge(guest_identity, %{
+          provider: "proxmox",
+          host_id: host.id,
+          device_uid: guest_uid,
+          name: "vm-topology-#{unique}",
+          guest_type: "vm",
+          vmid: 100,
+          status: "running",
+          observed_at: observed_at
+        })
+      )
       |> Ash.create(actor: system_actor())
 
     assert {:ok, %{rows: rows}} =
@@ -80,5 +101,14 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphVirtualizationInventoryTest do
     assert row["metadata"]["topology_plane"] == "hosted"
     assert row["metadata"]["virtualization_provider"] == "proxmox"
     assert row["metadata"]["virtualization_guest_vmid"] == 100
+  end
+
+  test "fetch_topology_links_with_virtualization/1 degrades gracefully when the inventory query fails" do
+    primary_rows = [%{local_device_id: "sr:a", neighbor_device_id: "sr:b"}]
+
+    assert {:error, _} = Repo.query("SELECT 1 / 0", [])
+
+    assert {:ok, ^primary_rows} =
+             RuntimeGraph.fetch_topology_links_with_virtualization(primary_rows)
   end
 end

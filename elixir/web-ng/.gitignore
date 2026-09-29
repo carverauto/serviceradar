@@ -42,3 +42,6 @@ npm-debug.log
 # Deterministic Dialyzer PLTs (see mix.exs dialyzer config). Rebuilt locally
 # and in CI; never committed.
 /priv/plts/
+
+# Disposable RBE-generated million-device browser fixture
+/million_world_browser_fixture.json

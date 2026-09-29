@@ -87,33 +87,23 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     refute html =~ "No topology data yet"
   end
 
-  test "topology layer toggle only changes the selected topology control state", %{conn: conn} do
-    {:ok, view, html} = live(conn, ~p"/topology")
+  test "world controls toggle availability and links without requesting a new scene", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
 
-    assert html =~ "Topology"
+    view |> element(~s(button[phx-click="toggle_controls_panel"])) |> render_click()
+    view |> element(~s(button[phx-click="toggle_causal_filter"][phx-value-state="unavailable"])) |> render_click()
 
-    view
-    |> element(~s(button[phx-click="toggle_controls_panel"]))
-    |> render_click()
-
-    html =
-      view
-      |> element(~s(button[phx-click="toggle_topology_layer"][phx-value-layer="inferred"]))
-      |> render_click()
-
-    assert_push_event(view, "god_view:set_topology_layers", %{
-      layers: %{
-        "backbone" => true,
-        "endpoints" => false,
-        "inferred" => true,
-        "mtr_paths" => true
-      }
+    assert_push_event(view, "god_view:set_filters", %{
+      filters: %{"unavailable" => false, "healthy" => true, "unknown" => true}
     })
 
-    assert html =~ "Topology"
+    view |> element(~s(button[phx-click="toggle_visual_layer"][phx-value-layer="mantle"])) |> render_click()
+    assert_push_event(view, "god_view:set_layers", %{layers: %{"mantle" => false, "atmosphere" => true}})
+    refute has_element?(view, ~s(button[phx-value-state="root_cause"]))
+    refute has_element?(view, ~s(button[phx-click="toggle_topology_layer"]))
   end
 
-  test "shows the backbone-empty warning with per-class counts and layer call-to-action", %{conn: conn} do
+  test "shows the backbone-empty warning without hiding the remaining topology", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/topology")
 
     html =
@@ -138,27 +128,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     assert html =~ "att:57"
     assert html =~ "inf:12"
     assert html =~ "host:3"
-    assert html =~ "Show attachment layers"
-    refute html =~ "No topology data yet"
-
-    html =
-      view
-      |> element(~s(button[phx-click="enable_attachment_layers"]))
-      |> render_click()
-
-    assert_push_event(view, "god_view:set_topology_layers", %{
-      layers: %{
-        "backbone" => true,
-        "endpoints" => true,
-        "inferred" => true,
-        "mtr_paths" => true
-      }
-    })
-
-    # The degraded state stays visible, but the CTA disappears once the
-    # attachment/inferred layers are already enabled.
-    assert html =~ "Backbone unavailable"
+    assert html =~ "edges are included in the topology map"
     refute html =~ "Show attachment layers"
+    refute html =~ "No topology data yet"
   end
 
   test "does not show the backbone-empty warning for a healthy snapshot", %{conn: conn} do

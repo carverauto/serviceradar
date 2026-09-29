@@ -7,10 +7,39 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
 
   @moduletag :db_free
 
-  test "edge_connected_node_ids/1 only returns normalized edge-connected ids" do
-    assert GodViewStream.edge_connected_node_ids([" farm01 ", "uswagg", nil, "farm01", ""]) == [
-             "farm01",
-             "uswagg"
+  test "edge_connected_node_ids/1 normalizes, deduplicates, and sorts ids" do
+    input = [
+      "host02.example.com",
+      "",
+      " host01.example.com ",
+      nil,
+      "host02.example.com",
+      "\t"
+    ]
+
+    assert GodViewStream.edge_connected_node_ids(input) == [
+             "host01.example.com",
+             "host02.example.com"
+           ]
+  end
+
+  test "canonical parallel relations preserve their keys through runtime edge conversion" do
+    rows =
+      for link_key <- ["relation01", "relation02"] do
+        "sr:host01"
+        |> runtime_link("sr:host02", "direct", "CONNECTS_TO")
+        |> Map.put(:link_key, link_key)
+        |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+      end
+
+    edges =
+      rows
+      |> RuntimeGraph.decode_runtime_rows()
+      |> GodViewStream.runtime_links_to_edges()
+
+    assert Enum.map(edges, &Map.take(&1, [:link_key, :source, :target])) == [
+             %{link_key: "relation01", source: "sr:host01", target: "sr:host02"},
+             %{link_key: "relation02", source: "sr:host01", target: "sr:host02"}
            ]
   end
 

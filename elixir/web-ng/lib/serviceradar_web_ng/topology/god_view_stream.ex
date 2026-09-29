@@ -594,6 +594,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     capacity_bps = normalize_u64(Map.get(link, :capacity_bps, 0))
 
     %{
+      link_key: normalize_id(Map.get(link, :link_key)),
       source: source,
       target: target,
       kind: "topology",
@@ -1443,22 +1444,27 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   @doc false
-  def fetch_devices(_actor, []), do: {:ok, []}
+  def fetch_devices(actor, node_ids), do: read_devices(node_ids, actor: actor)
 
-  def fetch_devices(actor, node_ids) when is_list(node_ids) do
+  @doc "Reads only the admitted device identities under the caller's Ash scope."
+  def fetch_devices_for_scope(scope, node_ids), do: read_devices(node_ids, scope: scope)
+
+  defp read_devices([], _opts), do: {:ok, []}
+
+  defp read_devices(node_ids, opts) when is_list(node_ids) do
     # Keep query parameter counts bounded for large topology graphs.
     node_ids
     |> Enum.chunk_every(2_000)
     |> Enum.reduce_while({:ok, []}, fn node_id_chunk, {:ok, acc} ->
       query =
         Device
-        |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
+        |> Ash.Query.for_read(:read, %{include_deleted: false}, opts)
         |> Ash.Query.filter(uid in ^node_id_chunk)
 
       try do
         devices =
           query
-          |> Page.stream!(actor: actor)
+          |> Page.stream!(opts)
           |> Enum.reduce(acc, fn device, acc -> [device | acc] end)
 
         {:cont, {:ok, devices}}
@@ -1640,21 +1646,25 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       device = Map.get(device_by_id, id)
       pps = Map.get(node_pps_by_id, id, 0)
       unplaced? = MapSet.member?(unplaced_node_id_set, id)
+      attributes = device_node_attributes(device, id, Map.get(camera_sources_by_device_uid, id, []), unplaced?)
 
-      %{
+      details_json =
+        case Jason.encode(attributes.details) do
+          {:ok, json} -> json
+          _ -> "{}"
+        end
+
+      attributes
+      |> Map.delete(:details)
+      |> Map.merge(%{
         id: id,
-        label: node_label(device, id),
-        kind: node_kind(device),
         x: x,
         y: y,
         state: 3,
         pps: pps,
         oper_up: nil,
-        details_json: node_details_json(device, id, Map.get(camera_sources_by_device_uid, id, []), unplaced?),
-        geo_lat: node_geo_lat(device),
-        geo_lon: node_geo_lon(device),
-        health_signal: health_signal(device)
-      }
+        details_json: details_json
+      })
     end)
     |> disambiguate_duplicate_node_labels()
   end
@@ -1869,7 +1879,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_kind(nil), do: "endpoint"
   defp node_kind(device), do: node_type(device) || "device"
 
-  defp node_details_json(device, id, camera_sources, unplaced?) do
+  @doc """
+  Projects one inventory device without layout or graph-wide causal processing.
+
+  A nil camera source list omits camera details whose bounded read is deferred.
+  The existing snapshot path supplies its already-loaded camera sources.
+  """
+  def device_node_attributes(device, id, camera_sources, unplaced?) do
+    %{
+      label: node_label(device, id),
+      kind: node_kind(device),
+      details: node_details(device, id, camera_sources, unplaced?),
+      geo_lat: node_geo_lat(device),
+      geo_lon: node_geo_lon(device),
+      health_signal: health_signal(device)
+    }
+  end
+
+  defp node_details(device, id, camera_sources, unplaced?) do
     device = device || %{}
     device_uid = normalize_id(Map.get(device, :uid)) || id
     camera_state = summarize_camera_state(camera_sources)
@@ -1909,9 +1936,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       camera_last_event_message: camera_state.last_event_message
     }
 
-    case Jason.encode(details) do
-      {:ok, json} -> json
-      _ -> "{}"
+    if is_nil(camera_sources) do
+      Map.reject(details, fn {key, _value} -> String.starts_with?(Atom.to_string(key), "camera_") end)
+    else
+      details
     end
   end
 
@@ -2406,7 +2434,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     "#{protocol} #{class_token} #{format_rate(flow_pps || 0)} / #{format_capacity(capacity_bps || 0)}"
   end
 
-  defp edge_topology_class(edge) do
+  @doc false
+  @spec edge_topology_class(map()) :: String.t()
+  def edge_topology_class(edge) do
     case evidence_class(edge) do
       "endpoint-attachment" -> "endpoints"
       "inferred" -> "inferred"

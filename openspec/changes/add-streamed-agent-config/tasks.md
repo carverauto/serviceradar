@@ -22,3 +22,13 @@
 - [x] 4.3 Run targeted Go tests for `go/pkg/agentgateway` and agent config refresh.
 - [x] 4.4 Run targeted Elixir tests for `elixir/serviceradar_agent_gateway`.
 - [ ] 4.5 Validate mixed-version behavior in a local or demo rollout plan before release.
+
+## 5. Control-Stream Config Push
+- [x] 5.1 Add `AgentConfigChunk config_chunk` to the `ControlStreamResponse` payload oneof and regenerate Go and Elixir bindings.
+- [x] 5.2 Extract the gateway config chunker into a module shared by `StreamConfig` and the control-stream push.
+- [x] 5.3 Push chunked configs to agents advertising `config_push_chunks`; refuse single-message pushes above the 4 MiB agent receive limit without touching the stream or pending version.
+- [x] 5.4 Advertise `config_push_chunks` from the agent and reassemble pushed chunks with the `StreamConfig` validator, discarding partial, overlong, or checksum-mismatched pushes.
+- [x] 5.5 Log failed pushes in core at warning level.
+- [x] 5.6 Log a config fetch that core cannot answer as the agent retaining its current config.
+- [x] 5.7 Add gateway tests for chunked push reassembly and oversized legacy push refusal, and agent tests for push reassembly, restart, overflow, and checksum rejection.
+- [ ] 5.8 Verify on a deployment with a config larger than 4 MiB that a sweep group change reaches the agent without waiting for a poll.

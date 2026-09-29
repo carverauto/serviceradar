@@ -100,3 +100,21 @@ goes through the no-mistakes gate.
 - [ ] 12.1 `demo/README.md`: what each demo shows, a 90-second talk track per demo (event -> alert -> map highlight -> topology -> raw metrics), offline laptop instructions, and for each plugin the real `Source` a customer deployment would need.
 - [ ] 12.2 Record follow-up changes for the candidate demos in design D15 (rail short line, rail yard and corridor, ranch, agriculture district, Midwest row crop) and the rest of the backlog (port, retail/stadium, mine site, maritime, public safety, constrained forward site).
 - [ ] 12.3 `openspec validate add-showcase-demo-portfolio --strict`; archive after the last phase ships.
+
+## Separately owned follow-ups
+
+The former 13.x network-scale tasks moved to `prove-million-device-topology` and
+remain required for #4774. The former 14.x spatial-resource tasks moved to
+`add-shared-spatial-resources`. D20 lists the independent spatial and recording
+proposals. Their checklists are maintained by their own issues, not duplicated here.
+
+| Issue | Independent proposal |
+| --- | --- |
+| [#4908](https://github.com/carverauto/serviceradar/issues/4908) | `verify-topology-feature-parity` |
+| [#4909](https://github.com/carverauto/serviceradar/issues/4909) | `prove-million-device-topology` |
+| [#4910](https://github.com/carverauto/serviceradar/issues/4910) | `add-shared-spatial-resources` |
+| [#4911](https://github.com/carverauto/serviceradar/issues/4911) | `add-spatial-observation-ingestion` |
+| [#4912](https://github.com/carverauto/serviceradar/issues/4912) | `add-spatial-history-projection` |
+| [#4913](https://github.com/carverauto/serviceradar/issues/4913) | `add-camera-recording-storage` |
+| [#4914](https://github.com/carverauto/serviceradar/issues/4914) | `add-edge-recording-archive` |
+| [#4915](https://github.com/carverauto/serviceradar/issues/4915) | `add-recording-playback-lifecycle` |

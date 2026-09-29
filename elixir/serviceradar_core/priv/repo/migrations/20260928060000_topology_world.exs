@@ -1,0 +1,455 @@
+defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
+  @moduledoc """
+  Platform topology world tables.
+
+  Creates the four `platform.topology_world_*` tables when none exist. When all
+  four already exist, repairs supported relation columns, nullable `role`, and
+  the active cursor indexes, then marks `topology_world_head` adopted. A partial
+  table set or a missing required column fails closed. Rollback drops tables
+  only when this migration created them; an adopted schema keeps its rows and
+  loses only the adoption comment.
+  """
+
+  use Ecto.Migration
+
+  @tables [
+    "platform.topology_world_relations",
+    "platform.topology_world_positions",
+    "platform.topology_world_layouts",
+    "platform.topology_world_head"
+  ]
+
+  @repairable_relation_columns ~w(source_if_index source_if_name target_if_index target_if_name)
+
+  @adoption_comment "serviceradar:topology_world_adopted:20260928060000"
+
+  def up do
+    case existing_topology_table_count() do
+      0 -> create_topology_world()
+      4 -> repair_existing_topology_world!()
+      _ -> raise_partial_schema_error!()
+    end
+  end
+
+  defp existing_topology_table_count do
+    Enum.count(@tables, fn table ->
+      %{rows: [[regclass]]} = repo().query!("SELECT to_regclass($1)", [table])
+      regclass != nil
+    end)
+  end
+
+  defp raise_partial_schema_error! do
+    raise """
+    TopologyWorld migration found a partially-applied topology world schema.
+    Expected none or all four of platform.topology_world_{relations,positions,layouts,head};
+    refusing to proceed rather than masking schema corruption.
+    """
+  end
+
+  defp repair_existing_topology_world! do
+    expected_columns = %{
+      "topology_world_relations" =>
+        ~w(layout_version relation_id source_id target_id evidence_class role source_if_index source_if_name target_if_index target_if_name active inserted_at updated_at),
+      "topology_world_positions" =>
+        ~w(layout_version device_id label x y min_zoom parent_id component_id component_z component_x component_y placement_depth active inserted_at updated_at),
+      "topology_world_layouts" =>
+        ~w(layout_version extent algorithm_version zmax status source_digest node_count relation_count inserted_at updated_at),
+      "topology_world_head" => ~w(id active_layout_version generation updated_at)
+    }
+
+    Enum.each(expected_columns, fn {table, columns} ->
+      columns
+      |> Enum.reject(&(&1 in @repairable_relation_columns))
+      |> Enum.each(fn column ->
+        unless column_present?(table, column) do
+          raise "TopologyWorld migration found existing platform.#{table} missing column #{column}"
+        end
+      end)
+    end)
+
+    repo().query!("""
+    ALTER TABLE platform.topology_world_relations
+      ADD COLUMN IF NOT EXISTS source_if_index bigint,
+      ADD COLUMN IF NOT EXISTS source_if_name text,
+      ADD COLUMN IF NOT EXISTS target_if_index bigint,
+      ADD COLUMN IF NOT EXISTS target_if_name text
+    """)
+
+    repo().query!("""
+    ALTER TABLE platform.topology_world_relations
+      ALTER COLUMN role DROP NOT NULL
+    """)
+
+    repo().query!("""
+    ALTER TABLE platform.topology_world_relations
+      DROP CONSTRAINT IF EXISTS topology_world_relations_interface_indices
+    """)
+
+    repo().query!("""
+    ALTER TABLE platform.topology_world_relations
+      ADD CONSTRAINT topology_world_relations_interface_indices
+      CHECK (
+        (source_if_index IS NULL OR source_if_index > 0)
+        AND (target_if_index IS NULL OR target_if_index > 0)
+      )
+    """)
+
+    repo().query!("DROP INDEX IF EXISTS platform.topology_world_positions_active_idx")
+    repo().query!("DROP INDEX IF EXISTS platform.topology_world_relations_active_idx")
+    repo().query!("DROP INDEX IF EXISTS platform.topology_world_relations_source_idx")
+    repo().query!("DROP INDEX IF EXISTS platform.topology_world_relations_target_idx")
+
+    repo().query!("""
+    CREATE INDEX topology_world_positions_active_idx
+      ON platform.topology_world_positions (layout_version, device_id)
+      WHERE active
+    """)
+
+    repo().query!("""
+    CREATE INDEX topology_world_relations_active_idx
+      ON platform.topology_world_relations (layout_version, relation_id)
+      WHERE active
+    """)
+
+    repo().query!("""
+    CREATE INDEX topology_world_relations_source_idx
+      ON platform.topology_world_relations (layout_version, source_id)
+      WHERE active
+    """)
+
+    repo().query!("""
+    CREATE INDEX topology_world_relations_target_idx
+      ON platform.topology_world_relations (layout_version, target_id)
+      WHERE active
+    """)
+
+    repo().query!(
+      "COMMENT ON TABLE platform.topology_world_head IS '#{@adoption_comment}'"
+    )
+  end
+
+  defp column_present?(table, column) do
+    %{rows: [[count]]} =
+      repo().query!(
+        """
+        SELECT count(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'platform' AND table_name = $1 AND column_name = $2
+        """,
+        [table, column]
+      )
+
+    count == 1
+  end
+
+  defp topology_world_adopted? do
+    %{rows: [[comment]]} =
+      repo().query!(
+        "SELECT obj_description('platform.topology_world_head'::regclass, 'pg_class')"
+      )
+
+    comment == @adoption_comment
+  end
+
+  defp create_topology_world do
+    execute("CREATE SCHEMA IF NOT EXISTS platform")
+
+    create table(:topology_world_relations, primary_key: false, prefix: "platform") do
+      add(:layout_version, :uuid, null: false, primary_key: true)
+      add(:relation_id, :text, null: false, primary_key: true)
+      add(:source_id, :text, null: false)
+      add(:target_id, :text, null: false)
+      add(:evidence_class, :text, null: false)
+      add(:role, :text)
+      add(:source_if_index, :bigint)
+      add(:source_if_name, :text)
+      add(:target_if_index, :bigint)
+      add(:target_if_name, :text)
+      add(:active, :boolean, null: false, default: true)
+      add(:inserted_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
+      add(:updated_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
+    end
+
+    create(
+      constraint(:topology_world_relations, :topology_world_relations_interface_indices,
+        prefix: "platform",
+        check: "(source_if_index IS NULL OR source_if_index > 0) AND (target_if_index IS NULL OR target_if_index > 0)"
+      )
+    )
+
+    create(
+      index(:topology_world_relations, [:layout_version, :target_id],
+        name: "topology_world_relations_target_idx",
+        where: "active",
+        prefix: "platform"
+      )
+    )
+
+    create(
+      index(:topology_world_relations, [:layout_version, :source_id],
+        name: "topology_world_relations_source_idx",
+        where: "active",
+        prefix: "platform"
+      )
+    )
+
+    create(
+      index(:topology_world_relations, [:layout_version, :relation_id],
+        name: "topology_world_relations_active_idx",
+        where: "active",
+        prefix: "platform"
+      )
+    )
+
+    execute("CREATE SCHEMA IF NOT EXISTS platform")
+
+    create table(:topology_world_positions, primary_key: false, prefix: "platform") do
+      add(:layout_version, :uuid, null: false, primary_key: true)
+      add(:device_id, :text, null: false, primary_key: true)
+      add(:label, :text, null: false)
+      add(:x, :bigint, null: false)
+      add(:y, :bigint, null: false)
+      add(:min_zoom, :bigint, null: false)
+      add(:parent_id, :text)
+      add(:component_id, :text, null: false)
+      add(:component_z, :bigint, null: false)
+      add(:component_x, :bigint, null: false)
+      add(:component_y, :bigint, null: false)
+      add(:placement_depth, :bigint, null: false)
+      add(:active, :boolean, null: false, default: true)
+      add(:inserted_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
+      add(:updated_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
+    end
+
+    create(
+      index(:topology_world_positions, [:layout_version, :device_id],
+        name: "topology_world_positions_active_idx",
+        where: "active",
+        prefix: "platform"
+      )
+    )
+
+    execute("CREATE SCHEMA IF NOT EXISTS platform")
+
+    create table(:topology_world_layouts, primary_key: false, prefix: "platform") do
+      add(:layout_version, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true)
+    end
+
+    alter table(:topology_world_relations, prefix: "platform") do
+      modify(
+        :layout_version,
+        references(:topology_world_layouts,
+          column: :layout_version,
+          name: "topology_world_relations_layout_version_fkey",
+          type: :uuid
+        )
+      )
+
+      modify(
+        :source_id,
+        references(:topology_world_positions,
+          column: :device_id,
+          with: [layout_version: :layout_version],
+          name: "topology_world_relations_source_id_fkey",
+          type: :text
+        )
+      )
+
+      modify(
+        :target_id,
+        references(:topology_world_positions,
+          column: :device_id,
+          with: [layout_version: :layout_version],
+          name: "topology_world_relations_target_id_fkey",
+          type: :text
+        )
+      )
+    end
+
+    alter table(:topology_world_positions, prefix: "platform") do
+      modify(
+        :layout_version,
+        references(:topology_world_layouts,
+          column: :layout_version,
+          name: "topology_world_positions_layout_version_fkey",
+          type: :uuid
+        )
+      )
+    end
+
+    alter table(:topology_world_layouts, prefix: "platform") do
+      add(:extent, :bigint, null: false, default: 16_777_216)
+      add(:algorithm_version, :text, null: false, default: "hierarchical-morton-v1")
+      add(:zmax, :bigint, null: false, default: 16)
+      add(:status, :text, null: false, default: "building")
+      add(:source_digest, :text, null: false)
+      add(:node_count, :bigint, null: false)
+      add(:relation_count, :bigint, null: false)
+      add(:inserted_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
+      add(:updated_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
+    end
+
+    execute("CREATE SCHEMA IF NOT EXISTS platform")
+
+    create table(:topology_world_head, primary_key: false, prefix: "platform") do
+      add(:id, :text, null: false, default: "global", primary_key: true)
+
+      add(
+        :active_layout_version,
+        references(:topology_world_layouts,
+          column: :layout_version,
+          name: "topology_world_head_active_layout_version_fkey",
+          type: :uuid,
+          prefix: "platform"
+        )
+      )
+
+      add(:generation, :bigint, null: false, default: 0)
+      add(:updated_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
+    end
+
+    create(
+      constraint(:topology_world_head, :topology_world_head_singleton,
+        check: """
+          id = 'global' AND generation >= 0
+        """,
+        prefix: "platform"
+      )
+    )
+
+    create(
+      constraint(:topology_world_layouts, :topology_world_layout_bounds,
+        check: """
+          extent = 16777216 AND zmax BETWEEN 0 AND 24 AND node_count >= 0 AND relation_count >= 0
+        """,
+        prefix: "platform"
+      )
+    )
+
+    create(
+      constraint(:topology_world_layouts, :topology_world_layout_status,
+        check: """
+          status IN ('building', 'active', 'retired')
+        """,
+        prefix: "platform"
+      )
+    )
+
+    create(
+      constraint(:topology_world_positions, :topology_world_positions_label,
+        check: """
+          octet_length(label) <= 256
+        """,
+        prefix: "platform"
+      )
+    )
+
+    create(
+      constraint(:topology_world_positions, :topology_world_positions_grid,
+        check: """
+          x BETWEEN 0 AND 16777215 AND y BETWEEN 0 AND 16777215 AND min_zoom BETWEEN 0 AND 24 AND placement_depth BETWEEN 0 AND 24
+        """,
+        prefix: "platform"
+      )
+    )
+
+    create(
+      constraint(:topology_world_positions, :topology_world_positions_component,
+        check: """
+          component_z BETWEEN 0 AND 24 AND component_x >= 0 AND component_y >= 0 AND component_x < (1::bigint << component_z::integer) AND component_y < (1::bigint << component_z::integer)
+        """,
+        prefix: "platform"
+      )
+    )
+  end
+
+  def down do
+    if topology_world_adopted?() do
+      repo().query!("COMMENT ON TABLE platform.topology_world_head IS NULL")
+    else
+      drop_created_topology_world()
+    end
+  end
+
+  defp drop_created_topology_world do
+    drop_if_exists(constraint(:topology_world_positions, :topology_world_positions_component, prefix: "platform"))
+
+    drop_if_exists(constraint(:topology_world_positions, :topology_world_positions_grid, prefix: "platform"))
+
+    drop_if_exists(constraint(:topology_world_positions, :topology_world_positions_label, prefix: "platform"))
+
+    drop_if_exists(constraint(:topology_world_layouts, :topology_world_layout_status, prefix: "platform"))
+
+    drop_if_exists(constraint(:topology_world_layouts, :topology_world_layout_bounds, prefix: "platform"))
+
+    drop_if_exists(constraint(:topology_world_head, :topology_world_head_singleton, prefix: "platform"))
+
+    drop(constraint(:topology_world_head, "topology_world_head_active_layout_version_fkey", prefix: "platform"))
+
+    drop(table(:topology_world_head, prefix: "platform"))
+
+    alter table(:topology_world_layouts, prefix: "platform") do
+      remove(:updated_at)
+      remove(:inserted_at)
+      remove(:relation_count)
+      remove(:node_count)
+      remove(:source_digest)
+      remove(:status)
+      remove(:zmax)
+      remove(:algorithm_version)
+      remove(:extent)
+    end
+
+    drop(constraint(:topology_world_positions, "topology_world_positions_layout_version_fkey", prefix: "platform"))
+
+    alter table(:topology_world_positions, prefix: "platform") do
+      modify(:layout_version, :uuid)
+    end
+
+    drop(constraint(:topology_world_relations, "topology_world_relations_layout_version_fkey", prefix: "platform"))
+
+    drop(constraint(:topology_world_relations, "topology_world_relations_source_id_fkey", prefix: "platform"))
+
+    drop(constraint(:topology_world_relations, "topology_world_relations_target_id_fkey", prefix: "platform"))
+
+    alter table(:topology_world_relations, prefix: "platform") do
+      modify(:target_id, :text)
+      modify(:source_id, :text)
+      modify(:layout_version, :uuid)
+    end
+
+    drop(table(:topology_world_layouts, prefix: "platform"))
+
+    drop_if_exists(
+      index(:topology_world_positions, [:layout_version, :device_id],
+        name: "topology_world_positions_active_idx",
+        prefix: "platform"
+      )
+    )
+
+    drop(table(:topology_world_positions, prefix: "platform"))
+
+    drop_if_exists(
+      index(:topology_world_relations, [:layout_version, :source_id],
+        name: "topology_world_relations_source_idx",
+        prefix: "platform"
+      )
+    )
+
+    drop_if_exists(
+      index(:topology_world_relations, [:layout_version, :target_id],
+        name: "topology_world_relations_target_idx",
+        prefix: "platform"
+      )
+    )
+
+    drop_if_exists(
+      index(:topology_world_relations, [:layout_version, :relation_id],
+        name: "topology_world_relations_active_idx",
+        prefix: "platform"
+      )
+    )
+
+    drop(table(:topology_world_relations, prefix: "platform"))
+  end
+end

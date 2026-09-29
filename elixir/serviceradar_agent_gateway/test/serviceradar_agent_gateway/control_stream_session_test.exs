@@ -197,7 +197,16 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     }
 
     pid = start_supervised!({ControlStreamSession, stream: nil})
-    assert :ok = ControlStreamSession.register(pid, agent_id, "partition-a", hello.capabilities, identity, hello)
+
+    assert :ok =
+             ControlStreamSession.register(
+               pid,
+               agent_id,
+               "partition-a",
+               hello.capabilities,
+               identity,
+               hello
+             )
 
     assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.config_version == "config-v1" and metadata.pending_config_version == nil
@@ -220,7 +229,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                config_version: "config-v2"
              })
 
-    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, %{config_version: "config-v2"}}}}
+    assert_receive {:stream_reply,
+                    %Monitoring.ControlStreamResponse{
+                      payload: {:config, %{config_version: "config-v2"}}
+                    }}
 
     assert_receive {:config_push_sync_attempt, [^agent_id, %{config_version: "config-v2"}], false}
 
@@ -313,6 +325,64 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
                    50
+  end
+
+  test "config push to a config_push_chunks agent arrives as ordered chunks that reassemble to the config" do
+    ensure_process_registry!()
+
+    agent_id = "agent-chunked-#{System.unique_integer([:positive])}"
+    pid = start_push_session!(agent_id, ["config_push_chunks"])
+
+    # Larger than the agent's 4 MiB single-message limit, so a one-message push
+    # would tear down the agent's control stream.
+    config = %Monitoring.AgentConfigResponse{
+      config_version: "config-large",
+      config_json: :crypto.strong_rand_bytes(4_500_000)
+    }
+
+    assert :ok = ControlStreamSession.push_config(pid, config)
+
+    chunks = receive_config_chunks([])
+
+    assert length(chunks) > 1
+    assert Enum.map(chunks, & &1.chunk_index) == Enum.to_list(0..(length(chunks) - 1))
+    assert Enum.map(chunks, & &1.is_final) == List.duplicate(false, length(chunks) - 1) ++ [true]
+
+    assert Enum.all?(
+             chunks,
+             &(&1.config_version == "config-large" and &1.total_chunks == length(chunks))
+           )
+
+    payload = chunks |> Enum.map(& &1.payload) |> IO.iodata_to_binary()
+
+    assert hd(chunks).payload_sha256 ==
+             :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
+
+    assert Monitoring.AgentConfigResponse.decode(payload) == config
+
+    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
+                   50
+
+    assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
+      metadata.pending_config_version == "config-large"
+    end)
+  end
+
+  test "oversized config push to an agent without config_push_chunks is refused without touching the stream" do
+    ensure_process_registry!()
+
+    agent_id = "agent-legacy-#{System.unique_integer([:positive])}"
+    pid = start_push_session!(agent_id, [])
+
+    assert {:error, :config_push_too_large} =
+             ControlStreamSession.push_config(pid, %Monitoring.AgentConfigResponse{
+               config_version: "config-large",
+               config_json: :crypto.strong_rand_bytes(4_500_000)
+             })
+
+    refute_receive {:stream_reply, _response}, 50
+
+    assert registry_metadata("partition-a", agent_id, pid).pending_config_version == nil
   end
 
   test "console open normalization preserves the exact assignment policy binding" do
@@ -954,6 +1024,50 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     if !Process.whereis(ProcessRegistry.registry_name()) do
       Enum.each(ProcessRegistry.child_specs(), fn child_spec -> start_supervised!(child_spec) end)
+    end
+  end
+
+  # A registered session whose stream replies and config-sync writes are
+  # captured, for exercising config push delivery.
+  defp start_push_session!(agent_id, capabilities) do
+    test_pid = self()
+
+    Application.put_env(:serviceradar_agent_gateway, :control_stream_reply, fn stream, response ->
+      send(test_pid, {:stream_reply, response})
+      stream
+    end)
+
+    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn _function, _args ->
+      :ok
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_agent_gateway, :control_stream_reply)
+      Application.delete_env(:serviceradar_agent_gateway, :config_sync_rpc)
+    end)
+
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    assert :ok =
+             ControlStreamSession.register(
+               pid,
+               agent_id,
+               "partition-a",
+               capabilities,
+               identity_context(agent_id, "partition-a")
+             )
+
+    pid
+  end
+
+  defp receive_config_chunks(acc) do
+    receive do
+      {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config_chunk, chunk}}} ->
+        if chunk.is_final,
+          do: Enum.reverse([chunk | acc]),
+          else: receive_config_chunks([chunk | acc])
+    after
+      1_000 -> flunk("timed out waiting for config chunks; received #{length(acc)}")
     end
   end
 

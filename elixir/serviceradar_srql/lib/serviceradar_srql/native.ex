@@ -41,6 +41,12 @@ defmodule ServiceRadarSRQL.Native do
   def translate(_query, _limit, _cursor, _direction, _mode, _permitted_signals), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Compile a bounded JSON request of exact device/interface pairs to current
+  IF-MIB rates. Backend mode comes from the trusted dataset reader routing.
+  """
+  def translate_interface_rates(_request, _mode), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Parse an SRQL query and return the AST as JSON.
   This allows consuming the structured query without re-parsing in Elixir.
   """

@@ -3,6 +3,6 @@ defmodule ServiceRadarWebNG.Topology do
 
   use Boundary,
     top_level?: true,
-    deps: [ServiceRadarWebNG, ServiceRadarWebNG.Graph],
+    deps: [ServiceRadarWebNG, ServiceRadarWebNG.Graph, ServiceRadarWebNG.RBAC],
     exports: :all
 end

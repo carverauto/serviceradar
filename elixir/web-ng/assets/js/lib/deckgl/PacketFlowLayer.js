@@ -11,7 +11,7 @@ import {Model} from "@luma.gl/engine"
 // the same positions, the same clumping into beads as their speeds drift apart, the same colors.
 //
 // Nothing per particle exists on the CPU, animation only advances `time`, and the pipeline needs
-// 4 vertex buffers (the per-edge attributes) whatever the traffic.
+// at most 5 vertex buffers (the per-edge attributes) whatever the traffic.
 
 export const MAX_PARTICLES_PER_LANE = 1400
 export const MIN_PARTICLES_PER_LANE = 18
@@ -118,6 +118,8 @@ struct Attributes {
   @location(2) instanceShape: vec4<f32>,
   // alpha scale, size scale
   @location(3) instanceStyle: vec2<f32>,
+  // The clipped interval of the canonical edge; ordinary scenes use 0..1.
+  @location(4) instancePhase: vec2<f32>,
 };
 
 struct Varyings {
@@ -147,7 +149,7 @@ fn vertexMain(attributes: Attributes) -> Varyings {
 
   let total = clamp(floor(flowInputs.x * packetFlow.zoomDensity), MIN_PARTICLES_PER_LANE, MAX_PARTICLES_PER_LANE);
   let bidirectional = flowInputs.z > 0.0;
-  let abCount = max(1.0, floor(total * max(select(0.05, 0.1, bidirectional), flowInputs.y)));
+  let abCount = select(0.0, max(1.0, floor(total * max(select(0.05, 0.1, bidirectional), flowInputs.y))), flowInputs.y > 0.0);
   let baCount = select(0.0, max(1.0, floor(total * max(0.1, flowInputs.z))), bidirectional);
   let particle = f32(attributes.vertexIndex / 6u);
   if (particle >= abCount + baCount) {
@@ -181,12 +183,17 @@ fn vertexMain(attributes: Attributes) -> Varyings {
     return collapsed();
   }
   let progress = fract(seed + packetFlow.time * speed);
+  let interval = select(attributes.instancePhase, vec2<f32>(1.0 - attributes.instancePhase.y, 1.0 - attributes.instancePhase.x), reverse);
+  if (progress < interval.x || progress >= interval.y || interval.y <= interval.x) {
+    return collapsed();
+  }
+  let localProgress = (progress - interval.x) / (interval.y - interval.x);
   let direction = normalize(span);
   let normal = vec2<f32>(-direction.y, direction.x);
   // The B->A lane keeps the same signed offset: its normal is flipped, so it lands opposite.
   let laneOffset = select(0.0, shapeInputs.x, baCount > 0.0);
   let jitter = (packetFlowRand(seed) - 0.5) * 2.0 * shapeInputs.y * packetFlow.spreadScale;
-  let center = mix(fromPosition, toPosition, progress) + normal * (laneOffset + jitter);
+  let center = mix(fromPosition, toPosition, localProgress) + normal * (laneOffset + jitter);
 
   // Two triangles over the dot's square: corners 0 1 2 / 2 1 3.
   let vertex = attributes.vertexIndex % 6u;
@@ -246,6 +253,7 @@ export default class PacketFlowLayer extends Layer {
       instanceFlow: {size: 4, accessor: "getFlow"},
       instanceShape: {size: 4, accessor: "getShape"},
       instanceStyle: {size: 2, accessor: "getStyle"},
+      instancePhase: {size: 2, accessor: "getPhase"},
     })
     this.state.model = this._getModel()
   }
@@ -286,7 +294,7 @@ export default class PacketFlowLayer extends Layer {
       packetFlow: {
         cyan: unitColor(cyan, DEFAULT_CYAN),
         magenta: unitColor(magenta, DEFAULT_MAGENTA),
-        time: Number(time) || 0,
+        time: this.props.animate ? performance.now() / 1000 : Number(time) || 0,
         zoomDensity: Number(zoomDensity) || 1,
         spreadScale: Number(spreadScale) || 1,
         alphaScale: Number(alphaScale) || 1,
@@ -302,7 +310,9 @@ PacketFlowLayer.defaultProps = {
   getFlow: {type: "accessor", value: [0, 0, 0, 0]},
   getShape: {type: "accessor", value: [0, 0, 0, 0]},
   getStyle: {type: "accessor", value: [1, 1]},
+  getPhase: {type: "accessor", value: [0, 1]},
   time: 0,
+  animate: false,
   zoomDensity: 1,
   spreadScale: 1,
   alphaScale: 1,

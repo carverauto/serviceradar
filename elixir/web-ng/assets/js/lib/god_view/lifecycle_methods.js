@@ -8,9 +8,6 @@ const godViewLifecycleCoreMethods = {
     this.bindLifecycleMethods()
     this.attachLifecycleDom()
     this.initWasmEngine()
-    this.registerLifecycleEvents()
-    this.bootstrapLatestSnapshot()
-    this.setupSnapshotChannel()
   },
   destroyed() {
     this.cleanupLifecycle()

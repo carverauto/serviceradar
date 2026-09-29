@@ -15,9 +15,11 @@
  */
 
 mod canonical_edge;
+mod canonical_graph;
 mod writes;
 
 pub use canonical_edge::{CanonicalEdge, NeighbourhoodEdge, link_key};
+pub use canonical_graph::{CanonicalDevice, CanonicalGraph};
 pub use writes::{
     ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite, HopWrite, InterfaceWrite, PrefixWrite,
 };

@@ -32,7 +32,10 @@ config :logger, :console,
     :payload_field_count,
     :progress_percent,
     :config_version,
-    :section_count
+    :section_count,
+    :chunks,
+    :bytes,
+    :limit_bytes
   ]
 
 config :serviceradar_agent_gateway, :icmp_metrics_publisher,
@@ -135,6 +138,7 @@ if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.PrefixTags.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.TopologyAtlas.Native, skip_compilation?: true
 
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
 end

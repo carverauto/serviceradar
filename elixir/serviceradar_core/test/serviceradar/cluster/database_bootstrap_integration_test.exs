@@ -262,6 +262,51 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert result["recorded_count"] == length(on_disk)
   end
 
+  test "the re-versioned topology world migration forward-repairs an already-applied schema", %{
+    admin_url: admin_url,
+    scratch_db: scratch_db,
+    subprocess_ca_file: subprocess_ca_file
+  } do
+    result = run_topology_forward_repair!(admin_url, scratch_db, subprocess_ca_file)
+
+    # Validate branch: the re-versioned migration accepts the four existing world tables and
+    # leaves the invented seeded rows untouched.
+    assert result["validate_device_count"] == 3
+    assert result["validate_relation_count"] == 2
+    assert result["validate_label"] == "invented-site-a-ep-01"
+
+    # Create rollback removes only the tables this version created.
+    assert result["create_tables_present"] == true
+    assert result["create_rollback_tables_present"] == false
+    assert result["create_rollback_keeps_prior_version"] == true
+    assert result["create_rollback_forgets_world_version"] == true
+
+    # Oldest supported shape gains the snapshot indexes, nullable role, and interface
+    # columns, and the invented rows survive. Rolling that adoption back keeps them.
+    assert result["repaired_device_count"] == 3
+    assert result["repaired_relation_count"] == 2
+    assert result["repaired_label"] == "invented-site-a-ep-01"
+    assert result["repaired_positions_index"] =~ "(layout_version, device_id)"
+    assert result["repaired_relations_index"] =~ "(layout_version, relation_id)"
+    assert result["repaired_role_nullable"] == "YES"
+    assert result["repaired_interface_columns"] == 4
+    assert result["repaired_null_role"] == true
+    assert result["adoption_rollback_device_count"] == 3
+    assert result["adoption_rollback_relation_count"] == 2
+    assert result["adoption_rollback_null_role"] == true
+    assert result["adoption_rollback_positions_present"] == true
+
+    # Missing-column branch: a present-but-incomplete schema is refused, not masked.
+    assert result["missing_column_error"] =~ "missing column generation"
+
+    # Partial branch: a three-of-four schema is refused rather than masked as corruption.
+    assert result["partial_error"] =~ "partially-applied"
+
+    # Logs-index forward repair recreates the four skipped indexes and is idempotent.
+    assert result["logs_index_count_after"] == 4
+    assert result["logs_index_count_after_rerun"] == 4
+  end
+
   defp run_migrator_bootstrap!(admin_url, database, subprocess_ca_file) do
     run_subprocess!(admin_url, database, subprocess_ca_file, migrator_code())
   end
@@ -278,6 +323,10 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   defp run_startup_migrations!(admin_url, database, subprocess_ca_file) do
     run_subprocess!(admin_url, database, subprocess_ca_file, startup_code())
+  end
+
+  defp run_topology_forward_repair!(admin_url, database, subprocess_ca_file) do
+    run_subprocess!(admin_url, database, subprocess_ca_file, topology_forward_repair_code())
   end
 
   defp run_subprocess!(admin_url, database, subprocess_ca_file, code, extra_env \\ []) do
@@ -412,6 +461,301 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         applied_count: length(applied),
         recorded_count: recorded_count,
         baseline_count: baseline_count
+      }))
+      '''
+  end
+
+  # Drives the three forward-repair branches the re-versioned topology world migration added
+  # (`20260928060000`) plus the idempotent logs-index repair (`20260928070000`), all through
+  # the real `Ecto.Migrator` against the migration files themselves. The ordinary bootstrap
+  # tests only ever reach the create branch on a fresh database; this is the only coverage of
+  # upgrading an install that already applied the old shared-version topology schema.
+  defp topology_forward_repair_code do
+    subprocess_preamble() <>
+      ~S'''
+      migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
+
+      :empty = ServiceRadar.Repo.SchemaBootstrap.classify(ServiceRadar.Repo)
+      :ok = ServiceRadar.Repo.SchemaBootstrap.apply_baseline!(ServiceRadar.Repo, migrations_path)
+
+      # Bring the schema up through the topology world migration. On a fresh database this is
+      # the create branch; every later step drives a repair branch.
+      Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928060000)
+
+      %{rows: [[create_tables_present]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT bool_and(to_regclass(name) IS NOT NULL)
+        FROM unnest(ARRAY[
+          'platform.topology_world_head',
+          'platform.topology_world_layouts',
+          'platform.topology_world_positions',
+          'platform.topology_world_relations'
+        ]::text[]) AS name
+        """)
+
+      Ecto.Migrator.run(ServiceRadar.Repo, :down, step: 1)
+
+      %{rows: [[create_rollback_tables_present]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT COALESCE(bool_or(to_regclass(name) IS NOT NULL), false)
+        FROM unnest(ARRAY[
+          'platform.topology_world_head',
+          'platform.topology_world_layouts',
+          'platform.topology_world_positions',
+          'platform.topology_world_relations'
+        ]::text[]) AS name
+        """)
+
+      %{rows: [[create_rollback_keeps_prior_version]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT EXISTS (
+          SELECT 1 FROM platform.schema_migrations WHERE version = 20260927130000
+        )
+        """)
+
+      %{rows: [[create_rollback_forgets_world_version]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT NOT EXISTS (
+          SELECT 1 FROM platform.schema_migrations WHERE version = 20260928060000
+        )
+        """)
+
+      Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928060000)
+
+      # Seed invented world rows so the validate branch can prove it preserves data.
+      ServiceRadar.Repo.query!("""
+      INSERT INTO platform.topology_world_layouts
+        (layout_version, source_digest, node_count, relation_count)
+      VALUES
+        ('00000000-0000-0000-0000-000000000001', 'invented-digest-0001', 3, 2)
+      """)
+
+      ServiceRadar.Repo.query!("""
+      INSERT INTO platform.topology_world_positions
+        (layout_version, device_id, label, x, y, min_zoom, parent_id,
+         component_id, component_z, component_x, component_y, placement_depth)
+      VALUES
+        ('00000000-0000-0000-0000-000000000001', 'dev-1001', 'invented-site-a-agg-01', 100, 200, 2, NULL, 'comp-1', 3, 1, 2, 1),
+        ('00000000-0000-0000-0000-000000000001', 'dev-1002', 'invented-site-a-acc-01', 101, 201, 4, 'dev-1001', 'comp-1', 3, 1, 3, 2),
+        ('00000000-0000-0000-0000-000000000001', 'dev-1003', 'invented-site-a-ep-01', 102, 202, 6, 'dev-1002', 'comp-1', 3, 2, 3, 3)
+      """)
+
+      ServiceRadar.Repo.query!("""
+      INSERT INTO platform.topology_world_relations
+        (layout_version, relation_id, source_id, target_id, evidence_class, role)
+      VALUES
+        ('00000000-0000-0000-0000-000000000001', 'rel-1', 'dev-1001', 'dev-1002', 'invented-transport', 'backbone'),
+        ('00000000-0000-0000-0000-000000000001', 'rel-2', 'dev-1002', 'dev-1003', 'invented-access', 'access')
+      """)
+
+      ServiceRadar.Repo.query!("""
+      INSERT INTO platform.topology_world_head (id, active_layout_version, generation)
+      VALUES ('global', '00000000-0000-0000-0000-000000000001', 0)
+      """)
+
+      # Validate branch: re-run the re-versioned migration over the already-applied schema.
+      ServiceRadar.Repo.query!("DELETE FROM platform.schema_migrations WHERE version = 20260928060000")
+      Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928060000)
+
+      %{rows: [[validate_device_count]]} =
+        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.topology_world_positions")
+
+      %{rows: [[validate_relation_count]]} =
+        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.topology_world_relations")
+
+      %{rows: [[validate_label]]} =
+        ServiceRadar.Repo.query!(
+          "SELECT label FROM platform.topology_world_positions WHERE device_id = 'dev-1003'"
+        )
+
+      # Oldest supported shape: required role, no interface columns, positions active
+      # index on layout_version only, and no relations active index.
+      ServiceRadar.Repo.query!("""
+      ALTER TABLE platform.topology_world_relations
+        DROP CONSTRAINT IF EXISTS topology_world_relations_interface_indices
+      """)
+
+      ServiceRadar.Repo.query!("""
+      ALTER TABLE platform.topology_world_relations
+        DROP COLUMN IF EXISTS source_if_index,
+        DROP COLUMN IF EXISTS source_if_name,
+        DROP COLUMN IF EXISTS target_if_index,
+        DROP COLUMN IF EXISTS target_if_name
+      """)
+
+      ServiceRadar.Repo.query!("""
+      ALTER TABLE platform.topology_world_relations
+        ALTER COLUMN role SET NOT NULL
+      """)
+
+      ServiceRadar.Repo.query!("DROP INDEX IF EXISTS platform.topology_world_relations_active_idx")
+      ServiceRadar.Repo.query!("DROP INDEX IF EXISTS platform.topology_world_positions_active_idx")
+
+      ServiceRadar.Repo.query!("""
+      CREATE INDEX topology_world_positions_active_idx
+        ON platform.topology_world_positions (layout_version)
+        WHERE active
+      """)
+
+      ServiceRadar.Repo.query!("DELETE FROM platform.schema_migrations WHERE version = 20260928060000")
+      Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928060000)
+
+      %{rows: [[repaired_device_count]]} =
+        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.topology_world_positions")
+
+      %{rows: [[repaired_relation_count]]} =
+        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.topology_world_relations")
+
+      %{rows: [[repaired_label]]} =
+        ServiceRadar.Repo.query!(
+          "SELECT label FROM platform.topology_world_positions WHERE device_id = 'dev-1003'"
+        )
+
+      %{rows: [[repaired_positions_index]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT indexdef FROM pg_indexes
+        WHERE schemaname = 'platform' AND indexname = 'topology_world_positions_active_idx'
+        """)
+
+      %{rows: [[repaired_relations_index]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT indexdef FROM pg_indexes
+        WHERE schemaname = 'platform' AND indexname = 'topology_world_relations_active_idx'
+        """)
+
+      %{rows: [[repaired_role_nullable]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT is_nullable FROM information_schema.columns
+        WHERE table_schema = 'platform'
+          AND table_name = 'topology_world_relations'
+          AND column_name = 'role'
+        """)
+
+      %{rows: [[repaired_interface_columns]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT count(*) FROM information_schema.columns
+        WHERE table_schema = 'platform'
+          AND table_name = 'topology_world_relations'
+          AND column_name IN (
+            'source_if_index', 'source_if_name', 'target_if_index', 'target_if_name'
+          )
+        """)
+
+      ServiceRadar.Repo.query!("""
+      UPDATE platform.topology_world_relations
+      SET role = NULL
+      WHERE relation_id = 'rel-1'
+      """)
+
+      %{rows: [[repaired_null_role]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT role IS NULL
+        FROM platform.topology_world_relations
+        WHERE relation_id = 'rel-1'
+        """)
+
+      Ecto.Migrator.run(ServiceRadar.Repo, :down, step: 1)
+
+      %{rows: [[adoption_rollback_device_count]]} =
+        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.topology_world_positions")
+
+      %{rows: [[adoption_rollback_relation_count]]} =
+        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.topology_world_relations")
+
+      %{rows: [[adoption_rollback_null_role]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT role IS NULL
+        FROM platform.topology_world_relations
+        WHERE relation_id = 'rel-1'
+        """)
+
+      %{rows: [[adoption_rollback_positions_present]]} =
+        ServiceRadar.Repo.query!(
+          "SELECT to_regclass('platform.topology_world_positions') IS NOT NULL"
+        )
+
+      # Logs-index forward repair: drop the four indexes the shared ledger entry skipped,
+      # then let the repair migration recreate them twice to prove idempotency.
+      Enum.each(
+        ~w(idx_logs_severity_lower_timestamp idx_logs_severity_number_timestamp idx_logs_source_timestamp idx_logs_source_ip_timestamp),
+        fn index ->
+          ServiceRadar.Repo.query!("DROP INDEX IF EXISTS platform." <> index)
+        end
+      )
+
+      Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928070000)
+
+      %{rows: [[logs_index_count_after]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT count(*)
+        FROM pg_indexes
+        WHERE schemaname = 'platform'
+          AND tablename = 'logs'
+          AND indexname IN ('idx_logs_severity_lower_timestamp', 'idx_logs_severity_number_timestamp', 'idx_logs_source_timestamp', 'idx_logs_source_ip_timestamp')
+        """)
+
+      ServiceRadar.Repo.query!("DELETE FROM platform.schema_migrations WHERE version = 20260928070000")
+      Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928070000)
+
+      %{rows: [[logs_index_count_after_rerun]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT count(*)
+        FROM pg_indexes
+        WHERE schemaname = 'platform'
+          AND tablename = 'logs'
+          AND indexname IN ('idx_logs_severity_lower_timestamp', 'idx_logs_severity_number_timestamp', 'idx_logs_source_timestamp', 'idx_logs_source_ip_timestamp')
+        """)
+
+      # Missing-column branch: a present table missing a required column is refused
+      # rather than silently left half-validated.
+      ServiceRadar.Repo.query!("ALTER TABLE platform.topology_world_head DROP COLUMN generation")
+      ServiceRadar.Repo.query!("DELETE FROM platform.schema_migrations WHERE version = 20260928060000")
+
+      missing_column_error =
+        try do
+          Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928060000)
+          "NO_RAISE"
+        rescue
+          error in RuntimeError -> Exception.message(error)
+        end
+
+      # Partial branch: drop one of the four world tables and re-run the migration; it must
+      # refuse rather than mask the corruption.
+      ServiceRadar.Repo.query!("DROP TABLE platform.topology_world_head")
+      ServiceRadar.Repo.query!("DELETE FROM platform.schema_migrations WHERE version = 20260928060000")
+
+      partial_error =
+        try do
+          Ecto.Migrator.run(ServiceRadar.Repo, :up, to: 20260928060000)
+          "NO_RAISE"
+        rescue
+          error in RuntimeError -> Exception.message(error)
+        end
+
+      IO.puts("BOOTSTRAP_RESULT:" <> Jason.encode!(%{
+        create_tables_present: create_tables_present,
+        create_rollback_tables_present: create_rollback_tables_present,
+        create_rollback_keeps_prior_version: create_rollback_keeps_prior_version,
+        create_rollback_forgets_world_version: create_rollback_forgets_world_version,
+        validate_device_count: validate_device_count,
+        validate_relation_count: validate_relation_count,
+        validate_label: validate_label,
+        repaired_device_count: repaired_device_count,
+        repaired_relation_count: repaired_relation_count,
+        repaired_label: repaired_label,
+        repaired_positions_index: repaired_positions_index,
+        repaired_relations_index: repaired_relations_index,
+        repaired_role_nullable: repaired_role_nullable,
+        repaired_interface_columns: repaired_interface_columns,
+        repaired_null_role: repaired_null_role,
+        adoption_rollback_device_count: adoption_rollback_device_count,
+        adoption_rollback_relation_count: adoption_rollback_relation_count,
+        adoption_rollback_null_role: adoption_rollback_null_role,
+        adoption_rollback_positions_present: adoption_rollback_positions_present,
+        logs_index_count_after: logs_index_count_after,
+        logs_index_count_after_rerun: logs_index_count_after_rerun,
+        missing_column_error: missing_column_error,
+        partial_error: partial_error
       }))
       '''
   end

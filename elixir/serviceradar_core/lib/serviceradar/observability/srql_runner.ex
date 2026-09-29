@@ -27,6 +27,85 @@ defmodule ServiceRadar.Observability.SRQLRunner do
     end
   end
 
+  @doc """
+  Read current rates for at most 512 exact `{device_id, if_index}` pairs.
+
+  Requires `:fresh_after` within the requested window (at most one hour).
+  Each pair returns eight directional IF-MIB families. `status` distinguishes
+  a measured rate, including zero, from unknown or ambiguous producers. Sample
+  timestamps remain actual observations. This internal read expects its serving
+  caller to authorize device and analytics access before returning the rows.
+  """
+  def interface_rates(pairs, since, until, opts \\ [])
+
+  def interface_rates(pairs, %DateTime{} = since, %DateTime{} = until, opts)
+      when is_list(pairs) do
+    with {:ok, request} <- interface_rate_request(pairs, since, until, opts),
+         {:ok, mode} <- backend_mode("in:snmp_metrics"),
+         {:ok, json} <- ServiceRadarSRQL.Native.translate_interface_rates(request, mode),
+         {:ok, translation} <- Jason.decode(json),
+         {:ok, sql} <- fetch_sql(translation),
+         :ok <- assert_executable(sql, mode),
+         {:ok, params} <- decode_params(Map.get(translation, "params", []), opts),
+         {:ok, %Postgrex.Result{columns: columns, rows: rows}} <- run_sql(sql, params, mode, opts) do
+      if length(rows) == length(pairs) * 8,
+        do: normalize_interface_rate_rows(rows_to_maps(columns, rows)),
+        else: {:error, :incomplete_interface_rate_result}
+    end
+  end
+
+  def interface_rates(_pairs, _since, _until, _opts),
+    do: {:error, :invalid_interface_rate_request}
+
+  defp normalize_interface_rate_rows(rows) do
+    rows
+    |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
+      with %{"observed_at" => observed, "previous_observed_at" => previous} <- row,
+           {:ok, observed} <- rate_datetime(observed),
+           {:ok, previous} <- rate_datetime(previous) do
+        {:cont,
+         {:ok, [%{row | "observed_at" => observed, "previous_observed_at" => previous} | acc]}}
+      else
+        _ -> {:halt, {:error, :invalid_interface_rate_timestamp}}
+      end
+    end)
+    |> case do
+      {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+      error -> error
+    end
+  end
+
+  defp rate_datetime(nil), do: {:ok, nil}
+  defp rate_datetime(%DateTime{} = value), do: DateTime.shift_zone(value, "Etc/UTC")
+  defp rate_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive(value, "Etc/UTC")
+  defp rate_datetime(_value), do: {:error, :invalid_interface_rate_timestamp}
+
+  defp interface_rate_request(pairs, since, until, opts) do
+    bounded = Enum.take(pairs, 513)
+
+    with %DateTime{} = fresh_after <- Keyword.get(opts, :fresh_after),
+         true <- bounded != [] and length(bounded) <= 512,
+         true <-
+           Enum.all?(bounded, fn
+             {id, index} -> is_binary(id) and is_integer(index)
+             _ -> false
+           end),
+         true <-
+           Enum.reduce(bounded, 0, fn {id, _}, bytes -> bytes + byte_size(id) end) <= 1_048_576,
+         {:ok, request} <-
+           Jason.encode(%{
+             pairs: Enum.map(bounded, fn {id, index} -> %{device_id: id, if_index: index} end),
+             since: since,
+             until: until,
+             fresh_after: fresh_after
+           }),
+         true <- byte_size(request) <= 1_048_576 do
+      {:ok, request}
+    else
+      _ -> {:error, :invalid_interface_rate_request}
+    end
+  end
+
   @spec query_page(String.t(), keyword()) :: {:ok, page()} | {:error, term()}
   def query_page(query, opts \\ []) when is_binary(query) do
     limit = Keyword.get(opts, :limit)
@@ -185,7 +264,7 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   @default_query_timeout_ms 60_000
 
   defp run_sql(sql, params, mode, opts) do
-    timeout = Keyword.get(opts, :timeout, @default_query_timeout_ms)
+    timeout = Keyword.get(opts, :timeout)
     query_fn = Keyword.get(opts, :query_fn, default_query_fn(mode, timeout))
 
     query_fn.(sql, params)
@@ -193,11 +272,17 @@ defmodule ServiceRadar.Observability.SRQLRunner do
 
   # StarRocks SQL is compiled with its literals inlined, which is why the
   # warehouse executor takes no parameters.
-  defp default_query_fn(mode, _timeout) when mode in ["starrocks", "starrocks_raw"],
-    do: fn sql, _params -> StarRocksQuery.execute(sql) end
+  defp default_query_fn(mode, timeout) when mode in ["starrocks", "starrocks_raw"] do
+    # Preserve the warehouse client's own default, while forwarding an explicit
+    # bounded-read timeout just as the PostgreSQL path does.
+    opts = if is_nil(timeout), do: [], else: [timeout: timeout]
+    fn sql, _params -> StarRocksQuery.execute(sql, opts) end
+  end
 
   defp default_query_fn(_mode, timeout) do
-    fn sql, params -> Ecto.Adapters.SQL.query(Repo, sql, params, timeout: timeout) end
+    fn sql, params ->
+      Ecto.Adapters.SQL.query(Repo, sql, params, timeout: timeout || @default_query_timeout_ms)
+    end
   end
 
   defp next_cursor(translation, %Postgrex.Result{rows: rows}) do

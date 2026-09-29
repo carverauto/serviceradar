@@ -66,6 +66,7 @@ describe("PacketFlowLayer on WebGPU", () => {
       "instanceFlow",
       "instanceShape",
       "instanceStyle",
+      "instancePhase",
     ])
     const uniforms = Object.fromEntries(reflected.uniforms.map((uniform) => [uniform.name, uniform.binding]))
     expect(Object.keys(uniforms).sort()).toEqual(["packetFlow", "project"])

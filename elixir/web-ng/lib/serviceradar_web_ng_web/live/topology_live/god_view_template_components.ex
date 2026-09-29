@@ -53,21 +53,11 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
             <.ui_badge size="sm" variant="warning">Backbone unavailable</.ui_badge>
             <span class="text-xs text-sr-muted">
               This snapshot has no backbone topology edges; {backbone_warning.other_edges} attachment/inferred
-              edges are available on the Inferred and Endpoints layers.
+              edges are included in the topology map.
             </span>
             <span class="font-mono text-[10px] text-sr-muted">
               bb:{backbone_warning.counts.backbone} att:{backbone_warning.counts.attachment} inf:{backbone_warning.counts.inferred} host:{backbone_warning.counts.hosted} obs:{backbone_warning.counts.observed}
             </span>
-            <.ui_button
-              :if={!(@topology_layers.inferred and @topology_layers.endpoints)}
-              type="button"
-              phx-click="enable_attachment_layers"
-              size="xs"
-              variant="warning"
-              class="h-7 min-h-7"
-            >
-              Show attachment layers
-            </.ui_button>
           </div>
         </div>
 
@@ -172,12 +162,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                 <.ui_button
                   type="button"
                   phx-click="reset_view"
-                  title="Reset view and sr-ui-collapse expanded endpoint clusters"
+                  title="Return to the world overview"
                   size="xs"
                   variant="ghost"
                   class="h-7 min-h-7 w-full mt-1"
                 >
-                  Reset / Collapse
+                  Reset view
                 </.ui_button>
               </div>
 
@@ -187,40 +177,20 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                 </div>
                 <div class="grid grid-cols-2 gap-1">
                   <button
+                    :for={
+                      {key, label} <- [
+                        {:unavailable, "Unavailable"},
+                        {:healthy, "Healthy"},
+                        {:unknown, "Unknown"}
+                      ]
+                    }
                     type="button"
-                    class={overlay_filter_button_class(@causal_filters.root_cause)}
+                    class={overlay_filter_button_class(Map.fetch!(@causal_filters, key))}
                     phx-click="toggle_causal_filter"
-                    phx-value-state="root_cause"
-                    title="Root Cause Nodes"
+                    phx-value-state={key}
+                    aria-pressed={to_string(Map.fetch!(@causal_filters, key))}
                   >
-                    Root
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@causal_filters.affected)}
-                    phx-click="toggle_causal_filter"
-                    phx-value-state="affected"
-                    title="Affected Nodes"
-                  >
-                    Impact
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@causal_filters.healthy)}
-                    phx-click="toggle_causal_filter"
-                    phx-value-state="healthy"
-                    title="Healthy Nodes"
-                  >
-                    Healthy
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@causal_filters.unknown)}
-                    phx-click="toggle_causal_filter"
-                    phx-value-state="unknown"
-                    title="Unknown State Nodes"
-                  >
-                    Unknown
+                    {label}
                   </button>
                 </div>
               </div>
@@ -231,84 +201,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                 </div>
                 <div class="grid grid-cols-2 gap-1">
                   <button
+                    :for={{key, label} <- [{:mantle, "Links"}, {:atmosphere, "Traffic"}]}
                     type="button"
-                    class={overlay_filter_button_class(@visual_layers.mantle)}
+                    class={overlay_filter_button_class(Map.fetch!(@visual_layers, key))}
                     phx-click="toggle_visual_layer"
-                    phx-value-layer="mantle"
-                    title="Link Lines"
+                    phx-value-layer={key}
+                    aria-pressed={to_string(Map.fetch!(@visual_layers, key))}
                   >
-                    Links
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@visual_layers.crust)}
-                    phx-click="toggle_visual_layer"
-                    phx-value-layer="crust"
-                    title="Arc Glow"
-                  >
-                    Arcs
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@visual_layers.atmosphere)}
-                    phx-click="toggle_visual_layer"
-                    phx-value-layer="atmosphere"
-                    title="Traffic stream"
-                  >
-                    Traffic
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@visual_layers.security)}
-                    phx-click="toggle_visual_layer"
-                    phx-value-layer="security"
-                    title="Security Pulse"
-                  >
-                    Pulse
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <div class="text-[10px] uppercase tracking-wide text-sr-muted mb-1">
-                  Topology
-                </div>
-                <div class="grid grid-cols-2 gap-1">
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@topology_layers.backbone)}
-                    phx-click="toggle_topology_layer"
-                    phx-value-layer="backbone"
-                    title="Backbone links"
-                  >
-                    Backbone
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@topology_layers.inferred)}
-                    phx-click="toggle_topology_layer"
-                    phx-value-layer="inferred"
-                    title="Inferred links"
-                  >
-                    Inferred
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@topology_layers.endpoints)}
-                    phx-click="toggle_topology_layer"
-                    phx-value-layer="endpoints"
-                    title="Endpoint attachments"
-                  >
-                    Endpoints
-                  </button>
-                  <button
-                    type="button"
-                    class={overlay_filter_button_class(@topology_layers.mtr_paths)}
-                    phx-click="toggle_topology_layer"
-                    phx-value-layer="mtr_paths"
-                    title="MTR traceroute paths"
-                  >
-                    MTR
+                    {label}
                   </button>
                 </div>
               </div>

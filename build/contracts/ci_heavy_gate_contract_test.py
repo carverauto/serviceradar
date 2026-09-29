@@ -1011,9 +1011,14 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
     web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
+    topology_db_suite = "bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test"
+    dgraph_schema_suite = "bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test"
+    world_worker_suite = "bazel test $FLAGS //rust/dgraph-topology:world_worker_test"
     playwright_acceptance = (
         "bazel test -c opt --config=ci "
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
+        "//elixir/web-ng/test/playwright:world_gpu_test "
+        "//elixir/web-ng/assets:million_world_browser_test "
         "--test_output=errors --nocache_test_results --flaky_test_attempts=1"
     )
     # The same command as a stub `bazel` on PATH records it: argv without argv[0].
@@ -1605,10 +1610,16 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.measured_migrate_command,
                 self.ordinary_suite,
                 self.web_db_suite,
+                self.topology_db_suite,
+                self.dgraph_schema_suite,
+                self.world_worker_suite,
             ),
             commands,
         )
         self.assertLess(action.index(self.ordinary_suite), action.index(self.web_db_suite))
+        self.assertLess(action.index(self.web_db_suite), action.index(self.topology_db_suite))
+        self.assertLess(action.index(self.topology_db_suite), action.index(self.dgraph_schema_suite))
+        self.assertLess(action.index(self.dgraph_schema_suite), action.index(self.world_worker_suite))
         self.assertEqual(
             (self.ordinary_suite,),
             tuple(
@@ -1655,6 +1666,12 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "elixir/web-ng/test/playwright/god_view_elk_scene.playwright.js",
             "elixir/web-ng/assets/js/lib/god_view/topology_overview_projection.js",
             "elixir/web-ng/native/god_view_nif/src/lib.rs",
+            "elixir/web-ng/world_fixture.bzl",
+            "elixir/web-ng/BUILD.bazel",
+            "elixir/web-ng/lib/serviceradar_web_ng/topology/world_tile.ex",
+            "elixir/web-ng/test/fixtures/world_browser_encoder.exs",
+            "elixir/serviceradar_core/native/topology_atlas_nif/src/lib.rs",
+            "rust/topology-atlas/src/tiles.rs",
             "buildbuddy.yaml",
         ):
             with self.subTest(changed=changed):

@@ -15,6 +15,12 @@ identity stops merging on randomized MACs and anchorless seeds.
   The Go agent's config deadline is raised from 30 s to 90 s to stay above
   the gateway budget; already-deployed agents keep their 30 s deadline until
   upgraded (PR #4949).
+- Agent config: a changed config larger than 4 MiB now reaches the
+  agent as soon as it is pushed. The gateway pushes it in chunks to
+  agents that support it, and no longer sends an oversized single
+  message that closed the agent's control stream and left the change
+  waiting for a config poll. A config fetch that core cannot answer in
+  time is logged as the agent keeping its current config.
 - SRQL: legacy sysmon entities (`in:cpu_metrics`/`in:cpu`,
   `in:memory_metrics`/`in:memory`, `in:disk_metrics`/`in:disk`,
   `in:process_metrics`/`in:processes`) now read `sysmon.*`
