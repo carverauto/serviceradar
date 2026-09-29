@@ -638,9 +638,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp compile_device_target_with_host(device, profile, oids, actor, host, opts) do
     credential = resolve_device_credentials(device.uid, profile, actor, opts)
 
+    # A failed credential read fails the compile so ConfigServer does not cache a
+    # target list that dropped every device. A SecretBroker policy refusal is
+    # deterministic: skipping that device stays the behavior.
     case credential do
       {:error, reason} ->
-        if credential_read_failure?(reason) do
+        if CredentialResolver.credential_read_failure?(reason) do
           Logger.error(
             "SNMPCompiler: device #{device.uid} credential read failed - #{inspect(reason)}"
           )
@@ -792,39 +795,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     if oids == [] do
       {:ok, nil}
     else
-      credential =
-        case CredentialResolver.resolve_for_host(target.host, actor, opts) do
-          {:ok, %{credential: rule_cred, source: :credential_rule}} when is_map(rule_cred) ->
-            rule_cred
-
-          _ ->
-            CredentialResolver.build_credential(target, actor,
-              consumer_id: "snmp_target:#{target.id}",
-              target_kind: "snmp_target",
-              target_id: target.id
-            )
-        end
-
-      version =
-        if is_map(credential),
-          do: Map.get(credential, :version, target.version),
-          else: target.version
-
-      base_target = %{
-        "id" => target.id,
-        "name" => target.name,
-        "host" => target.host,
-        "port" => target.port,
-        "version" => ProtocolFormatter.version(version),
-        "poll_interval_seconds" => profile.poll_interval,
-        "timeout_seconds" => profile.timeout,
-        "retries" => profile.retries,
-        "oids" => compile_oids(oids)
-      }
-
-      case credential do
+      case profile_target_credential(target, actor, opts) do
         {:error, reason} ->
-          if credential_read_failure?(reason) do
+          if CredentialResolver.credential_read_failure?(reason) do
             Logger.error(
               "SNMPCompiler: target #{target.id} credential read failed - #{inspect(reason)}"
             )
@@ -835,22 +808,60 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
             {:ok, nil}
           end
 
-        credential when is_map(credential) ->
-          if valid_credentials?(credential) do
+        credential ->
+          version =
+            if is_map(credential),
+              do: Map.get(credential, :version, target.version),
+              else: target.version
+
+          base_target = %{
+            "id" => target.id,
+            "name" => target.name,
+            "host" => target.host,
+            "port" => target.port,
+            "version" => ProtocolFormatter.version(version),
+            "poll_interval_seconds" => profile.poll_interval,
+            "timeout_seconds" => profile.timeout,
+            "retries" => profile.retries,
+            "oids" => compile_oids(oids)
+          }
+
+          if is_map(credential) and valid_credentials?(credential) do
             {:ok, apply_snmp_auth(base_target, version, credential)}
           else
             Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
             {:ok, nil}
           end
-
-        _ ->
-          Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
-          {:ok, nil}
       end
     end
   end
 
   defp compile_profile_target(_, _, _, _), do: {:ok, nil}
+
+  defp profile_target_credential(target, actor, opts) do
+    case CredentialResolver.resolve_for_host(target.host, actor, opts) do
+      {:ok, %{credential: rule_cred, source: :credential_rule}} when is_map(rule_cred) ->
+        rule_cred
+
+      {:error, reason} = error ->
+        if CredentialResolver.credential_read_failure?(reason) do
+          error
+        else
+          target_record_credential(target, actor)
+        end
+
+      _ ->
+        target_record_credential(target, actor)
+    end
+  end
+
+  defp target_record_credential(target, actor) do
+    CredentialResolver.build_credential(target, actor,
+      consumer_id: "snmp_target:#{target.id}",
+      target_kind: "snmp_target",
+      target_id: target.id
+    )
+  end
 
   defp oid_config_to_map(%SNMPOIDConfig{} = oid) do
     %{
@@ -1080,16 +1091,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         )
     end
   end
-
-  # A failed credential read (device override, profile, rule, or broker secret
-  # read) fails the compile so ConfigServer does not cache a target list that
-  # dropped every device. A SecretBroker policy refusal — an external secret
-  # reference without a grant, a disabled provider — is deterministic: skipping
-  # that device stays the behavior, because failing the compile for it would
-  # freeze the config until an operator repairs the credential.
-  defp credential_read_failure?(%Invalid{}), do: false
-
-  defp credential_read_failure?(reason), do: Ash.Error.ash_error?(reason)
 
   defp log_credential_refusal(kind, id, reason) do
     Logger.warning(

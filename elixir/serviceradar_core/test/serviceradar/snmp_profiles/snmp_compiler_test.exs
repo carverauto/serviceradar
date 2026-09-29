@@ -12,6 +12,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
@@ -597,8 +599,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "SNMP target for device with management_device_id uses management device IP", %{
       actor: actor
     } do
-      alias ServiceRadar.Inventory.Device
-
       uniq = System.unique_integer([:positive, :monotonic])
       parent_uid = "sr:" <> Ecto.UUID.generate()
       child_uid = "sr:" <> Ecto.UUID.generate()
@@ -638,8 +638,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "SNMP target for device without management_device_id uses own IP", %{actor: actor} do
-      alias ServiceRadar.Inventory.Device
-
       device_uid = "sr:" <> Ecto.UUID.generate()
       device_ip = "10.0.0.#{rem(System.unique_integer([:positive]), 200) + 20}"
 
@@ -660,8 +658,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "SNMP target prefers confirmed private IP alias when canonical IP is public", %{
       actor: actor
     } do
-      alias ServiceRadar.Inventory.Device
-
       uid = "sr:" <> Ecto.UUID.generate()
       public_ip = "198.51.100.#{rem(System.unique_integer([:positive]), 200) + 1}"
       hostname = "alias-host-" <> Integer.to_string(System.unique_integer([:positive]))
@@ -1096,8 +1092,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "a failed read is not cached, so the previous config survives", %{actor: actor} do
-      alias ServiceRadar.Inventory.Device
-
       agent_id = "agent-#{System.unique_integer([:positive])}"
       unique = System.unique_integer([:positive])
       hostname = "snmp-read-failure-#{unique}"
@@ -1186,8 +1180,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "a failed device credential read fails the compile instead of an empty target list", %{
       actor: actor
     } do
-      alias ServiceRadar.Inventory.Device
-
       agent_id = "agent-#{System.unique_integer([:positive])}"
       unique = System.unique_integer([:positive])
       hostname = "snmp-credential-read-failure-#{unique}"
@@ -1241,8 +1233,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "a failed IP alias read fails the compile instead of polling the canonical host", %{
       actor: actor
     } do
-      alias ServiceRadar.Inventory.Device
-
       agent_id = "agent-#{System.unique_integer([:positive])}"
       unique = System.unique_integer([:positive])
       hostname = "snmp-alias-read-failure-#{unique}"
@@ -1290,6 +1280,222 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
                SNMPCompiler.compile("default", agent_id, actor: actor, device_uid: nil)
 
       assert [%{"host" => ^device_ip}] = config["targets"]
+    end
+
+    @tag :integration
+    test "a failed broker secret read is not cached, so the previous config survives", %{
+      actor: actor
+    } do
+      agent_id = "agent-#{System.unique_integer([:positive])}"
+      unique = System.unique_integer([:positive])
+      host = "192.0.2.#{rem(unique, 250) + 1}"
+
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      {:ok, secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Broker outage #{unique}",
+            provider: "snmp",
+            credential_kind: :opaque,
+            secret_payload: "broker-public"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Broker outage profile #{unique}",
+            poll_interval: 60,
+            timeout: 5,
+            retries: 3,
+            enabled: true,
+            target_query: ~s(in:devices hostname:"missing-#{unique}"),
+            version: :v2c
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} = set_profile_as_default(profile, actor)
+
+      {:ok, target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_profile_id: profile.id,
+            name: "BrokeredRouter#{unique}",
+            host: host,
+            port: 161,
+            version: :v2c,
+            credential_secret_id: secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_target_id: target.id,
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysName",
+            data_type: :string
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      get_opts = [actor: actor, agent_id: agent_id]
+
+      {:ok, good_entry} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      assert [%{"host" => ^host, "community" => "broker-public"}] = good_entry.config["targets"]
+
+      ConfigServer.invalidate(:snmp)
+
+      Repo.query!(
+        "ALTER TABLE platform.network_credential_secrets RENAME TO _network_credential_secrets_hidden"
+      )
+
+      try do
+        assert {:error, _} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      after
+        Repo.query!(
+          "ALTER TABLE platform._network_credential_secrets_hidden RENAME TO network_credential_secrets"
+        )
+      end
+
+      {:ok, recovered} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      assert [%{"host" => ^host, "community" => "broker-public"}] = recovered.config["targets"]
+    end
+
+    @tag :integration
+    test "a failed host credential read does not keep the target's own community", %{actor: actor} do
+      unique = System.unique_integer([:positive])
+      host = "198.51.100.#{rem(unique, 200) + 1}"
+      device_uid = "sr:" <> Ecto.UUID.generate()
+
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: device_uid,
+            hostname: "broker-host-#{unique}",
+            ip: host,
+            type_id: 10,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Host override #{unique}",
+            provider: "snmp",
+            credential_kind: :opaque,
+            secret_payload: "override-secret"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _override} =
+        DeviceSNMPCredential
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            device_id: device_uid,
+            version: :v2c,
+            credential_secret_id: secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Host override profile #{unique}",
+            poll_interval: 60,
+            timeout: 5,
+            retries: 3,
+            enabled: true,
+            target_query: ~s(in:devices hostname:"missing-host-#{unique}"),
+            version: :v2c
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} = set_profile_as_default(profile, actor)
+
+      {:ok, target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_profile_id: profile.id,
+            name: "LocalRouter#{unique}",
+            host: host,
+            port: 161,
+            version: :v2c,
+            community: "target-local"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_target_id: target.id,
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysName",
+            data_type: :string
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      assert {:ok, %{"targets" => [%{"community" => "target-local"}]}} =
+               SNMPCompiler.compile("default", nil, actor: actor)
+
+      Repo.query!(
+        "ALTER TABLE platform.network_credential_secrets RENAME TO _network_credential_secrets_hidden"
+      )
+
+      try do
+        assert {:error, {:credential_resolution_failed, _}} =
+                 SNMPCompiler.compile("default", nil, actor: actor)
+      after
+        Repo.query!(
+          "ALTER TABLE platform._network_credential_secrets_hidden RENAME TO network_credential_secrets"
+        )
+      end
+
+      assert {:ok, %{"targets" => [%{"community" => "target-local"}]}} =
+               SNMPCompiler.compile("default", nil, actor: actor)
     end
 
     @tag :integration
