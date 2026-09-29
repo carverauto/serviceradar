@@ -74,6 +74,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_config_chunk_payload_bytes 1 * 1024 * 1024
   @max_stream_config_chunk_bytes 2 * 1024 * 1024
   @max_stream_config_window_bytes 64 * 1024 * 1024
+  # A timeout here is reported to the agent as not_modified, freezing it on its
+  # previous config. Must stay below the agent's 90s config deadline
+  # (go/pkg/agentgateway defaultConfigTimeout) with room to stream the chunks.
+  @config_core_call_timeout_ms 60_000
   @agent_gateway_component_types [:agent]
   @otlp_relay_source "otlp-relay"
   @flow_attribution_source "flow-attribution"
@@ -180,7 +184,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Generate config from database using the config generator
     AgentGatewaySync
-    |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
+    |> core_call(
+      :get_config_if_changed,
+      [agent_id, partition_id, config_version],
+      @config_core_call_timeout_ms
+    )
     |> handle_config_response(agent_id, config_version)
   end
 
@@ -361,7 +369,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     response =
       AgentGatewaySync
-      |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
+      |> core_call(
+        :get_config_if_changed,
+        [agent_id, partition_id, config_version],
+        @config_core_call_timeout_ms
+      )
       |> handle_config_response(agent_id, config_version)
 
     chunks = config_response_chunks(agent_id, response)
@@ -781,6 +793,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     cond do
       agent_retained_status?(status) ->
         Logger.warning("Failed to commit #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
+
         {:agent_retained_uncommitted, []}
 
       strict_delivery_status?(status) ->
@@ -788,6 +801,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
       true ->
         Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+
         {:best_effort_accepted, []}
     end
   end
@@ -856,9 +870,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp combine_delivery_outcomes(:agent_retained_uncommitted, _outcome), do: :agent_retained_uncommitted
+
   defp combine_delivery_outcomes(_outcome, :agent_retained_uncommitted), do: :agent_retained_uncommitted
+
   defp combine_delivery_outcomes(:agent_retained_committed, _outcome), do: :agent_retained_committed
+
   defp combine_delivery_outcomes(_outcome, :agent_retained_committed), do: :agent_retained_committed
+
   defp combine_delivery_outcomes(_left, _right), do: :best_effort_accepted
 
   defp committed_plugin_result_error?(
@@ -1872,7 +1890,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     case retained_stream_source(status_chunks) do
       nil ->
         directives =
-          Enum.flat_map(status_chunks, fn {services, metadata} -> process_chunk_services(services, metadata) end)
+          Enum.flat_map(status_chunks, fn {services, metadata} ->
+            process_chunk_services(services, metadata)
+          end)
 
         %Monitoring.GatewayStatusResponse{received: true, directives: directives}
 
@@ -1924,7 +1944,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     valid? =
       Enum.all?(non_empty_chunks, fn
         {[service], metadata} ->
-          agent_retained_service?(service, metadata) and normalize_service_field(service.source) == source
+          agent_retained_service?(service, metadata) and
+            normalize_service_field(service.source) == source
 
         {_services, _metadata} ->
           false
