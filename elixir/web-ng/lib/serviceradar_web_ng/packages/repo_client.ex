@@ -436,7 +436,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
   defp normalize_signer(_), do: nil
 
   defp normalize_repository(value) when is_binary(value) do
-    case String.trim(value) |> String.downcase() do
+    case value |> String.trim() |> String.downcase() do
       "" -> nil
       r -> r
     end

@@ -19,8 +19,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   """
 
   alias ServiceRadar.Plugins.RepoUrl
-  alias ServiceRadarWebNG.Packages.RepoClient
   alias ServiceRadar.Policies.OutboundURLPolicy
+  alias ServiceRadarWebNG.Packages.RepoClient
   alias ServiceRadarWebNG.Plugins.CosignVerifier
   alias ServiceRadarWebNG.Plugins.Storage
 

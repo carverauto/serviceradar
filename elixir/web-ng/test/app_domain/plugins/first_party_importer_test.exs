@@ -116,6 +116,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
     alias ServiceRadarWebNG.Plugins.FirstPartyImporterTest
 
+    def fetch_body(url, opts), do: get(url, opts)
+
     def get(url, opts) do
       cond do
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
