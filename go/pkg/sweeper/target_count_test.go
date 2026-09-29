@@ -223,3 +223,85 @@ func TestGenerateTargetsBatchedStreamsOversizedSweep(t *testing.T) {
 // NOTE: TestConcurrencyTuning removed due to logger interface complexity.
 // The fix can be verified by inspecting calculateEffectiveConcurrency behavior
 // with a realistic Config containing DeviceTargets.
+
+// Device-target metadata is carried for tracking only. Dropping the keys the
+// control plane stopped sending must not change which targets are scanned.
+func TestDeviceTargetMetadataDoesNotChangeGeneratedTargets(t *testing.T) {
+	type scanKey struct {
+		Host string
+		Port int
+		Mode models.SweepMode
+	}
+
+	generate := func(metadata func(uid string) map[string]string) map[scanKey]string {
+		config := &models.Config{
+			SweepModes: []models.SweepMode{models.ModeICMP},
+			Ports:      []int{22, 443},
+			DeviceTargets: []models.DeviceTarget{
+				{
+					Network:    "198.51.100.10",
+					SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+					QueryLabel: "lab-icmp-tcp",
+					Source:     "srql",
+					Metadata:   metadata("sr:dev-0001"),
+				},
+				{
+					Network:    "198.51.100.11/32",
+					SweepModes: []models.SweepMode{models.ModeTCP},
+					QueryLabel: "lab-icmp-tcp",
+					Source:     "srql",
+					Metadata:   metadata("sr:dev-0002"),
+				},
+			},
+		}
+		sweeper := &NetworkSweeper{config: config, logger: logger.NewTestLogger()}
+
+		targets := make(map[scanKey]string)
+		err := sweeper.generateTargetsBatched(func(target models.Target) error {
+			uid, _ := target.Metadata["device_uid"].(string)
+			targets[scanKey{Host: target.Host, Port: target.Port, Mode: target.Mode}] = uid
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("generateTargetsBatched() returned error: %v", err)
+		}
+
+		return targets
+	}
+
+	full := generate(func(uid string) map[string]string {
+		return map[string]string{
+			"sweep_group_id":    "sg-lab-icmp-tcp",
+			"target_query":      "in:devices tags.env:lab",
+			"device_uid":        uid,
+			"hostname":          "host01.example.com",
+			"discovery_sources": "sweep,mapper",
+		}
+	})
+	trimmed := generate(func(uid string) map[string]string {
+		return map[string]string{"device_uid": uid}
+	})
+
+	if len(full) == 0 {
+		t.Fatal("expected device targets to generate scan targets")
+	}
+
+	if len(trimmed) != len(full) {
+		t.Fatalf("trimmed metadata generated %d targets, full metadata %d", len(trimmed), len(full))
+	}
+
+	for key, uid := range full {
+		if uid == "" {
+			t.Fatalf("target %+v lost its device_uid; the comparison below would be vacuous", key)
+		}
+
+		trimmedUID, ok := trimmed[key]
+		if !ok {
+			t.Fatalf("target %+v generated with full metadata but not with trimmed metadata", key)
+		}
+
+		if trimmedUID != uid {
+			t.Fatalf("target %+v carries device_uid %q with trimmed metadata, %q with full", key, trimmedUID, uid)
+		}
+	}
+}

@@ -181,18 +181,24 @@ and is out of scope.
 - Across agents: query results are cached in a
   `{:sweep_query, normalized_query}` entry with an explicit TTL, shared by
   every agent's compile. The query text alone determines the result, so the
-  key needs no agent or partition. The default TTL equals today's
-  `ConfigCache` TTL, so device-membership lag is no worse than today; it is
-  configurable. The cache stores only the fields the compiler uses from each
-  row (`ip`, `uid`), not whole rows.
-- TTL sizing is judged against the deployment's `config_poll_interval_sec`,
-  not the agent's fallback constant. Because the entry is shared, it stays
-  warm as long as any agent polls within the TTL, so its hit rate no longer
-  depends on one agent's own poll timing.
-- Invalidation: an existing `SweepGroup`/`SweepProfile` dependency-catalog
-  dispatch also drops the query entries of the changed group, so editing a
-  group's query takes effect on the next compile. Device inventory changes
-  still do not invalidate; the TTL bounds staleness, as it does today.
+  key needs no agent or partition. The cache stores only the fields the
+  compiler uses from each row (`ip`, `uid`), not whole rows.
+- TTL: 60 seconds by default, configurable as
+  `:serviceradar_core, :sweep_query_cache_ttl_ms`. A compiled config built from
+  cached rows is itself cached for the `ConfigCache` TTL, so device-membership
+  lag is bounded by the two TTLs added together. A query TTL equal to the
+  config TTL would double today's bound; 60 seconds keeps it close to today's
+  while still covering the case that matters most: one invalidation pushes a
+  recompile to every online agent at once, and those compiles land within
+  seconds of each other. Judge any change against the deployment's
+  `config_poll_interval_sec`, not the agent's fallback constant.
+- Invalidation: the entries live under the `:sweep` config type (partition
+  `"__sweep_target_queries__"`, scope `{:sweep_query, normalized_query}`), so
+  `ConfigServer.invalidate(:sweep)`, which the dependency catalog dispatches
+  on every `SweepGroup`/`SweepProfile` change, drops them together with the
+  compiled configs. A changed query also has a different key, so it never
+  reads the old result. Device inventory changes still do not invalidate; the
+  TTL bounds staleness, as it does today.
 - Error semantics stay per group. If a shared query raises, every group using
   it compiles with no device targets and logs the group id and query, as
   `get_device_targets_from_query/4` does today. A failed query is not cached.
@@ -329,9 +335,15 @@ agent. Before any `shared-targets/v1` document is persisted in
 `agent_config_instances`, the view gains a third arm that joins `groups` to
 `target_sets` and `device_table` and yields the same
 `(agent_id, sweep_group_id, target, declared_device_uid)` rows. Until then,
-only the legacy shape may be persisted. If task 1.1 confirms that nothing
-persists sweep configs, the view's declared arm is empty in production today;
-that is reported as a separate defect, not fixed here.
+only the legacy shape may be persisted.
+
+Task 1.1 finding: no production code path writes `config_type = 'sweep'` rows
+into `agent_config_instances`. `ConfigServer` only reads that table, as a
+fallback for config types without a compiler, and the sweep compiler's output
+is cached in `ConfigCache`, never persisted. The view's declared arm is
+therefore empty for sweep in production. That is a separate defect, reported
+separately and not fixed here; this change still keeps `device_uid` in the
+compiled output so the view works once sweep configs are persisted.
 
 ## Risks / Trade-offs
 
@@ -347,8 +359,8 @@ that is reported as a separate defect, not fixed here.
   follows SRQL row order, exactly as the legacy `Map.put_new` does today. Both
   formats preserve that; making the winner deterministic (for example
   preferring a live record over a stale one) is a separate change.
-- Stale cross-agent query results. Bounded by the same TTL that bounds the
-  per-agent cache today; group edits invalidate explicitly.
+- Stale cross-agent query results. Bounded by the query TTL plus the
+  compiled config TTL; group and profile edits invalidate explicitly.
 
 ## Migration Plan
 
