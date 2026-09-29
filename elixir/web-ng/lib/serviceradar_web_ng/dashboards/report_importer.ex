@@ -206,24 +206,20 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
   def format_error(reason) when is_binary(reason), do: reason
   def format_error(:missing_repo_url), do: "GitHub repository URL is required"
 
-  def format_error(:invalid_repo_url),
-    do: "GitHub repository URL is not a valid github.com repository"
+  def format_error(:invalid_repo_url), do: "GitHub repository URL is not a valid github.com repository"
 
   def format_error(:untrusted_repo),
-    do:
-      "This repository is not in the trusted GitHub repositories or owners configured for imports"
+    do: "This repository is not in the trusted GitHub repositories or owners configured for imports"
 
   def format_error(:invalid_ref), do: "Git ref is not a valid branch, tag or commit"
   def format_error(:not_found), do: "Not found in the repository at that ref"
 
-  def format_error(:verification_required),
-    do: "The commit is not signed, and imports require a verified signature"
+  def format_error(:verification_required), do: "The commit is not signed, and imports require a verified signature"
 
   def format_error(:trusted_signers_not_configured),
     do: "Signed imports are required but no trusted signers are configured"
 
-  def format_error(:untrusted_signer),
-    do: "The commit is signed by a signer that is not trusted for imports"
+  def format_error(:untrusted_signer), do: "The commit is signed by a signer that is not trusted for imports"
 
   def format_error({:http_error, status}), do: "GitHub request failed with HTTP #{status}"
   def format_error(:forbidden), do: "Not authorized to create dashboards"
@@ -259,8 +255,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
         {:ok, resolved}
 
       {:error, :not_found} when is_binary(release_tag) ->
-        {:error,
-         "Release #{release_tag} was not found in #{FirstPartyReleaseClient.default_repo_url()}"}
+        {:error, "Release #{release_tag} was not found in #{FirstPartyReleaseClient.default_repo_url()}"}
 
       {:error, reason} ->
         {:error, format_error(reason)}
@@ -361,9 +356,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
   defp check_expected_slug(%{slug: slug}, slug, _source), do: :ok
 
   defp check_expected_slug(%{slug: slug}, expected, source),
-    do:
-      {:error,
-       "#{source}: slug #{inspect(slug)} does not match its index entry #{inspect(expected)}"}
+    do: {:error, "#{source}: slug #{inspect(slug)} does not match its index entry #{inspect(expected)}"}
 
   defp require_path(path) when is_binary(path) do
     case RepoClient.normalize_repo_path(path, :invalid_definition_path) do
