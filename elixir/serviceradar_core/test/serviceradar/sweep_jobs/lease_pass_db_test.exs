@@ -11,6 +11,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepLeaseSetting
+  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
 
   @moduletag :integration
 
@@ -111,6 +112,67 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
     assert %{state: :revoked} = assignment!(group, ctx.agent)
     assert [] == unrun!(assignment, now)
+  end
+
+  test "changed targets re-plan every unrun slot onto the new ranges without an epoch bump",
+       ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    LeasePass.reconcile_group(group, now)
+    assignment = assignment!(group, ctx.agent)
+    before = unrun!(assignment, now)
+    epoch = assignment.authority_epoch
+
+    assert range_cidrs(before) == [["192.0.2.0/28", "198.51.100.7/32"]]
+
+    changed = %{group | static_targets: ["203.0.113.9", "203.0.113.0/25"]}
+    count = length(before)
+
+    assert %{dropped: ^count, scheduled: ^count, errors: 0} =
+             LeasePass.reconcile_group(changed, now)
+
+    kept = assignment!(group, ctx.agent)
+    slots = unrun!(kept, now)
+
+    assert kept.authority_epoch == epoch
+    assert length(slots) == count
+    assert MapSet.disjoint?(MapSet.new(ids(slots)), MapSet.new(ids(before)))
+    assert range_cidrs(slots) == [["203.0.113.0/25", "203.0.113.9/32"]]
+    assert Enum.all?(slots, &(&1.lease_id == LeasePass.lease_id(kept)))
+
+    equivalent = %{changed | static_targets: ["203.0.113.9/32", "203.0.113.1/25"]}
+    assert %{dropped: 0, scheduled: 0, errors: 0} = LeasePass.reconcile_group(equivalent, now)
+    assert ids(unrun!(kept, now)) == ids(slots)
+  end
+
+  test "a missing profile is no profile, and an unreadable profile leaves the lease untouched",
+       ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    assert %{leases: 1, errors: 0} =
+             LeasePass.reconcile_group(%{group | profile_id: Ash.UUID.generate()}, now)
+
+    assignment = assignment!(group, ctx.agent)
+    before = unrun!(assignment, now)
+    assert before != []
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert %{groups: 1, errors: 1, leases: 0, revoked: 0, scheduled: 0, dropped: 0} =
+                 LeasePass.reconcile_group(%{group | profile_id: %{}}, now)
+      end)
+
+    assert log =~ "Sweep lease pass: profile of group #{group.id}"
+    refute log =~ "Sweep lease pass failed for group #{group.id}"
+
+    assert %{state: :active, authority_epoch: assignment.authority_epoch} =
+             assignment!(group, ctx.agent)
+
+    assert ids(unrun!(assignment, now)) == ids(before)
   end
 
   test "a shorter horizon or a new interval drops the slots that no longer fit", ctx do
@@ -264,4 +326,14 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
   defp starts(slots), do: Enum.map(slots, &DateTime.to_unix(&1.slot_start))
   defp ids(slots), do: Enum.map(slots, & &1.id)
+
+  defp range_cidrs(slots) do
+    slots
+    |> Enum.map(fn slot ->
+      Enum.flat_map(slot.plan_pages, fn page ->
+        page |> ScheduledPlanPageV1.decode() |> Map.fetch!(:ranges) |> Enum.map(& &1.cidr)
+      end)
+    end)
+    |> Enum.uniq()
+  end
 end

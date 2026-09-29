@@ -11,13 +11,13 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       leasing is off (`ServiceRadar.SweepJobs.LeaseSettings`), is revoked the same way;
     * every other agent holds an active assignment (`ProducerAssignments.ensure/3`) whose unrun
       slots are exactly the schedule's slots between now and the agent's horizon, planned under
-      the assignment's current epoch and check set.
+      the assignment's current epoch, check set and targets.
 
-  An unrun slot that no longer matches (its epoch was bumped, its check set or network scope
-  changed, or the schedule or horizon moved) is dropped and planned again, so a fence bump
-  re-plans a lease rather than leaving it on the old targets. A slot that has started is never
-  touched. Becoming eligible again after a revoke reissues the assignment under a new epoch,
-  which is a new lease.
+  An unrun slot that no longer matches (its epoch was bumped, its check set, network scope or
+  planned targets changed, or the schedule or horizon moved) is dropped and planned again, so
+  the next pass re-plans a lease rather than leaving it on the old targets. A slot that has
+  started is never touched. Becoming eligible again after a revoke reissues the assignment
+  under a new epoch, which is a new lease.
 
   The lease id is derived from the assignment and its epoch, so every pass names the same lease
   without storing it, and a bump starts a new one.
@@ -31,7 +31,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   assignment it reads nothing else.
   """
 
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.SweepPlan
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseAgents
   alias ServiceRadar.SweepJobs.LeaseEligibility
@@ -42,6 +44,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   alias ServiceRadar.SweepJobs.SweepLeaseSetting
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
   alias ServiceRadar.SweepJobs.SweepProfile
+  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
 
   require Ash.Query
   require Logger
@@ -76,12 +79,13 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   @doc "Runs the pass over one sweep group."
   @spec reconcile_group(SweepGroup.t(), DateTime.t()) :: summary()
   def reconcile_group(%SweepGroup{} = group, now \\ DateTime.utc_now()) do
-    case LeaseEligibility.evaluate(group, load_profile(group.profile_id)) do
-      {:ok, inputs} ->
-        lease_group(group, inputs, now)
+    case load_profile(group.profile_id) do
+      {:ok, profile} ->
+        lease_or_revoke(group, profile, now)
 
-      {:error, _reason} ->
-        count_revoked(ProducerAssignments.revoke_all_except(group.id, []), group)
+      {:error, reason} ->
+        Logger.warning("Sweep lease pass: profile of group #{group.id}: #{inspect(reason)}")
+        %{empty() | groups: 1, errors: 1}
     end
   rescue
     error ->
@@ -162,9 +166,20 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
+  defp lease_or_revoke(group, profile, now) do
+    case LeaseEligibility.evaluate(group, profile) do
+      {:ok, inputs} ->
+        lease_group(group, inputs, now)
+
+      {:error, _reason} ->
+        count_revoked(ProducerAssignments.revoke_all_except(group.id, []), group)
+    end
+  end
+
   defp sync_slots(assignment, inputs, desired, unrun) do
     lease_id = lease_id(assignment)
     wanted = Map.new(desired, &{key(&1.start), &1})
+    cidrs = planned_cidrs(inputs.targets)
 
     {keep, stale} =
       Enum.split_with(unrun, fn slot ->
@@ -172,7 +187,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
           slot.lease_id == lease_id and
           slot.network_scope_id == assignment.network_scope_id and
           slot.check_set_sha256 == inputs.check_set_sha256 and
-          same_window?(wanted[key(slot.slot_start)], slot)
+          same_window?(wanted[key(slot.slot_start)], slot) and
+          slot_cidrs(slot) == cidrs
       end)
 
     case ExecutionSlots.drop(Enum.map(stale, & &1.id)) do
@@ -185,6 +201,52 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     do: DateTime.compare(expires, slot.collection_expires) == :eq
 
   defp same_window?(nil, _slot), do: false
+
+  defp planned_cidrs(targets) when is_list(targets) do
+    targets
+    |> Enum.reduce_while([], fn target, acc ->
+      case SweepPlan.canonical_target(to_string(target)) do
+        {:ok, canonical} -> {:cont, [canonical | acc]}
+        {:error, _} -> {:halt, :error}
+      end
+    end)
+    |> case do
+      :error ->
+        :unplannable
+
+      canonical ->
+        canonical
+        |> Enum.uniq_by(& &1.cidr)
+        |> Enum.sort_by(& &1.order)
+        |> Enum.map(& &1.cidr)
+    end
+  end
+
+  defp planned_cidrs(_targets), do: :unplannable
+
+  defp slot_cidrs(%{plan_pages: pages}) when is_list(pages) do
+    Enum.reduce_while(pages, {:ok, []}, fn encoded, {:ok, acc} ->
+      case page_cidrs(encoded) do
+        {:ok, cidrs} -> {:cont, {:ok, [cidrs | acc]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, chunks} -> chunks |> Enum.reverse() |> Enum.concat()
+      :error -> :undecodable
+    end
+  end
+
+  defp slot_cidrs(_slot), do: :undecodable
+
+  defp page_cidrs(encoded) when is_binary(encoded) do
+    page = ScheduledPlanPageV1.decode(encoded)
+    {:ok, Enum.map(page.ranges, & &1.cidr)}
+  rescue
+    _ -> :error
+  end
+
+  defp page_cidrs(_encoded), do: :error
 
   defp fill(assignment, inputs, desired, keep, lease_id, dropped) do
     present = MapSet.new(keep, &key(&1.slot_start))
@@ -230,14 +292,28 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     %{empty() | groups: 1, errors: 1}
   end
 
-  defp load_profile(nil), do: nil
+  defp load_profile(nil), do: {:ok, nil}
 
   defp load_profile(id) do
     case Ash.get(SweepProfile, id, actor: actor()) do
-      {:ok, profile} -> profile
-      _ -> nil
+      {:ok, profile} -> {:ok, profile}
+      {:error, reason} -> profile_result(reason)
     end
+  rescue
+    error -> profile_result(error)
   end
+
+  defp profile_result(reason) do
+    if profile_missing?(reason), do: {:ok, nil}, else: {:error, reason}
+  end
+
+  defp profile_missing?(%NotFound{}), do: true
+
+  defp profile_missing?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &profile_missing?/1)
+  end
+
+  defp profile_missing?(_reason), do: false
 
   defp empty, do: %{groups: 0, leases: 0, revoked: 0, scheduled: 0, dropped: 0, errors: 0}
 
