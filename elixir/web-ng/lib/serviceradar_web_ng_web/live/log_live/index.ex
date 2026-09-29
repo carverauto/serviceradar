@@ -6060,11 +6060,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp arin_http_get(url) do
     opts = [receive_timeout: 8_000, headers: [{"accept", "application/json"}]]
 
-    with {:ok, %Req.Response{status: 200, body: body} = response} <-
-           EgressClient.fetch_body(url, opts),
-         {:ok, decoded} <- Jason.decode(body) do
-      {:ok, %{response | body: decoded}}
-    end
+    EgressClient.fetch_json(url, opts)
   end
 
   defp normalize_arin_asn(%{} = asn_payload) do

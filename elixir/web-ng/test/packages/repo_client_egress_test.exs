@@ -24,16 +24,17 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
 
       cond do
         String.ends_with?(url, "/repos/acme/demo") ->
-          {:ok, %Req.Response{status: 200, body: %{"default_branch" => "main"}, headers: %{}}}
+          {:ok, %Req.Response{status: 200, body: ~s({"default_branch":"main"}), headers: %{}}}
 
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
           {:ok,
            %Req.Response{
              status: 200,
-             body: %{
-               "sha" => String.duplicate("b", 40),
-               "commit" => %{"verification" => %{"verified" => false, "reason" => "unsigned"}}
-             },
+             body:
+               Jason.encode!(%{
+                 "sha" => String.duplicate("b", 40),
+                 "commit" => %{"verification" => %{"verified" => false, "reason" => "unsigned"}}
+               }),
              headers: %{}
            }}
 
@@ -44,7 +45,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
           {:ok,
            %Req.Response{
              status: 200,
-             body: %{"tag_name" => "v1.0.0", "assets" => []},
+             body: ~s({"tag_name":"v1.0.0","assets":[]}),
              headers: %{}
            }}
 

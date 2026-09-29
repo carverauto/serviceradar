@@ -3,7 +3,9 @@ defmodule ServiceRadar.HTTP.EgressClient do
   HTTPS GET for hosts outside the deployment, over `SERVICERADAR_EGRESS_PROXY`.
 
   Every fetch of an external host belongs here -- `download_to_file/3` for
-  artifacts and databases, `fetch_body/2` for API and dataset responses. The
+  artifacts and databases, `fetch_body/2` for raw datasets, and `fetch_json/2`
+  for JSON APIs. `fetch_body/2` always returns bytes; unlike `Req`, it never
+  infers a decoder from Content-Type. The
   shared `ServiceRadar.Finch` pool connects directly and never uses the proxy,
   so a request on it to an external host bypasses the egress allowlist and is
   refused wherever a default-deny NetworkPolicy admits only the proxy.
@@ -42,6 +44,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
   runs on a proxied deployment.
   """
 
+  alias ServiceRadar.Edge.ReleaseFetchPolicy
   alias ServiceRadar.HTTP.EgressProxy
 
   @default_profile :serviceradar_egress
@@ -50,6 +53,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
   @depth 4
   @default_max_redirects 5
   @redirect_statuses [301, 302, 303, 307, 308]
+  @cross_origin_headers ~w(accept accept-encoding user-agent)
 
   @type option ::
           {:headers, [{binary(), binary()}]}
@@ -62,6 +66,8 @@ defmodule ServiceRadar.HTTP.EgressClient do
           | {:cacerts, [binary()]}
           | {:cacertfile, String.t()}
           | {:max_redirects, non_neg_integer()}
+          | {:redirect, boolean()}
+          | {:validate_redirect, (String.t() -> :ok | {:error, term()})}
 
   @doc """
   Fetches `url` with GET.
@@ -81,13 +87,16 @@ defmodule ServiceRadar.HTTP.EgressClient do
   `:connect_timeout` defaults to the configured `:receive_timeout`. `:max_bytes`, when supplied,
   rejects a streamed chunk that would exceed the limit before calling `:into`.
   OTP streams only 200/206 bodies; other statuses arrive buffered and their size
-  is checked afterward. Streamed responses are reported as status 200, so this
-  interface is intended for full artifact downloads without Range requests.
+  is checked afterward. Partial responses carrying Content-Range are rejected
+  before their bytes reach the consumer. This interface is for full downloads.
 
   Options that exist only for `Req` call-site parity (`:decode_body`,
   `:redirect`, `:max_redirects`, `:finch`, `:retry`) are accepted and ignored
   here. `download_to_file/3` and `fetch_body/2` follow redirects and honor
-  `:max_redirects`.
+  `:max_redirects` and `:redirect`. Redirect targets must pass the public HTTPS
+  release fetch policy (or the supplied `:validate_redirect` policy) on every
+  hop. Across origins, only Accept, Accept-Encoding, and User-Agent are retained;
+  credentials and arbitrary custom headers stay on their original origin.
   """
   @spec get(String.t(), [option()]) :: {:ok, Req.Response.t()} | {:error, term()}
   def get(url, opts \\ []) when is_binary(url) do
@@ -110,7 +119,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
   `{:error, {:http_status, status}}`.
 
   Takes the options of `get/2` except `:into`, plus `:max_redirects` (default
-  #{@default_max_redirects}). Only HTTPS redirect targets are followed.
+  #{@default_max_redirects}). Set `redirect: false` to inspect redirects manually.
   """
   @spec download_to_file(String.t(), Path.t(), [option()]) :: {:ok, Path.t()} | {:error, term()}
   def download_to_file(url, dest_path, opts \\ []) when is_binary(url) and is_binary(dest_path) do
@@ -148,7 +157,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
   raw binary; nothing is decoded.
 
   Takes the options of `get/2` except `:into`, plus `:max_redirects` (default
-  #{@default_max_redirects}). Only HTTPS redirect targets are followed.
+  #{@default_max_redirects}). Set `redirect: false` to inspect redirects manually.
   """
   @spec fetch_body(String.t(), [option()]) :: {:ok, Req.Response.t()} | {:error, term()}
   def fetch_body(url, opts \\ []) when is_binary(url) do
@@ -167,6 +176,33 @@ defmodule ServiceRadar.HTTP.EgressClient do
       # Only 200/206 bodies stream; any other status arrives with its body.
       {:ok, %Req.Response{body: ""} = response} -> {:ok, %{response | body: streamed}}
       other -> other
+    end
+  end
+
+  @doc """
+  Fetches a JSON API response through the same transport as `fetch_body/2`.
+
+  Decodes successful JSON responses; HTTP error responses and 204
+  responses are returned unchanged so status handling stays with the caller.
+  Invalid JSON returns `{:error, %Jason.DecodeError{}}`. Callers still validate
+  their endpoint's object/list schema. Raw downloads must use `fetch_body/2`.
+
+  `:http_client` may supply a module implementing `fetch_body/2` or a two-argument
+  function, for callers with an existing transport adapter. Already-decoded
+  maps/lists from those adapters remain supported. The default is this module.
+  """
+  @spec fetch_json(String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
+  def fetch_json(url, opts \\ []) do
+    {client, opts} = Keyword.pop(opts, :http_client, __MODULE__)
+    fetch = if is_function(client, 2), do: client, else: &client.fetch_body/2
+
+    case fetch.(url, opts) do
+      {:ok, %{status: status, body: body} = response}
+      when status in 200..299 and status != 204 and is_binary(body) ->
+        with {:ok, decoded} <- Jason.decode(body), do: {:ok, %{response | body: decoded}}
+
+      other ->
+        other
     end
   end
 
@@ -204,14 +240,40 @@ defmodule ServiceRadar.HTTP.EgressClient do
 
   defp get_following(url, opts, redirects_left) do
     case get(url, opts) do
-      {:ok, %Req.Response{status: status} = response} when status in @redirect_statuses ->
-        with :ok <- ensure_redirects_left(redirects_left),
-             {:ok, next_url} <- redirect_target(url, response) do
-          get_following(next_url, opts, redirects_left - 1)
-        end
+      {:ok, %Req.Response{status: status} = response}
+      when status in @redirect_statuses ->
+        follow_redirect(url, response, opts, redirects_left)
 
       other ->
         other
+    end
+  end
+
+  defp follow_redirect(url, response, opts, redirects_left) do
+    if Keyword.get(opts, :redirect, true) do
+      with :ok <- ensure_redirects_left(redirects_left),
+           {:ok, next_url} <- redirect_target(url, response),
+           :ok <- Keyword.get(opts, :validate_redirect, &ReleaseFetchPolicy.validate/1).(next_url) do
+        get_following(next_url, redirect_opts(url, next_url, opts), redirects_left - 1)
+      end
+    else
+      {:ok, response}
+    end
+  end
+
+  defp redirect_opts(url, next_url, opts) do
+    current = URI.parse(url)
+    next = URI.parse(next_url)
+
+    if {current.scheme, String.downcase(current.host), current.port} ==
+         {next.scheme, String.downcase(next.host), next.port} do
+      opts
+    else
+      Keyword.update(opts, :headers, [], fn headers ->
+        Enum.filter(headers, fn {name, _} ->
+          String.downcase(to_string(name)) in @cross_origin_headers
+        end)
+      end)
     end
   end
 
@@ -302,12 +364,19 @@ defmodule ServiceRadar.HTTP.EgressClient do
 
   # `:httpc` only streams 200/206 bodies; every other status arrives whole, which
   # is what makes a redirect's `location` header readable here without following
-  # it. `:stream_start` does not carry the status, but a GET that sends no Range
-  # header cannot draw a 206, so a streamed response here is a 200.
+  # it. `:stream_start` omits the status; Content-Range identifies partial
+  # responses, including a server's unsolicited 206 when no Range was sent.
   defp await(request_id, profile, opts, timeout) do
     receive do
       {:http, {^request_id, :stream_start, headers, handler}} ->
-        stream({request_id, handler}, profile, opts, timeout, headers, 0, nil)
+        if Enum.any?(headers, fn {name, _} ->
+             String.downcase(to_string(name)) == "content-range"
+           end) do
+          cancel(request_id, profile)
+          {:error, {:http_status, 206}}
+        else
+          stream({request_id, handler}, profile, opts, timeout, headers, 0, nil)
+        end
 
       {:http, {^request_id, {{_version, status, _reason}, headers, body}}} ->
         # Only 200/206 bodies stream, so a non-2xx body is already buffered by
