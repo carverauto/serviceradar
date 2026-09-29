@@ -122,7 +122,9 @@
       execution row under the slot's id when results arrive. A slot that will not
       run is dropped, not deleted; revoking an assignment (the fence's revoke of a
       deselected agent, or the scheduler's ineligibility revoke) drops that
-      agent's slots that have not started.
+      agent's slots that have not started. Uniqueness of
+      `(producer_assignment_id, slot_start)` covers scheduled slots only, so a
+      dropped row does not block a new execution at the same start.
     - [ ] M2.0b3 Lease scheduler. For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
       as scheduled before it runs. The horizon has a per-partition default, a

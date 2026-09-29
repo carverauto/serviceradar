@@ -165,6 +165,7 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
   end
 
   identities do
-    identity :unique_assignment_slot, [:producer_assignment_id, :slot_start]
+    identity :unique_assignment_slot, [:producer_assignment_id, :slot_start],
+      where: expr(state == :scheduled)
   end
 end
