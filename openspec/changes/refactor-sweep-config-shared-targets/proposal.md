@@ -85,8 +85,10 @@ not advertise the capability.
     (sweep cache scope)
   - `elixir/serviceradar_core/lib/serviceradar/edge/agent_config_generator.ex`
     (format selection from agent capabilities)
-  - `platform.device_sweep_overlap` view (reads compiled sweep configs; must
-    understand the new format before any sweep config is persisted in it)
+  - `platform.device_sweep_overlap` no longer reads compiled sweep configs.
+    Declared rows come from `platform.sweep_group_declared_targets`
+    (`persist-sweep-declared-targets`), so this change does not add a view
+    arm for the new format.
   - `go/pkg/agent/sweep_config_gateway.go` (dual-format parser)
   - `go/pkg/agent/push_loop_capabilities.go` (advertise capability)
 - Related changes:

@@ -676,7 +676,10 @@ pub(super) fn device_sweep_overlap() -> VizMeta {
             ),
             col("available_count", ColumnType::Int, None),
             col("execution_count", ColumnType::Int, None),
-            col("config_delivered_at", ColumnType::Timestamptz, None),
+            // When the group's declared-target snapshot was last refreshed.
+            // Was `config_delivered_at` when the declared side (never, in
+            // production) came from agent_config_instances (issue #4963).
+            col("declared_at", ColumnType::Timestamptz, None),
             col("has_availability_row", ColumnType::Bool, None),
             col("availability_agent_id", ColumnType::Text, None),
             col("availability_group_id", ColumnType::Text, None),
