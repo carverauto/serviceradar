@@ -272,6 +272,12 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, body}
 
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        case Jason.decode(body) do
+          {:ok, releases} when is_list(releases) -> {:ok, releases}
+          _ -> {:error, "Plugin release browser returned an unexpected payload"}
+        end
+
       {:ok, %{status: 200}} ->
         {:error, "Plugin release browser returned an unexpected payload"}
 
