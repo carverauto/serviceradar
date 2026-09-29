@@ -96,7 +96,6 @@ export const godViewRenderingGraphCoreMethods = {
     if (!this.state.deck) return
     this.autoFitViewState(graph)
     const effective = this.deps.reshapeGraph(graph)
-    if (this.state.packetFlowEnabled) this.state.layers.atmosphere = true
 
     const {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode, nodeFrame} =
       this.buildVisibleGraphData(effective)

@@ -36,7 +36,12 @@ defmodule ServiceRadar.Observability.AnomalyEpisode do
     :last_payload
   ]
 
-  @episode_upsert_fields @episode_fields -- [:episode_uid, :finding_uid, :opened_at]
+  # finding_uid IS updated on conflict (both here and in the registry's raw
+  # SQL): core recomputes it from the canonical device, so a device merge can
+  # change it. Keeping the pre-merge hash stranded the row outside both fold
+  # arms of the registry's `existing` CTE (they match on finding_uid) and the
+  # next edge restart minted a duplicate episode.
+  @episode_upsert_fields @episode_fields -- [:episode_uid, :opened_at]
 
   postgres do
     table "anomaly_episodes"

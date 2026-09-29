@@ -123,36 +123,29 @@ merge, so the existing upsert already matches the open episode by `episode_uid` 
 re-attributes it in place — same row, same `opened_at`, occurrence history intact, edge
 detector state undisturbed. **Continuation needs no new mechanism.**
 
-#### The actual defect
+#### The corrected upsert defect
 
 Core does *not* trust the edge's attribution: it re-resolves to the canonical device and
 **recomputes** `finding_uid` from it. So a merge does change `finding_uid` — core-side.
 
-But `finding_uid` is absent from the upsert's conflict branch
-(`anomaly_episode_registry.ex:175-193` sets `device_uid` and `series_key` from `EXCLUDED` but
-never `finding_uid`), and it is explicitly subtracted at `anomaly_episode.ex:39`
-(`@episode_upsert_fields @episode_fields -- [:episode_uid, :finding_uid, :opened_at]`).
+Task 7.3 is implemented. The current identity contract is documented in the
+[episode model](../../../docs/docs/anomaly-engine.md#episode-model). The registry's
+`@upsert_sql` now writes `finding_uid = EXCLUDED.finding_uid`, and the resource's
+`@episode_upsert_fields` includes `:finding_uid`.
 
-After a merge the surviving row therefore holds the **survivor's** `device_uid` and
-`series_key` but the **pre-merge** `finding_uid`. That row is internally inconsistent, and
-decisively: the `existing` CTE's two fold arms both match on `finding_uid = $2`
-(`anomaly_episode_registry.ex:44-49`), so neither can ever match that row again. Only the
-`episode_uid` arm still works.
-
-That holds until the edge starts a **new** episode on the same series — checkpoint expiry
-(~6h) or an agent restart. Then no arm matches, a **duplicate** episode is inserted, and the
-original is eventually closed `stale_closed` / `clear_reason: "stale"`.
-
-Which is precisely the symptom the original design described — an operator shown "resolved"
-for a condition that never resolved — reached through a door it never looked at. The fix is
-one field in the conflict branch, unconditionally: `EXCLUDED.finding_uid` is either identical
-(a normal fold) or the newly canonical value (a merge), never a regression.
+Previously, both paths retained the pre-merge hash while updating device attribution.
+The registry's two finding-based fold arms could then miss the row when the edge
+started a new episode, inserting a duplicate and eventually stale-closing the original.
+The synthetic regression is
+`anomaly_episode_registry_db_test.exs`, "a merge-changed finding_uid is adopted by the
+existing episode row". This fix does not implement the remaining lineage, resolver,
+or historical repair tasks.
 
 #### What lineage is actually for
 
 The lineage table survives with a different writer and a different purpose. Rewriting
 `finding_uid` in place orphans findings already written under the old hash — the mirror of
-today's bug. So lineage is written **by ingest, on observation**, at the moment the upsert
+the corrected bug. The remaining lineage work will write **by ingest, on observation**, at the moment the upsert
 sees an incoming `finding_uid` differing from the stored one, recording the previous and new
 identities so historical rows stay joinable.
 

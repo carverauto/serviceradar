@@ -54,6 +54,30 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
+  test "legacy sysmon aliases follow the metrics serving backend" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      for {cutover, expected} <- [{[], :cnpg}, {[:metrics], :starrocks}] do
+        Application.put_env(
+          :serviceradar_core,
+          StarRocks,
+          Keyword.put(prev, :cutover_datasets, cutover)
+        )
+
+        for entity <-
+              ~w(cpu cpu_metrics memory memory_metrics disk disk_metrics processes process_metrics) do
+          assert Readers.fetch(entity, %{
+                   cnpg: fn -> :cnpg end,
+                   starrocks: fn -> :starrocks end
+                 }) == expected
+        end
+      end
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   # With the warehouse enabled the CNPG MTR tables stop receiving rows, so MTR
   # SRQL must read StarRocks then, and only CNPG when it is off -- never both.
   test "MTR SRQL reads StarRocks with the warehouse enabled and CNPG without it" do
@@ -90,6 +114,38 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
                cnpg: fn -> :cnpg_branch end,
                starrocks: fn -> flunk("MTR must not read StarRocks when disabled") end
              }) == :cnpg_branch
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
+  # BMP routing events are written to the warehouse only when it is enabled,
+  # so they follow the MTR rule, with every entity spelling.
+  test "BMP SRQL reads StarRocks with the warehouse enabled and CNPG without it" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+    spellings = ["bmp_events", "bmp_event", "bmp_routing_events", "BMP_EVENTS"]
+
+    try do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
+
+      for entity <- spellings do
+        assert Readers.mode_for(entity) == "starrocks"
+        assert Readers.backend(entity) == :starrocks
+      end
+
+      query = "in:bmp_events router_ip:192.0.2.10 time:last_1h"
+      assert query |> Readers.entity_for_query() |> Readers.mode_for() == "starrocks"
+
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+
+      for entity <- spellings do
+        assert Readers.mode_for(entity) == nil
+        assert Readers.backend(entity) == :cnpg
+      end
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end
@@ -195,13 +251,6 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
       assert Readers.mode_for("rperf_metrics") == "starrocks"
       assert Readers.backend(:metrics) == :starrocks
       assert Readers.mode_for("flows") == {:error, :starrocks_required}
-
-      # EventWriter mirrors CNPG timeseries_metrics only; the sysmon families
-      # have their own CNPG tables, so a metrics cutover must not divert them.
-      for sysmon <- ~w(cpu_metrics memory_metrics disk_metrics process_metrics) do
-        assert Readers.mode_for(sysmon) == nil
-        assert Readers.backend(sysmon) == :cnpg
-      end
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end
@@ -239,7 +288,9 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
                "#{spelling} did not route to the warehouse"
       end
 
-      # BMP events share the events permission but not the warehouse table.
+      # BMP events have their own warehouse table and route on `enabled?/0`
+      # like MTR and OTel, not on `cutover_datasets`, so a bare events cutover
+      # does not divert them.
       for spelling <- ~w(bmp_events bmp_event bmp_routing_events) do
         assert Readers.mode_for(spelling) == nil
         assert Readers.backend(spelling) == :cnpg

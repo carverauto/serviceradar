@@ -14,11 +14,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
   # up wherever the app IS running, and a bare `whereis` skips the whole point wherever it
   # is not.
   setup do
-    pid =
-      case Process.whereis(RuntimeGraph) do
-        nil -> start_supervised!(RuntimeGraph)
-        pid when is_pid(pid) -> pid
-      end
+    if is_nil(Process.whereis(RuntimeGraph)), do: start_supervised!(RuntimeGraph)
+    pid = Process.whereis(RuntimeGraph)
 
     on_exit(fn -> if Process.alive?(pid), do: :sys.resume(pid) end)
 
@@ -28,7 +25,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
   describe "reads do not queue behind the refresh handler" do
     test "get_links/0 answers while the owning process is blocked", %{pid: pid} do
       # A suspended process stands in for `handle_info(:refresh, ...)`, which performs the
-      # projection/AGE round trip inline. Routed through `GenServer.call/2` this waits out
+      # Dgraph round trip inline. Routed through `GenServer.call/2` this waits out
       # the default 5s and exits; reading the published reference does not touch the process.
       :sys.suspend(pid)
 

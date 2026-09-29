@@ -47,6 +47,62 @@ pub(crate) fn encode_snapshot_impl(
 pub(crate) fn encode_snapshot_ipc(
     payload: EncodeSnapshotPayload,
 ) -> Result<Vec<u8>, rustler::Error> {
+    encode_snapshot_with_metadata(payload, HashMap::new())
+}
+
+/// Bounded scene entry point shared by HTTP geometry tiles and detail scenes.
+/// Limits apply before Arrow allocation and again to the actual encoded bytes.
+pub(crate) fn encode_scene_ipc(
+    payload: EncodeSnapshotPayload,
+    metadata: HashMap<String, String>,
+) -> Result<Vec<u8>, &'static str> {
+    if payload.schema_version != 3
+        || payload.nodes.len() > 128
+        || payload.edges.len() > 256
+        || payload.edge_meta.len() > 256
+        || payload.edge_directional.len() > 256
+        || payload.edge_details.len() > 256
+        || metadata.len() > 32
+        || metadata
+            .iter()
+            .map(|(k, v)| k.len() + v.len())
+            .sum::<usize>()
+            > 8192
+    {
+        return Err("scene_budget_exceeded");
+    }
+    if payload.edges.iter().any(|edge| {
+        edge.0 as usize >= payload.nodes.len() || edge.1 as usize >= payload.nodes.len()
+    }) {
+        return Err("invalid_scene_endpoint");
+    }
+    let text_bytes = payload
+        .nodes
+        .iter()
+        .map(|n| n.3.len() + n.6.len())
+        .sum::<usize>()
+        + payload.edges.iter().map(|e| e.5.len()).sum::<usize>()
+        + payload
+            .edge_meta
+            .iter()
+            .map(|e| e.0.len() + e.1.len() + e.2.len())
+            .sum::<usize>()
+        + payload.edge_details.iter().map(String::len).sum::<usize>();
+    if text_bytes > 262_144 {
+        return Err("scene_budget_exceeded");
+    }
+    let bytes =
+        encode_snapshot_with_metadata(payload, metadata).map_err(|_| "scene_encoding_failed")?;
+    if bytes.len() > 262_144 {
+        return Err("scene_budget_exceeded");
+    }
+    Ok(bytes)
+}
+
+fn encode_snapshot_with_metadata(
+    payload: EncodeSnapshotPayload,
+    mut metadata: HashMap<String, String>,
+) -> Result<Vec<u8>, rustler::Error> {
     let EncodeSnapshotPayload {
         schema_version,
         revision,
@@ -163,7 +219,6 @@ pub(crate) fn encode_snapshot_ipc(
         edge_details_json.push(Some(edge_details_row));
     }
 
-    let mut metadata = HashMap::new();
     metadata.insert("schema_version".to_string(), schema_version.to_string());
     metadata.insert("revision".to_string(), revision.to_string());
     metadata.insert("node_count".to_string(), node_count.to_string());
@@ -904,13 +959,14 @@ fn optional_f64_value(
 
 #[cfg(test)]
 mod tests {
-    use super::encode_snapshot_ipc;
+    use super::{encode_scene_ipc, encode_snapshot_ipc};
     use crate::types::snapshot::EncodeSnapshotPayload;
     use arrow_array::{
         Array, Float64Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt8Array,
     };
     use arrow_ipc::reader::FileReader;
     use arrow_schema::DataType;
+    use std::collections::HashMap;
 
     type NodeRow = (u16, u16, u8, String, u32, u8, String);
     type EdgeRow = (u32, u32, u32, u64, u64, String, u8);
@@ -947,6 +1003,94 @@ mod tests {
 
     fn node(details: &str) -> NodeRow {
         (0, 0, 2, "n".to_string(), 0, 1, details.to_string())
+    }
+
+    fn scene() -> EncodeSnapshotPayload {
+        EncodeSnapshotPayload {
+            schema_version: 3,
+            revision: 0,
+            nodes: vec![
+                (0, 32768, 3, "West".into(), 0, 0,
+                 r#"{"id":"aggregate:west","type":"aggregate","cluster_member_count":70000}"#.into()),
+                (65535, 32768, 3, "Boundary".into(), 0, 0,
+                 r#"{"id":"boundary:east","type":"boundary","cluster_member_count":0}"#.into()),
+            ],
+            edges: vec![(0, 1, 0, 0, 0, String::new(), 0)],
+            edge_details: vec![r#"{"id":"bundle:west-east","represented_count":90000,"phase_start":0.25,"phase_end":0.75}"#.into()],
+            edge_meta: vec![],
+            edge_directional: vec![],
+            root_bitmap_bytes: 0,
+            affected_bitmap_bytes: 0,
+            healthy_bitmap_bytes: 0,
+            unknown_bitmap_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn bounded_scene_round_trips_transform_membership_and_clipped_flow_phase() {
+        let metadata: HashMap<String, String> = [
+            ("payload_kind", "tile"),
+            ("origin_x", "8388608"),
+            ("coordinate_scale", "128.00195315480278"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.into(), v.into()))
+        .collect();
+        let bytes = encode_scene_ipc(scene(), metadata.clone()).unwrap();
+        // HashMap allocation/iteration order must not churn content-addressed tiles.
+        for _ in 0..8 {
+            assert_eq!(bytes, encode_scene_ipc(scene(), metadata.clone()).unwrap());
+        }
+        let mut reader = FileReader::try_new(std::io::Cursor::new(bytes), None).unwrap();
+        let batch = reader.next().unwrap().unwrap();
+        assert!(reader.next().is_none());
+        assert_eq!(batch.num_rows(), 3);
+        assert_eq!(batch.schema().metadata()["origin_x"], "8388608");
+        let xs: &UInt16Array = column(&batch, "node_x");
+        assert_eq!(xs.values().as_ref()[..2], [0, 65535]);
+        let members: &Float64Array = column(&batch, "node_detail_cluster_member_count");
+        assert_eq!(members.value(0), 70000.0);
+        assert_eq!(members.value(1), 0.0);
+        let count: &Float64Array = column(&batch, "edge_detail_represented_count");
+        let start: &Float64Array = column(&batch, "edge_detail_phase_start");
+        let end: &Float64Array = column(&batch, "edge_detail_phase_end");
+        let ids: &StringArray = column(&batch, "edge_detail_id");
+        assert_eq!(count.value(2), 90000.0);
+        assert_eq!((start.value(2), end.value(2)), (0.25, 0.75));
+        assert_eq!(ids.value(2), "bundle:west-east");
+    }
+
+    #[test]
+    fn scene_rejects_actual_encoded_overflow_cardinality_and_invalid_endpoints() {
+        let mut too_many = scene();
+        too_many.nodes = (0..129).map(|_| node("{}")).collect();
+        assert_eq!(
+            encode_scene_ipc(too_many, HashMap::new()),
+            Err("scene_budget_exceeded")
+        );
+        let mut invalid = scene();
+        invalid.edges[0].1 = 2;
+        assert_eq!(
+            encode_scene_ipc(invalid, HashMap::new()),
+            Err("invalid_scene_endpoint")
+        );
+        let mut large = scene();
+        let details = format!(r#"{{"id":"{}"}}"#, "a".repeat(1500));
+        large.nodes = (0..128).map(|_| node(&details)).collect();
+        // Input JSON fits, but its dense id column also consumes wire bytes.
+        assert!(128 * details.len() < 262_144);
+        assert_eq!(
+            encode_scene_ipc(large, HashMap::new()),
+            Err("scene_budget_exceeded")
+        );
+        let mut empty = scene();
+        empty.nodes.clear();
+        empty.edges.clear();
+        empty.edge_details.clear();
+        let bytes = encode_scene_ipc(empty, HashMap::new()).unwrap();
+        let mut reader = FileReader::try_new(std::io::Cursor::new(bytes), None).unwrap();
+        assert_eq!(reader.next().unwrap().unwrap().num_rows(), 0);
+        assert!(reader.next().is_none());
     }
 
     #[test]

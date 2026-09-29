@@ -185,6 +185,52 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryDbTest do
     assert open_episode_uid == episode_b
   end
 
+  test "a merge-changed finding_uid is adopted by the existing episode row" do
+    series = "sysmon:cpu:sr:episode-fuid-#{System.unique_integer([:positive])}"
+    finding_before = "finding-fuid-a-#{System.unique_integer([:positive])}"
+    finding_after = "finding-fuid-b-#{System.unique_integer([:positive])}"
+    episode_uid = Ecto.UUID.generate()
+    started_at = ~U[2026-07-13 05:00:00Z]
+
+    # parse_message recomputes finding_uid from device/series, so the
+    # post-merge identity is injected the way core would publish it: in the
+    # service_radar metadata block, which the registry prefers over the payload.
+    open_row =
+      put_in(
+        anomaly_row(series, "anomaly_open", episode_uid: episode_uid, at: started_at),
+        [:metadata, "service_radar", "finding_uid"],
+        finding_before
+      )
+
+    assert AnomalyEpisodeRegistry.transition_rows([open_row], Repo)
+
+    # After a device merge, core recomputes the finding hash from the canonical
+    # device while the edge keeps reporting the same stable episode id. The
+    # existing row must adopt the new finding_uid; keeping the pre-merge hash
+    # left it outside both fold arms of the `existing` CTE (they match on
+    # finding_uid), so the next episode restart minted a duplicate.
+    update_row =
+      put_in(
+        anomaly_row(series, "anomaly_update",
+          episode_uid: episode_uid,
+          at: DateTime.add(started_at, 30, :second)
+        ),
+        [:metadata, "service_radar", "finding_uid"],
+        finding_after
+      )
+
+    assert AnomalyEpisodeRegistry.transition_rows([update_row], Repo)
+
+    %{rows: [[row_count, finding_uid]]} =
+      Repo.query!(
+        "SELECT count(*), min(finding_uid) FROM platform.anomaly_episodes WHERE series_key = $1",
+        [series]
+      )
+
+    assert row_count == 1
+    assert finding_uid == finding_after
+  end
+
   test "stale producer states are pruned even when the canonical episode remains open" do
     series = "sysmon:cpu:sr:episode-prune-#{System.unique_integer([:positive])}"
     started_at = ~U[2026-07-13 05:00:00Z]

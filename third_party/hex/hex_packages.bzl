@@ -84,7 +84,7 @@ HEX_PACKAGES = [
     ("ex_webrtc", "ex_webrtc", "0.15.1", "d341ee568a86f2fa56204266c26694d258344852d9f3a97515217f20c7ebd21b"),
     ("expo", "expo", "1.1.1", "5fb308b9cb359ae200b7e23d37c76978673aa1b06e2b3075d814ce12c5811640"),
     ("file_system", "file_system", "1.1.1", "7a15ff97dfe526aeefb090a7a9d3d03aa907e100e262a0f8f7746b78f8f87a5d"),
-    ("finch", "finch", "0.23.0", "80e58d3f936f57e3fdf404f83a3642897ae6d9fb642934e46da4d8fe761b99d5"),
+    ("finch", "finch", "0.24.0", "33ba40069c3587c2f99f9125b766e19dad87d6d54be3c6961db2304df04cef00"),
     ("fine", "fine", "0.1.6", "5638eb4495488e885ebec167fa57973e5c35e1a50c344eb7666c90ec1c4e3b12"),
     ("flow", "flow", "1.2.4", "874adde96368e71870f3510b91e35bc31652291858c86c0e75359cbdd35eb211"),
     ("gen_smtp", "gen_smtp", "1.3.0", "0b73fbf069864ecbce02fe653b16d3f35fd889d0fdd4e14527675565c39d84e6"),

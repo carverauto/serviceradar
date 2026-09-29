@@ -23,62 +23,22 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     :ok
   end
 
-  test "show returns binary snapshot and metadata headers when enabled", %{conn: conn} do
+  test "show requires an explicit bounded detail selection", %{conn: conn} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 
     conn = get(conn, ~p"/topology/snapshot/latest")
 
-    assert conn.status == 200
-    assert conn |> get_resp_header("content-type") |> List.first() =~ "application/octet-stream"
-    assert get_resp_header(conn, "x-sr-god-view-schema") != []
-    assert get_resp_header(conn, "x-sr-god-view-revision") != []
-    assert get_resp_header(conn, "x-sr-god-view-generated-at") != []
-    assert get_resp_header(conn, "x-sr-god-view-bitmap-root-bytes") != []
-    assert get_resp_header(conn, "x-sr-god-view-bitmap-affected-bytes") != []
-    assert get_resp_header(conn, "x-sr-god-view-bitmap-healthy-bytes") != []
-    assert get_resp_header(conn, "x-sr-god-view-bitmap-unknown-bytes") != []
-    assert get_resp_header(conn, "x-sr-god-view-bitmap-root-count") != []
-    assert get_resp_header(conn, "x-sr-god-view-bitmap-affected-count") != []
-    assert get_resp_header(conn, "x-sr-god-view-bitmap-healthy-count") != []
-    assert get_resp_header(conn, "x-sr-god-view-bitmap-unknown-count") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-raw-links") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-unique-pairs") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-final-edges") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-final-direct") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-final-attachment") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-telemetry-interface") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-telemetry-fallback") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-unresolved-directional") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-backbone") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-attachment") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-inferred") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-hosted") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-observed") != []
-    assert get_resp_header(conn, "x-sr-god-view-pipeline-backbone-edge-count") != []
-    assert binary_part(conn.resp_body, 0, 6) == "ARROW1"
-    assert binary_part(conn.resp_body, byte_size(conn.resp_body) - 6, 6) == "ARROW1"
+    assert conn.status == 400
+    assert Jason.decode!(conn.resp_body) == %{"error" => "invalid_detail"}
   end
 
-  test "show returns binary snapshot when build exceeds real-time budget", %{conn: conn} do
+  test "show rejects a global graph request", %{conn: conn} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 
-    original_budget = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
-    Application.put_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms, -1)
+    conn = get(conn, ~p"/topology/snapshot/latest", %{"kind" => "global"})
 
-    on_exit(fn ->
-      if is_nil(original_budget) do
-        Application.delete_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
-      else
-        Application.put_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms, original_budget)
-      end
-    end)
-
-    conn = get(conn, ~p"/topology/snapshot/latest")
-
-    assert conn.status == 200
-    assert conn |> get_resp_header("content-type") |> List.first() =~ "application/octet-stream"
-    assert binary_part(conn.resp_body, 0, 6) == "ARROW1"
-    assert binary_part(conn.resp_body, byte_size(conn.resp_body) - 6, 6) == "ARROW1"
+    assert conn.status == 400
+    assert Jason.decode!(conn.resp_body) == %{"error" => "invalid_detail"}
   end
 
   test "show fails closed without an authenticated scope", %{conn: conn} do
@@ -102,5 +62,14 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     assert conn.halted
     assert conn.status == 403
     assert Jason.decode!(conn.resp_body) == %{"error" => "forbidden"}
+  end
+
+  test "show returns unavailable when god view is disabled", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
+
+    conn = get(conn, ~p"/topology/snapshot/latest")
+
+    assert conn.status == 404
+    assert Jason.decode!(conn.resp_body) == %{"error" => "god_view_disabled"}
   end
 end

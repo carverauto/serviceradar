@@ -787,6 +787,7 @@ defmodule Monitoring.ControlStreamResponse do
   field :command, 1, type: Monitoring.CommandRequest, oneof: 0
   field :config, 2, type: Monitoring.AgentConfigResponse, oneof: 0
   field :console_frame, 3, type: Monitoring.ConsoleFrame, json_name: "consoleFrame", oneof: 0
+  field :config_chunk, 4, type: Monitoring.AgentConfigChunk, json_name: "configChunk", oneof: 0
 end
 
 defmodule Monitoring.CredentialBrokerResolveRequest do

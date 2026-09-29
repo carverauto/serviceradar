@@ -54,6 +54,8 @@ type pluginExecution struct {
 	conns                       map[uint32]net.Conn
 	wsConns                     map[uint32]*websocket.Conn
 	webSocketDialer             pluginWebSocketDialer
+	grpcDialer                  pluginGRPCDialer
+	transientConns              int
 	artifactStreams             map[uint32]*pluginArtifactStream
 	nextHandle                  uint32
 	submitted                   bool
@@ -151,6 +153,9 @@ func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime waz
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostHTTPRequest).
 		Export("http_request")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostGRPCUnary).
+		Export("grpc_unary")
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostTCPConnect).
 		Export("tcp_connect")

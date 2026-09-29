@@ -62,7 +62,11 @@ build --repo_env=RULES_ELIXIR_SKIP_SYSTEM=1
 # Disable legacy package generation globally so transitive Python tools follow
 # the same explicit-package policy declared for ServiceRadar in MODULE.bazel.
 build --@rules_python//python/config_settings:incompatible_default_to_explicit_init_py=true
-# Avoid GitHub fallback for Go module fetches in repo rules.
+# Avoid GitHub fallback for Go module fetches in repo rules. The root module
+# depends on no github.com/carverauto/* module, so go_deps needs no GOPRIVATE.
+# Wasm plugins build from their committed vendor/ trees, and
+# build/wasm_plugins/build_wasm_binary.sh sets GOPRIVATE/GONOSUMDB to
+# github.com/carverauto/* for any non-vendored resolution.
 build --repo_env=GOPROXY=https://proxy.golang.org
 build --repo_env=NEXT_SKIP_TURBO=1
 build --repo_env=NEXT_PRIVATE_SKIP_TURBOPACK=1

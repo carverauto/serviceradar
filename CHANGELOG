@@ -1,12 +1,136 @@
-# ServiceRadar v1.4.76
+# ServiceRadar v1.4.77
 
-EventWriter sizes every stream it creates and claims only the
-streams it owns, so no install reserves more JetStream than it
-has. Docker Compose and packaged installs get the same sizing
-profiles as Helm. Migration ledgers stay in sync, and device
-identity stops merging on randomized MACs and anchorless seeds.
+Traces, BMP routing events and the JSON:API telemetry routes read
+the StarRocks warehouse when it is enabled, and the remaining flow
+readers cut over. Agents receive large configs in chunks, and
+sweep configs get smaller. Dashboards gain plugin actions, live
+events, host-owned confirmation and report import, and God View
+is served from a tiled world map.
+
+## Upgrade Notes
+
+- Every agent applies one new sweep config after core upgrades;
+  it sweeps the same targets.
+- The JSON:API sysmon endpoints (`/api/v2/cpu_metrics`,
+  `/memory_metrics`, `/disk_metrics`, `/process_metrics`, their
+  `_hourly` variants and `/cpu_cluster_metrics`) are removed. Use
+  SRQL or `timeseries_metrics` `sysmon.*`.
+- The standalone SRQL HTTP server (`srql_bin`, `/api/query`) is
+  removed; nothing in the supported install deployed it.
+- Helm: core's `geoip-mmdb` and `advisory-feeds` scratch volumes
+  default to `emptyDir`. Set `emptyDir: false` to keep the PVCs.
+- With StarRocks enabled and the flow cutover list blank, flows
+  cut over to the warehouse by default.
+- Migrations widen NetFlow interface speed to bigint and add CNPG
+  log indexes ordered by event timestamp.
 
 ## Whats New
+
+**1.4.77**
+- Sweep config: compiled sweep configs are smaller and cheaper to build.
+  Each device target now carries only `device_uid` in its metadata; the
+  group id, target query, hostname and discovery sources were repeated on
+  every target and read by nothing. A target query shared by several groups
+  runs once per compile, and its result is shared across agents for 60
+  seconds (`:sweep_query_cache_ttl_ms`), so agents in a partition stop
+  re-running the same inventory query. Groups are emitted in id order, so
+  database row order no longer changes the config version. Every agent
+  applies one new sweep config after upgrading core; it sweeps the same
+  targets (PR #4961).
+- Agent-gateway: raised the core `get_config_if_changed` RPC timeout from
+  15 s to 60 s so slow config generation (large sweep payloads) no longer
+  maps to `not_modified` and leaves agents frozen on a stale config.
+  The Go agent's config deadline is raised from 30 s to 90 s to stay above
+  the gateway budget; already-deployed agents keep their 30 s deadline until
+  upgraded (PR #4949).
+- Agent config: a changed config larger than 4 MiB now reaches the
+  agent as soon as it is pushed. The gateway pushes it in chunks to
+  agents that support it, and no longer sends an oversized single
+  message that closed the agent's control stream and left the change
+  waiting for a config poll. A config fetch that core cannot answer in
+  time is logged as the agent keeping its current config
+  (PR #4952).
+- SRQL: legacy sysmon entities (`in:cpu_metrics`/`in:cpu`,
+  `in:memory_metrics`/`in:memory`, `in:disk_metrics`/`in:disk`,
+  `in:process_metrics`/`in:processes`) now read `sysmon.*`
+  samples in `timeseries_metrics` on CNPG and StarRocks through Readers.
+  Saved queries retain their aliases, filters, fields and aggregations.
+  Aggregate history uses existing timeseries hourly rollups where they
+  preserve the requested dimensions and values, including CNPG disk mounts.
+  Other shapes read only configured raw retention, including byte tags,
+  host/process dimensions and warehouse mount filters; full historical
+  equivalence is not provided. Charts use hourly rollups only for integral-hour
+  buckets; sub-hour and nonintegral-hour buckets read retained raw samples.
+  Rollup-compatible aggregates include their complete edge hours on both the
+  fresh-rollup path and the raw retry when a warehouse rollup is stale.
+  New metric envelopes persist resource host identity for legacy host filters.
+  The Analytics high-utilization
+  cards, the device-list sysmon presence badge and the authored-dashboard
+  CPU template now read `timeseries_metrics` `sysmon.*` directly, and the
+  empty-table JSON:API endpoints (`/api/v2/cpu_metrics`, `/memory_metrics`,
+  `/disk_metrics`, `/process_metrics`, their `_hourly` variants and
+  `/cpu_cluster_metrics`) are removed. The old CNPG tables, their
+  rollups and their migrations remain untouched (PR #4941, issue #4861).
+- StarRocks: EventWriter writes OTel traces to the warehouse
+  when it is enabled, with span, summary and rollup tables; trace
+  summaries, the root-span ratio and SRQL traces read it there
+  (PR #4900). BMP routing events move to the warehouse the same
+  way, including God View's BMP read (PR #4902). JSON:API logs,
+  OTel metrics, traces and timeseries read the warehouse instead
+  of frozen CNPG rows (PR #4944). The dashboard traffic
+  sparkline, device Flows tab and IOC exposure read flows
+  through Readers, and a flow is acknowledged only after Stream
+  Load succeeds or it is quarantined (PR #4935).
+- SRQL: logs are windowed and ordered by event timestamp on both
+  backends (PR #4903). Flow CIDR grouping groups by the real
+  subnet, IPv6 included, and matches on both dialects
+  (PR #4833). Quoted values are unescaped exactly once
+  (PR #4842). New `camera_sources` entity and `agg:last`
+  (PR #4876).
+- Dashboards: packages can list and invoke plugin actions and
+  subscribe to live events the viewer may read (PR #4832).
+  Actions that require confirmation are confirmed in a
+  host-rendered modal before dispatch (PR #4937). Report
+  definitions import from a first-party release, GitHub or an
+  upload (PR #4956, PR #4960, PR #4962). Frames support a
+  per-frame refresh interval; the demo dashboard kit and CLI
+  0.1.10 fixture resolver ship with it (PR #4923, PR #4917).
+- God View: the overview is served from a tiled world map with
+  server-authored coordinates, so the browser no longer lays out
+  the whole topology (PR #4921).
+- Plugins: a new `grpc_unary` host function behind the
+  `grpc_request` capability (PR #4936). Plugin metrics, events
+  and alerts are attributed to the device the plugin discovered
+  (PR #4939, PR #4946). Condition scope snapshots let a plugin
+  that emits only active alerts still produce clears
+  (PR #4938). One credential rule can drive several producer
+  schedules (PR #4942). Superseded producer schedules are
+  disarmed on package upgrade (PR #4843). Plugin HTTP goes
+  through EgressClient (PR #4948).
+- Agent config: a failed SNMP, sysmon or profile read no longer
+  caches an empty or disabled config, so the config version
+  stays stable (PR #4877, PR #4879).
+- EventWriter: every consumer is pulled each tick; the last
+  consumers of a shared producer are no longer starved
+  (PR #4925).
+- Prefix tags: snapshots are built in a native trie, avoiding
+  BEAM memory spikes on large prefix sets (PR #4904).
+- NetFlow: multi-gigabit interface speeds no longer overflow
+  when persisted (PR #4918).
+- MTR: concurrent ICMP and UDP traces to one target no longer
+  take each other's replies (PR #4928).
+- Identity: finding identity is updated on episode upsert
+  (PR #4929). AWX inventory sync emits IPs and MACs and skips
+  hosts with neither (PR #4899).
+- Security: secret resolution ignores a caller-supplied grant
+  that was not validated (PR #4839).
+- Helm: core replicas are no longer pinned to one node by
+  shared scratch PVCs (PR #4898).
+- Demo: licensed aerial clip RTSP replayer (PR #4931).
+- Dependencies: gosnmp 1.45.0, fast-uri 3.1.8, nanoid 3.3.19,
+  actions/checkout 7.0.1, actions/setup-node 7.0.0; mint and
+  vix aligned with the Bazel Hex closure (PR #4883, PR #4950,
+  PR #4951, PR #4891, PR #4893, PR #4922).
 
 **1.4.76**
 - JetStream: EventWriter reads every stream size from the

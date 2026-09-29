@@ -5,6 +5,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
   alias Flowpb.FlowAttribution
   alias Flowpb.FlowMessage
   alias ServiceRadar.Analytics.StarRocks.Identity
+  alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.EventWriter.Processors.Flows
 
   test "samples of one conversation inside a second stay distinct records" do
@@ -290,6 +291,12 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
 
       assert row.ocsf_payload["attribution"]["redacted_cmdline"] == cmdline
       assert byte_size(row.ocsf_payload["attribution"]["redacted_cmdline"]) == 256
+
+      assert [encoded] = Rows.encode(:flows, [row])
+      assert encoded["agent_id"] == "agent-1"
+      assert encoded["pid"] == 1
+      assert encoded["comm"] == "nginx"
+      assert encoded["cmdline"] == cmdline
     end
 
     test "ASCII redacted_cmdline above cap is byte-truncated and emits telemetry" do

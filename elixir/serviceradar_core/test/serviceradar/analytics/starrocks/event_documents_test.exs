@@ -137,6 +137,23 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocumentsTest do
     assert EventDocuments.decode_rows(rows, "otel_trace_summaries") == rows
   end
 
+  test "a BMP row listing comes back with its metadata document decoded" do
+    text = ~s({"signal_type":"bmp","event_type":"route_update"})
+    row = %{"id" => "row-alpha-0001", "time" => "2026-01-15T10:00:00Z", "metadata" => text}
+
+    for entity <- ~w(bmp_events bmp_event bmp_routing_events) do
+      assert [%{"metadata" => %{"signal_type" => "bmp", "event_type" => "route_update"}}] =
+               EventDocuments.decode_rows([row], entity)
+    end
+
+    # A listing row without an id still decodes: BMP has no stats path.
+    assert [%{"metadata" => %{"signal_type" => "bmp"}}] =
+             EventDocuments.decode_rows(
+               [%{"metadata" => ~s({"signal_type":"bmp"})}],
+               "bmp_events"
+             )
+  end
+
   test "another dataset's rows are untouched, even with a column of the same name" do
     text = ~s({"site":"SITE01"})
 

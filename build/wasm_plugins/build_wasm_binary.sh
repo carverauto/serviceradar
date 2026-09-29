@@ -221,8 +221,11 @@ mkdir -p "${HOME}" "${GOCACHE}" "${GOMODCACHE}"
 # and sandbox git compatibility constraints. Vendor mode checks modules.txt
 # consistency, but does not authenticate vendored source against go.sum.
 # Modules without vendor/ use module resolution; a nonempty exported GOFLAGS
-# overrides either default. GOPRIVATE below bypasses the public proxy/checksum
-# database on that non-vendored path. For dependency updates, see
+# overrides either default. github.com/carverauto/* modules are not served by
+# the public proxy or checksum database, so GOPRIVATE and GONOSUMDB below make
+# that non-vendored path fetch them directly from GitHub. Every other plugin
+# build path (CI workflows, the plugin-go CLI template, the docs) uses the same
+# two values. For dependency updates, see
 # js/cli/templates/plugin-go/README.md#updating-the-sdk.
 if [[ -z "${GOFLAGS:-}" ]]; then
   if [[ -d "${plugin_dir}/vendor" ]]; then
@@ -233,6 +236,7 @@ if [[ -z "${GOFLAGS:-}" ]]; then
   export GOFLAGS
 fi
 export GOPRIVATE="${GOPRIVATE:-github.com/carverauto/*}"
+export GONOSUMDB="${GONOSUMDB:-github.com/carverauto/*}"
 
 cmd=(
   "${tinygo_bin}"

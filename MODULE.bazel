@@ -126,6 +126,8 @@ archive_override(
 git_override(
     module_name = "rules_erlang",
     commit = "effba3214d0e5637c66430cad67d59810ce8f1c3",
+    patch_strip = 1,
+    patches = ["//third_party/patches/rules_erlang:hex_pkg_patches.patch"],
     remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
@@ -895,6 +897,7 @@ npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
 # switching back; rules_js writes the file and tells you to commit it.
 npm.npm_translate_lock(
     name = "web_ng_npm",
+    data = ["//elixir/web-ng/assets:patches/deck.gl-core-9.4.0.patch"],
     pnpm_lock = "//elixir/web-ng/assets:pnpm-lock.yaml",
     verify_node_modules_ignored = "//:.bazelignore",
 )
@@ -1007,6 +1010,45 @@ http_file(
     sha256 = "4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5",
     urls = [
         "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64",
+    ],
+)
+
+# MediaMTX v1.21.1 release tarballs (MIT) for //demo/rtsp-replayer:image.
+http_file(
+    name = "mediamtx_linux_amd64",
+    downloaded_file_path = "mediamtx.tar.gz",
+    sha256 = "653abc672a3e693f8d3b2717752492fdcfb8072291ec108d03d3dd857411b0ee",
+    urls = [
+        "https://github.com/bluenviron/mediamtx/releases/download/v1.21.1/mediamtx_v1.21.1_linux_amd64.tar.gz",
+    ],
+)
+
+http_file(
+    name = "mediamtx_linux_arm64",
+    downloaded_file_path = "mediamtx.tar.gz",
+    sha256 = "6a3aa635fb60ea9b8d566ec306f0a42ff1b6b52a3942bc2baffbe55880d4c3dd",
+    urls = [
+        "https://github.com/bluenviron/mediamtx/releases/download/v1.21.1/mediamtx_v1.21.1_linux_arm64.tar.gz",
+    ],
+)
+
+# Static ffmpeg 7.0.2 builds (GPLv3, license shipped in the image layer) for
+# //demo/rtsp-replayer:image loop publishers.
+http_file(
+    name = "ffmpeg_static_linux_amd64",
+    downloaded_file_path = "ffmpeg.tar.xz",
+    sha256 = "abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67",
+    urls = [
+        "https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz",
+    ],
+)
+
+http_file(
+    name = "ffmpeg_static_linux_arm64",
+    downloaded_file_path = "ffmpeg.tar.xz",
+    sha256 = "f4149bb2b0784e30e99bdda85471c9b5930d3402014e934a5098b41d0f7201b1",
+    urls = [
+        "https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-arm64-static.tar.xz",
     ],
 )
 

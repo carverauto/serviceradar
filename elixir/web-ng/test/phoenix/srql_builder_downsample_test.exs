@@ -23,10 +23,12 @@ defmodule ServiceRadarWebNGWeb.SRQLBuilderDownsampleTest do
     assert query =~ "series:metric_name"
   end
 
-  test "parses downsample tokens for cpu metrics" do
-    query = "in:cpu_metrics time:last_1h bucket:15s agg:max series:core_id limit:50"
+  test "parses downsample tokens for sysmon cpu metrics" do
+    query =
+      "in:timeseries_metrics metric_type:\"sysmon.cpu\" time:last_1h bucket:15s agg:max series:core_id limit:50"
+
     assert {:ok, builder} = Builder.parse(query)
-    assert builder["entity"] == "cpu_metrics"
+    assert builder["entity"] == "timeseries_metrics"
     assert builder["time"] == "last_1h"
     assert builder["bucket"] == "15s"
     assert builder["agg"] == "max"

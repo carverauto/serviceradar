@@ -40,6 +40,19 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     :metadata
   ]
 
+  # Provenance is written once, at import, and never through :update: a builder
+  # edit must not be able to forge or clear where a definition came from.
+  @source_fields [
+    :source_type,
+    :source_repo_url,
+    :source_ref,
+    :source_release_tag,
+    :source_commit,
+    :source_path,
+    :content_hash,
+    :signature
+  ]
+
   postgres do
     table "authored_dashboards"
     repo ServiceRadar.Repo
@@ -133,6 +146,18 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
       end
     end
 
+    create :import do
+      description "Create a dashboard from an imported definition, recording where it came from."
+      accept (@fields -- [:owner_id]) ++ @source_fields
+
+      change fn changeset, context ->
+        case actor_uuid(context) do
+          nil -> changeset
+          owner_id -> Ash.Changeset.change_attribute(changeset, :owner_id, owner_id)
+        end
+      end
+    end
+
     update :update do
       accept @fields -- [:owner_id]
     end
@@ -173,7 +198,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
       authorize_if ActorCanEditDashboard
     end
 
-    action_with_permission(:create, @create_check)
+    action_with_permission([:create, :import], @create_check)
 
     policy action([:update, :restore]) do
       authorize_if @edit_check
@@ -252,6 +277,46 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
 
     attribute :archived_at, :utc_datetime_usec do
       public? true
+    end
+
+    attribute :source_type, :atom do
+      public? true
+      description "Import source; nil for a dashboard authored in the builder."
+      constraints one_of: [:upload, :github, :first_party]
+    end
+
+    attribute :source_repo_url, :string do
+      public? true
+    end
+
+    attribute :source_ref, :string do
+      public? true
+      description "The ref the operator asked for, before resolution to a commit."
+    end
+
+    attribute :source_release_tag, :string do
+      public? true
+    end
+
+    attribute :source_commit, :string do
+      public? true
+    end
+
+    attribute :source_path, :string do
+      public? true
+      description "Repository-relative path of the definition file."
+    end
+
+    attribute :content_hash, :string do
+      public? true
+      description "SHA256 of the definition bytes as imported."
+    end
+
+    attribute :signature, :map do
+      allow_nil? false
+      public? true
+      default %{}
+      description "Commit signature verification recorded at import."
     end
 
     create_timestamp :inserted_at

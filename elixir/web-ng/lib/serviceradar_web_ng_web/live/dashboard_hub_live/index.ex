@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
 
   @current_path "/dashboards"
@@ -23,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       |> assign(:default_item, nil)
       |> assign(:system_default_missing?, false)
       |> assign(:system_default_slug, @system_default_slug)
+      |> assign(:can_import_reports?, can_import_reports?(socket.assigns.current_scope))
       |> assign(:srql, dashboard_srql(@default_query, @current_path))
 
     {:ok, socket}
@@ -199,6 +201,14 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
             <.ui_button navigate={~p"/analytics"} size="sm" variant="ghost">
               <.icon name="hero-plus" class="size-4" /> Create
             </.ui_button>
+            <.ui_button
+              :if={@can_import_reports?}
+              navigate={~p"/dashboards/reports/import"}
+              size="sm"
+              variant="ghost"
+            >
+              <.icon name="hero-arrow-down-tray" class="size-4" /> Import report
+            </.ui_button>
           </div>
         </section>
 
@@ -255,7 +265,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
             Reports
           </h2>
           <p class="text-sm text-sr-muted">
-            System SRQL reports. Open one and use Email Reports to send it on a schedule.
+            SRQL reports shipped with ServiceRadar or imported. Open one and use Email Reports to send it on a schedule.
           </p>
           <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <.dashboard_card :for={item <- report_items(@items)} item={item} />
@@ -432,6 +442,13 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
 
   defp report_items(items), do: Enum.filter(items, & &1.report?)
 
+  defp can_import_reports?(scope) do
+    RBAC.can?(scope, "analytics.dashboards.create") and RBAC.can?(scope, "analytics.dashboards.edit")
+  end
+
+  # A dashboard carrying import provenance came in through the report importer,
+  # whether or not its definition declared itself a system report.
+  defp system_report?(%{source_type: source_type}) when not is_nil(source_type), do: true
   defp system_report?(%{metadata: %{"system_report" => true}}), do: true
   defp system_report?(%{metadata: %{system_report: true}}), do: true
   defp system_report?(_dashboard), do: false

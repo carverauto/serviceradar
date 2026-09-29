@@ -133,7 +133,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
       )
     ),
     #{candidate_ctes("f.id, f.attribution_version")}
-    SELECT id, pid, comm, cmdline, workload_identity,
+    SELECT id, agent_id, pid, comm, cmdline, workload_identity,
            GREATEST(COALESCE(attribution_version, 0) + 1,
                     nextval('platform.flow_attribution_update_version')) AS attribution_version
     FROM candidates

@@ -36,7 +36,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
     mtr: "mtr_hops",
     otel: "otel_metrics",
     otel: "otel_metric_points",
-    traces: "otel_traces"
+    traces: "otel_traces",
+    bmp: "bmp_routing_events"
   ]
 
   @initial_delay_ms 5_000

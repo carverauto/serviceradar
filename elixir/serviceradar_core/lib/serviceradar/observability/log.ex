@@ -55,6 +55,9 @@ defmodule ServiceRadar.Observability.Log do
     defaults [:read]
 
     read :api_index do
+      manual {ServiceRadar.Observability.TelemetryIndexRead, table: "logs"}
+      prepare ServiceRadar.Observability.JsonApiCompositeId
+
       pagination do
         offset? true
         default_limit 100

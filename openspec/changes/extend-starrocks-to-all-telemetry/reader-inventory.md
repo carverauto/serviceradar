@@ -22,7 +22,9 @@ Both SRQL entry points route through `Readers`: web-ng `WN/srql.ex:33` / `:72` (
 and core `C/observability/srql_runner.ex:24` / `:31` (mode at `:74`). The StarRocks SRQL dialect
 (`S/starrocks.rs:90`) covers flows, attributed flows, timeseries, SNMP and rperf metrics, logs,
 and events with its sub-entities, including `rollup_stats:severity` and
-`rollup_stats:anomaly_findings`; MTR has its own dialect (`S/starrocks/mtr.rs:36`).
+`rollup_stats:anomaly_findings`; MTR has its own dialect (`S/starrocks/mtr.rs:36`), OTel metrics
+their own (`S/starrocks/otel_metrics.rs:36`), and BMP routing events their own
+(`S/starrocks/bmp_events.rs:36`), each keyed on `enabled?/0`.
 
 ## Telemetry objects
 
@@ -62,7 +64,7 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 |---|---|---|
 | `RefreshLogsSeverityStatsWorker` `C/jobs/refresh_logs_severity_stats_worker.ex:146`, `:215` | logs, logs_severity_stats_5m | Oban (web-ng shim) |
 | `OtelServiceCatalogBackfillWorker` `C/observability/otel_service_catalog_backfill_worker.ex:85` | logs_severity_stats_5m, spans_red_1h, otel_metrics_hourly_stats | one-shot Oban |
-| JSON:API `/api/v2/logs` (`C/observability/log.ex:48`) | logs | API |
+| JSON:API `/api/v2/logs` (`C/observability/log.ex`) | logs | API; routes through `TelemetryIndexRead` (warehouse once logs are cut over, CNPG until then) |
 
 ### Metrics
 
@@ -73,14 +75,7 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 | `DeviceCorrelation` `C/event_writer/device_correlation.ex:173`, `:191`, `:208` | raw + interface_hourly | EventWriter enrichment |
 | `InterfaceThresholdWorker.get_latest_metric_value` `C/inventory/interface_threshold_worker.ex:409` | timeseries_metrics | Oban |
 | `CapacityForecasting.Source` `:109`, `:123`; `SeasonalDisposition.Source` `:201` | disk/interface hourly caggs | non-UI (via the unmapped SRQL entities) |
-| JSON:API RawMetricResource / HourlyMetricResource | raw + caggs | API |
-
-### Flows
-
-| Reader | Reads | Surface |
-|---|---|---|
-| `DeviceRiskIocExposure.query_flow_page_sql` `C/inventory/device_risk_ioc_exposure.ex:406` | ocsf_network_activity | Oban (device risk) |
-| Dashboard `traffic_sparklines.ex:69`; device `flow_data.ex:578`, `:605` | flow caggs / raw | go through `Readers`, but fall back to CNPG when flows are not cut over, although flows are warehouse-only |
+| JSON:API RawMetricResource / HourlyMetricResource | raw + caggs | API; `timeseries_metrics` and `timeseries_metrics_hourly` route through `TelemetryIndexRead` (warehouse once metrics are cut over); interface/disk hourly and sysmon stay on CNPG with StarRocks enabled (no warehouse table) |
 
 ### OTel traces and metrics (metrics SRQL routed by 3.1; traces by 3.2)
 
@@ -92,16 +87,17 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 | LogLive traces/metrics tabs, `TraceLive.Show`, `MetricLive.Show`, Analytics slow spans, onboarding | traces, summaries, otel_metrics, points | SRQL CNPG |
 | LogLive `load_sparklines` `W/live/log_live/index.ex:10155` | otel_metrics | logs page OTel sparklines (direct); removed by 3.1, it queried columns `otel_metrics` does not have |
 | `RefreshTraceSummariesWorker` `C/jobs/refresh_trace_summaries_worker.ex:266`; `RootSpanRatioWorker` `C/jobs/root_span_ratio_worker.ex:57` | otel_traces | Oban (read and write the warehouse when enabled, 3.2) |
-| JSON:API `/otel_traces`, `/otel_trace_summaries`, `/otel_metrics`, `/otel_metric_points` | raw | API |
+| JSON:API `/otel_traces`, `/otel_trace_summaries` | raw | API; route through `TelemetryIndexRead` (warehouse when StarRocks is enabled, CNPG otherwise; 3.2.6) |
+| JSON:API `/otel_metrics`, `/otel_metric_points` | raw | API; route through `TelemetryIndexRead` (warehouse when enabled, CNPG otherwise) |
 
 ### Sysmon tables, BMP / BGP, service status
 
 | Reader | Reads | Surface |
 |---|---|---|
 | SRQL `cpu`, `memory`, `disk`, `process` metrics; Analytics high utilization `:130-132`; device list `index_data/telemetry.ex:87`; authored dashboard `source_queries.ex:54`; JSON:API | cpu/memory/disk/process tables and caggs | SRQL CNPG / API |
-| SRQL `bmp_events`; `BmpLive` `W/live/bmp_live/index.ex:29` | bmp_routing_events | BMP page |
-| `GodViewStream.fetch_recent_bmp_routing_events` `WN/topology/god_view_stream.ex:5344` | bmp_routing_events | God View |
-| `ServiceRadar.BGP.Stats` `C/bgp/stats.ex:29` and seven more queries | bgp_routing_info | BGP page |
+| SRQL `bmp_events`; `BmpLive` `W/live/bmp_live/index.ex:29` | bmp_routing_events | BMP page (routed by 3.4b: `Readers.mode_for(:bmp)` on `enabled?/0`) |
+| `GodViewStream.fetch_recent_bmp_routing_events` `WN/topology/god_view_stream.ex:5344` | bmp_routing_events | God View (warehouse branch added by 3.4b.4) |
+| `ServiceRadar.BGP.Stats` `C/bgp/stats.ex:29` and seven more queries | bgp_routing_info | BGP page (stays CNPG, see below) |
 | SRQL `services`, `service_availability`, `monitored_services`, `slo_evaluations` | service_status | Services pages, device health, authored dashboards |
 | `Stats.services_availability` `W/stats.ex:461`; dashboard `service_sparklines.ex:30` | services_availability_5m | dashboard service card and sparkline (see findings) |
 | Analytics `get_service_counts` `W/live/analytics_live/index.ex:536` | service_status | Analytics |
@@ -129,10 +125,19 @@ SRQL timeseries, SNMP and rperf metrics, `TopologyGraph.Telemetry.Metrics`, God 
 dashboard interface sparklines, device sysmon and ICMP views, `PeakProfile`, the raw halves of
 `CapacityForecasting.Source` and `SeasonalDisposition.Source`. Flows: SRQL flows and every flow
 page, `FlowAttribution.Correlation`, the netflow, retrohunt, exporter cache, IP enrichment and
-endpoint scan workers. MTR: SRQL MTR, `MtrData`, dashboard MTR card and sparkline, `MtrTrace`,
+endpoint scan workers, the dashboard throughput sparkline
+(`TrafficSparklines.warehouse_traffic_rows/2`), the device Flows-tab presence probes
+(`DeviceLive.FlowData`), and `DeviceRiskIocExposure` (warehouse flow page when
+`Readers.backend(:flows) == :starrocks`, CNPG kept otherwise). MTR: SRQL MTR, `MtrData`,
+dashboard MTR card and sparkline, `MtrTrace`,
 `MtrCompare`. OTel metrics (3.1): SRQL `otel_metrics`/`otel_metric_points` and every page using
 them (logs page metrics tab and OTLP view, `MetricLive.Show`, Analytics slowest spans,
-onboarding), routed on `enabled?/0` like MTR.
+onboarding), routed on `enabled?/0` like MTR. BMP (3.4b): SRQL `bmp_events` (the BMP page)
+routed on `enabled?/0`, and God View's direct `bmp_routing_events` read has a warehouse branch
+next to its CNPG query. `bgp_routing_info` is NOT BMP routing events: `ServiceRadar.BGP.Stats`
+reads flow-derived telemetry that `ServiceRadar.BGP.Ingestor` aggregates by in-place upsert
+(per-minute bucket rows updated in place), so it is current-state-shaped and stays in CNPG
+(Decision 1); it is not part of task 3.4b.
 
 Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade` and
 `serviceradar_srql` read no telemetry.
@@ -145,18 +150,20 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
    `rollup_stats:availability` returned nothing. Resolved for CNPG by migration
    `20260927120000_ensure_services_availability_5m_cagg`; it still needs a warehouse
    counterpart when service status moves in 5.4.
-2. **The dedicated sysmon tables have no writer.** `cpu_metrics`, `memory_metrics`,
-   `disk_metrics`, `process_metrics` and `cpu_cluster_metrics` have Ash resources, retention and
-   readers but no insert anywhere; device sysmon data lives in `timeseries_metrics` as
-   `sysmon.*`. Their readers are legacy; retire them rather than building warehouse versions.
+2. **Dedicated sysmon readers: resolved in issue #4861.** The sysmon entries
+   above describe the original inventory snapshot; their disposition is recorded
+   in [task 3.3](tasks.md).
 3. **`Readers.mode_for/1` routes events, logs and metrics on `cutover_datasets`, not
    `enabled?/0`.** Every reader marked routed above still reads CNPG until the cutover list
    names its dataset; 5.2 collapses this to `enabled?/0`.
 4. **Two metrics SRQL entities are unmapped** (`timeseries_metric_interface_hourly`,
    `timeseries_metric_disk_hourly`), so capacity forecasting and seasonal disposition read CNPG
    unconditionally.
-5. **Flows keep CNPG fallbacks** in the dashboard throughput sparkline and the device Flows tab
-   probes although flows are warehouse-only, and `DeviceRiskIocExposure` always reads CNPG flows.
+5. **Flow reader routing resolved (issue #4869).** The dashboard throughput sparkline,
+   device Flows-tab probes and `DeviceRiskIocExposure` now consult `Readers`.
+   See [NetFlow: Flow cutover and delivery](../../../docs/docs/netflow.md#flow-cutover-and-delivery)
+   for the routing contract, risk-reader exception and upgrade limitations.
+
 6. **`rust/srql/src/server.rs:51` (`/api/query`) runs every entity on CNPG** and bypasses
    `Readers`; no chart deploys it, so it may be dead. **Resolved (issue #4873):** the standalone
    server was dead — no Helm template, Compose service, k8s manifest or Docker image ran it, and

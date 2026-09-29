@@ -4,6 +4,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateScheduler do
   """
 
   use ServiceRadar.ObanEnsureScheduled,
-    workers: [ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker],
+    workers: [
+      ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker,
+      ServiceRadar.NetworkDiscovery.WorldWorker,
+      ServiceRadar.NetworkDiscovery.WorldRetentionWorker
+    ],
     label: "Topology state cleanup scheduling"
 end

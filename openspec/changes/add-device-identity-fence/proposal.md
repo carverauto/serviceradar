@@ -56,16 +56,9 @@ already pinned.
   into B".
 - **MODIFY** merge to bump the survivor as well as the source, so the fence has something to
   observe on B.
-- **FIX** the episode duplicate-and-false-resolve bug, which is real but is **not** caused by
-  what was originally assumed. Tracing the question closed: the edge never re-identifies after
-  a merge — `MetricResource.device_id` has zero production writers, so the agent always
-  identifies from a local hostname, a polled target IP, or its agent id. `episode_uid` is
-  therefore merge-stable and continuation already works. The actual defect is that core
-  recomputes `finding_uid` from the canonical device but the upsert never writes it back
-  (`anomaly_episode_registry.ex:175-193`, `anomaly_episode.ex:39`), leaving a row whose
-  `device_uid` and `series_key` are post-merge and whose `finding_uid` is pre-merge. That
-  disables both fold arms of the matching CTE, so the next edge-side episode restart inserts a
-  duplicate and the original is closed as "resolved". One field in the conflict branch.
+- **FIX (implemented, task 7.3)** the episode duplicate-and-false-resolve bug.
+  See [D7's corrected upsert defect](design.md#the-corrected-upsert-defect) for the
+  cause, implementation, and regression coverage.
 - **ADD** finding lineage recorded **by ingest when a re-key is observed** — not by the merge
   on a prediction — so findings written under the previous hash stay joinable after the
   correction.

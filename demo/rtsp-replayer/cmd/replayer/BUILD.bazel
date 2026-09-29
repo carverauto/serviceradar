@@ -1,0 +1,12 @@
+# gazelle:ignore
+load("@io_bazel_rules_go//go:def.bzl", "go_binary")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_binary(
+    name = "replayer",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/demo/rtsp-replayer/cmd/replayer",
+    visibility = ["//visibility:public"],
+    deps = ["//demo/rtsp-replayer:replayer_lib"],
+)

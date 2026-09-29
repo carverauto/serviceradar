@@ -17,7 +17,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.MetricConsumers
+  alias ServiceRadar.Analytics.StarRocks.Query
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Inventory.Device
@@ -591,6 +594,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     capacity_bps = normalize_u64(Map.get(link, :capacity_bps, 0))
 
     %{
+      link_key: normalize_id(Map.get(link, :link_key)),
       source: source,
       target: target,
       kind: "topology",
@@ -1440,22 +1444,27 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   @doc false
-  def fetch_devices(_actor, []), do: {:ok, []}
+  def fetch_devices(actor, node_ids), do: read_devices(node_ids, actor: actor)
 
-  def fetch_devices(actor, node_ids) when is_list(node_ids) do
+  @doc "Reads only the admitted device identities under the caller's Ash scope."
+  def fetch_devices_for_scope(scope, node_ids), do: read_devices(node_ids, scope: scope)
+
+  defp read_devices([], _opts), do: {:ok, []}
+
+  defp read_devices(node_ids, opts) when is_list(node_ids) do
     # Keep query parameter counts bounded for large topology graphs.
     node_ids
     |> Enum.chunk_every(2_000)
     |> Enum.reduce_while({:ok, []}, fn node_id_chunk, {:ok, acc} ->
       query =
         Device
-        |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
+        |> Ash.Query.for_read(:read, %{include_deleted: false}, opts)
         |> Ash.Query.filter(uid in ^node_id_chunk)
 
       try do
         devices =
           query
-          |> Page.stream!(actor: actor)
+          |> Page.stream!(opts)
           |> Enum.reduce(acc, fn device, acc -> [device | acc] end)
 
         {:cont, {:ok, devices}}
@@ -1637,21 +1646,25 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       device = Map.get(device_by_id, id)
       pps = Map.get(node_pps_by_id, id, 0)
       unplaced? = MapSet.member?(unplaced_node_id_set, id)
+      attributes = device_node_attributes(device, id, Map.get(camera_sources_by_device_uid, id, []), unplaced?)
 
-      %{
+      details_json =
+        case Jason.encode(attributes.details) do
+          {:ok, json} -> json
+          _ -> "{}"
+        end
+
+      attributes
+      |> Map.delete(:details)
+      |> Map.merge(%{
         id: id,
-        label: node_label(device, id),
-        kind: node_kind(device),
         x: x,
         y: y,
         state: 3,
         pps: pps,
         oper_up: nil,
-        details_json: node_details_json(device, id, Map.get(camera_sources_by_device_uid, id, []), unplaced?),
-        geo_lat: node_geo_lat(device),
-        geo_lon: node_geo_lon(device),
-        health_signal: health_signal(device)
-      }
+        details_json: details_json
+      })
     end)
     |> disambiguate_duplicate_node_labels()
   end
@@ -1866,7 +1879,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_kind(nil), do: "endpoint"
   defp node_kind(device), do: node_type(device) || "device"
 
-  defp node_details_json(device, id, camera_sources, unplaced?) do
+  @doc """
+  Projects one inventory device without layout or graph-wide causal processing.
+
+  A nil camera source list omits camera details whose bounded read is deferred.
+  The existing snapshot path supplies its already-loaded camera sources.
+  """
+  def device_node_attributes(device, id, camera_sources, unplaced?) do
+    %{
+      label: node_label(device, id),
+      kind: node_kind(device),
+      details: node_details(device, id, camera_sources, unplaced?),
+      geo_lat: node_geo_lat(device),
+      geo_lon: node_geo_lon(device),
+      health_signal: health_signal(device)
+    }
+  end
+
+  defp node_details(device, id, camera_sources, unplaced?) do
     device = device || %{}
     device_uid = normalize_id(Map.get(device, :uid)) || id
     camera_state = summarize_camera_state(camera_sources)
@@ -1906,9 +1936,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       camera_last_event_message: camera_state.last_event_message
     }
 
-    case Jason.encode(details) do
-      {:ok, json} -> json
-      _ -> "{}"
+    if is_nil(camera_sources) do
+      Map.reject(details, fn {key, _value} -> String.starts_with?(Atom.to_string(key), "camera_") end)
+    else
+      details
     end
   end
 
@@ -2403,7 +2434,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     "#{protocol} #{class_token} #{format_rate(flow_pps || 0)} / #{format_capacity(capacity_bps || 0)}"
   end
 
-  defp edge_topology_class(edge) do
+  @doc false
+  @spec edge_topology_class(map()) :: String.t()
+  def edge_topology_class(edge) do
     case evidence_class(edge) do
       "endpoint-attachment" -> "endpoints"
       "inferred" -> "inferred"
@@ -5342,26 +5375,108 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp fetch_recent_bmp_routing_events(cutoff, limit) do
-    query =
-      from(e in "bmp_routing_events",
-        where: e.time >= ^cutoff,
-        where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
-        order_by: [desc: e.time],
-        limit: ^limit,
-        select: %{
-          source: "bmp_routing_events",
-          event_time: e.time,
-          event_identity: e.metadata["event_identity"],
-          metadata: e.metadata,
-          device: %{"uid" => e.router_id},
-          src_endpoint: %{"ip" => e.peer_ip}
-        }
-      )
+    if Readers.enabled?() do
+      fetch_recent_bmp_routing_events_warehouse(cutoff, limit)
+    else
+      query =
+        from(e in "bmp_routing_events",
+          where: e.time >= ^cutoff,
+          where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
+          order_by: [desc: e.time],
+          limit: ^limit,
+          select: %{
+            source: "bmp_routing_events",
+            event_time: e.time,
+            event_identity: e.metadata["event_identity"],
+            metadata: e.metadata,
+            device: %{"uid" => e.router_id},
+            src_endpoint: %{"ip" => e.peer_ip}
+          }
+        )
 
-    Repo.all(query)
+      Repo.all(query)
+    end
   rescue
     _ -> []
   end
+
+  # The warehouse branch of the God View BMP routing overlay. It reads the
+  # same rows the CNPG query does and hands back the same shaped maps, so the
+  # dedupe and overlay code below never learns which backend answered. A
+  # warehouse read failure yields `[]` exactly as the CNPG rescue does, so the
+  # overlay degrades to OCSF-only rather than crashing.
+  defp fetch_recent_bmp_routing_events_warehouse(cutoff, limit) do
+    sql = """
+    SELECT `time`, `metadata`, `router_id`, `peer_ip`
+    FROM #{Env.table("bmp_routing_events")}
+    WHERE `time` >= '#{warehouse_datetime(cutoff)}'
+      AND COALESCE(`severity_id`, 0) >= #{routing_causal_severity_threshold()}
+    ORDER BY `time` DESC
+    LIMIT #{limit}
+    """
+
+    case Query.execute(sql) do
+      {:ok, %{columns: columns, rows: rows}} ->
+        shape_warehouse_bmp_events(columns, rows)
+
+      {:error, _reason} ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp shape_warehouse_bmp_events(columns, rows) do
+    Enum.map(rows, fn row ->
+      row = columns |> Enum.zip(row) |> Map.new()
+      metadata = decode_warehouse_json(row["metadata"])
+
+      %{
+        source: "bmp_routing_events",
+        event_time: warehouse_event_time(row["time"]),
+        event_identity: (metadata || %{})["event_identity"],
+        metadata: metadata,
+        device: %{"uid" => row["router_id"]},
+        src_endpoint: %{"ip" => row["peer_ip"]}
+      }
+    end)
+  end
+
+  # Warehouse DATETIME columns hold UTC wall-clock time with no zone suffix.
+  defp warehouse_datetime(%DateTime{} = value) do
+    value |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_naive() |> NaiveDateTime.to_string()
+  end
+
+  defp warehouse_event_time(nil), do: nil
+  defp warehouse_event_time(%DateTime{} = value), do: DateTime.shift_zone!(value, "Etc/UTC")
+  defp warehouse_event_time(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+
+  defp warehouse_event_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} ->
+        DateTime.shift_zone!(datetime, "Etc/UTC")
+
+      {:error, _reason} ->
+        case value |> String.replace(" ", "T", global: false) |> NaiveDateTime.from_iso8601() do
+          {:ok, naive} -> DateTime.from_naive!(naive, "Etc/UTC")
+          {:error, _reason} -> value
+        end
+    end
+  end
+
+  defp warehouse_event_time(value), do: value
+
+  defp decode_warehouse_json(nil), do: nil
+  defp decode_warehouse_json(%{} = value), do: value
+
+  defp decode_warehouse_json(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> decoded
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp decode_warehouse_json(_value), do: nil
 
   defp fetch_recent_ocsf_causal_events(cutoff, limit) do
     query =

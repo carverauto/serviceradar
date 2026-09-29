@@ -48,6 +48,7 @@ const (
 	pluginCapabilityActionResultIngest = "action-result-ingest:v1"
 	pluginCapabilityActionOnly         = "action-only:v1"
 	pluginCapabilityNotify             = "notify:v1"
+	pluginCapabilityGRPCRequest        = "grpc_request"
 )
 
 const (

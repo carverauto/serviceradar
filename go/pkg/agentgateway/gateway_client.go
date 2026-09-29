@@ -76,7 +76,7 @@ const (
 	defaultReconnectDelay = 5 * time.Second
 	maxReconnectDelay     = 60 * time.Second
 	defaultPushTimeout    = 30 * time.Second
-	defaultConfigTimeout  = 30 * time.Second
+	defaultConfigTimeout  = 90 * time.Second
 	defaultKeepaliveTime  = 30 * time.Second
 	defaultKeepaliveTTL   = 10 * time.Second
 	streamStatusChunkMax  = 16 * 1024 * 1024
@@ -632,7 +632,7 @@ func (g *GatewayClient) getConfigStream(ctx context.Context, req *proto.AgentCon
 		chunks = append(chunks, chunk)
 	}
 
-	return reassembleConfigChunks(chunks)
+	return ReassembleConfigChunks(chunks)
 }
 
 func (g *GatewayClient) logConfigResponse(req *proto.AgentConfigRequest, resp *proto.AgentConfigResponse) {
@@ -652,7 +652,9 @@ func (g *GatewayClient) logConfigResponse(req *proto.AgentConfigRequest, resp *p
 	}
 }
 
-func reassembleConfigChunks(chunks []*proto.AgentConfigChunk) (*proto.AgentConfigResponse, error) {
+// ReassembleConfigChunks validates and decodes the chunks of one config, in
+// order, whether they arrived on a StreamConfig fetch or a control-stream push.
+func ReassembleConfigChunks(chunks []*proto.AgentConfigChunk) (*proto.AgentConfigResponse, error) {
 	if len(chunks) == 0 {
 		return nil, ErrNoConfigChunks
 	}

@@ -24,7 +24,6 @@ const BOUND_METHOD_NAMES = [
   "startAnimationLoop",
   "stopAnimationLoop",
   "prepareGraphLayout",
-  "bootstrapLatestSnapshot",
   "renderSelectionDetails",
   "geoGridData",
   "getNodeTooltip",

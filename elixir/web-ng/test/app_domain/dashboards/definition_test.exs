@@ -39,6 +39,20 @@ defmodule ServiceRadarWebNG.Dashboards.DefinitionTest do
     )
   end
 
+  describe "slug" do
+    test "refuses a slug the builder would refuse" do
+      for slug <- ["Fleet_Report", "-leading", "trailing-", "double--dash", "9starts-with-digit"] do
+        assert {:error, message} = Definition.validate(definition(%{"slug" => slug}), "example.json")
+        assert message =~ "slug", "#{slug} must be refused"
+      end
+    end
+
+    test "accepts a lowercase dashed slug" do
+      assert {:ok, %{slug: "fleet-report-2"}} =
+               Definition.validate(definition(%{"slug" => "fleet-report-2"}), "example.json")
+    end
+  end
+
   describe "version handling" do
     test "accepts a supported version" do
       assert {:ok, parsed} = Definition.validate(definition(), "example.json")
@@ -238,21 +252,92 @@ defmodule ServiceRadarWebNG.Dashboards.DefinitionTest do
     end
 
     test "the loader reports a bad file rather than skipping it" do
-      dir = Path.join(System.tmp_dir!(), "sr_defs_#{System.unique_integer([:positive])}")
-      File.mkdir_p!(dir)
-      File.write!(Path.join(dir, "broken.json"), ~s({"version": 1, "slug": "x"}))
+      with_definition_dir(
+        %{
+          "index.json" => index_json([{"broken", "broken.json", true}]),
+          "broken.json" => ~s({"version": 1, "slug": "broken"})
+        },
+        fn dir ->
+          assert %{definitions: [], errors: [error]} = DefinitionLoader.load_all(dir)
+          assert error =~ "broken.json"
+        end
+      )
+    end
 
-      try do
+    test "a definition file the index does not list is an error, not an omission" do
+      with_definition_dir(
+        %{
+          "index.json" => index_json([{"example", "example.json", true}]),
+          "example.json" => Jason.encode!(definition()),
+          "forgotten.json" => Jason.encode!(definition(%{"slug" => "forgotten"}))
+        },
+        fn dir ->
+          assert %{definitions: [%{slug: "example"}], errors: [error]} = DefinitionLoader.load_all(dir)
+          assert error =~ "forgotten.json"
+          assert error =~ "not listed"
+        end
+      )
+    end
+
+    test "a definition whose slug differs from its index entry is refused" do
+      with_definition_dir(
+        %{
+          "index.json" => index_json([{"advertised", "example.json", true}]),
+          "example.json" => Jason.encode!(definition())
+        },
+        fn dir ->
+          assert %{definitions: [], errors: [error]} = DefinitionLoader.load_all(dir)
+          assert error =~ "does not match its index entry"
+        end
+      )
+    end
+
+    test "definition files without an index are refused" do
+      with_definition_dir(%{"example.json" => Jason.encode!(definition())}, fn dir ->
         assert %{definitions: [], errors: [error]} = DefinitionLoader.load_all(dir)
-        assert error =~ "broken.json"
-      after
-        File.rm_rf!(dir)
-      end
+        assert error =~ "index.json"
+      end)
+    end
+
+    test "each loaded definition carries its index flag, path and content hash" do
+      body = Jason.encode!(definition())
+
+      with_definition_dir(
+        %{"index.json" => index_json([{"example", "example.json", false}]), "example.json" => body},
+        fn dir ->
+          assert %{definitions: [loaded], errors: []} = DefinitionLoader.load_all(dir)
+          assert loaded.enabled_by_default == false
+          assert loaded.source_path == "example.json"
+          assert loaded.content_hash == :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)
+        end
+      )
     end
 
     test "an unreadable directory yields no definitions and no crash" do
       assert %{definitions: [], errors: []} =
                DefinitionLoader.load_all(Path.join(System.tmp_dir!(), "sr_defs_absent"))
+    end
+  end
+
+  defp index_json(entries) do
+    Jason.encode!(%{
+      "version" => 1,
+      "reports" =>
+        Enum.map(entries, fn {slug, path, enabled} ->
+          %{"slug" => slug, "path" => path, "enabled_by_default" => enabled}
+        end)
+    })
+  end
+
+  defp with_definition_dir(files, fun) do
+    dir = Path.join(System.tmp_dir!(), "sr_defs_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    Enum.each(files, fn {name, body} -> File.write!(Path.join(dir, name), body) end)
+
+    try do
+      fun.(dir)
+    after
+      File.rm_rf!(dir)
     end
   end
 end
