@@ -20,6 +20,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLiveTest do
 
     alias ServiceRadarWebNGWeb.Admin.DashboardPackageLiveTest
 
+    def fetch_body(url, opts), do: __MODULE__.get(url, opts)
+
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/acme/dashboard-demo/commits/") ->

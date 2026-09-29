@@ -55,12 +55,12 @@
 The repository-source logic is generic but namespaced under `Plugins`. Reports are
 the third consumer, so it moves once rather than being copied a third time.
 
-- [ ] 4b.1 Extract a project-owned shared module from `Plugins.RepoUrl`,
+- [x] 4b.1 Extract a project-owned shared module from `Plugins.RepoUrl`,
       `Plugins.GithubImporter`, `Plugins.FirstPartyImporter` and
       `Plugins.FirstPartyReleaseClient`: repository-URL parsing and boundary
       enforcement, ref resolution, signature verification and policy, release
       listing, and index-asset reading.
-- [ ] 4b.2 **Route every external fetch through `ServiceRadar.HTTP.EgressClient`.**
+- [x] 4b.2 **Route every external fetch through `ServiceRadar.HTTP.EgressClient`.**
       `GithubImporter` currently calls `api.github.com` and
       `raw.githubusercontent.com` with raw `Req`, including a streaming artifact
       download, and no importer under `plugins/` references `EgressClient` at all.
@@ -69,10 +69,10 @@ the third consumer, so it moves once rather than being copied a third time.
       runs behind -- so GitHub import cannot work in a proxied deployment today,
       and only there. Use `fetch_body/2` for API responses and
       `download_to_file/3` for artifacts.
-- [ ] 4b.3 Repoint plugins and add-ons at the shared module with no behaviour
+- [x] 4b.3 Repoint plugins and add-ons at the shared module with no behaviour
       change other than the egress fix, and keep their existing tests green as the
       evidence.
-- [ ] 4b.4 A test asserting no module under the package-source namespace calls
+- [x] 4b.4 A test asserting no module under the package-source namespace calls
       `Req` directly for an external host, so the violation cannot return.
 
 ## 4c. Report import sources

@@ -65,6 +65,8 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   defmodule MockClient do
     @moduledoc false
 
+    def fetch_body(url, opts), do: get(url, opts)
+
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
@@ -126,6 +128,8 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   defmodule UnverifiedClient do
     @moduledoc false
 
+    def fetch_body(url, opts), do: get(url, opts)
+
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
@@ -169,11 +173,14 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   defmodule OversizedClient do
     @moduledoc false
 
+    def fetch_body(url, opts), do: get(url, opts)
     def get(url, opts), do: GitHubImporterTest.handle(url, opts, GitHubImporterTest.large_wasm())
   end
 
   defmodule AliasManifestClient do
     @moduledoc false
+
+    def fetch_body(url, opts), do: get(url, opts)
 
     def get(url, opts) do
       if String.contains?(url, "raw.githubusercontent.com") and String.ends_with?(url, "/plugin.yaml") do
@@ -187,6 +194,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   defmodule RepoAwareClient do
     @moduledoc false
 
+    def fetch_body(url, opts), do: get(url, opts)
     def get(url, opts), do: GitHubImporterTest.handle(url, opts, GitHubImporterTest.wasm_blob())
   end
 
