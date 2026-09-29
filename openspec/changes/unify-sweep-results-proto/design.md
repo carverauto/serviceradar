@@ -210,10 +210,14 @@ starts from a full lease.
 mount (the automation-callback key pattern); the gateway receives public keys
 and key ids only. The issuer key is ServiceRadar talking to itself, not a device
 credential. Per lease it signs one production capability with `run_id` set to
-the lease; per scheduled execution it signs the SCHEDULED_SWEEP source
-authorization bound to that `execution_id`, its digests and its collection
-window. The ABI requires one source authorization per execution: a five-minute
-interval over seven days is about 2,000 signed slots, well under a megabyte.
+the lease. Per (execution, range) it signs one SCHEDULED_SWEEP source
+authorization: `context_id` is that `execution_id`, `scope_id` is that range's
+id, and both `scope_sha256` and `target_range_sha256` are that range's digest.
+The execution keeps one plan and carries one such authorization per range; each
+record or batch carries the authorization that matches its range. The signature
+count is executions times configured static targets. A five-minute interval over
+seven days is about 2,000 executions, and each of those signs once per
+configured static target.
 
 **Delivery and execution.** The lease travels core -> gateway -> agent over the
 existing authenticated control path as the plan of each scheduled execution
@@ -250,11 +254,13 @@ inside its lease from an exhausted lease.
 **Plan inputs.** The ABI defines how a scheduled plan is hashed but nothing
 builds one outside a test helper, and it leaves two digests undefined. Core builds
 one plan per execution, its ids minted with the execution, from the group's
-static targets: one range per canonical CIDR (or one first/last span for a
-contiguous run), at most 256 ranges per page, one page for the first canary,
-ICMP and TCP checks only. Because v1 binds one range to each source
-authorization, an execution carries as many authorizations as it has ranges,
-which is why an SRQL device list does not fit. Two values are defined here:
+static targets: exactly one `TargetRangeV1` per configured static target, a CIDR
+staying a CIDR and a configured non-CIDR range staying one first/last span, with
+no merge across targets. A page holds at most 256 ranges, and a plan uses as
+many pages as it needs. Checks are ICMP and TCP only. Because v1 binds one range
+to each source authorization, an execution carries as many authorizations as it
+has ranges, which is why an SRQL device list does not fit. Two values are defined
+here:
 
 - `check_set_sha256` is the SHA-256, in the plan grammar (big-endian integers,
   length-framed bytes), of the domain tag `serviceradar.edge.check_set.v1`, the
@@ -267,14 +273,15 @@ which is why an SRQL device list does not fit. Two values are defined here:
 authorization per (execution, range). The compiled sweep assignment, the
 assignment record and the host-key execution grant are not part of the first
 contract: the gateway and EventWriter never consult them, and using them would
-need three signatures and two stored artifacts per slot.
+need three signatures and two stored artifacts per (execution, range).
 
 **Open questions.** Whether dense or very long leases need a range-signing ABI
 extension (one signature over a run of slots) instead of one signature per
-execution; how lease computation is partitioned across a large fleet; whether a
-plan can be shared by the executions of a lease (one plan per execution is the
-safe reading until the ledger's uniqueness rules are checked); and the ABI
-extension that lets a range commit to an address set, which unlocks SRQL groups.
+(execution, range); how lease computation is partitioned across a large fleet;
+whether a plan can be shared by the executions of a lease (one plan per
+execution is the safe reading until the ledger's uniqueness rules are checked);
+and the ABI extension that lets a range commit to an address set, which unlocks
+SRQL groups.
 
 ## Goals
 
