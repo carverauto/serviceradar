@@ -200,14 +200,17 @@ longer selected. Reassignment and agent replacement both arrive as an
 of the lease horizon: a UUIDv7 `execution_id` whose time is the slot start, the
 slot's collection window, and the plan and range digests of that execution's
 plan (see "Plan inputs"). A group is leased only when it has non-empty
-`static_targets` and no `target_query`. A group with a `target_query`, whether
-or not it also has static targets, stays entirely on the legacy path (the
-agent's local ticker and legacy results): one execution is never split across
-the two paths, and the ABI cannot commit to an SRQL-resolved address set. If a
-leased group later gains a `target_query`, that change bumps the epoch and the
-group is no longer eligible, so its assignments are revoked and the agent falls
-back to its local ticker. Removing the query while static targets remain makes
-the group eligible, and it is leased from then on. Each execution is recorded
+`static_targets`, no `target_query`, and every static target fits one
+`TargetRangeV1`. A group with a `target_query`, whether or not it also has
+static targets, stays entirely on the legacy path (the agent's local ticker
+and legacy results): one execution is never split across the two paths, and
+the ABI cannot commit to an SRQL-resolved address set. The M2.0a fence only
+bumps the epoch when `target_query` or `static_targets` change; it does not
+revoke. The lease scheduler evaluates eligibility on each pass. An ineligible
+group (a `target_query`, no static targets, or a static target the plan cannot
+represent) gets no new leases, and the scheduler revokes its active
+assignments so the agent falls back to its local ticker. A group that becomes
+eligible is leased from the next pass. Each execution is recorded
 as scheduled before it runs. The horizon has a per-partition default, a
 per-agent override and an administrator maximum. Renewal keeps a connected
 agent's horizon full, so a disconnection
@@ -219,7 +222,9 @@ and key ids only. The issuer key is ServiceRadar talking to itself, not a device
 credential. Per lease it signs one production capability with `run_id` set to
 the lease. Per (execution, range) it signs one SCHEDULED_SWEEP source
 authorization: `context_id` is that `execution_id`, `scope_id` is that range's
-id, and both `scope_sha256` and `target_range_sha256` are that range's digest.
+id, both `scope_sha256` and `target_range_sha256` are that range's digest,
+`execution_plan_sha256` is the plan header digest, and the claims bind that
+execution's collection window.
 The execution keeps one plan and carries one such authorization per range; each
 record or batch carries the authorization that matches its range. The signature
 count is executions times configured static targets. A five-minute interval over
@@ -265,7 +270,10 @@ static targets: exactly one `TargetRangeV1` per configured static target, never
 merged with its neighbors, in the one spelling the plan validator accepts. A
 bare IPv4 becomes that address as a /32 CIDR and a bare IPv6 a /128 CIDR. A
 CIDR is committed as its canonical network prefix, still one range. A target
-that is already a first/last span stays one span. `PlanValidate` and the range
+that is already a first/last span stays one span. A static target whose
+address count does not fit the plan's `target_count` (an IPv6 prefix shorter
+than /65) cannot be one `TargetRangeV1`; the builder rejects that group rather
+than splitting it, and the group stays on the legacy path. `PlanValidate` and the range
 digest require canonical text, so the builder emits IPv6 addresses and CIDRs
 lowercase and compressed (RFC 5952) and IPv4 in dotted-quad, and does not reuse
 `normalizeSweepNetwork`'s bare-address spelling. Stored `10.1.2.3/24` becomes

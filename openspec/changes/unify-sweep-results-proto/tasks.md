@@ -53,23 +53,28 @@
     `3a2ed1bb-fa45-4612-bbb7-454e1bfe646f`; `integration_tests_async` ran 1,024
     tests, the 7 new DB tests included).
   - [ ] M2.0b Lease scheduler and plans. A group is leased only when it has
-    non-empty `static_targets` and no `target_query`. A group with a
-    `target_query`, whether or not it also has static targets, stays entirely
-    on the legacy path (agent local ticker, legacy results): one execution is
-    never split across the two paths, and the ABI cannot commit to an
-    SRQL-resolved address set. v1 binds one range to each source authorization,
-    so a sparse device list would need one signature per device per execution.
-    If a leased group later gains a `target_query`, the fence bumps the epoch
-    and revokes its assignments, and the agent falls back to its local ticker.
-    Removing the query while static targets remain makes the group eligible,
-    and it is leased from then on.
+    non-empty `static_targets`, no `target_query`, and every static target fits
+    one `TargetRangeV1`. A group with a `target_query`, whether or not it also
+    has static targets, stays entirely on the legacy path (agent local ticker,
+    legacy results): one execution is never split across the two paths, and the
+    ABI cannot commit to an SRQL-resolved address set. v1 binds one range to
+    each source authorization, so a sparse device list would need one signature
+    per device per execution. The M2.0a fence only bumps the epoch when
+    `target_query` or `static_targets` change; it does not revoke. On each pass
+    an ineligible group (a `target_query`, no static targets, or a static
+    target the plan cannot represent) gets no new leases, and the scheduler
+    revokes its active assignments so the agent falls back to its local ticker.
+    A group that becomes eligible is leased from the next pass.
     - [ ] M2.0b1 Plan builder. Core builds a scheduled plan (header, pages,
       ranges) from a group's static targets: exactly one `TargetRangeV1` per
       configured static target, never merged with its neighbors, in the one
       spelling the plan validator accepts. A bare IPv4 becomes that address as a
       /32 CIDR and a bare IPv6 a /128 CIDR. A CIDR is committed as its canonical
       network prefix, still one range. A target that is already a first/last
-      span stays one span. `PlanValidate` and the range digest require canonical
+      span stays one span. A static target whose address count does not fit the
+      plan's `target_count` (an IPv6 prefix shorter than /65) cannot be one
+      `TargetRangeV1`; the builder rejects that group rather than splitting it,
+      and the group stays on the legacy path. `PlanValidate` and the range digest require canonical
       text, so the builder emits IPv6 addresses and CIDRs lowercase and
       compressed (RFC 5952) and IPv4 in dotted-quad, and does not reuse
       `normalizeSweepNetwork`'s bare-address spelling. Stored `10.1.2.3/24`
@@ -94,12 +99,15 @@
       per-agent override and an administrator maximum; a week or more of
       disconnected operation is a supported setting. Renewal keeps a connected
       agent's horizon full. A fence bump (M2.0a) re-plans the unrun slots only
-      while the assignment stays active (a target change or a reactivation).
-      When the bump revokes the assignment, its unrun slots are dropped and are
-      not re-planned or re-signed. Gaining a `target_query` is that revoke, not
-      a target change that stays active: the group is no longer eligible and
-      the agent falls back to its local ticker. Removing the query while static
-      targets remain makes the group eligible and it is leased from then on.
+      while the assignment stays active and the group stays eligible (a target
+      change or a reactivation). The fence only bumps the epoch when
+      `target_query` or `static_targets` change; it does not revoke. When the
+      fence revokes an assignment, its unrun slots are dropped and are not
+      re-planned or re-signed. On each pass an ineligible group (a
+      `target_query`, no static targets, or a static target the plan cannot
+      represent) gets no new leases, and the scheduler revokes its active
+      assignments so the agent falls back to its local ticker. A group that
+      becomes eligible is leased from the next pass.
   - [ ] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
     mount and signs, per lease, the production capability (`run_id` = the lease)
     and one SCHEDULED_SWEEP source authorization per (execution, range). Every
@@ -151,14 +159,16 @@
   counts, per-port errors and the hostname come from the scanner, since the
   legacy summary drops them; batches are grouped deterministically per host.
 - [ ] M2.2 Per-agent opt-in. An agent opted in leases a sweep group only when
-  that group has non-empty `static_targets` and no `target_query`: core
-  schedules it (M2.0) and its results are emitted only on the edge path. A
-  group with a `target_query`, whether or not it also has static targets,
-  stays entirely on the agent's local ticker and the legacy path. One
-  execution is never split across the two paths. If a leased group later gains
-  a `target_query`, the fence revokes its assignments and the agent falls back
-  to its local ticker; removing the query while static targets remain makes
-  the group eligible and it is leased from then on.
+  that group has non-empty `static_targets`, no `target_query`, and every
+  static target fits one `TargetRangeV1`: core schedules it (M2.0) and its
+  results are emitted only on the edge path. A group with a `target_query`,
+  whether or not it also has static targets, stays entirely on the agent's
+  local ticker and the legacy path. One execution is never split across the
+  two paths. The fence only bumps the epoch when `target_query` or
+  `static_targets` change; it does not revoke. On each pass an ineligible
+  group gets no new leases, and the scheduler revokes its active assignments
+  so the agent falls back to its local ticker. A group that becomes eligible
+  is leased from the next pass.
   Agents not opted in keep their local ticker and the legacy
   `GatewayServiceStatus{source: "results"}` path unchanged, and one execution is
   never emitted on both paths.
