@@ -7,6 +7,8 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
   - SweepMonitorWorker is scheduled to monitor for missed sweeps
   - SweepCoverageRollupWorker is scheduled to roll up sweep coverage
   - SweepDataCleanupWorker is scheduled to clean up old sweep data
+  - SweepDeclaredTargetsWorker is scheduled, and the group's declared targets are
+    refreshed right away rather than on the next five-minute cycle
   """
 
   use Ash.Resource.Change
@@ -14,6 +16,7 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
   alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.SweepJobs.SweepCoverageRollupWorker
   alias ServiceRadar.SweepJobs.SweepDataCleanupWorker
+  alias ServiceRadar.SweepJobs.SweepDeclaredTargetsWorker
   alias ServiceRadar.SweepJobs.SweepMonitorWorker
 
   require Logger
@@ -34,6 +37,23 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
       # safety mechanism and does not depend on this ordering.
       schedule_rollup(record)
       schedule_cleanup(record)
+      schedule_declared_targets(record)
+    end
+  end
+
+  defp schedule_declared_targets(record) do
+    _ = SweepDeclaredTargetsWorker.ensure_scheduled()
+
+    case SweepDeclaredTargetsWorker.enqueue_group(record.id) do
+      {:ok, _job} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("Sweep declared-targets refresh deferred",
+          sweep_group_id: record.id,
+          reason: inspect(reason),
+          note: "the periodic refresh will record this group"
+        )
     end
   end
 

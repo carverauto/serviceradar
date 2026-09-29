@@ -12,6 +12,7 @@ defmodule ServiceRadar.SweepJobs.SweepScheduleReconciler do
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.SweepJobs.SweepCoverageRollupWorker
   alias ServiceRadar.SweepJobs.SweepDataCleanupWorker
+  alias ServiceRadar.SweepJobs.SweepDeclaredTargetsWorker
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepMonitorWorker
 
@@ -71,6 +72,7 @@ defmodule ServiceRadar.SweepJobs.SweepScheduleReconciler do
     # mechanism and does not depend on this ordering.
     schedule_worker(SweepCoverageRollupWorker, "sweep coverage rollup")
     schedule_worker(SweepDataCleanupWorker, "sweep data cleanup")
+    schedule_worker(SweepDeclaredTargetsWorker, "sweep declared targets")
   end
 
   defp handle_groups({:error, error}) do

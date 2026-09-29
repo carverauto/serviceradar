@@ -58,6 +58,7 @@ defmodule ServiceRadar.Jobs.SelfSchedulingWorkerUniquenessTest do
     ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker,
     ServiceRadar.SweepJobs.SweepCoverageRollupWorker,
     ServiceRadar.SweepJobs.SweepDataCleanupWorker,
+    ServiceRadar.SweepJobs.SweepDeclaredTargetsWorker,
     ServiceRadar.SweepJobs.SweepMonitorWorker,
     # Never covered by the old source-grep test, which carried a hardcoded 23-module list.
     ServiceRadar.Integrations.ArmisNorthboundConflictAuditWorker,
