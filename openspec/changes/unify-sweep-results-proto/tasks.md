@@ -52,12 +52,17 @@
     decision table passed in its BazelCI (BuildBuddy invocation
     `3a2ed1bb-fa45-4612-bbb7-454e1bfe646f`; `integration_tests_async` ran 1,024
     tests, the 7 new DB tests included).
-  - [ ] M2.0b Lease scheduler and plans. Scope: sweep groups whose targets are
-    static CIDRs or address ranges (`static_targets`). A group with an SRQL
-    `target_query` stays on the legacy path until an ABI extension defines a range
-    kind that commits to an address set: v1 binds one range to each source
-    authorization, so a sparse device list would need one signature per device per
-    execution.
+  - [ ] M2.0b Lease scheduler and plans. A group is leased only when it has
+    non-empty `static_targets` and no `target_query`. A group with a
+    `target_query`, whether or not it also has static targets, stays entirely
+    on the legacy path (agent local ticker, legacy results): one execution is
+    never split across the two paths, and the ABI cannot commit to an
+    SRQL-resolved address set. v1 binds one range to each source authorization,
+    so a sparse device list would need one signature per device per execution.
+    If a leased group later gains a `target_query`, the fence bumps the epoch
+    and revokes its assignments, and the agent falls back to its local ticker.
+    Removing the query while static targets remain makes the group eligible,
+    and it is leased from then on.
     - [ ] M2.0b1 Plan builder. Core builds a scheduled plan (header, pages,
       ranges) from a group's static targets: exactly one `TargetRangeV1` per
       configured static target, never merged with its neighbors, in the one
@@ -83,7 +88,7 @@
       lease id, plan id and header digest, the id and digest of every range in
       that plan, `check_set_sha256` and `availability_policy_id`; the raw plan
       bytes are kept for the EventWriter's host-membership check (5.1).
-    - [ ] M2.0b3 Lease scheduler. For each opted-in assignment core pre-mints the
+    - [ ] M2.0b3 Lease scheduler. For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
       as scheduled before it runs. The horizon has a per-partition default, a
       per-agent override and an administrator maximum; a week or more of
@@ -91,7 +96,10 @@
       agent's horizon full. A fence bump (M2.0a) re-plans the unrun slots only
       while the assignment stays active (a target change or a reactivation).
       When the bump revokes the assignment, its unrun slots are dropped and are
-      not re-planned or re-signed.
+      not re-planned or re-signed. Gaining a `target_query` is that revoke, not
+      a target change that stays active: the group is no longer eligible and
+      the agent falls back to its local ticker. Removing the query while static
+      targets remain makes the group eligible and it is leased from then on.
   - [ ] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
     mount and signs, per lease, the production capability (`run_id` = the lease)
     and one SCHEDULED_SWEEP source authorization per (execution, range). Every
@@ -108,7 +116,7 @@
     execution grants are not used: no check on the record path consults them, and
     they need three signatures and two stored artifacts per (execution, range).
     They stay in the backlog.
-  - [ ] M2.0e Agent lease execution. For an opted-in group the agent's local
+  - [ ] M2.0e Agent lease execution. For a leased group the agent's local
     ticker is replaced by the lease: it runs each slot at its time from its own
     clock whether or not it is connected, and refuses a lease slot when its wall
     clock reads earlier than the lease's signed issuance time (the last
@@ -142,10 +150,15 @@
   come from the lease slot (M2.0), not from the agent; ICMP sent/received
   counts, per-port errors and the hostname come from the scanner, since the
   legacy summary drops them; batches are grouped deterministically per host.
-- [ ] M2.2 Per-agent opt-in. An agent opted in has its sweep groups that use
-  static targets scheduled by core through leases (M2.0) and emits their results
-  only on the edge path; a group with an SRQL target query keeps its local ticker
-  and the legacy path.
+- [ ] M2.2 Per-agent opt-in. An agent opted in leases a sweep group only when
+  that group has non-empty `static_targets` and no `target_query`: core
+  schedules it (M2.0) and its results are emitted only on the edge path. A
+  group with a `target_query`, whether or not it also has static targets,
+  stays entirely on the agent's local ticker and the legacy path. One
+  execution is never split across the two paths. If a leased group later gains
+  a `target_query`, the fence revokes its assignments and the agent falls back
+  to its local ticker; removing the query while static targets remain makes
+  the group eligible and it is leased from then on.
   Agents not opted in keep their local ticker and the legacy
   `GatewayServiceStatus{source: "results"}` path unchanged, and one execution is
   never emitted on both paths.
