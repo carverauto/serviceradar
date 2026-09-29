@@ -57,8 +57,10 @@ components manipulating JetStream buckets directly.
 CNPG is the system of record for inventory, telemetry, and analytics (Timescale hypertables and AGE graph features are enabled in the cluster).
 
 An optional StarRocks warehouse (off by default) can hold migrated telemetry
-history -- flows, scalar metrics, logs and event history -- written by the same
-EventWriter path. CNPG remains the system of record for inventory,
+history -- flows, scalar metrics, logs, event history, and further append-only
+datasets, including BMP routing events -- written by the same EventWriter path.
+The BMP table and retention contract is in `k8s/starrocks/README.md`. CNPG
+remains the system of record for inventory,
 configuration, credentials and current alert state, and keeps serving scalar
 metrics, logs and event history until each is explicitly cut over. Flows are the
 exception: they are written to CNPG but served only from the warehouse, so

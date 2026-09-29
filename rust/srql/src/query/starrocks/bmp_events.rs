@@ -3,14 +3,15 @@
 //!
 //! With the warehouse enabled EventWriter's AnalyticsSignals processor writes
 //! BMP routing events only to `serviceradar.bmp_routing_events`
-//! (`priv/starrocks/0022`), whose columns are those of the CNPG table plus the
-//! same names. This module answers the queries the CNPG builder
-//! (`query/bmp_events.rs`) answers, with the same rows:
+//! (`priv/starrocks/0024`), with the CNPG table's column names. This module
+//! answers the queries the CNPG builder (`query/bmp_events.rs`) answers, with
+//! the same rows:
 //!
 //! * A BMP query is always a row listing; `stats:` is refused on both backends
-//!   (`reject_stats`). `rollup_stats:` is refused by the warehouse dialect but
-//!   answered as a plain row listing by CNPG, and `bucket:` is refused by the
-//!   warehouse dialect and by CNPG's downsample builder.
+//!   (`reject_stats`). `rollup_stats:` and `other:true` are refused by the
+//!   warehouse dialect but answered as a plain row listing by CNPG, and
+//!   `bucket:` is refused by the warehouse dialect and by CNPG's downsample
+//!   builder.
 //! * Time bounds are the closed `[start, end]` CNPG binds, at microsecond
 //!   precision.
 //! * Text filters follow `apply_text_filter!`: equality and lists are exact,

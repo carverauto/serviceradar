@@ -512,8 +512,11 @@ Operational notes:
 ## Optional StarRocks Analytics
 
 `analytics.starrocks.*` enables an opt-in telemetry warehouse for flows, scalar
-metrics, logs and event history. It is off by default, and NetFlow collection
-does not depend on it (`flowCollector.enabled` is independent). Metric, log and
+metrics, logs, event history, and further append-only datasets, including BMP
+routing events. It is off by default, and NetFlow collection
+does not depend on it (`flowCollector.enabled` is independent). BMP routing
+events are warehouse-only while StarRocks is enabled; the table and retention
+contract is in `k8s/starrocks/README.md`. Metric, log and
 event reads stay on CNPG until the dataset is named in
 `analytics.starrocks.cutoverDatasets`. Flow routing,
 required delivery and the historical-attribution limitation are documented in
