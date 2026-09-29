@@ -30,6 +30,13 @@ or an explicit set of known agents.
 - **AND** the agent SHALL receive the config via its next config delivery
 - **AND** the behavior SHALL match the former scalar `agent_id` assignment
 
+#### Scenario: Assign sweep job to specific agent
+- **GIVEN** a sweep job configuration
+- **WHEN** the user selects a specific agent
+- **THEN** only that agent SHALL execute the job, as described in "Assign sweep
+  job to one agent"
+- **AND** the agent SHALL receive the config via its next config delivery
+
 #### Scenario: Assign sweep job to an agent subset
 - **GIVEN** a sweep job configuration
 - **WHEN** the user selects multiple known agents
@@ -387,6 +394,14 @@ the command bus for every online agent in the group's effective assignment.
   sweep-capable agent
 - **AND** each command SHALL use that agent's live control-session partition
 
+#### Scenario: Run sweep group now
+- **GIVEN** a sweep group assigned to an online agent
+- **WHEN** the admin selects `Run now`
+- **THEN** the system SHALL send a sweep command over the control stream to that
+  agent when its live session is sweep-capable, as described in "Run
+  selected-agent sweep group now"
+- **AND** the UI SHALL receive command status updates
+
 #### Scenario: Selected online agent lacks live sweep capability
 - **GIVEN** a selected agent has an online control session without the `sweep`
   capability
@@ -414,6 +429,16 @@ the command bus for every online agent in the group's effective assignment.
 - **GIVEN** no agent in the sweep group's effective assignment is online
 - **WHEN** the admin selects `Run now`
 - **THEN** the system SHALL return an immediate error
+
+#### Scenario: Run sweep group while agent offline
+- **GIVEN** a sweep group assigned to an offline agent
+- **WHEN** the admin selects `Run now`
+- **THEN** the system SHALL return an immediate error when no other agent in the
+  effective assignment is online, as described in "Run sweep group while all
+  effective agents are offline"
+- **AND** when other assigned agents are online, the offline agent SHALL be
+  reported as a per-agent failure of a partial dispatch, as described in "Run
+  sweep group with partial selected availability"
 
 #### Scenario: Track selected-agent command status independently
 - **GIVEN** run-now dispatch created commands for selected agents A and B
