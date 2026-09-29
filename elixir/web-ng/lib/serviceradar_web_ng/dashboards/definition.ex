@@ -17,6 +17,9 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
 
   ## The rules, and what each one prevents
 
+    * `slug` must follow the builder's slug grammar. A definition can arrive from
+      an operator-nominated repository or an upload, and its slug becomes a route
+      alias, so it is held to the same rule as a slug typed into the builder.
     * `version` must be present and known. An unrecognised version is a refusal,
       never a skip: a definition the loader silently ignores is indistinguishable
       from one that was never shipped.
@@ -35,6 +38,7 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
 
   @supported_versions [1]
   @grid_columns 12
+  @slug_pattern ~r/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
   # A `time:<duration>` group dimension projects its bucket under this key. The
   # compiler produces it, so it never appears in the query text.
@@ -55,6 +59,11 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
   @spec supported_versions() :: [pos_integer()]
   def supported_versions, do: @supported_versions
 
+  @doc "Whether `slug` follows the dashboard slug grammar."
+  @spec valid_slug?(term()) :: boolean()
+  def valid_slug?(slug) when is_binary(slug), do: Regex.match?(@slug_pattern, slug)
+  def valid_slug?(_slug), do: false
+
   @doc "Visual types the panel resource will accept."
   @spec allowed_visual_types() :: [atom()]
   def allowed_visual_types do
@@ -73,6 +82,7 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
   def validate(raw, source) when is_map(raw) do
     with :ok <- validate_version(raw, source),
          {:ok, slug} <- required_string(raw, "slug", source),
+         :ok <- validate_slug(slug, source),
          {:ok, title} <- required_string(raw, "title", source),
          {:ok, panels} <- validate_panels(raw, source) do
       {:ok,
@@ -102,6 +112,16 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
   end
 
   defp validate_version(_raw, source), do: {:error, "#{source}: missing required integer \"version\""}
+
+  defp validate_slug(slug, source) do
+    if valid_slug?(slug) do
+      :ok
+    else
+      {:error,
+       "#{source}: slug #{inspect(slug)} must start with a lowercase letter and use only " <>
+         "lowercase letters, numbers, and single dashes"}
+    end
+  end
 
   defp required_string(raw, key, source) do
     case Map.get(raw, key) do

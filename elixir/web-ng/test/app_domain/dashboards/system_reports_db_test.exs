@@ -182,6 +182,27 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     assert after_seed.panels == [], "unrelated dashboard must have no panels added to it"
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "records first-party provenance on the reports it creates at startup", %{actor: actor, marker: marker} do
+    # Start from absent so this asserts what creation writes, not what a row
+    # carried over from an earlier seed happens to hold.
+    cleanup!(marker)
+
+    assert {:ok, _} = SystemReports.seed_all(actor: actor)
+
+    for spec <- SystemReports.dashboard_specs(), spec.enabled_by_default do
+      {:ok, loaded} =
+        AuthoredDashboard
+        |> Ash.Query.for_read(:by_slug, %{slug: spec.slug})
+        |> Ash.read_one(actor: actor)
+
+      assert loaded.source_type == :first_party
+      assert loaded.source_path == "elixir/web-ng/priv/dashboards/#{spec.source_path}"
+      assert loaded.content_hash == spec.content_hash
+      assert loaded.source_repo_url == "https://github.com/carverauto/serviceradar"
+    end
+  end
+
   defp synthetic_dashboard_ref do
     1_000_000 + :erlang.phash2(Ecto.UUID.generate(), 9_000_000)
   end

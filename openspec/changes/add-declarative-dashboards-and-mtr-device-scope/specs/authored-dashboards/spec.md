@@ -77,6 +77,7 @@ Export and import SHALL be inverses over the fields the format defines. Fields o
 - `inserted_at`, `updated_at`, `archived_at` — timestamps
 - `owner_id` — ownership; the importing installation applies its own
 - `visibility`, `status` — operational state set by the importing installation
+- `source_type`, `source_repo_url`, `source_ref`, `source_release_tag`, `source_commit`, `source_path`, `content_hash`, `signature` — import provenance, recorded afresh by the importing installation
 
 **Panel-level exclusions** (not in the exported definition):
 - `id`, `dashboard_id` — database identifiers
@@ -103,3 +104,40 @@ Export and import SHALL be inverses over the fields the format defines. Fields o
 - **WHEN** a definition is imported
 - **THEN** access grants and report schedules from the exporting installation are absent
 - **AND** the importing installation's own ownership applies
+
+### Requirement: Report definitions are importable from a first-party release, a GitHub repository, or an upload
+
+The product SHALL import a report definition from one of three sources, recorded on the dashboard as `source_type`: `first_party` (the OSS repository at a release tag), `github` (a repository the operator nominates), or `upload` (a definition supplied directly). An imported dashboard SHALL carry provenance: the source repository and requested ref where applicable, the release tag and resolved commit where applicable, the definition's repository path, the SHA256 of the definition bytes, and the commit's signature state. Provenance SHALL be written only when the dashboard is created, and SHALL NOT be writable through a dashboard edit.
+
+Every source SHALL pass a definition through the same size limit, decode and validation as a definition shipped with the product, so no source reaches the database under looser rules than another.
+
+A first-party release SHALL publish its reports through an index at `elixir/web-ng/priv/dashboards/index.json`, listing each report's slug, definition path, and whether it is enabled by default. The running build SHALL create its own enabled-by-default reports from the same index at startup, and SHALL treat a shipped definition file the index does not list as an error rather than skipping it.
+
+A `github` import SHALL be refused unless the repository passes the repository-boundary and commit-signature policy that governs a plugin import. A `first_party` import reads a repository fixed by the product rather than nominated by an operator, so those operator policies do not apply to it; its commit signature state SHALL still be recorded.
+
+Import SHALL follow the rule for shipped definitions: a slug that already exists is left exactly as found, whether or not it has been customised, and the operator is told it was kept. A report needs no renderer artifact and SHALL NOT be imported through the dashboard-package path that requires one.
+
+#### Scenario: A first-party release lists its reports
+- **GIVEN** a release whose report index lists two reports, one enabled by default
+- **WHEN** an operator lists first-party reports for that release tag
+- **THEN** both reports are listed with their titles and whether each is enabled by default and already installed
+
+#### Scenario: A customised report survives re-import
+- **GIVEN** an imported report whose panel query an operator has edited
+- **WHEN** the operator imports the same slug again, from any source
+- **THEN** the stored report is unchanged and the operator is told it was kept
+
+#### Scenario: An upload is validated like a fetched definition
+- **GIVEN** a definition whose panels overlap in the grid
+- **WHEN** it is uploaded
+- **THEN** the import is refused with the same message a shipped definition would produce
+
+#### Scenario: An untrusted repository is refused
+- **GIVEN** repository-boundary policy that does not include the nominated repository
+- **WHEN** an operator imports a report from it
+- **THEN** the import is refused and nothing is created
+
+#### Scenario: An unlisted shipped definition is loud
+- **GIVEN** a definition file in the shipped directory that the index does not list
+- **WHEN** shipped definitions are loaded
+- **THEN** loading reports an error naming that file

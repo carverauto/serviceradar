@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "reports": [
+    { "slug": "new-devices", "path": "new-devices.json", "enabled_by_default": true },
+    { "slug": "mtr-path-analytics", "path": "mtr-path-analytics.json", "enabled_by_default": true }
+  ]
+}

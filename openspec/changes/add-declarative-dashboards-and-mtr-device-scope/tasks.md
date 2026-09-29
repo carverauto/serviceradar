@@ -77,22 +77,40 @@ the third consumer, so it moves once rather than being copied a third time.
 
 ## 4c. Report import sources
 
-- [ ] 4c.1 Give a report definition the same source model as an add-on package:
+- [x] 4c.1 Give a report definition the same source model as an add-on package:
       `source_type` one_of `[:upload, :github, :first_party]` with release tag,
       commit, content hash and signature provenance.
-- [ ] 4c.2 `:first_party` resolves against the OSS repository's default repo URL
+      Columns on `platform.authored_dashboards` (migration `20260929090000`), set
+      only by the new `:import` create action; `:update` does not accept them, so
+      a builder edit cannot forge or clear provenance. `source_type` is NULL for a
+      dashboard authored in the builder. The migration attributes the two shipped
+      reports' existing rows as `first_party`.
+- [x] 4c.2 `:first_party` resolves against the OSS repository's default repo URL
       and its index asset, listing the reports available to import; some ship
       enabled by default.
-- [ ] 4c.3 `:github` resolves against an operator-nominated repository, subject to
+      The index is committed at `priv/dashboards/index.json` rather than attached
+      as a release asset, so no release-workflow change is needed: first-party
+      import resolves the release tag to a commit and reads the index and
+      definitions from that commit. Startup seeding reads the same index and
+      creates only `enabled_by_default` entries. A shipped `.json` the index does
+      not list is a load error.
+- [x] 4c.3 `:github` resolves against an operator-nominated repository, subject to
       the same repo-boundary and signature policy as a plugin import.
-- [ ] 4c.4 `:upload` accepts a definition directly, validated on the same path as
+- [x] 4c.4 `:upload` accepts a definition directly, validated on the same path as
       one fetched from a source, so an uploaded report cannot reach the database
       under looser rules.
-- [ ] 4c.5 Import is idempotent and never overwrites operator edits, exactly as for
+      All three sources end in `ReportImporter.import_definition/4`.
+- [x] 4c.5 Import is idempotent and never overwrites operator edits, exactly as for
       a shipped definition. An imported report that has been customised is not
       stomped by re-importing a newer version of it.
-- [ ] 4c.6 A report needs no renderer artifact, so do NOT route it through
+      An existing slug is kept whether or not it was customised, and the operator
+      is told so; distinguishing untouched from customised is not attempted.
+- [x] 4c.6 A report needs no renderer artifact, so do NOT route it through
       `GithubImporter.fetch_dashboard/1`, which requires one.
+      `ReportImporter` fetches the single definition through `RepoClient`.
+- [x] 4c.7 Import surface at `/dashboards/reports/import`, linked from the
+      dashboard library, gated on `analytics.dashboards.create` and
+      `analytics.dashboards.edit`; writes run under the operator's scope.
 
 ## 5. MTR device attribution
 
