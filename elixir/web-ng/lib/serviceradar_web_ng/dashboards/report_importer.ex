@@ -53,7 +53,8 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
   @max_definition_bytes 256 * 1024
 
   @type outcome :: :created | :completed | :kept
-  @type result :: {:ok, %{dashboard: AuthoredDashboard.t(), outcome: outcome()}} | {:error, String.t()}
+  @type result ::
+          {:ok, %{dashboard: AuthoredDashboard.t(), outcome: outcome()}} | {:error, String.t()}
 
   @doc "Largest definition body accepted from any source."
   @spec max_definition_bytes() :: pos_integer()
@@ -115,7 +116,8 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
          {:ok, entries} <- fetch_first_party_index(source, opts),
          {:ok, entry} <- find_entry(entries, slug, source),
          {:ok, body} <- fetch_first_party_file(source, entry.path, opts) do
-      {signature, _verified_at, _key_id, _commit} = RepoClient.verification_metadata(source.resolved, source.ref)
+      {signature, _verified_at, _key_id, _commit} =
+        RepoClient.verification_metadata(source.resolved, source.ref)
 
       provenance = %{
         source_type: :first_party,
@@ -127,7 +129,12 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
         signature: signature
       }
 
-      import_definition(body, entry.path, provenance, Keyword.put(opts, :expected_slug, entry.slug))
+      import_definition(
+        body,
+        entry.path,
+        provenance,
+        Keyword.put(opts, :expected_slug, entry.slug)
+      )
     end
   end
 
@@ -149,7 +156,8 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
          {:ok, resolved} <- wrap(RepoClient.resolve_ref(repo, ref, http_opts)),
          :ok <- wrap(RepoClient.enforce_verification_policy(resolved, http_opts)),
          {:ok, body} <- fetch_file(repo, resolved.sha, path, http_opts) do
-      {signature, _verified_at, _key_id, _commit} = RepoClient.verification_metadata(resolved, ref)
+      {signature, _verified_at, _key_id, _commit} =
+        RepoClient.verification_metadata(resolved, ref)
 
       provenance = %{
         source_type: :github,
@@ -197,19 +205,26 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
   @spec format_error(term()) :: String.t()
   def format_error(reason) when is_binary(reason), do: reason
   def format_error(:missing_repo_url), do: "GitHub repository URL is required"
-  def format_error(:invalid_repo_url), do: "GitHub repository URL is not a valid github.com repository"
+
+  def format_error(:invalid_repo_url),
+    do: "GitHub repository URL is not a valid github.com repository"
 
   def format_error(:untrusted_repo),
-    do: "This repository is not in the trusted GitHub repositories or owners configured for imports"
+    do:
+      "This repository is not in the trusted GitHub repositories or owners configured for imports"
 
   def format_error(:invalid_ref), do: "Git ref is not a valid branch, tag or commit"
   def format_error(:not_found), do: "Not found in the repository at that ref"
-  def format_error(:verification_required), do: "The commit is not signed, and imports require a verified signature"
+
+  def format_error(:verification_required),
+    do: "The commit is not signed, and imports require a verified signature"
 
   def format_error(:trusted_signers_not_configured),
     do: "Signed imports are required but no trusted signers are configured"
 
-  def format_error(:untrusted_signer), do: "The commit is signed by a signer that is not trusted for imports"
+  def format_error(:untrusted_signer),
+    do: "The commit is signed by a signer that is not trusted for imports"
+
   def format_error({:http_error, status}), do: "GitHub request failed with HTTP #{status}"
   def format_error(:forbidden), do: "Not authorized to create dashboards"
   def format_error(%Ash.Error.Forbidden{}), do: "Not authorized to create dashboards"
@@ -221,11 +236,20 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
 
   defp resolve_first_party(opts) do
     repo_url = FirstPartyReleaseClient.default_repo_url()
-    release_tag = normalize_tag(Keyword.get(opts, :release_tag)) || ReportIndex.running_release_tag()
+
+    release_tag =
+      normalize_tag(Keyword.get(opts, :release_tag)) || ReportIndex.running_release_tag()
 
     with {:ok, repo} <- wrap(RepoClient.parse_repo_url(repo_url)),
          {:ok, resolved} <- resolve_first_party_ref(repo, release_tag, opts) do
-      {:ok, %{repo: repo, repo_url: repo_url, release_tag: release_tag, ref: release_tag, resolved: resolved}}
+      {:ok,
+       %{
+         repo: repo,
+         repo_url: repo_url,
+         release_tag: release_tag,
+         ref: release_tag,
+         resolved: resolved
+       }}
     end
   end
 
@@ -235,7 +259,8 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
         {:ok, resolved}
 
       {:error, :not_found} when is_binary(release_tag) ->
-        {:error, "Release #{release_tag} was not found in #{FirstPartyReleaseClient.default_repo_url()}"}
+        {:error,
+         "Release #{release_tag} was not found in #{FirstPartyReleaseClient.default_repo_url()}"}
 
       {:error, reason} ->
         {:error, format_error(reason)}
@@ -267,7 +292,12 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
          {:ok, decoded} <- decode(body, entry.path),
          {:ok, spec} <- Definition.validate(decoded, entry.path),
          :ok <- check_expected_slug(spec, entry.slug, entry.path) do
-      %{title: spec.title, description: spec.description, panel_count: length(spec.panels), error: nil}
+      %{
+        title: spec.title,
+        description: spec.description,
+        panel_count: length(spec.panels),
+        error: nil
+      }
     else
       {:error, reason} -> %{title: entry.slug, description: nil, panel_count: 0, error: reason}
     end
@@ -319,8 +349,11 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
 
   defp decode(body, source) do
     case Jason.decode(body) do
-      {:ok, decoded} -> {:ok, decoded}
-      {:error, %Jason.DecodeError{} = err} -> {:error, "#{source}: invalid JSON (#{Exception.message(err)})"}
+      {:ok, decoded} ->
+        {:ok, decoded}
+
+      {:error, %Jason.DecodeError{} = err} ->
+        {:error, "#{source}: invalid JSON (#{Exception.message(err)})"}
     end
   end
 
@@ -328,7 +361,9 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
   defp check_expected_slug(%{slug: slug}, slug, _source), do: :ok
 
   defp check_expected_slug(%{slug: slug}, expected, source),
-    do: {:error, "#{source}: slug #{inspect(slug)} does not match its index entry #{inspect(expected)}"}
+    do:
+      {:error,
+       "#{source}: slug #{inspect(slug)} does not match its index entry #{inspect(expected)}"}
 
   defp require_path(path) when is_binary(path) do
     case RepoClient.normalize_repo_path(path, :invalid_definition_path) do
@@ -347,7 +382,11 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
   defp http_opts(opts) do
     client =
       Keyword.get_lazy(opts, :http_client, fn ->
-        Application.get_env(:serviceradar_web_ng, :github_http_client, ServiceRadar.HTTP.EgressClient)
+        Application.get_env(
+          :serviceradar_web_ng,
+          :github_http_client,
+          ServiceRadar.HTTP.EgressClient
+        )
       end)
 
     [http_client: client]
