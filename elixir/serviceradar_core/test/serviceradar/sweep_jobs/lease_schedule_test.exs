@@ -9,6 +9,8 @@ defmodule ServiceRadar.SweepJobs.LeaseScheduleTest do
           {"1h", 3600},
           {"1h30m", 5400},
           {"1.5h", 5400},
+          {"8.2m", 492},
+          {"4.1h", 14_760},
           {"2d", 172_800},
           {"300s", 300},
           {" 10m ", 600}
@@ -25,7 +27,8 @@ defmodule ServiceRadar.SweepJobs.LeaseScheduleTest do
           {"", :invalid_interval},
           {"soon", :invalid_interval},
           {"15", :invalid_interval},
-          {"15m and", :invalid_interval}
+          {"15m and", :invalid_interval},
+          {"5m0.5s", :invalid_interval}
         ] do
       test "#{inspect(text)} is refused as #{reason}" do
         assert {:error, unquote(reason)} =

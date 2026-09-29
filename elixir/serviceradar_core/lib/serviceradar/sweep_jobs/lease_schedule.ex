@@ -16,15 +16,16 @@ defmodule ServiceRadar.SweepJobs.LeaseSchedule do
 
   @min_interval_seconds 300
 
-  @unit_seconds %{
-    "ns" => 1.0e-9,
-    "us" => 1.0e-6,
-    "µs" => 1.0e-6,
-    "ms" => 1.0e-3,
-    "s" => 1,
-    "m" => 60,
-    "h" => 3_600,
-    "d" => 86_400
+  @ns_per_second 1_000_000_000
+  @ns_per_unit %{
+    "ns" => 1,
+    "us" => 1_000,
+    "µs" => 1_000,
+    "ms" => 1_000_000,
+    "s" => @ns_per_second,
+    "m" => 60 * @ns_per_second,
+    "h" => 3_600 * @ns_per_second,
+    "d" => 86_400 * @ns_per_second
   }
 
   @type spec :: {:interval, pos_integer()} | {:cron, term()}
@@ -98,22 +99,37 @@ defmodule ServiceRadar.SweepJobs.LeaseSchedule do
     if tokens == [] or Regex.replace(token, trimmed, "") != "" do
       {:error, :invalid_interval}
     else
-      seconds =
-        tokens
-        |> Enum.map(fn [_all, amount, unit] -> to_number(amount) * @unit_seconds[unit] end)
-        |> Enum.sum()
-        |> trunc()
+      case total_nanoseconds(tokens) do
+        {:ok, total_ns} when rem(total_ns, @ns_per_second) == 0 ->
+          seconds = div(total_ns, @ns_per_second)
 
-      if seconds < @min_interval_seconds,
-        do: {:error, :interval_too_short},
-        else: {:ok, {:interval, seconds}}
+          if seconds < @min_interval_seconds,
+            do: {:error, :interval_too_short},
+            else: {:ok, {:interval, seconds}}
+
+        {:ok, _total_ns} ->
+          {:error, :invalid_interval}
+
+        :error ->
+          {:error, :invalid_interval}
+      end
     end
   end
 
-  defp to_number(text) do
-    case Integer.parse(text) do
-      {integer, ""} -> integer
-      _ -> String.to_float(text)
-    end
+  defp total_nanoseconds(tokens) do
+    Enum.reduce_while(tokens, {:ok, 0}, fn [_all, amount, unit], {:ok, acc} ->
+      case component_nanoseconds(amount, @ns_per_unit[unit]) do
+        {:ok, nanoseconds} -> {:cont, {:ok, acc + nanoseconds}}
+        :error -> {:halt, :error}
+      end
+    end)
+  end
+
+  defp component_nanoseconds(amount, unit_ns) do
+    product = Decimal.mult(Decimal.new(amount), Decimal.new(unit_ns))
+
+    if Decimal.integer?(product),
+      do: {:ok, Decimal.to_integer(product)},
+      else: :error
   end
 end

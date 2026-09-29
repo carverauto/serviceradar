@@ -56,6 +56,7 @@ defmodule ServiceRadar.SweepJobs.SweepLeaseSetting do
       allow_nil? false
       default ""
       public? true
+      constraints allow_empty?: true
       description "Empty for the global scope, the partition id, or the agent uid"
     end
 
