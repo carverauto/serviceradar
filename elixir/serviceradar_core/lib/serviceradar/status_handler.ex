@@ -2,7 +2,15 @@ defmodule ServiceRadar.StatusHandler do
   @moduledoc """
   Handles service status updates forwarded from agent-gateway.
 
-  Results payloads are routed to ResultsRouter when available.
+  Asynchronous results are dispatched to dedicated lanes:
+  - Flow attribution → `Admission.FlowLane`
+  - Retained plugin results → `Admission.RetainedPluginLane`
+  - Async sweep results → `SweepJobs.Ingestion.Dispatcher` (when running),
+    falling back to `ResultsRouter`
+  - Everything else → `ResultsRouter`
+
+  Synchronous `status_update` calls always use the `ResultsRouter` path and
+  reply after processing.
 
   When `source == "flow-attribution"` the status message carries a
   `Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch` payload drained by the agent's
