@@ -39,8 +39,8 @@ The system SHALL keep in CNPG the data that is updated in place under transactio
 - **AND** that relation is not copied into the warehouse as telemetry
 
 ### Requirement: Exactly one telemetry backend is active
-The system SHALL support both CNPG and the StarRocks warehouse as complete telemetry backends and SHALL use exactly one of them at a time: when StarRocks is enabled, every append-only telemetry dataset is persisted only to the warehouse and every telemetry read is served from it, with no CNPG dual-write, no per-dataset shadow or cutover list and no soak period; when StarRocks is disabled, every dataset is persisted to and served from CNPG.
-A warehouse write failure SHALL fail the JetStream acknowledgement so the message is redelivered, never fall back to a CNPG write. A reader that has no warehouse implementation yet SHALL report its data as unavailable while StarRocks is enabled; it SHALL NOT query the CNPG table, which receives no new rows. Every telemetry writer and reader SHALL keep its CNPG implementation next to its warehouse implementation, and the CNPG telemetry schema SHALL NOT be dropped, because installations without StarRocks depend on it; on an installation with StarRocks enabled the CNPG tables stay in place, receive no rows, and their retention ages out what they held.
+The system SHALL support both CNPG and the StarRocks warehouse as complete telemetry backends and SHALL use exactly one of them at a time: when StarRocks is enabled, every append-only telemetry dataset is persisted only to the warehouse and every telemetry read is served from it, with no CNPG dual-write, no per-dataset shadow or cutover list and no soak period; when StarRocks is disabled, every dataset is persisted to CNPG and served from it except for the warehouse-only flow-serving surfaces documented in [NetFlow](../../../../../docs/docs/netflow.md#flow-cutover-and-delivery).
+A warehouse write failure SHALL fail the JetStream acknowledgement so the message is redelivered, never fall back to a CNPG write. A reader that has no warehouse implementation yet SHALL report its data as unavailable while StarRocks is enabled; it SHALL NOT query the CNPG table, which receives no new rows. Except for those warehouse-only flow-serving surfaces, every telemetry writer and reader SHALL keep its CNPG implementation next to its warehouse implementation, and the CNPG telemetry schema SHALL NOT be dropped, because installations without StarRocks depend on it; on an installation with StarRocks enabled the CNPG tables stay in place, receive no rows, and their retention ages out what they held.
 
 #### Scenario: Telemetry is written with StarRocks enabled
 - **WHEN** EventWriter persists a flow, metric, log, event, OTel, sysmon, MTR, BMP or service-status batch with StarRocks enabled
@@ -64,8 +64,8 @@ A warehouse write failure SHALL fail the JetStream acknowledgement so the messag
 
 #### Scenario: CNPG remains a supported backend
 - **WHEN** an installation runs without StarRocks
-- **THEN** every telemetry dataset is written to and read from CNPG with the same features as before this change
-- **AND** no migration drops a CNPG telemetry table, continuous aggregate or policy, and no CNPG reader is removed when its warehouse implementation lands
+- **THEN** every telemetry dataset is written to CNPG; reads retain the same features except for the warehouse-only flow-serving surfaces linked above
+- **AND** no migration drops a CNPG telemetry table, continuous aggregate or policy, and no CNPG reader outside those flow-serving surfaces is removed when its warehouse implementation lands
 
 ### Requirement: MTR traces and hops reach the warehouse through JetStream
 The system SHALL publish every MTR trace result, scheduled, on-demand, bulk and ad-hoc, from core to a JetStream subject, and SHALL persist traces and hops by EventWriter from that subject: to the warehouse when StarRocks is enabled, and to CNPG otherwise.

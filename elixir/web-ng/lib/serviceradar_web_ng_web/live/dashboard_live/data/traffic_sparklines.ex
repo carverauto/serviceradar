@@ -2,24 +2,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
   @moduledoc false
 
   alias ServiceRadar.Analytics.StarRocks.FlowConsumers
+  alias ServiceRadar.Analytics.StarRocks.Readers
 
   @sparkline_points 48 * 2
 
   @doc """
-  The throughput sparkline's buckets from the warehouse, or `:cnpg` when flows
-  are not cut over and the caller should read its CNPG relations instead.
+  The throughput sparkline's buckets from the warehouse.
 
-  Flows cut over to the warehouse are read there: with the warehouse in use the
-  CNPG relations are a copy that may no longer be written. It lives outside the
-  `__using__` block so that block stays a list of loaders.
+  Flows are warehouse-only: cut over, the sparkline reads the warehouse; not cut
+  over, `Readers` returns `{:error, :starrocks_required}` and the sparkline
+  renders empty rather than reading CNPG rows. It lives outside the `__using__`
+  block so that block stays a list of loaders.
   """
-  @spec warehouse_traffic_rows(DateTime.t(), pos_integer()) :: {:ok, [list()]} | {:error, term()} | :cnpg
+  @spec warehouse_traffic_rows(DateTime.t(), pos_integer()) :: {:ok, [list()]} | {:error, term()}
   def warehouse_traffic_rows(cutoff, bucket_seconds) do
-    if FlowConsumers.cut_over?() do
-      FlowConsumers.traffic_rows(cutoff, bucket_seconds, @sparkline_points)
-    else
-      :cnpg
-    end
+    Readers.fetch(:flows, %{
+      cnpg: fn -> {:error, :starrocks_required} end,
+      starrocks: fn -> FlowConsumers.traffic_rows(cutoff, bucket_seconds, @sparkline_points) end
+    })
   end
 
   defmacro __using__(_opts) do
@@ -57,101 +57,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
       defp flow_traffic_sparkline(time_window, metric) do
         seconds = bucket_seconds_for(time_window)
 
-        case unquote(__MODULE__).warehouse_traffic_rows(cutoff_for_time_window(time_window), seconds) do
+        case unquote(__MODULE__).warehouse_traffic_rows(
+               cutoff_for_time_window(time_window),
+               seconds
+             ) do
           {:ok, rows} -> sparkline_values(rows, metric, seconds)
-          :cnpg -> cnpg_flow_traffic_sparkline(time_window, metric)
           {:error, _reason} -> []
         end
       rescue
         _ -> []
-      end
-
-      defp cnpg_flow_traffic_sparkline(time_window, metric) do
-        cutoff = cutoff_for_time_window(time_window)
-
-        Enum.find_value(flow_sparkline_sources(time_window), [], fn
-          {relation_ref, relation, time_column, bucket_seconds} ->
-            if relation_exists?(relation_ref) do
-              values = flow_traffic_sparkline_from_relation(relation, time_column, cutoff, bucket_seconds, metric)
-              if values != [], do: values
-            end
-        end)
-      rescue
-        _ -> []
-      end
-
-      defp flow_sparkline_sources(time_window) when time_window in ["last_7d", "last_30d"] do
-        [
-          {"platform.flow_traffic_1h", "platform.flow_traffic_1h", "bucket", 3600},
-          {"platform.ocsf_network_activity_5m_traffic", "platform.ocsf_network_activity_5m_traffic", "bucket", 300},
-          {"platform.ocsf_network_activity", "platform.ocsf_network_activity", "time", bucket_seconds_for(time_window)}
-        ]
-      end
-
-      defp flow_sparkline_sources(time_window) do
-        [
-          {"platform.ocsf_network_activity_5m_traffic", "platform.ocsf_network_activity_5m_traffic", "bucket", 300},
-          {"platform.flow_traffic_1h", "platform.flow_traffic_1h", "bucket", 3600},
-          {"platform.ocsf_network_activity", "platform.ocsf_network_activity", "time", bucket_seconds_for(time_window)}
-        ]
-      end
-
-      defp flow_traffic_sparkline_from_relation(
-             "platform.ocsf_network_activity" = relation,
-             time_column,
-             cutoff,
-             seconds,
-             metric
-           ) do
-        bucket_interval = bucket_interval_literal(sparkline_bucket_for_from_seconds(seconds))
-
-        sql = """
-        SELECT bucket, bytes_total, packets_total, flow_count
-        FROM (
-          SELECT
-            time_bucket(#{bucket_interval}, #{time_column}) AS bucket,
-            COALESCE(SUM(bytes_total), 0)::float8 AS bytes_total,
-            COALESCE(SUM(packets_total), 0)::float8 AS packets_total,
-            COUNT(*)::float8 AS flow_count
-          FROM #{relation}
-          WHERE #{time_column} >= $1
-          GROUP BY 1
-          ORDER BY 1 DESC
-          LIMIT $2
-        ) recent
-        ORDER BY bucket ASC
-        """
-
-        sparkline_query_values(sql, [cutoff, 48 * 2], metric, seconds)
-      end
-
-      defp flow_traffic_sparkline_from_relation(relation, time_column, cutoff, seconds, metric) do
-        sql = """
-        SELECT bucket, bytes_total, packets_total, flow_count
-        FROM (
-          SELECT
-            #{time_column} AS bucket,
-            COALESCE(SUM(bytes_total), 0)::float8 AS bytes_total,
-            COALESCE(SUM(packets_total), 0)::float8 AS packets_total,
-            COALESCE(SUM(flow_count), 0)::float8 AS flow_count
-          FROM #{relation}
-          WHERE #{time_column} >= $1
-          GROUP BY 1
-          ORDER BY 1 DESC
-          LIMIT $2
-        ) recent
-        ORDER BY bucket ASC
-        """
-
-        sparkline_query_values(sql, [cutoff, 48 * 2], metric, seconds)
-      end
-
-      @sobelow_skip ["SQL.Query"]
-      defp sparkline_query_values(sql, params, metric, seconds) do
-        case ServiceRadarWebNG.Repo.query(sql, params) do
-          {:ok, %{rows: rows}} -> sparkline_values(rows, metric, seconds)
-          _ -> []
-        end
       end
 
       defp sparkline_values(rows, metric, seconds) do

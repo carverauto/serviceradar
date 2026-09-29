@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "bucket": "serviceradar-demo-drone-clips",
+  "notes": "Licensed drone/aerial clips for the showcase demo RTSP replayer. Transcoded to H.264 with no B-frames (the agent relay is H.264-only). CC BY clips require attribution: credit author + license wherever the demo footage is shown or described.",
+  "clips": [
+    {
+      "name": "highway-401",
+      "key": "highway-401.mp4",
+      "sha256": "21c49f2162047ca816946ddd6fcc59d64881a161daca4760f20dd46eb0a4598f",
+      "duration_seconds": 27.094,
+      "width": 1920,
+      "height": 1080,
+      "fps": "30000/1001",
+      "size_bytes": 24227329,
+      "codec": "h264 (no B-frames)",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/",
+      "author": "InOldNews / Katherine KY Cheng",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Aerial_view_(zoom_in)_of_overpasses_crossing_over_Highway_401_during_sunset_in_Toronto,_Canada..webm"
+    },
+    {
+      "name": "quarry-excavators",
+      "key": "quarry-excavators.mp4",
+      "sha256": "234c13ade85d200ee76cd0276e8ae3d040626aa58fdafc8083f2c72aeda2741b",
+      "duration_seconds": 20.087,
+      "width": 1920,
+      "height": 1080,
+      "fps": "30000/1001",
+      "size_bytes": 45991210,
+      "codec": "h264 (no B-frames)",
+      "license": "CC0 1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Bellergy",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Miejscu-pracy-koparka-budowlanych-3741.webm"
+    },
+    {
+      "name": "tamarama-surf",
+      "key": "tamarama-surf.mp4",
+      "sha256": "9cdc43fc7e841962f9cdad91a8146077795c0b4c66f3ed6a9a72de4bda0b3696",
+      "duration_seconds": 111.0,
+      "width": 1280,
+      "height": 720,
+      "fps": "30/1",
+      "size_bytes": 62879458,
+      "codec": "h264 (no B-frames)",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "author": "Poseidon's Reach",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Drone_video_of_people_in_water_-_body_surfing_(East_Sydney_at_Tamarama).webm"
+    }
+  ]
+}
