@@ -59,7 +59,8 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
 
   # Mirrors the inventory source id rule in `IntegrationDescriptor`.
   @source_regex ~r/^[a-z0-9][a-z0-9_.-]{0,127}$/
-  # Stays under Ash's default page size so a read cannot come back truncated.
+  # Bounds each `in` filter. These reads are not capped by a page:
+  # Device uses `Ash.stream!/2`, and the others pass `page: false`.
   @read_chunk_size 200
   @wasm_plugin_source "wasm-plugin"
 
