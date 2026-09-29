@@ -1216,8 +1216,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         :ok ->
           :ok
 
+        # Only online sessions are pushed to, so a failure means the change did
+        # not reach the agent and it waits for its next config poll.
         {:error, reason} ->
-          Logger.debug("Failed to push config to #{agent_id}: #{inspect(reason)}")
+          Logger.warning("Failed to push config to #{agent_id}: #{inspect(reason)}")
       end
     end)
 

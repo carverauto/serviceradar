@@ -52,6 +52,10 @@ const (
 	proxmoxSemanticConnectorCapabilityV1                  = "proxmox-semantic-connector:v1"
 	proxmoxConsolePolicyBindingCapabilityV1               = "proxmox-console-policy-binding:v1"
 	proxmoxIdentityCapabilityV3                           = "proxmox-identity:v3"
+	// capabilityConfigPushChunks: this agent reassembles a control-stream config
+	// push sent as AgentConfigChunks, so the gateway can push configs larger than
+	// one gRPC message.
+	capabilityConfigPushChunks = "config_push_chunks"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -358,6 +362,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	capabilities = append(capabilities,
 		sweepType,
 		commandTypeAdhocScan,
+		capabilityConfigPushChunks,
 		"snmp",
 		"mapper",
 		"sync",

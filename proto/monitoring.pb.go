@@ -3859,6 +3859,7 @@ type ControlStreamResponse struct {
 	//	*ControlStreamResponse_Command
 	//	*ControlStreamResponse_Config
 	//	*ControlStreamResponse_ConsoleFrame
+	//	*ControlStreamResponse_ConfigChunk
 	Payload       isControlStreamResponse_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3928,6 +3929,15 @@ func (x *ControlStreamResponse) GetConsoleFrame() *ConsoleFrame {
 	return nil
 }
 
+func (x *ControlStreamResponse) GetConfigChunk() *AgentConfigChunk {
+	if x != nil {
+		if x, ok := x.Payload.(*ControlStreamResponse_ConfigChunk); ok {
+			return x.ConfigChunk
+		}
+	}
+	return nil
+}
+
 type isControlStreamResponse_Payload interface {
 	isControlStreamResponse_Payload()
 }
@@ -3944,11 +3954,20 @@ type ControlStreamResponse_ConsoleFrame struct {
 	ConsoleFrame *ConsoleFrame `protobuf:"bytes,3,opt,name=console_frame,json=consoleFrame,proto3,oneof"`
 }
 
+type ControlStreamResponse_ConfigChunk struct {
+	// One chunk of a pushed config, sent only to agents advertising the
+	// config_push_chunks capability. Chunks of one push are contiguous and
+	// reassemble exactly like StreamConfig chunks.
+	ConfigChunk *AgentConfigChunk `protobuf:"bytes,4,opt,name=config_chunk,json=configChunk,proto3,oneof"`
+}
+
 func (*ControlStreamResponse_Command) isControlStreamResponse_Payload() {}
 
 func (*ControlStreamResponse_Config) isControlStreamResponse_Payload() {}
 
 func (*ControlStreamResponse_ConsoleFrame) isControlStreamResponse_Payload() {}
+
+func (*ControlStreamResponse_ConfigChunk) isControlStreamResponse_Payload() {}
 
 // CredentialBrokerResolveRequest asks the gateway/control plane to resolve a
 // scoped credential broker grant for an authenticated agent. The gateway uses
@@ -8192,11 +8211,12 @@ const file_monitoring_proto_rawDesc = "" +
 	"\n" +
 	"config_ack\x18\x05 \x01(\v2\x15.monitoring.ConfigAckH\x00R\tconfigAck\x12?\n" +
 	"\rconsole_frame\x18\x06 \x01(\v2\x18.monitoring.ConsoleFrameH\x00R\fconsoleFrameB\t\n" +
-	"\apayload\"\xd6\x01\n" +
+	"\apayload\"\x99\x02\n" +
 	"\x15ControlStreamResponse\x126\n" +
 	"\acommand\x18\x01 \x01(\v2\x1a.monitoring.CommandRequestH\x00R\acommand\x129\n" +
 	"\x06config\x18\x02 \x01(\v2\x1f.monitoring.AgentConfigResponseH\x00R\x06config\x12?\n" +
-	"\rconsole_frame\x18\x03 \x01(\v2\x18.monitoring.ConsoleFrameH\x00R\fconsoleFrameB\t\n" +
+	"\rconsole_frame\x18\x03 \x01(\v2\x18.monitoring.ConsoleFrameH\x00R\fconsoleFrame\x12A\n" +
+	"\fconfig_chunk\x18\x04 \x01(\v2\x1c.monitoring.AgentConfigChunkH\x00R\vconfigChunkB\t\n" +
 	"\apayload\"\x9b\x02\n" +
 	"\x1eCredentialBrokerResolveRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x19\n" +
@@ -8824,76 +8844,77 @@ var file_monitoring_proto_depIdxs = []int32{
 	30, // 31: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
 	25, // 32: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
 	37, // 33: monitoring.ControlStreamResponse.console_frame:type_name -> monitoring.ConsoleFrame
-	78, // 34: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
-	44, // 35: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
-	43, // 36: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
-	46, // 37: monitoring.BumblebeeConfig.catalog:type_name -> monitoring.BumblebeeCatalogAssignment
-	49, // 38: monitoring.EndpointInventoryReport.metadata:type_name -> monitoring.EndpointInventoryScanMetadata
-	53, // 39: monitoring.EndpointInventoryReport.artifact:type_name -> monitoring.EndpointInventoryArtifactRef
-	54, // 40: monitoring.EndpointInventoryReport.packages:type_name -> monitoring.EndpointInventoryPackageSummary
-	51, // 41: monitoring.EndpointInventoryReport.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
-	52, // 42: monitoring.EndpointInventoryScanMetadata.sources:type_name -> monitoring.EndpointInventorySourceSummary
-	79, // 43: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
-	50, // 44: monitoring.EndpointInventoryScanMetadata.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	80, // 45: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
-	81, // 46: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
-	57, // 47: monitoring.EndpointInventoryQueryRequest.predicate:type_name -> monitoring.EndpointInventoryPackagePredicate
-	82, // 48: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
-	55, // 49: monitoring.EndpointInventoryForceFreshScanRequest.query:type_name -> monitoring.EndpointInventoryQueryRequest
-	83, // 50: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
-	50, // 51: monitoring.EndpointInventoryStandingQuestionResultCount.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	84, // 52: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
-	85, // 53: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
-	54, // 54: monitoring.EndpointInventoryQueryResult.packages:type_name -> monitoring.EndpointInventoryPackageSummary
-	52, // 55: monitoring.EndpointInventoryQueryResult.source_summaries:type_name -> monitoring.EndpointInventorySourceSummary
-	50, // 56: monitoring.EndpointInventoryQueryResult.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	51, // 57: monitoring.EndpointInventoryQueryResult.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
-	86, // 58: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	87, // 59: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
-	68, // 60: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
-	64, // 61: monitoring.VisibilityConfig.binary_overrides:type_name -> monitoring.VisibilityBinaryOverrides
-	65, // 62: monitoring.VisibilityConfig.device_bindings:type_name -> monitoring.VisibilityDeviceBinding
-	67, // 63: monitoring.VisibilityConfig.dpi:type_name -> monitoring.VisibilityDpiConfig
-	66, // 64: monitoring.VisibilityDeviceBinding.fingerprint:type_name -> monitoring.VisibilityFingerprintConfig
-	67, // 65: monitoring.VisibilityDeviceBinding.dpi:type_name -> monitoring.VisibilityDpiConfig
-	0,  // 66: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
-	69, // 67: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
-	70, // 68: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
-	1,  // 69: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
-	2,  // 70: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
-	3,  // 71: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
-	4,  // 72: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
-	72, // 73: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
-	71, // 74: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
-	73, // 75: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
-	74, // 76: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
-	7,  // 77: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	8,  // 78: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	8,  // 79: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	22, // 80: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	24, // 81: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	24, // 82: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
-	17, // 83: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	20, // 84: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	38, // 85: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
-	40, // 86: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
-	88, // 87: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
-	9,  // 88: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	11, // 89: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	14, // 90: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	23, // 91: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	25, // 92: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	28, // 93: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
-	18, // 94: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	18, // 95: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	39, // 96: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	41, // 97: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
-	89, // 98: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
-	88, // [88:99] is the sub-list for method output_type
-	77, // [77:88] is the sub-list for method input_type
-	77, // [77:77] is the sub-list for extension type_name
-	77, // [77:77] is the sub-list for extension extendee
-	0,  // [0:77] is the sub-list for field type_name
+	28, // 34: monitoring.ControlStreamResponse.config_chunk:type_name -> monitoring.AgentConfigChunk
+	78, // 35: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	44, // 36: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
+	43, // 37: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
+	46, // 38: monitoring.BumblebeeConfig.catalog:type_name -> monitoring.BumblebeeCatalogAssignment
+	49, // 39: monitoring.EndpointInventoryReport.metadata:type_name -> monitoring.EndpointInventoryScanMetadata
+	53, // 40: monitoring.EndpointInventoryReport.artifact:type_name -> monitoring.EndpointInventoryArtifactRef
+	54, // 41: monitoring.EndpointInventoryReport.packages:type_name -> monitoring.EndpointInventoryPackageSummary
+	51, // 42: monitoring.EndpointInventoryReport.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
+	52, // 43: monitoring.EndpointInventoryScanMetadata.sources:type_name -> monitoring.EndpointInventorySourceSummary
+	79, // 44: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
+	50, // 45: monitoring.EndpointInventoryScanMetadata.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	80, // 46: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
+	81, // 47: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
+	57, // 48: monitoring.EndpointInventoryQueryRequest.predicate:type_name -> monitoring.EndpointInventoryPackagePredicate
+	82, // 49: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
+	55, // 50: monitoring.EndpointInventoryForceFreshScanRequest.query:type_name -> monitoring.EndpointInventoryQueryRequest
+	83, // 51: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
+	50, // 52: monitoring.EndpointInventoryStandingQuestionResultCount.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	84, // 53: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
+	85, // 54: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
+	54, // 55: monitoring.EndpointInventoryQueryResult.packages:type_name -> monitoring.EndpointInventoryPackageSummary
+	52, // 56: monitoring.EndpointInventoryQueryResult.source_summaries:type_name -> monitoring.EndpointInventorySourceSummary
+	50, // 57: monitoring.EndpointInventoryQueryResult.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	51, // 58: monitoring.EndpointInventoryQueryResult.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
+	86, // 59: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	87, // 60: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	68, // 61: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
+	64, // 62: monitoring.VisibilityConfig.binary_overrides:type_name -> monitoring.VisibilityBinaryOverrides
+	65, // 63: monitoring.VisibilityConfig.device_bindings:type_name -> monitoring.VisibilityDeviceBinding
+	67, // 64: monitoring.VisibilityConfig.dpi:type_name -> monitoring.VisibilityDpiConfig
+	66, // 65: monitoring.VisibilityDeviceBinding.fingerprint:type_name -> monitoring.VisibilityFingerprintConfig
+	67, // 66: monitoring.VisibilityDeviceBinding.dpi:type_name -> monitoring.VisibilityDpiConfig
+	0,  // 67: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
+	69, // 68: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
+	70, // 69: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
+	1,  // 70: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
+	2,  // 71: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
+	3,  // 72: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
+	4,  // 73: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
+	72, // 74: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
+	71, // 75: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
+	73, // 76: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
+	74, // 77: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
+	7,  // 78: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	8,  // 79: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	8,  // 80: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	22, // 81: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	24, // 82: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	24, // 83: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
+	17, // 84: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	20, // 85: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	38, // 86: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
+	40, // 87: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
+	88, // 88: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
+	9,  // 89: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	11, // 90: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	14, // 91: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	23, // 92: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	25, // 93: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	28, // 94: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
+	18, // 95: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	18, // 96: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	39, // 97: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	41, // 98: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
+	89, // 99: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
+	89, // [89:100] is the sub-list for method output_type
+	78, // [78:89] is the sub-list for method input_type
+	78, // [78:78] is the sub-list for extension type_name
+	78, // [78:78] is the sub-list for extension extendee
+	0,  // [0:78] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -8914,6 +8935,7 @@ func file_monitoring_proto_init() {
 		(*ControlStreamResponse_Command)(nil),
 		(*ControlStreamResponse_Config)(nil),
 		(*ControlStreamResponse_ConsoleFrame)(nil),
+		(*ControlStreamResponse_ConfigChunk)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

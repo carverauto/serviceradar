@@ -596,6 +596,7 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 		t.Fatal("expected control stream hello capabilities to be populated")
 	}
 	for _, capability := range []string{
+		capabilityConfigPushChunks,
 		pluginHostAuthorityCapabilityV1,
 		pluginResultRetainedDeliveryCapabilityV1,
 		proxmoxSemanticConnectorCapabilityV1,

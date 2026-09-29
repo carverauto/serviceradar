@@ -104,9 +104,9 @@ func TestReassembleConfigChunksAcceptsLargeDeviceTargetConfig(t *testing.T) {
 
 	chunks := configResponseChunksForTest(t, resp, 1024*1024)
 
-	got, err := reassembleConfigChunks(chunks)
+	got, err := ReassembleConfigChunks(chunks)
 	if err != nil {
-		t.Fatalf("reassembleConfigChunks returned error: %v", err)
+		t.Fatalf("ReassembleConfigChunks returned error: %v", err)
 	}
 	if !goproto.Equal(got, resp) {
 		t.Fatal("reassembled config response did not match original response")
@@ -127,9 +127,9 @@ func TestReassembleConfigChunksRejectsChecksumMismatch(t *testing.T) {
 	chunks := configResponseChunksForTest(t, resp, 1024)
 	chunks[0].PayloadSha256 = strings.Repeat("0", 64)
 
-	_, err := reassembleConfigChunks(chunks)
+	_, err := ReassembleConfigChunks(chunks)
 	if !errors.Is(err, ErrInvalidConfigStream) {
-		t.Fatalf("reassembleConfigChunks error = %v, want %v", err, ErrInvalidConfigStream)
+		t.Fatalf("ReassembleConfigChunks error = %v, want %v", err, ErrInvalidConfigStream)
 	}
 }
 
@@ -144,9 +144,9 @@ func TestReassembleConfigChunksRejectsMetadataMismatch(t *testing.T) {
 	chunks := configResponseChunksForTest(t, resp, 1024)
 	chunks[0].ConfigVersion = "v2"
 
-	_, err := reassembleConfigChunks(chunks)
+	_, err := ReassembleConfigChunks(chunks)
 	if !errors.Is(err, ErrInvalidConfigStream) {
-		t.Fatalf("reassembleConfigChunks error = %v, want %v", err, ErrInvalidConfigStream)
+		t.Fatalf("ReassembleConfigChunks error = %v, want %v", err, ErrInvalidConfigStream)
 	}
 }
 
@@ -161,9 +161,9 @@ func TestReassembleConfigChunksRejectsOutOfOrderChunks(t *testing.T) {
 	chunks := configResponseChunksForTest(t, resp, 1024)
 	chunks[0], chunks[1] = chunks[1], chunks[0]
 
-	_, err := reassembleConfigChunks(chunks)
+	_, err := ReassembleConfigChunks(chunks)
 	if !errors.Is(err, ErrInvalidConfigStream) {
-		t.Fatalf("reassembleConfigChunks error = %v, want %v", err, ErrInvalidConfigStream)
+		t.Fatalf("ReassembleConfigChunks error = %v, want %v", err, ErrInvalidConfigStream)
 	}
 }
 

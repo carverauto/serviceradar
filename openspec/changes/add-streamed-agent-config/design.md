@@ -63,3 +63,13 @@ The payload is the protobuf-encoded `AgentConfigResponse` split into bounded chu
 2. Implement gateway-side chunking while keeping unary `GetConfig`.
 3. Implement agent-side stream preference with `Unimplemented` fallback.
 4. Add large-config tests that exceed unary default size but succeed over the stream.
+
+## Control-Stream Push
+Core pushes a changed config on the agent's control stream as soon as a source resource changes. That push originally sent the whole `AgentConfigResponse` as one `ControlStreamResponse`, so it hit the same single-message limit `StreamConfig` was added to avoid, and a rejected message ends the whole control stream rather than one RPC. The change therefore only arrived on a later poll.
+
+- `ControlStreamResponse` gains an `AgentConfigChunk config_chunk` payload. The gateway sends a push's chunks back to back from the session process, so they are contiguous on the stream.
+- Agents advertise `config_push_chunks` in the control-stream hello. The gateway chunks pushes only for those agents; older agents ignore the unknown oneof member but never receive it.
+- For agents without the capability, a push whose encoded message exceeds 4 MiB is refused and logged, leaving the stream and the pending version untouched; the agent's next streamed poll delivers it.
+- The agent buffers chunks per control stream, restarts on chunk 0, rejects more chunks than declared, and validates with the same `ReassembleConfigChunks` used for `StreamConfig` before applying and acknowledging.
+
+A push does not depend on the gateway's wait for a polled config, because core generates the pushed config itself. Generation cost grows with sweep target volume; the poll timeout and reducing that cost belong to separate changes.

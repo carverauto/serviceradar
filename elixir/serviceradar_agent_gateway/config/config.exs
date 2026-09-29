@@ -32,7 +32,10 @@ config :logger, :console,
     :payload_field_count,
     :progress_percent,
     :config_version,
-    :section_count
+    :section_count,
+    :chunks,
+    :bytes,
+    :limit_bytes
   ]
 
 config :serviceradar_agent_gateway, :icmp_metrics_publisher,
