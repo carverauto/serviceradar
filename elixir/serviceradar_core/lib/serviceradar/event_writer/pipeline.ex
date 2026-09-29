@@ -26,6 +26,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
+  alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.Metrics
@@ -588,6 +589,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:logs, &String.starts_with?(&1, "logs.")},
       {:flow_attribution, &String.starts_with?(&1, "events.flow.attribution")},
       {:events, &String.starts_with?(&1, "events.")},
+      # MUST precede the generic :telemetry rule below -- both match a
+      # "telemetry." prefix, and find_value/2 takes the first match.
+      {:edge_record, &String.starts_with?(&1, "telemetry.edge-record.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
       # Catch-all before specific prefixes are unnecessary: every raw-flow
       # subject (netflow/sflow/ipfix/extensions) must hit Processors.Flows.
@@ -677,6 +681,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
+  defp get_processor(:edge_record), do: EdgeRecord
   defp get_processor(:flows_raw), do: Flows
   defp get_processor(:sflow_raw), do: Flows
   defp get_processor(:netflow_raw), do: Flows

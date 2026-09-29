@@ -17,10 +17,15 @@ control plane.
 - Persist approved processor contributions in CNPG during package import, install, or
   registration. Core SHALL NOT call running add-ons at event-processing time to ask how
   records should be processed.
-- Introduce an approved processor registry that EventWriter uses to discover NATS
-  subjects, batch routing, processor engine, destination, schema/display references,
-  promotion rules, and device-correlation mappings.
-- Replace producer-specific EventWriter aliases/routes with registry-driven routing.
+- Make processor contributions part of the platform output-contract registry. Packages
+  request an output contract and bounded declarative projector; the platform assigns
+  its finite route profile, broker subject slot, traffic class, partition rule, cost
+  model, processor engine, destination, schema/display references, promotion rules,
+  and device-correlation mappings. Packages never choose NATS subjects or physical
+  streams.
+- Replace producer-specific EventWriter aliases/routes with registry-driven dispatch
+  keyed by the exact output-contract id, version, immutable bundle digest, and registry
+  epoch carried in the trusted canonical binary record envelope.
   PowerDNS, Falco, Trivy, Bumblebee, endpoint inventory, and future integrations SHALL
   register processor contributions instead of being named in core pipeline code.
 - Provide safe platform-owned processor engines for common payload classes:
@@ -34,6 +39,9 @@ control plane.
 - Keep arbitrary executable processors out of the initial contract. If custom logic is
   required, it must be expressed through a bounded declarative mapping or reference a
   platform-installed adapter by stable id during migration.
+- Reuse the finite durable edge record streams and shared Broadway consumers from
+  `unify-sweep-results-proto`; adding packages or contracts SHALL NOT create a
+  proportional number of streams, consumers, connections, lanes, or RAFT groups.
 
 ## Impact
 - Affected specs: `ingestion-routing`, `observability-signals`
@@ -55,3 +63,6 @@ control plane.
     contract.
   - Existing generic platform processors for events, logs, OTEL metrics/traces, and
     flows remain core-owned because they are platform ingestion primitives.
+- Related change: `unify-sweep-results-proto` owns the durable producer sink, output
+  contract bundle, platform route profiles, transport-minimal broker metadata, and common
+  EventWriter ingress on which contributions depend.

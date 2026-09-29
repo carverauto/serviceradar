@@ -1,0 +1,35 @@
+# SHARED STATIC-TARGET PLAN CORPUS (M2.0b1).
+#
+# One plan a sweep lease's issuer builds from a group's static targets, stated as literals and
+# checked by BOTH runtimes:
+#
+#   * Go (go/pkg/edge/edgerecord/sweep_static_plan_corpus_test.go) recomputes every digest with
+#     its own grammar and requires its own validator to accept the plan, so the canonical CIDR
+#     text below is proven valid by the reference implementation;
+#   * Elixir (ServiceRadar.Edge.SweepPlan, sweep_static_plan_corpus_test.exs) builds the plan
+#     from the RAW targets and requires the same canonical text, ranges and digests.
+#
+# The ids are fixed so the digests are reproducible. The expected values below were produced by
+# the Go test and are not derived from the Elixir code.
+#
+# plan_id            <hex>                        16-byte UUIDv7
+# network_scope_id   <hex>                        16-byte UUID
+# check              <mode> <protocol> <port>     one row per check (SweepMode, TransportProtocol)
+# target             <raw> <canonical-cidr> <count> <range_id-hex> <range_sha256-hex>
+#                    in the order the plan lists its ranges
+# expect             <name> [index] <value>
+plan_id 0192a4a0000170008000000000000001
+network_scope_id 0192a4a0000270008000000000000002
+check 1 1 0
+check 2 2 22
+check 2 2 443
+expect check_set_sha256 e9449cfb0b14842f2f541b720e3be9ffa81c21da39d175330e2df72c270401f5
+target 192.0.2.5 192.0.2.5/32 1 00000000000140008000000000000000 f8b49d95d3c02b9327d03c37b3cd8f7a0c67acdb542964c89bceff78496aac05
+target 198.51.100.77/24 198.51.100.0/24 256 00000000000240008000000000000000 e1cfd574ad561568dff72c4bc2cac6dd9a6afd869167c125bdc7dfa7f8367e10
+target 203.0.113.0/25 203.0.113.0/25 128 00000000000340008000000000000000 af59090c77363ec154104a55495349411b01d8255717be1c6714ebeb1de34f73
+target 2001:DB8::ff/120 2001:db8::/120 256 00000000000440008000000000000000 aa7264dd47477992a0706a63b3a249c12ea6c877eacc1e7dff9ca9a24bef1ac1
+target 2001:DB8:0:0:0:0:0:1 2001:db8::1/128 1 00000000000540008000000000000000 a3ebab897faa0199edb0e1ae170dc5f40c8e04fe9a8f7eb53c66dd78796506d3
+expect total_target_count 642
+expect page_sha256 0 71503cc6db746adbec51b3ed8719dc907cbe8440edd385a356baecc551a17a63
+expect plan_root c687dbdcba5dd19b588df40d709bfef1addf8391b972d3f034cc0b6f8cc42b3c
+expect header_sha256 83963de65912a95f091f900369a01e9b77dc409765aa24a611d5850b7fc988fb

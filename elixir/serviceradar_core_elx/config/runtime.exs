@@ -1076,7 +1076,10 @@ if config_env() == :prod do
       # Camera relay sessions whose edge pull stopped without reporting a close
       # (tracker restart, lost close) otherwise stay requested/opening/active/
       # closing forever. Their leases stop renewing, which is what the reaper keys on.
-      {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance}
+      {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance},
+      # Keeps sweep schedule leases full and in step with their groups. Inert until
+      # an operator enables sweep leasing (sweep_lease_settings).
+      {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
     ] ++
       object_store_retention_crontab ++
       capacity_forecasting_crontab ++
@@ -1451,6 +1454,9 @@ if config_env() == :prod do
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
         Config.analytics_predictions_stream(),
+        # Durable edge records the agent gateway publishes with PubAck; shared
+        # with Config.default_streams/0.
+        Config.edge_record_stream(),
         %{
           name: "ATTRIBUTED_FLOW",
           stream_name: "events",

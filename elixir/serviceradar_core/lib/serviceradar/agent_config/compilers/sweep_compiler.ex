@@ -172,6 +172,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     }
   end
 
+  @doc """
+  Whether a group's effective settings (profile as base, group overrides on top) enable
+  banner grabbing, which the edge record format cannot carry yet.
+  """
+  @spec banner_grab_enabled?(SweepGroup.t(), SweepProfile.t() | nil) :: boolean()
+  def banner_grab_enabled?(%SweepGroup{} = group, profile) do
+    compile_banner_grab(profile, group)["enabled"] == true
+  end
+
   # Private helpers
 
   defp compute_config_hash(compiled_groups) do

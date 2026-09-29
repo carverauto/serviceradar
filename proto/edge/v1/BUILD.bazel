@@ -1,0 +1,101 @@
+# gazelle:ignore
+#
+# Single-source Go bindings: protoc (via the Makefile `generate-proto` target) is
+# the ONE generator for the checked-in *.pb.go, and Bazel compiles those exact
+# files as an ordinary go_library (the same pattern as //proto/identitymap/v1).
+# `make verify-proto-go` is the sole drift guard (regenerate + compare vs committed).
+#
+# The public `edgev1_proto` (proto_library) and `edge_proto_src` (filegroup) remain
+# the schema/descriptor build targets. Only the SECOND Go generator
+# (`go_proto_library`) is removed: regenerating a second Go copy under Bazel is what
+# created the Bazel-vs-Make descriptor divergence and forced the old parity gate +
+# comment-stripping normalizer, all now removed.
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "edgev1_proto",
+    srcs = [
+        "record.proto",
+        "sweep.proto",
+    ],
+    # Match the Makefile's `protoc -I=proto`: the descriptor source path (and the
+    # generated file-level registration symbols) must be `edge/v1/*.proto`, not
+    # `proto/edge/v1/*.proto`, including the import from monitoring.proto.
+    strip_import_prefix = "/proto",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "edge_proto_src",
+    srcs = [
+        "record.proto",
+        "sweep.proto",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "edgev1",
+    srcs = [
+        "record.pb.go",
+        "record_grpc.pb.go",
+        "sweep.pb.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/proto/edge/v1",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+    ],
+)
+
+# Cross-language fixtures. Exposed so the internal edgerecord tests (which AUTHOR some of them from
+# Go's own predicates) can declare the same data dependency instead of reading outside the sandbox.
+filegroup(
+    name = "edge_testdata",
+    srcs = glob(["testdata/**"]),
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "edgev1_golden_test",
+    srcs = [
+        "golden_test.go",
+        "mtr_bounds_test.go",
+        "projection_corpus_test.go",
+        "record_boundary_corpus_test.go",
+        "raw_bounds_corpus_test.go",
+        "lifecycle_corpus_test.go",
+        "lane_bounds_corpus_test.go",
+        "ack_bounds_corpus_test.go",
+        "freeze_coverage_test.go",
+        # The SHARED corpus builder and its gate assertions. Without this Bazel stages the
+        # fixtures as data but never EXECUTES the code that writes or checks them, so the
+        # required shard would verify nothing about the corpus.
+        "sweep_corpus_test.go",
+        "family_corpus_test.go",
+    ],
+    data = glob(["testdata/**"]),
+    deps = [
+        ":edgev1",
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/projection",
+        "@org_golang_google_protobuf//encoding/protowire",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+    ],
+)
+
+# The test files and this BUILD file, as DECLARED INPUTS for //build:go_test_inventory_test.
+# That guard compares the go_test srcs list against the *_test.go files on disk; giving it the
+# glob means a newly added test file reaches it automatically, which is the whole point.
+filegroup(
+    name = "all_test_srcs",
+    srcs = glob(["*_test.go"]) + ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)

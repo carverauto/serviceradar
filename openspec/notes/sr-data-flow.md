@@ -243,7 +243,7 @@ Foundational migrations:
 - Agent config: `agent_config_{templates,instances,versions}`, `agent_commands`, `agent_releases`/`_targets`/`_rollouts`.
 - Credentials/secrets (with `*_versions` audit): `network_credential_secrets`/`_rules`, `credential_secret_providers`, `credential_broker_grants`, `device_snmp_credentials`, `mapper_snmp_credentials`, `nats_credentials`, `collector_packages`, `edge_onboarding_packages`/`_events`, `nats_leaf_servers`, `edge_sites`.
 - SNMP: `snmp_profiles`, `snmp_targets`, `snmp_oid_configs`, `snmp_oid_templates`.
-- Sweep: `sweep_profiles`, `sweep_groups`, `sweep_group_executions` (+`_versions`), `sweep_host_results` (`:403`).
+- Sweep: `sweep_profiles`, `sweep_groups`, `sweep_group_executions` (+`_versions`), `sweep_host_results` (`:403`), `sweep_producer_assignments` (`20260928190000`), `sweep_execution_slots` (`20260929095000`), `sweep_lease_settings` (`20260929100000`).
 - Sysmon: `sysmon_profiles` (`:160`), `dusk_profiles`.
 - Integrations/plugins/dashboards/infra: `integration_sources`, `plugins`/`plugin_*`, `addon_*`, `dashboard_*`/`authored_dashboards`, `ansible_*`, `proxmox_*`, `virtualization_*`, `camera_*`, `wifi_*`, `fieldsurvey_*` (RF spatial survey), `endpoint_inventory_*` (SBOM), `trivy_reports`/`trivy_findings`, `threat_intel_*`, `vulnerability_*`, `ip_*_cache` (geo/rdns enrichment).
 - Jobs: Oban tables (`ensure_oban_platform_tables.exs`, upgraded v14 `20260710203000`), `ng_job_schedules`, `producer_schedules`, `observability_watermarks`.

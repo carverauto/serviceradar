@@ -70,8 +70,10 @@ defmodule ServiceRadarAgentGateway.Application do
 
   use Application
 
+  alias ServiceRadar.Edge.PublisherSupervisor
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Telemetry.OtelSetup
+  alias ServiceRadarAgentGateway.JetStreamPublisher
 
   require Logger
 
@@ -94,6 +96,10 @@ defmodule ServiceRadarAgentGateway.Application do
       capabilities: capabilities
     )
 
+    # The edge-record lane verifies every frame against this local snapshot; without it
+    # `edge-records:v1` never becomes ready (see EdgeRecordTrust).
+    _ = ServiceRadarAgentGateway.EdgeRecordTrust.load_configured()
+
     # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
     OtelSetup.attach_instrumentations(instrumentations: [])
 
@@ -101,17 +107,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
     # NOTE: Gateway does NOT start Repo - it has no database access.
     # All database-dependent operations are forwarded to core-elx via RPC.
-    core_children =
-      [
-        pubsub_child(),
-        nats_connection_child(),
-        process_registry_child(),
-        gateway_tracker_child(),
-        agent_tracker_child(),
-        cluster_supervisor_child()
-      ]
-      |> List.flatten()
-      |> Enum.reject(&is_nil/1)
+    core_children = core_children()
 
     registries_enabled = Application.get_env(:serviceradar_core, :registries_enabled, true)
 
@@ -154,6 +150,29 @@ defmodule ServiceRadarAgentGateway.Application do
 
     opts = [strategy: :one_for_one, name: ServiceRadarAgentGateway.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  @doc """
+  The core children this application composes, as a list.
+
+  Public so ROOT COMPOSITION can be asserted. That is not testable from the running tree in every
+  environment: under Bazel the gateway application is not started, so a test that inspected
+  `Supervisor.which_children/1` passed locally and failed there -- for the right reason, but only
+  by accident of where it ran. Deleting an entry from this list is invisible to every behavioural
+  test, so the list itself is what a test has to bind.
+  """
+  def core_children do
+    [
+      pubsub_child(),
+      nats_connection_child(),
+      edge_publisher_pools_child(),
+      process_registry_child(),
+      gateway_tracker_child(),
+      agent_tracker_child(),
+      cluster_supervisor_child()
+    ]
+    |> List.flatten()
+    |> Enum.reject(&is_nil/1)
   end
 
   defp get_grpc_port do
@@ -238,9 +257,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
   @doc false
   def edge_server_ssl_opts! do
-    cert_dir =
-      Application.get_env(:serviceradar_agent_gateway, :gateway_cert_dir) ||
-        System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
+    cert_dir = edge_cert_dir()
 
     cert_file = Path.join(cert_dir, "gateway.pem")
     key_file = Path.join(cert_dir, "gateway-key.pem")
@@ -260,6 +277,14 @@ defmodule ServiceRadarAgentGateway.Application do
     else
       raise "No mTLS certs available for agent gateway edge listeners"
     end
+  end
+
+  @doc false
+  # The directory holding the edge listener's gateway.pem / gateway-key.pem / root.pem. Its
+  # root.pem is also the deployment CA the edge identity resolver derives installation trust from.
+  def edge_cert_dir do
+    Application.get_env(:serviceradar_agent_gateway, :gateway_cert_dir) ||
+      System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
   end
 
   defp generate_gateway_id do
@@ -292,6 +317,19 @@ defmodule ServiceRadarAgentGateway.Application do
     end
   end
 
+  # Use the same enablement gate as the shared NATS connection. PublisherSupervisor owns
+  # lane connections, pools and publish pipelines; LaneSupervisor owns their startup and readiness
+  # ordering. The publisher is handed in here because core cannot name JetStreamPublisher.
+  defp edge_publisher_pools_child do
+    if gateway_publisher_enabled?() do
+      if Process.whereis(PublisherSupervisor) do
+        nil
+      else
+        {PublisherSupervisor, publisher: &JetStreamPublisher.publish_record/2}
+      end
+    end
+  end
+
   defp gateway_publisher_enabled? do
     Enum.any?(
       [
@@ -302,7 +340,8 @@ defmodule ServiceRadarAgentGateway.Application do
         :rperf_metrics_publisher,
         :mtr_metrics_publisher,
         :sweep_metrics_publisher,
-        :otlp_relay_publisher
+        :otlp_relay_publisher,
+        :edge_records_publisher
       ],
       fn key ->
         :serviceradar_agent_gateway
