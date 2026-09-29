@@ -654,7 +654,10 @@ if config_env() == :prod do
     cluster_enabled: cluster_enabled,
     cluster_coordinator: cluster_coordinator,
     # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
-    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
+    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes),
+    # Concurrent sweep result ingestions on this node; each holds one Repo
+    # connection while it runs. 0 starts no workers on this node.
+    sweep_ingestion_workers_per_node: max(parse_int_env.("SWEEP_INGESTION_WORKERS_PER_NODE", 2), 0)
 
   config :serviceradar_core_elx, :metrics,
     enabled: System.get_env("SERVICERADAR_CORE_METRICS_ENABLED", "true") in ~w(true 1 yes),

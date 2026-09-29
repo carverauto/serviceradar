@@ -32,6 +32,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         retained_plugin_admission_lease_supervisor_child(),
         flow_admission_supervisor_child(),
         retained_plugin_admission_supervisor_child(),
+        sweep_ingestion_dispatcher_child(),
         status_handler_child(),
         command_result_coordination_supervisor_child(),
         command_status_handler_child(),
@@ -148,6 +149,14 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       {Task.Supervisor,
        name: ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor, max_children: 32}
+    end
+  end
+
+  # Started before StatusHandler so asynchronous sweep results are dispatched
+  # to the node-local ingestion workers from the first status onward.
+  defp sweep_ingestion_dispatcher_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.SweepJobs.Ingestion.Dispatcher
     end
   end
 

@@ -75,6 +75,16 @@ defmodule ServiceRadar.ResultsRouter do
     end
   end
 
+  @doc """
+  Ingests one sweep results status and publishes its service state.
+
+  This is the router's own sweep path, exposed so the distributed sweep
+  ingestion workers (`ServiceRadar.SweepJobs.Ingestion.Worker`) run exactly the
+  same ingestion on whichever node they live on.
+  """
+  @spec process_sweep_status(map()) :: :ok | {:ok, term()} | {:error, term()}
+  def process_sweep_status(status) when is_map(status), do: process_and_publish(status)
+
   @impl true
   def init(_state) do
     Logger.info("ResultsRouter started on node #{Node.self()}")

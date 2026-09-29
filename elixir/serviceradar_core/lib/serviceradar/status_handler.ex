@@ -25,6 +25,7 @@ defmodule ServiceRadar.StatusHandler do
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.CausalPredictionSubject
   alias ServiceRadar.ResultsRouter
+  alias ServiceRadar.SweepJobs.Ingestion.Dispatcher, as: SweepDispatcher
 
   require Logger
 
@@ -129,8 +130,29 @@ defmodule ServiceRadar.StatusHandler do
     cond do
       flow_attribution_status?(status) -> FlowLane.admit_cast(status)
       retained_plugin_result_status?(status) -> RetainedPluginLane.admit_cast(status)
+      sweep_result_status?(status) and sweep_dispatcher_running?() -> dispatch_sweep(status)
       true -> process_status_update(status, sync_results?: false)
     end
+  end
+
+  # Asynchronous sweep results are ingested by workers on every core node, not
+  # inside the singleton ResultsRouter (see SweepJobs.Ingestion.Dispatcher).
+  # Synchronous calls keep the router path because they reply after processing.
+  defp dispatch_sweep(status) do
+    SweepDispatcher.dispatch(sweep_dispatcher(), status)
+  end
+
+  defp sweep_result_status?(%{source: source, service_type: "sweep"})
+       when source in ["results", :results], do: true
+
+  defp sweep_result_status?(_status), do: false
+
+  defp sweep_dispatcher_running?, do: SweepDispatcher.running?(sweep_dispatcher())
+
+  defp sweep_dispatcher do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:sweep_dispatcher, SweepDispatcher)
   end
 
   defp admission_reply(:ok, state), do: {:noreply, state}

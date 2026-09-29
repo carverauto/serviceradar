@@ -59,6 +59,22 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
+
+  # Sweep ingestion runs on several workers at once (SweepJobs.Ingestion), so
+  # two ingestions can update the same device rows concurrently. Every
+  # `ocsf_devices` update that targets a uid list locks its rows through this
+  # CTE, in uid order, so concurrent sweep updates cannot deadlock each other.
+  # It also reads the pre-update values under the lock, so transition events
+  # see the state the update actually replaced.
+  @locked_devices_cte """
+  WITH old AS (
+    SELECT uid, is_available AS was_available, hostname, ip
+    FROM ocsf_devices
+    WHERE uid = ANY($1)
+    ORDER BY uid
+    FOR UPDATE
+  )
+  """
   @active_ip_unique_constraint "ocsf_devices_unique_active_ip_idx"
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
   @merged_restore_skipped_event [:serviceradar, :sweep, :restore, :merged_skipped]
@@ -1395,10 +1411,28 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
+  # Ordered locking prevents deadlocks between sweep ingestions; other writers
+  # of ocsf_devices can still interleave, so a deadlock victim is retried once.
+  defp query_retrying_deadlock(sql, params, attempts \\ 2) do
+    case Repo.query(sql, params) do
+      {:error, %Postgrex.Error{postgres: %{code: :deadlock_detected}}} when attempts > 1 ->
+        :telemetry.execute([:serviceradar, :sweep_ingestion, :deadlock_retry], %{count: 1}, %{})
+        query_retrying_deadlock(sql, params, attempts - 1)
+
+      result ->
+        result
+    end
+  end
+
   defp bulk_upsert_agent_availability([]), do: []
 
   defp bulk_upsert_agent_availability(records) do
-    records = dedupe_availability_records(records)
+    # Conflict-key order, so concurrent ingestions that touch the same
+    # (device, agent) rows acquire their row locks in the same order.
+    records =
+      records
+      |> dedupe_availability_records()
+      |> Enum.sort_by(&{&1.device_uid, &1.agent_id})
 
     on_conflict_query =
       from(a in DeviceAgentAvailability,
@@ -1675,6 +1709,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # DB connection's search_path determines the schema
     # Reset consecutive failure count to 0 when device becomes available
     sql = """
+    #{@locked_devices_cte}
     UPDATE ocsf_devices AS d
     SET
       is_available = true,
@@ -1689,11 +1724,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         '{sweep_last_available_at}',
         to_jsonb($2::timestamptz)
       )
-    FROM (
-      SELECT uid, is_available AS was_available, hostname, ip
-      FROM ocsf_devices
-      WHERE uid = ANY($1)
-    ) old
+    FROM old
     WHERE d.uid = old.uid
       AND (
         (
@@ -1709,7 +1740,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
     """
 
-    case Repo.query(sql, [
+    case query_retrying_deadlock(sql, [
            device_uids,
            timestamp,
            availability_policy.authenticated_agent_id,
@@ -1758,6 +1789,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     available_wins_cutoff = DateTime.add(timestamp, -available_wins_window, :second)
 
     sql = """
+    #{@locked_devices_cte}
     UPDATE ocsf_devices AS d
     SET
       metadata = jsonb_set(
@@ -1771,11 +1803,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         ELSE d.is_available
       END,
       modified_time = $3
-    FROM (
-      SELECT uid, is_available AS was_available, hostname, ip
-      FROM ocsf_devices
-      WHERE uid = ANY($1)
-    ) old
+    FROM old
     WHERE d.uid = old.uid
       -- "Available wins" - skip devices recently marked available by another sweep
       -- This prevents multi-agent flapping when one agent can reach device and another can't
@@ -1816,7 +1844,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
     """
 
-    case Repo.query(sql, [
+    case query_retrying_deadlock(sql, [
            device_uids,
            @unavailable_threshold,
            timestamp,
@@ -1889,16 +1917,25 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # DB connection's search_path determines the schema
     # Use unqualified table name since search_path is set by CNPG credentials
     sql = """
-    UPDATE ocsf_devices
+    WITH locked AS (
+      SELECT uid
+      FROM ocsf_devices
+      WHERE uid = ANY($1)
+        AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
+      ORDER BY uid
+      FOR UPDATE
+    )
+    UPDATE ocsf_devices AS d
     SET discovery_sources = array_append(
-      COALESCE(discovery_sources, ARRAY[]::text[]),
+      COALESCE(d.discovery_sources, ARRAY[]::text[]),
       'sweep'
     )
-    WHERE uid = ANY($1)
-    AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
+    FROM locked
+    WHERE d.uid = locked.uid
+    AND NOT ('sweep' = ANY(COALESCE(d.discovery_sources, ARRAY[]::text[])))
     """
 
-    _ = Repo.query(sql, [device_uids])
+    _ = query_retrying_deadlock(sql, [device_uids])
     :ok
   end
 

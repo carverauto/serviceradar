@@ -53,6 +53,65 @@ defmodule ServiceRadar.StatusHandlerTest do
     assert_receive {:forwarded, ^status}
   end
 
+  describe "asynchronous sweep results" do
+    setup do
+      original = Application.get_env(:serviceradar_core, StatusHandler)
+      name = :"sweep_dispatcher_#{System.unique_integer([:positive])}"
+      Application.put_env(:serviceradar_core, StatusHandler, sweep_dispatcher: name)
+      on_exit(fn -> restore_env(StatusHandler, original) end)
+
+      %{dispatcher_name: name}
+    end
+
+    test "are handed to the sweep ingestion dispatcher, not the ResultsRouter", ctx do
+      parent = self()
+
+      forwarder = fn label ->
+        spawn(fn ->
+          receive do
+            {:"$gen_cast", message} -> send(parent, {label, message})
+          end
+        end)
+      end
+
+      Process.register(forwarder.(:router), ServiceRadar.ResultsRouter)
+      Process.register(forwarder.(:dispatcher), ctx.dispatcher_name)
+
+      status = sweep_status()
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+      assert_receive {:dispatcher, {:dispatch, ^status}}
+      refute_receive {:router, _}, 50
+    end
+
+    test "stay on the ResultsRouter path when no dispatcher is running" do
+      parent = self()
+
+      router_pid =
+        spawn(fn ->
+          receive do
+            {:"$gen_cast", {:results_update, status}} -> send(parent, {:forwarded, status})
+          end
+        end)
+
+      Process.register(router_pid, ServiceRadar.ResultsRouter)
+
+      status = sweep_status()
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+      assert_receive {:forwarded, ^status}
+    end
+  end
+
+  defp sweep_status do
+    %{
+      source: "results",
+      service_type: "sweep",
+      agent_id: "agent-1",
+      message: Jason.encode!(%{"sweep_group_id" => "group-1", "hosts" => []})
+    }
+  end
+
   test "retained plugin admission compatibility gate defaults to the legacy path" do
     original = Application.get_env(:serviceradar_core, StatusHandler)
     Application.put_env(:serviceradar_core, StatusHandler, [])

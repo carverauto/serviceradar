@@ -172,6 +172,9 @@ defmodule ServiceRadar.Application do
         # Cluster infrastructure (only if clustering is enabled)
         cluster_children(),
 
+        # Sweep ingestion workers on every node that handles agent results
+        sweep_ingestion_child(),
+
         # Coordinator-only duties for core-elx candidates
         coordinator_children()
       ]
@@ -528,6 +531,15 @@ defmodule ServiceRadar.Application do
 
     if enabled and ServiceRadar.SPIFFE.certs_available?() do
       ServiceRadar.SPIFFE.CertMonitor
+    end
+  end
+
+  # Every core node that handles agent results runs sweep ingestion workers for
+  # the coordinator's dispatcher. The supervisor also owns the node's :pg scope,
+  # so it starts even when the node is configured with zero workers.
+  defp sweep_ingestion_child do
+    if repo_enabled?() and Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.SweepJobs.Ingestion.Supervisor
     end
   end
 
