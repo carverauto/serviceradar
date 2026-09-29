@@ -2,13 +2,16 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   use ExUnit.Case, async: false
 
   alias Ash.Error.Query.InvalidQuery
+  alias AshJsonApi.Resource.Info
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Observability.Log
+  alias ServiceRadar.Observability.OtelMetric
   alias ServiceRadar.Observability.OtelTrace
   alias ServiceRadar.Observability.OtelTraceSummary
   alias ServiceRadar.Observability.TelemetryIndexRead
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Observability.TimeseriesMetricDiskHourly
+  alias ServiceRadar.Observability.TimeseriesMetricHourly
 
   require Ash.Query
 
@@ -49,7 +52,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     with_starrocks(true)
 
     assert TelemetryIndexRead.mode(
-             ServiceRadar.Observability.OtelMetric,
+             OtelMetric,
              table: "otel_metrics"
            ) == {:starrocks, "otel_metrics"}
 
@@ -71,7 +74,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
            ) == {:starrocks, "timeseries_metrics"}
 
     assert TelemetryIndexRead.mode(
-             ServiceRadar.Observability.TimeseriesMetricHourly,
+             TimeseriesMetricHourly,
              table: "timeseries_metrics_hourly"
            ) == {:starrocks, "timeseries_metrics_hourly"}
   end
@@ -346,6 +349,162 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     assert summary_sql =~ "`error_count`"
     refute summary_sql =~ "`refreshed_at`"
     refute summary_sql =~ "`error_rate`"
+  end
+
+  @sampled_at ~U[2026-01-01 00:00:00.000000Z]
+  @sampled_at_sql "2026-01-01 00:00:00.000000"
+
+  test "serves a null span id on an otel metrics page from either backend" do
+    cnpg_record =
+      struct(OtelMetric, %{
+        timestamp: @sampled_at,
+        span_name: "GET /",
+        service_name: "api",
+        span_id: nil
+      })
+
+    for backend <- [:cnpg, :warehouse] do
+      [record] =
+        read_index(
+          OtelMetric,
+          "otel_metrics",
+          backend,
+          [cnpg_record],
+          ["timestamp", "span_name", "service_name", "span_id"],
+          [@sampled_at_sql, "GET /", "api", nil]
+        )
+
+      assert record.span_id == nil
+      assert_null_page(OtelMetric, record, "otel_metric", :span_id)
+    end
+
+    present = %{cnpg_record | span_id: "abc123abc123abcd"}
+
+    assert AshJsonApi.Resource.encode_primary_key(present) ==
+             joined_primary_key(OtelMetric, present)
+
+    assert AshJsonApi.Resource.decode_primary_key_part(
+             AshJsonApi.Resource.encode_primary_key_part(nil)
+           ) == nil
+
+    assert AshJsonApi.Resource.decode_primary_key_part(
+             AshJsonApi.Resource.encode_primary_key_part("")
+           ) == ""
+
+    assert AshJsonApi.Resource.decode_primary_key_part(
+             AshJsonApi.Resource.encode_primary_key_part(<<0x1F>>)
+           ) == <<0x1F>>
+
+    assert AshJsonApi.Resource.decode_primary_key_part(
+             AshJsonApi.Resource.encode_primary_key_part(<<0x1F, 0x1F>>)
+           ) ==
+             <<0x1F, 0x1F>>
+  end
+
+  test "serves a null device id on an hourly metrics page from either backend" do
+    cnpg_record =
+      struct(TimeseriesMetricHourly, %{
+        bucket: @sampled_at,
+        device_id: nil,
+        metric_type: "cpu",
+        metric_name: "usage"
+      })
+
+    for backend <- [:cnpg, :warehouse] do
+      [record] =
+        read_index(
+          TimeseriesMetricHourly,
+          "timeseries_metrics_hourly",
+          backend,
+          [cnpg_record],
+          ["bucket", "device_id", "metric_type", "metric_name"],
+          [@sampled_at_sql, nil, "cpu", "usage"]
+        )
+
+      assert record.device_id == nil
+      assert_null_page(TimeseriesMetricHourly, record, "timeseries_metric_hourly", :device_id)
+    end
+
+    present = %{cnpg_record | device_id: "device-1"}
+
+    assert AshJsonApi.Resource.encode_primary_key(present) ==
+             joined_primary_key(TimeseriesMetricHourly, present)
+  end
+
+  defp read_index(resource, table, :cnpg, records, _columns, _row) do
+    with_starrocks(false)
+
+    query =
+      resource
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.set_context(%{cnpg_read: fn _data_layer_query -> {:ok, records} end})
+
+    assert {:ok, read} = TelemetryIndexRead.read(query, :data_layer_query, [table: table], %{})
+    read
+  end
+
+  defp read_index(resource, table, :warehouse, _records, columns, row) do
+    cutover = if table == "timeseries_metrics_hourly", do: [:metrics], else: []
+    with_starrocks(true, cutover_datasets: cutover)
+
+    query =
+      resource
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.set_context(%{
+        starrocks_query: fn sql ->
+          if String.contains?(sql, "COUNT(*)") do
+            flunk("index page did not request a count: #{sql}")
+          else
+            {:ok, %{columns: columns, rows: [row]}}
+          end
+        end
+      })
+
+    assert {:ok, read} = TelemetryIndexRead.read(query, :data_layer_query, [table: table], %{})
+    read
+  end
+
+  defp assert_null_page(resource, record, type, field) do
+    body =
+      %AshJsonApi.Request{
+        url: "http://example.test/api/v2",
+        includes_keyword: [],
+        fields: %{},
+        route: %{},
+        domain: ServiceRadar.Observability,
+        all_domains: [ServiceRadar.Observability],
+        resource: resource
+      }
+      |> AshJsonApi.Serializer.serialize_many(offset_page([record]), [], %{})
+      |> Jason.decode!()
+
+    assert [row] = body["data"]
+    assert row["type"] == type
+    assert row["id"] == AshJsonApi.Resource.encode_primary_key(record)
+    assert is_binary(row["id"])
+    assert Map.get(row["attributes"], Atom.to_string(field)) == nil
+
+    refute row["id"] ==
+             AshJsonApi.Resource.encode_primary_key(Map.put(record, field, ""))
+
+    refute row["id"] ==
+             AshJsonApi.Resource.encode_primary_key(Map.put(record, field, <<0x1F>>))
+  end
+
+  defp offset_page(records) do
+    %Ash.Page.Offset{
+      results: records,
+      limit: 100,
+      offset: 0,
+      count: length(records),
+      more?: false
+    }
+  end
+
+  defp joined_primary_key(resource, record) do
+    delimiter = Info.primary_key_delimiter(resource)
+    keys = Info.primary_key_fields(resource)
+    Enum.map_join(keys, delimiter, &to_string(Map.fetch!(record, &1)))
   end
 
   defp index_read_opts(resource) do

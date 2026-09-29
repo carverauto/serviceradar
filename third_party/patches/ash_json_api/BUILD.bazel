@@ -1,0 +1,5 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "null_composite_id.patch",
+])
