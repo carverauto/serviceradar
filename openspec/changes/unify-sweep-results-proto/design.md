@@ -196,14 +196,21 @@ modes, the overrides, or the profile change, and revokes an agent that is no
 longer selected. Reassignment and agent replacement both arrive as an
 `agent_ids` update.
 
-**Schedule lease.** For each opted-in assignment core pre-mints the executions
+**Schedule lease.** For each leased assignment core pre-mints the executions
 of the lease horizon: a UUIDv7 `execution_id` whose time is the slot start, the
 slot's collection window, and the plan and range digests of that execution's
-plan (see "Plan inputs"). Leases cover sweep groups with static targets; a group
-with an SRQL target query stays on the legacy path until the ABI can commit to
-an address set. Each execution is recorded as scheduled before it runs. The
-horizon has a per-partition default, a per-agent override and an administrator
-maximum. Renewal keeps a connected agent's horizon full, so a disconnection
+plan (see "Plan inputs"). A group is leased only when it has non-empty
+`static_targets` and no `target_query`. A group with a `target_query`, whether
+or not it also has static targets, stays entirely on the legacy path (the
+agent's local ticker and legacy results): one execution is never split across
+the two paths, and the ABI cannot commit to an SRQL-resolved address set. If a
+leased group later gains a `target_query`, that change bumps the epoch and the
+group is no longer eligible, so its assignments are revoked and the agent falls
+back to its local ticker. Removing the query while static targets remain makes
+the group eligible, and it is leased from then on. Each execution is recorded
+as scheduled before it runs. The horizon has a per-partition default, a
+per-agent override and an administrator maximum. Renewal keeps a connected
+agent's horizon full, so a disconnection
 starts from a full lease.
 
 **Issuer.** Core signs with an Ed25519 issuer key held through a core-only file
@@ -221,7 +228,7 @@ configured static target.
 
 **Delivery and execution.** The lease travels core -> gateway -> agent over the
 existing authenticated control path as the plan of each scheduled execution
-plus its signed authorizations (see "Carrier"), and the agent acknowledges it. For an opted-in group the agent's
+plus its signed authorizations (see "Carrier"), and the agent acknowledges it. For a leased group the agent's
 ticker is replaced by the lease: it runs each slot at its time from its own
 clock, connected or not, mints only per-record identity (`event_id`,
 `batch_sequence`), and spools. Every record's `event_id` time must fall inside
