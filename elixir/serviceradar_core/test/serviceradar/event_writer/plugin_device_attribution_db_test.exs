@@ -25,6 +25,8 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
 
+  require Ash.Query
+
   @moduletag :integration
 
   @source "orbit"
@@ -57,6 +59,16 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
     terminal = create_device!(actor, partition)
     register_integration_id!(actor, terminal.uid, terminal_ref, partition)
 
+    # Exercise attribution with Device's default keyset pagination, not a list
+    # returned by a custom loader. Each test uses fresh, uncached references.
+    terminal_uid = terminal.uid
+
+    assert %Ash.Page.Keyset{results: [%Device{uid: ^terminal_uid}], more?: false} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: false})
+             |> Ash.Query.filter(uid == ^terminal_uid)
+             |> Ash.read!(actor: actor)
+
     %{
       actor: actor,
       unique: unique,
@@ -84,14 +96,14 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
   end
 
   test "an alert from a plugin event is attributed to the discovered device", ctx do
-    [stored] = Events.build_rows([event_message(ctx, ctx.terminal_ref)])
-    assert AlertLifecycle.resolved_device_uid(stored) == ctx.terminal.uid
-
     # The alert path resolves the reference itself too, for a record that was
-    # not attributed at ingest.
+    # not attributed at ingest, before event ingestion can populate the cache.
     unattributed = Events.parse_message(event_message(ctx, ctx.terminal_ref))
     assert unattributed.device["uid"] == ctx.terminal_ref
     assert AlertLifecycle.resolved_device_uid(unattributed) == ctx.terminal.uid
+
+    [stored] = Events.build_rows([event_message(ctx, ctx.terminal_ref)])
+    assert AlertLifecycle.resolved_device_uid(stored) == ctx.terminal.uid
   end
 
   test "a reference with an undeclared source prefix is not resolved", ctx do
