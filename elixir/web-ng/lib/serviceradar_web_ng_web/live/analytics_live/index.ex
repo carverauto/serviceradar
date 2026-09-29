@@ -14,6 +14,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   @default_events_limit 500
   @default_events_recent_limit 50
   @default_metrics_limit 100
+  # Device sysmon is stored in timeseries_metrics as sysmon.* metric types;
+  # the dedicated cpu/memory/disk tables are retired and receive no data.
+  @sysmon_cpu_query ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_1h sort:timestamp:desc|
   @refresh_interval_ms to_timeout(second: 30)
   @analytics_query_timeout_ms 15_000
   @analytics_max_concurrency 2
@@ -127,9 +130,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       devices_offline: ~s|in:devices is_available:false stats:"count() as offline"|,
       logs_critical_recent: StatsQuery.logs_severity_data_query([:fatal, :error], limit: 5),
       slow_spans: "in:otel_metrics time:last_24h is_slow:true sort:duration_ms:desc limit:25",
-      cpu_metrics: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
-      memory_metrics: "in:memory_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
-      disk_metrics: "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}"
+      cpu_metrics: @sysmon_cpu_query <> " limit:#{@default_metrics_limit}",
+      memory_metrics:
+        ~s|in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}|,
+      disk_metrics:
+        ~s|in:timeseries_metrics metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}|
     }
 
     queries =
@@ -626,7 +631,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     |> extract_numeric()
   end
 
-  defp utilization_host(svc), do: first_present(svc, ["host", "uid"], "Unknown")
+  defp utilization_host(svc), do: first_present(svc, ["host", "uid", "device_id"], "Unknown")
 
   defp first_present(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, &Map.get(map, &1))
@@ -653,7 +658,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp disk_key(row) do
     host = host_key(row)
-    mount = Map.get(row, "mount_point") || Map.get(row, "mount") || ""
+    mount = disk_mount(row)
 
     if host == "" do
       ""
@@ -661,6 +666,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       "#{host}:#{mount}"
     end
   end
+
+  defp disk_mount(row) do
+    Map.get(row, "mount_point") || Map.get(row, "mount") || mount_from_tags(row) || "/"
+  end
+
+  defp mount_from_tags(%{"tags" => %{"mount_point" => mount}}) when is_binary(mount), do: mount
+
+  defp mount_from_tags(%{"tags" => tags}) when is_binary(tags) do
+    case Jason.decode(tags) do
+      {:ok, decoded} -> mount_from_tags(%{"tags" => decoded})
+      _ -> nil
+    end
+  end
+
+  defp mount_from_tags(_), do: nil
 
   defp categorize_utilization(rows, value_fun, warning_threshold, critical_threshold) do
     Enum.reduce(rows, %{warning: [], critical: []}, fn row, acc ->
@@ -1434,18 +1454,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> assign(:total_cpu_hosts, total_cpu_hosts)
       |> assign(:total_memory_hosts, total_memory_hosts)
       |> assign(:total_disk_mounts, total_disk_mounts)
+      |> assign(:sysmon_cpu_query, @sysmon_cpu_query)
 
     ~H"""
     <.ui_panel class="h-80">
       <:header>
         <.link
-          href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc"}}"}
+          href={~p"/dashboard?#{%{q: @sysmon_cpu_query}}"}
           class="hover:text-sr-brand transition-colors"
         >
           <div class="text-sm font-semibold">High Utilization</div>
         </.link>
         <.link
-          href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:100"}}"}
+          href={~p"/dashboard?#{%{q: @sysmon_cpu_query <> " limit:100"}}"}
           class="text-sr-muted hover:text-sr-brand"
           title="View metrics"
         >
@@ -1700,8 +1721,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp disk_utilization_row(assigns) do
     svc = assigns.service
     percent = extract_numeric(Map.get(svc, "percent") || Map.get(svc, "value") || 0)
-    host = Map.get(svc, "host") || Map.get(svc, "uid") || Map.get(svc, "device_id") || "Unknown"
-    mount = Map.get(svc, "mount_point") || Map.get(svc, "mount") || "/"
+    host = utilization_host(svc)
+    mount = disk_mount(svc)
 
     assigns =
       assigns

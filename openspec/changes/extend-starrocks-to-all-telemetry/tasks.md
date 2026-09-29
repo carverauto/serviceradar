@@ -126,7 +126,12 @@
   - [ ] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` still read CNPG; route or retire
     them with the other JSON:API telemetry readers in 5.4. `OtelServiceCatalogBackfillWorker`
     reads CNPG `spans_red_1h` once, for history written before the switch, and needs no change.
-- [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
+- [x] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
+  **Retired -- no warehouse copies.** The implementation follows the
+  [sysmon compatibility requirement](specs/srql/spec.md#requirement-dedicated-sysmon-readers-are-retired-with-query-compatibility)
+  (issue #4861). See the [SRQL reference](../../../docs/docs/srql-language-reference.md#aggregation-with-stats)
+  for query and retention behavior and the [API reference](../../../docs/docs/api-reference.md#retired-sysmon-jsonapi-resources)
+  for retired endpoints and preserved CNPG objects.
 - [ ] 3.4 MTR traces and hops (spec: "MTR traces and hops reach the warehouse through JetStream").
   Scalar MTR metrics already travel on `metrics.mtr` (gateway `MtrMetricsPublisher` -> EventWriter
   `Metrics`); full traces and hops do not: scheduled results go gateway -> core

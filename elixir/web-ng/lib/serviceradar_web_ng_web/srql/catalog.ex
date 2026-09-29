@@ -2342,6 +2342,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   # catalog record per entity. Without this, opening a legacy query in the
   # visual builder silently falls back to the generic timestamp-sorted shape.
   @entity_aliases %{
+    "cpu" => "cpu_metrics",
+    "memory" => "memory_metrics",
+    "disk" => "disk_metrics",
+    "processes" => "process_metrics",
     # Sweep diagnostics (issue 4167). Every alias here is one the SRQL parser
     # already accepts (`rust/srql/src/parser/entity.rs`) and `EntityAccess`
     # already gates. Without the mapping, `entity/1` falls through to the

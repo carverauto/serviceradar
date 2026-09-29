@@ -53,7 +53,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       when e in ~w(flows flow network_activity attributed_flows attributed_flow flow_attributions flow_attribution) ->
         :flows
 
-      e when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf) ->
+      e
+      when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf
+                   cpu_metrics cpu memory_metrics memory disk_metrics disk process_metrics processes) ->
         :metrics
 
       "logs" ->

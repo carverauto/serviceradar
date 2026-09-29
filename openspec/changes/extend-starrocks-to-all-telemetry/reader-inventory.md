@@ -142,10 +142,9 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
    `rollup_stats:availability` returned nothing. Resolved for CNPG by migration
    `20260927120000_ensure_services_availability_5m_cagg`; it still needs a warehouse
    counterpart when service status moves in 5.4.
-2. **The dedicated sysmon tables have no writer.** `cpu_metrics`, `memory_metrics`,
-   `disk_metrics`, `process_metrics` and `cpu_cluster_metrics` have Ash resources, retention and
-   readers but no insert anywhere; device sysmon data lives in `timeseries_metrics` as
-   `sysmon.*`. Their readers are legacy; retire them rather than building warehouse versions.
+2. **Dedicated sysmon readers: resolved in issue #4861.** The sysmon entries
+   above describe the original inventory snapshot; their disposition is recorded
+   in [task 3.3](tasks.md).
 3. **`Readers.mode_for/1` routes events, logs and metrics on `cutover_datasets`, not
    `enabled?/0`.** Every reader marked routed above still reads CNPG until the cutover list
    names its dataset; 5.2 collapses this to `enabled?/0`.

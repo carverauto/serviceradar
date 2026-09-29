@@ -9,9 +9,9 @@ use std::sync::OnceLock;
 const CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
 const CAGG_MAX_TIME_RANGE_DAYS: i64 = 395;
 /// Mirrors the deployed TimescaleDB retention policies on the raw metric
-/// hypertables the hourly CAGGs roll up: 7 days for cpu/disk/memory/process/
-/// timeseries. Flows are deliberately excluded from the retention arm — CNPG
-/// netflow is deprecated in favour of the StarRocks migration, so its longer
+/// hypertables the hourly CAGGs roll up: 7 days for timeseries. Flows are
+/// deliberately excluded from the retention arm — CNPG netflow is deprecated
+/// in favour of the StarRocks migration, so its longer
 /// raw retention does not participate. Set
 /// `SRQL_RAW_TELEMETRY_RETENTION_HOURS` when those metric policies change.
 const DEFAULT_RAW_TELEMETRY_RETENTION_HOURS: i64 = 168;
@@ -43,11 +43,7 @@ fn raw_telemetry_retention_hours() -> i64 {
 pub(crate) fn supports_hourly_cagg(entity: &Entity) -> bool {
     matches!(
         entity,
-        Entity::CpuMetrics
-            | Entity::MemoryMetrics
-            | Entity::DiskMetrics
-            | Entity::ProcessMetrics
-            | Entity::TimeseriesMetrics
+        Entity::TimeseriesMetrics
             | Entity::TimeseriesMetricInterfaceHourly
             | Entity::TimeseriesMetricDiskHourly
             | Entity::SnmpMetrics
@@ -58,10 +54,6 @@ pub(crate) fn supports_hourly_cagg(entity: &Entity) -> bool {
 
 pub(crate) fn cagg_table_for_entity(entity: &Entity) -> Option<&'static str> {
     match entity {
-        Entity::CpuMetrics => Some("cpu_metrics_hourly"),
-        Entity::MemoryMetrics => Some("memory_metrics_hourly"),
-        Entity::DiskMetrics => Some("disk_metrics_hourly"),
-        Entity::ProcessMetrics => Some("process_metrics_hourly"),
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
             Some("timeseries_metrics_hourly")
         }
@@ -81,32 +73,6 @@ pub(crate) fn cagg_column_for_entity(
     let field = field.trim().to_ascii_lowercase();
 
     match entity {
-        Entity::CpuMetrics => match (agg.as_str(), field.as_str()) {
-            ("avg", "usage_percent") => Some("avg_usage_percent"),
-            ("max", "usage_percent") => Some("max_usage_percent"),
-            _ => None,
-        },
-        Entity::MemoryMetrics => match (agg.as_str(), field.as_str()) {
-            ("avg", "usage_percent") => Some("avg_usage_percent"),
-            ("max", "usage_percent") => Some("max_usage_percent"),
-            ("avg", "used_bytes") => Some("avg_used_bytes"),
-            ("avg", "available_bytes") => Some("avg_available_bytes"),
-            _ => None,
-        },
-        Entity::DiskMetrics => match (agg.as_str(), field.as_str()) {
-            ("avg", "usage_percent") => Some("avg_usage_percent"),
-            ("max", "usage_percent") => Some("max_usage_percent"),
-            ("avg", "used_bytes") => Some("avg_used_bytes"),
-            ("avg", "available_bytes") => Some("avg_available_bytes"),
-            _ => None,
-        },
-        Entity::ProcessMetrics => match (agg.as_str(), field.as_str()) {
-            ("avg", "cpu_usage") => Some("avg_cpu_usage"),
-            ("max", "cpu_usage") => Some("max_cpu_usage"),
-            ("avg", "memory_usage") => Some("avg_memory_usage"),
-            ("max", "memory_usage") => Some("max_memory_usage"),
-            _ => None,
-        },
         Entity::TimeseriesMetrics
         | Entity::TimeseriesMetricInterfaceHourly
         | Entity::TimeseriesMetricDiskHourly
@@ -138,11 +104,10 @@ pub(crate) fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
     if matches!(
         ast.entity,
         Entity::TimeseriesMetricInterfaceHourly | Entity::TimeseriesMetricDiskHourly
-    ) || is_hourly_cagg_eligible_query(
-        &ast.entity,
-        ast.stats.is_some(),
-        ast.downsample.is_some(),
-    ) {
+    ) || (super::sysmon::is_entity(&ast.entity)
+        && (ast.stats.is_some() || ast.downsample.is_some()))
+        || is_hourly_cagg_eligible_query(&ast.entity, ast.stats.is_some(), ast.downsample.is_some())
+    {
         CAGG_MAX_TIME_RANGE_DAYS
     } else {
         90

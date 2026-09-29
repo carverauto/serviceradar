@@ -197,9 +197,35 @@ stats:<function>(<field>) as <alias> [by <field>]
 
 ```srql
 in:devices stats:count() as total by type
-in:cpu_metrics time:last_24h stats:avg(usage_percent) as avg_cpu
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_24h stats:avg(value) as avg_cpu by metric_name
 in:flows time:last_1h stats:sum(bytes_total) as bytes by src_ip sort:bytes:desc
 ```
+
+Legacy `in:cpu`, `in:memory`, `in:disk`, and `in:processes`
+(with canonical names `cpu_metrics`, `memory_metrics`, `disk_metrics`, and
+`process_metrics`) remain supported. They project the corresponding
+`sysmon.*` samples in `timeseries_metrics` into legacy row fields on both CNPG
+and StarRocks through Readers. Saved filters, stats, sorting, and downsampling
+keep working.
+
+Historical aggregates use existing timeseries hourly rollups when those rollups
+preserve the requested fields, filters and series. The general rollup retains
+device identity and metric values; CNPG's disk rollup also retains mount points.
+Charts use hourly rollups only for buckets that are positive multiples of one
+hour. Sub-hour and nonintegral-hour buckets use retained raw samples at the
+requested resolution. Rollup-compatible aggregates include the full hours
+containing the start and end timestamps, with the same effective window when
+a stale warehouse rollup triggers a raw retry. Averages are weighted by sample
+count. Shapes that require byte tags, host identity, process
+names or other unretained dimensions read only the configured raw retention
+(seven days by default on CNPG). StarRocks mount-specific queries also use raw
+retention because its general hourly rollup does not retain mounts. This
+compatibility does not restore expired samples or guarantee full historical
+equivalence, and it never reads the retired dedicated sysmon tables.
+
+New metric envelopes persist `resource.host_id` as `tags.host_id`, which supplies
+legacy host fields, filters, series and sorting on both backends. Previously
+stored samples without that tag do not acquire host identity retroactively.
 
 ### Composite-result stats
 

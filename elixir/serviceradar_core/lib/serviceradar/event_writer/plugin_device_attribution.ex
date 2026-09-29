@@ -499,11 +499,13 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
   defp active_device_uids([], _actor), do: MapSet.new()
 
   defp active_device_uids(uids, actor) do
-    Device
-    |> Ash.Query.for_read(:read, %{include_deleted: false})
-    |> Ash.Query.filter(uid in ^uids)
-    |> Ash.read!(actor: actor)
-    |> MapSet.new(& &1.uid)
+    %Ash.Page.Keyset{results: devices} =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: false})
+      |> Ash.Query.filter(uid in ^uids)
+      |> Ash.read!(actor: actor)
+
+    MapSet.new(devices, & &1.uid)
   end
 
   defp read_by_ids([], _resource, _actor), do: []

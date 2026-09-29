@@ -799,14 +799,13 @@ fn translate_downsample_respects_value_field() {
     let sql = response.sql.to_lowercase();
 
     assert!(
-        sql.contains("avg(used_bytes)") || sql.contains("avg(avg_used_bytes)"),
-        "expected downsample to use used_bytes or avg_used_bytes, got: {}",
+        sql.contains("avg(\"used_bytes\")"),
+        "expected downsample to average used_bytes, got: {}",
         response.sql
     );
     assert!(
-        sql.contains("bucket >= time_bucket('1 hour', $1::timestamptz)")
-            && sql.contains("bucket < time_bucket('1 hour', $2::timestamptz) + interval '1 hour'"),
-        "expected downsample CAGG bucket-overlap bounds for partial windows, got: {}",
+        sql.contains("timestamp >= $1 and timestamp < $2"),
+        "expected raw downsample to preserve exact window bounds, got: {}",
         response.sql
     );
 }

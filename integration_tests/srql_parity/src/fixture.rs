@@ -302,10 +302,34 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
         key_suffix,
     };
     let cores = [
-        (cpu(Some(r#"{"core_id":"0"}"#.into()), "core0"), 0),
-        (cpu(Some(r#"{"core_id":"1"}"#.into()), "core1"), 1),
-        (cpu(Some(r#"{"core_id":"2"}"#.into()), "core2"), 2),
-        (cpu(Some(r#"{"core_id":"3"}"#.into()), "core3"), 3),
+        (
+            cpu(
+                Some(r#"{"core_id":"0","host_id":"host01.example.com"}"#.into()),
+                "core0",
+            ),
+            0,
+        ),
+        (
+            cpu(
+                Some(r#"{"core_id":"1","host_id":"host01.example.com"}"#.into()),
+                "core1",
+            ),
+            1,
+        ),
+        (
+            cpu(
+                Some(r#"{"core_id":"2","host_id":"host01.example.com"}"#.into()),
+                "core2",
+            ),
+            2,
+        ),
+        (
+            cpu(
+                Some(r#"{"core_id":"3","host_id":"host01.example.com"}"#.into()),
+                "core3",
+            ),
+            3,
+        ),
         (
             cpu(Some(r#"{"host":"host01.example.com"}"#.into()), "nocore"),
             4,
@@ -316,6 +340,49 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
         for (series, core) in &cores {
             let value = 5.0 + ((sample * 7 + core * 13) % 90) as f64 + 0.5;
             rows.push(series.row(anchor.at(sample * 30 + 5), value));
+        }
+    }
+
+    for (metric_type, metric_name, value, tags) in [
+        (
+            "sysmon.memory",
+            "memory.used_percent",
+            25.0,
+            r#"{"host_id":"host01.example.com","used_bytes":"1024","total_bytes":"4096"}"#,
+        ),
+        (
+            "sysmon.disk",
+            "disk.used_percent",
+            95.0,
+            r#"{"host_id":"host01.example.com","mount_point":"/data","used_bytes":"1900","total_bytes":"2000"}"#,
+        ),
+        (
+            "sysmon.process",
+            "process.cpu_usage",
+            12.5,
+            r#"{"host_id":"host01.example.com","pid":"123","name":"worker","status":"running"}"#,
+        ),
+        (
+            "sysmon.process",
+            "process.memory_usage",
+            4096.0,
+            r#"{"host_id":"host01.example.com","pid":"123","name":"worker","status":"running"}"#,
+        ),
+    ] {
+        let series = Series {
+            gateway: GATEWAY_1,
+            agent: AGENT_1,
+            device: DEVICE_A,
+            metric_type,
+            metric_name,
+            if_index: None,
+            counter_width: None,
+            tags: Some(tags.into()),
+            metadata: None,
+            key_suffix: "compat",
+        };
+        for minute in 0..360_i64 {
+            rows.push(series.row(anchor.at(minute * 60 + 5), value));
         }
     }
 
@@ -796,14 +863,15 @@ mod tests {
             .collect();
         assert_eq!(gateways.len(), 2, "one display series from two gateways");
 
-        assert!(
-            rows.iter()
-                .any(|row| row.tags.as_deref() == Some(r#"{"core_id":"3"}"#))
-        );
-        let null_dimension = rows
+        let cpu_tags: Vec<serde_json::Value> = rows
             .iter()
             .filter(|row| row.metric_type == "sysmon.cpu")
-            .filter(|row| !row.tags.as_deref().unwrap_or("").contains("core_id"))
+            .map(|row| serde_json::from_str(row.tags.as_deref().unwrap_or("null")).unwrap())
+            .collect();
+        assert!(cpu_tags.iter().any(|tags| tags["core_id"] == "3"));
+        let null_dimension = cpu_tags
+            .iter()
+            .filter(|tags| tags["core_id"].is_null())
             .count();
         assert!(null_dimension > 0, "a NULL tag dimension");
         assert!(

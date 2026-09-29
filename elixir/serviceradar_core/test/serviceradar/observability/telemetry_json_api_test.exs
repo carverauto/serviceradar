@@ -4,21 +4,12 @@ defmodule ServiceRadar.Observability.TelemetryJsonApiTest do
   alias ServiceRadar.Observability
 
   @identities [
-    {Observability.CpuMetric, [:timestamp, :gateway_id, :core_id]},
-    {Observability.MemoryMetric, [:timestamp, :gateway_id]},
-    {Observability.DiskMetric, [:timestamp, :gateway_id, :mount_point]},
-    {Observability.ProcessMetric, [:timestamp, :gateway_id, :pid]},
     {Observability.TimeseriesMetric, [:timestamp, :gateway_id, :series_key]},
-    {Observability.CpuMetricHourly, [:bucket, :device_id, :host_id]},
-    {Observability.MemoryMetricHourly, [:bucket, :device_id, :host_id]},
-    {Observability.DiskMetricHourly, [:bucket, :device_id, :host_id, :mount_point]},
-    {Observability.ProcessMetricHourly, [:bucket, :device_id, :host_id, :name]},
     {Observability.TimeseriesMetricHourly, [:bucket, :device_id, :metric_type, :metric_name]},
     {Observability.TimeseriesMetricInterfaceHourly,
      [:bucket, :device_id, :target_device_ip, :if_index, :metric_type, :metric_name, :series_key]},
     {Observability.TimeseriesMetricDiskHourly,
      [:bucket, :device_id, :metric_type, :metric_name, :series_key, :mount_point]},
-    {Observability.CpuClusterMetric, [:timestamp, :gateway_id, :cluster]},
     {Observability.OtelMetric, [:timestamp, :span_name, :service_name, :span_id]},
     {Observability.OtelMetricPoint, [:timestamp, :metric_name, :service_name, :attributes_hash]},
     {Observability.OtelTrace, [:timestamp, :trace_id, :span_id]},
