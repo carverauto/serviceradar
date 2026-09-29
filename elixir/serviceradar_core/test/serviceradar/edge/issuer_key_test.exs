@@ -11,12 +11,15 @@ defmodule ServiceRadar.Edge.IssuerKeyTest do
 
   @moduletag :tmp_dir
 
-  test "a seed makes the same key, and a different seed a different key id" do
+  test "a seed makes the same key, and the key id is the first 16 bytes of the domain hash" do
     key = IssuerKey.from_seed(@seed)
+
+    <<key_id::binary-size(16), _::binary>> =
+      :crypto.hash(:sha256, ["serviceradar.edge.issuer_key.v1", key.public_key])
 
     assert key == IssuerKey.from_seed(@seed)
     assert key.issuer_id == "serviceradar-core"
-    assert byte_size(key.key_id) == 16
+    assert key.key_id == key_id
     assert byte_size(key.public_key) == 32
     refute key.key_id == IssuerKey.from_seed(@other_seed).key_id
   end
@@ -45,7 +48,9 @@ defmodule ServiceRadar.Edge.IssuerKeyTest do
     assert Base.decode64!(entry["issuer_id"]) == key.issuer_id
     assert entry["purposes"] == ["production", "source"]
     refute inspect(entry) =~ Base.encode64(@seed)
+    refute Map.has_key?(entry, "seed")
     refute inspect(key) =~ "seed"
+    refute inspect(key) =~ Base.encode64(@seed)
   end
 
   test "a key file must be a private, well-formed base64 seed", %{tmp_dir: dir} do
@@ -68,6 +73,18 @@ defmodule ServiceRadar.Edge.IssuerKeyTest do
 
     assert_raise RuntimeError, ~r/invalid edge issuer key file/, fn ->
       IssuerKey.load_file!(garbage)
+    end
+
+    missing = Path.join(dir, "missing")
+
+    assert_raise RuntimeError, ~r/invalid edge issuer key file/, fn ->
+      IssuerKey.load_file!(missing)
+    end
+
+    oversized = write!(dir, "oversized", String.duplicate("A", 200), 0o600)
+
+    assert_raise RuntimeError, ~r/invalid edge issuer key file/, fn ->
+      IssuerKey.load_file!(oversized)
     end
 
     assert_raise RuntimeError, ~r/required/, fn -> IssuerKey.load_file!("") end
