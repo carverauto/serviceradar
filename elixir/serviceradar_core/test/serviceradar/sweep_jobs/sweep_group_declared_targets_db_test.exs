@@ -14,6 +14,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroupDeclaredTargetsDbTest do
 
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
+  alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
@@ -224,6 +226,74 @@ defmodule ServiceRadar.SweepJobs.SweepGroupDeclaredTargetsDbTest do
 
       assert agent_a == scanner_a
       assert agent_b == scanner_b
+    end
+  end
+
+  describe "recording at compile time" do
+    setup do
+      # Shared target query results and recorded digests outlive a test's
+      # sandbox; start cold.
+      ConfigCache.invalidate(:sweep)
+      :ok
+    end
+
+    test "a device added after the group was created is declared once a config compiles", %{
+      actor: actor,
+      unique: unique
+    } do
+      {:ok, group} = create_group(actor, unique, %{target_query: "in:devices ip:203.0.113.0/24"})
+      assert declared_rows(actor, group.id) == []
+
+      {:ok, device} = create_device(actor, "dev-later-#{unique}", "203.0.113.60")
+
+      # The shared query result would expire on its TTL in production.
+      ConfigCache.invalidate(:sweep)
+      assert {:ok, _config} = SweepCompiler.compile("default", nil)
+
+      assert Map.new(declared_rows(actor, group.id), &{&1.target, {&1.device_uid, &1.source}}) ==
+               %{"203.0.113.60" => {device.uid, :srql}}
+    end
+
+    test "a target query that fails at compile time keeps the recorded device targets", %{
+      actor: actor,
+      unique: unique
+    } do
+      {:ok, device} = create_device(actor, "dev-kept-#{unique}", "203.0.113.61")
+
+      {:ok, group} =
+        create_group(actor, unique, %{target_query: "in:devices ip:203.0.113.61"})
+
+      assert [%{target: "203.0.113.61"}] = declared_rows(actor, group.id)
+
+      ConfigCache.invalidate(:sweep)
+
+      assert {:ok, _config} =
+               SweepCompiler.compile("default", nil,
+                 query_page_fn: fn _query, _opts -> {:error, :srql_unavailable} end
+               )
+
+      assert Map.new(declared_rows(actor, group.id), &{&1.target, &1.device_uid}) ==
+               %{"203.0.113.61" => device.uid}
+    end
+
+    test "recompiling an unchanged group does not rewrite its rows", %{
+      actor: actor,
+      unique: unique
+    } do
+      {:ok, group} = create_group(actor, unique, %{static_targets: ["198.51.100.31"]})
+      assert [_] = declared_rows(actor, group.id)
+
+      # Backdate the row so a rewrite would be visible in declared_at.
+      Repo.query!(
+        "UPDATE platform.sweep_group_declared_targets SET declared_at = '2000-01-01 00:00:00' " <>
+          "WHERE sweep_group_id = $1",
+        [Ecto.UUID.dump!(group.id)]
+      )
+
+      ConfigCache.invalidate(:sweep)
+      assert {:ok, _config} = SweepCompiler.compile("default", nil)
+
+      assert [%{declared_at: ~U[2000-01-01 00:00:00Z]}] = declared_rows(actor, group.id)
     end
   end
 

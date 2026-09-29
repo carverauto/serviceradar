@@ -209,7 +209,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       assert query_executions() == [@edge_query]
     end
 
-    test "a failed target query declares the static targets and no device rows" do
+    test "a failed target query declares the static targets and leaves device targets unresolved" do
       query_page_fn = fn _query, _opts -> raise "driver encoding failure" end
 
       group =
@@ -224,13 +224,58 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
         capture_log(fn ->
           assert SweepCompiler.declared_targets(group, query_page_fn: query_page_fn) == %{
                    static: ["192.0.2.9"],
-                   device: []
+                   device: :unresolved
                  }
         end)
 
       assert log =~
                "SRQL target query raised for group \"sg-failed-declared\" " <>
                  "(#{inspect(@lab_query)}): driver encoding failure"
+    end
+  end
+
+  describe "target query resolution" do
+    test "a partly read target query leaves device targets unresolved" do
+      inventory = fake_inventory(self())
+
+      query_page_fn = fn query, opts ->
+        if Keyword.get(opts, :cursor) == "page-2",
+          do: {:error, :timeout},
+          else: inventory.(query, opts)
+      end
+
+      lab = group(%{id: "sg-partial-declared", name: "partial", target_query: @lab_query})
+
+      capture_log(fn ->
+        assert SweepCompiler.declared_targets(lab, query_page_fn: query_page_fn) == %{
+                 static: [],
+                 device: :unresolved
+               }
+      end)
+    end
+
+    test "compiling reports the groups whose query did not resolve, still compiling them" do
+      inventory = fake_inventory(self())
+
+      query_page_fn = fn query, opts ->
+        if query == @edge_query,
+          do: raise("driver encoding failure"),
+          else: inventory.(query, opts)
+      end
+
+      capture_log(fn ->
+        {compiled, unresolved} =
+          SweepCompiler.compile_groups_with_resolution(pinned_groups(), %{},
+            query_page_fn: query_page_fn
+          )
+
+        assert unresolved == MapSet.new([@edge_id])
+
+        assert Enum.map(compiled, & &1["id"]) ==
+                 Enum.sort([@static_id, @lab_icmp_id, @lab_tcp_id, @edge_id])
+
+        assert networks(Enum.find(compiled, &(&1["id"] == @lab_icmp_id))) != []
+      end)
     end
   end
 

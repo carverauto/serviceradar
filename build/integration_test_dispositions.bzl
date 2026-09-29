@@ -557,7 +557,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/sweep_jobs/sweep_data_cleanup_watermark_db_test.exs": 7,
     "test/serviceradar/sweep_jobs/sweep_group_agent_ids_migration_db_test.exs": 6,
     "test/serviceradar/sweep_jobs/sweep_group_assignment_integration_test.exs": 6,
-    "test/serviceradar/sweep_jobs/sweep_group_declared_targets_db_test.exs": 8,
+    "test/serviceradar/sweep_jobs/sweep_group_declared_targets_db_test.exs": 11,
     "test/serviceradar/sweep_jobs/sweep_group_run_now_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_host_result_coverage_db_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_results_flow_e2e_test.exs": 43,
