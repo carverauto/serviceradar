@@ -140,6 +140,46 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   @doc """
+  The device targets a group's target query declares, as `{network, device_uid}`
+  pairs sorted by network, built exactly as `compile_groups/3` builds them.
+
+  Unlike `compile_groups/3`, which compiles a group whose query failed with no
+  device targets, a failed or partially read query is an error here, so a
+  caller recording declarations can tell "declares nothing" from "could not
+  resolve". A group without a target query declares nothing.
+  """
+  @spec declared_device_targets(SweepGroup.t(), keyword()) ::
+          {:ok, [{String.t(), String.t() | nil}]} | {:error, term()}
+  def declared_device_targets(%SweepGroup{} = group, opts \\ []) do
+    query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
+
+    case group.target_query do
+      query when is_binary(query) and query != "" ->
+        query = normalize_target_query(query)
+
+        case shared_target_query_rows(query, query_page_fn) do
+          {:ok, rows} -> declared_pairs(rows, group)
+          {:partial, _rows, reason} -> {:error, {:partial, reason}}
+          {:raised, message} -> {:error, {:raised, message}}
+        end
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  defp declared_pairs(rows, group) do
+    pairs =
+      rows
+      |> device_targets_from_rows(group, [])
+      |> Enum.map(&{&1["network"], get_in(&1, ["metadata", "device_uid"])})
+
+    {:ok, pairs}
+  rescue
+    error -> {:error, {:raised, Exception.message(error)}}
+  end
+
+  @doc """
   Computes a deterministic config hash for compiled sweep groups.
   """
   @spec config_hash([map()]) :: String.t()
@@ -430,14 +470,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp build_device_targets(rows, group, query, modes) do
-    rows
-    |> Enum.reduce(%{}, &put_device_target_from_row(&1, &2, group, modes))
-    |> Map.values()
-    |> Enum.sort_by(& &1["network"])
+    device_targets_from_rows(rows, group, modes)
   rescue
     error ->
       log_target_query_raised(group, query, Exception.message(error))
       []
+  end
+
+  defp device_targets_from_rows(rows, group, modes) do
+    rows
+    |> Enum.reduce(%{}, &put_device_target_from_row(&1, &2, group, modes))
+    |> Map.values()
+    |> Enum.sort_by(& &1["network"])
   end
 
   # A group whose target query cannot run still compiles with the targets that

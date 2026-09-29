@@ -432,4 +432,69 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       assert Enum.sort(query_executions()) == [@edge_query, @lab_query]
     end
   end
+
+  describe "declared_device_targets/2" do
+    test "returns the de-duplicated targets compile_groups/3 builds, as network and device uid" do
+      lab = group(%{id: "sg-declared", name: "declared", target_query: @lab_query})
+
+      assert {:ok, pairs} =
+               SweepCompiler.declared_device_targets(lab, query_page_fn: fake_inventory(self()))
+
+      assert pairs == [
+               {"198.51.100.10", "sr:dev-0001"},
+               {"198.51.100.11", "sr:dev-0002"},
+               {"198.51.100.12", "sr:dev-0003"}
+             ]
+
+      [compiled] = SweepCompiler.compile_groups([lab], %{}, query_page_fn: fake_inventory(self()))
+
+      assert pairs ==
+               Enum.map(
+                 compiled["device_targets"],
+                 &{&1["network"], &1["metadata"]["device_uid"]}
+               )
+    end
+
+    test "a query that returns no rows declares nothing" do
+      query_page_fn = fn _query, _opts -> {:ok, %{rows: [], next_cursor: nil}} end
+      lab = group(%{id: "sg-empty", name: "empty", target_query: @lab_query})
+
+      assert {:ok, []} = SweepCompiler.declared_device_targets(lab, query_page_fn: query_page_fn)
+    end
+
+    test "a failing, partial or raising query is an error rather than an empty declaration" do
+      lab = group(%{id: "sg-failing", name: "failing", target_query: @lab_query})
+      inventory = fake_inventory(self())
+
+      failing = fn _query, _opts -> {:error, :srql_unavailable} end
+
+      partial = fn query, opts ->
+        if Keyword.get(opts, :cursor) == "page-2",
+          do: {:error, :timeout},
+          else: inventory.(query, opts)
+      end
+
+      raising = fn _query, _opts -> raise "driver encoding failure" end
+
+      assert {:error, {:partial, :srql_unavailable}} =
+               SweepCompiler.declared_device_targets(lab, query_page_fn: failing)
+
+      assert {:error, {:partial, :timeout}} =
+               SweepCompiler.declared_device_targets(lab, query_page_fn: partial)
+
+      assert {:error, {:raised, "driver encoding failure"}} =
+               SweepCompiler.declared_device_targets(lab, query_page_fn: raising)
+    end
+
+    test "a group without a target query declares nothing and runs no query" do
+      static = group(%{id: "sg-static-only", name: "static", static_targets: ["192.0.2.0/30"]})
+
+      assert {:ok, []} =
+               SweepCompiler.declared_device_targets(static,
+                 query_page_fn: fake_inventory(self())
+               )
+
+      assert query_executions() == []
+    end
+  end
 end
