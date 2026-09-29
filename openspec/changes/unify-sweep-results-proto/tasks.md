@@ -42,30 +42,56 @@
   are read, so core learns of an execution only when its results arrive. Design:
   `design.md`, "M2.0 design: core-scheduled sweeps as signed schedule leases".
   Narrows 1.10, 2.3, 2.10, 2.20, 3.2 and 3.8 to the scheduled-sweep contract.
-  - [ ] M2.0a Sweep assignment authority. Persist one assignment per (sweep
+  - [x] M2.0a Sweep assignment authority. Persist one assignment per (sweep
     group, agent): `producer_assignment_id`, `network_scope_id` (the agent's
     partition id), `run_shard` (0 until sharding) and a monotonic
     `authority_epoch`, bumped on reassignment, agent replacement, target change
     and revocation. The table, the system-only writer, and that fence are in
     tree (migration `20260928190000`; the field list is Assignment authority in
-    `design.md`). This item stays open until `producer_assignments_db_test` is
-    green on the BazelCI integration lane.
-  - [ ] M2.0b Lease scheduler. For each opted-in assignment, core pre-mints the
-    executions of the lease horizon (UUIDv7 `execution_id` at the slot start,
-    slot window, plan and range digests from the compiled sweep config) and
-    records each `SweepGroupExecution` as scheduled before it runs. The horizon
-    has a per-partition default, a per-agent override and an administrator
-    maximum; a week or more of disconnected operation is a supported setting.
-    Renewal keeps a connected agent's horizon full.
+    `design.md`). DONE: #4940; `producer_assignments_db_test` and the fence
+    decision table passed in its BazelCI (BuildBuddy invocation
+    `3a2ed1bb-fa45-4612-bbb7-454e1bfe646f`; `integration_tests_async` ran 1,024
+    tests, the 7 new DB tests included).
+  - [ ] M2.0b Lease scheduler and plans. Scope: sweep groups whose targets are
+    static CIDRs or address ranges (`static_targets`). A group with an SRQL
+    `target_query` stays on the legacy path until an ABI extension defines a range
+    kind that commits to an address set: v1 binds one range to each source
+    authorization, so a sparse device list would need one signature per device per
+    execution.
+    - [ ] M2.0b1 Plan builder. Core builds a scheduled plan (header, pages,
+      ranges) from a group's static targets: one range per canonical CIDR or
+      coalesced first/last span, up to 256 ranges per page, ICMP and TCP checks
+      only (`mtr_*` zero). Its digests (range, page, root, header) are
+      byte-identical to the Go implementation, shown by the cross-language
+      golden vectors under `proto/edge/v1/testdata`. `check_set_sha256` and
+      `availability_policy_id` follow "Plan inputs" in `design.md`.
+    - [ ] M2.0b2 Scheduled executions. `SweepGroupExecution` gains a scheduled
+      state and persists what a lease slot needs: the pre-minted UUIDv7
+      `execution_id` (the row id, so results reported later under that id find
+      their row), agent, assignment, epoch, slot start and collection window,
+      lease id, plan id and header digest, range id and digest, `check_set_sha256`
+      and `availability_policy_id`; the raw plan bytes are kept for the
+      EventWriter's host-membership check (5.1).
+    - [ ] M2.0b3 Lease scheduler. For each opted-in assignment core pre-mints the
+      executions of the lease horizon at the group's interval (cron groups are
+      out of scope) and records each as scheduled before it runs. The horizon has
+      a per-partition default, a per-agent override and an administrator maximum;
+      a week or more of disconnected operation is a supported setting. Renewal
+      keeps a connected agent's horizon full, and a fence bump (M2.0a) re-plans
+      the unrun slots.
   - [ ] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
     mount and signs, per lease, the production capability (`run_id` = the lease)
     and, per scheduled execution, the SCHEDULED_SWEEP source authorization bound
     to that `execution_id`, its digests and its collection window. The gateway
     receives public keys only.
   - [ ] M2.0d Lease delivery. Core sends the lease to the agent over the
-    existing authenticated control path as a compiled sweep assignment plus its
-    signed slots; the agent acknowledges the installed lease, and core shows each
-    agent's remaining horizon.
+    existing authenticated control path: per lease the production capability;
+    per scheduled execution its plan and one source authorization per range. The
+    agent acknowledges the installed lease, and core shows each agent's remaining
+    horizon. `CompiledSweepAssignmentV1`, assignment records and host-key
+    execution grants are not used: no check on the record path consults them, and
+    they need three signatures and two stored artifacts per slot. They stay in the
+    backlog.
   - [ ] M2.0e Agent lease execution. For an opted-in group the agent's local
     ticker is replaced by the lease: it runs each slot at its time from its own
     clock whether or not it is connected, and refuses a lease slot when its wall
@@ -100,8 +126,10 @@
   come from the lease slot (M2.0), not from the agent; ICMP sent/received
   counts, per-port errors and the hostname come from the scanner, since the
   legacy summary drops them; batches are grouped deterministically per host.
-- [ ] M2.2 Per-agent opt-in. An agent opted in has its sweep groups scheduled by
-  core through leases (M2.0) and emits their results only on the edge path.
+- [ ] M2.2 Per-agent opt-in. An agent opted in has its sweep groups that use
+  static targets scheduled by core through leases (M2.0) and emits their results
+  only on the edge path; a group with an SRQL target query keeps its local ticker
+  and the legacy path.
   Agents not opted in keep their local ticker and the legacy
   `GatewayServiceStatus{source: "results"}` path unchanged, and one execution is
   never emitted on both paths.
