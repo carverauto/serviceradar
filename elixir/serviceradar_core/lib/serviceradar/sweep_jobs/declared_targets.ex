@@ -141,27 +141,31 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargets do
   defp apply_plan(_sweep_group_id, %{upsert: [], delete: []}), do: :ok
 
   defp apply_plan(sweep_group_id, %{upsert: upsert, delete: delete}) do
-    {targets, uids} = Enum.unzip(upsert)
+    if delete != [] do
+      Repo.query!(
+        """
+        DELETE FROM platform.sweep_group_declared_targets
+        WHERE sweep_group_id = CAST(CAST($1 AS text) AS uuid) AND target = ANY(CAST($2 AS text[]))
+        """,
+        [sweep_group_id, delete]
+      )
+    end
 
-    Repo.query!(
-      """
-      DELETE FROM platform.sweep_group_declared_targets
-      WHERE sweep_group_id = CAST(CAST($1 AS text) AS uuid) AND target = ANY(CAST($2 AS text[]))
-      """,
-      [sweep_group_id, delete]
-    )
+    if upsert != [] do
+      {targets, uids} = Enum.unzip(upsert)
 
-    Repo.query!(
-      """
-      INSERT INTO platform.sweep_group_declared_targets
-        (sweep_group_id, target, device_uid, resolved_at)
-      SELECT CAST(CAST($1 AS text) AS uuid), t.target, t.device_uid, now()
-      FROM unnest(CAST($2 AS text[]), CAST($3 AS text[])) AS t(target, device_uid)
-      ON CONFLICT (sweep_group_id, target) DO UPDATE
-        SET device_uid = EXCLUDED.device_uid, resolved_at = EXCLUDED.resolved_at
-      """,
-      [sweep_group_id, targets, uids]
-    )
+      Repo.query!(
+        """
+        INSERT INTO platform.sweep_group_declared_targets
+          (sweep_group_id, target, device_uid, resolved_at)
+        SELECT CAST(CAST($1 AS text) AS uuid), t.target, t.device_uid, now()
+        FROM unnest(CAST($2 AS text[]), CAST($3 AS text[])) AS t(target, device_uid)
+        ON CONFLICT (sweep_group_id, target) DO UPDATE
+          SET device_uid = EXCLUDED.device_uid, resolved_at = EXCLUDED.resolved_at
+        """,
+        [sweep_group_id, targets, uids]
+      )
+    end
 
     :ok
   end
