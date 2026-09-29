@@ -223,6 +223,49 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
     end
   end
 
+  # Returns one page of 2 rows + next_cursor, then a zero-row page with another cursor.
+  # The zero-row page must stop pagination rather than looping forever.
+  defmodule FakeZeroRowPageSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      case Map.get(opts, :cursor) do
+        nil ->
+          {:ok,
+           %{
+             "results" => [%{"q" => query, "page" => 1, "n" => 1}, %{"q" => query, "page" => 1, "n" => 2}],
+             "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
+           }}
+
+        "page-2" ->
+          {:ok,
+           %{
+             "results" => [],
+             "pagination" => %{"next_cursor" => "page-3", "limit" => Map.get(opts, :limit)}
+           }}
+      end
+    end
+  end
+
+  # Returns one page of 2 rows with next_cursor, then a non-list (bare map) response.
+  defmodule FakeNonListPageSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      case Map.get(opts, :cursor) do
+        nil ->
+          {:ok,
+           %{
+             "results" => [%{"q" => query, "n" => 1}, %{"q" => query, "n" => 2}],
+             "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
+           }}
+
+        "page-2" ->
+          {:ok, %{"error" => "unexpected_format"}}
+      end
+    end
+  end
+
   defmodule FakeConcurrentSRQL do
     @moduledoc false
 
@@ -543,6 +586,40 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
 
     assert length(results) == 3
     assert Enum.all?(results, &(&1["page"] == 1))
+  end
+
+  test "stops pagination when SRQL returns zero rows with a next_cursor" do
+    frames = [
+      %{"id" => "devices", "query" => "in:devices", "encoding" => "json_rows", "limit" => 100}
+    ]
+
+    assert [
+             %{
+               "id" => "devices",
+               "status" => "ok",
+               "results" => results
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeZeroRowPageSRQL)
+
+    assert length(results) == 2
+    assert Enum.all?(results, &(&1["page"] == 1))
+  end
+
+  test "returns partial status and truncated flag when mid-pagination non-list response occurs after rows are accumulated" do
+    frames = [
+      %{"id" => "devices", "query" => "in:devices", "encoding" => "json_rows", "limit" => 100}
+    ]
+
+    assert [
+             %{
+               "id" => "devices",
+               "status" => "partial",
+               "truncated" => true,
+               "results" => results
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeNonListPageSRQL)
+
+    assert length(results) == 2
   end
 
   test "security findings source probes are optional" do
