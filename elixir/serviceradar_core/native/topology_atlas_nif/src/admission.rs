@@ -60,7 +60,7 @@ pub(crate) fn call<'a>(env: Env<'a>, gate: &Gate, work: impl FnOnce() -> Term<'a
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{mpsc, Arc};
+    use std::sync::{Arc, mpsc};
     use std::thread;
 
     use super::{Busy, Gate};

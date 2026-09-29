@@ -8,8 +8,8 @@ use serviceradar_topology_atlas::{
     DeviceIdsCursor, HealthCounts, HealthIndex, HealthObservation, HealthState,
 };
 
-use crate::details::{engine_error, read_reply, SelectionResource};
 use crate::WorldResource;
+use crate::details::{SelectionResource, engine_error, read_reply};
 
 mod atoms {
     rustler::atoms! {unavailable, invalid_request, invalid_cursor}

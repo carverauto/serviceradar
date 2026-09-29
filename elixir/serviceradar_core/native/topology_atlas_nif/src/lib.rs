@@ -8,21 +8,21 @@ mod model;
 #[cfg(test)]
 mod tests;
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use dgraph_topology::{CanonicalGraph, TopologyClient};
 use rustler::{
-    types::list::ListIterator, Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource,
-    ResourceArc, Term,
+    Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource, ResourceArc, Term,
+    types::list::ListIterator,
 };
 use serviceradar_topology_atlas::{Budget, Cell, Glyph, GlyphKind, Tile, TileProfile};
 use tokio::runtime::Runtime;
 
 use model::{
-    Builder, Candidate, Info, InventoryRow, PositionRow, RelationRow, Result, SourceGraph,
-    WorldState, PAGE_LIMIT,
+    Builder, Candidate, Info, InventoryRow, PAGE_LIMIT, PositionRow, RelationRow, Result,
+    SourceGraph, WorldState,
 };
 
 mod atoms {

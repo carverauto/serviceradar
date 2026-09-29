@@ -199,9 +199,11 @@ fn rejected_import_is_atomic_and_inactive_points_remain_reserved() {
         })
         .collect();
     assert!(builder.add_positions(oversized).is_err());
-    assert!(builder
-        .add_positions(vec![old.clone(), old.clone()])
-        .is_err());
+    assert!(
+        builder
+            .add_positions(vec![old.clone(), old.clone()])
+            .is_err()
+    );
     builder
         .add_positions(vec![PositionRow {
             active: false,

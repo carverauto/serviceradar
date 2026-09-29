@@ -92,7 +92,7 @@ fn translate_interface_rates<'a>(
     mode: Option<String>,
 ) -> Term<'a> {
     use srql::query::interface_rates::{
-        translate_interface_rates, InterfaceRateRequest, MAX_REQUEST_BYTES,
+        InterfaceRateRequest, MAX_REQUEST_BYTES, translate_interface_rates,
     };
     if request.len() > MAX_REQUEST_BYTES {
         return (atoms::error(), "interface-rate request exceeds byte budget").encode(env);

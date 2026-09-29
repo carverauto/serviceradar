@@ -65,7 +65,7 @@ have separate proposals and are not dependencies of this workstream.
 - [x] 5.6 Verify all-zoom device-count conservation, every tile's actual feature/byte bounds, targeted dirty sets, cache revisits with no fetch, and telemetry updates with zero geometry refetch.
 - [x] 5.7 Round-trip tile/detail metadata, UInt16 affine positions, local endpoints/proxies, and columnar/lazy details through the schema-3 NIF encoder and client decoder.
 - [x] 5.8 Run make test with --config=remote on the final tree before the PR. Deliver every PR through no-mistakes with the srql-fixtures-only database restriction in the run intent.
-- [x] 5.9 Pass pure semantic Atlas tests using an invented 200,000-device/400,000-relation graph. This historical foundation check does not replace the open million-device tile acceptance above.
+- [x] 5.9 Pass pure semantic Atlas tests using an invented 200,000-device/400,000-relation graph. Historical only: those tests were removed with the semantic-levels surface and are not in the current suite. This check does not replace the open million-device tile acceptance above.
 - [ ] 5.10 Complete `prove-million-device-topology`; its own checklist owns the real-ingestion million-device proof. Mocked overlay fixtures and scratch layout benchmarks do not satisfy it.
 
 ## 6. Persistent World and Tile Engine
