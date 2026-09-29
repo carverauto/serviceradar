@@ -162,8 +162,13 @@ network scope, agent, traffic class, or authorization context from a subject tok
 - **WHEN** the consumer processes the message
 - **THEN** it SHALL NOT extract `acme` as a tenant slug or use it for downstream
   routing, schema selection, or authorization
-- **AND** it SHALL handle the message as described in "Customer-prefixed subject
-  reaches a runtime consumer"
+- **AND** an unexpected prefixed subject on the live path SHALL be rejected or
+  quarantined, as described in "Customer-prefixed subject reaches a runtime
+  consumer"
+- **AND** a sealed message accepted before the cutover watermark in a declared
+  legacy stream, and mappable without ambiguity, MAY be drained by a
+  compatibility consumer from retained trusted legacy authority metadata, as
+  described in "Legacy prefixed backlog exists at cutover"
 
 ## ADDED Requirements
 
