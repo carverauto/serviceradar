@@ -115,7 +115,7 @@ func TestSweepStaticPlanCorpus(t *testing.T) {
 	got["check_set_sha256"] = hex.EncodeToString(checkSet)
 
 	policy := []byte("any-success-v1")
-	var ranges []*edgev1.TargetRangeV1
+	ranges := make([]*edgev1.TargetRangeV1, 0, len(c.targets))
 	var total uint64
 	for i, tg := range c.targets {
 		r := &edgev1.TargetRangeV1{
