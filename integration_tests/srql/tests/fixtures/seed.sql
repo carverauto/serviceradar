@@ -2667,9 +2667,9 @@ VALUES
 
 WITH sample_time AS (SELECT NOW() - INTERVAL '2 minutes' AS at)
 INSERT INTO timeseries_metrics
-    (timestamp, gateway_id, agent_id, series_key, metric_name, metric_type, device_id, value, tags, partition)
+    (timestamp, gateway_id, agent_id, series_key, metric_name, metric_type, device_id, value, tags, partition, created_at)
 SELECT at, 'gateway-1', 'agent-1', metric_name || ':compat', metric_name, metric_type,
-       'sysmon-compat.example.com', value, tags::jsonb, 'default'
+       'sysmon-compat.example.com', value, tags::jsonb, 'default', NOW()
 FROM sample_time CROSS JOIN (VALUES
     ('cpu.usage_percent', 'sysmon.cpu', 75.0, '{"core_id":"0","label":"core0","cluster":"main"}'),
     ('cpu.frequency_hz', 'sysmon.cpu', 2000000000.0, '{"core_id":"0","label":"core0","cluster":"main"}'),
