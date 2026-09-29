@@ -71,10 +71,20 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
          {:ok, entries} <- fetch_first_party_index(source, opts),
          {:ok, installed} <- installed_slugs(Enum.map(entries, & &1.slug)) do
       reports =
-        Enum.map(entries, fn entry ->
-          entry
-          |> Map.put(:installed?, MapSet.member?(installed, entry.slug))
-          |> Map.merge(describe_first_party(source, entry, opts))
+        entries
+        |> Task.async_stream(
+          fn entry ->
+            entry
+            |> Map.put(:installed?, MapSet.member?(installed, entry.slug))
+            |> Map.merge(describe_first_party(source, entry, opts))
+          end,
+          max_concurrency: 4,
+          ordered: true,
+          timeout: :infinity
+        )
+        |> Enum.map(fn
+          {:ok, report} -> report
+          {:exit, reason} -> %{title: nil, description: nil, panel_count: 0, error: inspect(reason), installed?: false}
         end)
 
       {:ok,
