@@ -9,6 +9,16 @@ identity stops merging on randomized MACs and anchorless seeds.
 ## Whats New
 
 **Unreleased**
+- Sweep config: compiled sweep configs are smaller and cheaper to build.
+  Each device target now carries only `device_uid` in its metadata; the
+  group id, target query, hostname and discovery sources were repeated on
+  every target and read by nothing. A target query shared by several groups
+  runs once per compile, and its result is shared across agents for 60
+  seconds (`:sweep_query_cache_ttl_ms`), so agents in a partition stop
+  re-running the same inventory query. Groups are emitted in id order, so
+  database row order no longer changes the config version. Every agent
+  applies one new sweep config after upgrading core; it sweeps the same
+  targets.
 - Agent-gateway: raised the core `get_config_if_changed` RPC timeout from
   15 s to 60 s so slow config generation (large sweep payloads) no longer
   maps to `not_modified` and leaves agents frozen on a stale config.

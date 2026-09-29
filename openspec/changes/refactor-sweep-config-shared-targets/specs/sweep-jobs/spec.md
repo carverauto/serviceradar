@@ -31,9 +31,11 @@ this requirement SHALL continue to sweep the same targets.
 
 The system SHALL evaluate each distinct normalized sweep `target_query` at
 most once per compile, and SHALL share a query's result across the compiles of
-different agents for a configurable TTL whose default equals the compiled
-config cache TTL. Changing a sweep group or profile SHALL invalidate the shared
-results of the queries that group uses. A query that fails SHALL NOT be cached.
+different agents for a configurable TTL, 60 seconds by default. The TTL is kept
+short because a compiled config built from shared results is itself cached, so
+device membership can lag by both TTLs together. Changing a sweep group or
+profile SHALL invalidate the shared results of the queries that group uses. A
+query that fails SHALL NOT be cached.
 
 #### Scenario: Equal queries run once per compile
 - **GIVEN** several eligible groups whose target queries are equal after
@@ -57,6 +59,11 @@ results of the queries that group uses. A query that fails SHALL NOT be cached.
 - **GIVEN** two agents eligible for the same partition-wide group
 - **WHEN** both compile sweep configuration within the shared-result TTL
 - **THEN** the group's target query SHALL be executed against inventory once
+
+#### Scenario: Shared results expire after the TTL
+- **GIVEN** a shared result for a target query
+- **WHEN** the configured TTL elapses
+- **THEN** the next compile SHALL execute that query against inventory again
 
 #### Scenario: Editing a group's query takes effect on the next compile
 - **GIVEN** a cached shared result for a group's target query

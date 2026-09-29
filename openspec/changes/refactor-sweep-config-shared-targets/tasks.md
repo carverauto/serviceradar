@@ -4,41 +4,47 @@
       rows into `platform.agent_config_instances`. If none does, open a
       separate issue: the `device_sweep_overlap` view's declared arm is empty
       in production. Record the finding in design.md, Decision 7.
-- [ ] 1.2 Add a pinning test in
-      `elixir/serviceradar_core/test/serviceradar/sweep_jobs/sweep_compiler_test.exs`
-      that compiles a fixed set of groups (static targets, one query shared by
+      (Confirmed none does and recorded in Decision 7; the issue is not yet
+      filed.)
+- [x] 1.2 Add a pinning test (landed as the database-free
+      `test/serviceradar/agent_config/compilers/sweep_compiler_targets_test.exs`
+      over `SweepCompiler.compile_groups/3`, with an injected SRQL page
+      function) that compiles a fixed set of groups (static targets, one query shared by
       two groups, one distinct query) and asserts the full current legacy
       output and its `config_hash`. Land it first; later tasks update it
       deliberately, never incidentally.
-- [ ] 1.3 Add a Go results-payload test that sweeps synthetic targets
-      (192.0.2.0/24) parsed from a legacy config and asserts the reported
-      results envelope. Tasks 2.3 and 4.4 reuse it to prove parity.
+- [x] 1.3 Add a Go parity test that device-target metadata beyond
+      `device_uid` does not change the scan targets the sweeper generates
+      (landed in `go/pkg/sweeper/target_count_test.go`). Sweep results carry
+      no target metadata, so target generation is the observable surface.
+      Tasks 2.3 and 4.4 reuse it to prove parity.
 
 ## 2. Core, legacy format only
 
-- [ ] 2.1 In `SweepCompiler.compile/3`, normalize each group's
+- [x] 2.1 In `SweepCompiler.compile/3`, normalize each group's
       `target_query` and execute each distinct query once per compile. Build
       legacy `device_targets` from the shared rows. The 1.2 test must stay
       green without edits.
-- [ ] 2.2 Emit compiled `groups` sorted by `id`. Test that shuffled group and
+- [x] 2.2 Emit compiled `groups` sorted by `id`. Test that shuffled group and
       row order yields the same `config_hash` and config version. If the
       legacy config version was order-dependent before this task, note it in
       the PR as a fixed source of spurious config pushes.
-- [ ] 2.3 Trim `sweep_group_id`, `target_query`, `hostname` and
+- [x] 2.3 Trim `sweep_group_id`, `target_query`, `hostname` and
       `discovery_sources` from per-target metadata, keeping `device_uid`.
       Update the 1.2 expectation in the same commit, and show the 1.3
       results test unchanged.
-- [ ] 2.4 Add the cross-agent query result cache (Decision 2): key
-      `{:sweep_query, normalized_query}`, configurable TTL defaulting to the
-      `ConfigCache` TTL, storing only `ip` and `uid`, never caching failures.
-      Drop a group's query entries from the existing SweepGroup/SweepProfile
-      catalog dispatch.
-- [ ] 2.5 Tests: equal queries across groups run once per compile and once
+- [x] 2.4 Add the cross-agent query result cache (Decision 2): key
+      `{:sweep_query, normalized_query}`, configurable TTL defaulting to 60
+      seconds (see design.md, Decision 2), storing only `ip` and `uid`, never
+      caching failures. Entries live under the `:sweep` config type, so the
+      existing SweepGroup/SweepProfile catalog dispatch drops them.
+- [x] 2.5 Tests: equal queries across groups run once per compile and once
       across two agents' compiles within the TTL (count executions through an
       injectable query runner); editing a group's query changes the next
       compile; a raising shared query leaves only its groups empty and is not
       cached. If any of these are database-backed core integration tests,
-      bump the selected-count in the corresponding `.bzl` target.
+      bump the selected-count in the corresponding `.bzl` target. (All landed
+      as database-free unit tests, so no count changes.)
 
 ## 3. Core shared-targets format
 
