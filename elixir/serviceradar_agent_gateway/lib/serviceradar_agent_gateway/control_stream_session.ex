@@ -14,6 +14,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigChunks
   alias ServiceRadarAgentGateway.ConfigSyncForwarder
   alias ServiceRadarAgentGateway.ControlStreamTelemetry
 
@@ -26,6 +27,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   @max_awx_command_result_payload_bytes 3 * 1024 * 1024
   @config_push_retry_initial_ms 100
   @config_push_retry_max_ms 5_000
+  @config_push_chunks_capability "config_push_chunks"
+  # grpc-go's default client receive limit, which agents keep.
+  @legacy_config_push_max_bytes 4 * 1024 * 1024
 
   @type state :: %{
           stream: GRPC.Server.Stream.t(),
@@ -156,26 +160,24 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   def handle_call({:push_config, config}, _from, state) do
-    case validate_config_push(config) do
-      :ok ->
-        response = %Monitoring.ControlStreamResponse{payload: {:config, config}}
+    with :ok <- validate_config_push(config),
+         {:ok, responses} <- config_push_responses(config, state) do
+      previous_pending = pending_config_state(state)
+      state = mark_config_push_pending(state, config)
+      {:noreply, state} = refresh_control_registration(state)
 
-        previous_pending = pending_config_state(state)
-        state = mark_config_push_pending(state, config)
-        {:noreply, state} = refresh_control_registration(state)
+      case send_stream_replies(state.stream, responses) do
+        {:ok, stream} ->
+          state = forward_config_push(%{state | stream: stream}, config)
+          {:noreply, state} = refresh_control_registration(state)
+          {:reply, :ok, state}
 
-        case send_stream_reply(state.stream, response) do
-          {:ok, stream} ->
-            state = forward_config_push(%{state | stream: stream}, config)
-            {:noreply, state} = refresh_control_registration(state)
-            {:reply, :ok, state}
-
-          {:error, reason} ->
-            state = restore_pending_config_state(state, previous_pending)
-            {:noreply, state} = refresh_control_registration(state)
-            {:reply, {:error, reason}, state}
-        end
-
+        {:error, reason} ->
+          state = restore_pending_config_state(state, previous_pending)
+          {:noreply, state} = refresh_control_registration(state)
+          {:reply, {:error, reason}, state}
+      end
+    else
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
@@ -857,6 +859,69 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   defp validate_config_push(%Monitoring.AgentConfigResponse{}), do: :ok
+
+  # Agents that advertise config_push_chunks reassemble a pushed config from
+  # AgentConfigChunks. Older agents only accept one message, and grpc-go rejects
+  # one above its default receive limit by tearing down the whole control
+  # stream, so an oversized push is refused here and left to the agent's
+  # chunked config poll.
+  defp config_push_responses(config, state) do
+    if @config_push_chunks_capability in state.capabilities do
+      chunked_config_push_responses(config, state)
+    else
+      single_config_push_response(config, state)
+    end
+  end
+
+  defp chunked_config_push_responses(config, state) do
+    chunks = ConfigChunks.chunks(state.agent_id || "", config)
+
+    Logger.info("Pushing chunked config to agent",
+      agent_id: safe_log_identifier(state.agent_id),
+      config_version: config.config_version,
+      chunks: length(chunks),
+      bytes: ConfigChunks.size(config)
+    )
+
+    {:ok, Enum.map(chunks, &%Monitoring.ControlStreamResponse{payload: {:config_chunk, &1}})}
+  rescue
+    error in GRPC.RPCError ->
+      Logger.warning("Refused config push that exceeds the config stream budget",
+        agent_id: safe_log_identifier(state.agent_id),
+        config_version: config.config_version,
+        reason: error.message
+      )
+
+      {:error, :config_push_too_large}
+  end
+
+  defp single_config_push_response(config, state) do
+    response = %Monitoring.ControlStreamResponse{payload: {:config, config}}
+    bytes = response |> Protobuf.Encoder.encode_to_iodata() |> IO.iodata_length()
+
+    if bytes <= @legacy_config_push_max_bytes do
+      {:ok, [response]}
+    else
+      Logger.warning(
+        "Refused single-message config push above the agent receive limit; the agent picks it up on its next config poll",
+        agent_id: safe_log_identifier(state.agent_id),
+        config_version: config.config_version,
+        bytes: bytes,
+        limit_bytes: @legacy_config_push_max_bytes
+      )
+
+      {:error, :config_push_too_large}
+    end
+  end
+
+  defp send_stream_replies(stream, responses) do
+    Enum.reduce_while(responses, {:ok, stream}, fn response, {:ok, stream} ->
+      case send_stream_reply(stream, response) do
+        {:ok, stream} -> {:cont, {:ok, stream}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
   defp persist_config_push(state, version, attempt) do
     case ConfigSyncForwarder.record_config_push(state.agent_id, version) do

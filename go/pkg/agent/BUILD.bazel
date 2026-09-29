@@ -213,6 +213,7 @@ go_test(
         "bumblebee_spool_service_test.go",
         "camera_relay_test.go",
         "config_section_state_test.go",
+        "control_stream_config_push_test.go",
         "control_stream_test.go",
         "credential_broker_resolver_test.go",
         "desktop_media_sender_test.go",

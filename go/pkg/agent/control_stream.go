@@ -36,6 +36,7 @@ import (
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
+	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
@@ -383,6 +384,8 @@ func (p *PushLoop) handleControlStream(
 	defer stopHeartbeat()
 	go p.controlStreamHeartbeatLoop(heartbeatCtx, sender)
 
+	var pushedConfig configPushAssembler
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -403,20 +406,19 @@ func (p *PushLoop) handleControlStream(
 		}
 
 		if cfg := resp.GetConfig(); cfg != nil {
-			sequence := p.nextConfigSequence()
-			if !p.applyConfigResponseWithSequence(ctx, cfg, "control", sequence) {
-				p.logger.Warn().
-					Str("config_version", cfg.ConfigVersion).
-					Msg("Skipped control stream config ack because config apply failed")
-				continue
-			}
-			if err := sender.Send(&proto.ControlStreamRequest{
-				Payload: &proto.ControlStreamRequest_ConfigAck{ConfigAck: p.buildConfigAck(cfg.ConfigVersion)},
-			}); err != nil {
+			p.applyControlConfig(ctx, cfg, sender)
+		}
+
+		if chunk := resp.GetConfigChunk(); chunk != nil {
+			cfg, err := pushedConfig.add(chunk)
+			switch {
+			case err != nil:
 				p.logger.Warn().
 					Err(err).
-					Str("config_version", cfg.ConfigVersion).
-					Msg("Failed to send control stream config ack")
+					Str("config_version", chunk.GetConfigVersion()).
+					Msg("Discarded pushed config chunks; the next config poll delivers the config")
+			case cfg != nil:
+				p.applyControlConfig(ctx, cfg, sender)
 			}
 		}
 
@@ -424,6 +426,59 @@ func (p *PushLoop) handleControlStream(
 			p.handleConsoleFrame(ctx, frame, sender)
 		}
 	}
+}
+
+// applyControlConfig applies a config delivered on the control stream and acks
+// the version once it is running.
+func (p *PushLoop) applyControlConfig(ctx context.Context, cfg *proto.AgentConfigResponse, sender *controlStreamSender) {
+	sequence := p.nextConfigSequence()
+	if !p.applyConfigResponseWithSequence(ctx, cfg, "control", sequence) {
+		p.logger.Warn().
+			Str("config_version", cfg.ConfigVersion).
+			Msg("Skipped control stream config ack because config apply failed")
+		return
+	}
+	if err := sender.Send(&proto.ControlStreamRequest{
+		Payload: &proto.ControlStreamRequest_ConfigAck{ConfigAck: p.buildConfigAck(cfg.ConfigVersion)},
+	}); err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("config_version", cfg.ConfigVersion).
+			Msg("Failed to send control stream config ack")
+	}
+}
+
+// configPushAssembler collects the chunks of one pushed config. The gateway
+// sends a push's chunks back to back, so a chunk 0 starts a new push and
+// discards any partial one.
+type configPushAssembler struct {
+	chunks []*proto.AgentConfigChunk
+}
+
+// add buffers chunk and returns the decoded config once the final chunk
+// arrives, or nil while the push is incomplete.
+func (a *configPushAssembler) add(chunk *proto.AgentConfigChunk) (*proto.AgentConfigResponse, error) {
+	if chunk.GetChunkIndex() == 0 {
+		a.chunks = a.chunks[:0]
+	}
+
+	a.chunks = append(a.chunks, chunk)
+	if total := int(a.chunks[0].GetTotalChunks()); len(a.chunks) > total {
+		received := len(a.chunks)
+		a.chunks = nil
+
+		return nil, fmt.Errorf("%w: received %d chunks for a push of %d",
+			agentgateway.ErrInvalidConfigStream, received, total)
+	}
+
+	if !chunk.GetIsFinal() {
+		return nil, nil
+	}
+
+	chunks := a.chunks
+	a.chunks = nil
+
+	return agentgateway.ReassembleConfigChunks(chunks)
 }
 
 func (p *PushLoop) buildConfigAck(configVersion string) *proto.ConfigAck {
