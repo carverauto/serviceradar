@@ -18,6 +18,7 @@ defmodule ServiceRadar.SweepJobs.ProducerAssignments do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
 
   require Ash.Query
@@ -124,17 +125,26 @@ defmodule ServiceRadar.SweepJobs.ProducerAssignments do
     |> bulk(:bump_epoch, %{reason: reason})
   end
 
-  @doc "Revokes the assignments of the given agents in a group. Returns how many."
+  @doc """
+  Revokes the assignments of the given agents in a group and withdraws their unrun slots.
+  Returns how many assignments were revoked.
+  """
   @spec revoke_agents(Ecto.UUID.t(), [String.t()]) ::
           {:ok, non_neg_integer()} | {:error, term()}
   def revoke_agents(_sweep_group_id, []), do: {:ok, 0}
 
   def revoke_agents(sweep_group_id, agent_ids) when is_list(agent_ids) do
-    SweepProducerAssignment
-    |> Ash.Query.filter(
-      sweep_group_id == ^sweep_group_id and state == :active and agent_id in ^agent_ids
-    )
-    |> bulk(:revoke, %{})
+    revoked =
+      SweepProducerAssignment
+      |> Ash.Query.filter(
+        sweep_group_id == ^sweep_group_id and state == :active and agent_id in ^agent_ids
+      )
+      |> bulk(:revoke, %{})
+
+    with {:ok, count} <- revoked,
+         {:ok, _slots} <- ExecutionSlots.drop_unrun(sweep_group_id, {:only, agent_ids}) do
+      {:ok, count}
+    end
   end
 
   @doc """
@@ -143,11 +153,17 @@ defmodule ServiceRadar.SweepJobs.ProducerAssignments do
   @spec revoke_all_except(Ecto.UUID.t(), [String.t()]) ::
           {:ok, non_neg_integer()} | {:error, term()}
   def revoke_all_except(sweep_group_id, keep) when is_list(keep) do
-    SweepProducerAssignment
-    |> Ash.Query.filter(
-      sweep_group_id == ^sweep_group_id and state == :active and agent_id not in ^keep
-    )
-    |> bulk(:revoke, %{})
+    revoked =
+      SweepProducerAssignment
+      |> Ash.Query.filter(
+        sweep_group_id == ^sweep_group_id and state == :active and agent_id not in ^keep
+      )
+      |> bulk(:revoke, %{})
+
+    with {:ok, count} <- revoked,
+         {:ok, _slots} <- ExecutionSlots.drop_unrun(sweep_group_id, {:except, keep}) do
+      {:ok, count}
+    end
   end
 
   defp bulk(query, action, input) do
