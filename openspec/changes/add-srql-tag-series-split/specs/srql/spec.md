@@ -42,5 +42,5 @@ reject `tags.<key>`.
 - **AND** no SQL is generated containing that key
 
 #### Scenario: Entities without a tags column still reject tag series
-- **WHEN** a client sends `in:cpu_metrics time:last_1h bucket:5m agg:avg series:tags.ssid`
+- **WHEN** a client sends `in:flows time:last_1h bucket:5m agg:sum series:tags.ssid`
 - **THEN** SRQL returns an unsupported series field error

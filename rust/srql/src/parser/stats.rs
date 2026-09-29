@@ -5,6 +5,16 @@ use crate::{
 
 pub(super) const MAX_STATS_EXPR_LEN: usize = 1024;
 
+pub(crate) fn strip_matching_quotes(raw: &str) -> &str {
+    let raw = raw.trim();
+    for quote in ['\'', '"'] {
+        if let Some(inner) = raw.strip_prefix(quote).and_then(|s| s.strip_suffix(quote)) {
+            return inner;
+        }
+    }
+    raw
+}
+
 fn split_stats_group_by(expr: &str) -> (String, Option<String>) {
     let trimmed = expr.trim();
     let lower = trimmed.to_lowercase();
@@ -54,7 +64,7 @@ pub(super) fn merge_stats_exprs(existing: &str, next: &str) -> Result<String> {
 
 /// Parse a stats expression like "count() as total" or "sum(field) as total, avg(field) as average"
 pub(super) fn parse_stats_expr(raw: &str) -> StatsSpec {
-    let raw = raw.trim().trim_matches('"').trim_matches('\'');
+    let raw = strip_matching_quotes(raw);
     let (agg_expr, _group_by) = split_stats_group_by(raw);
     let aggregations = split_top_level_commas(&agg_expr)
         .into_iter()

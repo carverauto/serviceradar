@@ -20,10 +20,6 @@ pub(super) fn filter_clause(
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
             timeseries_filter_clause(filter)
         }
-        Entity::CpuMetrics => cpu_filter_clause(filter),
-        Entity::MemoryMetrics => memory_filter_clause(filter),
-        Entity::DiskMetrics => disk_filter_clause(filter),
-        Entity::ProcessMetrics => process_filter_clause(filter),
         Entity::Flows => flows_filter_clause(filter),
         _ => Err(ServiceError::InvalidRequest(
             "downsample is only supported for metric entities and flows".into(),
@@ -363,62 +359,6 @@ fn timeseries_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue
         }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for downsample timeseries_metrics: '{other}'"
-        ))),
-    }
-}
-
-fn cpu_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
-    match filter.field.as_str() {
-        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "cluster" | "label" => {
-            text_clause(filter.field.as_str(), filter)
-        }
-        "core_id" => int_clause("core_id", filter, false),
-        "usage_percent" => float_clause("usage_percent", filter, true),
-        "frequency_hz" => float_clause("frequency_hz", filter, true),
-        other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported filter field for downsample cpu_metrics: '{other}'"
-        ))),
-    }
-}
-
-fn memory_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
-    match filter.field.as_str() {
-        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" => {
-            text_clause(filter.field.as_str(), filter)
-        }
-        "usage_percent" => float_clause("usage_percent", filter, false),
-        "total_bytes" => int_clause("total_bytes", filter, false),
-        "used_bytes" => int_clause("used_bytes", filter, false),
-        "available_bytes" => int_clause("available_bytes", filter, false),
-        other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported filter field for downsample memory_metrics: '{other}'"
-        ))),
-    }
-}
-
-fn disk_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
-    match filter.field.as_str() {
-        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "mount_point"
-        | "device_name" => text_clause(filter.field.as_str(), filter),
-        "usage_percent" => float_clause("usage_percent", filter, false),
-        "total_bytes" => int_clause("total_bytes", filter, false),
-        "used_bytes" => int_clause("used_bytes", filter, false),
-        "available_bytes" => int_clause("available_bytes", filter, false),
-        other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported filter field for downsample disk_metrics: '{other}'"
-        ))),
-    }
-}
-
-fn process_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
-    match filter.field.as_str() {
-        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "name" | "status"
-        | "start_time" => text_clause(filter.field.as_str(), filter),
-        "pid" => int_clause("pid", filter, false),
-        "cpu_usage" => float_clause("cpu_usage", filter, true),
-        "memory_usage" => int_clause("memory_usage", filter, true),
-        other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported filter field for downsample process_metrics: '{other}'"
         ))),
     }
 }

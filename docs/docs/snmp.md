@@ -24,7 +24,7 @@ SNMP polling is an **embedded service inside the ServiceRadar agent** — not a 
 
 - Start with 60-second intervals for critical devices and 5-minute intervals for access-layer gear.
 - Group OIDs into logical bundles (interfaces, CPU/memory, trap status) to minimize round trips.
-- Track historical polls in the CNPG/Timescale hypertables (`timeseries_metrics`, `cpu_metrics`, `interface_metrics`) for long-term trend analysis; see the [CNPG monitoring guide](./cnpg-monitoring.md) for queries you can reuse inside Grafana.
+- Track historical polls with [SRQL timeseries queries](./srql-language-reference.md#timeseries_metrics) for long-term trend analysis on the configured telemetry backend.
 
 ## Enable Traps
 

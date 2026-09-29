@@ -24,6 +24,35 @@
 - [x] 2.3 Events filter vocabulary on StarRocks: `log_level`, `event_type`, `host`, `device_id`, `finding_uid`.
   - `log_level` is an ordinary column, added by `priv/starrocks/0018_events_documents.sql` along with the `metadata`/`unmapped`/`device`/`observables` documents. `event_type`, `finding_uid` and `host_id`/`hostname` read the same document paths CNPG reads, via `get_json_string`; `device_id` compiles to CNPG's canonical, alias and document-scan arms in both polarities. The three remaining differences from CNPG, and the row-shape decoding that makes a warehouse event row indistinguishable from a CNPG one, are recorded in `k8s/starrocks/README.md`.
 - [ ] 2.4 Route the direct CNPG readers through `Readers`: dashboard throughput sparklines, device Flows-tab presence probes, and any logs/events stat card that bypasses SRQL.
+  - [x] Flows readers (finding 5, issue #4869): the dashboard throughput sparkline
+    (`TrafficSparklines.warehouse_traffic_rows/2`) and the device Flows-tab presence probes
+    (`DeviceLive.FlowData`) now route through `Readers` and render empty/unavailable on
+    `{:error, :starrocks_required}` instead of reading CNPG flows; the CNPG fallbacks and their
+    helpers are deleted. `DeviceRiskIocExposure` gained a warehouse flow page with the same
+    keyset paging contract (over `time` and the flow row key) selected by
+    `Readers.backend(:flows) == :starrocks`, keeping the CNPG query for installations without
+    the warehouse; the hostile-IOC join and the device identity stay CNPG lookups
+    (`ip_threat_intel_cache` is not in the catalog allowlist; the warehouse flow row carries the
+    attributed flow's `agent_id`, so device is resolved agent first via `ocsf_agents` and falls
+    back to `device_identifiers` on the destination IP). Tests:
+    `TrafficSparklinesRoutingTest` (web-ng) and `DeviceRiskIocExposureRoutingTest` (core) pin
+    the routing and the warehouse SQL shape.
+  - [x] DeviceRiskIocExposure warehouse cutover (issue #4869). The routing,
+    required-delivery contract and historical-attribution limitation are owned by
+    [NetFlow: Flow cutover and delivery](../../../docs/docs/netflow.md#flow-cutover-and-delivery).
+    Tests: `DestinationTest` pins
+    required-before-ACK before any cutover, outage-redelivery and idempotent
+    replay (stable record ids); `EnvTest` and the elx production runtime config
+    test pin the default cutover set; `DeviceRiskIocExposureRoutingTest` pins
+    the warehouse page, the CNPG fallback for a disabled warehouse, the strict
+    window bound, the dropped un-enriched in-window row, and retention of a
+    maximum-risk contribution from full and partial encodings for an agent-only
+    device. `FlowAttributionTest` executes the matching SQL and checks the
+    published agent; `FlowsTest`, `RowsTest`, and `AttributionTest` exercise
+    process and agent fields through protobuf decoding and warehouse encoding.
+    Migration `0023_ocsf_network_activity_agent_id.sql` adds the agent column;
+    `SchemaTest` enforces unique versions for the shipped migration set.
+  - [ ] Logs/events stat cards that bypass SRQL (still open).
 - [ ] 2.5 Measure log search on the deployed profile: which index types shared-data supports, and latency of a substring search over 1, 30 and 365 days; document the supported behaviour.
 - [ ] 2.6 Run the parity harness for the `logs` and `events` warehouse readers; ship each reader only after it passes; verify cards and charts against ground truth after the rollout completes.
 
@@ -103,7 +132,12 @@
     `RefreshTraceSummariesWorker` (both write the warehouse only when StarRocks is enabled).
     `OtelServiceCatalogBackfillWorker` reads CNPG `spans_red_1h` once, for history written
     before the switch, and needs no change.
-- [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
+- [x] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
+  **Retired -- no warehouse copies.** The implementation follows the
+  [sysmon compatibility requirement](specs/srql/spec.md#requirement-dedicated-sysmon-readers-are-retired-with-query-compatibility)
+  (issue #4861). See the [SRQL reference](../../../docs/docs/srql-language-reference.md#aggregation-with-stats)
+  for query and retention behavior and the [API reference](../../../docs/docs/api-reference.md#retired-sysmon-jsonapi-resources)
+  for retired endpoints and preserved CNPG objects.
 - [ ] 3.4 MTR traces and hops (spec: "MTR traces and hops reach the warehouse through JetStream").
   Scalar MTR metrics already travel on `metrics.mtr` (gateway `MtrMetricsPublisher` -> EventWriter
   `Metrics`); full traces and hops do not: scheduled results go gateway -> core

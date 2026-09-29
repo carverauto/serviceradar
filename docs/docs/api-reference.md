@@ -105,6 +105,14 @@ For pagination across large result sets, pass the `next_cursor` value from a
 response back as the `cursor` field (with `direction: "next"`) on the
 following request.
 
+### Retired sysmon JSON:API resources
+
+The dedicated `/api/v2/cpu_metrics`, `/api/v2/memory_metrics`,
+`/api/v2/disk_metrics`, `/api/v2/process_metrics`, their `_hourly` routes,
+and `/api/v2/cpu_cluster_metrics` have been removed. Use `POST /api/query`
+with the [sysmon SRQL queries](./srql-language-reference.md#aggregation-with-stats)
+instead. The legacy CNPG tables, rollups and migrations remain in place.
+
 ## Discover the SRQL catalog — `GET /api/srql/catalog`
 
 The `/api/srql/catalog` endpoint returns the canonical client-side reference for

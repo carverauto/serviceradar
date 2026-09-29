@@ -24,35 +24,6 @@ pub(super) fn resolve_value_column(
                     "unsupported value_field '{other}' for timeseries_metrics_hourly"
                 ))),
             },
-            Entity::CpuMetrics => match field {
-                None | Some("usage_percent") => Ok("avg_usage_percent".to_string()),
-                Some(other) => Err(ServiceError::InvalidRequest(format!(
-                    "unsupported value_field '{other}' for cpu_metrics_hourly"
-                ))),
-            },
-            Entity::MemoryMetrics => match field {
-                None | Some("usage_percent") => Ok("avg_usage_percent".to_string()),
-                Some("used_bytes") => Ok("avg_used_bytes".to_string()),
-                Some("available_bytes") => Ok("avg_available_bytes".to_string()),
-                Some(other) => Err(ServiceError::InvalidRequest(format!(
-                    "unsupported value_field '{other}' for memory_metrics_hourly"
-                ))),
-            },
-            Entity::DiskMetrics => match field {
-                None | Some("usage_percent") => Ok("avg_usage_percent".to_string()),
-                Some("used_bytes") => Ok("avg_used_bytes".to_string()),
-                Some("available_bytes") => Ok("avg_available_bytes".to_string()),
-                Some(other) => Err(ServiceError::InvalidRequest(format!(
-                    "unsupported value_field '{other}' for disk_metrics_hourly"
-                ))),
-            },
-            Entity::ProcessMetrics => match field {
-                None | Some("cpu_usage") => Ok("avg_cpu_usage".to_string()),
-                Some("memory_usage") => Ok("avg_memory_usage".to_string()),
-                Some(other) => Err(ServiceError::InvalidRequest(format!(
-                    "unsupported value_field '{other}' for process_metrics_hourly"
-                ))),
-            },
             Entity::Flows => match field {
                 None | Some("bytes_total") => Ok("bytes_total".to_string()),
                 Some("packets_total") => Ok("packets_total".to_string()),
@@ -71,38 +42,6 @@ pub(super) fn resolve_value_column(
             None | Some("value") => Ok("value".to_string()),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for timeseries metrics"
-            ))),
-        },
-        Entity::CpuMetrics => match field {
-            None | Some("usage_percent") => Ok("usage_percent".to_string()),
-            Some("frequency_hz") => Ok("frequency_hz".to_string()),
-            Some(other) => Err(ServiceError::InvalidRequest(format!(
-                "unsupported value_field '{other}' for cpu_metrics"
-            ))),
-        },
-        Entity::MemoryMetrics => match field {
-            None | Some("usage_percent") => Ok("usage_percent".to_string()),
-            Some("used_bytes") => Ok("used_bytes".to_string()),
-            Some("available_bytes") => Ok("available_bytes".to_string()),
-            Some("total_bytes") => Ok("total_bytes".to_string()),
-            Some(other) => Err(ServiceError::InvalidRequest(format!(
-                "unsupported value_field '{other}' for memory_metrics"
-            ))),
-        },
-        Entity::DiskMetrics => match field {
-            None | Some("usage_percent") => Ok("usage_percent".to_string()),
-            Some("used_bytes") => Ok("used_bytes".to_string()),
-            Some("available_bytes") => Ok("available_bytes".to_string()),
-            Some("total_bytes") => Ok("total_bytes".to_string()),
-            Some(other) => Err(ServiceError::InvalidRequest(format!(
-                "unsupported value_field '{other}' for disk_metrics"
-            ))),
-        },
-        Entity::ProcessMetrics => match field {
-            None | Some("cpu_usage") => Ok("cpu_usage".to_string()),
-            Some("memory_usage") => Ok("memory_usage".to_string()),
-            Some(other) => Err(ServiceError::InvalidRequest(format!(
-                "unsupported value_field '{other}' for process_metrics"
             ))),
         },
         Entity::Flows => match field {
@@ -180,62 +119,6 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 }
             }
         }
-        Entity::CpuMetrics => match series.as_str() {
-            "device_id" => "device_id".to_string(),
-            "host_id" => "host_id".to_string(),
-            "gateway_id" => "gateway_id".to_string(),
-            "agent_id" => "agent_id".to_string(),
-            "core_id" => "core_id::text".to_string(),
-            "label" => "label".to_string(),
-            "cluster" => "cluster".to_string(),
-            "partition" => "partition".to_string(),
-            other => {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "unsupported series field '{other}' for {table}"
-                )));
-            }
-        },
-        Entity::MemoryMetrics => match series.as_str() {
-            "device_id" => "device_id".to_string(),
-            "host_id" => "host_id".to_string(),
-            "gateway_id" => "gateway_id".to_string(),
-            "agent_id" => "agent_id".to_string(),
-            "partition" => "partition".to_string(),
-            other => {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "unsupported series field '{other}' for {table}"
-                )));
-            }
-        },
-        Entity::DiskMetrics => match series.as_str() {
-            "device_id" => "device_id".to_string(),
-            "host_id" => "host_id".to_string(),
-            "gateway_id" => "gateway_id".to_string(),
-            "agent_id" => "agent_id".to_string(),
-            "partition" => "partition".to_string(),
-            "mount_point" => "mount_point".to_string(),
-            "device_name" => "device_name".to_string(),
-            other => {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "unsupported series field '{other}' for {table}"
-                )));
-            }
-        },
-        Entity::ProcessMetrics => match series.as_str() {
-            "device_id" => "device_id".to_string(),
-            "host_id" => "host_id".to_string(),
-            "gateway_id" => "gateway_id".to_string(),
-            "agent_id" => "agent_id".to_string(),
-            "partition" => "partition".to_string(),
-            "name" => "name".to_string(),
-            "pid" => "pid::text".to_string(),
-            "status" => "status".to_string(),
-            other => {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "unsupported series field '{other}' for {table}"
-                )));
-            }
-        },
         Entity::Flows => match series.as_str() {
             "src_endpoint_ip" | "src_ip" => "src_endpoint_ip".to_string(),
             "dst_endpoint_ip" | "dst_ip" => "dst_endpoint_ip".to_string(),

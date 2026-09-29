@@ -37,7 +37,7 @@ The system SHALL expose authored dashboards as a first-class SRQL entity so user
 The system SHALL provide a bounded SRQL preview for dashboard authoring that executes the query with enforced limits and returns field metadata used to configure compatible visuals.
 
 #### Scenario: Preview returns field metadata
-- **GIVEN** a user enters `in:cpu_metrics time:last_1h limit:100`
+- **GIVEN** a user enters `in:timeseries_metrics metric_type:"sysmon.cpu" time:last_1h limit:100`
 - **WHEN** they run preview
 - **THEN** the system SHALL return sample rows
 - **AND** it SHALL classify returned fields by name and type hints such as temporal, numeric, categorical, boolean, or object.
