@@ -354,23 +354,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  # A group's target query may fail two ways. An unparseable query saved on the
-  # group is deterministic: failing the compile for it would freeze that
-  # group's config forever, so it warns and matches nothing. A query that
-  # parses but whose read fails (database outage, serving-path error, a later
-  # page that does not return) fails the whole compile. ConfigServer does not
-  # cache failed compiles, so the agent keeps its running config instead of
-  # receiving a group that quietly sweeps a partial or empty device list.
-  # Failed reads are not written to the shared query cache, so the next
-  # compile retries them.
+  # A group's target query may fail in two ways that must not be confused.
+  # An unparseable query, or one that parses but cannot be translated or cast,
+  # is deterministic: failing the compile would freeze every group until the
+  # query is edited, so it warns and matches nothing. A read that fails
+  # (database outage, serving-path error, a later page that does not return)
+  # fails the whole compile. ConfigServer does not cache failed compiles, so
+  # the agent keeps its running config instead of receiving a group that
+  # quietly sweeps a partial or empty device list. Failed reads are not written
+  # to the shared query cache, so the next compile retries them.
   defp device_targets_for_query(query, raw_query, group, modes, query_memo, query_page_fn) do
     case classify_target_query(query) do
       {:unparseable, reason} ->
-        Logger.warning(
-          "SweepCompiler: SRQL target query cannot be parsed for group #{inspect(group.id)} " <>
-            "(#{inspect(raw_query)}): #{inspect(reason)}; matching no devices"
-        )
-
+        warn_saved_query(group, raw_query, "cannot be parsed", reason)
         {:ok, [], query_memo}
 
       :ok ->
@@ -381,19 +377,79 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
               {:error, reason} -> {:error, reason}
             end
 
-          {{:error, reason}, _query_memo} ->
-            Logger.error(
-              "SweepCompiler: SRQL query failed for group #{inspect(group.id)} - #{inspect(reason)}"
-            )
+          {{:error, reason}, query_memo} ->
+            finish_target_query(reason, query_memo, group, raw_query, query)
 
-            {:error, {:target_query_failed, reason}}
-
-          {{:raised, message}, _query_memo} ->
-            log_target_query_raised(group, query, message)
-            {:error, {:target_query_failed, {:raised, message}}}
+          {{:raised, error}, query_memo} ->
+            finish_target_query({:raised, error}, query_memo, group, raw_query, query)
         end
     end
   end
+
+  defp finish_target_query({:raised, error}, query_memo, group, raw_query, query) do
+    if saved_query_rejection?(error) do
+      warn_saved_query(group, raw_query, "cannot be cast", error)
+      {:ok, [], query_memo}
+    else
+      message = exception_message(error)
+      log_target_query_raised(group, query, message)
+      {:error, {:target_query_failed, {:raised, message}}}
+    end
+  end
+
+  defp finish_target_query(reason, query_memo, group, raw_query, _query) do
+    if saved_query_rejection?(reason) do
+      warn_saved_query(group, raw_query, "cannot be cast", reason)
+      {:ok, [], query_memo}
+    else
+      Logger.error(
+        "SweepCompiler: SRQL query failed for group #{inspect(group.id)} - #{inspect(reason)}"
+      )
+
+      {:error, {:target_query_failed, reason}}
+    end
+  end
+
+  defp warn_saved_query(group, raw_query, problem, reason) do
+    Logger.warning(
+      "SweepCompiler: SRQL target query #{problem} for group #{inspect(group.id)} " <>
+        "(#{inspect(raw_query)}): #{inspect(reason)}; matching no devices"
+    )
+  end
+
+  @translator_rejection_atoms ~w(
+    invalid_srql_translation
+    invalid_srql_params
+    invalid_srql_param
+    invalid_int_array_param
+    invalid_text_array_param
+    invalid_timestamptz_param
+    invalid_date_param
+    invalid_uuid_param
+    invalid_inet_param
+  )a
+
+  @postgres_cast_codes ~w(
+    invalid_text_representation
+    invalid_binary_representation
+    invalid_datetime_format
+    datetime_field_overflow
+    numeric_value_out_of_range
+  )a
+
+  defp saved_query_rejection?(reason) when is_binary(reason), do: true
+  defp saved_query_rejection?(reason) when reason in @translator_rejection_atoms, do: true
+  defp saved_query_rejection?({:unexpected_srql_translate_result, _}), do: true
+  defp saved_query_rejection?(%Jason.DecodeError{}), do: true
+  defp saved_query_rejection?(%Ash.Error.Invalid{}), do: true
+
+  defp saved_query_rejection?(%Postgrex.Error{postgres: %{code: code}})
+       when code in @postgres_cast_codes, do: true
+
+  defp saved_query_rejection?(_reason), do: false
+
+  defp exception_message(error) when is_exception(error), do: Exception.message(error)
+  defp exception_message(error), do: inspect(error)
 
   defp classify_target_query(query) do
     case SRQLAst.parse(query) do
@@ -469,7 +525,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp fetch_target_query_rows(query, query_page_fn) do
     fetch_target_query_pages(query, nil, [], query_page_fn)
   rescue
-    error -> {:raised, Exception.message(error)}
+    error -> {:raised, error}
   end
 
   defp fetch_target_query_pages(query, cursor, pages, query_page_fn) do

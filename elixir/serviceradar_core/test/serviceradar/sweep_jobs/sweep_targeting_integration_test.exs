@@ -974,26 +974,41 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           actor
         )
 
+      group_name = "SRQL Read Failure Group #{unique_id}"
+      device_ip = unique_device_ip(unique_id, 1)
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, cached} = ConfigServer.get_config(:sweep, "default", nil, actor: actor)
+
+      cached_group = Enum.find(cached.config["groups"], &(&1["name"] == group_name))
+      assert [device_target] = cached_group["device_targets"]
+      assert device_target["network"] == device_ip
+
       # The device read backing SRQL targeting fails while groups and
-      # profiles remain readable.
+      # profiles remain readable. The failed compile must not replace the
+      # cached config.
+      ConfigServer.invalidate(:sweep)
       Repo.query!("ALTER TABLE platform.ocsf_devices RENAME TO _ocsf_devices_hidden")
 
       try do
         assert {:error, {:target_query_failed, _}} =
                  SweepCompiler.compile("default", nil, actor: actor)
+
+        assert {:error, _} = ConfigServer.get_config(:sweep, "default", nil, actor: actor)
       after
         Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
       end
 
       # A readable query still resolves the device target (zero-row reads
       # stay valid: the same query with no matching device compiles empty).
-      assert {:ok, config} = SweepCompiler.compile("default", nil, actor: actor)
+      {:ok, recovered} = ConfigServer.get_config(:sweep, "default", nil, actor: actor)
 
       compiled_group =
-        Enum.find(config["groups"], &(&1["name"] == "SRQL Read Failure Group #{unique_id}"))
+        Enum.find(recovered.config["groups"], &(&1["name"] == group_name))
 
       assert [device_target] = compiled_group["device_targets"]
-      assert device_target["network"] == unique_device_ip(unique_id, 1)
+      assert device_target["network"] == device_ip
     end
 
     test "an unparseable target query matches no devices without failing the compile", %{
@@ -1018,6 +1033,51 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
 
       assert compiled_group["targets"] == ["10.0.0.1"]
       refute Map.has_key?(compiled_group, "device_targets")
+    end
+
+    test "an uncastable target query matches nothing without freezing other groups", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      device_ip = unique_device_ip(unique_id, 2)
+      hostname = "uncastable-sibling-#{unique_id}.example.com"
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "device-uncastable-sibling-#{unique_id}",
+            hostname: hostname,
+            ip: device_ip
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      good_name = "Castable Group #{unique_id}"
+      bad_name = "Uncastable Group #{unique_id}"
+
+      {:ok, _good} =
+        create_group(
+          good_name,
+          "default",
+          %{target_query: ~s(in:devices hostname:"#{hostname}")},
+          actor
+        )
+
+      {:ok, _bad} =
+        create_group(bad_name, "default", %{target_query: "in:devices type_id:abc"}, actor)
+
+      assert {:ok, config} = SweepCompiler.compile("default", nil, actor: actor)
+
+      good = Enum.find(config["groups"], &(&1["name"] == good_name))
+      bad = Enum.find(config["groups"], &(&1["name"] == bad_name))
+
+      assert [device_target] = good["device_targets"]
+      assert device_target["network"] == device_ip
+      assert bad["targets"] == ["10.0.0.1"]
+      refute Map.has_key?(bad, "device_targets")
     end
   end
 
