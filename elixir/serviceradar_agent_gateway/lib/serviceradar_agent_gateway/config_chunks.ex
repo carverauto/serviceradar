@@ -20,7 +20,9 @@ defmodule ServiceRadarAgentGateway.ConfigChunks do
   Raises `GRPC.RPCError` (`:resource_exhausted`) when the encoded config exceeds
   the stream byte budget.
   """
-  @spec chunks(String.t(), Monitoring.AgentConfigResponse.t()) :: [Monitoring.AgentConfigChunk.t()]
+  @spec chunks(String.t(), Monitoring.AgentConfigResponse.t()) :: [
+          Monitoring.AgentConfigChunk.t()
+        ]
   def chunks(agent_id, %Monitoring.AgentConfigResponse{} = response) do
     payload =
       response

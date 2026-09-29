@@ -3,7 +3,8 @@ defmodule ServiceRadarAgentGateway.ConfigResponse do
 
   require Logger
 
-  @spec from_core_result(term(), String.t(), String.t(), (term() -> Monitoring.AgentConfigResponse.t())) ::
+  @spec from_core_result(term(), String.t(), String.t(), (term() ->
+                                                            Monitoring.AgentConfigResponse.t())) ::
           Monitoring.AgentConfigResponse.t()
   def from_core_result(core_result, agent_id, config_version, success_converter)
 
@@ -28,7 +29,9 @@ defmodule ServiceRadarAgentGateway.ConfigResponse do
   end
 
   def from_core_result({:ok, {:error, reason}}, agent_id, config_version, _success_converter) do
-    Logger.warning("Failed to generate config for agent #{agent_id}: #{inspect(reason)}, retaining current config")
+    Logger.warning(
+      "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, retaining current config"
+    )
 
     unavailable_config_response(config_version)
   end

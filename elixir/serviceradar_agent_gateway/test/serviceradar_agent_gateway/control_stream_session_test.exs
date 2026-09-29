@@ -197,7 +197,16 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     }
 
     pid = start_supervised!({ControlStreamSession, stream: nil})
-    assert :ok = ControlStreamSession.register(pid, agent_id, "partition-a", hello.capabilities, identity, hello)
+
+    assert :ok =
+             ControlStreamSession.register(
+               pid,
+               agent_id,
+               "partition-a",
+               hello.capabilities,
+               identity,
+               hello
+             )
 
     assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.config_version == "config-v1" and metadata.pending_config_version == nil
@@ -220,7 +229,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                config_version: "config-v2"
              })
 
-    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, %{config_version: "config-v2"}}}}
+    assert_receive {:stream_reply,
+                    %Monitoring.ControlStreamResponse{
+                      payload: {:config, %{config_version: "config-v2"}}
+                    }}
 
     assert_receive {:config_push_sync_attempt, [^agent_id, %{config_version: "config-v2"}], false}
 
@@ -236,7 +248,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                old_evidence
              )
 
-    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}},
+    refute_receive {:stream_reply,
+                    %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}},
                    50
 
     ControlStreamSession.handle_message(
@@ -286,7 +299,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                current_evidence
              )
 
-    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}}
+    assert_receive {:stream_reply,
+                    %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}}
   end
 
   test "full config with a blank version is rejected before stream delivery" do
@@ -311,7 +325,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                })
     end
 
-    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
+    refute_receive {:stream_reply,
+                    %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
                    50
   end
 
@@ -335,13 +350,22 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     assert length(chunks) > 1
     assert Enum.map(chunks, & &1.chunk_index) == Enum.to_list(0..(length(chunks) - 1))
     assert Enum.map(chunks, & &1.is_final) == List.duplicate(false, length(chunks) - 1) ++ [true]
-    assert Enum.all?(chunks, &(&1.config_version == "config-large" and &1.total_chunks == length(chunks)))
+
+    assert Enum.all?(
+             chunks,
+             &(&1.config_version == "config-large" and &1.total_chunks == length(chunks))
+           )
 
     payload = chunks |> Enum.map(& &1.payload) |> IO.iodata_to_binary()
-    assert hd(chunks).payload_sha256 == :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
+
+    assert hd(chunks).payload_sha256 ==
+             :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
+
     assert Monitoring.AgentConfigResponse.decode(payload) == config
 
-    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}}, 50
+    refute_receive {:stream_reply,
+                    %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
+                   50
 
     assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
       metadata.pending_config_version == "config-large"
@@ -965,7 +989,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
       # A new committed version is forwarded again.
       ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
-        payload: {:hello, %Monitoring.ControlStreamHello{agent_id: "agent-ack", config_version: "v6"}}
+        payload:
+          {:hello, %Monitoring.ControlStreamHello{agent_id: "agent-ack", config_version: "v6"}}
       })
 
       assert_receive {:config_sync, :record_config_ack, ["agent-ack", attrs]}
@@ -1017,7 +1042,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       stream
     end)
 
-    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn _function, _args -> :ok end)
+    Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn _function, _args ->
+      :ok
+    end)
 
     on_exit(fn ->
       Application.delete_env(:serviceradar_agent_gateway, :control_stream_reply)
@@ -1041,7 +1068,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
   defp receive_config_chunks(acc) do
     receive do
       {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config_chunk, chunk}}} ->
-        if chunk.is_final, do: Enum.reverse([chunk | acc]), else: receive_config_chunks([chunk | acc])
+        if chunk.is_final,
+          do: Enum.reverse([chunk | acc]),
+          else: receive_config_chunks([chunk | acc])
     after
       1_000 -> flunk("timed out waiting for config chunks; received #{length(acc)}")
     end
