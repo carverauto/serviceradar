@@ -21,17 +21,17 @@ defmodule ServiceRadarWebNGWeb.Components.AnalyticsWidgetsTest do
           }
         )
 
-      document = Floki.parse_fragment!(html)
-      assert document |> Floki.find(~s(span[title="/data"])) |> Floki.text() == "/data"
+      document = LazyHTML.from_fragment(html)
+      assert document |> LazyHTML.query(~s(span[title="/data"])) |> LazyHTML.text() == "/data"
 
       for host <- ~w(cpu01.example.com memory01.example.com host01.example.com) do
-        assert document |> Floki.find(~s([title="#{host}"])) |> Floki.text() == host
+        assert document |> LazyHTML.query(~s([title="#{host}"])) |> LazyHTML.text() == host
       end
 
       queries =
         document
-        |> Floki.find("a[href]")
-        |> Floki.attribute("href")
+        |> LazyHTML.query("a[href]")
+        |> LazyHTML.attribute("href")
         |> Enum.map(&URI.parse/1)
         |> Enum.filter(&(&1.path == "/dashboard"))
         |> Enum.map(&URI.decode_query(&1.query)["q"])

@@ -40,6 +40,10 @@ pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
             "attributed_flows"
         }
         "timeseries_metrics" | "timeseries" => "timeseries_metrics",
+        "cpu_metrics" | "cpu" => "cpu_metrics",
+        "memory_metrics" | "memory" => "memory_metrics",
+        "disk_metrics" | "disk" => "disk_metrics",
+        "process_metrics" | "processes" => "process_metrics",
         "snmp_metrics" | "snmp" => "snmp_metrics",
         "rperf_metrics" | "rperf" => "rperf_metrics",
         "logs" => "logs",
@@ -158,7 +162,7 @@ mod tests {
         assert_eq!(warehouse_entity("pdns"), Some("dns_activity"));
         assert_eq!(warehouse_entity("\"Flows\""), Some("flows"));
         assert_eq!(warehouse_entity("devices"), None);
-        assert_eq!(warehouse_entity("cpu_metrics"), None);
+        assert_eq!(warehouse_entity("cpu_metrics"), Some("cpu_metrics"));
     }
 
     #[test]

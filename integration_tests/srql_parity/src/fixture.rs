@@ -863,14 +863,15 @@ mod tests {
             .collect();
         assert_eq!(gateways.len(), 2, "one display series from two gateways");
 
-        assert!(
-            rows.iter()
-                .any(|row| row.tags.as_deref() == Some(r#"{"core_id":"3"}"#))
-        );
-        let null_dimension = rows
+        let cpu_tags: Vec<serde_json::Value> = rows
             .iter()
             .filter(|row| row.metric_type == "sysmon.cpu")
-            .filter(|row| !row.tags.as_deref().unwrap_or("").contains("core_id"))
+            .map(|row| serde_json::from_str(row.tags.as_deref().unwrap_or("null")).unwrap())
+            .collect();
+        assert!(cpu_tags.iter().any(|tags| tags["core_id"] == "3"));
+        let null_dimension = cpu_tags
+            .iter()
+            .filter(|tags| tags["core_id"].is_null())
             .count();
         assert!(null_dimension > 0, "a NULL tag dimension");
         assert!(
