@@ -34,6 +34,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.SweepPlan
+  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseAgents
   alias ServiceRadar.SweepJobs.LeaseEligibility
@@ -44,7 +45,6 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   alias ServiceRadar.SweepJobs.SweepLeaseSetting
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
   alias ServiceRadar.SweepJobs.SweepProfile
-  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
 
   require Ash.Query
   require Logger
@@ -281,7 +281,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   defp planned_cidrs(_targets), do: :unplannable
 
   defp slot_cidrs(%{plan_pages: pages}) when is_list(pages) do
-    Enum.reduce_while(pages, {:ok, []}, fn encoded, {:ok, acc} ->
+    pages
+    |> Enum.reduce_while({:ok, []}, fn encoded, {:ok, acc} ->
       case page_cidrs(encoded) do
         {:ok, cidrs} -> {:cont, {:ok, [cidrs | acc]}}
         :error -> {:halt, :error}
