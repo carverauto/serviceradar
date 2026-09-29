@@ -248,8 +248,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                old_evidence
              )
 
-    refute_receive {:stream_reply,
-                    %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}},
+    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}},
                    50
 
     ControlStreamSession.handle_message(
@@ -299,8 +298,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                current_evidence
              )
 
-    assert_receive {:stream_reply,
-                    %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}}
+    assert_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:console_frame, _frame}}}
   end
 
   test "full config with a blank version is rejected before stream delivery" do
@@ -325,8 +323,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                })
     end
 
-    refute_receive {:stream_reply,
-                    %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
+    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
                    50
   end
 
@@ -363,8 +360,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     assert Monitoring.AgentConfigResponse.decode(payload) == config
 
-    refute_receive {:stream_reply,
-                    %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
+    refute_receive {:stream_reply, %Monitoring.ControlStreamResponse{payload: {:config, _config}}},
                    50
 
     assert_registry_evidence("partition-a", agent_id, pid, fn metadata ->
@@ -989,8 +985,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
       # A new committed version is forwarded again.
       ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
-        payload:
-          {:hello, %Monitoring.ControlStreamHello{agent_id: "agent-ack", config_version: "v6"}}
+        payload: {:hello, %Monitoring.ControlStreamHello{agent_id: "agent-ack", config_version: "v6"}}
       })
 
       assert_receive {:config_sync, :record_config_ack, ["agent-ack", attrs]}
