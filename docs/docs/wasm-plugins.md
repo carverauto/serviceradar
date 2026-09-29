@@ -82,6 +82,63 @@ integrations:
           label: Site
 ```
 
+#### One credential rule, several schedules
+
+A `producer_schedule` profile may bind more than one schedule of the same
+package, so one vendor account drives, say, an inventory refresh every 15
+minutes and a telemetry poll every minute. Replace `schedule_id` with
+`schedule_ids`:
+
+```yaml
+producer_schedules:
+  - schedule_id: example-inventory.refresh
+    default_cadence_seconds: 900
+    credential_requirements:
+      inventory_account: {required: true, resolution_location: agent, grants: []}
+    # ...label, action_id, command_type, bounds as above
+  - schedule_id: example-inventory.telemetry
+    default_cadence_seconds: 60
+    min_cadence_seconds: 30
+    credential_requirements:
+      inventory_account: {required: true, resolution_location: agent, grants: []}
+    # ...
+
+integrations:
+  credential_profiles:
+    - provider: example-inventory
+      # ...
+      provisioning:
+        mode: producer_schedule
+        schedule_ids:
+          - example-inventory.refresh
+          - example-inventory.telemetry
+        credential_requirement: inventory_account
+```
+
+Rules the importer enforces:
+
+- Declare exactly one of `schedule_id` or `schedule_ids`. `schedule_id` keeps
+  working unchanged.
+- `schedule_ids` is a non-empty list of at most 8 distinct ids. Every id must
+  name a schedule in the same package's `producer_schedules`, and every listed
+  schedule must declare the profile's `credential_requirement`.
+
+What one rule then provisions:
+
+- **One assignment per agent**, as before. Every listed schedule is bound to
+  that assignment with the same plugin config and the same credential
+  reference. The dispatcher runs each schedule independently.
+- **Per-schedule cadence.** The first listed id is the primary schedule. The
+  rule form's cadence field is bounded by the primary's
+  `min_cadence_seconds`/`max_cadence_seconds` and overrides the primary only.
+  Every other schedule runs at its own `default_cadence_seconds`; the override is
+  never copied onto a schedule with a different cadence contract.
+- **Shared on/off.** The rule's recurring-refresh switch arms and disarms all of
+  its schedules together, and disabling the rule, revoking the package, or
+  removing an id from `schedule_ids` in a new package version disables the
+  affected schedules on the next credential reconciliation.
+- **Run Now** on the credential rules page dispatches the primary schedule.
+
 ServiceRadar validates this data while importing the signed package and builds
 the credentials UI, assignment reconciliation, schedule binding, and discovery
 source display from it. Adding another provider does not require a core catalog
