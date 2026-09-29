@@ -56,8 +56,8 @@ smaller, not persisted.
   edit cannot overwrite a later one. Group destroy needs no hook: the FK
   cascades.
 - Decision: the refresh reuses the compiler's own target resolution. A new
-  public `SweepCompiler.declared_targets/1` returns
-  `%{static: [target], device: [%{target:, device_uid:}]}` from the same
+  public `SweepCompiler.declared_targets/2` returns
+  `%{static: [target], device: [%{target:, device_uid:}] | :unresolved}` from the same
   normalize/paginate/normalize-ip path `compile/3` uses, so the persisted
   relation is what the compiler would deliver.
   `refactor-sweep-config-shared-targets` will optimize query evaluation

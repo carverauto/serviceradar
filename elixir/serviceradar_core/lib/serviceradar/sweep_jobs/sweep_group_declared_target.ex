@@ -8,8 +8,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroupDeclaredTarget do
   the live `sweep_groups` row (`agent_ids` / `partition`), the same way
   `SweepGroup :for_agent_partition` derives it for compilation.
 
-  Rows are written by `ServiceRadar.SweepJobs.DeclaredTargets.refresh/1` when a
-  group's targeting changes:
+  Rows are written by two paths — see `ServiceRadar.SweepJobs.DeclaredTargets`
+  for the full write contract. In brief:
 
   - `source: "static"` -- a verbatim entry of `sweep_groups.static_targets`
   - `source: "srql"` -- an IP resolved from the group's `target_query`, with
