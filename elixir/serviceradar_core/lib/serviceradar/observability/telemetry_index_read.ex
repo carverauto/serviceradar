@@ -32,6 +32,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
   use Ash.Resource.ManualRead
 
+  alias Ash.Error.Query.InvalidQuery
   alias Ash.Query.Ref
   alias Ash.Resource.Info
   alias ServiceRadar.Analytics.StarRocks.Env
@@ -90,9 +91,56 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
         run_cnpg(query, data_layer_query)
 
       {:starrocks, table} ->
-        run_warehouse(query, table, opts)
+        query
+        |> run_warehouse(table, opts)
+        |> present_warehouse_error()
     end
   end
+
+  defp present_warehouse_error({:error, {:unsupported_warehouse_filter_field, field}}) do
+    {:error, invalid_query(field, "unsupported filter field #{field_label(field)}")}
+  end
+
+  defp present_warehouse_error({:error, :relationship_filter_unsupported}) do
+    {:error, invalid_query(nil, "relationship filters are not supported")}
+  end
+
+  defp present_warehouse_error({:error, {:unsupported_warehouse_filter, :empty_in}}) do
+    {:error, invalid_query(nil, "in filter requires a non-empty set")}
+  end
+
+  defp present_warehouse_error({:error, {:unsupported_warehouse_filter, detail}}) do
+    {:error, invalid_query(nil, "unsupported filter #{field_label(detail)}")}
+  end
+
+  defp present_warehouse_error({:error, {:unsupported_warehouse_value, value}}) do
+    {:error, invalid_query(nil, "unsupported filter value #{inspect(value)}")}
+  end
+
+  defp present_warehouse_error({:error, {:unsupported_warehouse_sort_field, field}}) do
+    {:error, invalid_query(field, "unsupported sort field #{field_label(field)}")}
+  end
+
+  defp present_warehouse_error({:error, :relationship_sort_unsupported}) do
+    {:error, invalid_query(nil, "relationship sorts are not supported")}
+  end
+
+  defp present_warehouse_error({:error, {:unsupported_warehouse_sort, detail}}) do
+    {:error, invalid_query(nil, "unsupported sort #{field_label(detail)}")}
+  end
+
+  defp present_warehouse_error(result), do: result
+
+  defp invalid_query(field, message) when is_atom(field) do
+    InvalidQuery.exception(field: field, message: message)
+  end
+
+  defp invalid_query(_field, message) do
+    InvalidQuery.exception(message: message)
+  end
+
+  defp field_label(field) when is_atom(field), do: Atom.to_string(field)
+  defp field_label(other), do: inspect(other)
 
   @doc false
   @spec mode(module(), keyword()) :: :cnpg | {:starrocks, String.t()}
@@ -441,6 +489,8 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   defp is_nil_sql(column, true), do: {:ok, "#{column} IS NULL"}
   defp is_nil_sql(column, false), do: {:ok, "#{column} IS NOT NULL"}
   defp is_nil_sql(_column, _right), do: {:error, {:unsupported_warehouse_filter, :is_nil}}
+
+  defp in_sql(column, %MapSet{} = values), do: in_sql(column, MapSet.to_list(values))
 
   defp in_sql(column, values) when is_list(values) and values != [] do
     values

@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   use ExUnit.Case, async: false
 
+  alias Ash.Error.Query.InvalidQuery
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Observability.Log
   alias ServiceRadar.Observability.OtelTrace
@@ -199,16 +200,73 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
       |> Ash.Query.for_read(:api_index)
       |> Ash.Query.filter(scope_name == "otel")
 
-    assert {:error, {:unsupported_warehouse_filter_field, :scope_name}} =
+    assert {:error, error} =
              TelemetryIndexRead.read(filtered, :data_layer_query, [table: "logs"], %{})
+
+    assert %InvalidQuery{field: :scope_name, class: :invalid} = error
+    assert Exception.message(error) =~ "scope_name"
+    assert [json_error] = AshJsonApi.Error.to_json_api_errors(nil, Log, error, :read)
+    assert json_error.status_code == 400
+    assert json_error.detail =~ "scope_name"
 
     sorted =
       Log
       |> Ash.Query.for_read(:api_index)
       |> Ash.Query.sort(scope_version: :asc)
 
-    assert {:error, {:unsupported_warehouse_sort_field, :scope_version}} =
+    assert {:error, sort_error} =
              TelemetryIndexRead.read(sorted, :data_layer_query, [table: "logs"], %{})
+
+    assert %InvalidQuery{field: :scope_version, class: :invalid} = sort_error
+    assert Exception.message(sort_error) =~ "scope_version"
+    assert [sort_json] = AshJsonApi.Error.to_json_api_errors(nil, Log, sort_error, :read)
+    assert sort_json.status_code == 400
+    assert sort_json.detail =~ "scope_version"
+  end
+
+  test "renders an in filter whose values Ash stored as a set" do
+    with_starrocks(true, cutover_datasets: [:logs])
+
+    parent = self()
+
+    query =
+      Log
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.filter(trace_id in ["abc", "def"])
+      |> Ash.Query.set_context(%{
+        starrocks_query: fn sql ->
+          send(parent, {:sql, sql})
+          {:ok, %{columns: ["trace_id"], rows: [["abc"]]}}
+        end
+      })
+
+    assert {:ok, [record]} =
+             TelemetryIndexRead.read(query, :data_layer_query, [table: "logs"], %{})
+
+    assert record.trace_id == "abc"
+    assert_received {:sql, sql}
+    assert sql =~ "WHERE "
+    assert sql =~ "`trace_id` IN ("
+    assert sql =~ "'abc'"
+    assert sql =~ "'def'"
+  end
+
+  test "rejects an empty in filter as an invalid query" do
+    with_starrocks(true, cutover_datasets: [:logs])
+
+    query =
+      Log
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.filter(trace_id in [])
+
+    assert {:error, error} =
+             TelemetryIndexRead.read(query, :data_layer_query, [table: "logs"], %{})
+
+    assert %InvalidQuery{class: :invalid} = error
+    assert Exception.message(error) =~ "non-empty"
+    assert [json_error] = AshJsonApi.Error.to_json_api_errors(nil, Log, error, :read)
+    assert json_error.status_code == 400
+    assert json_error.detail =~ "non-empty"
   end
 
   test "delegates to CNPG when enabled but the resource has no warehouse table" do
