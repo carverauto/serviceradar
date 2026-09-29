@@ -193,29 +193,62 @@ reused, including when a revoked assignment is reissued. `ProducerAssignments`
 is the only writer. A group update bumps every active assignment when the
 partition, the selected agents, the targets, the target query, the ports, the
 modes, the overrides, or the profile change, and revokes an agent that is no
-longer selected. Reassignment and agent replacement both arrive as an
-`agent_ids` update.
+longer selected. An empty `agent_ids` selects every agent in the partition and
+revokes nobody; when `agent_ids` is a non-empty list, the fence revokes every
+active assignment whose agent is not in that list. Reassignment and agent
+replacement both arrive as an `agent_ids` update.
 
-**Schedule lease.** For each opted-in assignment core pre-mints the executions
+**Schedule lease.** For each leased assignment core pre-mints the executions
 of the lease horizon: a UUIDv7 `execution_id` whose time is the slot start, the
-slot's collection window, and the plan and range digests of the compiled sweep
-configuration. Each execution is recorded as scheduled before it runs. The
-horizon has a per-partition default, a per-agent override and an administrator
-maximum. Renewal keeps a connected agent's horizon full, so a disconnection
+slot's collection window, and the plan and range digests of that execution's
+plan (see "Plan inputs"). A group is leased only when it is enabled, has
+non-empty `static_targets`, no `target_query`, and every static target fits
+one `TargetRangeV1`. A group with a `target_query`, whether or not it also has
+static targets, stays entirely on the legacy path (the agent's local ticker
+and legacy results): one execution is never split across the two paths, and
+the ABI cannot commit to an SRQL-resolved address set. The M2.0a fence bumps
+every active assignment when the partition, `agent_ids`, `static_targets`,
+`target_query`, ports, sweep modes, overrides, or the profile changes. When
+`agent_ids` becomes a non-empty list, the fence revokes every active
+assignment whose agent is not in that list; an empty `agent_ids` selects
+every agent in the partition and revokes nobody. A change of
+`target_query` or `static_targets` by itself only bumps; it does not revoke.
+The lease scheduler re-plans a lease's unrun slots when that bump leaves the
+assignment active and the group eligible, re-signs that lease's production
+capability and those slots' source authorizations at the new `authority_epoch`
+(the plan header does not carry the epoch), with the new plan digest when the
+plan changed, and re-delivers them, so a ports change re-plans onto the new
+ports. Unrun slots are dropped, not re-planned or re-signed, in two cases:
+the scheduler revokes an ineligible group (it is disabled, it gained a
+`target_query`, lost its static targets, or has a static target the plan
+cannot represent), which issues no further leases and returns the agent to its
+local ticker, and the fence revokes an agent that is no longer selected.
+Becoming eligible again after that scheduler revoke, including when the group
+is re-enabled, is a new lease for that (group, agent), reissued under a new
+epoch through the existing reissue path, not a re-plan of the old slots. Each execution is recorded
+as scheduled before it runs. The horizon has a per-partition default, a
+per-agent override and an administrator maximum. Renewal keeps a connected
+agent's horizon full, so a disconnection
 starts from a full lease.
 
 **Issuer.** Core signs with an Ed25519 issuer key held through a core-only file
 mount (the automation-callback key pattern); the gateway receives public keys
 and key ids only. The issuer key is ServiceRadar talking to itself, not a device
 credential. Per lease it signs one production capability with `run_id` set to
-the lease; per scheduled execution it signs the SCHEDULED_SWEEP source
-authorization bound to that `execution_id`, its digests and its collection
-window. The ABI requires one source authorization per execution: a five-minute
-interval over seven days is about 2,000 signed slots, well under a megabyte.
+the lease. Per (execution, range) it signs one SCHEDULED_SWEEP source
+authorization: `context_id` is that `execution_id`, `scope_id` is that range's
+id, both `scope_sha256` and `target_range_sha256` are that range's digest,
+`execution_plan_sha256` is the plan header digest, and the claims bind that
+execution's collection window.
+The execution keeps one plan and carries one such authorization per range; each
+record or batch carries the authorization that matches its range. The signature
+count is executions times configured static targets. A five-minute interval over
+seven days is about 2,000 executions, and each of those signs once per
+configured static target.
 
 **Delivery and execution.** The lease travels core -> gateway -> agent over the
-existing authenticated control path as a compiled sweep assignment plus its
-signed slots, and the agent acknowledges it. For an opted-in group the agent's
+existing authenticated control path as the plan of each scheduled execution
+plus its signed authorizations (see "Carrier"), and the agent acknowledges it. For a leased group the agent's
 ticker is replaced by the lease: it runs each slot at its time from its own
 clock, connected or not, mints only per-record identity (`event_id`,
 `batch_sequence`), and spools. Every record's `event_id` time must fall inside
@@ -245,9 +278,47 @@ against event time (the original interval), never receipt age.
 no batch commits by its slot end plus grace, and distinguishes an agent offline
 inside its lease from an exhausted lease.
 
+**Plan inputs.** The ABI defines how a scheduled plan is hashed but nothing
+builds one outside a test helper, and it leaves two digests undefined. Core builds
+one plan per execution, its ids minted with the execution, from the group's
+static targets: exactly one `TargetRangeV1` per configured static target, never
+merged with its neighbors, in the one spelling the plan validator accepts. A
+bare IPv4 becomes that address as a /32 CIDR and a bare IPv6 a /128 CIDR. A
+CIDR is committed as its canonical network prefix, still one range. A target
+that is already a first/last span stays one span. A static target whose
+address count does not fit the plan's `target_count` (an IPv6 prefix shorter
+than /65) cannot be one `TargetRangeV1`; the builder rejects that group rather
+than splitting it, and the group stays on the legacy path. `PlanValidate` and the range
+digest require canonical text, so the builder emits IPv6 addresses and CIDRs
+lowercase and compressed (RFC 5952) and IPv4 in dotted-quad, and does not reuse
+`normalizeSweepNetwork`'s bare-address spelling. Stored `10.1.2.3/24` becomes
+`10.1.2.0/24`, and stored `2001:DB8::1` becomes `2001:db8::1/128`. A page holds
+at most 256 ranges, and a plan uses as many pages as it needs. Checks are ICMP
+and TCP only. Because v1 binds one range
+to each source authorization, an execution carries as many authorizations as it
+has ranges, which is why an SRQL device list does not fit. Two values are defined
+here:
+
+- `check_set_sha256` is the SHA-256, in the plan grammar (big-endian integers,
+  length-framed bytes), of the domain tag `serviceradar.edge.check_set.v1`, the
+  count of checks and each `(mode, protocol, port)` check sorted ascending. The
+  exact field encoding is pinned by the golden vectors in M2.0b1.
+- `availability_policy_id` is `any-success-v1`: a host is available when any of
+  its checks succeeded, the meaning the legacy path already gives.
+
+**Carrier.** A lease is the plan, one production capability, and one source
+authorization per (execution, range). The compiled sweep assignment, the
+assignment record and the host-key execution grant are not part of the first
+contract: the gateway and EventWriter never consult them, and using them would
+need three signatures and two stored artifacts per (execution, range).
+
 **Open questions.** Whether dense or very long leases need a range-signing ABI
 extension (one signature over a run of slots) instead of one signature per
-execution, and how lease computation is partitioned across a large fleet.
+(execution, range); how lease computation is partitioned across a large fleet;
+whether a plan can be shared by the executions of a lease (one plan per
+execution is the safe reading until the ledger's uniqueness rules are checked);
+and the ABI extension that lets a range commit to an address set, which unlocks
+SRQL groups.
 
 ## Goals
 

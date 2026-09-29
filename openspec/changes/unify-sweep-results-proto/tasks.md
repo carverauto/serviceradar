@@ -42,31 +42,115 @@
   are read, so core learns of an execution only when its results arrive. Design:
   `design.md`, "M2.0 design: core-scheduled sweeps as signed schedule leases".
   Narrows 1.10, 2.3, 2.10, 2.20, 3.2 and 3.8 to the scheduled-sweep contract.
-  - [ ] M2.0a Sweep assignment authority. Persist one assignment per (sweep
+  - [x] M2.0a Sweep assignment authority. Persist one assignment per (sweep
     group, agent): `producer_assignment_id`, `network_scope_id` (the agent's
     partition id), `run_shard` (0 until sharding) and a monotonic
     `authority_epoch`, bumped on reassignment, agent replacement, target change
     and revocation. The table, the system-only writer, and that fence are in
     tree (migration `20260928190000`; the field list is Assignment authority in
-    `design.md`). This item stays open until `producer_assignments_db_test` is
-    green on the BazelCI integration lane.
-  - [ ] M2.0b Lease scheduler. For each opted-in assignment, core pre-mints the
-    executions of the lease horizon (UUIDv7 `execution_id` at the slot start,
-    slot window, plan and range digests from the compiled sweep config) and
-    records each `SweepGroupExecution` as scheduled before it runs. The horizon
-    has a per-partition default, a per-agent override and an administrator
-    maximum; a week or more of disconnected operation is a supported setting.
-    Renewal keeps a connected agent's horizon full.
+    `design.md`). DONE: #4940; `producer_assignments_db_test` and the fence
+    decision table passed in its BazelCI (BuildBuddy invocation
+    `3a2ed1bb-fa45-4612-bbb7-454e1bfe646f`; `integration_tests_async` ran 1,024
+    tests, the 7 new DB tests included).
+  - [ ] M2.0b Lease scheduler and plans. A group is leased only when it is
+    enabled, has non-empty `static_targets`, no `target_query`, and every
+    static target fits one `TargetRangeV1`. A group with a `target_query`,
+    whether or not it also has static targets, stays entirely on the legacy
+    path (agent local ticker, legacy results): one execution is never split
+    across the two paths, and the ABI cannot commit to an SRQL-resolved address
+    set. v1 binds one range to each source authorization, so a sparse device
+    list would need one signature per device per execution. The M2.0a fence
+    bumps every active assignment when the partition, `agent_ids`,
+    `static_targets`, `target_query`, ports, sweep modes, overrides, or the
+    profile changes. When `agent_ids` becomes a non-empty list, the fence
+    revokes every active assignment whose agent is not in that list; an empty
+    `agent_ids` selects every agent in the partition and revokes nobody. A
+    change of `target_query` or `static_targets` by itself only bumps; it does
+    not revoke. The scheduler re-plans a lease's unrun slots when that bump
+    leaves the assignment active and the group eligible, re-signs that lease's
+    production capability and those slots' source authorizations at the new
+    `authority_epoch` (the plan header does not carry the epoch), with the new
+    plan digest when the plan changed, and re-delivers them, so a ports change
+    re-plans onto the new ports. Unrun slots are dropped, not re-planned or
+    re-signed, in two cases: the scheduler revokes an ineligible group (it is
+    disabled, it gained a `target_query`, lost its static targets, or has a
+    static target the plan cannot represent), which issues no further leases
+    and returns the agent to its local ticker, and the fence revokes an agent
+    that is no longer selected. Becoming eligible again after that scheduler
+    revoke, including when the group is re-enabled, is a new lease for that
+    (group, agent), reissued under a new epoch through the existing reissue
+    path, not a re-plan of the old slots.
+    - [ ] M2.0b1 Plan builder. Core builds a scheduled plan (header, pages,
+      ranges) from a group's static targets: exactly one `TargetRangeV1` per
+      configured static target, never merged with its neighbors, in the one
+      spelling the plan validator accepts. A bare IPv4 becomes that address as a
+      /32 CIDR and a bare IPv6 a /128 CIDR. A CIDR is committed as its canonical
+      network prefix, still one range. A target that is already a first/last
+      span stays one span. A static target whose address count does not fit the
+      plan's `target_count` (an IPv6 prefix shorter than /65) cannot be one
+      `TargetRangeV1`; the builder rejects that group rather than splitting it,
+      and the group stays on the legacy path. `PlanValidate` and the range digest require canonical
+      text, so the builder emits IPv6 addresses and CIDRs lowercase and
+      compressed (RFC 5952) and IPv4 in dotted-quad, and does not reuse
+      `normalizeSweepNetwork`'s bare-address spelling. Stored `10.1.2.3/24`
+      becomes `10.1.2.0/24`, and stored `2001:DB8::1` becomes `2001:db8::1/128`.
+      A page holds at most 256 ranges, and the plan uses as many pages
+      as it needs.
+      Checks are ICMP and TCP only (`mtr_*` zero). Its digests (range, page,
+      root, header) are byte-identical to the Go implementation, shown by the
+      cross-language golden vectors under `proto/edge/v1/testdata`.
+      `check_set_sha256` and `availability_policy_id` follow "Plan inputs" in
+      `design.md`.
+    - [ ] M2.0b2 Scheduled executions. `SweepGroupExecution` gains a scheduled
+      state and persists what a lease slot needs: the pre-minted UUIDv7
+      `execution_id` (the row id, so results reported later under that id find
+      their row), agent, assignment, epoch, slot start and collection window,
+      lease id, plan id and header digest, the id and digest of every range in
+      that plan, `check_set_sha256` and `availability_policy_id`; the raw plan
+      bytes are kept for the EventWriter's host-membership check (5.1).
+    - [ ] M2.0b3 Lease scheduler. For each leased assignment core pre-mints the
+      executions of the lease horizon from the group's schedule and records each
+      as scheduled before it runs. The horizon has a per-partition default, a
+      per-agent override and an administrator maximum; a week or more of
+      disconnected operation is a supported setting. Renewal keeps a connected
+      agent's horizon full. The M2.0a fence bumps every active assignment when
+      the partition, `agent_ids`, `static_targets`, `target_query`, ports,
+      sweep modes, overrides, or the profile changes. When `agent_ids` becomes
+      a non-empty list, the fence revokes every active assignment whose agent
+      is not in that list; an empty `agent_ids` selects every agent in the
+      partition and revokes nobody. A change of `target_query` or
+      `static_targets` by itself only bumps; it does not revoke. The scheduler
+      re-plans that lease's unrun slots when the bump leaves the assignment
+      active and the group eligible, re-signs that lease's production
+      capability and those slots' source authorizations at the new
+      `authority_epoch` (the plan header does not carry the epoch), with the
+      new plan digest when the plan changed, and re-delivers them, so a ports
+      change re-plans onto the new ports. Unrun slots are dropped, not
+      re-planned or re-signed, in two cases: the scheduler revokes an
+      ineligible group (it is disabled, it gained a `target_query`, lost its
+      static targets, or has a static target the plan cannot represent), which
+      issues no further leases and returns the agent to its local ticker, and
+      the fence revokes an agent that is no longer selected. Becoming eligible
+      again after that scheduler revoke, including when the group is
+      re-enabled, is a new lease for that (group, agent), reissued under a new
+      epoch through the existing reissue path, not a re-plan of the old slots.
   - [ ] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
     mount and signs, per lease, the production capability (`run_id` = the lease)
-    and, per scheduled execution, the SCHEDULED_SWEEP source authorization bound
-    to that `execution_id`, its digests and its collection window. The gateway
-    receives public keys only.
+    and one SCHEDULED_SWEEP source authorization per (execution, range). Every
+    authorization for an execution shares `context_id` equal to that
+    `execution_id`; each sets `scope_id` to that range's id and both
+    `scope_sha256` and `target_range_sha256` to that range's digest, and binds
+    the execution's plan digest and collection window. The gateway receives
+    public keys only.
   - [ ] M2.0d Lease delivery. Core sends the lease to the agent over the
-    existing authenticated control path as a compiled sweep assignment plus its
-    signed slots; the agent acknowledges the installed lease, and core shows each
-    agent's remaining horizon.
-  - [ ] M2.0e Agent lease execution. For an opted-in group the agent's local
+    existing authenticated control path: per lease the production capability;
+    per scheduled execution its plan and one source authorization per range. The
+    agent acknowledges the installed lease, and core shows each agent's remaining
+    horizon. `CompiledSweepAssignmentV1`, assignment records and host-key
+    execution grants are not used: no check on the record path consults them, and
+    they need three signatures and two stored artifacts per (execution, range).
+    They stay in the backlog.
+  - [ ] M2.0e Agent lease execution. For a leased group the agent's local
     ticker is replaced by the lease: it runs each slot at its time from its own
     clock whether or not it is connected, and refuses a lease slot when its wall
     clock reads earlier than the lease's signed issuance time (the last
@@ -100,8 +184,32 @@
   come from the lease slot (M2.0), not from the agent; ICMP sent/received
   counts, per-port errors and the hostname come from the scanner, since the
   legacy summary drops them; batches are grouped deterministically per host.
-- [ ] M2.2 Per-agent opt-in. An agent opted in has its sweep groups scheduled by
-  core through leases (M2.0) and emits their results only on the edge path.
+- [ ] M2.2 Per-agent opt-in. An agent opted in leases a sweep group only when
+  that group is enabled, has non-empty `static_targets`, no `target_query`, and
+  every static target fits one `TargetRangeV1`: core schedules it (M2.0) and
+  its results are emitted only on the edge path. A group with a `target_query`,
+  whether or not it also has static targets, stays entirely on the agent's
+  local ticker and the legacy path. One execution is never split across the
+  two paths. The M2.0a fence bumps every active assignment when the partition,
+  `agent_ids`, `static_targets`, `target_query`, ports, sweep modes, overrides,
+  or the profile changes. When `agent_ids` becomes a non-empty list, the fence
+  revokes every active assignment whose agent is not in that list; an empty
+  `agent_ids` selects every agent in the partition and revokes nobody. A change
+  of `target_query` or `static_targets` by itself only bumps; it does not
+  revoke. The scheduler re-plans a lease's unrun slots when that bump leaves
+  the assignment active and the group eligible, re-signs that lease's
+  production capability and those slots' source authorizations at the new
+  `authority_epoch` (the plan header does not carry the epoch), with the new
+  plan digest when the plan changed, and re-delivers them, so a ports change
+  re-plans onto the new ports. Unrun slots are dropped, not re-planned or
+  re-signed, in two cases: the scheduler revokes an ineligible group (it is
+  disabled, it gained a `target_query`, lost its static targets, or has a
+  static target the plan cannot represent), which issues no further leases and
+  returns the agent to its local ticker, and the fence revokes an agent that
+  is no longer selected. Becoming eligible again after that scheduler revoke,
+  including when the group is re-enabled, is a new lease for that (group,
+  agent), reissued under a new epoch through the existing reissue path, not a
+  re-plan of the old slots.
   Agents not opted in keep their local ticker and the legacy
   `GatewayServiceStatus{source: "results"}` path unchanged, and one execution is
   never emitted on both paths.
