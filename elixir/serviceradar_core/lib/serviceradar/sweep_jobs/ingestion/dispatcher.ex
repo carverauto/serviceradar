@@ -220,22 +220,26 @@ defmodule ServiceRadar.SweepJobs.Ingestion.Dispatcher do
 
       scope_pid ->
         scope_monitor_ref = Process.monitor(scope_pid)
-        {ref, pids} = :pg.monitor(state.scope, state.group)
-        worker_refs = Map.new(pids, fn pid -> {Process.monitor(pid), pid} end)
 
-        %{
-          state
-          | monitor_ref: ref,
-            scope_monitor_ref: scope_monitor_ref,
-            workers: Map.new(pids, &{&1, 0}),
-            worker_refs: worker_refs
-        }
+        try do
+          {ref, pids} = :pg.monitor(state.scope, state.group)
+          worker_refs = Map.new(pids, fn pid -> {Process.monitor(pid), pid} end)
+
+          %{
+            state
+            | monitor_ref: ref,
+              scope_monitor_ref: scope_monitor_ref,
+              workers: Map.new(pids, &{&1, 0}),
+              worker_refs: worker_refs
+          }
+        catch
+          :exit, reason ->
+            Process.demonitor(scope_monitor_ref, [:flush])
+            Logger.debug("Sweep ingestion scope unavailable; retrying: #{inspect(reason)}")
+            Process.send_after(self(), :monitor_members, @monitor_retry_ms)
+            state
+        end
     end
-  catch
-    :exit, reason ->
-      Logger.debug("Sweep ingestion scope unavailable; retrying: #{inspect(reason)}")
-      Process.send_after(self(), :monitor_members, @monitor_retry_ms)
-      state
   end
 
   defp demonitor_worker(state, pid) do
