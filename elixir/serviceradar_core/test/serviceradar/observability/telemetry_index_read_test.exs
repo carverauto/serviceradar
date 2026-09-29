@@ -105,13 +105,12 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
            ) == {:starrocks, "otel_trace_summaries"}
   end
 
-  test "keeps interface, disk hourly, and sysmon on CNPG when the warehouse is enabled" do
+  test "keeps interface and disk hourly on CNPG when the warehouse is enabled" do
     with_starrocks(true)
 
     for resource <- [
           ServiceRadar.Observability.TimeseriesMetricInterfaceHourly,
-          TimeseriesMetricDiskHourly,
-          ServiceRadar.Observability.CpuMetric
+          TimeseriesMetricDiskHourly
         ] do
       assert TelemetryIndexRead.mode(resource, index_read_opts(resource)) == :cnpg
     end
