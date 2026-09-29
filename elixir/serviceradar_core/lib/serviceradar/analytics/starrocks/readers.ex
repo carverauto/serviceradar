@@ -64,6 +64,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       e when e in ~w(mtr_traces mtr_hops mtr_hop_stats) ->
         :mtr
 
+      e when e in ~w(bmp_events bmp_event bmp_routing_events) ->
+        :bmp
+
       e when e in ~w(otel_metrics metrics otel_metric_points metric_points) ->
         :otel_metrics
 
@@ -110,6 +113,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # So do spans (`OtelTraces.store/2`), and their summaries are derived in the
   # same backend (`RefreshTraceSummariesWorker`).
   def mode_for(:otel_traces), do: if(enabled?(), do: "starrocks")
+
+  # BMP routing events follow the same rule: AnalyticsSignals writes them to
+  # the warehouse only when it is enabled (`store_routing_events/1`).
+  def mode_for(:bmp), do: if(enabled?(), do: "starrocks")
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do

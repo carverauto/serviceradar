@@ -667,6 +667,12 @@
     {"id": "traces.summaries.count", "query": "in:otel_trace_summaries {window_main} stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
     {"id": "traces.summaries.count.errors", "query": "in:otel_trace_summaries {window_main} error_count:>0 stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
     {"id": "traces.summaries.count.service", "query": "in:otel_trace_summaries {window_main} service_name:svc-beta stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
-    {"id": "traces.summaries.stats.conditions", "query": "in:otel_trace_summaries {window_main} stats:\"count() as total, sum(if(status_code!=0,1,0)) as failed, sum(if(duration_ms>=200,1,0)) as slow\""}
+    {"id": "traces.summaries.stats.conditions", "query": "in:otel_trace_summaries {window_main} stats:\"count() as total, sum(if(status_code!=0,1,0)) as failed, sum(if(duration_ms>=200,1,0)) as slow\""},
+    {"id": "bmp.events.recent", "query": "in:bmp_events {window_main} limit:100", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/bmp_live/index.ex", "elixir/web-ng/lib/serviceradar_web_ng_web/srql/page.ex"]},
+    {"id": "bmp.events.by_router_ip", "query": "in:bmp_events {window_main} router_ip:192.0.2.1 sort:time:desc limit:50"},
+    {"id": "bmp.events.route_updates", "query": "in:bmp_events {window_main} event_type:route_update sort:time:desc limit:50"},
+    {"id": "bmp.events.by_severity", "query": "in:bmp_events {window_main} severity_id:>=3 sort:time:desc"},
+    {"id": "bmp.events.by_peer_asn", "query": "in:bmp_events {window_main} peer_asn:64512 sort:time:desc"},
+    {"id": "bmp.events.negated_router", "query": "in:bmp_events {window_main} !router_ip:192.0.2.1 sort:time:desc limit:50"}
   ]
 }

@@ -14,6 +14,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :otel_metrics
           | :otel_metric_points
           | :otel_traces
+          | :bmp_routing_events
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -36,6 +37,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
                      stddev_us jitter_us jitter_worst_us jitter_interarrival_us
                      unreachable_code reply_time_exceeded reply_unreachable reply_synack
                      reply_rst)a
+
+  # priv/starrocks/0024: every column of platform.bmp_routing_events under the
+  # same name, as built by AnalyticsSignals.build_routing_event_row/1. `id` is
+  # the stable event identity (`Ecto.UUID.dump!`), so a redelivery upserts the
+  # same row. `metadata` is a JSON document; `message` and `raw_data` are
+  # truncated UTF-8-safely to their column widths so no row is filtered out of
+  # a Stream Load batch.
+  @bmp_message_limit 65_533
+  @bmp_raw_data_limit 65_533
+  @bmp_event_type_limit 256
+  @bmp_router_id_limit 256
+  @bmp_router_ip_limit 64
+  @bmp_peer_ip_limit 64
+  @bmp_prefix_limit 128
 
   # priv/starrocks/0021: every column of platform.otel_metrics /
   # platform.otel_metric_points under the same name, as built by the
@@ -280,6 +295,39 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "timestamp" => datetime(value(row, :timestamp)),
       "created_at" => created_at(row)
     })
+  end
+
+  defp encode_row(:bmp_routing_events, row) do
+    %{
+      "id" => uuid_text(value(row, :id)),
+      "time" => datetime(value(row, :time)),
+      "event_type" => bmp_bounded(value(row, :event_type), @bmp_event_type_limit),
+      "severity_id" => value(row, :severity_id),
+      "router_id" => bmp_bounded(value(row, :router_id), @bmp_router_id_limit),
+      "router_ip" => bmp_bounded(value(row, :router_ip), @bmp_router_ip_limit),
+      "peer_ip" => bmp_bounded(value(row, :peer_ip), @bmp_peer_ip_limit),
+      "peer_asn" => value(row, :peer_asn),
+      "local_asn" => value(row, :local_asn),
+      "prefix" => bmp_bounded(value(row, :prefix), @bmp_prefix_limit),
+      "message" => bmp_bounded(value(row, :message), @bmp_message_limit),
+      "metadata" => json_document(value(row, :metadata)),
+      "raw_data" => bmp_bounded(value(row, :raw_data), @bmp_raw_data_limit),
+      "created_at" => created_at(row)
+    }
+  end
+
+  # A wider value would make StarRocks FILTER the row out of the Stream Load
+  # batch; truncate UTF-8-safely instead so the event still lands.
+  defp bmp_bounded(nil, _max), do: nil
+
+  defp bmp_bounded(value, max) do
+    value = stringify(value)
+
+    if is_binary(value) and byte_size(value) > max do
+      value |> binary_part(0, max) |> trim_incomplete_utf8()
+    else
+      value
+    end
   end
 
   defp encode_row(:mtr_traces, row) do

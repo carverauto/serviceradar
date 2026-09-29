@@ -788,6 +788,7 @@ async fn seed(
     let points = fixture::otel::points(anchor);
     let spans = fixture::traces::spans(anchor);
     let trace_summaries = fixture::traces::summaries(&spans);
+    let bmp = fixture::bmp::rows(anchor);
 
     let cnpg_statements = [
         fixture::metric_inserts(&metrics, Backend::Cnpg, "platform"),
@@ -800,6 +801,7 @@ async fn seed(
         fixture::otel::point_inserts(&points, Backend::Cnpg, "platform"),
         fixture::traces::span_inserts(&spans, Backend::Cnpg, "platform"),
         fixture::traces::summary_inserts(&trace_summaries, Backend::Cnpg, "platform"),
+        fixture::bmp::inserts(&bmp, Backend::Cnpg, "platform"),
     ];
     for statement in cnpg_statements.iter().flatten() {
         cnpg.batch_execute(statement)
@@ -825,6 +827,7 @@ async fn seed(
         fixture::otel::point_inserts(&points, Backend::StarRocks, database),
         fixture::traces::span_inserts(&spans, Backend::StarRocks, database),
         fixture::traces::summary_inserts(&trace_summaries, Backend::StarRocks, database),
+        fixture::bmp::inserts(&bmp, Backend::StarRocks, database),
     ];
     for statement in sr_statements.iter().flatten() {
         sr_exec(sr, statement).await?;
@@ -857,6 +860,7 @@ async fn seed(
             "otel_trace_summaries",
             trace_summaries.len(),
         ),
+        ("bmp_routing_events", "bmp_routing_events", bmp.len()),
     ] {
         let sr_count: Option<i64> = sr
             .query_first(format!("SELECT COUNT(*) FROM {database}.{table}"))

@@ -137,7 +137,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
       {ash_ocsf_rows, bulk_ocsf_rows} = Enum.split_with(all_ocsf_rows, &ash_recorded_row?/1)
 
-      _ = insert_rows(@routing_table, routing_rows)
+      routing_store = store_routing_events(routing_rows)
       bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
       {persisted_ocsf_rows, recorded_ocsf_events} = record_ocsf_events(ash_ocsf_rows)
       warehouse = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
@@ -162,7 +162,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
       CausalPubSub.broadcast_ingest(%{count: ocsf_count})
 
-      with {:ok, _} <- warehouse,
+      with {:ok, _} <- routing_store,
+           {:ok, _} <- warehouse,
            :ok <- evaluation do
         {:ok, length(parsed_rows)}
       end
@@ -243,6 +244,25 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     {count, _} = BulkInsert.insert_all(table, rows, on_conflict: :nothing, returning: false)
 
     count
+  end
+
+  # BMP routing events are append-only telemetry: with the warehouse enabled
+  # they are written to `bmp_routing_events` there and nothing to CNPG; with it
+  # disabled they are written to CNPG, as before. A failed warehouse load fails
+  # the batch, JetStream redelivers, and the primary-key table upserts the same
+  # stable event ids. Never both backends.
+  defp store_routing_events([]), do: {:ok, 0}
+
+  defp store_routing_events(routing_rows) do
+    if Destination.enabled?() do
+      case Destination.persist_warehouse(:bmp_routing_events, routing_rows) do
+        {:ok, %{loaded: loaded}} -> {:ok, loaded}
+        {:ok, _} -> {:ok, length(routing_rows)}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:ok, insert_rows(@routing_table, routing_rows)}
+    end
   end
 
   # Returns `{persisted_rows, transition_rows}`. The warehouse copy has to mirror

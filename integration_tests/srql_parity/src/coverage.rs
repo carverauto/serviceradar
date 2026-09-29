@@ -61,6 +61,7 @@ pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
         "otel_metric_points" | "metric_points" => "otel_metric_points",
         "otel_traces" | "traces" | "trace_spans" => "traces",
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => "otel_trace_summaries",
+        "bmp_events" | "bmp_event" | "bmp_routing_events" => "bmp_events",
         _ => return None,
     })
 }
@@ -160,6 +161,8 @@ mod tests {
         assert_eq!(warehouse_entity("snmp"), Some("snmp_metrics"));
         assert_eq!(warehouse_entity("mtr_hop_stats"), Some("mtr_hops"));
         assert_eq!(warehouse_entity("pdns"), Some("dns_activity"));
+        assert_eq!(warehouse_entity("bmp_event"), Some("bmp_events"));
+        assert_eq!(warehouse_entity("bmp_routing_events"), Some("bmp_events"));
         assert_eq!(warehouse_entity("\"Flows\""), Some("flows"));
         assert_eq!(warehouse_entity("devices"), None);
         assert_eq!(warehouse_entity("cpu_metrics"), Some("cpu_metrics"));

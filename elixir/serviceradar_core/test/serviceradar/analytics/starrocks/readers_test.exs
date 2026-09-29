@@ -119,6 +119,38 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
+  # BMP routing events are written to the warehouse only when it is enabled,
+  # so they follow the MTR rule, with every entity spelling.
+  test "BMP SRQL reads StarRocks with the warehouse enabled and CNPG without it" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+    spellings = ["bmp_events", "bmp_event", "bmp_routing_events", "BMP_EVENTS"]
+
+    try do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
+
+      for entity <- spellings do
+        assert Readers.mode_for(entity) == "starrocks"
+        assert Readers.backend(entity) == :starrocks
+      end
+
+      query = "in:bmp_events router_ip:192.0.2.10 time:last_1h"
+      assert query |> Readers.entity_for_query() |> Readers.mode_for() == "starrocks"
+
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+
+      for entity <- spellings do
+        assert Readers.mode_for(entity) == nil
+        assert Readers.backend(entity) == :cnpg
+      end
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   # OTel metric samples and points, and spans with the summaries derived from
   # them, are written to the warehouse only when it is enabled, so they follow
   # the MTR rule, with every entity spelling.
@@ -256,7 +288,9 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
                "#{spelling} did not route to the warehouse"
       end
 
-      # BMP events share the events permission but not the warehouse table.
+      # BMP events have their own warehouse table and route on `enabled?/0`
+      # like MTR and OTel, not on `cutover_datasets`, so a bare events cutover
+      # does not divert them.
       for spelling <- ~w(bmp_events bmp_event bmp_routing_events) do
         assert Readers.mode_for(spelling) == nil
         assert Readers.backend(spelling) == :cnpg

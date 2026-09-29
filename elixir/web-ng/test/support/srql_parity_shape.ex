@@ -44,7 +44,8 @@ defmodule ServiceRadarWebNG.SRQLParityShape do
     "otel_metrics" => ~w(otel_metrics metrics),
     "otel_metric_points" => ~w(otel_metric_points metric_points),
     "traces" => ~w(otel_traces traces trace_spans),
-    "otel_trace_summaries" => ~w(otel_trace_summaries trace_summaries traces_summaries)
+    "otel_trace_summaries" => ~w(otel_trace_summaries trace_summaries traces_summaries),
+    "bmp_events" => ~w(bmp_events bmp_event bmp_routing_events)
   }
   @spellings for {canonical, spellings} <- @canonical, spelling <- spellings, into: %{}, do: {spelling, canonical}
 

@@ -42,7 +42,7 @@ The BMP collector:
 
 Point a router's BMP station configuration at the collector's TCP 11019 endpoint to stream routing updates.
 
-What can be verified from the code today: BMP updates land in the `ARANCINI_CAUSAL` JetStream stream under `arancini.updates.>`. Whether and how those updates are joined into the `bgp_routing_info` table is not confirmed here — the BGP dashboard and `bgp_routing_info` queries described below are populated from NetFlow/IPFIX exports.
+What can be verified from the code today: BMP updates land in the `ARANCINI_CAUSAL` JetStream stream under `arancini.updates.>`. Routing events (`bmp_routing_events`, queried as `in:bmp_events`) are stored in the StarRocks warehouse when it is enabled and in CNPG when it is not. The warehouse table and retention contract is in `k8s/starrocks/README.md`. Whether and how those updates are joined into the `bgp_routing_info` table is not confirmed here — the BGP dashboard and `bgp_routing_info` queries described below are populated from NetFlow/IPFIX exports.
 
 ## BGP Data Model
 
