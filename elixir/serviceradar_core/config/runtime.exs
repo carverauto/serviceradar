@@ -343,6 +343,16 @@ config :serviceradar_core,
   geolite_mmdb_dir: geolite_dir,
   egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 
+# Core's edge-record issuer key (sweep schedule leases), as in serviceradar_core_elx's
+# runtime.exs. Optional: without it core issues no lease authority.
+case System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE") do
+  path when is_binary(path) and path != "" ->
+    config :serviceradar_core, edge_issuer_key: ServiceRadar.Edge.IssuerKey.load_file!(path)
+
+  _ ->
+    :ok
+end
+
 if is_map(remote_access_ssh_certificate_policy) and
      map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,

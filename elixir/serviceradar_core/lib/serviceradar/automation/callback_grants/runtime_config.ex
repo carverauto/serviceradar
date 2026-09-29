@@ -171,7 +171,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
-  defp read_secure_file(path, max_bytes) do
+  @doc """
+  Reads a key file only when it is a regular file of 1..`max_bytes` bytes, owned by root or
+  this process's user, with mode 0400, 0440, 0600 or 0640. Shared by every core-only key mount.
+  """
+  @spec read_secure_file(String.t(), pos_integer()) ::
+          {:ok, binary()} | {:error, :invalid_secure_key_file}
+  def read_secure_file(path, max_bytes) do
     with {:ok, stat} <- File.stat(path),
          true <- stat.type == :regular,
          true <- stat.size in 1..max_bytes,
