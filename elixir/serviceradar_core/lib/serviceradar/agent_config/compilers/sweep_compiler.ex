@@ -269,6 +269,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   @doc """
+  Whether a group's effective settings (profile as base, group overrides on top) enable
+  banner grabbing, which the edge record format cannot carry yet.
+  """
+  @spec banner_grab_enabled?(SweepGroup.t(), SweepProfile.t() | nil) :: boolean()
+  def banner_grab_enabled?(%SweepGroup{} = group, profile) do
+    compile_banner_grab(profile, group)["enabled"] == true
+  end
+
+  @doc """
   Declared targets of a group: static CIDRs/IPs plus SRQL-resolved device targets.
 
   This is the target set `compile/3` would deliver for the group, projected to

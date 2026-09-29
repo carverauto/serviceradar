@@ -110,13 +110,25 @@
       cross-language golden vectors under `proto/edge/v1/testdata`.
       `check_set_sha256` and `availability_policy_id` follow "Plan inputs" in
       `design.md`.
-    - [ ] M2.0b2 Scheduled executions. Pre-minted executions are
+    - [x] M2.0b2 Scheduled executions. Pre-minted executions are
       `sweep_execution_slots` rows, separate from `sweep_group_executions`
       (migration `20260929090000`). The row, why it is not a
       `sweep_group_executions` row, the drop-not-delete rule, and the
       scheduled-only uniqueness of
       `(producer_assignment_id, slot_start)` are Schedule lease in `design.md`.
-    - [ ] M2.0b3 Lease scheduler. For each leased assignment core pre-mints the
+      Proven by BuildBuddy invocation 4ab54547-1fa0-4cc5-8208-8e03c470ba74.
+    - [ ] M2.0b3a Lease settings, eligibility and schedule. Migration
+      `20260929100000` adds `sweep_lease_settings` (global, partition and agent
+      rows; a NULL field inherits; `max_horizon_seconds` only on the global row).
+      `LeaseSettings.resolve/2` returns whether leasing is on (off unless an
+      operator enabled it) and the horizon (default 7 days, capped at the
+      global maximum, default 30 days). `LeaseEligibility.evaluate/2` returns
+      the plan inputs or the reason the group stays on the legacy path.
+      `LeaseSchedule.slots/3` lists the slots of a stretch of time for an
+      interval (multiples of the interval, at least 5 minutes) or a cron
+      expression. Pure functions and one settings table; no slot is written yet.
+    - [ ] M2.0b3 Lease scheduler (M2.0b3b is the scheduler pass that uses the
+      three modules above). For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
       as scheduled before it runs. The horizon has a per-partition default, a
       per-agent override and an administrator maximum; a week or more of
