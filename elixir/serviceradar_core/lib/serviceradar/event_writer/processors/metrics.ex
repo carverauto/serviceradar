@@ -10,7 +10,6 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.EventWriter.PluginDeviceAttribution
   alias ServiceRadar.EventWriter.Processors.Telemetry
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Identity.DeviceLookup
@@ -27,7 +26,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     SignalTelemetry.emit(:metrics, :received, length(messages))
 
     {rows, rejected} = decode_batch(messages)
-    rows = attribute_device_ids(rows)
+    rows = backfill_device_ids(rows)
     SignalTelemetry.emit(:metrics, :rejected, rejected)
 
     # Runs AFTER device_id backfill, because a fact is keyed by the canonical
@@ -64,10 +63,6 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   schema_version are emitted ONCE per `{source, schema_version}` group for the
   whole batch (replacing the old per-message pair of `:telemetry.execute` calls).
   Decode failures are still emitted per message from `parse_message/1`.
-
-  Rows from a wasm plugin that name a plugin-scoped device carry a transient
-  `:plugin_assignment_id`; pass them through `attribute_device_ids/1` before
-  persisting.
   """
   @spec decode_batch([map()]) :: {[map()], non_neg_integer()}
   def decode_batch(messages) do
@@ -77,11 +72,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   end
 
   @impl true
-  def parse_message(message), do: decode_message(message, [])
-
-  # decode_batch/1 marks plugin-scoped device references for
-  # attribute_device_ids/1; parse_message/1 keeps returning insert-ready rows.
-  defp decode_message(%{data: data, metadata: metadata}, decode_opts) do
+  def parse_message(%{data: data, metadata: metadata}) do
     # Per-message decode WITHOUT per-message SUCCESS telemetry. Firing two
     # :telemetry.execute calls for every successfully decoded message dominated
     # EventWriter idle reductions (BatchProcessor_metrics/netflow ~1.05M reds/3s);
@@ -91,7 +82,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     # their per-failure source/reason tags.
     started_at = System.monotonic_time()
 
-    case MetricEnvelope.decode_rows_count(data, decode_opts) do
+    case MetricEnvelope.decode_rows_count(data) do
       {:ok, rows, _count} ->
         rows
 
@@ -119,21 +110,6 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   """
   @spec numeric_row?(map()) :: boolean()
   def numeric_row?(row), do: Map.get(row[:metadata] || %{}, "non_numeric") != "true"
-
-  @doc """
-  Resolves canonical device ids on decoded rows before they are persisted.
-
-  A plugin-scoped `device_id` (`<source>:<...>`) from a wasm plugin is mapped to
-  the canonical uid through `PluginDeviceAttribution`, and is otherwise kept as
-  emitted -- it is never replaced by an IP match. Rows with no `device_id` are
-  then backfilled by target IP. `sr:` uids pass through untouched.
-  """
-  @spec attribute_device_ids([map()]) :: [map()]
-  def attribute_device_ids(rows) do
-    rows
-    |> PluginDeviceAttribution.attribute_metric_rows()
-    |> backfill_device_ids()
-  end
 
   defp backfill_device_ids(rows) do
     ips =
@@ -187,7 +163,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     |> Enum.reduce({[], 0, %{}}, fn message, {timeseries, rejected, stats} ->
       started_at = System.monotonic_time()
 
-      case decode_message(message, plugin_producer: true) do
+      case parse_message(message) do
         rows when is_list(rows) ->
           duration = System.monotonic_time() - started_at
           stats = accumulate_decode_stats(stats, message, rows, length(rows), duration)

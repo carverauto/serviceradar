@@ -10,8 +10,6 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
   alias Serviceradar.Metric.V1.MetricResource
   alias ServiceRadarAgentGateway.PluginMetricsPublisher
 
-  @plugin_assignment_id "7c1e4b52-9a3d-4f86-b2e1-5d8a6c3f9e17"
-
   setup do
     previous_config = Application.get_env(:serviceradar_agent_gateway, :plugin_metrics_publisher)
 
@@ -77,10 +75,6 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
     assert decoded.resource.service_type == "wasm-plugin"
     assert decoded.ingest_identity.source == "wasm-plugin"
     assert decoded.ingest_identity.producer_kind == "wasm-plugin"
-    # The emitting assignment comes from the host-set status source, never from
-    # the guest-built batch (whose producer_id is "spoofed-producer").
-    assert decoded.ingest_identity.producer_id == @plugin_assignment_id
-    assert decoded.ingest_identity.attested_by == "gateway-1"
   end
 
   test "skips non-metric native add-on telemetry records" do
@@ -184,7 +178,7 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
     %{
       service_name: "proxmox-inventory",
       service_type: "wasm-plugin",
-      source: "plugin:" <> @plugin_assignment_id,
+      source: "plugin:proxmox-inventory",
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       partition: "default",

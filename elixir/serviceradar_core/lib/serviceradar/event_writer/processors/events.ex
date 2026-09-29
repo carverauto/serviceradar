@@ -11,7 +11,6 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.EventWriter.PluginDeviceAttribution
   alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Observability.StatefulEvaluationLedger
 
@@ -78,23 +77,13 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
     nil
   end
 
-  @doc """
-  Parses a message batch into insert-ready rows.
+  # Private functions
 
-  A plugin event whose `device.uid` is the plugin's own device reference
-  (`<source>:<...>`) gets the canonical device uid there, resolved once for the
-  whole batch by `PluginDeviceAttribution`; an unresolved reference is stored as
-  emitted.
-  """
-  @spec build_rows([map()]) :: [map()]
-  def build_rows(messages) do
+  defp build_rows(messages) do
     messages
     |> Enum.map(&parse_message/1)
     |> Enum.reject(&is_nil/1)
-    |> PluginDeviceAttribution.attribute_event_rows()
   end
-
-  # Private functions
 
   defp insert_event_rows(rows) do
     # DB connection's search_path determines the schema

@@ -80,7 +80,7 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
         batch =
           MetricEnvelopeAttestation.attest(batch, status, ingress_context,
             source: attested_source(status),
-            producer_id: attested_producer_id(status),
+            producer_id: status[:service_name],
             producer_kind: attested_producer_kind(status)
           )
 
@@ -222,21 +222,6 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
     do: "wasm-plugin"
 
   defp attested_source(_status), do: "plugin"
-
-  # A wasm plugin's metric batch is guest-built, so nothing inside it can name
-  # the plugin that emitted it. The agent host sets the status source to
-  # `plugin:<assignment id>` from its own assignment config, and this is the
-  # only copy of that identity that reaches core: the batch's producer_id is
-  # overwritten with it, so core can scope device attribution to the emitting
-  # plugin package. Native add-ons keep the service name.
-  defp attested_producer_id(%{source: "plugin:" <> assignment_id} = status) do
-    case String.trim(assignment_id) do
-      "" -> status[:service_name]
-      assignment_id -> assignment_id
-    end
-  end
-
-  defp attested_producer_id(status), do: status[:service_name]
 
   defp attested_producer_kind(%{service_type: service_type}) when service_type in ["native-addon", :native_addon],
     do: "native-addon"
