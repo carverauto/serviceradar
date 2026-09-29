@@ -22,8 +22,9 @@ smaller, not persisted.
   production; persist one small row per (group, target); keep the compiled
   document ephemeral.
 - Non-Goals: persisting compiled sweep config documents (works against
-  `refactor-sweep-config-shared-targets`); refreshing declared targets on
-  device-inventory drift; changing the observed side or the availability
+  `refactor-sweep-config-shared-targets`); a periodic refresh worker
+  (inventory drift is handled by recording at compile time instead, see the
+  follow-up decision below); changing the observed side or the availability
   attribution columns; any Go agent change.
 
 ## Decisions
@@ -85,17 +86,37 @@ smaller, not persisted.
 
 ## Risks / Trade-offs
 
-- Declared device targets go stale between group edits (inventory drift
-  changes the SRQL result set; nothing rewrites the rows until the group's
-  targeting changes again). Accepted: the alternative is a periodic
-  fleet-wide SRQL refresh worker, which is real scope, and today's baseline
-  is that declared rows NEVER exist. The compiler stays the freshness
-  authority for what agents actually receive.
-- A refresh can fail (DB hiccup, SRQL error). An SRQL resolution
-  failure degrades exactly as it does in `compile/3`: static targets still
-  persist, the failed device resolution is logged per group. A persistence
-  failure is logged and leaves the previous snapshot in place (upsert-then-
-  prune ordering keeps the old set visible rather than an empty one).
+- Inventory drift. As first shipped, declared device targets went stale
+  between group edits: a device added to or removed from inventory changes
+  the SRQL result set, and nothing rewrote the rows until the group's
+  targeting changed again. The follow-up below records at compile time, so
+  the rows follow the targets agents actually receive.
+- A refresh can fail (DB hiccup, SRQL error). As first shipped, an SRQL
+  resolution failure degraded as in `compile/3` (no device targets), and the
+  refresh then pruned the group's SRQL rows. The follow-up below keeps them
+  instead. A persistence failure is logged and rolls back, leaving the
+  previous snapshot in place.
+
+## Follow-up: record at compile time; keep rows on query failure
+
+- Decision: `SweepCompiler.compile/3` records each group's declared targets
+  from what it just compiled for the agent
+  (`DeclaredTargets.record_compiled/2`), so query-derived rows follow
+  inventory changes without a periodic worker and match what agents
+  received. The notifier still records immediately on targeting edits.
+- Decision: a group whose target query failed, raised or was only partly
+  read is not written. `SweepCompiler.declared_targets/2` returns
+  `device: :unresolved` for it and `compile_groups_with_resolution/3` reports
+  it, so a transient SRQL error keeps the previous declaration instead of
+  pruning it to "declares no devices". The agent still receives whatever
+  the partial read produced.
+- Decision: both paths share one writer: one transaction that takes a
+  per-group `pg_try_advisory_xact_lock` (a writer finding it taken skips,
+  since another writer is recording the same group), skips the write when
+  the stored rows already equal the set (so `declared_at` moves only when
+  the declaration changes), then upserts and prunes. The compile path also
+  keeps a digest of the last recorded set under the `:sweep` config type, so
+  an unchanged group costs no database round trip.
 - Legacy `agent_ids` rows written before normalization could carry
   duplicates; the declared side keeps a cheap GROUP BY dedup so one
   duplicate agent id cannot fan out declared rows.
