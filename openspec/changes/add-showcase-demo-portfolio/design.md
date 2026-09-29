@@ -153,6 +153,10 @@ DIRE and CNPG through pointless churn. Instead:
 - Live position, heading, battery, link quality, belt speed, pressure and the
   like are metrics through `emit_telemetry`, i.e. JetStream -> EventWriter,
   exactly as the hard rules require. Nothing in a demo writes to a database.
+  The follow-on `add-spatial-observation-ingestion` proposal replaces independently
+  sampled position components with one atomic spatial observation on that same
+  telemetry path; battery, link quality and other numeric measurements remain
+  metrics. Its negotiated contract must land before demos depend on atomic positions.
 - Faults become OCSF events in the result `events[]`, which reach the stateful
   alert engine; each pack ships event-signal alert rules.
 - Wi-Fi uses the existing `serviceradar.wifi_map.batch.v1` contract for sites,
@@ -501,6 +505,30 @@ production adapters through the host proxy), the pattern `faker` uses for the
 Armis API. It is more faithful but needs a stateful service per domain; it is
 the natural next step for any pack a customer is about to buy, and the `Source`
 boundary makes it a drop-in.
+
+
+### D18. Network-scale acceptance ownership
+
+`prove-million-device-topology` owns the network simulator and complete production
+pipeline/hardware-browser proof. It remains required for #4774; the showcase
+portfolio supplies reusable simkit and plugin topology-link foundations (D10).
+
+### D19. Shared mapping ownership
+
+`add-shared-spatial-resources` owns resource descriptors, reusable tile transport,
+provider adapters and dashboard location sharing. Existing plan-view foundations
+and #4847 stay in this portfolio. Topology location support stays in #4774.
+
+### D20. Separate platform workstreams
+
+- `add-spatial-observation-ingestion`: atomic wire contract and SDK/host admission.
+- `add-spatial-history-projection`: JetStream history, current projection and reads.
+- `add-camera-recording-storage`: shared ingest and verified segment publication.
+- `add-edge-recording-archive`: offline JetStream buffering and continuous S3 drain.
+- `add-recording-playback-lifecycle`: authorized replay, retention, holds and exports.
+
+Each has its own issue, requirements and acceptance. None blocks #4774. SCRITH
+ontology/causal implementation remains excluded.
 
 ## Risks / Trade-offs
 

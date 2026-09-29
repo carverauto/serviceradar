@@ -216,6 +216,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     update_available_devices(results, device_map, timestamp)
     result = update_unavailable_devices(results, device_map, timestamp)
 
+    ServiceRadar.Inventory.DevicePubSub.broadcast_invalidated(device_uids)
     Fence.observe_many(pins, :sweep_processor)
 
     result

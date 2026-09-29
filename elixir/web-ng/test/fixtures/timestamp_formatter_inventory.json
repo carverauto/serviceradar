@@ -136,12 +136,60 @@
     "reason": null
   },
   {
+    "path": "assets/js/lib/god_view/WorldMapRenderer.js",
+    "matcher": "js_to_iso_string",
+    "occurrence": 1,
+    "fingerprint": "bf78ec44b056594d16f3d1f6dfad85e82931e82c25076fef567f3a91ca6d5910",
+    "classification": "canonical_machine",
+    "reason": "UTC timestamp in the topology transport contract."
+  },
+  {
+    "path": "assets/js/lib/god_view/WorldMapRenderer.js",
+    "matcher": "js_to_locale_time",
+    "occurrence": 1,
+    "fingerprint": "f66e7658dcb34f0a3fc7b126a08a3d14f73212bf948b97464600f615b2e09f37",
+    "classification": "infrastructure",
+    "reason": "Numeric device, aggregate, and relation counts; not timestamps."
+  },
+  {
+    "path": "assets/js/lib/god_view/WorldMapRenderer.js",
+    "matcher": "js_to_locale_time",
+    "occurrence": 2,
+    "fingerprint": "a6abd2196ea0bf055327a824e2c213f0ffda2fdf73628f24a62f8d2f104928fb",
+    "classification": "infrastructure",
+    "reason": "Numeric device, aggregate, and relation counts; not timestamps."
+  },
+  {
+    "path": "assets/js/lib/god_view/WorldMapRenderer.js",
+    "matcher": "js_to_locale_time",
+    "occurrence": 3,
+    "fingerprint": "1ccc3d3b3bf6b1ae99d9db173c4625ede0885db27b5652f2560977d37a9f6bde",
+    "classification": "infrastructure",
+    "reason": "Numeric device, aggregate, and relation counts; not timestamps."
+  },
+  {
+    "path": "assets/js/lib/god_view/WorldMapRenderer.js",
+    "matcher": "js_to_locale_time",
+    "occurrence": 4,
+    "fingerprint": "d09d3731494e6de15e929ee352ba3fc0d3710bdf66878da2b2031744d6c8496d",
+    "classification": "infrastructure",
+    "reason": "Numeric device, aggregate, and relation counts; not timestamps."
+  },
+  {
     "path": "assets/js/lib/god_view/lifecycle_stream_snapshot_methods.js",
     "matcher": "js_to_iso_string",
     "occurrence": 1,
     "fingerprint": "f458c4099211b6bf9ea0b4dc0818a45687ade08ef6b3367577b464c868f00b39",
     "classification": "canonical_machine",
     "reason": null
+  },
+  {
+    "path": "assets/js/lib/god_view/world_tile_layer.js",
+    "matcher": "js_to_locale_time",
+    "occurrence": 1,
+    "fingerprint": "02ad58c65165a7369a03f5cc6e8e4405aa0ca80686f959d812c6bdc8a9a91a54",
+    "classification": "infrastructure",
+    "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },
   {
     "path": "assets/js/utils/timezone_options.js",
@@ -840,12 +888,12 @@
     "reason": null
   },
   {
-    "path": "lib/serviceradar_web_ng_web/controllers/topology_snapshot_controller.ex",
+    "path": "lib/serviceradar_web_ng_web/controllers/topology_tile_controller.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "c21e611db1ff90fc4773017a001b7f2d60fd8e7644a96f9e09f0d57d021ea179",
+    "fingerprint": "c8651b8e21d5a79fc708d13fd2127580f895321fededa1e0d1c334719d44e6ef",
     "classification": "canonical_machine",
-    "reason": null
+    "reason": "UTC timestamp in the topology transport contract."
   },
   {
     "path": "lib/serviceradar_web_ng_web/dashboard/plugins/timeseries/points.ex",

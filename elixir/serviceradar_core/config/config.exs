@@ -49,6 +49,7 @@ config :serviceradar_core, Oban,
     integrations: 5,
     nats_accounts: 3,
     maintenance: 2,
+    topology_world: 1,
     monitoring: 5,
     ansible_pulse: 5,
     ansible_catalog: 3,
@@ -363,6 +364,7 @@ if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
 
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.PrefixTags.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.TopologyAtlas.Native, skip_compilation?: true
 
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
 end

@@ -6,7 +6,7 @@ The current God-View client imports ELK but normally bypasses it. A custom radia
 PR #3928 and PR #3937 repaired important topology semantics, including lost attachment connectivity, redundant inferred-edge suppression, and transitive satellite placement. They did not establish a coherent geometry contract. Continuing to tune the custom radial, spiral, and crossing heuristics would preserve the same split authority that produced the regressions.
 
 ## What Changes
-- Make one compound ELK layout the production geometry authority for every node, group, and rendered relation in the bounded visible graph.
+- Make one compound ELK layout the geometry authority for every node, group, and rendered relation in an explicitly entered bounded detail scene. The #4774 overview instead uses persistent server-authored world coordinates and bounded quadtree tiles.
 - Canonicalize and collapse semantic relations into stable `scene.routes` entities before layout so their branch identity and count remain stable when ELK adds any required manifold geometry.
 - Bind a degree-one node endpoint role directly to one deterministic flow-side port; for a same-role degree `d > 1`, give ELK one sibling zero-thickness fanout rail of `(d + 1) * 208` world units on the cross axis, one routed glyph-to-rail trunk, and one sorted branch port per semantic route without inflating the real glyph envelope. The `208` slot is twice the named `104` ELK edge-node corridor; cross-axis nodes and expanded-compound member layers use the named `112` spacing.
 - Preserve only a deterministic spanning forest of load-bearing inferred-segment rows, normalize those retained bridges as transport while retaining raw provenance, keep them out of endpoint-attachment collapse, and reserve their bounded read quota independently from ordinary attachment rows.
@@ -21,7 +21,7 @@ PR #3928 and PR #3937 repaired important topology semantics, including lost atta
 - Keep every fixed-width semantic and manifold stroke clear of nonincident glyphs and noncontact physical paths at every managed camera scale, exempt only declared manifold junctions from contact diagnostics, and remeasure LiveView chrome when warning/details surfaces appear without resizing the canvas.
 - Accept prepared snapshot/profile scenes only after rendering succeeds so a camera or layer exception cannot replace coherent last-good state.
 - Add paired collapsed/expanded farm01-style fixtures and geometry assertions that fail on overlap, clipping, unstable placement, or any semantic/manifold path intersection with nonincident geometry.
-- Remove the custom radial/spiral geometry path entirely. If ELK fails, preserve the last exactly compatible good scene or show an explicit recoverable layout error; do not silently switch algorithms.
+- Remove competing custom radial/spiral geometry passes from the accepted bounded ELK detail path. If ELK fails, preserve the last exactly compatible good scene or show an explicit recoverable layout error; do not silently switch algorithms.
 
 ## Impact
 - Affected spec:
@@ -37,9 +37,9 @@ PR #3928 and PR #3937 repaired important topology semantics, including lost atta
 
 ## Dependencies and Coordination
 - Supersedes PR #3937's topology semantics and regression fixes. This change does not reintroduce redundant inferred attachment rows; it makes the already bounded projection explicit as independent quotas of 5,000 backbone rows, 2,000 inferred-segment candidates, and 2,000 ordinary attachment rows so one class cannot starve another. It also closes the remaining case where a sole inferred-segment bridge was selected and then removed by attachment collapse or projection.
-- Implements the frontend geometry, route rendering, collision-based label admission, camera bounds, and dense geometry fixtures needed by `refactor-topology-read-model-for-carrier-scale`. That carrier-scale change retains ownership of bounded snapshot/read-model semantics, visible-member and paging budgets, zoom-tier label-count budgets, HTTP bootstrap, and causal-overlay semantics.
+- Implements the frontend geometry, route rendering, collision-based label admission, camera bounds, and dense geometry fixtures needed by `refactor-topology-read-model-for-carrier-scale`. That carrier-scale change owns persistent world layout, z/x/y tile delivery, separate telemetry, map caching/navigation, bounded detail membership, HTTP bootstrap, and causal-overlay semantics. ELK does not author overview map geometry.
 - At post-deployment archive time, `fix-topology-islands-and-cluster-expansion` SHALL be archived before this change. Its placement requirements are layout-engine-neutral, so this change can supersede the interim radial/spiral implementation while preserving its connectivity and channel-state outcomes.
-- This client consumes only the already bounded visible graph. It does not redefine canonical read-model completeness or require every canonical attachment to be a simultaneous default-render node.
+- This ELK detail client consumes only an explicitly selected bounded neighborhood or member page in a separate coordinate space. It does not redefine canonical read-model completeness or require every canonical attachment to be a simultaneous default-render node.
 
 ## Non-Goals
 - Changing discovery, identity resolution, AGE projection, general raw-link filtering, or bounded snapshot membership beyond deterministic preservation and independently bounded admission of load-bearing inferred-segment connectivity.

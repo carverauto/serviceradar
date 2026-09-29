@@ -10,6 +10,11 @@ load(
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
+    name = "runtime_config",
+    srcs = ["config/runtime.exs"],
+)
+
+filegroup(
     name = "srcs",
     srcs = glob(
         ["**"],

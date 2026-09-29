@@ -2035,7 +2035,6 @@ fn counter_rate_sql(
     time: &str,
     default_field: &str,
 ) -> Result<String> {
-    const WRAP_32: &str = "4294967296";
     const COUNTER: &str =
         "gateway_id, COALESCE(agent_id, ''), metric_type, metric_name, series_key";
 
@@ -2050,7 +2049,7 @@ fn counter_rate_sql(
     };
     let bucket = downsample.bucket_seconds.max(1);
     let elapsed = "NULLIF(milliseconds_diff(ts, prev_ts) / 1000.0, 0)";
-    let wrapped = format!("(v + {WRAP_32} - prev_v) / {elapsed}");
+    let rate_case = super::counter_rate::warehouse("v", "prev_v", elapsed);
 
     let with = format!(
         "WITH ordered AS (\
@@ -2059,11 +2058,7 @@ LAG({value}) OVER (PARTITION BY {COUNTER} ORDER BY {time}) AS prev_v, \
 LAG({time}) OVER (PARTITION BY {COUNTER} ORDER BY {time}) AS prev_ts \
 FROM {from}{where_sql}), \
 rated AS (\
-SELECT ts, series, CASE \
-WHEN v >= prev_v THEN (v - prev_v) / {elapsed} \
-WHEN counter_width = 32 AND {wrapped} <= {WRAP_32} THEN {wrapped} \
-WHEN prev_v < {WRAP_32} AND {wrapped} <= {WRAP_32} THEN {wrapped} \
-ELSE NULL END AS rate_value \
+SELECT ts, series, {rate_case} AS rate_value \
 FROM ordered WHERE prev_v IS NOT NULL) "
     );
     let body = format!(
@@ -2260,7 +2255,7 @@ fn aggregate_field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     }
 }
 
-fn validate_identifier(value: &str) -> Result<()> {
+pub(super) fn validate_identifier(value: &str) -> Result<()> {
     if value.is_empty()
         || !value
             .bytes()
@@ -4005,7 +4000,7 @@ mod tests {
         );
         assert!(
             sql.contains(&format!(
-                "WHEN prev_v < 4294967296 AND {wrapped} <= 4294967296 THEN {wrapped}"
+                "WHEN counter_width IS NULL AND prev_v < 4294967296 AND {wrapped} <= 4294967296 THEN {wrapped}"
             )),
             "{sql}"
         );

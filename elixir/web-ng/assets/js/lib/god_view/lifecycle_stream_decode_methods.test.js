@@ -17,6 +17,15 @@ function decoder() {
 }
 
 describe("lifecycle_stream_decode_methods", () => {
+  it("routes a bounded server detail page to the ELK detail coordinate space", () => {
+    const metadataEntries = [["payload_kind", "detail"], ["layout_algorithm", "elk"]]
+    const nodes = [{label: "Synthetic switch", details: {id: "invented-detail-switch"}}]
+    const graph = decoder().decodeArrowGraph(snapshotIpcBytes({nodes, edges: [], metadataEntries}))
+    expect(graph._topologySemanticLevel).toBe("detail")
+    expect(graph.nodes[0].id).toBe("invented-detail-switch")
+    expect(() => decoder().decodeArrowGraph(snapshotIpcBytes({nodes: Array(129).fill(nodes[0]), edges: [], metadataEntries}))).toThrow("Topology detail exceeds budget")
+  })
+
   it("decodes explicit edge topology metadata without label inference", () => {
     const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
       nodes: [{id: "core-a", label: "core-a", x: 10, y: 20, state: 2, operUp: 1}],

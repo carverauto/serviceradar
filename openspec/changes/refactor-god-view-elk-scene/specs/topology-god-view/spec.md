@@ -1,93 +1,10 @@
-## MODIFIED Requirements
-
-### Requirement: Versioned Binary Topology Snapshots
-The system SHALL stream topology snapshots for God-View using a versioned Arrow IPC payload contract and a required metadata envelope for deterministic client decoding.
-
-The snapshot schema version `3` MUST use one record batch in which node rows come first and edge rows follow, with `node_count` and `edge_count` recorded in the Arrow schema metadata. Every numeric column is therefore dense over rows `0..node_count` for nodes and `node_count..node_count + edge_count` for edges, and a decoder MUST be able to slice positions, states and endpoints without branching on `row_type` or parsing JSON.
-- Node columns:
-  - `node_x`, `node_y` (`u16`, quantized layout coordinates; compatibility hints, non-authoritative for ELK scene geometry)
-  - `node_state` (`u16`, enum-mapped causal class)
-  - `node_label` (`utf8`)
-  - `node_pps` (`u32`)
-  - `node_oper_up` (`u8`)
-  - `node_details` (`utf8`, JSON)
-- Edge columns:
-  - `edge_source`, `edge_target` (`u32`, required for edge rows; node row indexes, so snapshots above 65535 nodes can name both endpoints)
-  - `edge_pps`, `edge_pps_ab`, `edge_pps_ba` (`u32`)
-  - `edge_flow_bps`, `edge_flow_bps_ab`, `edge_flow_bps_ba`, `edge_capacity_bps` (`u64`)
-  - `edge_telemetry_eligible` (`u8`)
-  - `edge_label`, `edge_topology_class`, `edge_protocol`, `edge_evidence_class` (`utf8`)
-  - `edge_details` (`utf8`, JSON)
-- Details columns: every details key read for every row by rendering, filtering, clustering, labeling or layout MUST also be emitted as a typed column named `node_detail_<key>`, `edge_detail_<key>` or `edge_metadata_<key>` (text `utf8`, number `f64`, flag `u8`). These are derived from the same JSON the row ships, so a column never disagrees with its row. `edge_has_metadata`, `edge_has_sparkline` and `details_irregular` (`u8`) accompany them; `details_irregular` marks a row with a value a column cannot carry exactly.
-- `row_type` (`i8`), `snapshot_schema_version` (`u32`) and `snapshot_revision` (`u64`) are present on every row.
-
-The metadata envelope MUST be included with each snapshot revision and MUST include:
-- `schema_version` (integer, required)
-- `snapshot_revision` (monotonic integer, required)
-- `generated_at` (RFC3339 timestamp, required)
-- `graph_id` (string, required)
-- `node_count` and `edge_count` (integer, required)
-- `bitmap_version` (integer, required)
-- `bitmap_offsets` (object/map, required)
-- `flags` (object/map, optional; includes renderer/runtime hints)
-
-Backend `x`, `y`, or equivalent coordinate fields SHALL NOT be authoritative for the ELK scene path. The frontend SHALL derive every accepted visible coordinate and route from the bounded semantic graph through its single ELK geometry authority.
-
-#### Scenario: Client accepts supported snapshot schema
-- **GIVEN** the server emits a topology snapshot with a supported schema version
-- **WHEN** the God-View client receives the payload
-- **THEN** the client decodes nodes and edges into typed columns without parsing details JSON
-- **AND** the client renders the decoded snapshot revision
-
-#### Scenario: Client handles unsupported snapshot schema
-- **GIVEN** the server emits a topology snapshot with an unsupported schema version
-- **WHEN** the God-View client receives the payload
-- **THEN** the client rejects that snapshot revision
-- **AND** the UI displays a recoverable compatibility error state
-
-#### Scenario: Client validates required metadata envelope fields
-- **GIVEN** the server emits a snapshot revision
-- **WHEN** the client validates envelope metadata
-- **THEN** missing required fields cause the revision to be rejected
-- **AND** the previous accepted revision remains active
-
-#### Scenario: Client validates required columns for schema version 3
-- **GIVEN** the server emits schema version `3`
-- **WHEN** the client validates the record batch columns
-- **THEN** missing required node or edge columns cause the revision to be rejected
-- **AND** absent details columns fall back to parsing that row's details JSON
-
-#### Scenario: Endpoint indexes above 65535 round-trip
-- **GIVEN** a snapshot with more than 65535 nodes and edges whose endpoints index nodes above 65535
-- **WHEN** the snapshot is encoded by the server and decoded by the client
-- **THEN** every edge resolves to the node rows it names
-- **AND** the decoded position column has length twice the node count
-
-#### Scenario: Legacy coordinate hints do not become a second authority
-- **GIVEN** a supported snapshot contains finite `node_x` and `node_y` compatibility hints
-- **WHEN** the ELK scene path lays out the bounded visible graph
-- **THEN** the client SHALL NOT apply those hints as accepted node positions
-- **AND** all accepted coordinates and routes SHALL come from the decoded ELK result
-
-### Requirement: Structural Reshape Contract
-The system SHALL distinguish visual-only filter toggles from structural reshape actions, and SHALL require backend recomputation of bounded topology membership and relationships for reshape operations that change the visible topology.
-
-#### Scenario: Visual-only filter action
-- **WHEN** the operator hides or highlights a class of nodes without changing graph structure
-- **THEN** the client applies the change locally from loaded snapshot data
-- **AND** a managed route SHALL render only when both rendered endpoints remain visible
-- **AND** the intentional anchor-to-group trunk MAY remain while its expanded gateway is non-rendered when the visible anchor and compound-group contract still resolve it
-
-#### Scenario: Structural reshape action
-- **WHEN** the operator triggers a collapse or expand operation that changes graph membership
-- **THEN** the backend SHALL recompute the bounded visible node and relationship membership
-- **AND** the server SHALL emit a new snapshot revision
-- **AND** the frontend SHALL compute all accepted coordinates and routes through the single ELK scene path
-
 ## ADDED Requirements
 
-### Requirement: ELK is the single visible topology geometry authority
-The God-View client SHALL produce the complete bounded visible topology scene through one compound ELK layout invocation. It SHALL NOT apply a second backbone, satellite, endpoint-cluster, route, fallback, or backend-coordinate projection pass to the accepted result.
+The requirements below apply to bounded ELK detail scenes. Server-authored overview tiles are governed by the carrier-scale tile contract and do not invoke ELK or inherit detail-scene geometry constants.
+
+
+### Requirement: ELK is the single bounded detail geometry authority
+The God-View client SHALL produce each bounded ELK detail scene through one compound ELK layout invocation. The tile overview SHALL instead use server-authored persistent world coordinates under the carrier-scale tile contract; these coordinate spaces SHALL be entered and left explicitly. It SHALL NOT apply a second backbone, satellite, endpoint-cluster, route, fallback, or backend-coordinate projection pass to the accepted result.
 
 Managed visual density SHALL remain presentation-only state. It MAY change fixed-pixel glyph radii, rendered path widths, and label candidate budgets, but it SHALL NOT change the semantic graph, ELK input geometry, accepted node/group coordinates, semantic branch points, or manifold rail/trunk points.
 
@@ -129,7 +46,7 @@ Managed visual density SHALL remain presentation-only state. It MAY change fixed
 - **AND** the client SHALL NOT invoke ELK or a post-layout packing pass solely for the density change
 
 ### Requirement: Expanded endpoint clusters are compound layout groups
-The God-View client SHALL represent each expanded endpoint cluster as a compound layout group allocated together with the rest of the bounded graph. Every member SHALL be contained by its group, and non-nested node and group boxes SHALL NOT overlap.
+Within a bounded ELK detail scene, the God-View client SHALL represent each expanded endpoint cluster as a compound layout group allocated together with the rest of that bounded detail graph. Every member SHALL be contained by its group, and non-nested node and group boxes SHALL NOT overlap.
 
 A visible collapsed summary SHALL keep a conservative `448x448` world-unit minimum ELK glyph envelope. The expanded non-rendered gateway SHALL keep a `112x112` minimum, each expanded member SHALL keep a `96x96` minimum, and each ordinary or anchor glyph SHALL keep a `112x112` minimum. Relation degree SHALL NOT inflate any of these real glyph envelopes.
 
@@ -191,7 +108,7 @@ Each rendered or layout-only relation SHALL be owned by the lowest common ELK co
 - **AND** relations crossing group boundaries SHALL remain root-owned
 
 ### Requirement: Rendered relations are canonicalized before ELK
-The God-View client SHALL collapse semantic relations into stable semantic `scene.routes` entities before building the ELK graph. Each entity SHALL have one canonical direction, one stable ELK edge identifier, and a sorted list of contributing semantic relation identifiers. Direction SHALL be decided from the complete aggregate: attachment evidence SHALL orient a pair from infrastructure to its sole attachment satellite, while every other pair SHALL use lexical endpoint order.
+For a bounded ELK detail scene, the God-View client SHALL collapse its admitted semantic relations into stable semantic `scene.routes` entities before building the ELK graph. Each entity SHALL have one canonical direction, one stable ELK edge identifier, and a sorted list of contributing semantic relation identifiers. Direction SHALL be decided from the complete aggregate: attachment evidence SHALL orient a pair from infrastructure to its sole attachment satellite, while every other pair SHALL use lexical endpoint order.
 
 Load-bearing inferred-segment evidence SHALL preserve connectivity through a deterministic spanning forest selected after device lookup. A retained forest bridge SHALL bypass endpoint-attachment collapse, use normalized transport semantics, retain its raw relation/evidence provenance, and remain protected from downstream attachment promotion. Redundant inferred-segment rows, explicit shared attachments, and direct single-identifier attachment candidates SHALL NOT seed that forest.
 
@@ -316,7 +233,7 @@ After applying configured zoom-tier candidate budgets, the God-View renderer SHA
 - **AND** it SHALL NOT invoke ELK solely because the camera moved
 
 ### Requirement: Managed camera operations use complete visual bounds
-God-View initial view and Fit SHALL contain the complete visual scene inside the measured safe viewport. Focus SHALL contain the selected neighborhood's complete visual bounds. Both SHALL account for relevant nodes, compound groups, every semantic branch and manifold rail/trunk, glyph extents, admitted labels, and interface safe areas through one coordinate convention.
+God-View initial view and Fit for a bounded ELK detail scene SHALL contain that complete detail scene inside the measured safe viewport. Overview map Fit SHALL use the server world or selected container extent without loading or laying out every device. Focus SHALL contain the selected neighborhood's complete visual bounds. Both SHALL account for relevant nodes, compound groups, every semantic branch and manifold rail/trunk, glyph extents, admitted labels, and interface safe areas through one coordinate convention.
 
 Managed views SHALL prefer the detail presentation when it is feasible. When detail is infeasible but overview is feasible, overview SHALL cap ordinary and expanded-member outer radii at `10` CSS pixels, collapsed-summary outer radii at `20` CSS pixels, endpoint-anchor outer radii at `12` CSS pixels, and every semantic/manifold path width at `10` CSS pixels. Detail physical-path widths SHALL be capped at `12` CSS pixels.
 
@@ -384,7 +301,7 @@ Managed views SHALL prefer the detail presentation when it is feasible. When det
 - **THEN** node, group, semantic-route, and manifold geometry SHALL return to the same scene within the configured numeric tolerance
 
 ### Requirement: Dense-layout fixtures enforce semantic and geometric invariants
-The God-View test suite SHALL include sanitized paired collapsed and expanded fixtures representative of the farm01 regression. Each fixture SHALL declare expected decoded graph counts, semantic relation-class counts, rendered-glyph counts, semantic `scene.routes` counts, visibility policy, aggregation policy, and expansion membership, then validate those semantics together with the complete physical geometry, including manifold rails and trunks.
+The God-View bounded ELK detail test suite SHALL include independently invented paired collapsed and expanded fixtures that exercise dense transport and endpoint attachment behavior. Fixtures SHALL NOT derive their values or shape from a live deployment, including captures with names replaced. Each fixture SHALL declare expected decoded graph counts, semantic relation-class counts, rendered-glyph counts, semantic `scene.routes` counts, visibility policy, aggregation policy, and expansion membership, then validate those semantics together with the complete physical geometry, including manifold rails and trunks.
 
 #### Scenario: Endpoint expansion preserves the route-collapse invariant
 - **GIVEN** a collapsed fixture and its paired bounded expansion fixture

@@ -1,7 +1,6 @@
 export const godViewLifecycleBootstrapCleanupRuntimeMethods = {
   cleanupLifecycleRuntime() {
     this.stopAnimationLoop()
-    this.clearChannelReconnectTimer?.()
     const layoutTokens = [
       this.state.layoutRequestToken,
       this.state.latestSnapshotLayoutToken,
@@ -26,10 +25,6 @@ export const godViewLifecycleBootstrapCleanupRuntimeMethods = {
       }
       this.state.reducedMotionListener = null
       this.state.reducedMotionMediaQuery = null
-    }
-    if (this.state.channel) {
-      this.state.channel.leave()
-      this.state.channel = null
     }
     if (this.state.pendingAnimationFrame) {
       cancelAnimationFrame(this.state.pendingAnimationFrame)

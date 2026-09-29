@@ -23,6 +23,11 @@ required-features = ["integration-tests"]
 name = "dgraph-migrate"
 path = "src/bin/dgraph-migrate.rs"
 
+[[test]]
+name = "world_worker"
+path = "tests/world_worker.rs"
+required-features = ["integration-tests"]
+
 [features]
 default = []
 integration-tests = [
@@ -37,6 +42,15 @@ dgraph_client = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tonic = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+nix = { workspace = true, features = ["process", "signal"] }
+proto_dgraph = { workspace = true }
+runfiles = { workspace = true }
+serviceradar-config-manager = { path = "../../config/manager_config/rust" }
+serviceradar-config-schema = { path = "../../config/proto_bindings/rust" }
+serviceradar-secret-manager = { path = "../../config/manager_secret/rust" }
+tokio = { workspace = true, features = ["macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { workspace = true, features = ["net"] }
+urlencoding = { workspace = true }
