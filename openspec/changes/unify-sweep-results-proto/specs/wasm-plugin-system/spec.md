@@ -43,6 +43,14 @@ durable producer sink and JetStream/EventWriter path.
 - **AND** persistent structured output SHALL use its approved durable contract
   rather than being hidden in the status payload
 
+#### Scenario: Legacy checker ingestion unaffected
+- **GIVEN** legacy checker statuses arriving at the gateway
+- **WHEN** plugin results or durable plugin outputs are enabled
+- **THEN** the legacy checker ingestion path SHALL continue unchanged for
+  bounded, coalescible health and summaries
+- **AND** it SHALL NOT become an alternate durable ingestion path, as described
+  in "Bounded checker status remains a status path"
+
 #### Scenario: Bounded checker status remains a status path
 - **GIVEN** bounded checker statuses arriving at the gateway
 - **WHEN** durable plugin outputs are enabled

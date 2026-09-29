@@ -28,6 +28,15 @@ SHALL NOT be a durable bulk-record boundary.
 - **AND** rollback SHALL disable new affected work and retain compatible v1
   consumers rather than generate new legacy output
 
+#### Scenario: Sync results ingestion via gRPC stream
+- **GIVEN** an agent emits sync results that exceed single-message limits
+- **WHEN** the agent streams the results via `StreamStatus`
+- **THEN** the agent-gateway MAY forward the chunked payload through the
+  existing sync gRPC-to-core route only when it is already-accepted pre-cutover
+  backlog, as described in "Pre-cutover legacy sync backlog drains"
+- **AND** new or migrated persistent integration output SHALL NOT use that route
+  and SHALL use the durable record plane
+
 #### Scenario: Sweep observations use layered delivery
 - **GIVEN** an authenticated agent produces a sweep observation frame
 - **WHEN** it sends the frame through the record stream
@@ -73,6 +82,20 @@ SHALL NOT be a durable bulk-record boundary.
 - **THEN** the existing gRPC/ERTS control route MAY be used
 - **AND** that response SHALL NOT be treated as durable observation ingestion
 
+#### Scenario: Status and results use standard methods
+- **GIVEN** an agent emits regular status updates and smaller results payloads
+- **WHEN** the agent calls `PushStatus`
+- **THEN** the agent-gateway MAY forward bounded non-persistent status through
+  the existing gRPC/ERTS control route, as described in "Control and small
+  status remain direct"
+- **AND** already-accepted pre-cutover sync backlog MAY stay on the sync
+  ingestor path, as described in "Pre-cutover legacy sync backlog drains"
+- **AND** new or migrated persistent output, other than `sweep`, SHALL NOT
+  share that status routing and SHALL use the durable record plane as described
+  in "Plugin or integration publishes persistent output"
+- **AND** new or migrated persistent `sweep` results SHALL use the durable
+  record plane as described in "Sweep observations use layered delivery"
+
 ### Requirement: Results routing is explicit by output contract
 The durable result pipeline SHALL route typed platform records, approved
 extension records, and spool-loss recovery tombstones
@@ -95,6 +118,16 @@ package-selected subjects, or one generic status handler for persistent data.
   re-encoding or copying semantic fields into broker headers
 - **AND** the corresponding typed consumer SHALL decode the binary record body
   and project it without content sniffing
+
+#### Scenario: Results routing selects the correct handler
+- **GIVEN** core receives a results payload tagged as `sync` or `sweep`
+- **WHEN** the result pipeline routes persistent data
+- **THEN** it SHALL NOT select a handler from the result-type tag alone
+- **AND** already-accepted pre-cutover sync backlog MAY stay on the sync
+  ingestor path, as described in "Pre-cutover legacy sync backlog drains"
+- **AND** new or migrated persistent output SHALL route by exact output
+  contract, route profile, and schema version as described in "Versioned record
+  selects its route and projector"
 
 #### Scenario: Inventory result selects the approved projector
 - **GIVEN** EventWriter receives a typed inventory page inside a validated
