@@ -203,6 +203,36 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     end
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "concurrent startup seeding creates each dashboard once and every seeder succeeds", %{
+    actor: actor,
+    marker: marker
+  } do
+    # Each web-ng replica seeds at startup. The ones that lose the race for a slug
+    # must keep the winner's dashboard, not fail, and must not add panels to it.
+    cleanup!(marker)
+
+    results =
+      1..3
+      |> Enum.map(fn _ -> Task.async(fn -> SystemReports.seed_all(actor: actor) end) end)
+      |> Task.await_many(60_000)
+
+    for result <- results do
+      assert {:ok, dashboards} = result
+      assert length(dashboards) == length(Enum.filter(SystemReports.dashboard_specs(), & &1.enabled_by_default))
+    end
+
+    for spec <- SystemReports.dashboard_specs(), spec.enabled_by_default do
+      assert [dashboard] =
+               AuthoredDashboard
+               |> Ash.Query.filter(slug == ^spec.slug)
+               |> Ash.Query.load([:panels])
+               |> Ash.read!(actor: actor)
+
+      assert length(dashboard.panels) == length(spec.panels)
+    end
+  end
+
   defp synthetic_dashboard_ref do
     1_000_000 + :erlang.phash2(Ecto.UUID.generate(), 9_000_000)
   end
