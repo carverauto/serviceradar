@@ -7,7 +7,8 @@ defmodule ServiceRadar.Repo.Migrations.RecordSweepDeclaredTargets do
   # memory and never written there, so the view could never report a declared target.
   #
   # The declaration is now recorded per sweep group in sweep_group_declared_targets
-  # (written by ServiceRadar.SweepJobs.SweepDeclaredTargetsWorker) and static targets are
+  # (written by ServiceRadar.SweepJobs.DeclaredTargets when a group's config is compiled for
+  # an agent, so it matches what agents received) and static targets are
   # read from sweep_groups directly.  The agent comes from the group: its agent_ids for a
   # fixed-subset group, NULL for a partition-wide group, which the matching below already
   # treats as compatible with any observing agent.
@@ -37,7 +38,7 @@ defmodule ServiceRadar.Repo.Migrations.RecordSweepDeclaredTargets do
     CREATE VIEW platform.device_sweep_overlap AS
     WITH declared_raw AS (
         -- Arm 1: device targets resolved from the group's SRQL target_query, recorded once
-        -- per group by SweepDeclaredTargetsWorker.  target is always a bare IP
+        -- per group when its config is compiled for an agent.  target is always a bare IP
         -- (SweepCompiler.normalize_device_ip_target/1 requires :inet.parse_strict_address).
         SELECT a.agent_id,
                g.id                                           AS sweep_group_id,
