@@ -54,7 +54,14 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     GenServer.start_link(__MODULE__, opts)
   end
 
-  def register(pid, agent_id, partition_id, capabilities, identity_context \\ nil, control_hello \\ nil) do
+  def register(
+        pid,
+        agent_id,
+        partition_id,
+        capabilities,
+        identity_context \\ nil,
+        control_hello \\ nil
+      ) do
     GenServer.call(
       pid,
       {:register, agent_id, partition_id, capabilities, identity_context, control_hello}
@@ -107,7 +114,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   @impl true
-  def handle_call({:register, agent_id, partition_id, capabilities, identity_context, control_hello}, _from, state) do
+  def handle_call(
+        {:register, agent_id, partition_id, capabilities, identity_context, control_hello},
+        _from,
+        state
+      ) do
     with {:ok, {agent_id, partition_id}} <- canonical_control_principal(agent_id, partition_id),
          :ok <- validate_registration_identity(identity_context, agent_id, partition_id) do
       state =
@@ -151,7 +162,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       {:ok, stream} ->
         log_command_dispatch(state, command)
 
-        {:reply, {:ok, command.command_id}, track_command(%{state | stream: stream}, command, context)}
+        {:reply, {:ok, command.command_id},
+         track_command(%{state | stream: stream}, command, context)}
 
       {:error, reason} ->
         Logger.warning(
@@ -232,7 +244,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   @impl true
-  def handle_cast({:message, %Monitoring.ControlStreamRequest{} = message, identity_context}, state) do
+  def handle_cast(
+        {:message, %Monitoring.ControlStreamRequest{} = message, identity_context},
+        state
+      ) do
     case verify_message_identity(state, identity_context) do
       :ok ->
         handle_verified_message(message, state)
@@ -442,14 +457,16 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     end
   end
 
-  defp verify_expected_control_evidence(_state, _expected), do: {:error, :console_control_evidence_unavailable}
+  defp verify_expected_control_evidence(_state, _expected),
+    do: {:error, :console_control_evidence_unavailable}
 
   defp update_control_evidence(state, %Monitoring.ControlStreamHello{} = hello) do
     %{
       state
       | capabilities: normalize_capabilities(hello.capabilities),
         config_version: normalize_config_version(hello.config_version),
-        applied_plugin_assignments: normalize_applied_plugin_assignments(hello.applied_plugin_assignments)
+        applied_plugin_assignments:
+          normalize_applied_plugin_assignments(hello.applied_plugin_assignments)
     }
   end
 
@@ -457,7 +474,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     %{
       state
       | config_version: normalize_config_version(ack.config_version),
-        applied_plugin_assignments: normalize_applied_plugin_assignments(ack.applied_plugin_assignments)
+        applied_plugin_assignments:
+          normalize_applied_plugin_assignments(ack.applied_plugin_assignments)
     }
   end
 
@@ -540,7 +558,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     end
   end
 
-  defp normalize_plugin_assignment_proof(_proof), do: {:error, :invalid_plugin_assignment_policy_ack}
+  defp normalize_plugin_assignment_proof(_proof),
+    do: {:error, :invalid_plugin_assignment_policy_ack}
 
   defp trimmed_string(value) when is_binary(value) do
     case String.trim(value) do
@@ -558,7 +577,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp normalize_identity_context(nil, _agent_id, _partition_id), do: nil
 
-  defp normalize_identity_context(identity_context, agent_id, partition_id) when is_map(identity_context) do
+  defp normalize_identity_context(identity_context, agent_id, partition_id)
+       when is_map(identity_context) do
     %{
       component_id: Map.get(identity_context, :component_id, agent_id),
       partition_id: Map.get(identity_context, :partition_id, partition_id),
@@ -570,7 +590,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   defp verify_message_identity(%{registered_identity: nil}, _identity_context), do: :ok
   defp verify_message_identity(_state, nil), do: {:error, :missing_identity_context}
 
-  defp verify_message_identity(%{registered_identity: registered}, identity_context) when is_map(identity_context) do
+  defp verify_message_identity(%{registered_identity: registered}, identity_context)
+       when is_map(identity_context) do
     identity_context = normalize_identity_context(identity_context, nil, nil)
 
     cond do
@@ -612,7 +633,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     Logger.warning("Rejected control stream message identity", Map.to_list(metadata))
   end
 
-  defp map_identity_value(identity_context, key) when is_map(identity_context), do: Map.get(identity_context, key)
+  defp map_identity_value(identity_context, key) when is_map(identity_context),
+    do: Map.get(identity_context, key)
 
   defp map_identity_value(_identity_context, _key), do: nil
 
@@ -626,7 +648,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp unregister_legacy_session_keys(_key), do: :ok
 
-  defp control_registry_key(partition_id, agent_id), do: {:agent_control, partition_id, agent_id, node()}
+  defp control_registry_key(partition_id, agent_id),
+    do: {:agent_control, partition_id, agent_id, node()}
 
   defp canonical_control_principal(agent_id, partition_id) do
     with agent_id when is_binary(agent_id) <- trimmed_string(agent_id),
@@ -639,7 +662,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp validate_registration_identity(nil, _agent_id, _partition_id), do: :ok
 
-  defp validate_registration_identity(identity_context, agent_id, partition_id) when is_map(identity_context) do
+  defp validate_registration_identity(identity_context, agent_id, partition_id)
+       when is_map(identity_context) do
     identity = normalize_identity_context(identity_context, nil, nil)
 
     cond do
@@ -990,7 +1014,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     end
   end
 
-  defp maybe_clear_pending_config(%{pending_config_acknowledged: true, pending_config_persisted: true} = state) do
+  defp maybe_clear_pending_config(
+         %{pending_config_acknowledged: true, pending_config_persisted: true} = state
+       ) do
     %{
       state
       | pending_config_version: nil,
