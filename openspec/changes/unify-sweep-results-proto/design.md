@@ -285,24 +285,33 @@ static targets: exactly one `TargetRangeV1` per configured static target, never
 merged with its neighbors, in the one spelling the plan validator accepts. A
 bare IPv4 becomes that address as a /32 CIDR and a bare IPv6 a /128 CIDR. A
 CIDR is committed as its canonical network prefix, still one range. A target
-that is already a first/last span stays one span. A static target whose
-address count does not fit the plan's `target_count` (an IPv6 prefix shorter
-than /65) cannot be one `TargetRangeV1`; the builder rejects that group rather
-than splitting it, and the group stays on the legacy path. `PlanValidate` and the range
-digest require canonical text, so the builder emits IPv6 addresses and CIDRs
-lowercase and compressed (RFC 5952) and IPv4 in dotted-quad, and does not reuse
-`normalizeSweepNetwork`'s bare-address spelling. Stored `10.1.2.3/24` becomes
-`10.1.2.0/24`, and stored `2001:DB8::1` becomes `2001:db8::1/128`. A page holds
-at most 256 ranges, and a plan uses as many pages as it needs. Checks are ICMP
-and TCP only. Because v1 binds one range
+that is not a bare address or CIDR makes the group ineligible. An IPv6 address
+whose RFC 5952 spelling differs from `:inet.ntoa/1` does too, so a returned
+plan is one both validators accept. A static target whose address count does
+not fit the plan's `target_count` (an IPv6 prefix shorter than /65) cannot be
+one `TargetRangeV1`; the builder rejects that group rather than splitting it,
+and the group stays on the legacy path. `PlanValidate` and the range digest
+require canonical text, so the builder emits IPv6 addresses and CIDRs
+lowercase and compressed (RFC 5952) and IPv4 in dotted-quad, and does not
+reuse `normalizeSweepNetwork`'s bare-address spelling. Stored `10.1.2.3/24`
+becomes `10.1.2.0/24`, and stored `2001:DB8::1` becomes `2001:db8::1/128`.
+A page holds at most 256 ranges, and a plan uses as many pages as it needs.
+Checks are ICMP and TCP only. Because v1 binds one range
 to each source authorization, an execution carries as many authorizations as it
 has ranges, which is why an SRQL device list does not fit. Two values are defined
 here:
 
 - `check_set_sha256` is the SHA-256, in the plan grammar (big-endian integers,
   length-framed bytes), of the domain tag `serviceradar.edge.check_set.v1`, the
-  count of checks and each `(mode, protocol, port)` check sorted ascending. The
-  exact field encoding is pinned by the golden vectors in M2.0b1.
+  digest version 1, the count of checks and each `(mode, protocol, port)` check
+  sorted ascending and de-duplicated, where `mode` and `protocol` are the
+  `SweepMode` and `TransportProtocol` enum values and `port` is 0 for ICMP. The
+  checks are the group's compiled effective modes and ports, after profile and
+  override inheritance: ICMP once, and each TCP mode (SYN, connect) on every
+  port. `arp` and blank modes are ignored, as the agent ignores them, and `mtr`
+  makes the group ineligible. The encoding is pinned by
+  `proto/edge/v1/testdata/sweep_static_plan_corpus.txt`, which Go recomputes
+  independently.
 - `availability_policy_id` is `any-success-v1`: a host is available when any of
   its checks succeeded, the meaning the legacy path already gives.
 
