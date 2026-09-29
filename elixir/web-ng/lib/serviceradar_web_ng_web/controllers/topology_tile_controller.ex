@@ -205,21 +205,53 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   defp error(conn, reason) do
     {status, code} =
       case reason do
-        :unauthorized -> {401, "unauthorized"}
-        :forbidden -> {403, "forbidden"}
-        :god_view_disabled -> {404, "god_view_disabled"}
-        :invalid_tile -> {400, "invalid_tile"}
-        :invalid_search -> {400, "invalid_search"}
-        :invalid_detail -> {400, "invalid_detail"}
-        :invalid_cursor -> {400, "invalid_cursor"}
-        :stale_revision -> {409, "stale_revision"}
-        :payload_too_large -> {413, "topology_budget_exceeded"}
-        :not_found -> {404, "topology_item_not_found"}
-        :layout_changed -> {409, "layout_changed"}
-        :busy -> {503, "tile_busy"}
-        :not_ready -> {503, "world_not_ready"}
-        :source_changed -> {503, "source_changed"}
-        _ -> {503, "world_unavailable"}
+        :unauthorized ->
+          {401, "unauthorized"}
+
+        :forbidden ->
+          {403, "forbidden"}
+
+        :god_view_disabled ->
+          {404, "god_view_disabled"}
+
+        :invalid_tile ->
+          {400, "invalid_tile"}
+
+        :invalid_revision ->
+          {400, "invalid_revision"}
+
+        :invalid_search ->
+          {400, "invalid_search"}
+
+        :invalid_detail ->
+          {400, "invalid_detail"}
+
+        :invalid_cursor ->
+          {400, "invalid_cursor"}
+
+        :stale_revision ->
+          {409, "stale_revision"}
+
+        reason when reason in [:payload_too_large, :overlay_budget_exceeded, :tile_budget_exceeded] ->
+          {413, "topology_budget_exceeded"}
+
+        :not_found ->
+          {404, "topology_item_not_found"}
+
+        :layout_changed ->
+          {409, "layout_changed"}
+
+        :busy ->
+          {503, "tile_busy"}
+
+        :not_ready ->
+          {503, "world_not_ready"}
+
+        :source_changed ->
+          {503, "source_changed"}
+
+        _ ->
+          {503, "world_unavailable"}
       end
 
     conn = if status == 503, do: put_resp_header(conn, "retry-after", "1"), else: conn

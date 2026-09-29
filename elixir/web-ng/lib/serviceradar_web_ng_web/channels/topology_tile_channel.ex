@@ -46,19 +46,19 @@ defmodule ServiceRadarWebNGWeb.TopologyTileChannel do
       state = socket.assigns.tile_watch
 
       cond do
+        watch.layout_version != state.fence.layout_version ->
+          {:reply, {:error, Map.put(state.fence, :reason, "layout_changed")}, socket}
+
         Enum.any?(watch.keys, &(&1.z > manifest.zmax)) ->
           {:reply, {:error, %{reason: "invalid_tiles"}}, socket}
 
-        watch.layout_version == state.fence.layout_version ->
+        true ->
           # Every watch carries the revisions actually retained by the client.
           # Sending an invalidation is never treated as a client acknowledgement.
           watch = Map.put(watch, :generation, state.fence.generation)
           state = %{state | watch: watch, watch_id: state.watch_id + 1}
           socket = socket |> assign(:tile_watch, cancel_task(state)) |> reconcile()
           {:reply, {:ok, Map.put(state.fence, :watch_id, state.watch_id)}, socket}
-
-        true ->
-          {:reply, {:error, Map.put(state.fence, :reason, "layout_changed")}, socket}
       end
     else
       {:error, reason} -> {:reply, {:error, channel_error(reason)}, socket}

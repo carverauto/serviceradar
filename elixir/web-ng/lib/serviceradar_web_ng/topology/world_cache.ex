@@ -118,22 +118,27 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
 
   def handle_call(:world, _from, state), do: {:reply, {:ok, state.current}, state}
 
-  def handle_call({:fetch, %TileKey{z: z}, _priority}, _from, %{current: %{manifest: %{zmax: zmax}}} = state)
-      when z > zmax, do: {:reply, {:error, :invalid_tile}, state}
-
   def handle_call({:fetch, key, priority}, from, state) do
-    generation = state.current.manifest.generation
+    manifest = state.current.manifest
 
-    case {key.layout_version == state.current.manifest.layout_version, Map.get(state.entries, key)} do
-      {false, _entry} ->
+    cond do
+      key.layout_version != manifest.layout_version ->
         {:reply, {:error, :layout_changed}, state}
 
-      {true, %{generation: ^generation} = entry} ->
-        state = touch(state, key, entry)
-        {:reply, {:ok, Map.put(entry.tile, :generation, generation)}, state}
+      key.z > manifest.zmax ->
+        {:reply, {:error, :invalid_tile}, state}
 
-      {true, _entry} ->
-        admit(key, priority, from, state)
+      true ->
+        generation = manifest.generation
+
+        case Map.get(state.entries, key) do
+          %{generation: ^generation} = entry ->
+            state = touch(state, key, entry)
+            {:reply, {:ok, Map.put(entry.tile, :generation, generation)}, state}
+
+          _entry ->
+            admit(key, priority, from, state)
+        end
     end
   end
 
