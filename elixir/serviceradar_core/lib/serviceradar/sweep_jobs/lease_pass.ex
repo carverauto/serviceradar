@@ -108,6 +108,42 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     Ecto.UUID.cast!(<<a::48, 8::4, b::12, 2::2, c::62>>)
   end
 
+  @doc false
+  @spec classify_lease(
+          {:ok, term()} | {:error, term()},
+          {:ok, map()} | {:error, term()} | :unread,
+          LeaseSchedule.spec(),
+          DateTime.t()
+        ) ::
+          {:leased, %{scope_id: term(), slots: [LeaseSchedule.slot()]}}
+          | :not_leased
+          | {:failed, term()}
+  def classify_lease(scope, settings, schedule, now)
+
+  def classify_lease({:error, :partition_not_found}, _settings, _schedule, _now), do: :not_leased
+
+  def classify_lease({:error, reason}, _settings, _schedule, _now), do: {:failed, reason}
+
+  def classify_lease({:ok, _scope_id}, {:error, reason}, _schedule, _now), do: {:failed, reason}
+
+  def classify_lease({:ok, _scope_id}, {:ok, %{enabled?: false}}, _schedule, _now),
+    do: :not_leased
+
+  def classify_lease(
+        {:ok, scope_id},
+        {:ok, %{enabled?: true, horizon_seconds: horizon}},
+        schedule,
+        now
+      ) do
+    slots = desired_slots(schedule, now, horizon)
+
+    if too_dense?(slots) do
+      :not_leased
+    else
+      {:leased, %{scope_id: scope_id, slots: slots}}
+    end
+  end
+
   # Leasing is enabled somewhere, or an assignment is still active and may need revoking.
   defp active? do
     with {:ok, enabled} <-
@@ -124,31 +160,51 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
 
   defp lease_group(group, inputs, now) do
     case LeaseAgents.candidates(group) do
-      {:ok, candidates} ->
-        leased = Enum.flat_map(candidates, &leased_agent(&1, inputs.schedule, now))
+      {:ok, candidates} -> lease_candidates(group, inputs, candidates, now)
+      {:error, reason} -> skip_group(group, reason)
+    end
+  end
+
+  defp lease_candidates(group, inputs, candidates, now) do
+    candidates
+    |> Enum.reduce_while([], fn candidate, acc ->
+      case leased_agent(candidate, inputs.schedule, now) do
+        {:leased, agent} -> {:cont, [agent | acc]}
+        :not_leased -> {:cont, acc}
+        {:failed, reason} -> {:halt, {:failed, reason}}
+      end
+    end)
+    |> case do
+      {:failed, reason} ->
+        skip_group(group, reason)
+
+      leased ->
+        leased = Enum.reverse(leased)
         revoked = ProducerAssignments.revoke_all_except(group.id, Enum.map(leased, & &1.agent_id))
 
         Enum.reduce(leased, count_revoked(revoked, group), fn agent, acc ->
           add(acc, lease_agent(group, inputs, agent, now))
         end)
-
-      {:error, reason} ->
-        Logger.warning("Sweep lease pass: agents of group #{group.id}: #{inspect(reason)}")
-        %{empty() | groups: 1, errors: 1}
     end
   end
 
-  # The agent's lease window, or nothing when it holds no lease: leasing is off for it, its
-  # partition is unknown, or the schedule is too dense over its horizon.
+  defp skip_group(group, reason) do
+    Logger.warning("Sweep lease pass: agents of group #{group.id}: #{inspect(reason)}")
+    %{empty() | groups: 1, errors: 1}
+  end
+
   defp leased_agent(%{agent_id: agent_id, partition: partition}, schedule, now) do
-    with {:ok, scope_id} <- ProducerAssignments.network_scope_id_for_partition(partition),
-         {:ok, %{enabled?: true, horizon_seconds: horizon}} <-
-           LeaseSettings.resolve(agent_id, scope_id),
-         slots = desired_slots(schedule, now, horizon),
-         false <- too_dense?(slots) do
-      [%{agent_id: agent_id, scope_id: scope_id, slots: slots}]
-    else
-      _ -> []
+    scope = ProducerAssignments.network_scope_id_for_partition(partition)
+
+    settings =
+      case scope do
+        {:ok, scope_id} -> LeaseSettings.resolve(agent_id, scope_id)
+        _ -> :unread
+      end
+
+    case classify_lease(scope, settings, schedule, now) do
+      {:leased, window} -> {:leased, Map.put(window, :agent_id, agent_id)}
+      decision -> decision
     end
   end
 
