@@ -62,10 +62,11 @@
       per device, one set, three groups); partial overlap; determinism under
       shuffled rows (no shared IPs); two devices sharing an IP under
       different queries stay two table entries with their own `device_uid`.
-- [ ] 3.4 Add a `device_sweep_overlap` view arm for `shared-targets/v1`
-      (Decision 7) in a new migration, with a test that the same groups
-      persisted in each format yield the same declared rows. Bump the Helm
-      `expectedVersion` for the new migration.
+- [x] 3.4 No `device_sweep_overlap` arm for `shared-targets/v1`. The view's
+      declared side reads `platform.sweep_group_declared_targets`, not a
+      persisted compiled document (`persist-sweep-declared-targets`,
+      Decision 7). A format arm is only needed if a later change persists
+      compiled sweep documents for another consumer.
 
 ## 4. Go agent
 

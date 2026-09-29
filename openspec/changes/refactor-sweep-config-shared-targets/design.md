@@ -95,15 +95,10 @@
   metadata.
 - Core ingests results by IP (`sweep_results_ingestor.ex`) and takes the group
   from the ingest options.
-- The one reader is the `platform.device_sweep_overlap` view
-  (`priv/repo/migrations/20260904120000_add_device_sweep_overlap_view.exs`).
-  It reads `groups[].device_targets[].network` and
-  `groups[].device_targets[].metadata.device_uid` from
-  `platform.agent_config_instances.compiled_config`, falling back to an IP
-  lookup when `device_uid` is absent. No production code path appears to
-  write sweep rows into `agent_config_instances`; the sweep compiler returns a
-  map that is cached, not persisted. Task 1.1 verifies this. Either way the
-  view defines the persisted-shape contract this change must keep.
+- Nothing outside the agent reads `device_targets` metadata from a persisted
+  compiled sweep config. `platform.device_sweep_overlap` reads
+  `platform.sweep_group_declared_targets` (see `persist-sweep-declared-targets`
+  and Decision 7).
 
 ### Capability negotiation today
 
@@ -330,25 +325,19 @@ groups in the sweeper.
 
 ### Decision 7: Persisted-shape contract
 
-The overlap view is the only reader of a compiled sweep config outside the
-agent. Before any `shared-targets/v1` document is persisted in
-`agent_config_instances`, the view gains a third arm that joins `groups` to
-`target_sets` and `device_table` and yields the same
-`(agent_id, sweep_group_id, target, declared_device_uid)` rows. Until then,
-only the legacy shape may be persisted.
+No production code path writes `config_type = 'sweep'` rows into
+`agent_config_instances`. `ConfigServer` only reads that table as a fallback
+for config types without a compiler, and the sweep compiler's output is
+cached in `ConfigCache`, never persisted.
 
-Task 1.1 finding: no production code path writes `config_type = 'sweep'` rows
-into `agent_config_instances`. `ConfigServer` only reads that table, as a
-fallback for config types without a compiler, and the sweep compiler's output
-is cached in `ConfigCache`, never persisted. The view's declared arm is
-therefore empty for sweep in production. That is a separate defect, reported
-separately and not fixed here; this change still keeps `device_uid` in the
-compiled output so the view works once sweep configs are persisted. Issue
-#4963 was filed and fixed by persisting the declared relation per group
-(`platform.sweep_group_declared_targets`), which now feeds the view's
-declared side without any persisted compiled document, so the third arm
-described above is only needed if a future consumer persists a compiled
-document for another reason.
+Issue #4963 persisted the overlap view's declared side as
+`platform.sweep_group_declared_targets`, once per group
+(`persist-sweep-declared-targets`). The view does not read a compiled
+document, so this change does not add a format arm to it. An arm that joins
+`groups` to `target_sets` and `device_table` is only needed if a later change
+persists a compiled sweep document for some other consumer. `device_uid`
+stays in the compiled output for the agent. Until a compiled document is
+persisted, only the legacy shape may be written.
 
 ## Risks / Trade-offs
 
