@@ -74,6 +74,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_config_chunk_payload_bytes 1 * 1024 * 1024
   @max_stream_config_chunk_bytes 2 * 1024 * 1024
   @max_stream_config_window_bytes 64 * 1024 * 1024
+  # A timeout here is reported to the agent as not_modified, freezing it on its
+  # previous config. Must stay below the agent's 90s config deadline
+  # (go/pkg/agentgateway defaultConfigTimeout) with room to stream the chunks.
+  @config_core_call_timeout_ms 60_000
   @agent_gateway_component_types [:agent]
   @otlp_relay_source "otlp-relay"
   @flow_attribution_source "flow-attribution"
@@ -180,7 +184,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Generate config from database using the config generator
     AgentGatewaySync
-    |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
+    |> core_call(
+      :get_config_if_changed,
+      [agent_id, partition_id, config_version],
+      @config_core_call_timeout_ms
+    )
     |> handle_config_response(agent_id, config_version)
   end
 
@@ -361,7 +369,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     response =
       AgentGatewaySync
-      |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
+      |> core_call(
+        :get_config_if_changed,
+        [agent_id, partition_id, config_version],
+        @config_core_call_timeout_ms
+      )
       |> handle_config_response(agent_id, config_version)
 
     chunks = config_response_chunks(agent_id, response)

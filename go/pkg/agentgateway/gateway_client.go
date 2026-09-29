@@ -76,7 +76,7 @@ const (
 	defaultReconnectDelay = 5 * time.Second
 	maxReconnectDelay     = 60 * time.Second
 	defaultPushTimeout    = 30 * time.Second
-	defaultConfigTimeout  = 30 * time.Second
+	defaultConfigTimeout  = 90 * time.Second
 	defaultKeepaliveTime  = 30 * time.Second
 	defaultKeepaliveTTL   = 10 * time.Second
 	streamStatusChunkMax  = 16 * 1024 * 1024
