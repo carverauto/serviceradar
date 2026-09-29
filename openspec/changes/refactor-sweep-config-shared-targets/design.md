@@ -330,20 +330,18 @@ groups in the sweeper.
 
 ### Decision 7: Persisted-shape contract
 
-The overlap view is the only reader of a compiled sweep config outside the
-agent. Before any `shared-targets/v1` document is persisted in
-`agent_config_instances`, the view gains a third arm that joins `groups` to
-`target_sets` and `device_table` and yields the same
-`(agent_id, sweep_group_id, target, declared_device_uid)` rows. Until then,
-only the legacy shape may be persisted.
+Superseded. Task 1.1 found that no production code path writes
+`config_type = 'sweep'` rows into `agent_config_instances`: `ConfigServer` only
+reads that table, as a fallback for config types without a compiler, and the
+sweep compiler's output is cached in `ConfigCache`, never persisted. The
+overlap view's declared side was therefore always empty for sweep (#4963).
 
-Task 1.1 finding: no production code path writes `config_type = 'sweep'` rows
-into `agent_config_instances`. `ConfigServer` only reads that table, as a
-fallback for config types without a compiler, and the sweep compiler's output
-is cached in `ConfigCache`, never persisted. The view's declared arm is
-therefore empty for sweep in production. That is a separate defect, reported
-separately and not fixed here; this change still keeps `device_uid` in the
-compiled output so the view works once sweep configs are persisted.
+The fix for #4963 records each group's query-derived targets in
+`platform.sweep_group_declared_targets` (from
+`SweepCompiler.declared_device_targets/2`) and reads static targets from
+`sweep_groups`, so the view no longer reads compiled configs at all. The wire
+format of the config an agent receives is therefore free to change without
+touching the view, and no `shared-targets/v1` view arm is needed.
 
 ## Risks / Trade-offs
 

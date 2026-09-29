@@ -37,6 +37,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SRQLQuery
+  alias ServiceRadar.SweepJobs.DeclaredTargets
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
@@ -85,7 +86,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     profiles = load_profiles(profile_ids, actor)
     profile_map = Map.new(profiles, &{&1.id, &1})
 
-    compiled_groups = compile_groups(groups, profile_map, opts)
+    {compiled_groups, declarations} = compile_groups_and_declarations(groups, profile_map, opts)
+
+    # What this agent is about to receive is the declaration device_sweep_overlap
+    # compares coverage against. Recording is skipped when a group's set is
+    # unchanged and never fails the compile.
+    DeclaredTargets.record(declarations)
 
     Logger.info(
       "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
@@ -128,15 +134,29 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   @spec compile_groups([SweepGroup.t()], %{optional(term()) => SweepProfile.t()}, keyword()) ::
           [map()]
   def compile_groups(groups, profile_map, opts \\ []) do
+    {compiled_groups, _declarations} = compile_groups_and_declarations(groups, profile_map, opts)
+    compiled_groups
+  end
+
+  @doc false
+  # Like compile_groups/3, plus the device targets each group declared as
+  # {network, device_uid} pairs. A group whose target query did not fully
+  # resolve is absent, so its previously recorded declaration is kept.
+  @spec compile_groups_and_declarations(
+          [SweepGroup.t()],
+          %{optional(term()) => SweepProfile.t()},
+          keyword()
+        ) :: {[map()], %{optional(String.t()) => [DeclaredTargets.pair()]}}
+  def compile_groups_and_declarations(groups, profile_map, opts \\ []) do
     query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
 
     # The memo also holds failed results, so a failing query runs once per
     # compile rather than once per group that uses it.
-    {compiled_groups, _query_memo} =
-      Enum.map_reduce(groups, %{}, &compile_group(&1, profile_map, &2, query_page_fn))
+    {compiled_groups, {_query_memo, declarations}} =
+      Enum.map_reduce(groups, {%{}, %{}}, &compile_group(&1, profile_map, &2, query_page_fn))
 
     # Database row order must not change the compiled config or its version.
-    Enum.sort_by(compiled_groups, & &1["id"])
+    {Enum.sort_by(compiled_groups, & &1["id"]), declarations}
   end
 
   @doc """
@@ -243,7 +263,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_group(group, profile_map, query_memo, query_page_fn) do
+  defp compile_group(group, profile_map, {query_memo, declarations}, query_page_fn) do
     # Get profile settings as base
     profile = Map.get(profile_map, group.profile_id)
 
@@ -263,7 +283,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     modes = drop_unsupported_modes(modes, group)
 
     # Build targets from static CIDRs/IPs and device targets from SRQL rows.
-    {targets, device_targets, query_memo} =
+    {targets, device_targets, declared, query_memo} =
       compile_targets(group, modes, query_memo, query_page_fn)
 
     # Build settings from profile with overrides
@@ -290,7 +310,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         Map.put(compiled, "device_targets", device_targets)
       end
 
-    {compiled, query_memo}
+    declarations =
+      case declared do
+        {:ok, pairs} -> Map.put(declarations, group.id, pairs)
+        :unresolved -> declarations
+      end
+
+    {compiled, {query_memo, declarations}}
   end
 
   defp compile_schedule(group) do
@@ -318,10 +344,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       query when is_binary(query) and query != "" ->
         query = normalize_target_query(query)
         {result, query_memo} = target_query_rows(query, query_memo, query_page_fn)
-        {static_targets, device_targets_from_result(result, group, query, modes), query_memo}
+        {device_targets, declared} = device_targets_from_result(result, group, query, modes)
+        {static_targets, device_targets, declared, query_memo}
 
       _ ->
-        {static_targets, [], query_memo}
+        {static_targets, [], {:ok, []}, query_memo}
     end
   end
 
@@ -413,32 +440,47 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         do: %{"ip" => ip, "uid" => row["uid"]}
   end
 
-  defp device_targets_from_result({:ok, rows}, group, query, modes),
-    do: build_device_targets(rows, group, query, modes)
+  # Returns the device targets for the agent config and the group's
+  # declaration: {:ok, pairs} only when the query resolved completely.
+  defp device_targets_from_result({:ok, rows}, group, query, modes) do
+    case build_device_targets(rows, group, query, modes) do
+      {:ok, targets} -> {targets, {:ok, declared_pairs(targets)}}
+      :error -> {[], :unresolved}
+    end
+  end
 
   defp device_targets_from_result({:partial, rows, reason}, group, query, modes) do
     Logger.warning(
       "SweepCompiler: SRQL query failed for group #{inspect(group.id)} - #{inspect(reason)}"
     )
 
-    build_device_targets(rows, group, query, modes)
+    case build_device_targets(rows, group, query, modes) do
+      {:ok, targets} -> {targets, :unresolved}
+      :error -> {[], :unresolved}
+    end
   end
 
   defp device_targets_from_result({:raised, message}, group, query, _modes) do
     log_target_query_raised(group, query, message)
-    []
+    {[], :unresolved}
   end
 
   defp build_device_targets(rows, group, query, modes) do
-    rows
-    |> Enum.reduce(%{}, &put_device_target_from_row(&1, &2, group, modes))
-    |> Map.values()
-    |> Enum.sort_by(& &1["network"])
+    targets =
+      rows
+      |> Enum.reduce(%{}, &put_device_target_from_row(&1, &2, group, modes))
+      |> Map.values()
+      |> Enum.sort_by(& &1["network"])
+
+    {:ok, targets}
   rescue
     error ->
       log_target_query_raised(group, query, Exception.message(error))
-      []
+      :error
   end
+
+  defp declared_pairs(targets),
+    do: Enum.map(targets, &{&1["network"], get_in(&1, ["metadata", "device_uid"])})
 
   # A group whose target query cannot run still compiles with the targets that
   # did resolve: letting the error reach `compile/3` would fail the whole

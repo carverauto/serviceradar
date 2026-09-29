@@ -420,103 +420,30 @@ Commit after each entity so a reviewer can reject one without rejecting four.
 
 The diagnostic the issue is really asking for: which groups were *declared* to target a device versus which actually *produced results* for it. Declared-but-not-observed is the reported symptom.
 
-Declared targeting is not stored anywhere as a relation — `SweepCompiler` resolves it by paging SRQL at compile time. But the resolved list survives in the compiled config's `targets` and `device_targets`, versioned per agent. That is where the declared side comes from.
+Declared targeting for query-based groups is recorded in `platform.sweep_group_declared_targets` by `SweepDeclaredTargetsWorker` (refreshed every five minutes and immediately on group create/update/enable). Static targets come from `sweep_groups.static_targets`. The view no longer reads compiled configs.
 
 **Files:**
 
-- Create: `elixir/serviceradar_core/priv/repo/migrations/20260902140000_create_device_sweep_overlap_view.exs`
+- ~~Create: `elixir/serviceradar_core/priv/repo/migrations/20260902140000_create_device_sweep_overlap_view.exs`~~ — the view was created by `20260904120000_add_device_sweep_overlap_view.exs` and redefined by `20260929120000_record_sweep_declared_targets.exs`; both migrations are already landed.
 - Create: `rust/srql/src/query/device_sweep_overlap.rs`
 - Modify: the parser, `query/mod.rs`, the three exhaustive matches, viz metadata, tests
 
 **Interfaces:**
 
-- Consumes: `platform.sweep_coverage_daily` (plan 1), `platform.device_agent_availability`, `platform.agent_config_instances`.
+- Consumes: `platform.sweep_coverage_daily` (plan 1), `platform.device_agent_availability`, `platform.sweep_group_declared_targets`, `platform.sweep_groups`.
 - Produces: `Entity::DeviceSweepOverlap`, `platform.device_sweep_overlap`.
 
-- [ ] **Step 1: Write the view migration**
+- [x] **Step 1: Write the view migration** *(already landed)*
 
-Follow the `addon_fleet` precedent (`20260720180000_add_addon_fleet_read_model.exs`): raw `execute` with a matching `DROP VIEW IF EXISTS` in `down`.
+The view was created by `20260904120000_add_device_sweep_overlap_view.exs` and its declared side was later rewritten by `20260929120000_record_sweep_declared_targets.exs` (issue #4963: the original view read from `agent_config_instances`, which compiled sweep configs never reach). The current view SQL is the authoritative reference; read `20260929120000_record_sweep_declared_targets.exs` `up/0` for the column list and the two declared CTEs before proceeding to step 2.
 
-The view has one row per (device, sweep group, agent) with a `relationship` column taking `declared_and_observed`, `declared_not_observed`, or `observed_not_declared`, plus a boolean marking which row currently owns the `device_agent_availability` slot.
-
-```elixir
-defmodule ServiceRadar.Repo.Migrations.CreateDeviceSweepOverlapView do
-  @moduledoc false
-  use Ecto.Migration
-
-  def up do
-    execute("""
-    CREATE VIEW platform.device_sweep_overlap AS
-    WITH declared AS (
-      SELECT
-        i.agent_id,
-        (g.value ->> 'sweep_group_id')::uuid AS sweep_group_id,
-        COALESCE(dt.value ->> 'network', t.value) AS target,
-        i.last_delivered_at
-      FROM platform.agent_config_instances i
-      CROSS JOIN LATERAL jsonb_array_elements(i.compiled_config -> 'groups') AS g(value)
-      LEFT JOIN LATERAL jsonb_array_elements(g.value -> 'device_targets') AS dt(value) ON TRUE
-      LEFT JOIN LATERAL jsonb_array_elements_text(g.value -> 'targets') AS t(value) ON TRUE
-      WHERE i.config_type = 'sweep'
-    ),
-    observed AS (
-      SELECT device_uid, ip, sweep_group_id, agent_id,
-             MAX(last_seen_at) AS last_seen_at,
-             SUM(available_count) AS available_count,
-             SUM(execution_count) AS execution_count
-      FROM platform.sweep_coverage_daily
-      GROUP BY device_uid, ip, sweep_group_id, agent_id
-    )
-    SELECT
-      COALESCE(o.device_uid, d_dev.uid) AS device_uid,
-      COALESCE(o.ip, dec.target) AS ip,
-      COALESCE(o.sweep_group_id, dec.sweep_group_id) AS sweep_group_id,
-      COALESCE(o.agent_id, dec.agent_id) AS agent_id,
-      sg.name AS sweep_group_name,
-      sg.profile_id,
-      sp.name AS scanner_profile_name,
-      sg.sweep_modes AS declared_modes,
-      sg.ports AS declared_ports,
-      (dec.sweep_group_id IS NOT NULL) AS declared,
-      (o.sweep_group_id IS NOT NULL) AS observed,
-      CASE
-        WHEN dec.sweep_group_id IS NOT NULL AND o.sweep_group_id IS NOT NULL
-          THEN 'declared_and_observed'
-        WHEN dec.sweep_group_id IS NOT NULL THEN 'declared_not_observed'
-        ELSE 'observed_not_declared'
-      END AS relationship,
-      o.last_seen_at,
-      o.available_count,
-      o.execution_count,
-      dec.last_delivered_at AS config_delivered_at,
-      (daa.sweep_group_id IS NOT DISTINCT FROM COALESCE(o.sweep_group_id, dec.sweep_group_id))
-        AS owns_availability_row
-    FROM observed o
-    FULL OUTER JOIN declared dec
-      ON dec.sweep_group_id = o.sweep_group_id
-     AND dec.agent_id = o.agent_id
-     AND dec.target = o.ip
-    LEFT JOIN platform.ocsf_devices d_dev ON d_dev.ip = dec.target
-    LEFT JOIN platform.sweep_groups sg
-      ON sg.id = COALESCE(o.sweep_group_id, dec.sweep_group_id)
-    LEFT JOIN platform.sweep_profiles sp ON sp.id = sg.profile_id
-    LEFT JOIN platform.device_agent_availability daa
-      ON daa.device_uid = COALESCE(o.device_uid, d_dev.uid)
-     AND daa.agent_id = COALESCE(o.agent_id, dec.agent_id)
-    """)
-  end
-
-  def down do
-    execute("DROP VIEW IF EXISTS platform.device_sweep_overlap")
-  end
-end
-```
+The view has one row per (device, sweep group, agent) with a `relationship` column taking `declared_and_observed`, `declared_not_observed`, or `observed_not_declared`, plus a boolean marking which row currently owns the `device_agent_availability` slot. `config_delivered_at` means "declared as of" (when the target was last recorded or when the group was last updated for static targets).
 
 - [ ] **Step 2: Verify the view against real data before writing any Rust**
 
-Against a scratch database from the `srql-fixtures-db-tests` skill, apply the migration and run the view with seeded rows covering all three `relationship` values. A view whose SQL you have not executed is a guess. Fix it here, where the feedback loop is seconds, not after six Rust files exist on top of it.
+Against a scratch database from the `srql-fixtures-db-tests` skill, run the view with seeded rows covering all three `relationship` values. (The migrations are already landed; apply them, not a local version.) The view uses hash-joinable equality, not a FULL OUTER JOIN — see the `covers_raw` CTE in the migration.
 
-Confirm specifically: a group declared for a device that produced no results yields exactly one `declared_not_observed` row, and the `FULL OUTER JOIN` does not fan out into duplicates when a group declares several targets.
+Confirm specifically: a group declared for a device that produced no results yields exactly one `declared_not_observed` row, and a group declaring both a /24 network target and a specific host target renders the host ONCE.
 
 - [ ] **Step 3: Write the query module on the sql_query pattern**
 

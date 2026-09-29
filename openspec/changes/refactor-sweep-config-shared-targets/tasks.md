@@ -1,11 +1,14 @@
 ## 1. Audit and pinning (before any compiler change)
 
-- [ ] 1.1 Confirm whether any production path writes `config_type = 'sweep'`
+- [x] 1.1 Confirm whether any production path writes `config_type = 'sweep'`
       rows into `platform.agent_config_instances`. If none does, open a
       separate issue: the `device_sweep_overlap` view's declared arm is empty
       in production. Record the finding in design.md, Decision 7.
-      (Confirmed none does and recorded in Decision 7; the issue is not yet
-      filed.)
+      (Confirmed none does, recorded in Decision 7, and filed as #4963. The
+      fix records declared targets per group in
+      `platform.sweep_group_declared_targets`, so the view no longer reads
+      compiled configs; Decision 7's persisted-shape concern no longer
+      applies to it.)
 - [x] 1.2 Add a pinning test (landed as the database-free
       `test/serviceradar/agent_config/compilers/sweep_compiler_targets_test.exs`
       over `SweepCompiler.compile_groups/3`, with an injected SRQL page
@@ -58,10 +61,12 @@
       per device, one set, three groups); partial overlap; determinism under
       shuffled rows (no shared IPs); two devices sharing an IP under
       different queries stay two table entries with their own `device_uid`.
-- [ ] 3.4 Add a `device_sweep_overlap` view arm for `shared-targets/v1`
+- [x] 3.4 Add a `device_sweep_overlap` view arm for `shared-targets/v1`
       (Decision 7) in a new migration, with a test that the same groups
       persisted in each format yield the same declared rows. Bump the Helm
-      `expectedVersion` for the new migration.
+      `expectedVersion` for the new migration. (Not needed: after #4963 the
+      view reads `platform.sweep_group_declared_targets`, not compiled
+      configs. See design.md, Decision 7.)
 
 ## 4. Go agent
 
@@ -111,7 +116,7 @@
 ## 7. Rollout and verification
 
 - [ ] 7.1 Release order: section 2 after chunked config pushes have shipped;
-      then the agent release (section 4); then sections 3.4 and 5. Document
+      then the agent release (section 4); then section 5. Document
       the order in the release notes.
 - [ ] 7.2 Log the sweep section format and encoded size per agent at config
       generation, so the reduction can be checked against a deployment.

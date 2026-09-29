@@ -432,4 +432,70 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       assert Enum.sort(query_executions()) == [@edge_query, @lab_query]
     end
   end
+
+  describe "declarations" do
+    test "each group declares the device targets it compiled, and a static-only group none" do
+      {compiled, declarations} =
+        SweepCompiler.compile_groups_and_declarations(pinned_groups(), %{},
+          query_page_fn: fake_inventory(self())
+        )
+
+      lab_pairs = [
+        {"198.51.100.10", "sr:dev-0001"},
+        {"198.51.100.11", "sr:dev-0002"},
+        {"198.51.100.12", "sr:dev-0003"}
+      ]
+
+      assert declarations == %{
+               @static_id => [],
+               @lab_icmp_id => lab_pairs,
+               @lab_tcp_id => lab_pairs,
+               @edge_id => [{"203.0.113.5", "sr:dev-0010"}]
+             }
+
+      assert compiled ==
+               SweepCompiler.compile_groups(pinned_groups(), %{},
+                 query_page_fn: fake_inventory(self())
+               )
+    end
+
+    test "a group whose query fails, partly fails or raises declares nothing and is omitted" do
+      inventory = fake_inventory(self())
+
+      query_page_fn = fn query, opts ->
+        case {query, Keyword.get(opts, :cursor)} do
+          {@lab_query, "page-2"} -> {:error, :timeout}
+          {@edge_query, _cursor} -> raise "driver encoding failure"
+          _ -> inventory.(query, opts)
+        end
+      end
+
+      groups = [
+        group(%{id: "sg-ok", name: "ok", target_query: "in:devices tags.env:other"}),
+        group(%{id: "sg-partial", name: "partial", target_query: @lab_query}),
+        group(%{id: "sg-raises", name: "raises", target_query: @edge_query})
+      ]
+
+      {compiled, declarations} =
+        capture_log_result(fn ->
+          SweepCompiler.compile_groups_and_declarations(groups, %{}, query_page_fn: query_page_fn)
+        end)
+
+      assert declarations == %{"sg-ok" => [{"198.51.100.200", "sr:dev-0200"}]}
+
+      # The agent still receives what the partial read produced.
+      partial = Enum.find(compiled, &(&1["id"] == "sg-partial"))
+      assert networks(partial) == ["198.51.100.10", "198.51.100.11"]
+    end
+  end
+
+  defp capture_log_result(fun) do
+    parent = self()
+    ref = make_ref()
+    capture_log(fn -> send(parent, {ref, fun.()}) end)
+
+    receive do
+      {^ref, result} -> result
+    end
+  end
 end
