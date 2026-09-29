@@ -110,21 +110,12 @@
       cross-language golden vectors under `proto/edge/v1/testdata`.
       `check_set_sha256` and `availability_policy_id` follow "Plan inputs" in
       `design.md`.
-    - [ ] M2.0b2 Scheduled executions. A `sweep_execution_slots` table holds one
-      row per pre-minted execution: the `execution_id` (a UUIDv7 whose time is the
-      slot start, the row id), group, agent, assignment, the epoch it was planned
-      under, network scope, lease id, slot start and collection window, the plan
-      id and header digest, `check_set_sha256`, and the protobuf-encoded plan
-      header and pages (the EventWriter's host-membership check, 5.1, reads them).
-      The slots are not `sweep_group_executions` rows: a week of future rows would
-      fill the execution lists, the SRQL entity, retention and the missed-sweep
-      monitor with runs that have not happened. The results ingest creates the
-      execution row under the slot's id when results arrive. A slot that will not
-      run is dropped, not deleted; revoking an assignment (the fence's revoke of a
-      deselected agent, or the scheduler's ineligibility revoke) drops that
-      agent's slots that have not started. Uniqueness of
-      `(producer_assignment_id, slot_start)` covers scheduled slots only, so a
-      dropped row does not block a new execution at the same start.
+    - [ ] M2.0b2 Scheduled executions. Pre-minted executions are
+      `sweep_execution_slots` rows, separate from `sweep_group_executions`
+      (migration `20260929090000`). The row, why it is not a
+      `sweep_group_executions` row, the drop-not-delete rule, and the
+      scheduled-only uniqueness of
+      `(producer_assignment_id, slot_start)` are Schedule lease in `design.md`.
     - [ ] M2.0b3 Lease scheduler. For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
       as scheduled before it runs. The horizon has a per-partition default, a
