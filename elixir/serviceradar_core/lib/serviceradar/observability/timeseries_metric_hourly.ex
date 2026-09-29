@@ -7,7 +7,8 @@ defmodule ServiceRadar.Observability.TimeseriesMetricHourly do
     table: "timeseries_metrics_hourly",
     type: "timeseries_metric_hourly",
     route: "/timeseries_metrics_hourly",
-    primary_key: [:bucket, :device_id, :metric_type, :metric_name]
+    primary_key: [:bucket, :device_id, :metric_type, :metric_name],
+    warehouse_table: "timeseries_metrics_hourly"
 
   attributes do
     attribute :bucket, :utc_datetime_usec do

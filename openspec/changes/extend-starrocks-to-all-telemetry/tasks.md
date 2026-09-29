@@ -89,8 +89,11 @@
     `otel.*` inventory entries against the OTel fixture (`src/fixture/otel.rs`), then verify the
     logs page metrics tab, OTLP view, metric detail and Analytics slowest spans on a deployment
     after the rollout completes.
-  - [ ] 3.1.5 JSON:API `/otel_metrics` and `/otel_metric_points` still read CNPG (as `/api/v2/logs`
-    does for logs); route or retire them with the other JSON:API telemetry readers in 5.4.
+  - [x] 3.1.5 JSON:API `/otel_metrics` and `/otel_metric_points` now route through
+    `ServiceRadar.Observability.TelemetryIndexRead` (manual `api_index` read): the
+    warehouse table when StarRocks is enabled, the CNPG data layer otherwise, with the
+    same offset pagination. The same reader covers `/api/v2/logs`
+    and the timeseries routes in 5.4.
 - [ ] 3.2 OTel traces/spans with RED and summary rollups as MVs; trace-by-id lookup.
   - [x] 3.2.1 Warehouse DDL `priv/starrocks/0022_otel_traces.sql`: `otel_traces` keyed by the CNPG
     primary key (trace_id, span_id, timestamp), day partitions, hash-bucketed and sorted by
@@ -123,9 +126,12 @@
   - [ ] 3.2.5 Run the parity database tier for the `traces.*` inventory entries against the
     traces fixture (`src/fixture/traces.rs`), then verify the logs page traces tab, trace detail,
     dashboard and Analytics trace cards and the rollup health banner after a rollout.
-  - [ ] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` still read CNPG; route or retire
-    them with the other JSON:API telemetry readers in 5.4. `OtelServiceCatalogBackfillWorker`
-    reads CNPG `spans_red_1h` once, for history written before the switch, and needs no change.
+  - [x] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` route through
+    `TelemetryIndexRead`: the warehouse tables when `analytics.starrocks.enabled` is true,
+    the CNPG data layer otherwise, matching `OtelTraces.store/2` and
+    `RefreshTraceSummariesWorker` (both write the warehouse only when StarRocks is enabled).
+    `OtelServiceCatalogBackfillWorker` reads CNPG `spans_red_1h` once, for history written
+    before the switch, and needs no change.
 - [x] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
   **Retired -- no warehouse copies.** The implementation follows the
   [sysmon compatibility requirement](specs/srql/spec.md#requirement-dedicated-sysmon-readers-are-retired-with-query-compatibility)
@@ -240,6 +246,16 @@
   `analytics.starrocks.enabled`, highest-traffic first (dashboard cards and sparklines, MTR, logs
   and events pages, OTel, sysmon, BMP, service status), each behind its parity comparison. The
   CNPG implementation stays: it serves every installation without StarRocks.
+  - JSON:API rows (this issue): `/api/v2/logs`, `/otel_metrics`, `/otel_metric_points`,
+    `/timeseries_metrics`, `/timeseries_metrics_hourly`, `/otel_traces` and
+    `/otel_trace_summaries` read their warehouse tables through
+    `ServiceRadar.Observability.TelemetryIndexRead` when that dataset's writes are in the
+    warehouse and the CNPG data layer otherwise. `/timeseries_metrics_interface_hourly`,
+    `/timeseries_metrics_disk_hourly` and the legacy sysmon routes stay CNPG-backed
+    (their rows are still written to CNPG; interface/disk hourly stay CNPG-only per
+    finding 4; sysmon retires under #4861). `/service_status` is not warehouse-backed
+    yet and is left on CNPG. Warehouse rows are shaped from the warehouse table's own
+    columns, so columns the warehouse does not store stay null rather than being invented.
 - [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
   installation that turns StarRocks on, newest first, in bounded units; verify counts and totals
   per day.
