@@ -50,6 +50,7 @@ defmodule ServiceRadar.Observability.HourlyMetricResource do
 
         read :api_index do
           manual {ServiceRadar.Observability.TelemetryIndexRead, table: warehouse_table}
+          prepare(ServiceRadar.Observability.JsonApiCompositeId)
 
           pagination do
             offset?(true)

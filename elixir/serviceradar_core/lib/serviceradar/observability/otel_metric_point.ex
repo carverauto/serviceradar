@@ -46,6 +46,7 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
 
     read :api_index do
       manual {ServiceRadar.Observability.TelemetryIndexRead, table: "otel_metric_points"}
+      prepare ServiceRadar.Observability.JsonApiCompositeId
 
       pagination do
         offset? true

@@ -28,19 +28,6 @@ def _stub(app):
     return Label("//third_party/hex:" + app + ".BUILD")
 
 def _hex_package(app, hex_name, version, sha256):
-    # ash_json_api stringifies composite id parts. A null part 500s the index
-    # page; the patch encodes it without changing any other id. See the patch header.
-    if app == "ash_json_api":
-        return hex_pkg(
-            name = app,
-            package_name = hex_name,
-            version = version,
-            sha256 = sha256,
-            build_file = _stub(app),
-            patches = [Label("//third_party/patches/ash_json_api:null_composite_id.patch")],
-            patch_args = ["-p1"],
-        )
-
     return hex_pkg(
         name = app,
         package_name = hex_name,

@@ -357,7 +357,6 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/sweep_jobs/sweep_targeting_integration_test.exs": 1,
     "test/serviceradar/test_support_sandbox_test.exs": 1,
     "test/serviceradar/workload_identity_test.exs": 1,
-    "test/serviceradar_core/mix/json_api_primary_key_patch_test.exs": 1,
 }
 
 SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
@@ -559,7 +558,6 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/sweep_jobs/sweep_targeting_integration_test.exs": 19,
     "test/serviceradar/test_support_sandbox_test.exs": 12,
     "test/serviceradar/workload_identity_test.exs": 2,
-    "test/serviceradar_core/mix/json_api_primary_key_patch_test.exs": 2,
 }
 
 FIXED_EXTERNAL_INTEGRATION_SRCS = [

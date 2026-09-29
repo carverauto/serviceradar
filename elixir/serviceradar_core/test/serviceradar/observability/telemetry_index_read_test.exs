@@ -4,6 +4,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   alias Ash.Error.Query.InvalidQuery
   alias AshJsonApi.Resource.Info
   alias ServiceRadar.Analytics.StarRocks
+  alias ServiceRadar.Observability.JsonApiCompositeId
   alias ServiceRadar.Observability.Log
   alias ServiceRadar.Observability.OtelMetric
   alias ServiceRadar.Observability.OtelTrace
@@ -380,24 +381,16 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
 
     present = %{cnpg_record | span_id: "abc123abc123abcd"}
 
-    assert AshJsonApi.Resource.encode_primary_key(present) ==
+    assert AshJsonApi.Resource.encode_primary_key(prepared_record(OtelMetric, present)) ==
              joined_primary_key(OtelMetric, present)
 
-    assert AshJsonApi.Resource.decode_primary_key_part(
-             AshJsonApi.Resource.encode_primary_key_part(nil)
-           ) == nil
+    assert JsonApiCompositeId.decode_part(JsonApiCompositeId.encode_part(nil)) == nil
+    assert JsonApiCompositeId.decode_part(JsonApiCompositeId.encode_part("")) == ""
 
-    assert AshJsonApi.Resource.decode_primary_key_part(
-             AshJsonApi.Resource.encode_primary_key_part("")
-           ) == ""
+    assert JsonApiCompositeId.decode_part(JsonApiCompositeId.encode_part(<<0x1F>>)) ==
+             <<0x1F>>
 
-    assert AshJsonApi.Resource.decode_primary_key_part(
-             AshJsonApi.Resource.encode_primary_key_part(<<0x1F>>)
-           ) == <<0x1F>>
-
-    assert AshJsonApi.Resource.decode_primary_key_part(
-             AshJsonApi.Resource.encode_primary_key_part(<<0x1F, 0x1F>>)
-           ) ==
+    assert JsonApiCompositeId.decode_part(JsonApiCompositeId.encode_part(<<0x1F, 0x1F>>)) ==
              <<0x1F, 0x1F>>
   end
 
@@ -427,7 +420,9 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
 
     present = %{cnpg_record | device_id: "device-1"}
 
-    assert AshJsonApi.Resource.encode_primary_key(present) ==
+    assert AshJsonApi.Resource.encode_primary_key(
+             prepared_record(TimeseriesMetricHourly, present)
+           ) ==
              joined_primary_key(TimeseriesMetricHourly, present)
   end
 
@@ -465,6 +460,15 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   end
 
   defp assert_null_page(resource, record, type, field) do
+    action = Ash.Resource.Info.action(resource, :api_index)
+
+    assert Enum.any?(action.preparations, fn
+             %{preparation: {JsonApiCompositeId, _opts}} -> true
+             _other -> false
+           end)
+
+    prepared = prepared_record(resource, record)
+
     body =
       %AshJsonApi.Request{
         url: "http://example.test/api/v2",
@@ -475,20 +479,24 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
         all_domains: [ServiceRadar.Observability],
         resource: resource
       }
-      |> AshJsonApi.Serializer.serialize_many(offset_page([record]), [], %{})
+      |> AshJsonApi.Serializer.serialize_many(offset_page([prepared]), [], %{})
       |> Jason.decode!()
 
     assert [row] = body["data"]
     assert row["type"] == type
-    assert row["id"] == AshJsonApi.Resource.encode_primary_key(record)
+    assert row["id"] == encoded_primary_key(resource, record)
+    assert row["id"] == AshJsonApi.Resource.encode_primary_key(prepared)
     assert is_binary(row["id"])
     assert Map.get(row["attributes"], Atom.to_string(field)) == nil
+    refute row["id"] == encoded_primary_key(resource, Map.put(record, field, ""))
+    refute row["id"] == encoded_primary_key(resource, Map.put(record, field, <<0x1F>>))
+  end
 
-    refute row["id"] ==
-             AshJsonApi.Resource.encode_primary_key(Map.put(record, field, ""))
-
-    refute row["id"] ==
-             AshJsonApi.Resource.encode_primary_key(Map.put(record, field, <<0x1F>>))
+  defp prepared_record(resource, record) do
+    query = JsonApiCompositeId.prepare(Ash.Query.new(resource), [], %{})
+    [hook | _] = query.after_action
+    assert {:ok, [prepared]} = hook.(query, [record])
+    prepared
   end
 
   defp offset_page(records) do
@@ -505,6 +513,12 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     delimiter = Info.primary_key_delimiter(resource)
     keys = Info.primary_key_fields(resource)
     Enum.map_join(keys, delimiter, &to_string(Map.fetch!(record, &1)))
+  end
+
+  defp encoded_primary_key(resource, record) do
+    delimiter = Info.primary_key_delimiter(resource)
+    keys = Info.primary_key_fields(resource)
+    Enum.map_join(keys, delimiter, &JsonApiCompositeId.encode_part(Map.fetch!(record, &1)))
   end
 
   defp index_read_opts(resource) do
