@@ -14,10 +14,14 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
     "platform.topology_world_head"
   ]
 
+  @repairable_relation_columns ~w(source_if_index source_if_name target_if_index target_if_name)
+
+  @adoption_comment "serviceradar:topology_world_adopted:20260928060000"
+
   def up do
     case existing_topology_table_count() do
       0 -> create_topology_world()
-      4 -> validate_existing_topology_world!()
+      4 -> repair_existing_topology_world!()
       _ -> raise_partial_schema_error!()
     end
   end
@@ -37,7 +41,7 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
     """
   end
 
-  defp validate_existing_topology_world! do
+  defp repair_existing_topology_world! do
     expected_columns = %{
       "topology_world_relations" =>
         ~w(layout_version relation_id source_id target_id evidence_class role source_if_index source_if_name target_if_index target_if_name active inserted_at updated_at),
@@ -49,22 +53,97 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
     }
 
     Enum.each(expected_columns, fn {table, columns} ->
-      Enum.each(columns, fn column ->
-        %{rows: [[count]]} =
-          repo().query!(
-            """
-            SELECT count(*)
-            FROM information_schema.columns
-            WHERE table_schema = 'platform' AND table_name = $1 AND column_name = $2
-            """,
-            [table, column]
-          )
-
-        if count != 1 do
+      columns
+      |> Enum.reject(&(&1 in @repairable_relation_columns))
+      |> Enum.each(fn column ->
+        unless column_present?(table, column) do
           raise "TopologyWorld migration found existing platform.#{table} missing column #{column}"
         end
       end)
     end)
+
+    repo().query!("""
+    ALTER TABLE platform.topology_world_relations
+      ADD COLUMN IF NOT EXISTS source_if_index bigint,
+      ADD COLUMN IF NOT EXISTS source_if_name text,
+      ADD COLUMN IF NOT EXISTS target_if_index bigint,
+      ADD COLUMN IF NOT EXISTS target_if_name text
+    """)
+
+    repo().query!("""
+    ALTER TABLE platform.topology_world_relations
+      ALTER COLUMN role DROP NOT NULL
+    """)
+
+    repo().query!("""
+    ALTER TABLE platform.topology_world_relations
+      DROP CONSTRAINT IF EXISTS topology_world_relations_interface_indices
+    """)
+
+    repo().query!("""
+    ALTER TABLE platform.topology_world_relations
+      ADD CONSTRAINT topology_world_relations_interface_indices
+      CHECK (
+        (source_if_index IS NULL OR source_if_index > 0)
+        AND (target_if_index IS NULL OR target_if_index > 0)
+      )
+    """)
+
+    repo().query!("DROP INDEX IF EXISTS platform.topology_world_positions_active_idx")
+    repo().query!("DROP INDEX IF EXISTS platform.topology_world_relations_active_idx")
+    repo().query!("DROP INDEX IF EXISTS platform.topology_world_relations_source_idx")
+    repo().query!("DROP INDEX IF EXISTS platform.topology_world_relations_target_idx")
+
+    repo().query!("""
+    CREATE INDEX topology_world_positions_active_idx
+      ON platform.topology_world_positions (layout_version, device_id)
+      WHERE active
+    """)
+
+    repo().query!("""
+    CREATE INDEX topology_world_relations_active_idx
+      ON platform.topology_world_relations (layout_version, relation_id)
+      WHERE active
+    """)
+
+    repo().query!("""
+    CREATE INDEX topology_world_relations_source_idx
+      ON platform.topology_world_relations (layout_version, source_id)
+      WHERE active
+    """)
+
+    repo().query!("""
+    CREATE INDEX topology_world_relations_target_idx
+      ON platform.topology_world_relations (layout_version, target_id)
+      WHERE active
+    """)
+
+    repo().query!(
+      "COMMENT ON TABLE platform.topology_world_head IS '#{@adoption_comment}'"
+    )
+  end
+
+  defp column_present?(table, column) do
+    %{rows: [[count]]} =
+      repo().query!(
+        """
+        SELECT count(*)
+        FROM information_schema.columns
+        WHERE table_schema = 'platform' AND table_name = $1 AND column_name = $2
+        """,
+        [table, column]
+      )
+
+    count == 1
+  end
+
+  defp topology_world_adopted? do
+    %{rows: [[comment]]} =
+      repo().query!(
+        "SELECT obj_description('platform.topology_world_head'::regclass, 'pg_class')"
+      )
+
+    comment == @adoption_comment
   end
 
   defp create_topology_world do
@@ -280,6 +359,14 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
   end
 
   def down do
+    if topology_world_adopted?() do
+      repo().query!("COMMENT ON TABLE platform.topology_world_head IS NULL")
+    else
+      drop_created_topology_world()
+    end
+  end
+
+  defp drop_created_topology_world do
     drop_if_exists(constraint(:topology_world_positions, :topology_world_positions_component, prefix: "platform"))
 
     drop_if_exists(constraint(:topology_world_positions, :topology_world_positions_grid, prefix: "platform"))
