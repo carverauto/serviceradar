@@ -1620,7 +1620,10 @@ if config_env() == :prod do
            {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
             ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
            # Kept in step with serviceradar_core_elx's runtime.exs, as above.
-           {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance}
+           {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
+           # Kept in step with serviceradar_core_elx's runtime.exs, as above. Inert
+           # until an operator enables sweep leasing.
+           {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++

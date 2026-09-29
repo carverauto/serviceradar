@@ -155,6 +155,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/scans/scan_run_test.exs",
     "test/serviceradar/security/audit_history_ash_events_test.exs",
     "test/serviceradar/sweep_jobs/execution_slots_db_test.exs",
+    "test/serviceradar/sweep_jobs/lease_pass_db_test.exs",
     "test/serviceradar/sweep_jobs/lease_settings_db_test.exs",
     "test/serviceradar/sweep_jobs/oban_support_db_test.exs",
     "test/serviceradar/sweep_jobs/producer_assignments_db_test.exs",

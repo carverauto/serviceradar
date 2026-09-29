@@ -252,6 +252,39 @@ is seven days. The resolved horizon is capped by the global row's
 days. Renewal keeps a connected agent's horizon full, so a disconnection
 starts from a full lease.
 
+**Lease pass.** One idempotent pass, run every five minutes, keeps every
+lease in step. It stores nothing of its own, so a crash part-way through is
+caught up by the next run, and it reads nothing more while no scope enables
+leasing and no assignment is active. It revokes every active assignment of a
+group that is not eligible, and of every agent the group no longer runs on or
+for which leasing is off. A group runs on its `agent_ids`, or, when that list
+is empty, on every agent whose device is in the group's partition. An agent's
+network scope is the partition of its own device, and an agent with no device
+is not leased, because core has no partition it can vouch for. A missing
+profile (no `profile_id`, or the profile row is gone) is no profile. When the
+profile read fails for any other reason, the candidate query fails, or any
+candidate's network-scope or lease-settings read fails, the pass skips that
+group: it does not revoke, ensure, drop or mint, and the next pass tries
+again. An unknown partition and leasing that is off are not leased, and those
+assignments are revoked. Every other agent gets an active assignment through
+the existing ensure/reissue path. Its unrun slots must equal the schedule's
+slots between now and its horizon, under the assignment's current epoch,
+lease, network scope and check set, and the range CIDRs of the slot's stored
+plan must be the canonical CIDRs of the group's current targets. A slot that
+differs in any of these (a fence bump, a profile's ports changing, a new
+interval, a shorter horizon, or targets that no longer match the stored plan)
+is dropped and planned again, and a slot that has started is never touched.
+The lease id is derived from the assignment id and its epoch (a version-8
+UUID from SHA-256), so every pass names the same lease without storing it,
+and a bump or a reissue starts a new lease. A pass mints at most 1,000 slots
+per assignment, nearest first; a longer horizon fills over the following
+passes. A schedule with a slot shorter than five minutes anywhere in the
+horizon (a dense cron) is not leased for that agent, and its assignment is
+revoked. A group update that races a pass can leave slots on the old epoch, or
+on the new epoch with the targets that pass read before the edit committed.
+The next pass re-plans both, and the gateway fence refuses the stale epoch in
+the meantime.
+
 **Issuer.** Core signs with an Ed25519 issuer key held through a core-only file
 mount (the automation-callback key pattern); the gateway receives public keys
 and key ids only. The issuer key is ServiceRadar talking to itself, not a device

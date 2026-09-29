@@ -117,10 +117,15 @@
       scheduled-only uniqueness of
       `(producer_assignment_id, slot_start)` are Schedule lease in `design.md`.
       Proven by BuildBuddy invocation 4ab54547-1fa0-4cc5-8208-8e03c470ba74.
-    - [ ] M2.0b3a Lease settings, eligibility and schedule. Migration
+    - [x] M2.0b3a Lease settings, eligibility and schedule. Migration
       `20260929100000` adds `sweep_lease_settings`. How `LeaseSettings` resolves
       a row, `LeaseEligibility` decides eligibility and `LeaseSchedule` lists
       slots is Schedule lease in `design.md`. No slot is written yet.
+      Proven by BuildBuddy invocation 8b09d0de-c8b4-49fe-ab4d-5674e24181f1.
+    - [ ] M2.0b3b Lease pass. `LeasePass`, run every five minutes by
+      `LeasePassWorker` from both Oban crontabs, revokes, ensures and re-plans
+      as Lease pass in `design.md` says. It re-plans slots; re-signing and
+      re-delivering them arrive with M2.0c and M2.0d.
     - [ ] M2.0b3 Lease scheduler (M2.0b3b is the scheduler pass that uses the
       three modules above). For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
