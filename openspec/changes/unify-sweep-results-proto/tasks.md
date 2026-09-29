@@ -110,17 +110,23 @@
       cross-language golden vectors under `proto/edge/v1/testdata`.
       `check_set_sha256` and `availability_policy_id` follow "Plan inputs" in
       `design.md`.
-    - [ ] M2.0b2 Scheduled executions. Pre-minted executions are
+    - [x] M2.0b2 Scheduled executions. Pre-minted executions are
       `sweep_execution_slots` rows, separate from `sweep_group_executions`
       (migration `20260929090000`). The row, why it is not a
       `sweep_group_executions` row, the drop-not-delete rule, and the
       scheduled-only uniqueness of
       `(producer_assignment_id, slot_start)` are Schedule lease in `design.md`.
-    - [ ] M2.0b3 Lease scheduler. For each leased assignment core pre-mints the
+      Proven by BuildBuddy invocation 4ab54547-1fa0-4cc5-8208-8e03c470ba74.
+    - [ ] M2.0b3a Lease settings, eligibility and schedule. Migration
+      `20260929100000` adds `sweep_lease_settings`. How `LeaseSettings` resolves
+      a row, `LeaseEligibility` decides eligibility and `LeaseSchedule` lists
+      slots is Schedule lease in `design.md`. No slot is written yet.
+    - [ ] M2.0b3 Lease scheduler (M2.0b3b is the scheduler pass that uses the
+      three modules above). For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
-      as scheduled before it runs. The horizon has a per-partition default, a
-      per-agent override and an administrator maximum; a week or more of
-      disconnected operation is a supported setting. Renewal keeps a connected
+      as scheduled before it runs. The horizon settings are Schedule lease in
+      `design.md`; a week or more of disconnected operation is a supported
+      setting. Renewal keeps a connected
       agent's horizon full. The M2.0a fence bumps every active assignment when
       the partition, `agent_ids`, `static_targets`, `target_query`, ports,
       sweep modes, overrides, or the profile changes. When `agent_ids` becomes
@@ -135,13 +141,13 @@
       new plan digest when the plan changed, and re-delivers them, so a ports
       change re-plans onto the new ports. Unrun slots are dropped, not
       re-planned or re-signed, in two cases: the scheduler revokes an
-      ineligible group (it is disabled, it gained a `target_query`, lost its
-      static targets, or has a static target the plan cannot represent), which
-      issues no further leases and returns the agent to its local ticker, and
-      the fence revokes an agent that is no longer selected. Becoming eligible
-      again after that scheduler revoke, including when the group is
-      re-enabled, is a new lease for that (group, agent), reissued under a new
-      epoch through the existing reissue path, not a re-plan of the old slots.
+      ineligible group (one that fails the Schedule lease conditions in
+      `design.md`), which issues no further leases and returns the agent to its
+      local ticker, and the fence revokes an agent that is no longer selected.
+      Becoming eligible again after that scheduler revoke, including when the
+      group is re-enabled, is a new lease for that (group, agent), reissued
+      under a new epoch through the existing reissue path, not a re-plan of
+      the old slots.
   - [ ] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
     mount and signs, per lease, the production capability (`run_id` = the lease)
     and one SCHEDULED_SWEEP source authorization per (execution, range). Every
