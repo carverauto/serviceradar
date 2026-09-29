@@ -194,7 +194,19 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
 
         if is_binary(next_cursor) and next_cursor != "" and still_remaining > 0 and length(results) > 0 do
           next_opts = Map.put(page_opts, :cursor, next_cursor)
-          collect_json_pages(base, query, next_opts, srql_module, device_resolver, fields, combined, still_remaining, schema, viz)
+
+          collect_json_pages(
+            base,
+            query,
+            next_opts,
+            srql_module,
+            device_resolver,
+            fields,
+            combined,
+            still_remaining,
+            schema,
+            viz
+          )
         else
           finish_json_pages(base, combined, pagination, schema, viz, device_resolver, fields, query)
         end

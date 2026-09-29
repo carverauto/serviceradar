@@ -190,7 +190,11 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
         nil ->
           {:ok,
            %{
-             "results" => [%{"q" => query, "page" => 1, "n" => 1}, %{"q" => query, "page" => 1, "n" => 2}, %{"q" => query, "page" => 1, "n" => 3}],
+             "results" => [
+               %{"q" => query, "page" => 1, "n" => 1},
+               %{"q" => query, "page" => 1, "n" => 2},
+               %{"q" => query, "page" => 1, "n" => 3}
+             ],
              "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
            }}
 
@@ -213,7 +217,11 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
         nil ->
           {:ok,
            %{
-             "results" => [%{"q" => query, "page" => 1, "n" => 1}, %{"q" => query, "page" => 1, "n" => 2}, %{"q" => query, "page" => 1, "n" => 3}],
+             "results" => [
+               %{"q" => query, "page" => 1, "n" => 1},
+               %{"q" => query, "page" => 1, "n" => 2},
+               %{"q" => query, "page" => 1, "n" => 3}
+             ],
              "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
            }}
 
