@@ -64,6 +64,7 @@ go_test(
         "sweep_inventory_test.go",
         "sweep_labels_external_test.go",
         "sweep_matrix_test.go",
+        "sweep_static_plan_corpus_test.go",
         "validate_test.go",
         "version_corpus_test.go",
         "wire_compat_corpus_test.go",
