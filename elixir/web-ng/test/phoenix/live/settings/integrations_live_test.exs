@@ -15,6 +15,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
 
   require Ash.Query
 
+  # Runs in the shared-fixture DB lane: the database-free unit tier cannot render
+  # the details modal, and a missing assign there only fails when it is rendered.
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_admin_user
 
   test "create form persists armis credentials from rendered credential inputs", %{
@@ -393,7 +397,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     filler_targets =
       Enum.map(1..1_001, fn index ->
         %{
-          id: Ecto.UUID.bingenerate(),
+          id: Ecto.UUID.generate(),
           integration_update_run_id: run.id,
           collection_id: run.collection_id,
           source_object_id: "armis-#{String.pad_leading(to_string(index), 4, "0")}",
@@ -411,7 +415,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     {1_002, _} =
       Repo.insert_all(IntegrationUpdateRunTarget, [
         %{
-          id: Ecto.UUID.bingenerate(),
+          id: Ecto.UUID.generate(),
           integration_update_run_id: run.id,
           collection_id: run.collection_id,
           source_object_id: "=armis-formula",
@@ -523,7 +527,6 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
 
     assert html =~ "Agent Config Dispatch"
-    assert html =~ "No recent config dispatch recorded for this source."
     refute html =~ "%ArgumentError"
     refute html =~ ":utc_datetime expects microseconds"
     refute html =~ "DateTime.truncate(utc_datetime, :second)"

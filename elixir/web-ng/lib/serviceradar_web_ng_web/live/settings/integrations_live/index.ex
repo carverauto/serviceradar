@@ -1140,6 +1140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         source={@selected_source}
         agent_index={@agent_index}
         selected_source_runs={@selected_source_runs}
+        selected_source_target_examples={@selected_source_target_examples}
         selected_source_config_diagnostics={@selected_source_config_diagnostics}
         timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
@@ -1584,6 +1585,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     """
   end
 
+  # Declared so that a caller omitting an assign fails at compile time instead of
+  # raising KeyError when an operator opens the modal.
+  attr :source, :map, required: true
+  attr :agent_index, :map, required: true
+  attr :selected_source_runs, :list, required: true
+  attr :selected_source_target_examples, :list, required: true
+  attr :selected_source_config_diagnostics, :list, required: true
+  attr :timezone, :string, required: true
+
   defp details_modal(assigns) do
     ~H"""
     <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
@@ -1852,7 +1862,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 <div class="mt-1">
                   <.status_badge
                     enabled={@source.enabled}
-                    result={@source.last_result}
+                    result={@source.last_sync_result}
                   />
                 </div>
               </div>

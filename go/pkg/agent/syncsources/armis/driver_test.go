@@ -985,3 +985,50 @@ func stringSliceContains(values []string, want string) bool {
 
 	return false
 }
+
+// Armis replaces the numeric "total" with a marker string once a query matches
+// more devices than it reports exactly. A run must still page through and emit
+// every device rather than failing on the first page.
+func TestSyncPaginatesWhenTotalIsNonNumeric(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case accessTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"access_token":"token-123"},"success":true}`))
+		case searchPath:
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Query().Get("from") == "" {
+				_, _ = w.Write([]byte(`{"data":{"count":2,"next":2,"prev":null,"total":"Many","results":[
+					{"id": 201, "ipAddress": "198.51.100.1"},
+					{"id": 202, "ipAddress": "198.51.100.2"}
+				]},"success":true}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"count":1,"next":null,"prev":0,"total":"Many","results":[
+				{"id": 203, "ipAddress": "198.51.100.3"}
+			]},"success":true}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	recorder := &emitRecorder{}
+	run := testRunContext(models.SourceConfig{
+		Type:        SourceType,
+		Endpoint:    server.URL,
+		Credentials: map[string]string{"secret_key": "secret"},
+		Queries:     []models.QueryConfig{{Label: "large", Query: testDeviceQuery}},
+	}, recorder.emit)
+
+	count, err := NewDriver().Sync(context.Background(), run)
+	if err != nil {
+		t.Fatalf("Sync returned error: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("emitted update count = %d, want 3", count)
+	}
+	if recorder.pageCount() != 2 {
+		t.Fatalf("emitted page count = %d, want 2", recorder.pageCount())
+	}
+}
