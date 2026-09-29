@@ -11,10 +11,13 @@ defmodule ServiceRadar.Edge.SweepPlan do
 
   ## Ranges
 
-  One `TargetRangeV1` per configured static target, never merged with another. A bare IP
+  One `TargetRangeV1` per configured static target, never merged with another. A static
+  target is a bare address or a CIDR; any other form makes the group ineligible. A bare IP
   becomes a `/32` or `/128` CIDR; a CIDR is committed as its canonical prefix (`10.1.2.3/24`
-  is `10.1.2.0/24`); addresses use the spelling `:inet.ntoa/1` produces, which is what the
-  validator compares against. An IPv6 prefix shorter than `/65` holds more addresses than a
+  is `10.1.2.0/24`). IPv4 is dotted-quad. IPv6 is RFC 5952 (lowercase, no leading zeros, the
+  longest run of two or more zero groups compressed, the first such run on a tie) and is
+  refused when that spelling differs from `:inet.ntoa/1`, so a returned plan is one both
+  validators accept. An IPv6 prefix shorter than `/65` holds more addresses than a
   `target_count` can carry and is refused. Two spellings of the same target are one range.
   Ranges are ordered by address family, network address and prefix length, so the same
   targets always give the same plan for the same ids.
@@ -112,12 +115,18 @@ defmodule ServiceRadar.Edge.SweepPlan do
       else
         network = value &&& bnot((1 <<< host_bits) - 1)
 
-        {:ok,
-         %{
-           cidr: to_text(family_bits, network) <> "/" <> Integer.to_string(bits),
-           count: 1 <<< host_bits,
-           order: {family_bits, network, bits}
-         }}
+        case to_text(family_bits, network) do
+          {:ok, text} ->
+            {:ok,
+             %{
+               cidr: text <> "/" <> Integer.to_string(bits),
+               count: 1 <<< host_bits,
+               order: {family_bits, network, bits}
+             }}
+
+          :error ->
+            {:error, {:invalid_target, trimmed}}
+        end
       end
     else
       _ -> {:error, {:invalid_target, trimmed}}
@@ -215,12 +224,60 @@ defmodule ServiceRadar.Edge.SweepPlan do
 
   defp to_text(32, value) do
     <<a, b, c, d>> = <<value::32>>
-    List.to_string(:inet.ntoa({a, b, c, d}))
+    {:ok, List.to_string(:inet.ntoa({a, b, c, d}))}
   end
 
   defp to_text(128, value) do
     words = for <<(word::16 <- <<value::128>>)>>, do: word
-    List.to_string(:inet.ntoa(List.to_tuple(words)))
+    rfc5952 = format_ipv6(words)
+    inet = words |> List.to_tuple() |> :inet.ntoa() |> List.to_string()
+
+    if rfc5952 == inet, do: {:ok, rfc5952}, else: :error
+  end
+
+  defp format_ipv6([0, 0, 0, 0, 0, 0xFFFF, high, low]) do
+    {:ok, dotted} = to_text(32, high <<< 16 ||| low)
+    "::ffff:" <> dotted
+  end
+
+  defp format_ipv6(words) do
+    case longest_zero_run(words) do
+      {_start, length} when length < 2 ->
+        hex_groups(words)
+
+      {start, length} ->
+        head = words |> Enum.take(start) |> hex_groups()
+        tail = words |> Enum.drop(start + length) |> hex_groups()
+        head <> "::" <> tail
+    end
+  end
+
+  defp hex_groups(words) do
+    Enum.map_join(words, ":", &(&1 |> Integer.to_string(16) |> String.downcase()))
+  end
+
+  defp longest_zero_run(words) do
+    {start, length, _, _} =
+      words
+      |> Enum.with_index()
+      |> Enum.reduce({0, 0, nil, 0}, fn
+        {0, index}, {best_start, best_length, nil, _} ->
+          {best_start, best_length, index, 1}
+
+        {0, _index}, {best_start, best_length, run_start, run_length} ->
+          run_length = run_length + 1
+
+          if run_length > best_length do
+            {run_start, run_length, run_start, run_length}
+          else
+            {best_start, best_length, run_start, run_length}
+          end
+
+        {_word, _index}, {best_start, best_length, _, _} ->
+          {best_start, best_length, nil, 0}
+      end)
+
+    {start, length}
   end
 
   defp prefix_bits([], family_bits), do: {:ok, family_bits}
