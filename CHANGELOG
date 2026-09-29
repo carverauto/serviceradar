@@ -8,6 +8,35 @@ identity stops merging on randomized MACs and anchorless seeds.
 
 ## Whats New
 
+**Unreleased**
+- Agent-gateway: raised the core `get_config_if_changed` RPC timeout from
+  15 s to 60 s so slow config generation (large sweep payloads) no longer
+  maps to `not_modified` and leaves agents frozen on a stale config.
+  The Go agent's config deadline is raised from 30 s to 90 s to stay above
+  the gateway budget; already-deployed agents keep their 30 s deadline until
+  upgraded (PR #4949).
+- SRQL: legacy sysmon entities (`in:cpu_metrics`/`in:cpu`,
+  `in:memory_metrics`/`in:memory`, `in:disk_metrics`/`in:disk`,
+  `in:process_metrics`/`in:processes`) now read `sysmon.*`
+  samples in `timeseries_metrics` on CNPG and StarRocks through Readers.
+  Saved queries retain their aliases, filters, fields and aggregations.
+  Aggregate history uses existing timeseries hourly rollups where they
+  preserve the requested dimensions and values, including CNPG disk mounts.
+  Other shapes read only configured raw retention, including byte tags,
+  host/process dimensions and warehouse mount filters; full historical
+  equivalence is not provided. Charts use hourly rollups only for integral-hour
+  buckets; sub-hour and nonintegral-hour buckets read retained raw samples.
+  Rollup-compatible aggregates include their complete edge hours on both the
+  fresh-rollup path and the raw retry when a warehouse rollup is stale.
+  New metric envelopes persist resource host identity for legacy host filters.
+  The Analytics high-utilization
+  cards, the device-list sysmon presence badge and the authored-dashboard
+  CPU template now read `timeseries_metrics` `sysmon.*` directly, and the
+  empty-table JSON:API endpoints (`/api/v2/cpu_metrics`, `/memory_metrics`,
+  `/disk_metrics`, `/process_metrics`, their `_hourly` variants and
+  `/cpu_cluster_metrics`) are removed. The old CNPG tables, their
+  rollups and their migrations remain untouched (issue #4861).
+
 **1.4.76**
 - JetStream: EventWriter reads every stream size from the
   SERVICERADAR_JS_* settings with finite defaults, claims only

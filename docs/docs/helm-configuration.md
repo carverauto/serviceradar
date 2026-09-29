@@ -512,19 +512,20 @@ Operational notes:
 ## Optional StarRocks Analytics
 
 `analytics.starrocks.*` enables an opt-in telemetry warehouse for flows, scalar
-metrics, logs and event history. It is off by default, and NetFlow collection
-does not depend on it (`flowCollector.enabled` is independent). Metric, log and
+metrics, logs, event history, and further append-only datasets, including BMP
+routing events. It is off by default, and NetFlow collection
+does not depend on it (`flowCollector.enabled` is independent). BMP routing
+events are warehouse-only while StarRocks is enabled; the table and retention
+contract is in `k8s/starrocks/README.md`. Metric, log and
 event reads stay on CNPG until the dataset is named in
-`analytics.starrocks.cutoverDatasets`. **Flow reads are the exception: they are
-warehouse-only.** Until `flows` is listed there, the NetFlow dashboard and
-`in:flows` are refused with a warehouse-required error rather than answered from
-CNPG, which stays the flow write target only.
+`analytics.starrocks.cutoverDatasets`. Flow routing,
+required delivery and the historical-attribution limitation are documented in
+[NetFlow: Flow cutover and delivery](./netflow.md#flow-cutover-and-delivery).
 
 web-ng and core read these settings once at boot, so the chart stamps a digest
 of `analytics.starrocks.*` on both pods: a `helm upgrade` that changes the
 cut-over or shadow datasets rolls them without a manual restart. Removing
-`metrics`, `logs` or `events` from the list falls back to CNPG; removing `flows`
-does not, it refuses flow reads again.
+`metrics`, `logs` or `events` from the list falls back to CNPG.
 
 The StarRocks Frontend is never reached passwordless. With
 `analytics.starrocks.enabled=true` the chart **fails to render** unless

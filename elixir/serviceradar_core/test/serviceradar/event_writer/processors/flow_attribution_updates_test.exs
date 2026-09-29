@@ -65,6 +65,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
       Jason.encode!(%{
         "id" => "flow-alpha-0001",
         "attribution_version" => 4,
+        "agent_id" => "agent-example-01",
         "pid" => 9,
         "comm" => "sshd",
         "bytes_in" => 1200,
@@ -97,6 +98,8 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
     assert opts[:columns] == Attribution.load_columns()
     assert row["id"] == "flow-alpha-0001"
     assert row["attribution_version"] == 4
+    assert row["agent_id"] == "agent-example-01"
+    assert "agent_id" in opts[:columns]
     assert row["pid"] == 9
     assert row["time"] == "1999-06-15 12:00:00"
     refute Map.has_key?(row, "bytes_in")

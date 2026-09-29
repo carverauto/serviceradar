@@ -751,7 +751,7 @@ async fn check_timeseries_metrics_query_returns_rows(harness: &SrqlTestHarness) 
 
 async fn check_timeseries_other_rollup_returns_tail_row(harness: &SrqlTestHarness) {
     let request = QueryRequest {
-        query: r#"in:timeseries_metrics time:last_1h stats:"sum(value) as total_value, count(*) as sample_count by device_id" sort:total_value:desc limit:1 other:true"#
+        query: r#"in:timeseries_metrics device_id:("device-alpha","device-beta") time:last_1h stats:"sum(value) as total_value, count(*) as sample_count by device_id" sort:total_value:desc limit:1 other:true"#
             .to_string(),
         limit: None,
         cursor: None,

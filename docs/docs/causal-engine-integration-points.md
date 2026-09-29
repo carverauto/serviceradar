@@ -51,10 +51,11 @@ how they meet.
 
 ServiceRadar has an Elixir/ERTS control plane and a single Go edge agent. Data
 arrives on a few paths (edge-agent mTLS gRPC; bulk-collector NATS JetStream;
-causal-signal NATS subjects) — but **every path terminates in one CNPG
-database**, and NATS-ingested data is persisted within ~instantly. CNPG is the
-system of record; there is no separate "data pane" to find. (Path detail is in
-Appendix B for completeness only — you should not need it.)
+causal-signal NATS subjects) and is persisted within ~instantly. CNPG holds
+the tables below. BMP routing events are stored in the StarRocks warehouse
+when it is enabled and in the CNPG `bmp_routing_events` hypertable when it is
+not (Appendix B). (Path detail is in Appendix B for completeness only — you
+should not need it.)
 
 The CNPG database (schema `platform`) carries:
 
@@ -377,7 +378,9 @@ is complete.
   (NetFlow/sFlow) -> core-elx EventWriter normalization/persistence -> CNPG.
 - **Causal-signal path (NATS):** BMP/BGP (`ARANCINI_CAUSAL` stream), SIEM
   (`siem.events.>`), MTR/other (`signals.causal.>`) → `CausalSignals`
-  processor → `ocsf_events` / `bmp_routing_events` in CNPG.
+  processor → `ocsf_events` in CNPG, and `bmp_routing_events` to the StarRocks
+  warehouse when StarRocks is enabled (to CNPG otherwise).
 
-All of it is in CNPG within ~instantly of arrival, and all of it is then
-SRQL-queryable.
+Each path is persisted within ~instantly of arrival (BMP routing events in the
+StarRocks warehouse when it is enabled, and in CNPG when it is not, alongside
+every other path) and is then SRQL-queryable.

@@ -220,6 +220,9 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert Destination.table_for(:events) == "events"
     assert Destination.table_for(:mtr_traces) == "mtr_traces"
     assert Destination.table_for(:mtr_hops) == "mtr_hops"
+    assert Destination.table_for(:otel_metrics) == "otel_metrics"
+    assert Destination.table_for(:otel_metric_points) == "otel_metric_points"
+    assert Destination.table_for(:bmp_routing_events) == "bmp_routing_events"
   end
 
   @mtr_trace %{
@@ -496,13 +499,16 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     end
   end
 
-  test "persist_after_cnpg stays best-effort while cutover_datasets is empty" do
+  test "persist_after_cnpg stays best-effort for flows while the warehouse is disabled" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      prev |> Keyword.put(:cutover_datasets, []) |> Keyword.put(:shadow_datasets, [])
+      prev
+      |> Keyword.put(:enabled, false)
+      |> Keyword.put(:cutover_datasets, [])
+      |> Keyword.put(:shadow_datasets, [])
     )
 
     try do
@@ -524,7 +530,7 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      Keyword.put(prev, :cutover_datasets, [:flows])
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [:flows])
     )
 
     try do
@@ -551,6 +557,102 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
       assert {:ok, 1} =
                Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: quarantine)
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
+  # Captain decision 2026-09-28: flows commit to the warehouse before the
+  # JetStream ACK whenever the warehouse is enabled -- before, not after, the
+  # read cutover -- so the warehouse is complete and agent-enriched by the
+  # time an operator flips `cutoverDatasets`. An outage fails the batch (no
+  # ACK) instead of leaving a silent hole.
+  test "flows require the warehouse before ACK once StarRocks is enabled, before any cutover" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+    )
+
+    try do
+      insert = fn rows -> {:ok, length(rows)} end
+
+      persist = fn table, _rows, _opts ->
+        send(self(), {:persist, table})
+        {:error, :publish_timeout}
+      end
+
+      # The warehouse load failed: the batch is an error, so the EventWriter
+      # fails its JetStream ACK and the stream redelivers.
+      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
+               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: persist)
+
+      assert_received {:persist, "ocsf_network_activity"}
+
+      ok_persist = fn _table, _rows, _opts -> {:ok, %{loaded: 1}} end
+
+      assert {:ok, 1} =
+               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: ok_persist)
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
+  test "a flow warehouse outage redelivers and replays idempotently" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+    )
+
+    try do
+      parent = self()
+
+      insert = fn rows ->
+        send(parent, {:cnpg_insert, length(rows)})
+        # The real writer is `on_conflict: :nothing` on the stable flow
+        # identity, so the redelivered re-insert is a no-op that still
+        # succeeds.
+        {:ok, length(rows)}
+      end
+
+      persist =
+        fn table, rows, _opts ->
+          send(parent, {:warehouse_load, table, rows})
+
+          case Process.get(:loads, 0) do
+            0 ->
+              Process.put(:loads, 1)
+              {:error, :publish_timeout}
+
+            _ ->
+              {:ok, %{loaded: length(rows)}}
+          end
+        end
+
+      # First delivery: CNPG insert succeeds, the warehouse load times out,
+      # the batch fails and JetStream redelivers it.
+      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
+               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: persist)
+
+      # Redelivery of the same batch: both stores see the same rows again.
+      assert {:ok, 1} =
+               Destination.ack_cnpg_batch(:flows, @flow_rows, insert, persist: persist)
+
+      assert_received {:cnpg_insert, 1}
+      assert_received {:cnpg_insert, 1}
+
+      assert_received {:warehouse_load, "ocsf_network_activity", first_rows}
+      assert_received {:warehouse_load, "ocsf_network_activity", second_rows}
+
+      # The primary-key warehouse table upserts: the retried load carries the
+      # same stable record ids as the failed one, so the replay cannot
+      # duplicate rows.
+      assert Enum.map(first_rows, & &1["id"]) == Enum.map(second_rows, & &1["id"])
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end

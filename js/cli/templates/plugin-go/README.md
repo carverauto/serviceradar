@@ -21,13 +21,18 @@ need the public Go proxy or direct GitHub module resolution. `go.mod` owns the
 SDK version pin. To update it, run these commands from the plugin directory:
 
 ```sh
-GOPRIVATE='github.com/carverauto/*' go get github.com/carverauto/serviceradar-sdk-go/v2@latest
-GOPRIVATE='github.com/carverauto/*' go mod vendor
+export GOPRIVATE='github.com/carverauto/*'
+export GONOSUMDB='github.com/carverauto/*'
+go get github.com/carverauto/serviceradar-sdk-go/v2@latest
+go mod vendor
 ```
 
 Review and commit `go.mod`, `go.sum`, and the regenerated `vendor/` tree together.
-Do not edit vendored source by hand. `GOPRIVATE` bypasses the public proxy and
-checksum database for matching modules. Existing `go.sum` entries still detect
+Do not edit vendored source by hand. `github.com/carverauto/*` modules are not
+served by the public Go proxy or checksum database: `GOPRIVATE` makes Go fetch
+them directly from GitHub, and `GONOSUMDB` skips the checksum-database lookup
+for them. Set both for any `go get`, `go mod`, or `tinygo build` that resolves
+modules (a build from the committed `vendor/` tree does not). Existing `go.sum` entries still detect
 changed downloads, but a newly selected version gets its initial checksum from
 the direct download, without public checksum-database verification. Vendored
 builds check `vendor/modules.txt` for consistency with `go.mod`; they do not

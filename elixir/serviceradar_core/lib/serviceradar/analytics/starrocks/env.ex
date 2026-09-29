@@ -31,7 +31,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     events: 365,
     mtr: 365,
     otel: 365,
-    traces: 365
+    traces: 365,
+    bmp: 365
   ]
 
   # How far an hourly materialized view may lag its source table before a
@@ -65,7 +66,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     [
       enabled: enabled,
       catalog_enabled: truthy?("SERVICERADAR_STARROCKS_CATALOG_ENABLED"),
-      cutover_datasets: csv_datasets("SERVICERADAR_STARROCKS_CUTOVER_DATASETS"),
+      cutover_datasets: cutover_datasets(enabled),
       shadow_datasets: shadow_datasets(enabled),
       fe_http: fe_http(),
       fe_mysql_host: fe_mysql_host(),
@@ -161,6 +162,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
       datasets -> datasets
     end
   end
+
+  # Helm always renders this variable, so blank must behave like unset.
+  # The user-facing flow routing contract lives in
+  # docs/docs/netflow.md#flow-cutover-and-delivery.
+  defp cutover_datasets(enabled) do
+    if blank?(System.get_env("SERVICERADAR_STARROCKS_CUTOVER_DATASETS")) do
+      if(enabled, do: [:flows], else: [])
+    else
+      csv_datasets("SERVICERADAR_STARROCKS_CUTOVER_DATASETS")
+    end
+  end
+
+  defp blank?(nil), do: true
+
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
 
   defp fe_http do
     case System.get_env("SERVICERADAR_STARROCKS_FE_HTTP") do

@@ -916,13 +916,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     # Ensure the device is considered to have sysmon metrics so the label renders.
-    Repo.insert_all("cpu_metrics", [
+    # Device sysmon is stored in timeseries_metrics as sysmon.* metric types.
+    Repo.insert_all("timeseries_metrics", [
       %{
         timestamp: now,
         gateway_id: "test-gw",
-        core_id: 0,
-        usage_percent: 12.3,
+        series_key: "#{uid}:sysmon.cpu",
+        metric_name: "cpu.usage_percent",
+        metric_type: "sysmon.cpu",
         device_id: uid,
+        value: 12.3,
         created_at: now
       }
     ])

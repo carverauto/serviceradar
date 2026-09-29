@@ -261,9 +261,9 @@ in:bmp_events prefix:%203.0.113.0% time:last_7d sort:time:desc
 
 ```
 in:devices is_available:false time:last_15m
-in:cpu_metrics time:last_15m usage_percent:>90 sort:usage_percent:desc
-in:disk_metrics time:last_30m usage_percent:>85 sort:usage_percent:desc
-in:memory_metrics time:last_15m usage_percent:>90
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_15m value:>90 sort:timestamp:desc
+in:timeseries_metrics metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:last_30m value:>85 sort:timestamp:desc
+in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:last_15m value:>90
 in:logs severity_text:error time:last_5m stats:count() as errors
 in:events severity_id:>3 time:last_5m stats:count() as critical_events
 in:services available:false time:last_10m

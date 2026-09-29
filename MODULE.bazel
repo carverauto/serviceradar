@@ -126,6 +126,8 @@ archive_override(
 git_override(
     module_name = "rules_erlang",
     commit = "effba3214d0e5637c66430cad67d59810ce8f1c3",
+    patch_strip = 1,
+    patches = ["//third_party/patches/rules_erlang:hex_pkg_patches.patch"],
     remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 

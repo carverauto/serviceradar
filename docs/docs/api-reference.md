@@ -105,6 +105,14 @@ For pagination across large result sets, pass the `next_cursor` value from a
 response back as the `cursor` field (with `direction: "next"`) on the
 following request.
 
+### Retired sysmon JSON:API resources
+
+The dedicated `/api/v2/cpu_metrics`, `/api/v2/memory_metrics`,
+`/api/v2/disk_metrics`, `/api/v2/process_metrics`, their `_hourly` routes,
+and `/api/v2/cpu_cluster_metrics` have been removed. Use `POST /api/query`
+with the [sysmon SRQL queries](./srql-language-reference.md#aggregation-with-stats)
+instead. The legacy CNPG tables, rollups and migrations remain in place.
+
 ## Discover the SRQL catalog — `GET /api/srql/catalog`
 
 The `/api/srql/catalog` endpoint returns the canonical client-side reference for
@@ -173,7 +181,9 @@ Telemetry collections use bounded offset pagination even when no page is
 requested. Use `page[limit]` and `page[offset]` and follow response pagination
 links to retrieve subsequent pages. Treat each returned JSON:API `id` as an
 opaque value, including composite IDs for telemetry; do not reconstruct IDs
-from individual attributes.
+from individual attributes. When the warehouse serves a log, timeseries, OTel
+metric, or trace collection, a filter or sort on a column that table does not
+store is rejected and the error names the field.
 
 For the generated route inventory, accepted fields, and response schemas,
 fetch `/api/v2/open_api` from your authenticated deployment. For the committed

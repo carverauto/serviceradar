@@ -15,6 +15,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
 
   @system_actor SystemActor.system(:plugin_integration_provisioner_store_db_test)
   @schedule_id "example-inventory.refresh"
+  @telemetry_schedule_id "example-inventory.telemetry"
   @partition_id "default"
 
   setup_all do
@@ -112,6 +113,102 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
     end
   end
 
+  describe "one rule driving several schedules of one package" do
+    test "binds both schedules to one assignment, each at its own cadence" do
+      %{package: package, rule: rule} = provision_multi!("bind")
+
+      assignment = provisioned_assignment!(rule)
+      refresh = package_schedule!(package)
+      telemetry = package_schedule!(package, @telemetry_schedule_id)
+
+      for schedule <- [refresh, telemetry] do
+        assert schedule.enabled
+        assert schedule.plugin_assignment_id == assignment.id
+        assert schedule.credential_refs == %{"api_token" => credential_ref(rule)}
+        assert schedule.metadata["credential_rule_id"] == rule.id
+      end
+
+      # The rule's cadence override (7200) moves the primary only.
+      assert refresh.cadence_seconds == 7_200
+      assert telemetry.cadence_seconds == 60
+
+      # A second pass over unchanged state writes nothing.
+      assert {:ok, %{assignments_written: 0, schedules_bound: 0}} =
+               reconcile(rule, [multi_schedule_profile(package, rule.provider)])
+    end
+
+    test "disabling the rule disables every bound schedule" do
+      %{package: package, rule: rule} = provision_multi!("disable")
+
+      assert {:ok, summary} =
+               reconcile(%{rule | enabled: false}, [
+                 multi_schedule_profile(package, rule.provider)
+               ])
+
+      assert summary.assignments_disabled == 1
+      assert summary.schedules_disabled == 2
+
+      refute provisioned_assignment!(rule).enabled
+      refute package_schedule!(package).enabled
+      refute package_schedule!(package, @telemetry_schedule_id).enabled
+    end
+
+    test "a successor version that drops a schedule id retires that schedule" do
+      %{package: v1, rule: rule} = provision_multi!("drop")
+
+      v2 =
+        approved_package!(v1.plugin_id,
+          version: "1.1.0",
+          create_plugin: false,
+          schedules: [refresh_contract(), telemetry_contract()]
+        )
+
+      profile =
+        v2
+        |> multi_schedule_profile(rule.provider)
+        |> put_in(["provisioning", "schedule_ids"], [@schedule_id])
+        |> Map.update!("producer_schedules", &Enum.take(&1, 1))
+
+      assert {:ok, summary} = reconcile(rule, [profile])
+      assert summary.schedules_disabled == 2
+      assert summary.schedules_bound == 1
+
+      refute package_schedule!(v1).enabled
+      refute package_schedule!(v1, @telemetry_schedule_id).enabled
+
+      assignment = provisioned_assignment!(rule)
+      assert to_string(assignment.plugin_package_id) == to_string(v2.id)
+      assert package_schedule!(v2).enabled
+      assert package_schedule!(v2).plugin_assignment_id == assignment.id
+
+      # The dropped schedule exists in the successor package but nothing binds it.
+      dropped = package_schedule!(v2, @telemetry_schedule_id)
+      refute dropped.enabled
+      assert is_nil(dropped.plugin_assignment_id)
+    end
+  end
+
+  defp provision_multi!(label) do
+    unique = System.unique_integer([:positive])
+    agent_uid = "provisioner-agent-#{label}-#{unique}"
+    register_control_session!(agent_uid)
+
+    package =
+      approved_package!("provisioner-#{label}-#{unique}",
+        schedules: [refresh_contract(), telemetry_contract()]
+      )
+
+    profile = multi_schedule_profile(package, "provisioner-#{label}-#{unique}")
+
+    rule =
+      agent_uid
+      |> producer_schedule_rule(profile["provider"])
+      |> Map.update!(:metadata, &Map.put(&1, "cadence_seconds", 7_200))
+
+    assert {:ok, %{assignments_written: 1, schedules_bound: 2}} = reconcile(rule, [profile])
+    %{package: package, rule: rule}
+  end
+
   defp provision!(label) do
     unique = System.unique_integer([:positive])
     agent_uid = "provisioner-agent-#{label}-#{unique}"
@@ -142,12 +239,15 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
     assignment
   end
 
-  defp package_schedule!(package) do
+  defp package_schedule!(package, schedule_id \\ @schedule_id) do
     assert {:ok, %{} = schedule} =
-             ScheduleStore.get_package_schedule(package.id, @schedule_id, @system_actor)
+             ScheduleStore.get_package_schedule(package.id, schedule_id, @system_actor)
 
     schedule
   end
+
+  defp credential_ref(rule),
+    do: ServiceRadar.Plugins.SecretRefs.network_credential_ref(rule.secret_id)
 
   defp admin_actor do
     %{
@@ -184,19 +284,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
         "requested_cpu_ms" => 10_000,
         "max_open_connections" => 4
       },
-      "producer_schedules" => [
-        %{
-          "schedule_id" => @schedule_id,
-          "label" => "Refresh example inventory",
-          "action_id" => @schedule_id,
-          "command_type" => "plugin.run_action",
-          "default_cadence_seconds" => 86_400,
-          "min_cadence_seconds" => 3_600,
-          "max_cadence_seconds" => 2_592_000,
-          "settings_schema" => %{"type" => "object"},
-          "credential_requirements" => %{"api_token" => %{"required" => true}}
-        }
-      ]
+      "producer_schedules" => Keyword.get(opts, :schedules, [refresh_contract()])
     }
 
     {:ok, package} =
@@ -229,6 +317,52 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
 
     package
   end
+
+  defp refresh_contract do
+    %{
+      "schedule_id" => @schedule_id,
+      "label" => "Refresh example inventory",
+      "action_id" => @schedule_id,
+      "command_type" => "plugin.run_action",
+      "default_cadence_seconds" => 86_400,
+      "min_cadence_seconds" => 3_600,
+      "max_cadence_seconds" => 2_592_000,
+      "settings_schema" => %{"type" => "object"},
+      "credential_requirements" => %{"api_token" => %{"required" => true}}
+    }
+  end
+
+  defp telemetry_contract do
+    %{
+      "schedule_id" => @telemetry_schedule_id,
+      "label" => "Collect example telemetry",
+      "action_id" => @telemetry_schedule_id,
+      "command_type" => "plugin.run_action",
+      "default_cadence_seconds" => 60,
+      "min_cadence_seconds" => 30,
+      "max_cadence_seconds" => 3_600,
+      "settings_schema" => %{"type" => "object"},
+      "credential_requirements" => %{"api_token" => %{"required" => true}}
+    }
+  end
+
+  defp multi_schedule_profile(package, provider) do
+    refresh = Map.put(Map.take(refresh_contract(), catalog_keys()), "timeout_seconds", 900)
+    telemetry = Map.put(Map.take(telemetry_contract(), catalog_keys()), "timeout_seconds", 30)
+
+    package
+    |> producer_schedule_profile(provider)
+    |> Map.put("provisioning", %{
+      "mode" => "producer_schedule",
+      "schedule_ids" => [@schedule_id, @telemetry_schedule_id],
+      "credential_requirement" => "api_token"
+    })
+    |> Map.put("producer_schedule", refresh)
+    |> Map.put("producer_schedules", [refresh, telemetry])
+  end
+
+  defp catalog_keys,
+    do: ~w(schedule_id default_cadence_seconds min_cadence_seconds max_cadence_seconds)
 
   defp producer_schedule_profile(package, provider) do
     %{

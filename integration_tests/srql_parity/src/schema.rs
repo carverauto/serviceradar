@@ -213,6 +213,7 @@ pub const CNPG_BASELINE_TABLES: &[&str] = &[
     "otel_metric_points",
     "otel_traces",
     "otel_trace_summaries",
+    "bmp_routing_events",
     // Read by the CNPG flow `app` classifier; left empty, so both dialects fall back to the
     // same port-based labels.
     "netflow_app_classification_rules",
@@ -390,6 +391,21 @@ pub const CNPG_TIMESCALE_DDL: &[&str] = &[
     "SELECT create_hypertable('platform.ocsf_network_activity', 'time', if_not_exists => true)",
     "SELECT create_hypertable('platform.logs', 'timestamp', if_not_exists => true)",
     "SELECT create_hypertable('platform.otel_traces', 'timestamp', if_not_exists => true)",
+    "CREATE MATERIALIZED VIEW platform.timeseries_metrics_disk_hourly
+     WITH (timescaledb.continuous) AS
+     SELECT
+       time_bucket('1 hour', timestamp) AS bucket,
+       device_id, metric_type, metric_name, series_key,
+       tags->>'mount_point' AS mount_point,
+       AVG(value)::float8 AS avg_value,
+       MIN(value)::float8 AS min_value,
+       MAX(value)::float8 AS max_value,
+       COUNT(*)::bigint AS sample_count
+     FROM platform.timeseries_metrics
+     WHERE metric_type = 'sysmon.disk' AND device_id IS NOT NULL
+       AND tags->>'mount_point' IS NOT NULL
+     GROUP BY 1, 2, 3, 4, 5, 6
+     WITH NO DATA",
     // 20260220110000_add_srql_metric_hourly_caggs.exs
     "CREATE MATERIALIZED VIEW platform.timeseries_metrics_hourly
      WITH (timescaledb.continuous) AS
@@ -501,6 +517,7 @@ pub const CNPG_TIMESCALE_DDL: &[&str] = &[
 /// until refreshed, and the CNPG dialect reads closed buckets only from them.
 pub const CNPG_CONTINUOUS_AGGREGATES: &[&str] = &[
     "platform.timeseries_metrics_hourly",
+    "platform.timeseries_metrics_disk_hourly",
     // Before flow_traffic_1h, which is built over it.
     "platform.ocsf_network_activity_5m_traffic",
     "platform.flow_traffic_1h",

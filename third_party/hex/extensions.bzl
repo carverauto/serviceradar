@@ -27,15 +27,18 @@ load(":hex_packages.bzl", "HEX_PACKAGES")
 def _stub(app):
     return Label("//third_party/hex:" + app + ".BUILD")
 
+def _hex_package(app, hex_name, version, sha256):
+    return hex_pkg(
+        name = app,
+        package_name = hex_name,
+        version = version,
+        sha256 = sha256,
+        build_file = _stub(app),
+    )
+
 hex = hex_packages_extension(
     packages = [
-        hex_pkg(
-            name = app,
-            package_name = hex_name,
-            version = version,
-            sha256 = sha256,
-            build_file = _stub(app),
-        )
+        _hex_package(app, hex_name, version, sha256)
         for (app, hex_name, version, sha256) in HEX_PACKAGES
     ] + [
         # bundlex is the one entry that is not a Hex package -- serviceradar_core_elx pins it

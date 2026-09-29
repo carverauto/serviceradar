@@ -28,6 +28,10 @@ defmodule ServiceRadarWebNG.SRQLParityShape do
     "flows" => ~w(flows flow network_activity),
     "attributed_flows" => ~w(attributed_flows attributed_flow flow_attributions flow_attribution),
     "timeseries_metrics" => ~w(timeseries_metrics timeseries),
+    "cpu_metrics" => ~w(cpu_metrics cpu),
+    "memory_metrics" => ~w(memory_metrics memory),
+    "disk_metrics" => ~w(disk_metrics disk),
+    "process_metrics" => ~w(process_metrics processes),
     "snmp_metrics" => ~w(snmp_metrics snmp),
     "rperf_metrics" => ~w(rperf_metrics rperf),
     "logs" => ~w(logs),
@@ -40,7 +44,8 @@ defmodule ServiceRadarWebNG.SRQLParityShape do
     "otel_metrics" => ~w(otel_metrics metrics),
     "otel_metric_points" => ~w(otel_metric_points metric_points),
     "traces" => ~w(otel_traces traces trace_spans),
-    "otel_trace_summaries" => ~w(otel_trace_summaries trace_summaries traces_summaries)
+    "otel_trace_summaries" => ~w(otel_trace_summaries trace_summaries traces_summaries),
+    "bmp_events" => ~w(bmp_events bmp_event bmp_routing_events)
   }
   @spellings for {canonical, spellings} <- @canonical, spelling <- spellings, into: %{}, do: {spelling, canonical}
 

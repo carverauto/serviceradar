@@ -556,10 +556,11 @@ Any result rows mean devices are down.
 ### Sustained high CPU
 
 ```srql
-in:cpu_metrics time:last_15m usage_percent:>90 sort:usage_percent:desc
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_15m value:>90 sort:timestamp:desc
 ```
 
-Hosts running hot in the recent window.
+Hosts running hot in the recent window. Device sysmon is stored in
+`timeseries_metrics` as `sysmon.*` metric types.
 
 ### Disks nearly full
 

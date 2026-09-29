@@ -79,6 +79,7 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
     row = %{
       id: "flow-alpha-0001",
       time: ~N[1999-06-15 12:00:00],
+      agent_id: "agent-example-01",
       pid: 9,
       comm: "nginx",
       bytes_in: 1200,
@@ -97,6 +98,10 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
     assert payload["id"] == "flow-alpha-0001"
     assert payload["time"] == ~N[1999-06-15 12:00:00]
     assert payload["attribution_version"] == 41
+    assert payload["agent_id"] == "agent-example-01"
+    [encoded] = Rows.encode(:flow_attribution, [payload |> Jason.encode!() |> Jason.decode!()])
+    assert encoded["agent_id"] == "agent-example-01"
+    assert "agent_id" in Attribution.load_columns()
     refute Map.has_key?(payload, "bytes_in")
   end
 

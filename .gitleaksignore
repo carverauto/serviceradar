@@ -69,3 +69,8 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 # its duplicate-object-key rejection test. Limit exceptions to these findings.
 e541642dd71ef1cb04faaea78a4df9fe77c84bd1:demo/rtsp-replayer/clips.lock.json:generic-api-key:23
 e541642dd71ef1cb04faaea78a4df9fe77c84bd1:demo/rtsp-replayer/lock_test.go:generic-api-key:63
+# Synthetic target-set key in the shared-targets/v1 wire-format example in the
+# refactor-sweep-config-shared-targets OpenSpec proposal. The value is "q-" plus
+# the first 16 hex characters of a SHA-256 hash of an example query string;
+# it is not a credential.
+9c4929c3dffe18574c1e468f5d68fab5ab0e3ee0:openspec/changes/refactor-sweep-config-shared-targets/design.md:generic-api-key:196

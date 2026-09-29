@@ -5,7 +5,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   Ordinary installations stay on CNPG until a dataset is listed in
   `cutover_datasets`. NetFlow is the exception: `:flows` is served from the
   warehouse or not at all, so an installation that has not cut it over gets
-  `{:error, :starrocks_required}` rather than CNPG rows.
+  `{:error, :starrocks_required}` rather than CNPG rows. Flows ship in the
+  default cutover set of a warehouse-enabled installation (`Env`), so that
+  refusal arm is reached only when an operator explicitly lists cutover
+  datasets without `flows` (or the warehouse is disabled, where every flows
+  reader except the hostile-IOC risk reader refuses instead of reading CNPG).
 
   An entity only maps to a dataset when the warehouse actually holds its rows.
   Every spelling the SRQL parser accepts for such an entity must be listed:
@@ -49,7 +53,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       when e in ~w(flows flow network_activity attributed_flows attributed_flow flow_attributions flow_attribution) ->
         :flows
 
-      e when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf) ->
+      e
+      when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf
+                   cpu_metrics cpu memory_metrics memory disk_metrics disk process_metrics processes) ->
         :metrics
 
       "logs" ->
@@ -57,6 +63,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
 
       e when e in ~w(mtr_traces mtr_hops mtr_hop_stats) ->
         :mtr
+
+      e when e in ~w(bmp_events bmp_event bmp_routing_events) ->
+        :bmp
 
       e when e in ~w(otel_metrics metrics otel_metric_points metric_points) ->
         :otel_metrics
@@ -104,6 +113,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # So do spans (`OtelTraces.store/2`), and their summaries are derived in the
   # same backend (`RefreshTraceSummariesWorker`).
   def mode_for(:otel_traces), do: if(enabled?(), do: "starrocks")
+
+  # BMP routing events follow the same rule: AnalyticsSignals writes them to
+  # the warehouse only when it is enabled (`store_routing_events/1`).
+  def mode_for(:bmp), do: if(enabled?(), do: "starrocks")
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do

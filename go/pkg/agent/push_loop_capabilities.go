@@ -374,6 +374,9 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		proxmoxSemanticConnectorCapabilityV1,
 		proxmoxConsolePolicyBindingCapabilityV1,
 		proxmoxIdentityCapabilityV3,
+		// grpc_request: the Wasm runtime provides the grpc_unary host
+		// function, so core can admit packages that declare it.
+		pluginCapabilityGRPCRequest,
 	)
 	if options.hostNetworkVisibilitySupported {
 		capabilities = append(capabilities, capabilityHostNetworkVisibility)

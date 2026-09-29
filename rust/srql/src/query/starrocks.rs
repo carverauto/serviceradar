@@ -6,6 +6,7 @@ use crate::{
 };
 use chrono::{SecondsFormat, Timelike, Utc};
 
+mod bmp_events;
 mod mtr;
 mod otel_metrics;
 mod traces;
@@ -32,6 +33,19 @@ fn translate_inner(
     database: &str,
     allow_rollup: bool,
 ) -> Result<TranslateResponse> {
+    if super::sysmon::is_entity(&plan.entity) {
+        let (sql, params) = super::sysmon::to_sql_and_params(plan, Some(database), allow_rollup)?;
+        return Ok(TranslateResponse {
+            sql,
+            params,
+            pagination: PaginationMeta {
+                next_cursor: None,
+                prev_cursor: None,
+                limit: Some(plan.limit),
+            },
+            viz: super::viz::meta_for_plan(plan),
+        });
+    }
     // MTR has no rollup, so both entry points compile it the same way. It is
     // not a `Dataset`: its stats grammar is the CNPG MTR builders' own, parsed
     // by them and rendered by `mtr`, not the generic stats compiler below.
@@ -48,6 +62,11 @@ fn translate_inner(
     // asked for the raw table (`allow_rollup` false).
     if matches!(plan.entity, Entity::Traces | Entity::TraceSummaries) {
         return traces::translate(plan, database, allow_rollup);
+    }
+    // BMP routing events are a row listing with no rollup and no stats; the
+    // dialect answers the same queries the CNPG `bmp_events` builder answers.
+    if matches!(plan.entity, Entity::BmpEvents) {
+        return bmp_events::translate(plan, database);
     }
     match dataset_for(&plan.entity) {
         Some(dataset) => {
@@ -96,10 +115,7 @@ const METRIC_HOURLY: HourlyRollup = HourlyRollup {
 
 /// `timeseries_metrics` and `events` are each one physical table holding
 /// several families, exactly as they are on CNPG, so an entity scoped to one
-/// family carries that family's `scope` predicate. The sysmon entities are
-/// deliberately absent: CNPG serves them from their own `cpu_metrics`/
-/// `memory_metrics`/`disk_metrics`/`process_metrics` tables, which EventWriter
-/// never mirrors into the warehouse.
+/// family carries that family's `scope` predicate.
 fn dataset_for(entity: &Entity) -> Option<Dataset> {
     match entity {
         Entity::Flows => Some(Dataset {
@@ -1813,7 +1829,7 @@ fn profile_order_sql(plan: &QueryPlan, bucket_count_alias: &str) -> String {
     format!("\nORDER BY {}", parts.join(", "))
 }
 
-fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+pub(super) fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
     value
         .with_minute(0)
         .and_then(|value| value.with_second(0))
@@ -1827,7 +1843,7 @@ fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
 /// leaving an already-aligned end alone would exclude the bucket CNPG includes,
 /// so the two backends would resolve `latest` to different hours for the same
 /// query.
-fn exclusive_hour_end(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+pub(super) fn exclusive_hour_end(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
     floor_hour(value) + chrono::Duration::hours(1)
 }
 
@@ -4876,22 +4892,6 @@ mod tests {
         )
         .expect("all");
         assert!(!all.sql.contains("metric_type ="));
-    }
-
-    #[test]
-    fn sysmon_entities_are_not_served_from_the_metrics_table() {
-        // CNPG keeps these in their own tables with their own columns, and
-        // EventWriter never mirrors them, so answering from timeseries_metrics
-        // would return interface counters labelled as CPU.
-        for query in [
-            "in:cpu_metrics time:last_1h limit:5",
-            "in:memory_metrics time:last_1h limit:5",
-            "in:disk_metrics time:last_1h limit:5",
-            "in:process_metrics time:last_1h limit:5",
-        ] {
-            let err = translate(&plan(query), "serviceradar").expect_err(query);
-            assert!(err.to_string().contains("starrocks_unsupported_entity"));
-        }
     }
 
     #[test]

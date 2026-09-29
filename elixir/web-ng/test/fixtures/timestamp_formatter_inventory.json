@@ -520,6 +520,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng/topology/god_view_stream.ex",
+    "matcher": "naive_datetime_string",
+    "occurrence": 1,
+    "fingerprint": "cbf05138a5f5e8f0f20b04589ccc1ee84fd4f657ecfe67a215d4e6448f6f6f84",
+    "classification": "canonical_machine",
+    "reason": "UTC wall-clock literal bounding a StarRocks DATETIME column in warehouse BMP routing SQL; never displayed"
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/channels/camera_relay_stream_handler.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,

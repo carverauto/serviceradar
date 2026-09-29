@@ -45,6 +45,8 @@ defmodule ServiceRadarWebNG.Dashboards.PackagesTest do
   defmodule DashboardGitHubClient do
     @moduledoc false
 
+    def fetch_body(url, opts), do: get(url, opts)
+
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/acme/dashboard-demo/commits/") ->

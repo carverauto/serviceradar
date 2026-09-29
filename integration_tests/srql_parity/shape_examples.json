@@ -32,9 +32,19 @@
     "trace_spans": "traces",
     "otel_trace_summaries": "otel_trace_summaries",
     "trace_summaries": "otel_trace_summaries",
+    "bmp_events": "bmp_events",
+    "bmp_event": "bmp_events",
+    "bmp_routing_events": "bmp_events",
     "devices": null,
     "interfaces": null,
-    "cpu_metrics": null,
+    "cpu_metrics": "cpu_metrics",
+    "cpu": "cpu_metrics",
+    "memory_metrics": "memory_metrics",
+    "memory": "memory_metrics",
+    "disk_metrics": "disk_metrics",
+    "disk": "disk_metrics",
+    "process_metrics": "process_metrics",
+    "processes": "process_metrics",
     "otel_traces": "traces",
     "timeseries_metric_interface_hourly": null,
     "timeseries_metric_disk_hourly": null
@@ -153,8 +163,8 @@
       "modifiers": ["limit", "sort"]
     },
     {
-      "query": "in:cpu_metrics uid:(\"sr:host-01\") time:last_24h bucket:24h agg:count series:uid limit:3",
-      "entity": null,
+      "query": "in:timeseries_metrics metric_type:\"sysmon.cpu\" uid:(\"sr:host-01\") time:last_24h bucket:24h agg:count series:uid limit:3",
+      "entity": "timeseries_metrics",
       "chart": true,
       "clauses": {"agg": "count", "bucket": "*", "series": "uid"},
       "modifiers": ["limit"]

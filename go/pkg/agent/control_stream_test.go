@@ -601,6 +601,7 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 		proxmoxSemanticConnectorCapabilityV1,
 		proxmoxIdentityCapabilityV3,
 		proxmoxConsolePolicyBindingCapabilityV1,
+		pluginCapabilityGRPCRequest,
 	} {
 		if !slices.Contains(hello.GetCapabilities(), capability) {
 			t.Fatalf("control stream hello capabilities missing %q: %#v", capability, hello.GetCapabilities())

@@ -107,7 +107,7 @@ in:devices !hostname:%test%
 For numeric fields you can use comparison operators directly in the value:
 
 ```srql
-in:cpu_metrics usage_percent:>80
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" value:>80
 ```
 
 That reads "CPU metrics where usage is greater than 80 percent." The supported
@@ -116,7 +116,7 @@ operators are `>`, `>=`, `<`, and `<=`.
 To express a *range*, repeat the field with two bounds:
 
 ```srql
-in:cpu_metrics usage_percent:>80 usage_percent:<95
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" value:>80 value:<95
 ```
 
 To match **any one of several values**, use a comma-separated list in parentheses.
@@ -284,7 +284,7 @@ in:devices stats:count() as total by type
 Average CPU usage over the last day:
 
 ```srql
-in:cpu_metrics time:last_24h stats:avg(usage_percent) as avg_cpu
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_24h stats:avg(value) as avg_cpu by metric_name
 ```
 
 Total bytes per source IP for the busiest talkers:

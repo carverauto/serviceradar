@@ -14,9 +14,7 @@ defmodule ServiceRadar.Observability do
   - `ServiceRadar.Observability.ApiEvent` - Centralized AshEvents audit log for
     API-first mutable resources (see `add-ash-events-audit-log` design doc)
   - `ServiceRadar.Observability.TimeseriesMetric` - Generic time-series metrics
-  - `ServiceRadar.Observability.CpuMetric` - CPU utilization metrics
-  - `ServiceRadar.Observability.MemoryMetric` - Memory usage metrics
-  - `ServiceRadar.Observability.DiskMetric` - Disk usage metrics
+    (including device sysmon, stored as `sysmon.*` metric types)
   - `ServiceRadar.Observability.OtelTraceSummary` - OpenTelemetry trace summaries
   - `ServiceRadar.Observability.OtelServiceCatalogEntry` - OTel services seen per signal
 
@@ -82,15 +80,6 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.TimeseriesMetric
     resource ServiceRadar.Observability.ServiceStatus
     resource ServiceRadar.Observability.ServiceState
-    resource ServiceRadar.Observability.CpuMetric
-    resource ServiceRadar.Observability.CpuMetricHourly
-    resource ServiceRadar.Observability.CpuClusterMetric
-    resource ServiceRadar.Observability.MemoryMetric
-    resource ServiceRadar.Observability.MemoryMetricHourly
-    resource ServiceRadar.Observability.DiskMetric
-    resource ServiceRadar.Observability.DiskMetricHourly
-    resource ServiceRadar.Observability.ProcessMetric
-    resource ServiceRadar.Observability.ProcessMetricHourly
     resource ServiceRadar.Observability.TimeseriesMetricHourly
     resource ServiceRadar.Observability.TimeseriesMetricInterfaceHourly
     resource ServiceRadar.Observability.TimeseriesMetricDiskHourly

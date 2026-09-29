@@ -967,6 +967,45 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.metadata["cadence_seconds"] == 86_400
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "a profile binding several schedules names the ones the cadence field does not move", %{
+    conn: conn,
+    scope: scope
+  } do
+    seed_scheduled_package!(telemetry: true)
+    secret = username_password_secret_fixture(scope, "example-scheduled")
+
+    {:ok, lv, html} =
+      live(conn, ~p"/settings/networks/credentials/new?provider=example-scheduled")
+
+    assert html =~ "Enable recurring inventory refresh"
+    assert html =~ ~s(data-role="secondary-schedule-cadence")
+    assert html =~ "The cadence applies to Refresh scheduled inventory"
+    assert html =~ "Collect scheduled telemetry (every 60s)"
+
+    lv
+    |> form("#credential-rule-form",
+      credential_rule: scheduled_rule_form_params(secret.id)
+    )
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+    rule = get_rule_by_name!(scope, "Scheduled inventory")
+    assert rule.provider == "example-scheduled"
+    assert rule.metadata["cadence_seconds"] == 86_400
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "a single-schedule profile shows no secondary schedule note", %{conn: conn} do
+    seed_scheduled_package!()
+
+    {:ok, _lv, html} =
+      live(conn, ~p"/settings/networks/credentials/new?provider=example-scheduled")
+
+    assert html =~ "Enable recurring inventory refresh"
+    refute html =~ ~s(data-role="secondary-schedule-cadence")
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
@@ -1190,9 +1229,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     }
   end
 
-  defp seed_scheduled_package! do
+  defp seed_scheduled_package!(opts \\ []) do
     plugin_id = "example-scheduled-plugin"
     schedule_id = "example-scheduled.refresh"
+    telemetry_id = "example-scheduled.telemetry"
+    telemetry? = Keyword.get(opts, :telemetry, false)
+
+    requirement = %{
+      "inventory_account" => %{
+        "required" => true,
+        "resolution_location" => "agent",
+        "grants" => []
+      }
+    }
+
+    telemetry_schedules =
+      if telemetry?,
+        do: [
+          %{
+            "schedule_id" => telemetry_id,
+            "label" => "Collect scheduled telemetry",
+            "action_id" => telemetry_id,
+            "command_type" => "plugin.run_action",
+            "default_cadence_seconds" => 60,
+            "min_cadence_seconds" => 30,
+            "max_cadence_seconds" => 3_600,
+            "dispatch_scope" => "assignment",
+            "credential_requirements" => requirement
+          }
+        ],
+        else: []
+
+    schedule_binding =
+      if telemetry?,
+        do: %{"schedule_ids" => [schedule_id, telemetry_id]},
+        else: %{"schedule_id" => schedule_id}
 
     manifest =
       plugin_id
@@ -1208,14 +1279,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
           "min_cadence_seconds" => 3_600,
           "max_cadence_seconds" => 2_592_000,
           "dispatch_scope" => "assignment",
-          "credential_requirements" => %{
-            "inventory_account" => %{
-              "required" => true,
-              "resolution_location" => "agent",
-              "grants" => []
-            }
-          }
+          "credential_requirements" => requirement
         }
+        | telemetry_schedules
       ])
       |> Map.put("integrations", %{
         "documentation" => %{"path" => "docs/configuration.md"},
@@ -1226,11 +1292,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
             "auth_methods" => [username_password_method()],
             "purposes" => ["device_inventory"],
             "scope_types" => ["agent"],
-            "provisioning" => %{
-              "mode" => "producer_schedule",
-              "schedule_id" => schedule_id,
-              "credential_requirement" => "inventory_account"
-            }
+            "provisioning" =>
+              Map.merge(
+                %{"mode" => "producer_schedule", "credential_requirement" => "inventory_account"},
+                schedule_binding
+              )
           }
         ],
         "inventory_sources" => []

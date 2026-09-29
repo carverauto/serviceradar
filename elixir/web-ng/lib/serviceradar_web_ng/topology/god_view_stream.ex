@@ -17,7 +17,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.MetricConsumers
+  alias ServiceRadar.Analytics.StarRocks.Query
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Inventory.Device
@@ -5372,26 +5375,108 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp fetch_recent_bmp_routing_events(cutoff, limit) do
-    query =
-      from(e in "bmp_routing_events",
-        where: e.time >= ^cutoff,
-        where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
-        order_by: [desc: e.time],
-        limit: ^limit,
-        select: %{
-          source: "bmp_routing_events",
-          event_time: e.time,
-          event_identity: e.metadata["event_identity"],
-          metadata: e.metadata,
-          device: %{"uid" => e.router_id},
-          src_endpoint: %{"ip" => e.peer_ip}
-        }
-      )
+    if Readers.enabled?() do
+      fetch_recent_bmp_routing_events_warehouse(cutoff, limit)
+    else
+      query =
+        from(e in "bmp_routing_events",
+          where: e.time >= ^cutoff,
+          where: coalesce(e.severity_id, 0) >= ^routing_causal_severity_threshold(),
+          order_by: [desc: e.time],
+          limit: ^limit,
+          select: %{
+            source: "bmp_routing_events",
+            event_time: e.time,
+            event_identity: e.metadata["event_identity"],
+            metadata: e.metadata,
+            device: %{"uid" => e.router_id},
+            src_endpoint: %{"ip" => e.peer_ip}
+          }
+        )
 
-    Repo.all(query)
+      Repo.all(query)
+    end
   rescue
     _ -> []
   end
+
+  # The warehouse branch of the God View BMP routing overlay. It reads the
+  # same rows the CNPG query does and hands back the same shaped maps, so the
+  # dedupe and overlay code below never learns which backend answered. A
+  # warehouse read failure yields `[]` exactly as the CNPG rescue does, so the
+  # overlay degrades to OCSF-only rather than crashing.
+  defp fetch_recent_bmp_routing_events_warehouse(cutoff, limit) do
+    sql = """
+    SELECT `time`, `metadata`, `router_id`, `peer_ip`
+    FROM #{Env.table("bmp_routing_events")}
+    WHERE `time` >= '#{warehouse_datetime(cutoff)}'
+      AND COALESCE(`severity_id`, 0) >= #{routing_causal_severity_threshold()}
+    ORDER BY `time` DESC
+    LIMIT #{limit}
+    """
+
+    case Query.execute(sql) do
+      {:ok, %{columns: columns, rows: rows}} ->
+        shape_warehouse_bmp_events(columns, rows)
+
+      {:error, _reason} ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp shape_warehouse_bmp_events(columns, rows) do
+    Enum.map(rows, fn row ->
+      row = columns |> Enum.zip(row) |> Map.new()
+      metadata = decode_warehouse_json(row["metadata"])
+
+      %{
+        source: "bmp_routing_events",
+        event_time: warehouse_event_time(row["time"]),
+        event_identity: (metadata || %{})["event_identity"],
+        metadata: metadata,
+        device: %{"uid" => row["router_id"]},
+        src_endpoint: %{"ip" => row["peer_ip"]}
+      }
+    end)
+  end
+
+  # Warehouse DATETIME columns hold UTC wall-clock time with no zone suffix.
+  defp warehouse_datetime(%DateTime{} = value) do
+    value |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_naive() |> NaiveDateTime.to_string()
+  end
+
+  defp warehouse_event_time(nil), do: nil
+  defp warehouse_event_time(%DateTime{} = value), do: DateTime.shift_zone!(value, "Etc/UTC")
+  defp warehouse_event_time(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+
+  defp warehouse_event_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} ->
+        DateTime.shift_zone!(datetime, "Etc/UTC")
+
+      {:error, _reason} ->
+        case value |> String.replace(" ", "T", global: false) |> NaiveDateTime.from_iso8601() do
+          {:ok, naive} -> DateTime.from_naive!(naive, "Etc/UTC")
+          {:error, _reason} -> value
+        end
+    end
+  end
+
+  defp warehouse_event_time(value), do: value
+
+  defp decode_warehouse_json(nil), do: nil
+  defp decode_warehouse_json(%{} = value), do: value
+
+  defp decode_warehouse_json(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> decoded
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp decode_warehouse_json(_value), do: nil
 
   defp fetch_recent_ocsf_causal_events(cutoff, limit) do
     query =
