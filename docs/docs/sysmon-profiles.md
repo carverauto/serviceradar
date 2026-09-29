@@ -192,15 +192,9 @@ When an agent requests its sysmon configuration, ServiceRadar resolves it in thi
 in:process_metrics device_id:"<device_uid>" time:last_24h sort:timestamp:desc limit:10
 ```
 
-3. Verify rows exist directly in CNPG:
-
-```
-SELECT timestamp, pid, name, cpu_usage, memory_usage
-FROM process_metrics
-WHERE device_id = '<device_uid>'
-ORDER BY timestamp DESC
-LIMIT 20;
-```
+3. Use the [SRQL compatibility and retention guidance](./srql-language-reference.md#aggregation-with-stats)
+   to interpret missing history. Query through SRQL so the configured telemetry
+   backend is selected; the retired dedicated table is not a data source.
 
 ### Config Changes Not Propagating
 

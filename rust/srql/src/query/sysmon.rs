@@ -582,30 +582,26 @@ pub(super) fn to_sql_and_params(
         .transpose()?;
     let metric = hourly_metric(plan, &spec, warehouse)?;
     let mut effective = plan.clone();
-    if metric.is_some() {
-        if let Some(range) = &mut effective.time_range {
-            range.start = super::starrocks::floor_hour(range.start);
-            range.end = super::starrocks::exclusive_hour_end(range.end);
-        }
+    if metric.is_some()
+        && let Some(range) = &mut effective.time_range
+    {
+        range.start = super::starrocks::floor_hour(range.start);
+        range.end = super::starrocks::exclusive_hour_end(range.end);
     }
     let plan = &effective;
     let mut params = Vec::new();
-    if metric.is_none() {
-        if let Some(normalized) = metric_aggregate_plan(plan, &spec)? {
-            if let Some(database) = database {
-                let response = super::starrocks::translate_raw(&normalized, database)?;
-                return Ok((response.sql, response.params));
-            }
-            if normalized.downsample.is_some() {
-                return super::downsample::to_sql_and_params(&normalized);
-            }
-            let (_, alias, grouped) = stats_spec(&plan.stats.as_ref().unwrap().raw, &spec)?;
-            return super::timeseries_metrics::legacy_sysmon_stats_sql(
-                &normalized,
-                &alias,
-                grouped,
-            );
+    if metric.is_none()
+        && let Some(normalized) = metric_aggregate_plan(plan, &spec)?
+    {
+        if let Some(database) = database {
+            let response = super::starrocks::translate_raw(&normalized, database)?;
+            return Ok((response.sql, response.params));
         }
+        if normalized.downsample.is_some() {
+            return super::downsample::to_sql_and_params(&normalized);
+        }
+        let (_, alias, grouped) = stats_spec(&plan.stats.as_ref().unwrap().raw, &spec)?;
+        return super::timeseries_metrics::legacy_sysmon_stats_sql(&normalized, &alias, grouped);
     }
     let use_hourly = metric.is_some() && allow_rollup;
     let source = match metric {

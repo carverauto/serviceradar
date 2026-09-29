@@ -46,7 +46,7 @@ Consequences, accepted deliberately:
   Disabling StarRocks entirely resumes CNPG writes; CNPG then lacks everything written while the
   warehouse was on, and the operator documentation states it.
 - **Readers without a warehouse implementation show nothing.** Writes stop for every dataset at
-  once, including datasets whose readers only query CNPG today (OTel, sysmon, MTR, BMP, service
+  once, including datasets whose readers only query CNPG today (OTel, MTR, BMP, service
   status, and the direct readers inventoried in task 5.1). Until a reader has a warehouse
   implementation, it SHALL report "unavailable with StarRocks enabled" rather than read a CNPG
   table that is silently frozen: a frozen table looks healthy and is wrong, which is worse than an
