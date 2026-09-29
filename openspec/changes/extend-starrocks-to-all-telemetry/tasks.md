@@ -209,7 +209,7 @@
   readers. BMP routing events are the BMP half (below); service status history stays with its
   owner, because its write path reads CNPG state (`PluginResultIngestor`,
   `ServiceStateRegistry`).
-  - [x] 3.4b.1 Warehouse DDL `priv/starrocks/0022_bmp_routing_events.sql`: `bmp_routing_events`
+  - [x] 3.4b.1 Warehouse DDL `priv/starrocks/0024_bmp_routing_events.sql`: `bmp_routing_events`
     with every CNPG column under the same name, keyed `(id, time)` (id is the stable event
     identity, so a redelivery upserts the same rows), day partitions and 365-day retention
     (`SERVICERADAR_STARROCKS_RETENTION_DAYS_BMP`, Helm `analytics.starrocks.retentionDays.bmp`,
