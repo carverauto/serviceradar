@@ -42,7 +42,7 @@ const EDGES: QueryBlock = QueryBlock {
     fields: "topo.link_key topo.protocol topo.evidence_class topo.confidence_tier
       topo.flow_pps_ab topo.flow_pps_ba topo.flow_bps_ab topo.flow_bps_ba
       topo.capacity_bps topo.telemetry_eligible topo.if_index_ab topo.if_index_ba
-      topo.if_name_ab topo.if_name_ba topo.mutation_id
+      topo.if_name_ab topo.if_name_ba topo.mutation_id topo.pair_support_rank
       topo.src { device.id } topo.dst { device.id }",
 };
 

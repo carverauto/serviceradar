@@ -105,6 +105,12 @@ impl Fixture {
             .cloned()
             .collect();
 
+        // DQL returns a predicate only when the query selects it. The stored
+        // fixture may carry a rank the caller forgot to ask for; omitting it
+        // must surface as the client's default, not as a value the server invented.
+        for row in &mut rows {
+            project_selected(row, &request.query);
+        }
         // DQL returns a UID only when selected. Keep that protocol obligation in
         // the fake instead of supplying a cursor the request did not ask for.
         if !request
@@ -233,10 +239,28 @@ fn edge(index: usize, interface_bytes: usize) -> Value {
         "topo.evidence_class": "direct-physical",
         "topo.confidence_tier": "high",
         "topo.flow_pps_ab": index,
+        "topo.pair_support_rank": index,
         "topo.if_name_ab": "x".repeat(interface_bytes),
         "topo.src": [{"device.id": "sr:host0001.example.com"}],
         "topo.dst": [{"device.id": "sr:host0002.example.com"}]
     })
+}
+
+fn project_selected(value: &mut Value, query: &str) {
+    match value {
+        Value::Object(map) => {
+            map.retain(|key, _child| query.contains(key));
+            for child in map.values_mut() {
+                project_selected(child, query);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                project_selected(item, query);
+            }
+        }
+        _ => {}
+    }
 }
 
 struct RunningServer {
@@ -311,6 +335,14 @@ async fn canonical_edges_page_past_the_grpc_limit_and_an_unadmitted_page() {
             .iter()
             .all(|edge| edge.local_if_name_ab().len() == 20 * 1024)
     );
+    assert!(edges.iter().all(|edge| {
+        let index: i64 = edge
+            .link_key()
+            .trim_start_matches("invented-edge-")
+            .parse()
+            .expect("invented edge index");
+        edge.pair_support_rank() == index
+    }));
     let fixture = server.fixture.lock().expect("fixture lock");
     fixture.assert_protocol();
     assert!(
@@ -359,6 +391,14 @@ async fn canonical_graph_keeps_isolated_vertices_and_one_snapshot_across_both_sc
     .expect("complete canonical graph");
     assert_eq!(graph.nodes().len(), 258);
     assert_eq!(graph.edges().len(), 257);
+    assert!(graph.edges().iter().all(|edge| {
+        let index: i64 = edge
+            .link_key()
+            .trim_start_matches("invented-edge-")
+            .parse()
+            .expect("invented edge index");
+        edge.pair_support_rank() == index
+    }));
     let isolated = graph.nodes().last().expect("isolated canonical vertex");
     assert_eq!(isolated.id(), "sr:host0258.example.com");
     assert_eq!(isolated.hostname(), Some("host0258.example.com"));
