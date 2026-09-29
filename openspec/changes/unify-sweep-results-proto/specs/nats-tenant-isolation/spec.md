@@ -47,9 +47,12 @@ admission controls so one site/address space cannot monopolize the installation.
   "acme-corp.events.poller.health"
 - **THEN** the consumer SHALL NOT extract "acme-corp" as a tenant slug or use
   that prefix for routing, schema selection, or authorization
-- **AND** an unexpected prefixed subject on the live path SHALL derive identity
-  from the verified envelope/proof for its signal contract, and no subject
-  token SHALL alter that identity or authority
+- **AND** an unexpected prefixed subject on the live path, after the cutover
+  watermark, SHALL be rejected or quarantined, as described in
+  "Customer-prefixed subject reaches a runtime consumer"
+- **AND** a verified envelope SHALL be only an identity input for that
+  quarantine and SHALL NOT admit the event
+- **AND** no subject token SHALL supply identity
 - **AND** a sealed message accepted before the cutover watermark in a declared
   legacy stream, and mappable without ambiguity, MAY be drained by a
   compatibility consumer from retained trusted legacy authority metadata, as
