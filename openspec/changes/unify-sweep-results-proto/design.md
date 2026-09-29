@@ -225,11 +225,22 @@ cannot represent), which issues no further leases and returns the agent to its
 local ticker, and the fence revokes an agent that is no longer selected.
 Becoming eligible again after that scheduler revoke, including when the group
 is re-enabled, is a new lease for that (group, agent), reissued under a new
-epoch through the existing reissue path, not a re-plan of the old slots. Each execution is recorded
-as scheduled before it runs. The horizon has a per-partition default, a
-per-agent override and an administrator maximum. Renewal keeps a connected
-agent's horizon full, so a disconnection
-starts from a full lease.
+epoch through the existing reissue path, not a re-plan of the old slots. Each
+pre-minted execution is a `sweep_execution_slots` row, not a
+`sweep_group_executions` row: future slots would fill the execution lists, the
+SRQL entity, retention and the missed-sweep monitor with runs that have not
+happened. The results ingest creates the execution row under the slot's id when
+results arrive. The row keeps the collection window, the epoch it was planned
+under, the plan id and header digest, `check_set_sha256`, and the
+protobuf-encoded plan header and pages (the EventWriter host-membership check
+in task 5.1 reads them). A slot that will not run is dropped,
+not deleted, and revoking an assignment drops that agent's slots that have not
+started. Uniqueness of `(producer_assignment_id, slot_start)` covers scheduled
+slots only, so a dropped row does not block a new execution at the same start.
+Each execution is recorded as scheduled before it runs. The horizon has a
+per-partition default, a per-agent override and an administrator maximum.
+Renewal keeps a connected agent's horizon full, so a disconnection starts from
+a full lease.
 
 **Issuer.** Core signs with an Ed25519 issuer key held through a core-only file
 mount (the automation-callback key pattern); the gateway receives public keys
