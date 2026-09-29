@@ -61,7 +61,7 @@ defmodule ServiceRadar.SweepJobs.LeaseSchedule do
 
     first
     |> Stream.iterate(&(&1 + seconds))
-    |> Enum.take_while(&(DateTime.compare(DateTime.from_unix!(&1), until) == :lt))
+    |> Enum.take_while(&DateTime.before?(DateTime.from_unix!(&1), until))
     |> Enum.map(&%{start: DateTime.from_unix!(&1), expires: DateTime.from_unix!(&1 + seconds)})
   end
 
