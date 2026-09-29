@@ -29,7 +29,8 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
     ServiceRadar.Observability.SeasonalBaselineFreshnessWorker,
     ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer,
-    ServiceRadar.Observability.SeasonalDisposition.Worker
+    ServiceRadar.Observability.SeasonalDisposition.Worker,
+    ServiceRadar.SweepJobs.LeasePassWorker
   ]
 
   # The minimum env a prod evaluation requires; AshOban scheduler expansion is
