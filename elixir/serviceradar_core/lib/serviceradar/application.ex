@@ -160,9 +160,6 @@ defmodule ServiceRadar.Application do
         security_events_task_supervisor_child(),
         ServiceRadar.Security.Events,
 
-        # Async sweep declared-target refreshes (sweep group targeting edits)
-        declared_targets_task_supervisor_child(),
-
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -338,10 +335,6 @@ defmodule ServiceRadar.Application do
 
   defp security_events_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.Security.Events.TaskSupervisor}
-  end
-
-  defp declared_targets_task_supervisor_child do
-    {Task.Supervisor, name: ServiceRadar.SweepJobs.DeclaredTargets.TaskSupervisor}
   end
 
   defp anomaly_disposition_reporter_child do

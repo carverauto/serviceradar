@@ -181,32 +181,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   SRQL target query resolved, when it resolved one. Resolution failures
   degrade exactly as they do at compile time: the group's static targets
   still resolve and the failure is logged per group.
+
+  Accepts the same `:query_page_fn` option as `compile_groups/3`.
   """
-  @spec declared_targets(SweepGroup.t()) :: %{
+  @spec declared_targets(SweepGroup.t(), keyword()) :: %{
           static: [String.t()],
           device: [%{target: String.t(), device_uid: String.t() | nil}]
         }
-  def declared_targets(%SweepGroup{} = group) do
-    static = Enum.uniq(group.static_targets || [])
+  def declared_targets(%SweepGroup{} = group, opts \\ []) do
+    query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
+    modes = merge_modes(nil, group)
+    {static, device_targets, _query_memo} = compile_targets(group, modes, %{}, query_page_fn)
 
     device =
-      case group.target_query do
-        query when is_binary(query) and query != "" ->
-          # get_device_targets_from_query already returns a sorted LIST of
-          # device-target maps (it folds the paginated SRQL rows into a map
-          # keyed by target and flattens it).
-          query
-          |> get_device_targets_from_query(group, nil, [])
-          |> Enum.map(fn device_target ->
-            %{
-              target: device_target["network"],
-              device_uid: device_target["metadata"]["device_uid"]
-            }
-          end)
-
-        _ ->
-          []
-      end
+      Enum.map(device_targets, fn device_target ->
+        %{
+          target: device_target["network"],
+          device_uid: get_in(device_target, ["metadata", "device_uid"])
+        }
+      end)
 
     %{static: static, device: device}
   end

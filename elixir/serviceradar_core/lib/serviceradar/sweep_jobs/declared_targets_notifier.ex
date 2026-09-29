@@ -10,9 +10,9 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargetsNotifier do
   a fleet-scale SRQL resolution per sweep. Group deletion needs no hook: the
   foreign key cascades.
 
-  The refresh runs under a task supervisor so resolving a large SRQL target
-  query never blocks the operator's save. A failed refresh is logged and
-  leaves the previous snapshot in place.
+  The refresh runs in the caller's process, on the group just saved, so an
+  earlier edit cannot finish after a later one and replace its snapshot. A
+  failed refresh is logged and leaves the previous snapshot in place.
   """
 
   use Ash.Notifier
@@ -22,15 +22,13 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargetsNotifier do
 
   require Logger
 
-  @task_supervisor ServiceRadar.SweepJobs.DeclaredTargets.TaskSupervisor
-
   @targeting_actions [:update, :add_targets, :remove_targets]
   @targeting_attributes [:target_query, :static_targets]
 
   @impl true
   def notify(%Notification{} = notification) do
     if refresh?(notification) do
-      dispatch_refresh(notification.data)
+      refresh_group(notification.data)
     end
 
     :ok
@@ -49,48 +47,35 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargetsNotifier do
 
   defp refresh?(_notification), do: false
 
-  defp dispatch_refresh(group) do
-    case Task.Supervisor.start_child(@task_supervisor, fn ->
-           # Best-effort, like the DependencyDispatcher's async dispatches: a
-           # failed refresh must never crash the caller, and in sandboxed tests
-           # a task process cannot check out the test's connection at all --
-           # either way the previous snapshot stays visible and the failure is
-           # logged.
-           try do
-             case DeclaredTargets.refresh(group) do
-               {:ok, count} ->
-                 Logger.info(
-                   "DeclaredTargetsNotifier: refreshed #{count} declared target(s) for group #{inspect(group.id)}"
-                 )
-
-               {:error, reason} ->
-                 Logger.warning(
-                   "DeclaredTargetsNotifier: refresh failed for group #{inspect(group.id)}: #{inspect(reason)}"
-                 )
-             end
-           rescue
-             exception ->
-               Logger.warning(
-                 "DeclaredTargetsNotifier: refresh raised for group #{inspect(group.id)}: " <>
-                   Exception.format(:error, exception)
-               )
-           catch
-             :exit, reason ->
-               Logger.warning(
-                 "DeclaredTargetsNotifier: refresh exited for group #{inspect(group.id)}: " <>
-                   inspect(reason)
-               )
-           end
-         end) do
-      {:ok, _pid} ->
-        :ok
+  defp refresh_group(group) do
+    case DeclaredTargets.refresh(group) do
+      {:ok, count} ->
+        Logger.info(
+          "DeclaredTargetsNotifier: refreshed #{count} declared target(s) for group #{inspect(group.id)}"
+        )
 
       {:error, reason} ->
         Logger.warning(
-          "DeclaredTargetsNotifier: failed to start refresh for group #{inspect(group.id)}: #{inspect(reason)}"
+          "DeclaredTargetsNotifier: refresh failed for group #{inspect(group.id)}: #{inspect(reason)}"
         )
-
-        :ok
     end
+
+    :ok
+  rescue
+    exception ->
+      Logger.warning(
+        "DeclaredTargetsNotifier: refresh raised for group #{inspect(group.id)}: " <>
+          Exception.format(:error, exception)
+      )
+
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning(
+        "DeclaredTargetsNotifier: refresh exited for group #{inspect(group.id)}: " <>
+          inspect(reason)
+      )
+
+      :ok
   end
 end

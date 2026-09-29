@@ -51,9 +51,9 @@ smaller, not persisted.
   changes do not rewrite rows -- the view reads those live from
   `sweep_groups`, which is also why `record_execution` (a hot per-run
   update of `last_run_at`) must not trigger a refresh. An Ash notifier
-  dispatches one async task per notification under a task supervisor, so a
-  large SRQL target resolution never blocks the operator's save. Group
-  destroy needs no hook: the FK cascades.
+  refreshes the group just saved in the caller's process, so an earlier
+  edit cannot overwrite a later one. Group destroy needs no hook: the FK
+  cascades.
 - Decision: the refresh reuses the compiler's own target resolution. A new
   public `SweepCompiler.declared_targets/1` returns
   `%{static: [target], device: [%{target:, device_uid:}]}` from the same
@@ -91,7 +91,7 @@ smaller, not persisted.
   fleet-wide SRQL refresh worker, which is real scope, and today's baseline
   is that declared rows NEVER exist. The compiler stays the freshness
   authority for what agents actually receive.
-- The async refresh can fail (DB hiccup, SRQL error). An SRQL resolution
+- A refresh can fail (DB hiccup, SRQL error). An SRQL resolution
   failure degrades exactly as it does in `compile/3`: static targets still
   persist, the failed device resolution is logged per group. A persistence
   failure is logged and leaves the previous snapshot in place (upsert-then-

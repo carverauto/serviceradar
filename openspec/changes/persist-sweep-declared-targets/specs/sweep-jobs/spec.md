@@ -44,7 +44,7 @@ targeting changes, without persisting any compiled sweep config document.
 #### Scenario: A failed refresh leaves the previous snapshot
 
 - **GIVEN** a sweep group whose declared relation is persisted
-- **WHEN** an async refresh of that group fails
+- **WHEN** a refresh of that group fails
 - **THEN** the previously persisted rows SHALL remain visible
 - **AND** the failure SHALL be logged rather than crashing the edit that
   triggered it

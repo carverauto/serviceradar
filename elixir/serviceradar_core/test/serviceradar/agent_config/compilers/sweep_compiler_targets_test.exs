@@ -165,6 +165,75 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
   defp networks(compiled_group),
     do: Enum.map(compiled_group["device_targets"] || [], & &1["network"])
 
+  describe "declared targets" do
+    test "a query-target group resolves the device targets compile would deliver" do
+      query_page_fn = fake_inventory(self())
+
+      static_only =
+        group(%{id: @static_id, name: "static-only", static_targets: ["192.0.2.0/30"]})
+
+      assert SweepCompiler.declared_targets(static_only, query_page_fn: query_page_fn) == %{
+               static: ["192.0.2.0/30"],
+               device: []
+             }
+
+      assert query_executions() == []
+
+      lab =
+        group(%{
+          id: @lab_icmp_id,
+          name: "lab-icmp",
+          target_query: @lab_query,
+          static_targets: ["192.0.2.10"]
+        })
+
+      assert SweepCompiler.declared_targets(lab, query_page_fn: query_page_fn) == %{
+               static: ["192.0.2.10"],
+               device: [
+                 %{target: "198.51.100.10", device_uid: "sr:dev-0001"},
+                 %{target: "198.51.100.11", device_uid: "sr:dev-0002"},
+                 %{target: "198.51.100.12", device_uid: "sr:dev-0003"}
+               ]
+             }
+
+      assert query_executions() == [@lab_query]
+
+      # Stored without the in:devices prefix; resolution normalizes it first.
+      edge = group(%{id: @edge_id, name: "edge-tcp", target_query: "tags.env:edge"})
+
+      assert SweepCompiler.declared_targets(edge, query_page_fn: query_page_fn) == %{
+               static: [],
+               device: [%{target: "203.0.113.5", device_uid: "sr:dev-0010"}]
+             }
+
+      assert query_executions() == [@edge_query]
+    end
+
+    test "a failed target query declares the static targets and no device rows" do
+      query_page_fn = fn _query, _opts -> raise "driver encoding failure" end
+
+      group =
+        group(%{
+          id: "sg-failed-declared",
+          name: "failed-declared",
+          target_query: @lab_query,
+          static_targets: ["192.0.2.9"]
+        })
+
+      log =
+        capture_log(fn ->
+          assert SweepCompiler.declared_targets(group, query_page_fn: query_page_fn) == %{
+                   static: ["192.0.2.9"],
+                   device: []
+                 }
+        end)
+
+      assert log =~
+               "SRQL target query raised for group \"sg-failed-declared\" " <>
+                 "(#{inspect(@lab_query)}): driver encoding failure"
+    end
+  end
+
   describe "compiled target output" do
     test "static targets, shared and distinct target queries compile to the pinned shape" do
       compiled = compile_by_id(pinned_groups(), query_page_fn: fake_inventory(self()))

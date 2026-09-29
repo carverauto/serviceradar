@@ -44,6 +44,16 @@ defmodule ServiceRadar.SweepJobs.SweepGroupDeclaredTargetsDbTest do
   end
 
   describe "declared-target persistence" do
+    test "creating a group persists its declared targets before create returns", %{
+      actor: actor,
+      unique: unique
+    } do
+      {:ok, group} = create_group(actor, unique, %{static_targets: ["198.51.100.21"]})
+
+      assert MapSet.new(declared_rows(actor, group.id), & &1.target) ==
+               MapSet.new(["198.51.100.21"])
+    end
+
     test "persists static and SRQL-resolved targets once per group", %{
       actor: actor,
       unique: unique

@@ -19,8 +19,8 @@ finds nothing (issue #4963).
   is one row, carrying the device uid.
 - The relation refreshes when a sweep group's targeting changes (create,
   update touching `target_query`/`static_targets`, `add_targets`,
-  `remove_targets`), via an Ash notifier dispatching one async refresh per
-  group. Destroy cascades.
+  `remove_targets`), via an Ash notifier that refreshes that group before
+  the edit returns. Destroy cascades.
 - Static targets of existing groups are backfilled in the migration (pure
   SQL); SRQL-resolved device targets appear after the first refresh of each
   group.

@@ -13,8 +13,8 @@
       target), system actor, bulk Ash writes.
 - [x] 1.4 Notifier on `SweepGroup` targeting changes (create; update,
       `add_targets`, `remove_targets` touching `target_query` or
-      `static_targets`) dispatching one async refresh per notification under
-      a task supervisor; failures are logged, never crash the caller.
+      `static_targets`) refreshing that group synchronously before the edit
+      returns; failures are logged, never crash the caller.
       `record_execution` and schedule-only updates must not refresh.
 
 ## 2. Migration and view
