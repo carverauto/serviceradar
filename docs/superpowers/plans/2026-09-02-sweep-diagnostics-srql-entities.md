@@ -420,7 +420,7 @@ Commit after each entity so a reviewer can reject one without rejecting four.
 
 The diagnostic the issue is really asking for: which groups were *declared* to target a device versus which actually *produced results* for it. Declared-but-not-observed is the reported symptom.
 
-Declared targeting is not stored anywhere as a relation — `SweepCompiler` resolves it by paging SRQL at compile time. But the resolved list survives in the compiled config's `targets` and `device_targets`, versioned per agent. That is where the declared side comes from.
+Declared targeting is stored once per group in `platform.sweep_group_declared_targets`. The view's declared side reads that relation; see `openspec/changes/persist-sweep-declared-targets`. The SQL in this task is the original recipe and is not the current view.
 
 **Files:**
 
