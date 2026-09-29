@@ -337,8 +337,8 @@ sweep compiler's output is cached in `ConfigCache`, never persisted. The
 overlap view's declared side was therefore always empty for sweep (#4963).
 
 The fix for #4963 records each group's query-derived targets in
-`platform.sweep_group_declared_targets` (from
-`SweepCompiler.declared_device_targets/2`) and reads static targets from
+`platform.sweep_group_declared_targets`, written by `SweepCompiler.compile/3`
+from the targets it compiled for the agent, and reads static targets from
 `sweep_groups`, so the view no longer reads compiled configs at all. The wire
 format of the config an agent receives is therefore free to change without
 touching the view, and no `shared-targets/v1` view arm is needed.

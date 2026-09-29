@@ -76,7 +76,9 @@ as "no work has landed".
       config. Compiled sweep configs are cached in memory and never written to
       `agent_config_instances`, so the view never had a declared row.
       Query-derived targets are now recorded once per group in
-      `platform.sweep_group_declared_targets` by `SweepDeclaredTargetsWorker`,
+      `platform.sweep_group_declared_targets` when the group's config is
+      compiled for an agent (only when the set changes; a failed query keeps
+      the last recorded set),
       static targets come from `sweep_groups.static_targets`, and the agent
       comes from the group's `agent_ids` (NULL for a partition-wide group).
 - [ ] 3.8 `sweep_compiled_config`: named-column allowlist over sweep config

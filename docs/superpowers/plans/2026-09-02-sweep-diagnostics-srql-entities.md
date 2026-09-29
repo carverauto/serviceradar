@@ -420,7 +420,7 @@ Commit after each entity so a reviewer can reject one without rejecting four.
 
 The diagnostic the issue is really asking for: which groups were *declared* to target a device versus which actually *produced results* for it. Declared-but-not-observed is the reported symptom.
 
-Declared targeting for query-based groups is recorded in `platform.sweep_group_declared_targets` by `SweepDeclaredTargetsWorker` (refreshed every five minutes and immediately on group create/update/enable). Static targets come from `sweep_groups.static_targets`. The view no longer reads compiled configs.
+Declared targeting for query-based groups is recorded in `platform.sweep_group_declared_targets` by `ServiceRadar.SweepJobs.DeclaredTargets` when `SweepCompiler.compile/3` compiles the group into an agent's config, so it matches what agents received; unchanged sets are not rewritten. Static targets come from `sweep_groups.static_targets`. The view no longer reads compiled configs.
 
 **Files:**
 
