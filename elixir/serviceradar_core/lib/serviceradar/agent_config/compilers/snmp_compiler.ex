@@ -200,13 +200,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
     with {:ok, profile_targets} <- load_profile_targets(profile, actor, opts),
          {:ok, devices} <- execute_target_query(target_query, actor),
-         {:ok, oids} <- load_template_oids(profile.oid_template_ids, actor) do
-      # Build target config for each device (only when templates are present)
-      query_targets =
-        devices
-        |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor, opts) end)
-        |> Enum.reject(&is_nil/1)
-
+         {:ok, oids} <- load_template_oids(profile.oid_template_ids, actor),
+         {:ok, query_targets} <- compile_query_targets(devices, profile, oids, actor, opts) do
       compiled_targets =
         profile_targets
         |> merge_targets(query_targets)
@@ -220,6 +215,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
          "profile_name" => profile.name,
          "targets" => compiled_targets
        }}
+    end
+  end
+
+  # A device whose read failed is not a device to skip: skipping every device
+  # on a credential or alias outage compiles an empty target list that
+  # ConfigServer would cache. The error fails the compile instead.
+  defp compile_query_targets(devices, profile, oids, actor, opts) do
+    devices
+    |> Enum.reduce_while({:ok, []}, fn device, {:ok, acc} ->
+      case compile_device_target(device, profile, oids, actor, opts) do
+        {:ok, nil} -> {:cont, {:ok, acc}}
+        {:ok, target} -> {:cont, {:ok, [target | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, targets} -> {:ok, Enum.reverse(targets)}
+      error -> error
     end
   end
 
@@ -341,15 +354,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
     case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, interfaces} ->
-        # Extract unique devices
-        devices =
-          interfaces
-          |> Enum.map(& &1.device)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.filter(&DeviceLifecycle.active?(&1.uid, actor: actor))
-          |> Enum.uniq_by(& &1.uid)
-
-        {:ok, devices}
+        # Extract unique devices; a failed lifecycle read fails the query
+        # instead of treating a device of unknown status as active.
+        interfaces
+        |> Enum.map(& &1.device)
+        |> Enum.reject(&is_nil/1)
+        |> filter_active_devices(actor)
 
       {:error, %Invalid{} = reason} ->
         Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(reason)}")
@@ -394,6 +404,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
+  # A device whose lifecycle status cannot be read is not a device to deliver
+  # as active: the error fails the target query so the compile is not cached.
+  defp filter_active_devices(devices, actor) do
+    devices
+    |> Enum.reduce_while({:ok, []}, fn device, {:ok, acc} ->
+      case DeviceLifecycle.fetch_active?(device.uid, actor: actor) do
+        {:ok, true} -> {:cont, {:ok, [device | acc]}}
+        {:ok, false} -> {:cont, {:ok, acc}}
+        {:error, reason} -> {:halt, {:error, {:lifecycle_read_failed, reason}}}
+      end
+    end)
+    |> case do
+      {:ok, active} -> {:ok, active |> Enum.reverse() |> Enum.uniq_by(& &1.uid)}
+      error -> error
+    end
+  end
+
   @doc """
   Load OIDs from the selected OID templates.
 
@@ -428,16 +455,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp compile_device_target(device, profile, oids, actor, opts) do
     if oids == [] do
       Logger.debug("SNMPCompiler: skipping device #{device.uid} (no OIDs)")
-      nil
+      {:ok, nil}
     else
       # If device has a management device, use its IP for polling
-      host = resolve_polling_host(device, actor)
+      case resolve_polling_host(device, actor) do
+        {:ok, host} ->
+          if missing_host?(host) do
+            Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
+            {:ok, nil}
+          else
+            compile_device_target_with_host(device, profile, oids, actor, host, opts)
+          end
 
-      if missing_host?(host) do
-        Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
-        nil
-      else
-        compile_device_target_with_host(device, profile, oids, actor, host, opts)
+        {:error, reason} ->
+          Logger.error(
+            "SNMPCompiler: polling host resolution failed for device #{device.uid} - #{inspect(reason)}"
+          )
+
+          {:error, reason}
       end
     end
   end
@@ -459,21 +494,31 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
             "SNMPCompiler: management device #{mgmt_id} for #{device.uid} has no IP, falling back to device IP"
           )
 
-          device.ip || device.hostname
+          {:ok, device.ip || device.hostname}
         else
           Logger.debug(
             "SNMPCompiler: using management device #{mgmt_id} IP #{mgmt_ip} for #{device.uid}"
           )
 
-          mgmt_ip
+          {:ok, mgmt_ip}
         end
 
-      _ ->
+      {:ok, []} ->
         Logger.warning(
           "SNMPCompiler: management device #{mgmt_id} not found for #{device.uid}, falling back to device IP"
         )
 
-        device.ip || device.hostname
+        {:ok, device.ip || device.hostname}
+
+      {:error, reason} ->
+        # A failed management-device read is not "no management device":
+        # silently falling back to the device IP would deliver a different
+        # polling host than the data selects.
+        Logger.error(
+          "SNMPCompiler: failed to load management device #{mgmt_id} for #{device.uid} - #{inspect(reason)}"
+        )
+
+        {:error, reason}
     end
   end
 
@@ -481,52 +526,63 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     canonical_host = device.ip || device.hostname
 
     if private_ip?(device.ip) do
-      device.ip
+      {:ok, device.ip}
     else
       case preferred_alias_polling_host(device, actor) do
-        nil -> canonical_host
-        alias_host -> alias_host
+        {:ok, nil} -> {:ok, canonical_host}
+        {:ok, alias_host} -> {:ok, alias_host}
+        {:error, reason} -> {:error, reason}
       end
     end
   end
 
   defp preferred_alias_polling_host(%{uid: device_uid, ip: canonical_ip}, actor)
        when is_binary(device_uid) and device_uid != "" do
-    aliases = load_active_ip_aliases(device_uid, actor)
+    case load_active_ip_aliases(device_uid, actor) do
+      {:ok, aliases} ->
+        private_alias =
+          aliases
+          |> Enum.reject(&(&1.alias_value == canonical_ip))
+          |> Enum.filter(&private_ip?(&1.alias_value))
+          |> pick_best_alias_value()
 
-    private_alias =
-      aliases
-      |> Enum.reject(&(&1.alias_value == canonical_ip))
-      |> Enum.filter(&private_ip?(&1.alias_value))
-      |> pick_best_alias_value()
+        cond do
+          present?(private_alias) ->
+            {:ok, private_alias}
 
-    cond do
-      present?(private_alias) ->
-        private_alias
+          missing_host?(canonical_ip) ->
+            best =
+              aliases
+              |> Enum.reject(&missing_host?(&1.alias_value))
+              |> pick_best_alias_value()
 
-      missing_host?(canonical_ip) ->
-        aliases
-        |> Enum.reject(&missing_host?(&1.alias_value))
-        |> pick_best_alias_value()
+            {:ok, best}
 
-      true ->
-        nil
+          true ->
+            {:ok, nil}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp preferred_alias_polling_host(_device, _actor), do: nil
+  defp preferred_alias_polling_host(_device, _actor), do: {:ok, nil}
 
   defp load_active_ip_aliases(device_uid, actor) do
     case DeviceAliasState.list_active_for_device(device_uid, actor: actor) do
       {:ok, aliases} ->
-        Enum.filter(aliases, &(&1.alias_type == :ip))
+        {:ok, Enum.filter(aliases, &(&1.alias_type == :ip))}
 
       {:error, reason} ->
-        Logger.warning(
+        # A failed alias read is not "no aliases": falling back to the canonical
+        # host here would deliver a different (possibly unreachable) polling
+        # host than the data selects.
+        Logger.error(
           "SNMPCompiler: failed to load active IP aliases for #{device_uid} - #{inspect(reason)}"
         )
 
-        []
+        {:error, reason}
     end
   end
 
@@ -584,25 +640,30 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
     case credential do
       {:error, reason} ->
-        Logger.warning(
-          "SNMPCompiler: skipping device #{device.uid} because credential resolution failed - #{inspect(reason)}"
-        )
+        if credential_read_failure?(reason) do
+          Logger.error(
+            "SNMPCompiler: device #{device.uid} credential read failed - #{inspect(reason)}"
+          )
 
-        nil
+          {:error, {:credential_resolution_failed, reason}}
+        else
+          log_credential_refusal("device", device.uid, reason)
+          {:ok, nil}
+        end
 
       credential when is_map(credential) ->
         if valid_credentials?(credential) do
           version = Map.get(credential, :version, profile.version)
           base_target = build_base_target(device, host, profile, oids, version)
-          apply_snmp_auth(base_target, version, credential)
+          {:ok, apply_snmp_auth(base_target, version, credential)}
         else
           Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
-          nil
+          {:ok, nil}
         end
 
       _ ->
         Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
-        nil
+        {:ok, nil}
     end
   end
 
@@ -702,11 +763,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         compiled =
           targets
           |> Enum.sort_by(&target_sort_key/1)
-          |> Enum.map(&compile_profile_target(&1, profile, actor, opts))
-          |> Enum.reject(&is_nil/1)
-          |> sort_targets()
+          |> Enum.reduce_while({:ok, []}, fn target, {:ok, acc} ->
+            case compile_profile_target(target, profile, actor, opts) do
+              {:ok, nil} -> {:cont, {:ok, acc}}
+              {:ok, compiled_target} -> {:cont, {:ok, [compiled_target | acc]}}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+          end)
 
-        {:ok, compiled}
+        case compiled do
+          {:ok, compiled_targets} -> {:ok, sort_targets(Enum.reverse(compiled_targets))}
+          error -> error
+        end
 
       {:error, reason} ->
         Logger.error("SNMPCompiler: failed to load profile targets - #{inspect(reason)}")
@@ -722,7 +790,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       |> ensure_packet_counter_oids()
 
     if oids == [] do
-      nil
+      {:ok, nil}
     else
       credential =
         case CredentialResolver.resolve_for_host(target.host, actor, opts) do
@@ -756,28 +824,33 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
       case credential do
         {:error, reason} ->
-          Logger.warning(
-            "SNMPCompiler: skipping target #{target.id} because credential resolution failed - #{inspect(reason)}"
-          )
+          if credential_read_failure?(reason) do
+            Logger.error(
+              "SNMPCompiler: target #{target.id} credential read failed - #{inspect(reason)}"
+            )
 
-          nil
+            {:error, {:credential_resolution_failed, reason}}
+          else
+            log_credential_refusal("target", target.id, reason)
+            {:ok, nil}
+          end
 
         credential when is_map(credential) ->
           if valid_credentials?(credential) do
-            apply_snmp_auth(base_target, version, credential)
+            {:ok, apply_snmp_auth(base_target, version, credential)}
           else
             Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
-            nil
+            {:ok, nil}
           end
 
         _ ->
           Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
-          nil
+          {:ok, nil}
       end
     end
   end
 
-  defp compile_profile_target(_, _, _, _), do: nil
+  defp compile_profile_target(_, _, _, _), do: {:ok, nil}
 
   defp oid_config_to_map(%SNMPOIDConfig{} = oid) do
     %{
@@ -1006,6 +1079,22 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
           target_id: profile && profile.id
         )
     end
+  end
+
+  # A failed credential read (device override, profile, rule, or broker secret
+  # read) fails the compile so ConfigServer does not cache a target list that
+  # dropped every device. A SecretBroker policy refusal — an external secret
+  # reference without a grant, a disabled provider — is deterministic: skipping
+  # that device stays the behavior, because failing the compile for it would
+  # freeze the config until an operator repairs the credential.
+  defp credential_read_failure?(%Invalid{}), do: false
+
+  defp credential_read_failure?(reason), do: Ash.Error.ash_error?(reason)
+
+  defp log_credential_refusal(kind, id, reason) do
+    Logger.warning(
+      "SNMPCompiler: skipping #{kind} #{id} because credential resolution refused - #{inspect(reason)}"
+    )
   end
 
   # Check if credentials are valid for SNMP connection

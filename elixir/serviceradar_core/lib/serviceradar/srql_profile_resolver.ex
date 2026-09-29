@@ -35,13 +35,34 @@ defmodule ServiceRadar.SRQLProfileResolver do
         find_matching_profile(rest, device_uid, actor, opts)
 
       {:error, reason} ->
-        Logger.warning(
-          "#{log_prefix(opts)}: error evaluating profile #{profile.id}: #{inspect(reason)}"
-        )
+        if match_read_failure?(reason) do
+          # A failed match read must fail the resolution: continuing to the
+          # next profile would silently fall back to a lower-priority or
+          # default profile the data did not select, and the compiler would
+          # cache it as this agent's config.
+          Logger.error(
+            "#{log_prefix(opts)}: failed to evaluate profile #{profile.id} targeting - " <>
+              "#{inspect(reason)}"
+          )
 
-        find_matching_profile(rest, device_uid, actor, opts)
+          {:error, reason}
+        else
+          Logger.warning(
+            "#{log_prefix(opts)}: error evaluating profile #{profile.id}: #{inspect(reason)}"
+          )
+
+          find_matching_profile(rest, device_uid, actor, opts)
+        end
     end
   end
+
+  # An unparseable query or an uncastable filter saved on a profile is
+  # deterministic: skipping that profile keeps the config live instead of
+  # freezing it until an operator repairs the query. Any other Ash error is a
+  # failed read and fails the resolution.
+  defp match_read_failure?(%Ash.Error.Invalid{}), do: false
+
+  defp match_read_failure?(reason), do: Ash.Error.ash_error?(reason)
 
   defp log_prefix(opts), do: Keyword.get(opts, :log_prefix, "SRQLProfileResolver")
 end

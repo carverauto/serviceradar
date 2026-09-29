@@ -880,6 +880,47 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
+  defp create_read_failure_template(name, actor) do
+    SNMPOIDTemplate
+    |> Ash.Changeset.for_create(:create, %{
+      name: name,
+      vendor: "custom",
+      category: "interface",
+      oids: [
+        %{
+          oid: ".1.3.6.1.2.1.2.2.1.10.1",
+          name: "ifInOctets",
+          data_type: "counter",
+          scale: 1.0,
+          delta: true
+        }
+      ]
+    })
+    |> Ash.create(actor: actor)
+  end
+
+  defp create_targeting_profile(hostname, template, actor) do
+    SNMPProfile
+    |> Ash.Changeset.for_create(:create, %{
+      name: "Read Failure Targeting #{System.unique_integer([:positive])}",
+      poll_interval: 60,
+      timeout: 5,
+      retries: 3,
+      enabled: true,
+      target_query: ~s(in:devices hostname:"#{hostname}"),
+      oid_template_ids: [template.id],
+      version: :v2c,
+      community: "public"
+    })
+    |> Ash.create(actor: actor)
+  end
+
+  defp set_profile_as_default(profile, actor) do
+    profile
+    |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+    |> Ash.update(actor: actor)
+  end
+
   defp create_default_profile(actor, opts) do
     agent_ids = Keyword.get(opts, :agent_ids, [])
 
@@ -1139,6 +1180,116 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       actor: actor
     } do
       assert {:ok, []} = SNMPCompiler.execute_target_query("in:devices type_id:abc", actor)
+    end
+
+    @tag :integration
+    test "a failed device credential read fails the compile instead of an empty target list", %{
+      actor: actor
+    } do
+      alias ServiceRadar.Inventory.Device
+
+      agent_id = "agent-#{System.unique_integer([:positive])}"
+      unique = System.unique_integer([:positive])
+      hostname = "snmp-credential-read-failure-#{unique}"
+      device_ip = "10.30.#{rem(unique, 250) + 1}.#{rem(div(unique, 250), 250) + 1}"
+
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: "sr:" <> Ecto.UUID.generate(),
+          hostname: hostname,
+          ip: device_ip,
+          discovery_sources: ["mapper"]
+        })
+        |> Ash.create(actor: actor)
+
+      {:ok, template} = create_read_failure_template("Credential Read Failure #{unique}", actor)
+      {:ok, profile} = create_targeting_profile(hostname, template, actor)
+      set_profile_as_default(profile, actor)
+
+      get_opts = [actor: actor, agent_id: agent_id]
+
+      # First fetch compiles and caches the real config (with the device target).
+      {:ok, good_entry} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      assert [%{"host" => ^device_ip}] = good_entry.config["targets"]
+
+      # Break the credential read and force a recompile.
+      ConfigServer.invalidate(:snmp)
+
+      Repo.query!(
+        "ALTER TABLE platform.device_snmp_credentials RENAME TO _device_snmp_credentials_hidden"
+      )
+
+      try do
+        # The failed credential read must fail the compile, not skip every
+        # device and cache an empty target list.
+        assert {:error, _} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      after
+        Repo.query!(
+          "ALTER TABLE platform._device_snmp_credentials_hidden RENAME TO device_snmp_credentials"
+        )
+      end
+
+      # After the read recovers, the cache must not hold the failed empty config.
+      {:ok, recovered} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      assert [%{"host" => ^device_ip}] = recovered.config["targets"]
+    end
+
+    @tag :integration
+    test "a failed IP alias read fails the compile instead of polling the canonical host", %{
+      actor: actor
+    } do
+      alias ServiceRadar.Inventory.Device
+
+      agent_id = "agent-#{System.unique_integer([:positive])}"
+      unique = System.unique_integer([:positive])
+      hostname = "snmp-alias-read-failure-#{unique}"
+      # A public canonical address is what makes the compiler consult the
+      # alias state before settling on the canonical host.
+      device_ip = "203.0.113.#{rem(unique, 250) + 1}"
+
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: "sr:" <> Ecto.UUID.generate(),
+          hostname: hostname,
+          ip: device_ip,
+          discovery_sources: ["mapper"]
+        })
+        |> Ash.create(actor: actor)
+
+      {:ok, template} = create_read_failure_template("Alias Read Failure #{unique}", actor)
+      {:ok, profile} = create_targeting_profile(hostname, template, actor)
+      set_profile_as_default(profile, actor)
+
+      Repo.query!(
+        "ALTER TABLE platform.device_alias_states RENAME TO _device_alias_states_hidden"
+      )
+
+      try do
+        # The failed alias read must fail the compile, not fall back to the
+        # canonical host and cache a possibly-unreachable target.
+        assert {:error, _} =
+                 SNMPCompiler.compile("default", agent_id,
+                   actor: actor,
+                   device_uid: nil
+                 )
+      after
+        Repo.query!(
+          "ALTER TABLE platform._device_alias_states_hidden RENAME TO device_alias_states"
+        )
+      end
+
+      # A readable alias state still compiles the canonical-host target
+      # (zero rows is a valid empty alias read).
+      assert {:ok, config} =
+               SNMPCompiler.compile("default", agent_id, actor: actor, device_uid: nil)
+
+      assert [%{"host" => ^device_ip}] = config["targets"]
     end
 
     @tag :integration

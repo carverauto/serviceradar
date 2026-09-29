@@ -59,33 +59,40 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     jobs = load_jobs(partition, agent_id, actor)
     mikrotik_controllers = load_mikrotik_controllers(jobs, actor)
     unifi_controllers = load_unifi_controllers(jobs, actor)
-    credentials = resolve_credentials(device_uid, actor, agent_id: agent_id, partition: partition)
 
-    credentials =
-      Map.put(
-        credentials,
-        "target_specific",
-        if snmp_discovery_jobs?(jobs) do
-          target_credentials(jobs, partition, agent_id, actor)
-        else
-          %{}
-        end
-      )
+    # A failed credential read fails the compile: falling back to the default
+    # credential would deliver a config that differs from what the data says
+    # (the mapper host may have its own scoped credential), and ConfigServer
+    # would cache it.
+    with {:ok, base_credentials} <-
+           resolve_credentials(device_uid, actor, agent_id: agent_id, partition: partition) do
+      credentials =
+        Map.put(
+          base_credentials,
+          "target_specific",
+          if snmp_discovery_jobs?(jobs) do
+            target_credentials(jobs, partition, agent_id, actor)
+          else
+            %{}
+          end
+        )
 
-    proxmox_candidate_probe? = proxmox_candidate_probe_enabled?(partition, agent_id, actor)
+      proxmox_candidate_probe? = proxmox_candidate_probe_enabled?(partition, agent_id, actor)
 
-    config = %{
-      "workers" => @default_workers,
-      "timeout" => @default_timeout,
-      "retries" => @default_retries,
-      "max_active_jobs" => @default_max_active_jobs,
-      "result_retention" => @default_result_retention,
-      "scheduled_jobs" => Enum.map(jobs, &compile_job(&1, credentials, proxmox_candidate_probe?)),
-      "mikrotik_apis" => mikrotik_controllers,
-      "unifi_apis" => unifi_controllers
-    }
+      config = %{
+        "workers" => @default_workers,
+        "timeout" => @default_timeout,
+        "retries" => @default_retries,
+        "max_active_jobs" => @default_max_active_jobs,
+        "result_retention" => @default_result_retention,
+        "scheduled_jobs" =>
+          Enum.map(jobs, &compile_job(&1, credentials, proxmox_candidate_probe?)),
+        "mikrotik_apis" => mikrotik_controllers,
+        "unifi_apis" => unifi_controllers
+      }
 
-    {:ok, config}
+      {:ok, config}
+    end
   rescue
     e ->
       Logger.error("MapperCompiler: error compiling config - #{inspect(e)}")
@@ -285,28 +292,49 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp string_or_empty(value) when is_binary(value), do: value
   defp string_or_empty(value), do: to_string(value)
 
+  # A failed credential read fails the compile: falling back to the default
+  # credential would deliver a config that differs from what the data says
+  # (the mapper host may have its own scoped credential), and ConfigServer
+  # would cache it. A deterministic SecretBroker refusal keeps the documented
+  # default-credential fallback so a misconfigured credential cannot freeze
+  # the mapper config.
   defp resolve_credentials(device_uid, actor, opts) do
     case CredentialResolver.resolve_for_device(device_uid, actor, opts) do
       {:ok, %{credential: nil}} ->
         resolve_default_credentials(actor, opts)
 
       {:ok, %{credential: credential}} ->
-        CredentialResolver.to_mapper_credentials(credential)
+        {:ok, CredentialResolver.to_mapper_credentials(credential)}
 
-      {:error, _} ->
-        Logger.warning("MapperCompiler: failed to resolve SNMP credentials for discovery jobs")
-        resolve_default_credentials(actor, opts)
+      {:error, reason} ->
+        if credential_read_failure?(reason) do
+          Logger.error(
+            "MapperCompiler: SNMP credential read failed for discovery jobs - #{inspect(reason)}"
+          )
+
+          {:error, {:credential_resolution_failed, reason}}
+        else
+          Logger.warning(
+            "MapperCompiler: SNMP credential resolution refused for discovery jobs - #{inspect(reason)}; using default credentials"
+          )
+
+          resolve_default_credentials(actor, opts)
+        end
     end
   end
+
+  defp credential_read_failure?(%Ash.Error.Invalid{}), do: false
+
+  defp credential_read_failure?(reason), do: Ash.Error.ash_error?(reason)
 
   defp resolve_default_credentials(actor, opts) do
     case CredentialResolver.resolve_default(actor, opts) do
       {:ok, %{credential: nil}} ->
         Logger.warning("MapperCompiler: no default SNMP credentials resolved for discovery jobs")
-        %{"version" => "v2c"}
+        {:ok, %{"version" => "v2c"}}
 
       {:ok, %{credential: credential}} ->
-        CredentialResolver.to_mapper_credentials(credential)
+        {:ok, CredentialResolver.to_mapper_credentials(credential)}
     end
   end
 

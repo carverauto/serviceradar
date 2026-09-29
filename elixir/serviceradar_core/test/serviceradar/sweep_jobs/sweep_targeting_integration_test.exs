@@ -887,6 +887,140 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
     end
   end
 
+  describe "a read that fails during compile" do
+    test "a failed groups read fails the compile and is not cached, so the previous config survives",
+         %{
+           actor: actor,
+           unique_id: unique_id
+         } do
+      group_name = "Read Failure Group #{unique_id}"
+
+      {:ok, _group} =
+        create_group(group_name, "default", %{enabled: true}, actor)
+
+      # First fetch compiles and caches the real config (with the group).
+      {:ok, good_entry} = ConfigServer.get_config(:sweep, "default", nil)
+      good_names = config_group_names(good_entry)
+      assert group_name in good_names
+
+      # Break the groups read and force a recompile.
+      ConfigServer.invalidate(:sweep)
+      Repo.query!("ALTER TABLE platform.sweep_groups RENAME TO _sweep_groups_hidden")
+
+      try do
+        # The failed read must fail the compile, not cache an empty config.
+        assert {:error, _} = ConfigServer.get_config(:sweep, "default", nil)
+      after
+        Repo.query!("ALTER TABLE platform._sweep_groups_hidden RENAME TO sweep_groups")
+      end
+
+      # After the read recovers, the cache must not hold the failed empty config.
+      {:ok, recovered} = ConfigServer.get_config(:sweep, "default", nil)
+      assert group_name in config_group_names(recovered)
+    end
+
+    test "a failed profiles read fails the compile instead of dropping profile settings", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      {:ok, profile} =
+        SweepProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{name: "Read Failure Profile #{unique_id}", concurrency: 111},
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _group} =
+        create_group("Profiled Group #{unique_id}", "default", %{profile_id: profile.id}, actor)
+
+      Repo.query!("ALTER TABLE platform.sweep_profiles RENAME TO _sweep_profiles_hidden")
+
+      try do
+        assert {:error, {:sweep_profiles_read_failed, _}} =
+                 SweepCompiler.compile("default", nil, actor: actor)
+      after
+        Repo.query!("ALTER TABLE platform._sweep_profiles_hidden RENAME TO sweep_profiles")
+      end
+
+      # The read recovering still compiles the profiled group.
+      assert {:ok, config} = SweepCompiler.compile("default", nil, actor: actor)
+
+      compiled_group = Enum.find(config["groups"], &(&1["name"] == "Profiled Group #{unique_id}"))
+      assert compiled_group["settings"]["concurrency"] == 111
+    end
+
+    test "a failed SRQL device read fails the compile instead of dropping the group's device targets",
+         %{actor: actor, unique_id: unique_id} do
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "device-srql-read-failure-#{unique_id}",
+            hostname: "srql-read-failure-#{unique_id}.example.com",
+            ip: unique_device_ip(unique_id, 1)
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _group} =
+        create_group(
+          "SRQL Read Failure Group #{unique_id}",
+          "default",
+          %{target_query: ~s(in:devices hostname:"srql-read-failure-#{unique_id}.example.com")},
+          actor
+        )
+
+      # The device read backing SRQL targeting fails while groups and
+      # profiles remain readable.
+      Repo.query!("ALTER TABLE platform.ocsf_devices RENAME TO _ocsf_devices_hidden")
+
+      try do
+        assert {:error, {:target_query_failed, _}} =
+                 SweepCompiler.compile("default", nil, actor: actor)
+      after
+        Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
+      end
+
+      # A readable query still resolves the device target (zero-row reads
+      # stay valid: the same query with no matching device compiles empty).
+      assert {:ok, config} = SweepCompiler.compile("default", nil, actor: actor)
+
+      compiled_group =
+        Enum.find(config["groups"], &(&1["name"] == "SRQL Read Failure Group #{unique_id}"))
+
+      assert [device_target] = compiled_group["device_targets"]
+      assert device_target["network"] == unique_device_ip(unique_id, 1)
+    end
+
+    test "an unparseable target query matches no devices without failing the compile", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      group_name = "Garbage Query Group #{unique_id}"
+
+      {:ok, group} = create_group(group_name, "default", %{enabled: true}, actor)
+
+      # The create action rejects unparseable queries, but a legacy or
+      # directly-written row can still carry one.
+      Repo.query!(
+        "UPDATE platform.sweep_groups SET target_query = $1 WHERE id = $2",
+        ["this is ((( not srql", Ecto.UUID.dump!(group.id)]
+      )
+
+      assert {:ok, config} = SweepCompiler.compile("default", nil, actor: actor)
+
+      # The group still compiles with its static targets and no device targets.
+      compiled_group = Enum.find(config["groups"], &(&1["name"] == group_name))
+
+      assert compiled_group["targets"] == ["10.0.0.1"]
+      refute Map.has_key?(compiled_group, "device_targets")
+    end
+  end
+
   describe "config change detection" do
     test "config hash changes when sweep group is updated", %{actor: actor, unique_id: unique_id} do
       {:ok, group} =
@@ -950,6 +1084,10 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
 
   defp config_group_ids(config_entry) do
     Enum.map(config_entry.config["groups"] || [], & &1["sweep_group_id"])
+  end
+
+  defp config_group_names(config_entry) do
+    Enum.map(config_entry.config["groups"] || [], & &1["name"])
   end
 
   defp assert_eventually(predicate, artifact, timeout_ms \\ 2_000) do

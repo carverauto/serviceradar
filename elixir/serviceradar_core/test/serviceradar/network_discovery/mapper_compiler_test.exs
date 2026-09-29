@@ -14,6 +14,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
+  alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
@@ -982,6 +983,40 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
     assert compiled_job
     refute Map.has_key?(compiled_job["options"], "proxmox_candidate_probe_enabled")
+  end
+
+  @tag :integration
+  test "a failed device credential read fails the compile instead of falling back to default credentials" do
+    actor = SystemActor.system(:test)
+    unique_id = System.unique_integer([:positive])
+    partition = "credential-read-failure-#{unique_id}"
+    agent_id = "agent-credential-read-failure-#{unique_id}"
+
+    Repo.query!(
+      "ALTER TABLE platform.device_snmp_credentials RENAME TO _device_snmp_credentials_hidden"
+    )
+
+    try do
+      assert {:error, {:credential_resolution_failed, _}} =
+               MapperCompiler.compile(partition, agent_id,
+                 actor: actor,
+                 device_uid: "sr:" <> Ash.UUID.generate()
+               )
+    after
+      Repo.query!(
+        "ALTER TABLE platform._device_snmp_credentials_hidden RENAME TO device_snmp_credentials"
+      )
+    end
+
+    # The same compile with a readable credential table still succeeds: a
+    # device with no configured credential is a zero-row read, not a failure.
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id,
+               actor: actor,
+               device_uid: "sr:" <> Ash.UUID.generate()
+             )
+
+    assert config["scheduled_jobs"] == []
   end
 
   defp create_mapper_collector(suffix, actor) do
