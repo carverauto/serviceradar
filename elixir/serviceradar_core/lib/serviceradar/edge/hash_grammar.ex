@@ -23,6 +23,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
   @plan_page_domain "serviceradar.edge.plan.page.v1"
   @plan_root_domain "serviceradar.edge.plan.root.v1"
   @plan_header_domain "serviceradar.edge.plan.header.v1"
+  @check_set_domain "serviceradar.edge.check_set.v1"
+  @check_set_digest_version 1
   @manifest_page_domain "serviceradar.edge.recovery.manifest_page.v1"
   @manifest_root_domain "serviceradar.edge.recovery.manifest_root.v1"
 
@@ -233,6 +235,30 @@ defmodule ServiceRadar.Edge.HashGrammar do
             bytes(cap.signature)
           ]
         end
+
+    :crypto.hash(:sha256, io)
+  end
+
+  @doc """
+  Identity of an exact set of `(mode, protocol, port)` checks: the `check_set_sha256` a plan,
+  its pages and its ranges carry.
+
+  `mode` and `protocol` are the `SweepMode` and `TransportProtocol` enum values and `port` is
+  0 for a check that has none. The set is sorted and de-duplicated first, so the order a caller
+  lists the checks in never changes the identity. The preimage leads with its own domain tag
+  and version like every plan digest. The ABI leaves this grammar undefined; it is fixed here
+  and pinned by `sweep_static_plan_corpus.txt`, which Go recomputes independently.
+  """
+  @spec check_set_digest([{non_neg_integer(), non_neg_integer(), non_neg_integer()}]) :: binary()
+  def check_set_digest(checks) when is_list(checks) do
+    sorted = checks |> Enum.uniq() |> Enum.sort()
+
+    io = [
+      str(@check_set_domain),
+      u64(@check_set_digest_version),
+      u64(length(sorted)),
+      Enum.map(sorted, fn {mode, protocol, port} -> [u64(mode), u64(protocol), u64(port)] end)
+    ]
 
     :crypto.hash(:sha256, io)
   end

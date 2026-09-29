@@ -301,8 +301,15 @@ here:
 
 - `check_set_sha256` is the SHA-256, in the plan grammar (big-endian integers,
   length-framed bytes), of the domain tag `serviceradar.edge.check_set.v1`, the
-  count of checks and each `(mode, protocol, port)` check sorted ascending. The
-  exact field encoding is pinned by the golden vectors in M2.0b1.
+  digest version 1, the count of checks and each `(mode, protocol, port)` check
+  sorted ascending and de-duplicated, where `mode` and `protocol` are the
+  `SweepMode` and `TransportProtocol` enum values and `port` is 0 for ICMP. The
+  checks are the group's compiled effective modes and ports, after profile and
+  override inheritance: ICMP once, and each TCP mode (SYN, connect) on every
+  port. `arp` and blank modes are ignored, as the agent ignores them, and `mtr`
+  makes the group ineligible. The encoding is pinned by
+  `proto/edge/v1/testdata/sweep_static_plan_corpus.txt`, which Go recomputes
+  independently.
 - `availability_policy_id` is `any-success-v1`: a host is available when any of
   its checks succeeded, the meaning the legacy path already gives.
 
