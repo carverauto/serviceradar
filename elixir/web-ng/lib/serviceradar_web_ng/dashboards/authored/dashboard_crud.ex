@@ -16,20 +16,14 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.DashboardCrud do
       def create_dashboard(_scope, _attrs), do: {:error, :invalid_attributes}
 
       @spec create_dashboard_with_panels(term(), map(), [map()]) ::
-              {:ok, {AuthoredDashboard.t(), [ServiceRadar.Dashboards.DashboardPanel.t()]}}
-              | {:error, term()}
-      def create_dashboard_with_panels(scope, attrs, panel_attrs)
-          when is_map(attrs) and is_list(panel_attrs) do
+              {:ok, {AuthoredDashboard.t(), [ServiceRadar.Dashboards.DashboardPanel.t()]}} | {:error, term()}
+      def create_dashboard_with_panels(scope, attrs, panel_attrs) when is_map(attrs) and is_list(panel_attrs) do
         with {:ok, attrs} <- validate_dashboard_attrs(dashboard_attrs(attrs)) do
           case ServiceRadar.Repo.transaction(fn ->
                  with {:ok, dashboard, dashboard_notifications} <-
                         create_dashboard_with_ref_and_notifications(scope, attrs, 0),
                       {:ok, panels, panel_notifications} <-
-                        create_panels_for_dashboard_with_notifications(
-                          scope,
-                          dashboard,
-                          panel_attrs
-                        ) do
+                        create_panels_for_dashboard_with_notifications(scope, dashboard, panel_attrs) do
                    {dashboard, panels, dashboard_notifications ++ panel_notifications}
                  else
                    {:error, reason} -> ServiceRadar.Repo.rollback(reason)
@@ -45,8 +39,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.DashboardCrud do
         end
       end
 
-      def create_dashboard_with_panels(_scope, _attrs, _panel_attrs),
-        do: {:error, :invalid_attributes}
+      def create_dashboard_with_panels(_scope, _attrs, _panel_attrs), do: {:error, :invalid_attributes}
 
       @spec update_dashboard(term(), AuthoredDashboard.t(), map()) ::
               {:ok, AuthoredDashboard.t()} | {:error, term()}
@@ -83,8 +76,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.DashboardCrud do
         end
       end
 
-      defp create_dashboard_with_ref_and_notifications(_scope, _attrs, attempts)
-           when attempts >= 8 do
+      defp create_dashboard_with_ref_and_notifications(_scope, _attrs, attempts) when attempts >= 8 do
         {:error, :dashboard_ref_generation_failed}
       end
 
@@ -105,12 +97,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.DashboardCrud do
               {:ok, dashboard, notifications}
 
             {:error, reason} ->
-              maybe_retry_dashboard_ref_conflict_with_notifications(
-                scope,
-                attrs,
-                attempts,
-                reason
-              )
+              maybe_retry_dashboard_ref_conflict_with_notifications(scope, attrs, attempts, reason)
           end
         end
       end
@@ -148,10 +135,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.DashboardCrud do
       # The identity maps the unique index to a "has already been taken" error on
       # the field; the raw index name covers an unmapped constraint error.
       defp unique_dashboard_ref_error?(%{errors: errors}) when is_list(errors) do
-        Enum.any?(
-          errors,
-          &match?(%{field: :dashboard_ref, message: "has already been taken"}, &1)
-        ) or
+        Enum.any?(errors, &match?(%{field: :dashboard_ref, message: "has already been taken"}, &1)) or
           raw_dashboard_ref_error?(errors)
       end
 
