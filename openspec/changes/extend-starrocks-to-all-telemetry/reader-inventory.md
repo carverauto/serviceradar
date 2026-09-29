@@ -92,7 +92,7 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 | LogLive traces/metrics tabs, `TraceLive.Show`, `MetricLive.Show`, Analytics slow spans, onboarding | traces, summaries, otel_metrics, points | SRQL CNPG |
 | LogLive `load_sparklines` `W/live/log_live/index.ex:10155` | otel_metrics | logs page OTel sparklines (direct); removed by 3.1, it queried columns `otel_metrics` does not have |
 | `RefreshTraceSummariesWorker` `C/jobs/refresh_trace_summaries_worker.ex:266`; `RootSpanRatioWorker` `C/jobs/root_span_ratio_worker.ex:57` | otel_traces | Oban (read and write the warehouse when enabled, 3.2) |
-| JSON:API `/otel_traces`, `/otel_trace_summaries` | raw | API; report "unavailable with StarRocks enabled" (no JSON:API warehouse table yet; SRQL traces are routed by 3.2) |
+| JSON:API `/otel_traces`, `/otel_trace_summaries` | raw | API; route through `TelemetryIndexRead` (warehouse when StarRocks is enabled, CNPG otherwise; 3.2.6) |
 | JSON:API `/otel_metrics`, `/otel_metric_points` | raw | API; route through `TelemetryIndexRead` (warehouse when enabled, CNPG otherwise) |
 
 ### Sysmon tables, BMP / BGP, service status

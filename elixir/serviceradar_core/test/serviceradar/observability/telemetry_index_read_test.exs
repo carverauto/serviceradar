@@ -1,10 +1,15 @@
 defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   use ExUnit.Case, async: false
 
-  require Ash.Query
-
   alias ServiceRadar.Analytics.StarRocks
+  alias ServiceRadar.Observability.Log
+  alias ServiceRadar.Observability.OtelTrace
+  alias ServiceRadar.Observability.OtelTraceSummary
   alias ServiceRadar.Observability.TelemetryIndexRead
+  alias ServiceRadar.Observability.TimeseriesMetric
+  alias ServiceRadar.Observability.TimeseriesMetricDiskHourly
+
+  require Ash.Query
 
   @moduletag :db_free
 
@@ -26,8 +31,17 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   test "routes to CNPG when the warehouse is disabled" do
     with_starrocks(false)
 
-    assert TelemetryIndexRead.mode(ServiceRadar.Observability.Log, table: "logs") == :cnpg
-    assert TelemetryIndexRead.mode(ServiceRadar.Observability.OtelTrace, table: nil) == :cnpg
+    assert TelemetryIndexRead.mode(Log, table: "logs") == :cnpg
+
+    assert TelemetryIndexRead.mode(
+             OtelTrace,
+             index_read_opts(OtelTrace)
+           ) == :cnpg
+
+    assert TelemetryIndexRead.mode(
+             OtelTraceSummary,
+             index_read_opts(OtelTraceSummary)
+           ) == :cnpg
   end
 
   test "routes otel metrics to the warehouse when enabled" do
@@ -47,11 +61,11 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   test "routes logs and metrics to the warehouse once cut over" do
     with_starrocks(true, cutover_datasets: [:logs, :metrics])
 
-    assert TelemetryIndexRead.mode(ServiceRadar.Observability.Log, table: "logs") ==
+    assert TelemetryIndexRead.mode(Log, table: "logs") ==
              {:starrocks, "logs"}
 
     assert TelemetryIndexRead.mode(
-             ServiceRadar.Observability.TimeseriesMetric,
+             TimeseriesMetric,
              table: "timeseries_metrics"
            ) == {:starrocks, "timeseries_metrics"}
 
@@ -64,28 +78,45 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   test "keeps logs and metrics on CNPG when enabled but not cut over" do
     with_starrocks(true)
 
-    assert TelemetryIndexRead.mode(ServiceRadar.Observability.Log, table: "logs") == :cnpg
+    assert TelemetryIndexRead.mode(Log, table: "logs") == :cnpg
 
     assert TelemetryIndexRead.mode(
-             ServiceRadar.Observability.TimeseriesMetric,
+             TimeseriesMetric,
              table: "timeseries_metrics"
            ) == :cnpg
   end
 
-  test "keeps routes without a warehouse table on CNPG when enabled" do
+  test "routes traces and summaries to the warehouse when enabled, before any cutover" do
     with_starrocks(true)
 
-    assert TelemetryIndexRead.mode(ServiceRadar.Observability.OtelTrace, table: nil) == :cnpg
+    assert TelemetryIndexRead.mode(
+             OtelTrace,
+             index_read_opts(OtelTrace)
+           ) == {:starrocks, "otel_traces"}
 
-    assert TelemetryIndexRead.mode(ServiceRadar.Observability.OtelTraceSummary, table: nil) ==
-             :cnpg
+    assert TelemetryIndexRead.mode(
+             OtelTraceSummary,
+             index_read_opts(OtelTraceSummary)
+           ) == {:starrocks, "otel_trace_summaries"}
+  end
+
+  test "keeps interface, disk hourly, and sysmon on CNPG when the warehouse is enabled" do
+    with_starrocks(true)
+
+    for resource <- [
+          ServiceRadar.Observability.TimeseriesMetricInterfaceHourly,
+          TimeseriesMetricDiskHourly,
+          ServiceRadar.Observability.CpuMetric
+        ] do
+      assert TelemetryIndexRead.mode(resource, index_read_opts(resource)) == :cnpg
+    end
   end
 
   test "delegates to the CNPG data layer when the warehouse is disabled" do
     with_starrocks(false)
 
     query =
-      ServiceRadar.Observability.Log
+      Log
       |> Ash.Query.for_read(:api_index)
       |> Ash.Query.set_context(%{cnpg_read: fn _data_layer_query -> {:ok, :cnpg_records} end})
 
@@ -97,7 +128,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     with_starrocks(false)
 
     query =
-      ServiceRadar.Observability.Log
+      Log
       |> Ash.Query.for_read(:api_index)
       |> Ash.Query.page(count: true)
       |> Ash.Query.set_context(%{
@@ -115,7 +146,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     parent = self()
 
     query =
-      ServiceRadar.Observability.Log
+      Log
       |> Ash.Query.for_read(:api_index)
       |> Ash.Query.filter(trace_id == "abc123")
       |> Ash.Query.sort(timestamp: :desc)
@@ -164,7 +195,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     with_starrocks(true, cutover_datasets: [:logs])
 
     filtered =
-      ServiceRadar.Observability.Log
+      Log
       |> Ash.Query.for_read(:api_index)
       |> Ash.Query.filter(scope_name == "otel")
 
@@ -172,7 +203,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
              TelemetryIndexRead.read(filtered, :data_layer_query, [table: "logs"], %{})
 
     sorted =
-      ServiceRadar.Observability.Log
+      Log
       |> Ash.Query.for_read(:api_index)
       |> Ash.Query.sort(scope_version: :asc)
 
@@ -183,12 +214,111 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   test "delegates to CNPG when enabled but the resource has no warehouse table" do
     with_starrocks(true)
 
+    resource = TimeseriesMetricDiskHourly
+
     query =
-      ServiceRadar.Observability.OtelTrace
+      resource
       |> Ash.Query.for_read(:api_index)
       |> Ash.Query.set_context(%{cnpg_read: fn _data_layer_query -> {:ok, :cnpg_records} end})
 
-    assert TelemetryIndexRead.read(query, :data_layer_query, [table: nil], %{}) ==
+    assert TelemetryIndexRead.read(query, :data_layer_query, index_read_opts(resource), %{}) ==
              {:ok, :cnpg_records}
+  end
+
+  test "serves traces and summaries from the warehouse when enabled" do
+    with_starrocks(true)
+
+    parent = self()
+
+    trace_query =
+      OtelTrace
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.filter(trace_id == "abc123")
+      |> Ash.Query.sort(timestamp: :desc)
+      |> Ash.Query.limit(50)
+      |> Ash.Query.set_context(%{starrocks_query: &reply_rows(&1, parent, :trace)})
+
+    assert {:ok, [trace]} =
+             TelemetryIndexRead.read(
+               trace_query,
+               :data_layer_query,
+               index_read_opts(OtelTrace),
+               %{}
+             )
+
+    assert trace.trace_id == "abc123"
+    assert trace.span_id == "span1"
+    assert trace.service_name == "api"
+    assert %DateTime{} = trace.timestamp
+
+    assert_received {:sql, trace_sql}
+    assert trace_sql =~ "FROM serviceradar.otel_traces"
+    assert trace_sql =~ "WHERE `trace_id` = 'abc123'"
+    assert trace_sql =~ "ORDER BY `timestamp` DESC"
+    assert trace_sql =~ "`span_id`"
+    refute trace_sql =~ "COUNT(*)"
+
+    summary_query =
+      OtelTraceSummary
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.filter(root_service_name == "api")
+      |> Ash.Query.sort(timestamp: :desc)
+      |> Ash.Query.set_context(%{starrocks_query: &reply_rows(&1, parent, :summary)})
+
+    assert {:ok, [summary]} =
+             TelemetryIndexRead.read(
+               summary_query,
+               :data_layer_query,
+               index_read_opts(OtelTraceSummary),
+               %{}
+             )
+
+    assert summary.trace_id == "abc123"
+    assert summary.root_service_name == "api"
+    assert summary.duration_ms == 12.5
+    assert summary.span_count == 3
+    assert summary.service_set == ["api", "db"]
+    assert %DateTime{} = summary.timestamp
+
+    assert_received {:sql, summary_sql}
+    assert summary_sql =~ "FROM serviceradar.otel_trace_summaries"
+    assert summary_sql =~ "WHERE `root_service_name` = 'api'"
+    assert summary_sql =~ "ORDER BY `timestamp` DESC"
+    assert summary_sql =~ "`service_set`"
+    assert summary_sql =~ "`error_count`"
+    refute summary_sql =~ "`refreshed_at`"
+    refute summary_sql =~ "`error_rate`"
+  end
+
+  defp index_read_opts(resource) do
+    %{manual: {TelemetryIndexRead, opts}} = Ash.Resource.Info.action(resource, :api_index)
+    opts
+  end
+
+  defp reply_rows(sql, parent, :trace) do
+    send(parent, {:sql, sql})
+
+    {:ok,
+     %{
+       columns: ["trace_id", "span_id", "timestamp", "service_name"],
+       rows: [["abc123", "span1", "2026-01-01 00:00:00.000000", "api"]]
+     }}
+  end
+
+  defp reply_rows(sql, parent, :summary) do
+    send(parent, {:sql, sql})
+
+    {:ok,
+     %{
+       columns: [
+         "trace_id",
+         "timestamp",
+         "root_service_name",
+         "duration_ms",
+         "span_count",
+         "service_set"
+       ],
+       rows: [["abc123", "2026-01-01 00:00:00.000000", "api", "12.5", "3", ~s(["api","db"])]]
+     }}
   end
 end

@@ -5,14 +5,13 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   Exactly one telemetry backend is active. With `analytics.starrocks.enabled`
   off, the read delegates to the resource's CNPG data layer query unchanged.
   With it on, a dataset whose writes have moved to the warehouse is served from
-  its warehouse table: OTel metric samples and points follow the enabled flag,
-  while logs and raw and hourly timeseries metrics follow the per-dataset
-  cutover list, so a row still written to CNPG is still read from CNPG and a
-  `/api/v2` telemetry route never serves history frozen at the switch. A
-  dataset with no warehouse table yet (OTel traces and summaries, the
-  interface/disk hourly aggregates, and the legacy sysmon tables retired under
-  #4861) stays CNPG-backed, because its rows are still written to CNPG, until
-  a warehouse reader and writer land.
+  its warehouse table: OTel metric samples and points, and OTel traces and
+  summaries, follow the enabled flag, while logs and raw and hourly timeseries
+  metrics follow the per-dataset cutover list, so a row still written to CNPG
+  is still read from CNPG and a `/api/v2` telemetry route never serves history
+  frozen at the switch. A dataset with no warehouse table (the interface/disk
+  hourly aggregates and the legacy sysmon tables retired under #4861) stays
+  CNPG-backed, because its rows are still written to CNPG.
 
   The Frontend is queried over the MySQL text protocol, which takes no bind
   parameters, so filter values and pagination bounds reach it as literals.
@@ -33,6 +32,8 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
   use Ash.Resource.ManualRead
 
+  alias Ash.Query.Ref
+  alias Ash.Resource.Info
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
@@ -45,8 +46,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
       ~w(id timestamp observed_timestamp trace_id span_id severity_text severity_number body
          event_name source source_ip service_name service_version ingest_identity
          ingest_agent_id ingest_partition)a,
-    "otel_metrics" =>
-      ~w(timestamp trace_id span_id service_name span_name span_kind duration_ms
+    "otel_metrics" => ~w(timestamp trace_id span_id service_name span_name span_kind duration_ms
          duration_seconds metric_type http_method http_route http_status_code grpc_service
          grpc_method grpc_status_code is_slow component level unit ingest_identity
          ingest_agent_id ingest_partition created_at)a,
@@ -59,7 +59,18 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
       ~w(timestamp gateway_id series_key agent_id metric_name metric_type device_id value
          unit if_index partition scale is_delta counter_width target_device_ip tags)a,
     "timeseries_metrics_hourly" =>
-      ~w(bucket device_id metric_type metric_name avg_value min_value max_value sample_count)a
+      ~w(bucket device_id metric_type metric_name avg_value min_value max_value sample_count)a,
+    "otel_traces" => ~w(trace_id span_id timestamp parent_span_id trace_state name kind
+         start_time_unix_nano end_time_unix_nano service_name service_version
+         service_instance service_namespace deployment_environment scope_name
+         scope_version scope_attributes status_code status_message attributes
+         resource_attributes events links dropped_attributes_count
+         dropped_events_count dropped_links_count created_at ingest_identity
+         ingest_agent_id ingest_partition)a,
+    "otel_trace_summaries" => ~w(trace_id timestamp root_span_id root_span_name root_service_name
+         root_service_namespace deployment_environment root_span_kind
+         start_time_unix_nano end_time_unix_nano duration_ms status_code
+         status_message service_set span_count error_count)a
   }
 
   @dataset_for_table %{
@@ -67,7 +78,9 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
     "otel_metrics" => :otel_metrics,
     "otel_metric_points" => :otel_metrics,
     "timeseries_metrics" => :metrics,
-    "timeseries_metrics_hourly" => :metrics
+    "timeseries_metrics_hourly" => :metrics,
+    "otel_traces" => :otel_traces,
+    "otel_trace_summaries" => :otel_traces
   }
 
   @impl Ash.Resource.ManualRead
@@ -98,11 +111,13 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   end
 
   defp run_cnpg(query, data_layer_query) do
-    case query.context[:cnpg_read] do
-      fun when is_function(fun, 1) -> fun.(data_layer_query)
-      _ -> Ash.DataLayer.run_query(data_layer_query, query.resource)
-    end
-    |> maybe_add_cnpg_count(query)
+    case_result =
+      case query.context[:cnpg_read] do
+        fun when is_function(fun, 1) -> fun.(data_layer_query)
+        _ -> Ash.DataLayer.run_query(data_layer_query, query.resource)
+      end
+
+    maybe_add_cnpg_count(case_result, query)
   end
 
   defp maybe_add_cnpg_count({:ok, records}, query) do
@@ -124,8 +139,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
       _ ->
         count_query =
-          query
-          |> Ash.Query.unset([:sort, :distinct_sort, :lock, :load, :limit, :offset, :page])
+          Ash.Query.unset(query, [:sort, :distinct_sort, :lock, :load, :limit, :offset, :page])
 
         with {:ok, data_layer_query} <- Ash.Query.data_layer_query(count_query),
              {:ok, aggregate} <-
@@ -191,7 +205,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
     available = Map.fetch!(@warehouse_columns, table)
 
     resource
-    |> Ash.Resource.Info.attributes()
+    |> Info.attributes()
     |> Enum.filter(&(&1.name in available))
   end
 
@@ -211,7 +225,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
   defp execute_warehouse(sql, context, opts) do
     starrocks_query =
-      context[:starrocks_query] || Keyword.get(opts, :starrocks_query) || &Query.execute/1
+      context[:starrocks_query] || Keyword.get(opts, :starrocks_query) || (&Query.execute/1)
 
     starrocks_query.(sql)
   end
@@ -221,7 +235,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   # ---------------------------------------------------------------------------
 
   defp build_records(resource, select_attributes, columns, rows) do
-    attributes = Ash.Resource.Info.attributes(resource)
+    attributes = Info.attributes(resource)
     by_name = Map.new(select_attributes, &{&1.name, &1})
 
     Enum.map(rows, fn row ->
@@ -245,7 +259,8 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
           Map.put(acc, attribute.name, Map.get(values, attribute.name))
         end)
 
-      struct(resource, attrs)
+      resource
+      |> struct(attrs)
       |> Map.put(:__meta__, %Ecto.Schema.Metadata{state: :loaded, schema: resource})
     end)
   end
@@ -256,19 +271,43 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
     String.to_existing_atom(column)
   end
 
-  defp normalize_value(%{type: type}, value)
-       when type in [:utc_datetime_usec, :utc_datetime, :datetime] do
-    cast_datetime(value)
+  defp normalize_value(%{type: type}, value) do
+    case short_type(type) do
+      short when short in [:utc_datetime_usec, :utc_datetime, :datetime] ->
+        cast_datetime(value)
+
+      :boolean ->
+        cast_boolean(value)
+
+      :float ->
+        cast_float(value)
+
+      :integer ->
+        cast_integer(value)
+
+      :map ->
+        decode_document(value)
+
+      {:array, _inner} ->
+        decode_document(value)
+
+      _other ->
+        value
+    end
   end
 
-  defp normalize_value(%{type: :boolean}, value), do: cast_boolean(value)
-  defp normalize_value(%{type: :float}, value), do: cast_float(value)
-  defp normalize_value(%{type: :integer}, value), do: cast_integer(value)
-  defp normalize_value(%{type: :map}, value), do: decode_document(value)
-  defp normalize_value(%{type: {:array, _type}}, value), do: decode_document(value)
-  defp normalize_value(_attribute, value), do: value
+  defp short_type({:array, inner}), do: {:array, short_type(inner)}
+
+  defp short_type(type) when is_atom(type) do
+    Enum.find_value(Ash.Type.short_names(), type, fn {short, module} ->
+      if module == type, do: short
+    end)
+  end
+
+  defp short_type(type), do: type
 
   defp cast_datetime(%DateTime{} = value), do: value |> utc() |> usec()
+
   defp cast_datetime(%NaiveDateTime{} = value),
     do: value |> DateTime.from_naive!("Etc/UTC") |> usec()
 
@@ -404,7 +443,8 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   defp is_nil_sql(_column, _right), do: {:error, {:unsupported_warehouse_filter, :is_nil}}
 
   defp in_sql(column, values) when is_list(values) and values != [] do
-    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
+    values
+    |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
       case literal_sql(value) do
         {:ok, literal} -> {:cont, {:ok, [literal | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -418,16 +458,16 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
   defp in_sql(_column, _values), do: {:error, {:unsupported_warehouse_filter, :empty_in}}
 
-  defp column_sql(%Ash.Query.Ref{} = ref, available) do
+  defp column_sql(%Ref{} = ref, available) do
     cond do
       ref.relationship_path != [] ->
         {:error, :relationship_filter_unsupported}
 
-      Ash.Query.Ref.name(ref) in available ->
-        {:ok, "`#{Ash.Query.Ref.name(ref)}`"}
+      Ref.name(ref) in available ->
+        {:ok, "`#{Ref.name(ref)}`"}
 
       true ->
-        {:error, {:unsupported_warehouse_filter_field, Ash.Query.Ref.name(ref)}}
+        {:error, {:unsupported_warehouse_filter_field, Ref.name(ref)}}
     end
   end
 
@@ -476,7 +516,8 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   defp order_clause([], _available), do: {:ok, nil}
 
   defp order_clause(sort, available) when is_list(sort) do
-    Enum.reduce_while(sort, {:ok, []}, fn entry, {:ok, acc} ->
+    sort
+    |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
       case sort_entry_sql(entry, available) do
         {:ok, sql} -> {:cont, {:ok, [sql | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -504,16 +545,16 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
     end
   end
 
-  defp sort_field_sql(%Ash.Query.Ref{} = ref, direction, available) do
+  defp sort_field_sql(%Ref{} = ref, direction, available) do
     cond do
       ref.relationship_path != [] ->
         {:error, :relationship_sort_unsupported}
 
-      Ash.Query.Ref.name(ref) in available ->
-        {:ok, "`#{Ash.Query.Ref.name(ref)}` #{direction_sql(direction)}"}
+      Ref.name(ref) in available ->
+        {:ok, "`#{Ref.name(ref)}` #{direction_sql(direction)}"}
 
       true ->
-        {:error, {:unsupported_warehouse_sort_field, Ash.Query.Ref.name(ref)}}
+        {:error, {:unsupported_warehouse_sort_field, Ref.name(ref)}}
     end
   end
 

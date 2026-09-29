@@ -41,7 +41,7 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
     defaults [:read]
 
     read :api_index do
-      manual ServiceRadar.Observability.TelemetryIndexRead
+      manual {ServiceRadar.Observability.TelemetryIndexRead, table: "otel_trace_summaries"}
 
       pagination do
         offset? true

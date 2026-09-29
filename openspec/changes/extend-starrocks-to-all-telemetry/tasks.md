@@ -97,11 +97,12 @@
   - [ ] 3.2.5 Run the parity database tier for the `traces.*` inventory entries against the
     traces fixture (`src/fixture/traces.rs`), then verify the logs page traces tab, trace detail,
     dashboard and Analytics trace cards and the rollup health banner after a rollout.
-  - [ ] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` are wired to the same
-    `TelemetryIndexRead` manual read and stay CNPG-backed. SRQL and EventWriter already use the
-    3.2 warehouse reader and writer; these JSON:API routes do not, so they still read CNPG
-    (see 5.4). `OtelServiceCatalogBackfillWorker` reads CNPG `spans_red_1h` once, for history
-    written before the switch, and needs no change.
+  - [x] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` route through
+    `TelemetryIndexRead`: the warehouse tables when `analytics.starrocks.enabled` is true,
+    the CNPG data layer otherwise, matching `OtelTraces.store/2` and
+    `RefreshTraceSummariesWorker` (both write the warehouse only when StarRocks is enabled).
+    `OtelServiceCatalogBackfillWorker` reads CNPG `spans_red_1h` once, for history written
+    before the switch, and needs no change.
 - [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
 - [ ] 3.4 MTR traces and hops (spec: "MTR traces and hops reach the warehouse through JetStream").
   Scalar MTR metrics already travel on `metrics.mtr` (gateway `MtrMetricsPublisher` -> EventWriter
@@ -212,13 +213,13 @@
   and events pages, OTel, sysmon, BMP, service status), each behind its parity comparison. The
   CNPG implementation stays: it serves every installation without StarRocks.
   - JSON:API rows (this issue): `/api/v2/logs`, `/otel_metrics`, `/otel_metric_points`,
-    `/timeseries_metrics` and `/timeseries_metrics_hourly` read their warehouse tables
-    through `ServiceRadar.Observability.TelemetryIndexRead` when StarRocks is enabled and
-    the CNPG data layer otherwise; `/otel_traces`, `/otel_trace_summaries`,
-    `/timeseries_metrics_interface_hourly`, `/timeseries_metrics_disk_hourly` and the
-    legacy sysmon routes stay CNPG-backed (their rows are still written to CNPG) until a
-    warehouse reader and writer land (traces in 3.2; interface/disk hourly stay CNPG-only
-    per finding 4; sysmon retires under #4861). `/service_status` is not warehouse-backed
+    `/timeseries_metrics`, `/timeseries_metrics_hourly`, `/otel_traces` and
+    `/otel_trace_summaries` read their warehouse tables through
+    `ServiceRadar.Observability.TelemetryIndexRead` when that dataset's writes are in the
+    warehouse and the CNPG data layer otherwise. `/timeseries_metrics_interface_hourly`,
+    `/timeseries_metrics_disk_hourly` and the legacy sysmon routes stay CNPG-backed
+    (their rows are still written to CNPG; interface/disk hourly stay CNPG-only per
+    finding 4; sysmon retires under #4861). `/service_status` is not warehouse-backed
     yet and is left on CNPG. Warehouse rows are shaped from the warehouse table's own
     columns, so columns the warehouse does not store stay null rather than being invented.
 - [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
