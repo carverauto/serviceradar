@@ -23,21 +23,31 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargets do
 
   Upsert first, then prune rows the group no longer declares: a failure
   between the two leaves the previous snapshot visible rather than an empty
-  declared side. Returns `{:ok, row_count}` or `{:error, reason}`.
+  declared side. A failed target-query read returns `{:error, reason}` and
+  does not upsert or prune. Returns `{:ok, row_count}` or `{:error, reason}`.
   """
   @spec refresh(SweepGroup.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def refresh(%SweepGroup{} = group) do
     actor = SystemActor.system(:sweep_compiler)
-    rows = build_rows(group)
 
-    with :ok <- upsert_rows(rows, actor),
+    with {:ok, rows} <- build_rows(group),
+         :ok <- upsert_rows(rows, actor),
          :ok <- prune_removed(group.id, rows, actor) do
       {:ok, length(rows)}
     end
   end
 
   defp build_rows(group) do
-    %{static: static, device: device} = SweepCompiler.declared_targets(group)
+    case SweepCompiler.declared_targets(group) do
+      {:error, reason} ->
+        {:error, reason}
+
+      %{static: static, device: device} ->
+        {:ok, declared_rows(group, static, device)}
+    end
+  end
+
+  defp declared_rows(group, static, device) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     declared =

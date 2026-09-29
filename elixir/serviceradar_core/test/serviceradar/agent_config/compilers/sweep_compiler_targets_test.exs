@@ -209,7 +209,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       assert query_executions() == [@edge_query]
     end
 
-    test "a failed target query declares the static targets and no device rows" do
+    test "a failed target query read returns the error and declares nothing" do
       query_page_fn = fn _query, _opts -> raise "driver encoding failure" end
 
       group =
@@ -222,15 +222,35 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
       log =
         capture_log(fn ->
+          assert {:error, {:target_query_failed, {:raised, "driver encoding failure"}}} =
+                   SweepCompiler.declared_targets(group, query_page_fn: query_page_fn)
+        end)
+
+      assert log =~
+               "SRQL target query raised for group \"sg-failed-declared\" " <>
+                 "(#{inspect(@lab_query)}): driver encoding failure"
+    end
+
+    test "an uncastable target query declares the static targets and no device rows" do
+      query_page_fn = fn _query, _opts -> {:error, "type_id must be an integer"} end
+
+      group =
+        group(%{
+          id: "sg-uncastable-declared",
+          name: "uncastable-declared",
+          target_query: @lab_query,
+          static_targets: ["192.0.2.9"]
+        })
+
+      log =
+        capture_log(fn ->
           assert SweepCompiler.declared_targets(group, query_page_fn: query_page_fn) == %{
                    static: ["192.0.2.9"],
                    device: []
                  }
         end)
 
-      assert log =~
-               "SRQL target query raised for group \"sg-failed-declared\" " <>
-                 "(#{inspect(@lab_query)}): driver encoding failure"
+      assert log =~ "cannot be cast for group \"sg-uncastable-declared\""
     end
   end
 
