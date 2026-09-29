@@ -26,6 +26,10 @@ defmodule ServiceRadar.Repo.Migrations.AddAuthoredDashboardSourceProvenance do
       )
     )
 
+    # serviceradar:allow-startup-maintenance
+    # This backfill is bounded: it updates at most 2 known shipped-report rows by exact slug
+    # and metadata guard (source_type IS NULL AND metadata->>'system_report' = 'true').
+    # No table scan on unbounded data; safe to run synchronously at first boot.
     slugs = Enum.map_join(@shipped_report_slugs, ", ", &"'#{&1}'")
 
     execute("""
