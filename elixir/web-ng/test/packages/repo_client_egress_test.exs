@@ -23,8 +23,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
       send(self(), {:fetch_body_called, url})
 
       cond do
-        String.contains?(url, "api.github.com/repos/acme/demo") and
-            not String.contains?(url, "/commits/") ->
+        String.ends_with?(url, "/repos/acme/demo") ->
           {:ok, %Req.Response{status: 200, body: %{"default_branch" => "main"}, headers: %{}}}
 
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->

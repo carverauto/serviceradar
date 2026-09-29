@@ -448,7 +448,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
     Application.get_env(:serviceradar_web_ng, :github_token) || System.get_env("GITHUB_TOKEN")
   end
 
-  defp not_found_reason(repo, opts, fallback) do
+  defp not_found_reason(_repo, opts, fallback) do
     token = opts[:github_token] || configured_github_token()
 
     if token do
