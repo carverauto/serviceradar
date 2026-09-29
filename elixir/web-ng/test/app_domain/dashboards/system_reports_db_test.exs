@@ -62,7 +62,10 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     edited_query = "in:mtr_hops addr:#{marker} limit:5"
 
     Repo.update_all(
-      from(p in "authored_dashboard_panels", prefix: "platform", where: p.id == type(^panel.id, Ecto.UUID)),
+      from(p in "authored_dashboard_panels",
+        prefix: "platform",
+        where: p.id == type(^panel.id, Ecto.UUID)
+      ),
       set: [srql_query: edited_query]
     )
 
@@ -76,7 +79,9 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
 
     saved = Enum.find(after_reseed.panels, &(&1.id == panel.id))
     assert saved, "reseed deleted the panel entirely"
-    assert saved.srql_query == edited_query, "reseed must not overwrite an operator-edited panel query"
+
+    assert saved.srql_query == edited_query,
+           "reseed must not overwrite an operator-edited panel query"
   end
 
   @tag :web_ng_shared_fixture_db
@@ -183,7 +188,10 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
   end
 
   @tag :web_ng_shared_fixture_db
-  test "records first-party provenance on the reports it creates at startup", %{actor: actor, marker: marker} do
+  test "records first-party provenance on the reports it creates at startup", %{
+    actor: actor,
+    marker: marker
+  } do
     # Start from absent so this asserts what creation writes, not what a row
     # carried over from an earlier seed happens to hold.
     cleanup!(marker)
@@ -219,7 +227,9 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
 
     for result <- results do
       assert {:ok, dashboards} = result
-      assert length(dashboards) == length(Enum.filter(SystemReports.dashboard_specs(), & &1.enabled_by_default))
+
+      assert length(dashboards) ==
+               length(Enum.filter(SystemReports.dashboard_specs(), & &1.enabled_by_default))
     end
 
     for spec <- SystemReports.dashboard_specs(), spec.enabled_by_default do

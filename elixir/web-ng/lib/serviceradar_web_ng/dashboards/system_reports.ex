@@ -313,9 +313,14 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
         reason = error_class(reason)
 
         cond do
-          unique_violation?(reason, :slug) -> {:error, :slug_taken}
-          unique_violation?(reason, :dashboard_ref) -> create_dashboard(ash_opts, spec, provenance, attempts + 1)
-          true -> {:error, reason}
+          unique_violation?(reason, :slug) ->
+            {:error, :slug_taken}
+
+          unique_violation?(reason, :dashboard_ref) ->
+            create_dashboard(ash_opts, spec, provenance, attempts + 1)
+
+          true ->
+            {:error, reason}
         end
     end
   end
