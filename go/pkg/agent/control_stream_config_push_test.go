@@ -31,8 +31,10 @@ import (
 
 // pushedConfigChunks splits resp the way the gateway does for a control-stream
 // push: the encoded response in fixed-size payload slices sharing one checksum.
-func pushedConfigChunks(t *testing.T, resp *proto.AgentConfigResponse, chunkSize int) []*proto.AgentConfigChunk {
+func pushedConfigChunks(t *testing.T, resp *proto.AgentConfigResponse) []*proto.AgentConfigChunk {
 	t.Helper()
+
+	const chunkSize = 1024 * 1024
 
 	payload, err := goproto.Marshal(resp)
 	if err != nil {
@@ -69,7 +71,7 @@ func TestConfigPushAssemblerReturnsConfigOnlyOnFinalChunk(t *testing.T) {
 	t.Parallel()
 
 	want := largeConfigResponse("config-v2")
-	chunks := pushedConfigChunks(t, want, 1024*1024)
+	chunks := pushedConfigChunks(t, want)
 	if len(chunks) < 3 {
 		t.Fatalf("expected a multi-chunk push, got %d chunk(s)", len(chunks))
 	}
@@ -94,9 +96,9 @@ func TestConfigPushAssemblerReturnsConfigOnlyOnFinalChunk(t *testing.T) {
 func TestConfigPushAssemblerDiscardsPartialPushWhenANewPushStarts(t *testing.T) {
 	t.Parallel()
 
-	abandoned := pushedConfigChunks(t, largeConfigResponse("config-old"), 1024*1024)
+	abandoned := pushedConfigChunks(t, largeConfigResponse("config-old"))
 	want := largeConfigResponse("config-new")
-	next := pushedConfigChunks(t, want, 1024*1024)
+	next := pushedConfigChunks(t, want)
 
 	var assembler configPushAssembler
 	for _, chunk := range abandoned[:2] {
@@ -121,7 +123,7 @@ func TestConfigPushAssemblerDiscardsPartialPushWhenANewPushStarts(t *testing.T) 
 func TestConfigPushAssemblerRejectsMoreChunksThanThePushDeclares(t *testing.T) {
 	t.Parallel()
 
-	chunks := pushedConfigChunks(t, largeConfigResponse("config-v3"), 1024*1024)
+	chunks := pushedConfigChunks(t, largeConfigResponse("config-v3"))
 	overflow := goproto.Clone(chunks[1]).(*proto.AgentConfigChunk)
 	overflow.ChunkIndex = int32(len(chunks))
 
@@ -149,7 +151,7 @@ func TestConfigPushAssemblerRejectsMoreChunksThanThePushDeclares(t *testing.T) {
 func TestConfigPushAssemblerRejectsTamperedPayload(t *testing.T) {
 	t.Parallel()
 
-	chunks := pushedConfigChunks(t, largeConfigResponse("config-v4"), 1024*1024)
+	chunks := pushedConfigChunks(t, largeConfigResponse("config-v4"))
 	tampered := goproto.Clone(chunks[1]).(*proto.AgentConfigChunk)
 	tampered.Payload = bytes.Repeat([]byte("x"), len(tampered.GetPayload()))
 	chunks[1] = tampered
