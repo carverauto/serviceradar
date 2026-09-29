@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   alias ServiceRadar.EventWriter.DeviceCorrelation
 
   @default_frame_limit 500
-  @max_frame_limit 2_000
+  @max_page_size 2_000
   @max_frames 12
   @default_frame_timeout_ms 10_000
   @max_frame_timeout_ms 30_000
@@ -145,6 +145,18 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   end
 
   defp run_json_frame(base, query, srql_opts, srql_module, device_resolver, fields) do
+    # Explicit cursor means a browser-side page request — return that one page as-is.
+    # No cursor: auto-paginate until the declared limit is satisfied or results are exhausted.
+    if Map.has_key?(srql_opts, :cursor) do
+      run_json_page(base, query, srql_opts, srql_module, device_resolver, fields)
+    else
+      total_limit = Map.get(srql_opts, :limit, @default_frame_limit)
+      page_opts = Map.put(srql_opts, :limit, min(total_limit, @max_page_size))
+      collect_json_pages(base, query, page_opts, srql_module, device_resolver, fields, [], total_limit, nil, nil)
+    end
+  end
+
+  defp run_json_page(base, query, srql_opts, srql_module, device_resolver, fields) do
     case srql_module.query(query, srql_opts) do
       {:ok, %{"results" => results} = response} when is_list(results) ->
         results =
@@ -161,15 +173,57 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
         })
 
       {:ok, response} ->
-        Map.merge(base, %{
-          "status" => "ok",
-          "results" => [],
-          "raw" => response
-        })
+        Map.merge(base, %{"status" => "ok", "results" => [], "raw" => response})
 
       {:error, reason} ->
         error_frame(base, reason)
     end
+  end
+
+  defp collect_json_pages(base, query, page_opts, srql_module, device_resolver, fields, acc, remaining, schema, viz) do
+    opts = Map.put(page_opts, :limit, min(remaining, @max_page_size))
+
+    case srql_module.query(query, opts) do
+      {:ok, %{"results" => results} = response} when is_list(results) ->
+        combined = acc ++ results
+        pagination = Map.get(response, "pagination")
+        next_cursor = pagination && Map.get(pagination, "next_cursor")
+        schema = schema || Map.get(response, "schema")
+        viz = viz || Map.get(response, "viz")
+        still_remaining = remaining - length(results)
+
+        if is_binary(next_cursor) and next_cursor != "" and still_remaining > 0 do
+          next_opts = Map.put(page_opts, :cursor, next_cursor)
+          collect_json_pages(base, query, next_opts, srql_module, device_resolver, fields, combined, still_remaining, schema, viz)
+        else
+          finish_json_pages(base, combined, pagination, schema, viz, device_resolver, fields, query)
+        end
+
+      {:ok, response} ->
+        Map.merge(base, %{"status" => "ok", "results" => [], "raw" => response})
+
+      {:error, reason} ->
+        if acc == [] do
+          error_frame(base, reason)
+        else
+          finish_json_pages(base, acc, nil, schema, viz, device_resolver, fields, query)
+        end
+    end
+  end
+
+  defp finish_json_pages(base, all_results, pagination, schema, viz, device_resolver, fields, query) do
+    results =
+      query
+      |> maybe_enrich_event_results(all_results, device_resolver)
+      |> project_results(fields)
+
+    Map.merge(base, %{
+      "status" => "ok",
+      "results" => results,
+      "pagination" => pagination,
+      "schema" => schema,
+      "viz" => viz
+    })
   end
 
   defp maybe_enrich_event_results(query, results, device_resolver) do
@@ -547,11 +601,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     opts |> Keyword.get(:limit, @default_frame_limit) |> frame_limit(@default_frame_limit)
   end
 
-  defp frame_limit(value, _default) when is_integer(value) do
-    value
-    |> max(1)
-    |> min(@max_frame_limit)
-  end
+  defp frame_limit(value, _default) when is_integer(value), do: max(value, 1)
 
   defp frame_limit(value, default) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
