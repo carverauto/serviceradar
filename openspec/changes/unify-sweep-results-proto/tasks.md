@@ -52,28 +52,34 @@
     decision table passed in its BazelCI (BuildBuddy invocation
     `3a2ed1bb-fa45-4612-bbb7-454e1bfe646f`; `integration_tests_async` ran 1,024
     tests, the 7 new DB tests included).
-  - [ ] M2.0b Lease scheduler and plans. A group is leased only when it has
-    non-empty `static_targets`, no `target_query`, and every static target fits
-    one `TargetRangeV1`. A group with a `target_query`, whether or not it also
-    has static targets, stays entirely on the legacy path (agent local ticker,
-    legacy results): one execution is never split across the two paths, and the
-    ABI cannot commit to an SRQL-resolved address set. v1 binds one range to
-    each source authorization, so a sparse device list would need one signature
-    per device per execution. The M2.0a fence bumps every active assignment when
-    the partition, `agent_ids`, `static_targets`, `target_query`, ports, sweep
-    modes, overrides, or the profile changes, and revokes only an agent that is
-    no longer in `agent_ids`. A change of `target_query` or `static_targets` by
-    itself only bumps; it does not revoke. The scheduler re-plans a lease's
-    unrun slots when that bump leaves the assignment active and the group
-    eligible, so a ports change re-plans onto the new ports. Unrun slots are
-    dropped, not re-planned or re-signed, in two cases: the scheduler revokes
-    an ineligible group (it gained a `target_query`, lost its static targets,
-    or has a static target the plan cannot represent), which issues no further
-    leases and returns the agent to its local ticker, and the fence revokes an
-    agent that is no longer selected. Becoming eligible again after that
-    scheduler revoke is a new lease for that (group, agent), reissued under a
-    new epoch through the existing reissue path, not a re-plan of the old
-    slots.
+  - [ ] M2.0b Lease scheduler and plans. A group is leased only when it is
+    enabled, has non-empty `static_targets`, no `target_query`, and every
+    static target fits one `TargetRangeV1`. A group with a `target_query`,
+    whether or not it also has static targets, stays entirely on the legacy
+    path (agent local ticker, legacy results): one execution is never split
+    across the two paths, and the ABI cannot commit to an SRQL-resolved address
+    set. v1 binds one range to each source authorization, so a sparse device
+    list would need one signature per device per execution. The M2.0a fence
+    bumps every active assignment when the partition, `agent_ids`,
+    `static_targets`, `target_query`, ports, sweep modes, overrides, or the
+    profile changes. When `agent_ids` becomes a non-empty list, the fence
+    revokes every active assignment whose agent is not in that list; an empty
+    `agent_ids` selects every agent in the partition and revokes nobody. A
+    change of `target_query` or `static_targets` by itself only bumps; it does
+    not revoke. The scheduler re-plans a lease's unrun slots when that bump
+    leaves the assignment active and the group eligible, re-signs that lease's
+    production capability and those slots' source authorizations at the new
+    `authority_epoch` (the plan header does not carry the epoch), with the new
+    plan digest when the plan changed, and re-delivers them, so a ports change
+    re-plans onto the new ports. Unrun slots are dropped, not re-planned or
+    re-signed, in two cases: the scheduler revokes an ineligible group (it is
+    disabled, it gained a `target_query`, lost its static targets, or has a
+    static target the plan cannot represent), which issues no further leases
+    and returns the agent to its local ticker, and the fence revokes an agent
+    that is no longer selected. Becoming eligible again after that scheduler
+    revoke, including when the group is re-enabled, is a new lease for that
+    (group, agent), reissued under a new epoch through the existing reissue
+    path, not a re-plan of the old slots.
     - [ ] M2.0b1 Plan builder. Core builds a scheduled plan (header, pages,
       ranges) from a group's static targets: exactly one `TargetRangeV1` per
       configured static target, never merged with its neighbors, in the one
@@ -109,19 +115,25 @@
       disconnected operation is a supported setting. Renewal keeps a connected
       agent's horizon full. The M2.0a fence bumps every active assignment when
       the partition, `agent_ids`, `static_targets`, `target_query`, ports,
-      sweep modes, overrides, or the profile changes, and revokes only an agent
-      that is no longer in `agent_ids`. A change of `target_query` or
+      sweep modes, overrides, or the profile changes. When `agent_ids` becomes
+      a non-empty list, the fence revokes every active assignment whose agent
+      is not in that list; an empty `agent_ids` selects every agent in the
+      partition and revokes nobody. A change of `target_query` or
       `static_targets` by itself only bumps; it does not revoke. The scheduler
       re-plans that lease's unrun slots when the bump leaves the assignment
-      active and the group eligible, so a ports change re-plans onto the new
-      ports. Unrun slots are dropped, not re-planned or re-signed, in two
-      cases: the scheduler revokes an ineligible group (it gained a
-      `target_query`, lost its static targets, or has a static target the plan
-      cannot represent), which issues no further leases and returns the agent
-      to its local ticker, and the fence revokes an agent that is no longer
-      selected. Becoming eligible again after that scheduler revoke is a new
-      lease for that (group, agent), reissued under a new epoch through the
-      existing reissue path, not a re-plan of the old slots.
+      active and the group eligible, re-signs that lease's production
+      capability and those slots' source authorizations at the new
+      `authority_epoch` (the plan header does not carry the epoch), with the
+      new plan digest when the plan changed, and re-delivers them, so a ports
+      change re-plans onto the new ports. Unrun slots are dropped, not
+      re-planned or re-signed, in two cases: the scheduler revokes an
+      ineligible group (it is disabled, it gained a `target_query`, lost its
+      static targets, or has a static target the plan cannot represent), which
+      issues no further leases and returns the agent to its local ticker, and
+      the fence revokes an agent that is no longer selected. Becoming eligible
+      again after that scheduler revoke, including when the group is
+      re-enabled, is a new lease for that (group, agent), reissued under a new
+      epoch through the existing reissue path, not a re-plan of the old slots.
   - [ ] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
     mount and signs, per lease, the production capability (`run_id` = the lease)
     and one SCHEDULED_SWEEP source authorization per (execution, range). Every
@@ -173,25 +185,31 @@
   counts, per-port errors and the hostname come from the scanner, since the
   legacy summary drops them; batches are grouped deterministically per host.
 - [ ] M2.2 Per-agent opt-in. An agent opted in leases a sweep group only when
-  that group has non-empty `static_targets`, no `target_query`, and every
-  static target fits one `TargetRangeV1`: core schedules it (M2.0) and its
-  results are emitted only on the edge path. A group with a `target_query`,
+  that group is enabled, has non-empty `static_targets`, no `target_query`, and
+  every static target fits one `TargetRangeV1`: core schedules it (M2.0) and
+  its results are emitted only on the edge path. A group with a `target_query`,
   whether or not it also has static targets, stays entirely on the agent's
   local ticker and the legacy path. One execution is never split across the
   two paths. The M2.0a fence bumps every active assignment when the partition,
   `agent_ids`, `static_targets`, `target_query`, ports, sweep modes, overrides,
-  or the profile changes, and revokes only an agent that is no longer in
-  `agent_ids`. A change of `target_query` or `static_targets` by itself only
-  bumps; it does not revoke. The scheduler re-plans a lease's unrun slots when
-  that bump leaves the assignment active and the group eligible, so a ports
-  change re-plans onto the new ports. Unrun slots are dropped, not re-planned
-  or re-signed, in two cases: the scheduler revokes an ineligible group (it
-  gained a `target_query`, lost its static targets, or has a static target the
-  plan cannot represent), which issues no further leases and returns the agent
-  to its local ticker, and the fence revokes an agent that is no longer
-  selected. Becoming eligible again after that scheduler revoke is a new lease
-  for that (group, agent), reissued under a new epoch through the existing
-  reissue path, not a re-plan of the old slots.
+  or the profile changes. When `agent_ids` becomes a non-empty list, the fence
+  revokes every active assignment whose agent is not in that list; an empty
+  `agent_ids` selects every agent in the partition and revokes nobody. A change
+  of `target_query` or `static_targets` by itself only bumps; it does not
+  revoke. The scheduler re-plans a lease's unrun slots when that bump leaves
+  the assignment active and the group eligible, re-signs that lease's
+  production capability and those slots' source authorizations at the new
+  `authority_epoch` (the plan header does not carry the epoch), with the new
+  plan digest when the plan changed, and re-delivers them, so a ports change
+  re-plans onto the new ports. Unrun slots are dropped, not re-planned or
+  re-signed, in two cases: the scheduler revokes an ineligible group (it is
+  disabled, it gained a `target_query`, lost its static targets, or has a
+  static target the plan cannot represent), which issues no further leases and
+  returns the agent to its local ticker, and the fence revokes an agent that
+  is no longer selected. Becoming eligible again after that scheduler revoke,
+  including when the group is re-enabled, is a new lease for that (group,
+  agent), reissued under a new epoch through the existing reissue path, not a
+  re-plan of the old slots.
   Agents not opted in keep their local ticker and the legacy
   `GatewayServiceStatus{source: "results"}` path unchanged, and one execution is
   never emitted on both paths.

@@ -193,32 +193,39 @@ reused, including when a revoked assignment is reissued. `ProducerAssignments`
 is the only writer. A group update bumps every active assignment when the
 partition, the selected agents, the targets, the target query, the ports, the
 modes, the overrides, or the profile change, and revokes an agent that is no
-longer selected. Reassignment and agent replacement both arrive as an
-`agent_ids` update.
+longer selected. An empty `agent_ids` selects every agent in the partition and
+revokes nobody; when `agent_ids` is a non-empty list, the fence revokes every
+active assignment whose agent is not in that list. Reassignment and agent
+replacement both arrive as an `agent_ids` update.
 
 **Schedule lease.** For each leased assignment core pre-mints the executions
 of the lease horizon: a UUIDv7 `execution_id` whose time is the slot start, the
 slot's collection window, and the plan and range digests of that execution's
-plan (see "Plan inputs"). A group is leased only when it has non-empty
-`static_targets`, no `target_query`, and every static target fits one
-`TargetRangeV1`. A group with a `target_query`, whether or not it also has
+plan (see "Plan inputs"). A group is leased only when it is enabled, has
+non-empty `static_targets`, no `target_query`, and every static target fits
+one `TargetRangeV1`. A group with a `target_query`, whether or not it also has
 static targets, stays entirely on the legacy path (the agent's local ticker
 and legacy results): one execution is never split across the two paths, and
 the ABI cannot commit to an SRQL-resolved address set. The M2.0a fence bumps
 every active assignment when the partition, `agent_ids`, `static_targets`,
-`target_query`, ports, sweep modes, overrides, or the profile changes, and
-revokes only an agent that is no longer in `agent_ids`. A change of
+`target_query`, ports, sweep modes, overrides, or the profile changes. When
+`agent_ids` becomes a non-empty list, the fence revokes every active
+assignment whose agent is not in that list; an empty `agent_ids` selects
+every agent in the partition and revokes nobody. A change of
 `target_query` or `static_targets` by itself only bumps; it does not revoke.
 The lease scheduler re-plans a lease's unrun slots when that bump leaves the
-assignment active and the group eligible, so a ports change re-plans onto the
-new ports. Unrun slots are dropped, not re-planned or re-signed, in two cases:
-the scheduler revokes an ineligible group (it gained a `target_query`, lost
-its static targets, or has a static target the plan cannot represent), which
-issues no further leases and returns the agent to its local ticker, and the
-fence revokes an agent that is no longer selected. Becoming eligible again
-after that scheduler revoke is a new lease for that (group, agent), reissued
-under a new epoch through the existing reissue path, not a re-plan of the old
-slots. Each execution is recorded
+assignment active and the group eligible, re-signs that lease's production
+capability and those slots' source authorizations at the new `authority_epoch`
+(the plan header does not carry the epoch), with the new plan digest when the
+plan changed, and re-delivers them, so a ports change re-plans onto the new
+ports. Unrun slots are dropped, not re-planned or re-signed, in two cases:
+the scheduler revokes an ineligible group (it is disabled, it gained a
+`target_query`, lost its static targets, or has a static target the plan
+cannot represent), which issues no further leases and returns the agent to its
+local ticker, and the fence revokes an agent that is no longer selected.
+Becoming eligible again after that scheduler revoke, including when the group
+is re-enabled, is a new lease for that (group, agent), reissued under a new
+epoch through the existing reissue path, not a re-plan of the old slots. Each execution is recorded
 as scheduled before it runs. The horizon has a per-partition default, a
 per-agent override and an administrator maximum. Renewal keeps a connected
 agent's horizon full, so a disconnection
