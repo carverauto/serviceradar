@@ -407,7 +407,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # Keep only the fields device targets are built from, in SRQL order: the
   # first row seen for an IP wins, and the shared cache stays small.
   defp target_rows(rows) when is_list(rows) do
-    for %{"ip" => ip} = row <- rows, is_binary(ip), ip != "", do: %{"ip" => ip, "uid" => row["uid"]}
+    for %{"ip" => ip} = row <- rows,
+        is_binary(ip),
+        ip != "",
+        do: %{"ip" => ip, "uid" => row["uid"]}
   end
 
   defp device_targets_from_result({:ok, rows}, group, query, modes),
