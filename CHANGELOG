@@ -14,7 +14,7 @@ identity stops merging on randomized MACs and anchorless seeds.
   maps to `not_modified` and leaves agents frozen on a stale config.
   The Go agent's config deadline is raised from 30 s to 90 s to stay above
   the gateway budget; already-deployed agents keep their 30 s deadline until
-  upgraded (PR #4944).
+  upgraded (PR #4949).
 - SRQL: legacy sysmon entities (`in:cpu_metrics`/`in:cpu`,
   `in:memory_metrics`/`in:memory`, `in:disk_metrics`/`in:disk`,
   `in:process_metrics`/`in:processes`) now read `sysmon.*`
