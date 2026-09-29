@@ -184,10 +184,69 @@ defmodule ServiceRadar.SweepJobs.Ingestion.DispatcherTest do
     assert_receive {:fallback, ^chunk}
   end
 
+  test "re-subscribes to a restarted scope and dispatches to new workers", ctx do
+    start_worker(ctx.scope, :w1)
+    await_workers(ctx.dispatcher, 1)
+
+    scope_pid = Process.whereis(ctx.scope)
+    scope_mon = Process.monitor(scope_pid)
+    Process.exit(scope_pid, :kill)
+    assert_receive {:DOWN, ^scope_mon, :process, ^scope_pid, _}
+
+    await_workers(ctx.dispatcher, 0)
+
+    wait_for_scope(ctx.scope)
+    start_worker(ctx.scope, :w2)
+    await_workers(ctx.dispatcher, 1)
+
+    Dispatcher.dispatch(ctx.dispatcher, status("agent-a", "group-1", 1))
+    assert_receive {:received, :w2, _, 1, _}
+  end
+
+  test "releases a worker killed without a :leave and emits lost telemetry", ctx do
+    ref =
+      :telemetry_test.attach_event_handlers(self(), [[:serviceradar, :sweep_ingestion, :lost]])
+
+    w1 = start_worker(ctx.scope, :w1)
+    await_workers(ctx.dispatcher, 1)
+
+    Dispatcher.dispatch(ctx.dispatcher, status("agent-a", "group-1", 1))
+    assert_receive {:received, :w1, _, 1, _}
+
+    kill_worker(w1)
+    await_workers(ctx.dispatcher, 0)
+
+    assert_receive {[:serviceradar, :sweep_ingestion, :lost], ^ref, %{count: 1}, _}
+    assert Dispatcher.state(ctx.dispatcher).partitions == %{}
+
+    start_worker(ctx.scope, :w2)
+    await_workers(ctx.dispatcher, 1)
+    Dispatcher.dispatch(ctx.dispatcher, status("agent-a", "group-1", 2))
+    assert_receive {:received, :w2, _, 2, _}
+  end
+
   defp unlink_and_stop(pid) do
     Process.unlink(pid)
     monitor = Process.monitor(pid)
     send(pid, :stop)
     assert_receive {:DOWN, ^monitor, :process, ^pid, _}
+  end
+
+  defp kill_worker(pid) do
+    Process.unlink(pid)
+    monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, _}
+  end
+
+  defp wait_for_scope(scope) do
+    Enum.reduce_while(1..100, nil, fn _, _ ->
+      if is_pid(Process.whereis(scope)) do
+        {:halt, :ok}
+      else
+        Process.sleep(10)
+        {:cont, nil}
+      end
+    end) || flunk("scope #{inspect(scope)} did not restart")
   end
 end

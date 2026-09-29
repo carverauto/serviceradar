@@ -22,9 +22,13 @@ defmodule ServiceRadar.SweepJobs.Ingestion.Dispatcher do
   ## Membership
 
   Workers join a `:pg` group; the dispatcher follows it with `:pg.monitor/2`.
-  When a worker leaves, its partitions are released and the chunks it still
-  held are reported as lost. With no workers at all, chunks fall back to the
-  `ResultsRouter`, which ingests them inline as it always has.
+  The dispatcher also monitors the local `:pg` scope process and each worker
+  pid directly. When a worker leaves or its process monitor fires, its
+  partitions are released and the chunks it still held are reported as lost.
+  When the scope process itself crashes, all workers are released and the
+  dispatcher re-subscribes once the scope is restarted. With no workers at
+  all, chunks fall back to the `ResultsRouter`, which ingests them inline as
+  it always has.
   """
 
   use GenServer
@@ -86,10 +90,13 @@ defmodule ServiceRadar.SweepJobs.Ingestion.Dispatcher do
       group: Keyword.get(opts, :group, IngestionSupervisor.group()),
       fallback: Keyword.get(opts, :fallback, {__MODULE__, :fallback_to_router, []}),
       monitor_ref: nil,
+      scope_monitor_ref: nil,
       # worker pid => chunks in flight
       workers: %{},
       # partition key => %{worker: pid, in_flight: pos_integer()}
-      partitions: %{}
+      partitions: %{},
+      # monitor ref => worker pid
+      worker_refs: %{}
     }
 
     {:ok, monitor_members(state)}
@@ -133,12 +140,48 @@ defmodule ServiceRadar.SweepJobs.Ingestion.Dispatcher do
   end
 
   def handle_info({ref, :join, _group, pids}, %{monitor_ref: ref} = state) do
-    workers = Enum.reduce(pids, state.workers, &Map.put_new(&2, &1, 0))
-    {:noreply, %{state | workers: workers}}
+    {workers, worker_refs} =
+      Enum.reduce(pids, {state.workers, state.worker_refs}, fn pid, {workers, refs} ->
+        if Map.has_key?(workers, pid) do
+          {workers, refs}
+        else
+          mref = Process.monitor(pid)
+          {Map.put(workers, pid, 0), Map.put(refs, mref, pid)}
+        end
+      end)
+
+    {:noreply, %{state | workers: workers, worker_refs: worker_refs}}
   end
 
   def handle_info({ref, :leave, _group, pids}, %{monitor_ref: ref} = state) do
-    {:noreply, Enum.reduce(pids, state, &release_worker(&2, &1))}
+    state =
+      Enum.reduce(pids, state, fn pid, acc ->
+        acc |> demonitor_worker(pid) |> release_worker(pid)
+      end)
+
+    {:noreply, state}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{scope_monitor_ref: ref} = state) do
+    Enum.each(state.worker_refs, fn {mref, _} -> Process.demonitor(mref, [:flush]) end)
+
+    state =
+      state.workers
+      |> Map.keys()
+      |> Enum.reduce(state, &release_worker(&2, &1))
+
+    Process.send_after(self(), :monitor_members, @monitor_retry_ms)
+    {:noreply, %{state | scope_monitor_ref: nil, monitor_ref: nil, worker_refs: %{}}}
+  end
+
+  def handle_info({:DOWN, ref, :process, pid, _reason}, state) do
+    case Map.pop(state.worker_refs, ref) do
+      {nil, _} ->
+        {:noreply, state}
+
+      {_pid, worker_refs} ->
+        {:noreply, release_worker(%{state | worker_refs: worker_refs}, pid)}
+    end
   end
 
   def handle_info(:monitor_members, state), do: {:noreply, monitor_members(state)}
@@ -165,13 +208,43 @@ defmodule ServiceRadar.SweepJobs.Ingestion.Dispatcher do
   # -- membership -------------------------------------------------------------
 
   defp monitor_members(state) do
+    if state.scope_monitor_ref, do: Process.demonitor(state.scope_monitor_ref, [:flush])
+    Enum.each(state.worker_refs, fn {mref, _} -> Process.demonitor(mref, [:flush]) end)
+    state = %{state | scope_monitor_ref: nil, worker_refs: %{}}
+
     {ref, pids} = :pg.monitor(state.scope, state.group)
-    %{state | monitor_ref: ref, workers: Map.new(pids, &{&1, 0})}
+
+    scope_monitor_ref =
+      case Process.whereis(state.scope) do
+        nil -> nil
+        pid -> Process.monitor(pid)
+      end
+
+    worker_refs = Map.new(pids, fn pid -> {Process.monitor(pid), pid} end)
+
+    %{
+      state
+      | monitor_ref: ref,
+        scope_monitor_ref: scope_monitor_ref,
+        workers: Map.new(pids, &{&1, 0}),
+        worker_refs: worker_refs
+    }
   catch
     :exit, reason ->
       Logger.debug("Sweep ingestion scope unavailable; retrying: #{inspect(reason)}")
       Process.send_after(self(), :monitor_members, @monitor_retry_ms)
       state
+  end
+
+  defp demonitor_worker(state, pid) do
+    case Enum.find(state.worker_refs, fn {_mref, p} -> p == pid end) do
+      {mref, _} ->
+        Process.demonitor(mref, [:flush])
+        %{state | worker_refs: Map.delete(state.worker_refs, mref)}
+
+      nil ->
+        state
+    end
   end
 
   defp release_worker(state, worker) do
