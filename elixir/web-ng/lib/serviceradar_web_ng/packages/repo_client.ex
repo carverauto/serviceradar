@@ -449,7 +449,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
   end
 
   defp not_found_reason(repo, opts, fallback) do
-    token = opts[:github_token] || repo[:token] || configured_github_token()
+    token = opts[:github_token] || configured_github_token()
 
     if token do
       fallback <>

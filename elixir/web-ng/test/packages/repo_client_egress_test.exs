@@ -59,17 +59,6 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
   end
 
   setup do
-    prev = Application.get_env(:serviceradar_web_ng, :github_http_client)
-    Application.put_env(:serviceradar_web_ng, :github_http_client, RecordingClient)
-
-    on_exit(fn ->
-      if is_nil(prev) do
-        Application.delete_env(:serviceradar_web_ng, :github_http_client)
-      else
-        Application.put_env(:serviceradar_web_ng, :github_http_client, prev)
-      end
-    end)
-
     repo = %{owner: "acme", repo: "demo"}
     opts = [http_client: RecordingClient]
     %{repo: repo, opts: opts}
