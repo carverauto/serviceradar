@@ -285,7 +285,7 @@ static targets: exactly one `TargetRangeV1` per configured static target, never
 merged with its neighbors, in the one spelling the plan validator accepts. A
 bare IPv4 becomes that address as a /32 CIDR and a bare IPv6 a /128 CIDR. A
 CIDR is committed as its canonical network prefix, still one range. A target
-that is already a first/last span stays one span. A static target whose
+that is not a bare address or CIDR makes the group ineligible. A static target whose
 address count does not fit the plan's `target_count` (an IPv6 prefix shorter
 than /65) cannot be one `TargetRangeV1`; the builder rejects that group rather
 than splitting it, and the group stays on the legacy path. `PlanValidate` and the range

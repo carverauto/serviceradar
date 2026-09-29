@@ -40,7 +40,11 @@ defmodule ServiceRadar.Edge.SweepPlanTest do
           {"2001:DB8:0:0:0:0:0:1", "2001:db8::1/128", 1},
           {"2001:db8::ff/120", "2001:db8::/120", 256},
           {"2001:db8::ffff/120", "2001:db8::ff00/120", 256},
-          {"2001:db8::/65", "2001:db8::/65", 9_223_372_036_854_775_808}
+          {"2001:db8::/65", "2001:db8::/65", 9_223_372_036_854_775_808},
+          {"::", "::/128", 1},
+          {"::1", "::1/128", 1},
+          {"::ffff:192.0.2.1", "::ffff:192.0.2.1/128", 1},
+          {"fe80::1", "fe80::1/128", 1}
         ] do
       test "#{inspect(raw)} is #{cidr}" do
         assert {:ok, %{cidr: unquote(cidr), count: unquote(count)}} =
@@ -55,7 +59,8 @@ defmodule ServiceRadar.Edge.SweepPlanTest do
           "10.0.0.1/-1",
           "10.0.0.1/x",
           "fe80::1%eth0",
-          "10.0.0/24"
+          "10.0.0/24",
+          "10.0.0.10-10.0.0.50"
         ] do
       test "#{inspect(bad)} is refused" do
         assert {:error, {:invalid_target, _}} = SweepPlan.canonical_target(unquote(bad))
@@ -67,6 +72,50 @@ defmodule ServiceRadar.Edge.SweepPlanTest do
                SweepPlan.canonical_target("2001:db8::/64")
 
       assert {:error, {:target_too_wide, "::/0"}} = SweepPlan.canonical_target("::/0")
+    end
+
+    test "::192.0.2.1 is refused" do
+      assert {:error, {:invalid_target, "::192.0.2.1"}} =
+               SweepPlan.canonical_target("::192.0.2.1")
+
+      assert {:error, {:invalid_target, "::192.0.2.1/120"}} =
+               SweepPlan.canonical_target("::192.0.2.1/120")
+
+      assert {:error, {:invalid_target, "fe80:1::1"}} = SweepPlan.canonical_target("fe80:1::1")
+      assert {:error, {:invalid_target, "ff02:1::1"}} = SweepPlan.canonical_target("ff02:1::1")
+    end
+
+    test "an ordinary compressed address is unchanged" do
+      assert {:ok, %{cidr: "2001:db8::1/128"}} = SweepPlan.canonical_target("2001:db8::1")
+    end
+
+    test "the formatter agrees with :inet.ntoa on the addresses the corpus uses" do
+      corpus =
+        Path.expand(
+          "../../../../../proto/edge/v1/testdata/sweep_static_plan_corpus.txt",
+          __DIR__
+        )
+
+      targets =
+        corpus
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.flat_map(fn line ->
+          case String.split(line) do
+            ["target", raw, cidr | _] -> [{raw, cidr}]
+            _ -> []
+          end
+        end)
+
+      assert targets != []
+
+      for {raw, cidr} <- targets do
+        assert {:ok, %{cidr: ^cidr}} = SweepPlan.canonical_target(raw)
+
+        [address, _prefix] = String.split(cidr, "/", parts: 2)
+        {:ok, tuple} = address |> String.to_charlist() |> :inet.parse_strict_address()
+        assert List.to_string(:inet.ntoa(tuple)) == address
+      end
     end
   end
 
