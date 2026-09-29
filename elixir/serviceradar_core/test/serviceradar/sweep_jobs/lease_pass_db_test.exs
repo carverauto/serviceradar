@@ -1,6 +1,7 @@
 defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   use ServiceRadar.DataCase, async: true
 
+  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Inventory.Device
@@ -11,7 +12,6 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepLeaseSetting
-  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
 
   @moduletag :integration
 
@@ -169,8 +169,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     assert log =~ "Sweep lease pass: profile of group #{group.id}"
     refute log =~ "Sweep lease pass failed for group #{group.id}"
 
-    assert %{state: :active, authority_epoch: assignment.authority_epoch} =
-             assignment!(group, ctx.agent)
+    epoch = assignment.authority_epoch
+    assert %{state: :active, authority_epoch: ^epoch} = assignment!(group, ctx.agent)
 
     assert ids(unrun!(assignment, now)) == ids(before)
   end
