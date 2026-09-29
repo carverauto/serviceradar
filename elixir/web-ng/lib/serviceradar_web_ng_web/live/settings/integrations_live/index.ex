@@ -471,7 +471,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
 
     params = Map.put(params, "network_blacklist", blacklist)
-    params = put_composite_setting(params, Map.get(socket.assigns.selected_source || %{}, :settings))
+
+    params =
+      put_composite_setting(params, Map.get(socket.assigns.selected_source || %{}, :settings))
+
     params = put_fact_authority_setting(params)
 
     params =
@@ -1140,6 +1143,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         source={@selected_source}
         agent_index={@agent_index}
         selected_source_runs={@selected_source_runs}
+        selected_source_target_examples={@selected_source_target_examples}
         selected_source_config_diagnostics={@selected_source_config_diagnostics}
         timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
@@ -1584,6 +1588,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     """
   end
 
+  # Declared so that a caller omitting an assign fails at compile time instead of
+  # raising KeyError when an operator opens the modal.
+  attr(:source, :map, required: true)
+  attr(:agent_index, :map, required: true)
+  attr(:selected_source_runs, :list, required: true)
+  attr(:selected_source_target_examples, :list, required: true)
+  attr(:selected_source_config_diagnostics, :list, required: true)
+  attr(:timezone, :string, required: true)
+
   defp details_modal(assigns) do
     ~H"""
     <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
@@ -1852,7 +1865,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 <div class="mt-1">
                   <.status_badge
                     enabled={@source.enabled}
-                    result={@source.last_result}
+                    result={@source.last_sync_result}
                   />
                 </div>
               </div>
@@ -2309,7 +2322,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp short_collection_id(collection_id) do
     collection_id = to_string(collection_id)
-    if String.length(collection_id) > 12, do: String.slice(collection_id, 0, 12) <> "…", else: collection_id
+
+    if String.length(collection_id) > 12,
+      do: String.slice(collection_id, 0, 12) <> "…",
+      else: collection_id
   end
 
   defp run_withheld_reason_counts(run) do
@@ -3460,7 +3476,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     """
   end
 
-  attr :selected, :list, default: []
+  attr(:selected, :list, default: [])
 
   defp fact_authority_fields(assigns) do
     ~H"""

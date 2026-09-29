@@ -222,7 +222,7 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 				Int("filtered_count", len(filtered)).
 				Int("streamed_count", len(updates)).
 				Int("run_streamed_total", totalUpdates).
-				Int("armis_total", resp.Data.Total).
+				Str("armis_total", resp.Data.Total.String()).
 				Int("next", resp.Data.Next).
 				Int("token_refresh_count", tokenRefreshes).
 				Msg("Armis page streamed")
