@@ -1,14 +1,17 @@
 defmodule ServiceRadarCore.MixProject do
   use Mix.Project
 
-  Code.require_file("mix/json_api_primary_key_patch.ex", __DIR__)
+  patcher = Path.join(__DIR__, "mix/json_api_primary_key_patch.ex")
+
+  if File.regular?(patcher) do
+    Code.require_file(patcher)
+    ServiceRadarCore.Mix.JsonApiPrimaryKeyPatch.apply!()
+  end
 
   @version "0.1.0"
   @source_url "https://github.com/carverauto/serviceradar"
 
   def project do
-    ServiceRadarCore.Mix.JsonApiPrimaryKeyPatch.apply!()
-
     [
       app: :serviceradar_core,
       version: @version,

@@ -3,7 +3,7 @@ defmodule ServiceRadarCore.Mix.JsonApiPrimaryKeyPatch do
   @marker "U+001F"
 
   def apply! do
-    root = Path.expand("../deps/ash_json_api", __DIR__)
+    root = target_root()
     resource = Path.join(root, "lib/ash_json_api/resource/resource.ex")
 
     cond do
@@ -30,6 +30,18 @@ defmodule ServiceRadarCore.Mix.JsonApiPrimaryKeyPatch do
           {output, status} ->
             Mix.raise("ash_json_api composite id patch failed (#{status}): #{output}")
         end
+    end
+  end
+
+  @doc false
+  def target_root do
+    Path.join(compiling_deps(), "ash_json_api")
+  end
+
+  defp compiling_deps do
+    case Mix.Project.get() do
+      nil -> Path.expand(System.get_env("MIX_DEPS_PATH") || "deps")
+      _project -> Mix.Project.deps_path()
     end
   end
 end

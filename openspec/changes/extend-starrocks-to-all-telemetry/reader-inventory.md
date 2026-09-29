@@ -62,7 +62,7 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 |---|---|---|
 | `RefreshLogsSeverityStatsWorker` `C/jobs/refresh_logs_severity_stats_worker.ex:146`, `:215` | logs, logs_severity_stats_5m | Oban (web-ng shim) |
 | `OtelServiceCatalogBackfillWorker` `C/observability/otel_service_catalog_backfill_worker.ex:85` | logs_severity_stats_5m, spans_red_1h, otel_metrics_hourly_stats | one-shot Oban |
-| JSON:API `/api/v2/logs` (`C/observability/log.ex`) | logs | API; routes through `TelemetryIndexRead` (warehouse when enabled, CNPG otherwise) |
+| JSON:API `/api/v2/logs` (`C/observability/log.ex`) | logs | API; routes through `TelemetryIndexRead` (warehouse once logs are cut over, CNPG until then) |
 
 ### Metrics
 
@@ -73,7 +73,7 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 | `DeviceCorrelation` `C/event_writer/device_correlation.ex:173`, `:191`, `:208` | raw + interface_hourly | EventWriter enrichment |
 | `InterfaceThresholdWorker.get_latest_metric_value` `C/inventory/interface_threshold_worker.ex:409` | timeseries_metrics | Oban |
 | `CapacityForecasting.Source` `:109`, `:123`; `SeasonalDisposition.Source` `:201` | disk/interface hourly caggs | non-UI (via the unmapped SRQL entities) |
-| JSON:API RawMetricResource / HourlyMetricResource | raw + caggs | API; `timeseries_metrics` and `timeseries_metrics_hourly` route through `TelemetryIndexRead`; interface/disk hourly report unavailable with StarRocks enabled (no warehouse rollup), sysmon retires under #4861 |
+| JSON:API RawMetricResource / HourlyMetricResource | raw + caggs | API; `timeseries_metrics` and `timeseries_metrics_hourly` route through `TelemetryIndexRead` (warehouse once metrics are cut over); interface/disk hourly and sysmon stay on CNPG with StarRocks enabled (no warehouse table) |
 
 ### Flows
 
