@@ -41,7 +41,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     assert Enum.map(hd(pages).ranges, & &1.cidr) == ["192.0.2.0/24", "198.51.100.5/32"]
   end
 
-  test "an assignment has one slot per start time", ctx do
+  test "an assignment has one scheduled slot per start time", ctx do
     group = create_group!(ctx)
     assignment = assign!(group, "agent-a")
     slot_start = DateTime.add(DateTime.utc_now(), 3600, :second)
@@ -99,6 +99,30 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
 
     assert state(group, kept.id) == :scheduled
     assert state(group, dropped.id) == :dropped
+  end
+
+  test "a reissued assignment schedules the same start after its slot was dropped", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    slot_start = DateTime.add(DateTime.utc_now(), 3600, :second)
+    dropped = schedule!(assignment, slot_start)
+
+    assert {:ok, 1} = ProducerAssignments.revoke_agents(group.id, ["agent-a"])
+    assert state(group, dropped.id) == :dropped
+
+    assert {:ok, reissued} =
+             ProducerAssignments.ensure(group.id, "agent-a", assignment.network_scope_id)
+
+    assert reissued.id == assignment.id
+    scheduled = schedule!(reissued, slot_start)
+
+    assert scheduled.id != dropped.id
+    assert scheduled.state == :scheduled
+    assert scheduled.producer_assignment_id == assignment.id
+    assert DateTime.compare(scheduled.slot_start, dropped.slot_start) == :eq
+
+    assert {:ok, slots} = ExecutionSlots.list_for_group(group.id)
+    assert Enum.sort(Enum.map(slots, & &1.state)) == [:dropped, :scheduled]
   end
 
   defp create_group!(%{actor: actor, suffix: suffix}) do

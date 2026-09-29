@@ -48,6 +48,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateSweepExecutionSlots do
     execute("""
     CREATE UNIQUE INDEX IF NOT EXISTS sweep_execution_slots_assignment_start_uidx
       ON #{schema}.#{@table} (producer_assignment_id, slot_start)
+      WHERE state = 'scheduled'
     """)
 
     execute("""
