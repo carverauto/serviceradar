@@ -80,7 +80,7 @@
     revoke, including when the group is re-enabled, is a new lease for that
     (group, agent), reissued under a new epoch through the existing reissue
     path, not a re-plan of the old slots.
-    - [ ] M2.0b1 Plan builder. Core builds a scheduled plan (header, pages,
+    - [x] M2.0b1 Plan builder. Core builds a scheduled plan (header, pages,
       ranges) from a group's static targets: exactly one `TargetRangeV1` per
       configured static target, never merged with its neighbors, in the one
       spelling the plan validator accepts. A bare IPv4 becomes that address as a
@@ -97,6 +97,11 @@
       does not reuse `normalizeSweepNetwork`'s bare-address spelling. Stored
       `10.1.2.3/24` becomes `10.1.2.0/24`, and stored `2001:DB8::1` becomes
       `2001:db8::1/128`.
+      DONE: #4947 (`ServiceRadar.Edge.SweepPlan`, `HashGrammar.check_set_digest/1`,
+      and the shared corpus `sweep_static_plan_corpus.txt` that Go recomputes
+      independently); its BazelCI (BuildBuddy invocation
+      `2dfd3992-ee38-45fd-b940-ee73ac49a10c`) passed the Go `edgerecord_test`
+      target and every integration shard.
       A page holds at most 256 ranges, and the plan uses as many pages
       as it needs.
       Checks are the compiled effective modes and ports (`SweepPlan.checks/2`),
@@ -105,13 +110,19 @@
       cross-language golden vectors under `proto/edge/v1/testdata`.
       `check_set_sha256` and `availability_policy_id` follow "Plan inputs" in
       `design.md`.
-    - [ ] M2.0b2 Scheduled executions. `SweepGroupExecution` gains a scheduled
-      state and persists what a lease slot needs: the pre-minted UUIDv7
-      `execution_id` (the row id, so results reported later under that id find
-      their row), agent, assignment, epoch, slot start and collection window,
-      lease id, plan id and header digest, the id and digest of every range in
-      that plan, `check_set_sha256` and `availability_policy_id`; the raw plan
-      bytes are kept for the EventWriter's host-membership check (5.1).
+    - [ ] M2.0b2 Scheduled executions. A `sweep_execution_slots` table holds one
+      row per pre-minted execution: the `execution_id` (a UUIDv7 whose time is the
+      slot start, the row id), group, agent, assignment, the epoch it was planned
+      under, network scope, lease id, slot start and collection window, the plan
+      id and header digest, `check_set_sha256`, and the protobuf-encoded plan
+      header and pages (the EventWriter's host-membership check, 5.1, reads them).
+      The slots are not `sweep_group_executions` rows: a week of future rows would
+      fill the execution lists, the SRQL entity, retention and the missed-sweep
+      monitor with runs that have not happened. The results ingest creates the
+      execution row under the slot's id when results arrive. A slot that will not
+      run is dropped, not deleted; revoking an assignment (the fence's revoke of a
+      deselected agent, or the scheduler's ineligibility revoke) drops that
+      agent's slots that have not started.
     - [ ] M2.0b3 Lease scheduler. For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
       as scheduled before it runs. The horizon has a per-partition default, a
