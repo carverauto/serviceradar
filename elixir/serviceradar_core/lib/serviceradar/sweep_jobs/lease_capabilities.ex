@@ -10,7 +10,7 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
       join compares the batch's `agent_id` with the producer instance.
     * The lease. `producer_assignment_id`, `run_id` (the lease id), `run_shard` and
       `authority_epoch` come from the assignment the slots were planned under; a slot planned
-      under another epoch or lease is refused rather than signed.
+      under another epoch, assignment or lease is refused rather than signed.
     * The production scope. `scope_id` is the sweep group and `scope_sha256` is
       `lease_scope_sha256/3`: the group, its check set and the canonical range CIDRs, so a
       capability names exactly what the lease may sweep.
