@@ -1,6 +1,8 @@
 import {describe, expect, it, vi} from "vitest"
 import {AttributeManager, Deck, OrthographicViewport} from "@deck.gl/core"
 import ViewManager from "../../../node_modules/@deck.gl/core/dist/lib/view-manager.js"
+import {AnimationLoop} from "@luma.gl/engine"
+import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
 import WorldTileLayer from "./world_tile_layer"
 import WorldMapRenderer from "./WorldMapRenderer"
 import {decodeWorldTile} from "./world_tile_decode"
@@ -28,6 +30,77 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it.each(["world", "detail"])("submits %s draws before camera updates retire attribute buffers", async mode => {
+    vi.useFakeTimers()
+    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
+    vi.stubGlobal("document", {createElement: domNode})
+    vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
+    vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
+    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
+    const renderer = new WorldMapRenderer({...domNode(), clientWidth: 800, clientHeight: 600}, vi.fn(), vi.fn())
+    vi.spyOn(renderer, "poll").mockResolvedValue()
+    let deck
+    let attributes
+    try {
+      if (mode === "world") {
+        await renderer.mount()
+        deck = renderer.deck
+      } else {
+        deck = godViewLifecycleDomSetupMethods.createDeckInstance.call({state: {canvas: domNode()}}, 800, 600)
+      }
+      let pending = []
+      let submitted = 0
+      const retired = []
+      const device = {
+        type: "webgpu",
+        createBuffer: props => ({...props, destroyed: false, write() {},
+          destroy() {this.destroyed = true; retired.push(this)}, delete() {this.destroy()},
+        }),
+        submit() {
+          for (const buffer of pending) {
+            if (buffer.destroyed) throw new Error("instanceIconDefs submitted after destruction")
+          }
+          submitted += pending.length
+          pending = []
+        },
+      }
+      attributes = new AttributeManager(device, {id: "dynamic-icons"})
+      attributes.addInstanced({instanceIconDefs: {size: 4, accessor: "getIcon"}})
+      const resize = count => {
+        attributes.invalidateAll()
+        attributes.update({data: Array.from({length: count}, () => [0, 0, 8, 8]), numInstances: count, props: {getIcon: row => row}})
+      }
+      resize(1)
+      deck.setProps({_animate: true})
+      deck.layerManager = {context: {device}, updateLayers() {}, getLayers: () => [], finalize() {}}
+      deck.effectManager = {getEffects: () => [], finalize() {}}
+      deck.widgetManager = {onRedraw() {}, finalize() {}}
+      deck.deckRenderer = {renderLayers() {pending.push(attributes.getAttributes().instanceIconDefs.getBuffer())}, finalize() {}}
+      deck.viewManager = {getViewports: () => [], getViews: () => ({}), updateViewStates: () => resize(256), finalize() {}}
+      for (const method of ["_getFrameStats", "_getMetrics", "_updateCursor", "_pickAndCallback"]) vi.spyOn(deck, method).mockImplementation(() => {})
+      // Run pinned Deck/Luma ordering and real attribute allocation. GPU draws,
+      // queue validation and the camera-triggered layer refresh are simulated.
+      const loop = {device, props: {onRender: () => deck._onRenderFrame()}, _getAnimationProps: () => ({})}
+      AnimationLoop.prototype._renderFrame.call(loop, {})
+      expect(retired.length).toBeGreaterThan(0)
+      expect(submitted).toBe(1)
+      // An explicit redraw also has to finish its commands before layer teardown.
+      deck.redraw("selection")
+      attributes.finalize()
+      attributes = null
+      device.submit()
+      expect(submitted).toBe(2)
+    } finally {
+      attributes?.finalize()
+      if (mode === "world") renderer.destroy()
+      else deck?.finalize()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+
   it("resets the displayed map camera repeatedly after interactive pan and zoom", async () => {
     vi.useFakeTimers()
     const handlers = new Map()

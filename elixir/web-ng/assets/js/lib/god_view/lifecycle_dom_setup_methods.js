@@ -569,6 +569,9 @@ export const godViewLifecycleDomSetupMethods = {
         onError: (error) => this.handleDeviceError(deck, error),
       },
       onDeviceInitialized: (device) => this.recordDeckDevice(deck, device),
+      // Also covers explicit redraws outside Luma's animation loop: no drawn
+      // resources may remain unsubmitted when the next layer update retires them.
+      onAfterRender: ({device}) => device.submit(),
       views: new OrthographicView({id: "god-view-ortho"}),
       // Managed scenes own geometry, not the camera. Gestures are allowed
       // and then clamped by onViewStateChange via managedViewStateForCamera,

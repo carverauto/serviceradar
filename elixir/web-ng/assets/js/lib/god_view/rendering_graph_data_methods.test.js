@@ -245,6 +245,8 @@ describe("rendering_graph_data_methods", () => {
       expect([edge.sourceId, edge.targetId]).toEqual([route.sourceId, route.targetId])
       expect(glyphIds).toContain(edge.sourceId)
       expect(glyphIds).toContain(edge.targetId)
+      expect(edge.sourcePosition).toEqual(out.nodeData.find(node => node.id === edge.sourceId).position)
+      expect(edge.targetPosition).toEqual(out.nodeData.find(node => node.id === edge.targetId).position)
       expect(edge.sourcePosition).toEqual([route.points[0].x, route.points[0].y, 0])
       expect(edge.targetPosition).toEqual([
         route.points.at(-1).x,

@@ -205,16 +205,6 @@ function segmentIntersectsOpenBox(start, end, box) {
   return false
 }
 
-function clippedPoint(from, toward, width, height) {
-  const deltaX = toward.x - from.x
-  const deltaY = toward.y - from.y
-  const candidates = []
-  if (Math.abs(deltaX) > EPSILON) candidates.push((width / 2) / Math.abs(deltaX))
-  if (Math.abs(deltaY) > EPSILON) candidates.push((height / 2) / Math.abs(deltaY))
-  const scale = Math.min(...candidates)
-  return {x: from.x + (deltaX * scale), y: from.y + (deltaY * scale)}
-}
-
 function chordForRelation(relation, nodeById) {
   const source = nodeById.get(relation.sourceId)
   const target = nodeById.get(relation.targetId)
@@ -222,10 +212,9 @@ function chordForRelation(relation, nodeById) {
   const identicalCenters = Math.abs(source.center.x - target.center.x) <= EPSILON
     && Math.abs(source.center.y - target.center.y) <= EPSILON
   if (identicalCenters) throw new RetryableRadialGeometryError(`relation ${relation.id} has coincident semantic geometry`)
-  return [
-    clippedPoint(source.center, target.center, source.width, source.height),
-    clippedPoint(target.center, source.center, target.width, target.height),
-  ]
+  // ELK envelopes reserve spacing; the visible glyphs are drawn at their
+  // centers with pixel-sized radii. Draw beneath them at every camera scale.
+  return [{...source.center}, {...target.center}]
 }
 
 function sceneBounds(nodes, routes) {

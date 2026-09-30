@@ -89,6 +89,9 @@ export default class WorldMapRenderer {
         })
       },
       onError: error => this.failRenderer(error),
+      // Deck advances camera transitions after drawing, before Luma's loop
+      // submits. Flush now, before those updates can retire drawn buffers.
+      onAfterRender: ({device}) => device.submit(),
       viewState: this.viewState, parameters: GOD_VIEW_ALPHA_BLEND,
       controller: {dragPan: true, scrollZoom: {smooth: true}, touchZoom: true, dragRotate: false, touchRotate: false, doubleClickZoom: false},
       pickingRadius: 6, _animate: true,
