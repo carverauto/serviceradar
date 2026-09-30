@@ -299,7 +299,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   defp northbound_action_field(assigns) do
     type = ActionForm.schema_type(assigns.schema)
     enum_values = ActionForm.schema_enum(assigns.schema)
-    credential_rule_options_error = ActionForm.schema_credential_rule_options_error?(assigns.schema)
+
+    credential_rule_options_error =
+      ActionForm.schema_credential_rule_options_error?(assigns.schema)
 
     assigns =
       assigns
@@ -408,7 +410,8 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   defp target_status_label(status), do: "Target #{ActionForm.humanize(status)}"
 
   defp history_target_label(entry) do
-    case {Map.get(entry, :target_kind), Map.get(entry, :interface_uid), Map.get(entry, :device_uid)} do
+    case {Map.get(entry, :target_kind), Map.get(entry, :interface_uid),
+          Map.get(entry, :device_uid)} do
       {:interface, interface_uid, _device_uid} when is_binary(interface_uid) ->
         "Interface #{ActionForm.short_id(interface_uid)}"
 
@@ -437,7 +440,10 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   end
 
   defp summary_candidate(value) when is_binary(value), do: present_summary_text(value)
-  defp summary_candidate(value) when is_atom(value), do: value |> Atom.to_string() |> present_summary_text()
+
+  defp summary_candidate(value) when is_atom(value),
+    do: value |> Atom.to_string() |> present_summary_text()
+
   defp summary_candidate(value) when is_number(value), do: to_string(value)
   defp summary_candidate(_value), do: nil
 

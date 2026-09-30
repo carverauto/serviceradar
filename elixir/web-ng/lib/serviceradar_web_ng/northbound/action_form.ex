@@ -136,7 +136,10 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
   def json_textarea_value(nil, "array"), do: "[]"
   def json_textarea_value(nil, _type), do: "{}"
   def json_textarea_value(value, _type) when is_binary(value), do: value
-  def json_textarea_value(value, _type) when is_map(value) or is_list(value), do: Jason.encode!(value)
+
+  def json_textarea_value(value, _type) when is_map(value) or is_list(value),
+    do: Jason.encode!(value)
+
   def json_textarea_value(value, _type), do: to_string(value)
 
   def html_input_type("integer"), do: "number"
@@ -176,15 +179,21 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     "#{humanize(field)} must be a number."
   end
 
-  def format_launch_error({reason, field}, _target_label) when reason in [:invalid_json, :invalid_json_type] do
+  def format_launch_error({reason, field}, _target_label)
+      when reason in [:invalid_json, :invalid_json_type] do
     "#{humanize(field)} must be valid JSON."
   end
 
   def format_launch_error(:action_not_found, _target_label), do: "Select a launchable action."
-  def format_launch_error(:targets_required, target_label), do: "Select at least one #{target_label}."
 
-  def format_launch_error(:descriptor_not_found, _target_label), do: "The selected action no longer exists."
-  def format_launch_error(:descriptor_disabled, _target_label), do: "The selected action is disabled."
+  def format_launch_error(:targets_required, target_label),
+    do: "Select at least one #{target_label}."
+
+  def format_launch_error(:descriptor_not_found, _target_label),
+    do: "The selected action no longer exists."
+
+  def format_launch_error(:descriptor_disabled, _target_label),
+    do: "The selected action is disabled."
 
   def format_launch_error({:provider_not_active, _status}, _target_label) do
     "The selected action integration is not active."
@@ -199,7 +208,9 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     "This integration has no enabled credential bound to its agent assignment."
   end
 
-  def format_launch_error(%Forbidden{}, _target_label), do: "You are not authorized to launch actions."
+  def format_launch_error(%Forbidden{}, _target_label),
+    do: "You are not authorized to launch actions."
+
   def format_launch_error(_reason, _target_label), do: "Failed to create action invocation."
 
   defp validate_required(required, input) do
@@ -274,23 +285,34 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
   defp schema_value(schema, "properties") when is_map(schema),
     do: Map.get(schema, "properties") || Map.get(schema, :properties)
 
-  defp schema_value(schema, "required") when is_map(schema), do: Map.get(schema, "required") || Map.get(schema, :required)
+  defp schema_value(schema, "required") when is_map(schema),
+    do: Map.get(schema, "required") || Map.get(schema, :required)
 
-  defp schema_value(schema, "default") when is_map(schema), do: Map.get(schema, "default") || Map.get(schema, :default)
-  defp schema_value(schema, "type") when is_map(schema), do: Map.get(schema, "type") || Map.get(schema, :type)
+  defp schema_value(schema, "default") when is_map(schema),
+    do: Map.get(schema, "default") || Map.get(schema, :default)
 
-  defp schema_value(schema, "x-order") when is_map(schema), do: Map.get(schema, "x-order") || Map.get(schema, :"x-order")
+  defp schema_value(schema, "type") when is_map(schema),
+    do: Map.get(schema, "type") || Map.get(schema, :type)
 
-  defp schema_value(schema, "order") when is_map(schema), do: Map.get(schema, "order") || Map.get(schema, :order)
-  defp schema_value(schema, "enum") when is_map(schema), do: Map.get(schema, "enum") || Map.get(schema, :enum)
+  defp schema_value(schema, "x-order") when is_map(schema),
+    do: Map.get(schema, "x-order") || Map.get(schema, :"x-order")
+
+  defp schema_value(schema, "order") when is_map(schema),
+    do: Map.get(schema, "order") || Map.get(schema, :order)
+
+  defp schema_value(schema, "enum") when is_map(schema),
+    do: Map.get(schema, "enum") || Map.get(schema, :enum)
 
   defp schema_value(schema, "x-enum-labels") when is_map(schema),
     do: Map.get(schema, "x-enum-labels") || Map.get(schema, :"x-enum-labels")
 
   defp schema_value(schema, "x-credential-rule-options-error") when is_map(schema),
-    do: Map.get(schema, "x-credential-rule-options-error") || Map.get(schema, :"x-credential-rule-options-error")
+    do:
+      Map.get(schema, "x-credential-rule-options-error") ||
+        Map.get(schema, :"x-credential-rule-options-error")
 
-  defp schema_value(schema, "title") when is_map(schema), do: Map.get(schema, "title") || Map.get(schema, :title)
+  defp schema_value(schema, "title") when is_map(schema),
+    do: Map.get(schema, "title") || Map.get(schema, :title)
 
   defp schema_value(schema, "description") when is_map(schema),
     do: Map.get(schema, "description") || Map.get(schema, :description)

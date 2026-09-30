@@ -118,7 +118,10 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
         put_rule_options(schema, options)
 
       {:error, reason} ->
-        Logger.warning("rule_options lookup failed for descriptor #{descriptor.id}: #{inspect(reason)}")
+        Logger.warning(
+          "rule_options lookup failed for descriptor #{descriptor.id}: #{inspect(reason)}"
+        )
+
         inputs = PluginPackageContext.package_rule_inputs(descriptor.credential_requirements)
         put_rule_options_error(schema, inputs)
 
