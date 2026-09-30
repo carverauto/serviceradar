@@ -16,10 +16,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   precision, a boolean, a list, a decoded JSON document, a float) -- so the
   callers shape both backends' answers with the same code and templates do not
   change. The translations and the places they cannot be literal are listed at
-  the SQL builders. Result parity against a live warehouse is checked by the
-  MTR reader parity test (`test/phoenix/live/dashboard_live/mtr_reader_parity_test.exs`),
-  which seeds the same synthetic traces and hops into a scratch CNPG database
-  and the warehouse and asserts each reader answers the same from both.
+  the SQL builders. Result parity against a live warehouse is checked by
+  `test/integration/starrocks/mtr_reader_parity_test.exs`: the same synthetic
+  traces and hops are seeded into a scratch CNPG database and the warehouse.
+  `MtrData` readers are compared across the two backends; the dashboard card
+  and sparklines compare the rollup read with its raw fallback.
 
   The dashboard card and whole-hour sparklines read the day-partitioned
   destination rollup `mtr_destination_hourly` (`priv/starrocks/0025`) while

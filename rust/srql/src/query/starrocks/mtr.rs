@@ -19,7 +19,7 @@
 //!   CNPG builders use, and every sort term carries Postgres's NULL placement
 //!   (NULLS LAST ascending, NULLS FIRST descending) instead of StarRocks's.
 //! * Time bounds are the half-open `[start, end)` CNPG binds, at microsecond
-//!   precision.
+//!   precision, except the hour-servable `in:mtr_hops` stats described below.
 //! * Filters follow the CNPG row path and stats path separately, because they
 //!   differ: a row-listing negation keeps NULL rows, a stats negation drops
 //!   them. A filter or operator CNPG refuses is refused here too, and so is
