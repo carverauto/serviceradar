@@ -74,6 +74,16 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
   await page.goto("http://localhost:4774/?transport=1")
   await expect(page.getByRole("status")).toContainText("HTTP 503")
   await expect(page.getByRole("status")).toContainText("2 devices", {timeout: 15000})
+  await page.getByRole("button", {name: "Share map", exact: true}).click()
+  await expect(page.getByRole("textbox", {name: "Map link", exact: true})).toBeVisible()
+  await page.mouse.click(80, 450)
+  await expect(page.getByRole("textbox", {name: "Map link", exact: true})).toBeHidden()
+  await page.getByRole("button", {name: "Share map", exact: true}).click()
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("textbox", {name: "Map link", exact: true})).toBeHidden()
+  await page.getByRole("button", {name: "Share map", exact: true}).click()
+  await page.getByRole("button", {name: "Close map popup", exact: true}).click()
+  await expect(page.getByRole("textbox", {name: "Map link", exact: true})).toBeHidden()
   await page.getByRole("textbox", {name: "Find device by ID"}).fill("invented-device-a")
   await page.getByRole("button", {name: "Find", exact: true}).click()
   await expect(page.getByRole("button", {name: "Open neighborhood"})).toBeVisible()
@@ -148,6 +158,23 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
     const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
     return viewport.zoom > 4 && viewport.target[0] === 200 && viewport.target[1] === 204
   })
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_zoom_mode")({mode: "global"}))
+  await page.waitForFunction(() => window.__SR_WORLD_TRANSPORT__.renderer.deck.props.layers[0]?.isLoaded)
+  const clusterLocation = await page.evaluate(() => {
+    const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
+    const [x, y] = viewport.project([200, 204, 0])
+    return {x, y}
+  })
+  await expect.poll(() => page.evaluate(async ({x, y}) =>
+    (await window.__SR_WORLD_TRANSPORT__.renderer.deck.pickObjectAsync({x, y, radius: 6}))?.object?.kind,
+  clusterLocation)).toBe("aggregate")
+  await page.mouse.click(clusterLocation.x, clusterLocation.y)
+  await expect.poll(() => page.evaluate(() => window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0].zoom)).toBe(2)
+  await expect(page.getByRole("button", {name: "Show members", exact: true})).toBeHidden()
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = window.__SR_WORLD_TRANSPORT__.renderer
+    return [...renderer.cache.entries.values()].some(entry => entry.geometry.key.z === 2 && entry.geometry.nodes.filter(node => node.kind === "device").length === 2)
+  })).toBe(true)
   expect(errors).toEqual([])
 })
 

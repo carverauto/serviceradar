@@ -51,6 +51,8 @@ export default class WorldMapRenderer {
     this.el.style.position = "relative"
     this.el.style.backgroundColor = "var(--sr-color-canvas)"
     this.canvas = element("canvas", "absolute inset-0 h-full w-full")
+    this.canvas.tabIndex = 0
+    this.canvas.setAttribute("aria-label", "Topology map")
     this.measureText = createTopologyLabelMeasureText()
     this.summary = element("div", "absolute bottom-2 left-3 right-3 pointer-events-none text-xs text-sr-muted", "Loading topology…")
     this.summary.setAttribute("role", "status")
@@ -72,6 +74,12 @@ export default class WorldMapRenderer {
     this.panel = element("div", "absolute left-3 top-14 z-20 max-w-xs rounded-lg border border-sr-line bg-sr-surface p-3 text-sm")
     this.panel.hidden = true
     this.el.append(this.canvas, this.summary, this.toolbar, this.panel)
+    window.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !this.panel.hidden) this.dismissPanel(true)
+    }, {signal: this.lifetime.signal})
+    this.el.addEventListener("pointerdown", event => {
+      if (this.detailRenderer && event.target.tagName === "CANVAS") this.dismissPanel()
+    }, {signal: this.lifetime.signal})
     this.viewState = this.overviewView()
     this.deck = new Deck({
       canvas: this.canvas, width: this.el.clientWidth, height: this.el.clientHeight,
@@ -98,7 +106,7 @@ export default class WorldMapRenderer {
       onViewStateChange: ({viewState}) => {
         this.setView(viewState)
       },
-      onClick: info => {if (info.object) void this.pick(info)},
+      onClick: info => {if (info.object) void this.pick(info); else this.dismissPanel()},
       getTooltip: info => info.object ? {text: info.object.label || `${info.object.count.toLocaleString()} relations`} : null,
     })
     this.resize = new ResizeObserver(() => {
@@ -217,7 +225,23 @@ export default class WorldMapRenderer {
 
   locationNotice(message) {
     this.selection?.abort()
-    this.panel.replaceChildren(element("p", "text-sr-muted", message))
+    this.openPanel(element("p", "text-sr-muted", message))
+  }
+
+  dismissPanel(focusMap = false) {
+    this.selection?.abort()
+    this.searchRequest?.abort()
+    if (!this.detailRenderer) this.sceneRequest?.abort()
+    this.panel.hidden = true
+    if (focusMap) this.canvas.focus({preventScroll: true})
+  }
+
+  openPanel(...content) {
+    const close = element("button", `${MAP_BUTTON_CLASS} float-right ml-2`, "Close")
+    close.type = "button"
+    close.setAttribute("aria-label", "Close map popup")
+    close.addEventListener("click", () => this.dismissPanel(true))
+    this.panel.replaceChildren(close, ...content)
     this.panel.hidden = false
   }
 
@@ -267,8 +291,7 @@ export default class WorldMapRenderer {
     input.readOnly = true
     input.value = url.href
     input.addEventListener("click", () => input.select())
-    this.panel.replaceChildren(element("p", "text-sr-muted", `${label}: copy this address to share.`), input)
-    this.panel.hidden = false
+    this.openPanel(element("p", "text-sr-muted", `${label}: copy this address to share.`), input)
     input.focus()
     input.select()
   }
@@ -405,6 +428,25 @@ export default class WorldMapRenderer {
     const geometry = info.sourceTile?.content
     if (!geometry) return
     const object = info.object
+    if (object.kind === "aggregate") {
+      this.dismissPanel()
+      const viewport = this.deck.getViewports()[0]
+      const zoom = Math.min(this.cache.manifest.zmax, Math.max(viewport.zoom, geometry.key.z) + 2)
+      if (zoom > viewport.zoom) {
+        const target = [geometry.positions[object.index * 2], geometry.positions[object.index * 2 + 1], 0]
+        this.setView({target, zoom, transitionDuration: 500, transitionInterpolator: new LinearInterpolator(["target", "zoom"])})
+        return
+      }
+      const selection = new globalThis.AbortController()
+      this.selection = selection
+      const params = {...geometry.key, generation: geometry.generation, tile_revision: geometry.revision, kind: object.kind, id: object.id}
+      try {
+        const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
+        if (selection.signal.aborted || this.destroyed) return
+        await this.openScene({layout_version: params.layout_version, generation: params.generation, ...result.details.scene})
+      } catch (error) {if (!selection.signal.aborted && !this.destroyed) this.locationNotice(error.message)}
+      return
+    }
     return this.showSelection(object, {...geometry.key, generation: geometry.generation, tile_revision: geometry.revision, kind: object.kind, id: object.id})
   }
 
@@ -412,8 +454,7 @@ export default class WorldMapRenderer {
     this.selection?.abort()
     const selection = new globalThis.AbortController()
     this.selection = selection
-    this.panel.replaceChildren(element("div", "font-semibold", object.label || `${object.count.toLocaleString()} relations`))
-    this.panel.hidden = false
+    this.openPanel(element("div", "font-semibold", object.label || `${object.count.toLocaleString()} relations`))
     try {
       const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
       if (selection.signal.aborted || this.destroyed) return
