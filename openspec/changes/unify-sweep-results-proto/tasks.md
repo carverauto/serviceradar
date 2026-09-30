@@ -176,7 +176,7 @@
     execution grants are not used: no check on the record path consults them, and
     they need three signatures and two stored artifacts per (execution, range).
     They stay in the backlog.
-    - [ ] M2.0d1 Carrier. `SweepLeaseV1`/`SweepLeaseSlotV1` (edge/v1
+    - [x] M2.0d1 Carrier. `SweepLeaseV1`/`SweepLeaseSlotV1` (edge/v1
       `sweep.proto`) carry a lease as a window replacement, and the control
       stream gains `SweepLeaseChunk` (gateway to agent, only for agents
       advertising `sweep_lease_v1`) and `SweepLeaseAck` (agent to gateway), as
@@ -185,9 +185,14 @@
       (`ContractRegistryDocument`), and `SweepContract` gives the values a
       production capability signs; the effective grant digest is derived from
       the contract and the lease scope.
+      Proven by BuildBuddy invocation 4d85b178-4b10-481b-a324-59071d77d5cd.
     - [ ] M2.0d2 Core delivery. Core builds, signs and pushes each connected
       agent's lease (the newly minted tail, or the whole window after a drop
       or a new lease), and records each ack.
+      Migration `20260930091700` adds `sweep_lease_deliveries`;
+      `LeaseDelivery` decides and builds each push as Carrier in `design.md`
+      says, `AgentCommandBus.push_sweep_lease/3` and the gateway session send
+      it as chunks, and the gateway forwards `SweepLeaseAck` to core.
     - [ ] M2.0d3 Agent install. The agent reassembles, checks and stores the
       lease per sweep group across restarts, and acknowledges it.
     - [ ] M2.0d4 Remaining horizon. Core shows each agent's acknowledged
