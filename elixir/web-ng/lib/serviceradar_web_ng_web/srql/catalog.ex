@@ -98,6 +98,40 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   @entities [
     %{
+      id: "security_events",
+      label: "Security audit events",
+      exact_fields: [
+        "kind",
+        "severity",
+        "actor_id",
+        "ip",
+        "route",
+        "correlation_id",
+        "id",
+        "search"
+      ],
+      route: "/settings/audit/events",
+      default_time: "last_24h",
+      default_sort_field: "occurred_at",
+      default_sort_dir: "desc",
+      default_filter_field: "kind",
+      filter_fields: [
+        "kind",
+        "severity",
+        "actor_id",
+        "ip",
+        "route",
+        "correlation_id",
+        "search",
+        "id"
+      ],
+      known_values: %{
+        "kind" => Enum.map(ServiceRadar.Security.SecurityEvent.kinds(), &to_string/1),
+        "severity" => Enum.map(ServiceRadar.Security.SecurityEvent.severities(), &to_string/1)
+      },
+      downsample: false
+    },
+    %{
       id: "dashboards",
       label: "Dashboards",
       route: "/dashboards",
@@ -2342,6 +2376,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   # catalog record per entity. Without this, opening a legacy query in the
   # visual builder silently falls back to the generic timestamp-sorted shape.
   @entity_aliases %{
+    "audit_events" => "security_events",
     "cpu" => "cpu_metrics",
     "memory" => "memory_metrics",
     "disk" => "disk_metrics",

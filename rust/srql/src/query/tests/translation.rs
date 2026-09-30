@@ -2180,3 +2180,70 @@ fn downsample_rejects_unknown_aggregates_with_the_full_list() {
     let err = parser::parse("in:timeseries_metrics bucket:5m agg:median").unwrap_err();
     assert!(err.to_string().contains("rate_sum|last"), "{err}");
 }
+
+#[test]
+fn security_events_translation_is_bound_and_stably_paginated() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:audit_events kind:login_failed severity:critical actor_id:invented-actor ip:192.0.2.8 route:/login correlation_id:invented-correlation search:denied sort:occurred_at:desc limit:25".into(),
+        limit: None,
+        cursor: Some(encode_cursor(25, &config.cursor_secret).unwrap()),
+        direction: QueryDirection::Next,
+        mode: None,
+        permitted_signals: None,
+    };
+    let result = translate_request(&config, request).unwrap();
+    assert!(result.sql.contains("FROM platform.security_events"));
+    assert!(result.sql.contains("ORDER BY occurred_at DESC, id DESC"));
+    assert!(
+        result
+            .sql
+            .contains("occurred_at >= $1 AND occurred_at <= $2")
+    );
+    assert!(
+        result.sql.contains("LIMIT $13 OFFSET $14"),
+        "{}",
+        result.sql
+    );
+    assert_eq!(result.params.len(), 14);
+    for value in [
+        "login_failed",
+        "critical",
+        "invented-actor",
+        "192.0.2.8",
+        "/login",
+        "invented-correlation",
+        "%denied%",
+    ] {
+        assert!(!result.sql.contains(value));
+        assert!(
+            result
+                .params
+                .iter()
+                .any(|param| matches!(param, BindParam::Text(text) if text == value))
+        );
+    }
+    assert!(matches!(result.params[12], BindParam::Int(25)));
+    assert!(matches!(result.params[13], BindParam::Int(25)));
+}
+
+#[test]
+fn security_events_refuses_unsupported_queries() {
+    let config = test_config();
+    for query in [
+        "in:security_events details:secret",
+        "in:security_events sort:details:desc",
+        "in:security_events stats:count() as n",
+        "in:security_events severity>warning",
+    ] {
+        let request = QueryRequest {
+            query: query.into(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        };
+        assert!(translate_request(&config, request).is_err(), "{query}");
+    }
+}

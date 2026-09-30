@@ -43,7 +43,7 @@ use diesel::sql_types::Jsonb;
 /// Row shape for every identity entity: one jsonb payload per row.
 #[derive(Debug, QueryableByName)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub(super) struct JsonPayload {
+pub(in crate::query) struct JsonPayload {
     #[diesel(sql_type = Jsonb)]
     pub payload: DbJson,
 }
@@ -125,7 +125,7 @@ pub(super) struct BuiltSql {
 
 /// Diesel's `sql_query` takes `?`; `to_sql_and_params` must hand callers real
 /// `$n` placeholders.
-pub(super) fn rewrite_placeholders(sql: &str) -> String {
+pub(in crate::query) fn rewrite_placeholders(sql: &str) -> String {
     let mut out = String::with_capacity(sql.len() + 8);
     let mut idx = 1u32;
     for ch in sql.chars() {
@@ -165,7 +165,7 @@ pub(super) fn scalar_bool(filter: &Filter) -> Result<bool> {
 ///
 /// `ILIKE` is used only when the caller actually wrote a `%`; a plain value
 /// stays an equality so it can use an index.
-pub(super) fn text_condition(
+pub(in crate::query) fn text_condition(
     column: &str,
     filter: &Filter,
     binds: &mut Vec<BindParam>,
@@ -281,7 +281,7 @@ pub(super) fn numeric_condition(
 
 /// Render an ORDER BY from the plan, restricted to a per-entity allowlist so a
 /// caller cannot order by an arbitrary expression.
-pub(super) fn order_by(
+pub(in crate::query) fn order_by(
     order: &[crate::parser::OrderClause],
     allowed: &[(&str, &str)],
     default: &str,
@@ -310,7 +310,7 @@ pub(super) fn order_by(
 
 /// Reject stats/downsample uniformly: none of these entities is a hypertable
 /// and none has a group-by caller yet.
-pub(super) fn reject_aggregations(plan: &super::QueryPlan, entity: &str) -> Result<()> {
+pub(in crate::query) fn reject_aggregations(plan: &super::QueryPlan, entity: &str) -> Result<()> {
     if plan.stats.is_some() {
         return Err(ServiceError::InvalidRequest(format!(
             "{entity} does not support stats queries"

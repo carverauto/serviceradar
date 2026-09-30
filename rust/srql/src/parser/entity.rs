@@ -12,6 +12,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "graph_cypher" | "graphcypher" | "cypher" => Ok(Entity::GraphCypher),
         "graph" | "graph_dql" => Ok(Entity::GraphDql),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
+        "security_events" | "audit_events" => Ok(Entity::SecurityEvents),
         "events" | "activity" => Ok(Entity::Events),
         "security_findings" | "security_finding" | "findings" | "finding" => {
             Ok(Entity::SecurityFindings)

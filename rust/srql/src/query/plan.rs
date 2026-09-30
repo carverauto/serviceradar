@@ -135,7 +135,7 @@ fn default_time_range_for_entity(
     filters: &[Filter],
 ) -> Option<TimeRange> {
     match (entity, time_range) {
-        (Entity::Logs, None) => Some(TimeRange {
+        (Entity::Logs | Entity::SecurityEvents, None) => Some(TimeRange {
             start: now - ChronoDuration::hours(24),
             end: now,
         }),

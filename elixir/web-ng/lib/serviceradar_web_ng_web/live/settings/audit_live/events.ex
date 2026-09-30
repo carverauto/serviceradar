@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   @moduledoc """
   Settings → Audit → Events.
 
-  Lists `ServiceRadar.Security.SecurityEvent` rows with filters for
-  kind and severity, and live-tails newly recorded events via the
+  Lists bounded keyset pages of `ServiceRadar.Security.SecurityEvent` rows.
+  Only the first page live-tails matching events via the
   `"security_events"` Phoenix.PubSub topic (a PG2-backed broadcast
   driven by `ServiceRadar.Security.Events`).
   """
@@ -18,15 +18,27 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
 
   require Ash.Query
 
-  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
+  on_mount({ServiceRadarWebNGWeb.UserAuth, :require_authenticated})
 
-  @page_size 100
+  @page_size 25
+  @filter_defaults %{
+    "kind" => "",
+    "severity" => "",
+    "actor_id" => "",
+    "ip" => "",
+    "route" => "",
+    "correlation_id" => "",
+    "search" => "",
+    "time" => "last_24h",
+    "from" => "",
+    "to" => ""
+  }
 
   @impl true
   def mount(_params, _session, socket) do
     {permissions, ash_actor} = permissions_and_actor(socket)
 
-    if connected?(socket) do
+    if connected?(socket) and can_view?(permissions) do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "security_events")
     end
 
@@ -39,8 +51,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
       |> assign(:can_view?, can_view?(permissions))
       |> assign(:kinds, SecurityEvent.kinds())
       |> assign(:severities, SecurityEvent.severities())
-      |> assign(:kind_filter, nil)
-      |> assign(:severity_filter, nil)
+      |> assign(:filters, @filter_defaults)
+      |> assign(:form, to_form(@filter_defaults, as: :filters))
+      |> assign(:cursors, [])
+      |> assign(:events, [])
+      |> assign(:has_next?, false)
+      |> assign(:query_error, nil)
       |> assign(:selected_event, nil)
       |> load_events()
 
@@ -48,19 +64,50 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   end
 
   @impl true
-  def handle_event("filter", %{"kind" => kind, "severity" => severity}, socket) do
+  def handle_event(_event, _params, %{assigns: %{can_view?: false}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("filter", %{"filters" => filters}, socket) do
+    filters = Map.merge(@filter_defaults, Map.take(filters, Map.keys(@filter_defaults)))
+
     {:noreply,
      socket
-     |> assign(:kind_filter, blank_to_nil(kind))
-     |> assign(:severity_filter, blank_to_nil(severity))
+     |> assign(:filters, filters)
+     |> assign(:form, to_form(filters, as: :filters))
+     |> reset_page()
      |> load_events()}
   end
 
   def handle_event("clear-filters", _params, socket) do
     {:noreply,
      socket
-     |> assign(:kind_filter, nil)
-     |> assign(:severity_filter, nil)
+     |> assign(:filters, @filter_defaults)
+     |> assign(:form, to_form(@filter_defaults, as: :filters))
+     |> reset_page()
+     |> load_events()}
+  end
+
+  def handle_event("next-page", _params, socket) do
+    if socket.assigns.has_next? and socket.assigns.events != [] do
+      last = List.last(socket.assigns.events)
+      cursor = {last.occurred_at, last.id}
+
+      {:noreply,
+       socket
+       |> assign(:cursors, [cursor | socket.assigns.cursors])
+       |> assign(:selected_event, nil)
+       |> load_events()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("previous-page", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:cursors, Enum.drop(socket.assigns.cursors, 1))
+     |> assign(:selected_event, nil)
      |> load_events()}
   end
 
@@ -74,10 +121,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   end
 
   @impl true
-  def handle_info({:security_event, event}, socket) do
-    if event_matches?(event, socket.assigns) do
-      events = Enum.take([event | socket.assigns.events], @page_size)
-      {:noreply, assign(socket, :events, events)}
+  def handle_info({:security_event, _event}, socket) do
+    if socket.assigns.can_view? and socket.assigns.cursors == [] do
+      {:noreply, load_events(socket)}
     else
       {:noreply, socket}
     end
@@ -115,64 +161,99 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
       MapSet.member?(perms, "settings.audit.manage")
   end
 
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(value), do: value
-
-  defp event_matches?(event, %{kind_filter: kind_filter, severity_filter: severity_filter}) do
-    (is_nil(kind_filter) or to_string(event.kind) == kind_filter) and
-      (is_nil(severity_filter) or to_string(event.severity) == severity_filter)
-  end
+  defp reset_page(socket), do: assign(socket, cursors: [], selected_event: nil)
 
   defp load_events(socket) do
-    if socket.assigns.can_view? do
-      filters =
-        []
-        |> maybe_filter(:kind, socket.assigns.kind_filter)
-        |> maybe_filter(:severity, socket.assigns.severity_filter)
+    if connected?(socket) and socket.assigns.can_view? do
+      with {:ok, start_at, end_at} <- time_range(socket.assigns.filters),
+           {:ok, events} <-
+             Ash.read(event_query(socket, start_at, end_at), actor: socket.assigns.ash_actor) do
+        assign(socket,
+          events: Enum.take(events, @page_size),
+          has_next?: length(events) > @page_size,
+          query_error: nil
+        )
+      else
+        {:error, :invalid_time} ->
+          assign(socket,
+            events: [],
+            has_next?: false,
+            query_error: "Choose a valid UTC time range with From before To."
+          )
 
-      query =
-        SecurityEvent
-        |> Ash.Query.for_read(:read, %{}, actor: socket.assigns.ash_actor)
-        |> Ash.Query.sort(occurred_at: :desc)
-        |> Ash.Query.limit(@page_size)
-
-      query =
-        Enum.reduce(filters, query, fn
-          {:kind, value}, q -> Ash.Query.filter(q, expr(kind == ^value))
-          {:severity, value}, q -> Ash.Query.filter(q, expr(severity == ^value))
-          _, q -> q
-        end)
-
-      case Ash.read(query, actor: socket.assigns.ash_actor) do
-        {:ok, events} -> assign(socket, :events, events)
-        _ -> assign(socket, :events, [])
+        {:error, _} ->
+          assign(socket,
+            events: [],
+            has_next?: false,
+            query_error: "Could not load audit events."
+          )
       end
     else
-      assign(socket, :events, [])
+      assign(socket, events: [], has_next?: false)
     end
-  rescue
-    # DB unavailable in dev — render an empty list rather than crash.
-    _ -> assign(socket, :events, [])
   end
 
-  defp maybe_filter(acc, _key, nil), do: acc
+  defp event_query(socket, start_at, end_at) do
+    query =
+      SecurityEvent
+      |> Ash.Query.for_read(:read, %{}, actor: socket.assigns.ash_actor)
+      |> Ash.Query.sort(occurred_at: :desc, id: :desc)
+      |> Ash.Query.limit(@page_size + 1)
+      |> Ash.Query.filter(occurred_at >= ^start_at)
 
-  defp maybe_filter(acc, key, value) when is_binary(value) do
-    case key do
-      :kind ->
-        if value in Enum.map(SecurityEvent.kinds(), &to_string/1),
-          do: [{key, String.to_existing_atom(value)} | acc],
-          else: acc
+    query = if end_at, do: Ash.Query.filter(query, occurred_at <= ^end_at), else: query
 
-      :severity ->
-        if value in Enum.map(SecurityEvent.severities(), &to_string/1),
-          do: [{key, String.to_existing_atom(value)} | acc],
-          else: acc
+    query =
+      Enum.reduce([:kind, :severity, :actor_id, :ip, :route, :correlation_id], query, fn field,
+                                                                                         query ->
+        case String.trim(socket.assigns.filters[to_string(field)]) do
+          "" -> query
+          value -> Ash.Query.filter_input(query, %{field => %{eq: value}})
+        end
+      end)
 
-      _ ->
-        acc
+    search = socket.assigns.filters["search"] |> String.trim() |> String.downcase()
+
+    query =
+      if search == "" do
+        query
+      else
+        Ash.Query.filter(
+          query,
+          expr(
+            contains(string_downcase(if(is_nil(actor_id), "", actor_id)), ^search) or
+              contains(string_downcase(if(is_nil(ip), "", ip)), ^search) or
+              contains(string_downcase(if(is_nil(route), "", route)), ^search) or
+              contains(string_downcase(if(is_nil(correlation_id), "", correlation_id)), ^search)
+          )
+        )
+      end
+
+    case socket.assigns.cursors do
+      [{at, id} | _] ->
+        Ash.Query.filter(query, occurred_at < ^at or (occurred_at == ^at and id < ^id))
+
+      [] ->
+        query
     end
+  end
+
+  defp time_range(%{"time" => "custom", "from" => from, "to" => to}) do
+    with {:ok, start_at, _} <- DateTime.from_iso8601(from <> ":00Z"),
+         {:ok, end_at, _} <- DateTime.from_iso8601(to <> ":00Z"),
+         :lt <- DateTime.compare(start_at, end_at) do
+      {:ok, start_at, end_at}
+    else
+      _ -> {:error, :invalid_time}
+    end
+  end
+
+  defp time_range(%{"time" => time}) do
+    seconds = %{"last_1h" => 3600, "last_24h" => 86_400, "last_7d" => 604_800}[time]
+
+    if seconds,
+      do: {:ok, DateTime.add(DateTime.utc_now(), -seconds, :second), nil},
+      else: {:error, :invalid_time}
   end
 
   @impl true
@@ -193,47 +274,92 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
           <h1 class="text-2xl font-semibold">Audit · Events</h1>
           <p class="text-sm text-sr-muted">
             Stateless security events: rate-limit denials, signature failures, policy denials,
-            CSP violations, lockout triggers and clears. Live-tailed via Phoenix.PubSub.
+            CSP violations, lockout triggers and clears. Live updates apply to page 1 only;
+            older pages stay steady until you navigate or change filters.
           </p>
         </header>
 
         <%= if @can_view? do %>
-          <form phx-change="filter" class="flex flex-wrap items-end gap-3">
-            <label class="text-sm">
-              <span class="mb-1 block text-sr-muted">Kind</span>
-              <select name="kind" class="ui-select">
-                <option value="">All</option>
-                <%= for kind <- @kinds do %>
-                  <option value={to_string(kind)} selected={to_string(kind) == @kind_filter}>
-                    {kind}
-                  </option>
-                <% end %>
-              </select>
-            </label>
-
-            <label class="text-sm">
-              <span class="mb-1 block text-sr-muted">Severity</span>
-              <select name="severity" class="ui-select">
-                <option value="">All</option>
-                <%= for severity <- @severities do %>
-                  <option
-                    value={to_string(severity)}
-                    selected={to_string(severity) == @severity_filter}
-                  >
-                    {severity}
-                  </option>
-                <% end %>
-              </select>
-            </label>
-
-            <button
-              type="button"
-              class="ui-button"
-              phx-click="clear-filters"
-            >
-              Clear
-            </button>
-          </form>
+          <.form
+            for={@form}
+            id="audit-event-filters"
+            phx-change="filter"
+            class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          >
+            <.input
+              field={@form[:time]}
+              type="select"
+              label="Time range"
+              options={[{"Last hour", "last_1h"}, {"Last 24 hours", "last_24h"}, {"Last 7 days", "last_7d"}, {"Custom (UTC)", "custom"}]}
+            />
+            <.input
+              field={@form[:kind]}
+              type="select"
+              label="Kind"
+              prompt="All"
+              options={Enum.map(@kinds, &{to_string(&1), to_string(&1)})}
+            />
+            <.input
+              field={@form[:severity]}
+              type="select"
+              label="Severity"
+              prompt="All"
+              options={Enum.map(@severities, &{to_string(&1), to_string(&1)})}
+            />
+            <.input
+              field={@form[:search]}
+              type="text"
+              label="Search actor, IP, route or correlation"
+              phx-debounce="300"
+            />
+            <.input
+              field={@form[:actor_id]}
+              type="text"
+              label="Actor ID (exact)"
+              phx-debounce="300"
+            />
+            <.input
+              field={@form[:ip]}
+              type="text"
+              label="IP (exact)"
+              phx-debounce="300"
+            />
+            <.input
+              field={@form[:route]}
+              type="text"
+              label="Route (exact)"
+              phx-debounce="300"
+            />
+            <.input
+              field={@form[:correlation_id]}
+              type="text"
+              label="Correlation ID (exact)"
+              phx-debounce="300"
+            />
+            <.input
+              :if={@filters["time"] == "custom"}
+              field={@form[:from]}
+              type="datetime-local"
+              label="From (UTC)"
+            />
+            <.input
+              :if={@filters["time"] == "custom"}
+              field={@form[:to]}
+              type="datetime-local"
+              label="To (UTC)"
+            />
+            <.ui_button id="audit-events-clear" type="button" phx-click="clear-filters" size="sm" variant="neutral">Clear all</.ui_button>
+          </.form>
+          <p :if={@query_error} id="audit-events-error" role="alert" class="text-sm text-error">{@query_error}</p>
+          <div id="audit-events-pagination" class="flex flex-wrap items-center justify-between gap-3">
+            <p id="audit-events-page" class="text-sm text-base-content/70">
+              Page {length(@cursors) + 1} · {length(@events)} events · {if @cursors == [], do: "Live updates on", else: "Live updates paused"}
+            </p>
+            <div class="join">
+              <.ui_button id="audit-events-previous" class="join-item" type="button" phx-click="previous-page" disabled={@cursors == []} size="sm" variant="neutral">Previous</.ui_button>
+              <.ui_button id="audit-events-next" class="join-item" type="button" phx-click="next-page" disabled={!@has_next?} size="sm" variant="neutral">Next</.ui_button>
+            </div>
+          </div>
 
           <%!-- table-fixed + per-cell truncation keeps the whole table inside the
                 container with NO horizontal scroll even for long IPv6 addresses;
@@ -258,9 +384,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
                   <th class="px-4 py-2 text-left">Route</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-sr-line">
+              <tbody id="audit-events-rows" class="divide-y divide-sr-line">
                 <%= for e <- @events do %>
                   <tr
+                    id={"audit-event-#{e.id}"}
                     class="cursor-pointer hover:bg-sr-subtle/50 focus:bg-sr-subtle/60 focus:outline-none"
                     tabindex="0"
                     role="button"
