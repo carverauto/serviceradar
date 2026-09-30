@@ -415,7 +415,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           </div>
 
           <div class="sr-ops-topbar-actions">
-            <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
             {render_slot(@topbar_actions)}
             <.link
               navigate={~p"/observability/alerts"}
@@ -439,6 +438,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                 </span>
               </summary>
               <ul class="sr-ops-profile-menu" role="menu">
+                <li role="none" class="flex items-center justify-between gap-2 px-3 py-2">
+                  <span class="text-sm text-sr-muted">Theme</span>
+                  <.theme_toggle />
+                </li>
                 <li role="none">
                   <.link navigate={~p"/settings/profile"} role="menuitem">
                     <.icon name="hero-user-circle" class="size-4" /> Profile
@@ -815,9 +818,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   @doc """
   Dark / light / system theme toggle.
 
-  **Not rendered in the topbar by default** — the app forces dark mode via
-  `theme_init.js`. Keep this component and the `phx:set-theme` listener so the
-  control can be dropped back into layouts later if needed.
+  Rendered in the operations topbar profile menu. Selection is persisted by
+  `theme_init.js` using the `phx:set-theme` event.
 
   See <head> in root.html.heex which applies the theme before page load.
   """
