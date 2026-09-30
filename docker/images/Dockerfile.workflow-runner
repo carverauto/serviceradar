@@ -45,7 +45,9 @@
 # That happens BEFORE an invocation exists, so nothing appears in the BuildBuddy UI -- the run
 # looks like it was never triggered while the executor re-enqueues several times a second,
 # forever. uid/gid 1001 and the home directory below match gcr.io/flame-public/rbe-ubuntu24-04
-# exactly; do not renumber them.
+# exactly; do not renumber them. build:ci --disk_cache is /home/buildbuddy/bazel-disk-cache
+# on this home (//k8s/buildbuddy/README.md). Dropping --create-home or moving the home makes
+# the first CI Bazel invocation fail creating that directory.
 #
 # WHAT IS DELIBERATELY ABSENT
 #

@@ -52,8 +52,10 @@ extraVolumes:
       # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
       path: /mnt/buildbuddy/cache
       type: DirectoryOrCreate
-  # Bazel client caches (disk, repository, repo contents). Its own volume so a fresh runner
-  # starts warm, and so the 100 GB of small files are not walked by the filecache startup scan.
+  # Bazel client cache directories for this pool, on their own volume so a fresh runner
+  # starts warm and these small files are not walked by the filecache startup scan. Which
+  # names are created, and why `disk` is not build:ci --disk_cache, is the init container
+  # note below.
   - name: bazel-cache-volume
     hostPath:
       path: /mnt/buildbuddy/bazel-caches
@@ -77,10 +79,11 @@ extraVolumeMounts:
 # Kept in step with ./values-workflows.yaml, which is the fleet that needs it: kubelet creates a
 # `DirectoryOrCreate` hostPath as root:root 0755, and a non-root action container cannot write
 # into the bind mount below. Action containers here run as root (//docker/Dockerfile.rbe sets no
-# USER), so this fleet does not hit it today -- but the two files move together, and an image
-# that ever gains a USER would fail exactly as the workflow runner did.
+# USER), so this fleet does not hit it today -- but the init container stays in both files, and
+# an image that ever gains a USER would fail exactly as the workflow runner did. The mkdir list
+# does not move with workflows: this file still creates `disk`.
 #
-# Non-recursive on purpose: a `chown -R` would walk a 100 GB cache on every pod start.
+# Non-recursive on purpose: a `chown -R` would walk a multi-gigabyte cache on every pod start.
 extraInitContainers:
   - name: bazel-cache-perms
     # The executor's own image: already on the node under imagePullPolicy IfNotPresent, so this
