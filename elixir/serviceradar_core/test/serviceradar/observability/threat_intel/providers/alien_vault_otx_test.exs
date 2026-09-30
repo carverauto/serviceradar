@@ -196,4 +196,26 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTXTest do
   test "requires an API key" do
     assert {:error, :missing_api_key} = AlienVaultOTX.fetch_page(%{})
   end
+
+  test "invalid JSON from the transport is terminal without retrying" do
+    {:error, error} = Jason.decode("invalid JSON")
+
+    http_get = fn _url, _opts ->
+      send(self(), :attempt)
+      {:error, error}
+    end
+
+    assert {:error, ^error} =
+             AlienVaultOTX.fetch_page(%{
+               api_key: "synthetic-api-key",
+               base_url: "https://otx.example.com",
+               http_get: http_get,
+               validate_url?: false,
+               max_retries: 3,
+               sleep_fun: fn _ -> flunk("invalid JSON must not back off") end
+             })
+
+    assert_received :attempt
+    refute_received :attempt
+  end
 end

@@ -132,7 +132,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.DashboardCrud do
         end
       end
 
-      defp unique_dashboard_ref_error?(reason) do
+      # The identity maps the unique index to a "has already been taken" error on
+      # the field; the raw index name covers an unmapped constraint error.
+      defp unique_dashboard_ref_error?(%{errors: errors}) when is_list(errors) do
+        Enum.any?(errors, &match?(%{field: :dashboard_ref, message: "has already been taken"}, &1)) or
+          raw_dashboard_ref_error?(errors)
+      end
+
+      defp unique_dashboard_ref_error?(reason), do: raw_dashboard_ref_error?(reason)
+
+      defp raw_dashboard_ref_error?(reason) do
         reason
         |> inspect()
         |> String.contains?("authored_dashboards_dashboard_ref")

@@ -24,17 +24,39 @@ defmodule ServiceRadar.Inventory.DeviceLifecycle do
   @endpoint_container_keys [:src_endpoint, "src_endpoint", :dst_endpoint, "dst_endpoint"]
   @metadata_container_keys [:metadata, "metadata"]
 
+  @doc """
+  Resolves whether a device is in service, distinguishing a failed read from
+  an inactive device.
+
+  Returns `{:ok, boolean}` or `{:error, reason}`. Callers that compile agent
+  configs should fail on the error instead of guessing: `active?/2` keeps its
+  fail-open `true` for event-suppression callers, which must not drop events
+  because a lookup failed.
+  """
+  @spec fetch_active?(String.t() | nil, keyword()) :: {:ok, boolean()} | {:error, term()}
+  def fetch_active?(device_uid, opts \\ [])
+
+  def fetch_active?(nil, _opts), do: {:ok, true}
+  def fetch_active?("", _opts), do: {:ok, true}
+
+  def fetch_active?(device_uid, opts) when is_binary(device_uid) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:device_lifecycle))
+
+    case Device.get_by_uid(device_uid, true, actor: actor) do
+      {:ok, %Device{is_active: false}} -> {:ok, false}
+      {:ok, _device} -> {:ok, true}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec active?(String.t() | nil, keyword()) :: boolean()
   def active?(device_uid, opts \\ [])
   def active?(nil, _opts), do: true
   def active?("", _opts), do: true
 
   def active?(device_uid, opts) when is_binary(device_uid) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:device_lifecycle))
-
-    case Device.get_by_uid(device_uid, true, actor: actor) do
-      {:ok, %Device{is_active: false}} -> false
-      {:ok, _device} -> true
+    case fetch_active?(device_uid, opts) do
+      {:ok, active?} -> active?
       {:error, _reason} -> true
     end
   rescue
