@@ -310,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
 end
 
 defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningIdpBoundaryDbTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadarWebNG.DataCase, async: false
 
   import Ecto.Query
 
@@ -320,7 +320,6 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningIdpBoundaryDbTest do
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.Identity.UserGroupMembership
   alias ServiceRadar.Repo
-  alias ServiceRadar.TestSupport
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
 
   require Ash.Query
@@ -328,11 +327,6 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningIdpBoundaryDbTest do
   @moduletag :integration
   @moduletag :web_ng_shared_fixture_db
   @moduletag sandbox: :unboxed
-
-  setup_all do
-    TestSupport.start_core!()
-    :ok
-  end
 
   for initially_present <- [true, false] do
     @tag initially_present: initially_present
