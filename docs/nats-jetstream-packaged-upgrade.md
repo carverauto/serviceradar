@@ -10,7 +10,7 @@ The `serviceradar-nats` package now ships `/etc/serviceradar/jetstream-sizes.env
 with the `small` sizing profile. `serviceradar-nats.service` loads it with
 `EnvironmentFile=`, and so do the datasvc, log-collector, flow-collector,
 bmp-collector, core-elx and web-ng units. It sets every JetStream stream size
-and `SERVICERADAR_NATS_MAX_FILE_STORE` (`30G` for `small`).
+and `SERVICERADAR_NATS_MAX_FILE_STORE` (`36G` for `small`).
 
 A fresh install's `/etc/nats/nats-server.conf` reads the NATS file-store
 ceiling from that variable:
