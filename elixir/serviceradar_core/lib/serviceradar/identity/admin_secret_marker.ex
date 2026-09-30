@@ -38,7 +38,7 @@ defmodule ServiceRadar.Identity.AdminSecretMarker do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     read :by_admin_email do
       argument :admin_email, :ci_string, allow_nil?: false
@@ -64,7 +64,7 @@ defmodule ServiceRadar.Identity.AdminSecretMarker do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    policy action_type([:create, :update, :destroy]) do
+    policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :system)
     end
   end
