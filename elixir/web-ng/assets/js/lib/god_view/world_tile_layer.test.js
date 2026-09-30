@@ -87,6 +87,41 @@ describe("world tile rendering contract", () => {
     }
   })
 
+  it("prioritizes backbone labels using measured font bounds", async () => {
+    const layer = new WorldTileLayer({
+      id: "measured-labels", maxZoom: 0,
+      measureText: () => ({width: 24, height: 12}),
+    })
+    const viewport = new OrthographicViewport({width: 160, height: 80, target: [256, 256, 0], zoom: 0})
+    const tileset = new layer.props.TilesetClass({
+      tileSize: 512, extent: layer.props.extent, minZoom: 0, maxZoom: 0,
+      getTileData: () => ({...tile(),
+        positions: new Float64Array([256, 256, 256, 256, 512, 256]),
+        nodes: [
+          {id: "sr:a-member.example.test", label: "member.example.test", kind: "device", index: 0, count: 1},
+          {id: "sr:z-router.example.test", label: "router.example.test", kind: "device", index: 1, count: 1},
+          {id: "boundary", kind: "boundary", index: 2, count: 0},
+        ],
+        edges: [{id: "physical", index: 0, source: 1, target: 2, topologyClass: "backbone"}],
+      }),
+    })
+    layer.state = {tileset}
+    layer.context = {viewport}
+    try {
+      tileset.update(viewport)
+      await vi.waitFor(() => expect(tileset.isLoaded).toBe(true))
+      tileset.update(viewport)
+      const labels = layer.renderLayers().flat(Infinity).find(item => item?.id.endsWith("-labels"))
+      expect(labels).toBeDefined()
+      expect(labels.props.data[0].id).toBe("sr:z-router.example.test")
+      expect(labels.props.data[0].box.right - labels.props.data[0].box.left).toBe(32)
+      expect(labels.props.fontFamily).toBe("Inter, system-ui, sans-serif")
+      expect(labels.props.fontWeight).toBe(600)
+    } finally {
+      tileset.finalize()
+    }
+  })
+
   it("retires cached parents during geometry invalidation while refinement is loading", async () => {
     const layer = new WorldTileLayer({id: "refinement", maxZoom: 16})
     const pending = new Map()

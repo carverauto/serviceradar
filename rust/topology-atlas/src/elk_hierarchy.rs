@@ -47,8 +47,8 @@ pub(crate) fn compose(tree: &[(usize, Option<usize>)], engine: &Elk) -> Result<D
         .collect();
     let root = if roots.len() > 1 {
         let root = children.len();
-        // Keep each component's own radial drawing intact. Its envelope is
-        // placed by the same bounded ELK composition as any other subtree.
+        // A layout-only super-root lets a bounded forest share the original
+        // radial layout. Only the batch limit requires child envelopes.
         children.push((0..tree.len()).filter(|n| roots.contains(n)).collect());
         root
     } else {
@@ -79,10 +79,7 @@ pub(crate) fn compose(tree: &[(usize, Option<usize>)], engine: &Elk) -> Result<D
         let mut cursor = 0;
         while cursor < chunk.members.len() {
             let node = chunk.members[cursor];
-            if roots.len() > 1 && node != chunk.members[0] && roots.contains(&node) {
-                chunk.frontier.insert(node);
-                pending.push_back(node);
-            } else if chunk.members.len() + children[node].len() <= BATCH {
+            if chunk.members.len() + children[node].len() <= BATCH {
                 for child in &children[node] {
                     chunk.members.push(*child);
                     chunk.edges.push((node, *child));

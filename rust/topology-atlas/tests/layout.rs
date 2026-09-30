@@ -227,7 +227,7 @@ fn disconnected_devices_do_not_shrink_the_connected_radial_overview() {
             .collect(),
     );
     assert!(
-        connected * 3 > occupied,
+        connected * 3 > occupied * 2,
         "a connected radial fan must retain useful Fit scale: connected={connected}, world={occupied}"
     );
     assert_eq!(points.iter().filter(|p| p.parent_id.is_none()).count(), 25);

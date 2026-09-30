@@ -16,6 +16,21 @@ import {pickedNodeObject} from "./rendering_node_frame"
 import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 import {adoptDeckViewportSize, syncCanvasContextSize} from "./deck_canvas_size"
 
+export function createTopologyLabelMeasureText() {
+  const labelMeasurementCanvas = document.createElement("canvas")
+  const labelMeasurementContext = labelMeasurementCanvas.getContext?.("2d")
+  return labelMeasurementContext
+    ? (text, candidate = {}) => {
+        const requestedFontSize = Number(candidate?.fontSize)
+        const fontSize = Number.isFinite(requestedFontSize) && requestedFontSize > 0
+          ? requestedFontSize
+          : 12
+        labelMeasurementContext.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
+        return labelMeasurementContext.measureText(String(text || ""))
+      }
+    : null
+}
+
 // God View renders on WebGPU only. Asking luma for type "webgpu" selects the WebGPU adapter and
 // nothing else: if it cannot create a device, the surface reports that instead of drawing.
 //
@@ -326,18 +341,7 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.canvas.className = "h-full w-full rounded bg-transparent"
     this.state.canvas.style.cursor = "grab"
 
-    const labelMeasurementCanvas = document.createElement("canvas")
-    const labelMeasurementContext = labelMeasurementCanvas.getContext?.("2d")
-    this.state.topologyLabelMeasureText = labelMeasurementContext
-      ? (text, candidate = {}) => {
-          const requestedFontSize = Number(candidate?.fontSize)
-          const fontSize = Number.isFinite(requestedFontSize) && requestedFontSize > 0
-            ? requestedFontSize
-            : 12
-          labelMeasurementContext.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
-          return labelMeasurementContext.measureText(String(text || ""))
-        }
-      : null
+    this.state.topologyLabelMeasureText = createTopologyLabelMeasureText()
 
     this.state.atmosphereOverlay = document.createElement("div")
     this.state.atmosphereOverlay.className = "pointer-events-none absolute inset-0 z-10 rounded"

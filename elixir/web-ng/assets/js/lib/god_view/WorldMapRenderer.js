@@ -1,7 +1,7 @@
 import {Deck, LinearInterpolator, OrthographicView} from "@deck.gl/core"
 import {Socket} from "phoenix"
 import GodViewRenderer from "../GodViewRenderer"
-import {GOD_VIEW_DEVICE_PROPS} from "./lifecycle_dom_setup_methods"
+import {GOD_VIEW_DEVICE_PROPS, createTopologyLabelMeasureText} from "./lifecycle_dom_setup_methods"
 import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 import {adoptDeckViewportSize, syncCanvasContextSize} from "./deck_canvas_size"
 import {WorldTileCache} from "./world_tile_cache"
@@ -51,6 +51,7 @@ export default class WorldMapRenderer {
     this.el.style.position = "relative"
     this.el.style.backgroundColor = "var(--sr-color-canvas)"
     this.canvas = element("canvas", "absolute inset-0 h-full w-full")
+    this.measureText = createTopologyLabelMeasureText()
     this.summary = element("div", "absolute bottom-2 left-3 right-3 pointer-events-none text-xs text-sr-muted", "Loading topology…")
     this.summary.setAttribute("role", "status")
     this.toolbar = element("form", "absolute left-3 top-3 z-20 flex gap-2")
@@ -371,7 +372,7 @@ export default class WorldMapRenderer {
       updateTriggers: {getTileData: this.geometryRevision},
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
       links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
-      onViewportLoad: this.onViewportLoad, onTileError: this.onTileError,
+      onViewportLoad: this.onViewportLoad, onTileError: this.onTileError, measureText: this.measureText,
     })], _animate: !this.detailRenderer && this.packetFlow})
   }
 

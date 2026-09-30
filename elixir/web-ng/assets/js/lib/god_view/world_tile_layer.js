@@ -125,6 +125,7 @@ export default class WorldTileLayer extends TileLayer {
     const {viewport} = this.context
     const {tileset} = this.state
     const nodes = new Map()
+    const infrastructure = new Set()
     const glyphBoxes = []
     const routeCorridors = []
     for (const tile of tileset.tiles) {
@@ -141,6 +142,11 @@ export default class WorldTileLayer extends TileLayer {
         glyphBoxes.push({nodeId: node.id, left: point[0] - radius, right: point[0] + radius,
           top: point[1] - radius, bottom: point[1] + radius})
       }
+      for (const edge of geometry.edges) {
+        if (edgeTopologyClassValue(edge) !== "backbone") continue
+        infrastructure.add(geometry.nodes[edge.source].id)
+        infrastructure.add(geometry.nodes[edge.target].id)
+      }
       if (this.props.links === false) continue
       for (const edge of geometry.edges) {
         if (edgeTopologyClassValue(edge) === "inferred" && this.props.inferred !== true) continue
@@ -156,26 +162,29 @@ export default class WorldTileLayer extends TileLayer {
     // One admission pass covers all refined visible tiles. Tile-local passes
     // would independently accept colliding labels on either side of a seam.
     const candidates = [...nodes.values()]
-      .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+      .sort((a, b) => Number(infrastructure.has(b.id)) - Number(infrastructure.has(a.id)) ||
+        b.count - a.count || a.id.localeCompare(b.id))
       .slice(0, 512)
       .map(node => ({nodeId: node.id, point: node.point, fontSize: 11,
         text: node.kind === "aggregate" ? node.count.toLocaleString() : node.label,
-        role: node.kind === "aggregate" ? "summary" : "member"}))
+        role: node.kind === "aggregate" ? "summary" : infrastructure.has(node.id) ? "infrastructure" : "member"}))
     const {admitted} = admitTopologyLabels({
       candidates, glyphBoxes, routeCorridors, maximumCount: 128,
       safeRect: {left: 0, top: 0, right: viewport.width, bottom: viewport.height},
+      measureText: this.props.measureText,
     })
-    const labels = admitted.map(placement => ({...nodes.get(placement.nodeId), ...placement}))
+    const texts = new Map(candidates.map(candidate => [candidate.nodeId, candidate.text]))
+    const labels = admitted.map(placement => ({...nodes.get(placement.nodeId), ...placement, text: texts.get(placement.nodeId)}))
     // An empty automatic character set cannot initialize a WebGPU font atlas.
     if (labels.length === 0) return layers
     return [layers, new TextLayer(this.getSubLayerProps({id: "labels"}), {
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND,
       data: labels, pickable: false, getPosition: item => item.position,
-      getText: item => item.kind === "aggregate" ? item.count.toLocaleString() : item.label,
+      getText: item => item.text,
       getSize: 11, sizeUnits: "pixels", getColor: [220, 232, 242, 240],
       getPixelOffset: item => item.pixelOffset, getTextAnchor: item => item.textAnchor,
       getAlignmentBaseline: item => item.alignmentBaseline,
-      fontFamily: "sans-serif", characterSet: "auto",
+      fontFamily: "Inter, system-ui, sans-serif", fontWeight: 600, characterSet: "auto",
     })]
   }
 
@@ -271,6 +280,7 @@ WorldTileLayer.defaultProps = {
   overlays: {type: "object", value: null, compare: false},
   overlayRevision: 0,
   visibleTileCount: 64,
+  measureText: {type: "function", value: null, compare: false},
   packetFlow: true,
   links: true,
   inferred: false,
