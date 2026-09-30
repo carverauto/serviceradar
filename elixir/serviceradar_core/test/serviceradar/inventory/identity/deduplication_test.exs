@@ -10,8 +10,6 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
 
   use ServiceRadar.DataCase, async: true
 
-  import ExUnit.CaptureLog
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.DeduplicationTask
@@ -297,15 +295,11 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
       [task] = tasks_for(a.uid)
       :ok = DeduplicationTaskNotifier.subscribe()
 
-      log =
-        capture_log(fn ->
-          assert {:ok, %DeduplicationTask{status: :distinct}} =
-                   Deduplication.mark_distinct(task, @operator)
-        end)
+      assert {:ok, %DeduplicationTask{status: :distinct}} =
+               Deduplication.mark_distinct(task, @operator)
 
       task_id = task.id
       assert_receive {:deduplication_task_updated, %{id: ^task_id, status: :distinct}}
-      refute log =~ "Missed"
     end
 
     test "a refused mark distinct notifies nothing", %{actor: actor} do

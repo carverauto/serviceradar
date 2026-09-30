@@ -9,7 +9,7 @@ actions:
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
@@ -84,7 +84,7 @@ actions:
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
@@ -169,8 +169,9 @@ actions:
     # Matched against the executor's `poolName`, so the two must match at all times.
     pool: "workflows"
 
-    # TAGGED IDENTICALLY TO rbe-executor,
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    # OWN PATCH LINE (v1.0.24.x), NOT in lockstep with rbe-executor (v1.0.25.x since the
+    # hermetic-LLVM migration). //docker/images/Dockerfile.workflow-runner records the policy.
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
 
     platform_properties:
       OSFamily: "linux"
@@ -563,7 +564,7 @@ actions:
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
@@ -815,7 +816,7 @@ actions:
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
@@ -1052,7 +1053,7 @@ actions:
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
@@ -1072,7 +1073,7 @@ actions:
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
@@ -1103,7 +1104,7 @@ actions:
   - name: "Elixir Quality (daily)"
     self_hosted: true
     pool: "workflows"
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"

@@ -704,7 +704,7 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
     def test_action_is_explicit_only_and_uses_the_existing_runner(self):
         self.assertIn('pool: "workflows"', self.action)
         self.assertIn(
-            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3\"",
+            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5\"",
             self.action,
         )
         self.assertIn('branches:\n          - "benchmark/parallel-core-integration"', self.action)
@@ -1569,7 +1569,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertNotIn("schedule:", header)
         for required in (
             'pool: "workflows"',
-            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3\"",
+            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5\"",
             "self_hosted: true",
             'OSFamily: "linux"',
             'Arch: "amd64"',
@@ -1741,7 +1741,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
             "self_hosted: true",
             'pool: "workflows"',
-            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3\"",
+            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5\"",
             'OSFamily: "linux"',
             'Arch: "amd64"',
             'dockerNetwork: "bridge"',

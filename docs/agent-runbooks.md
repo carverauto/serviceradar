@@ -718,6 +718,44 @@ mode-0600 file and keeps secret-bearing test actions local to the runner. Do not
 `--config=ci` on a workstation; it selects the cluster executor's cache layout and Linux RBE
 platform. Never copy or print fixture or BuildBuddy credentials while diagnosing this flow.
 
+## Hosted-Bazel dispatches (workflow fleet)
+
+Rules for any Bazel run dispatched onto the BuildBuddy workflow fleet -- an
+`ExecuteWorkflow` API dispatch against an action in `//buildbuddy.yaml`, or any
+manual `bazel` invocation inside a workflow-executor pod. Recorded after
+issue 4855 (2026-09-27): a hosted-Bazel invocation ran as root on a
+workflow-executor pod, installed `make` with `apt-get` because the runner image
+shipped none, and used `--config=ci`. Seven root-owned action-cache entries
+under `/bazel-cache/disk/ac` later, every Elixir-building run on that executor
+died with
+`Staging prebuilt otp 28.1 failed: (Exit 34) ... Permission denied`, including a
+PR's BazelCI and the staging `LargeIngestionGate`.
+
+1. **Do not run as root.** Workflow runners execute as the `buildbuddy` user
+   (uid 1001). The shared caches under `/bazel-cache` (the executor pod's
+   `/bazel-caches` hostPath, bind-mounted into every runner) are written by
+   uid 1001 and must stay that way. A root run leaves `root:root 0644` entries
+   that uid 1001 cannot overwrite or GC.
+2. **If a run genuinely must be root, do not use `--config=ci`.** That profile
+   pins `--repository_cache=/bazel-cache/repo`,
+   `--repo_contents_cache=/bazel-cache/repo-contents` and the executor-local
+   disk cache. Override all three to a private path for the duration of the
+   run, e.g. `--disk_cache=/tmp/root-disk --repository_cache=/tmp/root-repo
+   --repo_contents_cache=/tmp/root-repo-contents`, or use `--config=remote`
+   (workstation cache paths under `~`). Better: fix the dispatch so it does not
+   need root, which is almost always "the runner image was missing a tool" --
+   add the tool to `//docker/images/Dockerfile.workflow-runner` and bump the tag
+   instead. That is what shipped `make` in v1.0.24.5.
+3. **Recovery.** The `bazel-cache-perms` init container repairs stale ownership
+   on pod start (`find /bazel-caches -xdev ! -user 1001 -exec chown -h 1001:1001 {} +`),
+   so a restart of the workflow executor pod clears leftover root-owned entries;
+   before that guard existed they were found and deleted by hand with
+   `find /mnt/buildbuddy/bazel-caches-workflows -xdev ! -user 1001` on the node.
+
+The same rules apply to the second workflow release (`buildbuddy-workflows-2`)
+and farm01's workflow replicas: they mount their own instances of the same
+shared-cache layout from `//k8s/buildbuddy/values-workflows.yaml`.
+
 ## Why the schema baseline cannot be replayed
 
 Context for the `mix serviceradar.db.migrate` rule in `AGENTS.md`.
