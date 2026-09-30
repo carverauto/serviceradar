@@ -39,9 +39,8 @@ defmodule ServiceRadarWebNGWeb.LayoutsTopbarActionsTest do
   test "operations profile menu offers system, light and dark theme selection" do
     document = (&preview/1) |> render_component(%{}) |> LazyHTML.from_fragment()
 
-    assert document
-           |> LazyHTML.filter("#ops-topbar #ops-profile-menu #theme-toggle button")
-           |> LazyHTML.attribute("data-phx-theme") == ["system", "light", "dark"]
+    buttons = LazyHTML.query(document, "#ops-topbar #ops-profile-menu #theme-toggle button")
+    assert LazyHTML.attribute(buttons, "data-phx-theme") == ["system", "light", "dark"]
 
     for {theme, label} <- [
           {"system", "System theme"},
@@ -49,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.LayoutsTopbarActionsTest do
           {"dark", "Dark theme"}
         ] do
       buttons =
-        LazyHTML.filter(
+        LazyHTML.query(
           document,
           ~s(#ops-topbar #ops-profile-menu #theme-toggle button[data-phx-theme="#{theme}"][aria-label="#{label}"])
         )
