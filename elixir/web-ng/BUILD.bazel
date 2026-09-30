@@ -381,9 +381,9 @@ elixir_release(
 
 ex_unit_tests(
     name = "unit_tests",
-    # test/integration and test/property are excluded because this target is the
-    # DATABASE-FREE tier, and not one file in either directory carries
-    # @moduletag :db_free -- they need a database, the SRQL NIF, or AGE/Cypher.
+    # test/integration and test/property are excluded from the broad glob; the
+    # explicitly listed property files below are database-free and tagged
+    # :db_free, while the remaining files need a database, the SRQL NIF, or AGE/Cypher.
     #
     # Globbing them in did not run them; it generated
     # //elixir/web-ng:unit_tests_integration and :unit_tests_property, which
@@ -406,7 +406,11 @@ ex_unit_tests(
             "test/integration/**",
             "test/property/**",
         ],
-    ),
+    ) + [
+        "test/property/api_query_controller_property_test.exs",
+        "test/property/edge_onboarding_token_property_test.exs",
+        "test/property/srql_query_input_property_test.exs",
+    ],
     config_loader = "//build:elixir_test_config_loader.exs",
     data = glob(
         [
