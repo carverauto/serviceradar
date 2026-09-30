@@ -6,8 +6,11 @@ Sweep result ingestion SHALL NOT enqueue a composite-check job or write a
 composite-check marker.
 
 Ingestion SHALL stamp `device_agent_availability.updated_at` with `now()`
-inside the INSERT statement. Composite checks discover changed availability
-rows from that timestamp.
+inside the INSERT statement. `now()` is `transaction_timestamp()`, fixed when
+the inserting transaction begins. Composite checks discover changed
+availability rows from that timestamp through a dirty window that lags the
+stored mark. The lag, not this stamp, is what selects a row that commits after
+a pass's read with a timestamp before that pass's mark.
 
 #### Scenario: Ingesting a chunk enqueues nothing
 

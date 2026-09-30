@@ -46,16 +46,20 @@ change. The dirty-set query below makes the hook unnecessary, so the hook goes.
 
 Each check records `last_incremental_at`. It only gates the dirty read. The
 mark is the database clock (`SELECT now()`) taken at the start of the pass,
-before the dirty read. The incremental pass computes the dirty set as:
+before the dirty read. The incremental pass computes the dirty set as rows
+with `updated_at > last_incremental_at - @watermark_slack`:
 
-- devices with a `device_agent_availability` row for one of the check's
-  vantage-point agents whose `updated_at > last_incremental_at`;
-- when the check has a `:device_metadata` input, devices for which any
-  configured metadata path has
-  `metadata['__fact_provenance'][path]['updated_at']` later than
-  `last_incremental_at` (the provenance timestamp
+- a `device_agent_availability` row for one of the check's vantage-point
+  agents;
+- when the check has a `:device_metadata` input, any configured path's
+  `metadata['__fact_provenance'][path]['updated_at']` (the provenance timestamp
   `Resolvers.DeviceMetadata` resolves);
 - intersected with the check's scope.
+
+`@watermark_slack` is a module attribute, default two minutes. It must exceed
+the longest availability upsert transaction. The ingestor's `insert_all` is
+one short statement, so two minutes covers it. The same lag applies to the
+provenance comparison.
 
 The metadata predicate reads that provenance timestamp and never
 `ocsf_devices.modified_time`. `ocsf_devices` has no `updated_at`. Sweep status
@@ -66,17 +70,22 @@ by the full pass only.
 `device_agent_availability.updated_at` moves when an observation is accepted.
 The ingestor stamps it with `now()` inside the INSERT (and the conflict update
 keeps that inserted value), not with an application `DateTime.utc_now()` taken
-before `insert_all` commits. A row committed after a pass's read therefore
-cannot carry a timestamp before that pass's mark. The column has no index
-today; the migration adds `(agent_id, updated_at)`.
+before `insert_all`. PostgreSQL `now()` is `transaction_timestamp()`, fixed
+when the inserting transaction begins. An insert that began before the pass's
+`SELECT now()` can stay invisible to the dirty read and commit with
+`updated_at` before the mark the pass stores. The slack is what makes the next
+window select that row. The stamp does not. Re-evaluating a device in the
+overlap is idempotent: the same inputs yield the same verdict, and `changed_at`
+does not move when the verdict is unchanged. The column has no index today;
+the migration adds `(agent_id, updated_at)`.
 
-A pass that selected nothing does not advance a nil `last_incremental_at`.
-`updated_at > NULL` matches nothing, so writing a mark after that empty read
-would hide rows the pass never saw. A successful pass that selected devices,
-and a successful full pass that evaluated at least one in-scope device,
-advance `last_incremental_at` to the mark taken at the start. A failed pass
-does not advance it. A successful empty pass whose mark is already set
-advances it to that same start clock.
+A nil `last_incremental_at` is not an incremental read. That tick runs the
+full pass, the same as a nil `last_evaluated_at`. A successful full pass
+always advances both clocks to its start clock, including when the scope
+selected no devices. An empty scope has nothing for a nil watermark to miss.
+A successful incremental pass always advances `last_incremental_at` to its
+start clock, including when it selected nothing. A failed pass advances
+neither clock.
 
 Alternative rejected: a `composite_check_dirty_devices` table the ingestor
 inserts into. It reintroduces a write into ingestion, needs its own pruning,
@@ -132,22 +141,25 @@ does not write fact provenance.
 `EvaluationWorker` wakes every `incremental_interval` (a module attribute,
 default thirty seconds, not operator-facing). The full pass is due when
 `evaluation_interval_seconds` has elapsed since
-`composite_checks.last_evaluated_at`, or when that column is nil. The column
-already exists and is never written today; it is the full-pass clock. A due
-tick runs the full pass and not the incremental pass, so a device is not
-evaluated twice for one change. A successful full pass advances
-`last_evaluated_at`, and advances `last_incremental_at` under the rules in
-decision 2. Every other tick runs only the incremental pass, which advances
-`last_incremental_at` and does not advance `last_evaluated_at`.
+`composite_checks.last_evaluated_at`, when `last_evaluated_at` is nil, or when
+`last_incremental_at` is nil. `last_evaluated_at` already exists and is never
+written today; it is the full-pass clock. A due tick runs the full pass and
+not the incremental pass, so a device is not evaluated twice for one change.
+A successful full pass advances both clocks to its start clock. Every other
+tick runs only the incremental pass, which advances `last_incremental_at` and
+does not advance `last_evaluated_at`.
 
-The worker's successor is inserted from `perform`, as today, with `schedule_in`
-equal to the incremental interval. The Oban `unique` period on `check_id` is
-shorter than that reschedule gap: 10 seconds, states `:incomplete`, against
-the 30-second gap. The running job was inserted one gap ago, so it falls
-outside the unique window and the successor is kept. A period equal to the gap
-counts the still-executing job as a duplicate and discards the successor.
+A periodic job does not need Oban retries. The next tick is the retry, and
+that is safe because a failed pass advances neither mark. `EvaluationWorker`
+uses `max_attempts: 1`. `perform` inserts the successor on every outcome
+(success, error, and raise) with `schedule_in` equal to the incremental
+interval, so a raise does not end the chain. Uniqueness stays on `check_id`
+with `states: [:available, :scheduled]` (not `:executing`, not `:retryable`)
+and `period: 10`, shorter than the 30-second gap. The executing job is not a
+unique state, so it does not discard the successor. With one attempt there is
+no retryable state and no second chain.
 
-A pass that fails does not advance either mark, so the next pass picks the
+A pass that fails does not advance either mark, so the successor picks the
 same dirty set up again. The full pass's mark-and-sweep of out-of-scope rows
 is untouched and still runs only after a complete full pass.
 
@@ -168,8 +180,14 @@ row for the losing uid. No enqueue-time pin and no per-device job.
   mark. Removing the timestamp filter must fail the test (the other device
   would be evaluated). A metadata check is dirtied only by
   `__fact_provenance` for a configured path; a sweep status write or
-  `set_availability` on an otherwise unchanged device is not selected. A pass
-  that selects nothing leaves a nil mark nil.
+  `set_availability` on an otherwise unchanged device is not selected. A row
+  that commits after the read with `updated_at` just before the stored mark is
+  selected by the next pass. Re-evaluating it does not move `changed_at` when
+  the verdict is unchanged.
+- Nil `last_incremental_at` runs the full pass. A successful full pass over an
+  empty scope advances both clocks. A successful incremental pass that selects
+  nothing still advances `last_incremental_at`. A failing pass advances neither
+  and leaves exactly one scheduled successor.
 - Merge test: a device selected by the dirty read is merged away before the
   write. The pass writes no result for the merged-away uid, and skips the uid
   when the canonical follow does not resolve to a live device.

@@ -13,15 +13,16 @@ because input staleness, scope membership changes, and metadata keys with no
 provenance timestamp produce no incremental dirty row.
 
 The full pass SHALL run when `evaluation_interval_seconds` has elapsed since
-`composite_checks.last_evaluated_at`, and when `last_evaluated_at` is nil. A
-successful full pass SHALL advance `last_evaluated_at`. An incremental pass
-SHALL NOT advance `last_evaluated_at`.
+`composite_checks.last_evaluated_at`, when `last_evaluated_at` is nil, or when
+`last_incremental_at` is nil. A successful full pass SHALL advance both
+`last_evaluated_at` and `last_incremental_at` to the database clock taken at
+the start of that pass (`SELECT now()` before the read), including when the
+scope selected no devices. An incremental pass SHALL NOT advance
+`last_evaluated_at`.
 
-A successful full pass that evaluated at least one device SHALL also advance
-`last_incremental_at` to the database clock taken at the start of that pass
-(`SELECT now()` before the read), so the following incremental pass does not
-re-evaluate devices the full pass covered. A full pass that selected no
-devices SHALL NOT advance a nil `last_incremental_at`.
+The evaluation job SHALL have one attempt. On every outcome, including
+success, error, and raise, it SHALL insert exactly one successor. It SHALL
+NOT retry the same job.
 
 The shared page evaluation SHALL follow each uid to its canonical device
 before writing, and SHALL NOT write a result for a merged-away uid.
@@ -65,32 +66,54 @@ before writing, and SHALL NOT write a result for a merged-away uid.
 - **WHEN** the scheduler runs
 - **THEN** it SHALL run a full pass
 
+#### Scenario: Nil incremental mark runs the full pass
+
+- **GIVEN** an enabled check whose `last_incremental_at` is nil
+- **WHEN** the scheduler runs
+- **THEN** it SHALL run a full pass
+- **AND** a successful full pass SHALL advance `last_incremental_at` and
+  `last_evaluated_at`, including when the scope selected no devices
+
+#### Scenario: A failing pass leaves one successor
+
+- **GIVEN** an enabled check whose evaluation job fails or raises
+- **WHEN** that job ends
+- **THEN** exactly one successor SHALL be scheduled for that check
+- **AND** neither `last_evaluated_at` nor `last_incremental_at` SHALL advance
+
 ### Requirement: Event-Driven Refresh
 
 The system SHALL re-evaluate, on a short fixed interval, only the in-scope
-devices whose input rows changed since `last_incremental_at`, selecting that
-dirty set with a bounded number of queries and evaluating it through the same
-paged evaluation the periodic pass uses.
+devices whose input timestamps are later than `last_incremental_at` minus
+`@watermark_slack`, selecting that dirty set with a bounded number of queries
+and evaluating it through the same paged evaluation the periodic pass uses.
 
 `last_incremental_at` SHALL gate only the dirty read. The mark SHALL be the
 database clock (`SELECT now()`) taken at the start of the pass, before the
-dirty read. A successful incremental pass whose mark is already set, or that
-selected at least one device, SHALL advance it to that mark. A pass that
-fails SHALL NOT advance it. A pass that selected nothing SHALL NOT advance a
-nil mark.
+dirty read. A successful incremental pass SHALL advance `last_incremental_at`
+to that mark, including when it selected nothing. A failed pass SHALL NOT
+advance it.
 
 The dirty set SHALL include a device when a `device_agent_availability` row
-for one of the check's vantage-point agents has `updated_at` later than the
-mark, or when a configured `:device_metadata` path has
-`metadata['__fact_provenance'][path]['updated_at']` later than the mark. The
-predicate SHALL NOT read `ocsf_devices.modified_time`. Sweep status writes and
-`Device.set_availability` SHALL NOT dirty a device. A metadata key with no
-provenance timestamp SHALL be covered by the full pass only.
+for one of the check's vantage-point agents has `updated_at` later than
+`last_incremental_at - @watermark_slack`, or when a configured
+`:device_metadata` path has `metadata['__fact_provenance'][path]['updated_at']`
+later than that same lagged mark. `@watermark_slack` SHALL be a module
+attribute, default two minutes, and SHALL exceed the longest availability
+upsert transaction. The predicate SHALL NOT read `ocsf_devices.modified_time`.
+Sweep status writes and `Device.set_availability` SHALL NOT dirty a device. A
+metadata key with no provenance timestamp SHALL be covered by the full pass
+only.
 
 The availability arm SHALL use the `(agent_id, updated_at)` index. Ingestion
 SHALL stamp `device_agent_availability.updated_at` with `now()` inside the
-INSERT, so a row committed after a pass's read cannot carry a timestamp before
-that pass's mark.
+INSERT. `now()` is `transaction_timestamp()`, fixed when the inserting
+transaction begins. An insert that began before the pass's `SELECT now()` can
+commit after the dirty read with a timestamp before the stored mark. The
+lagged window, not that stamp, SHALL make the next pass select that row.
+Re-evaluating a device in the overlap
+SHALL be idempotent: the same inputs SHALL yield the same verdict, and
+`changed_at` SHALL NOT move when the verdict is unchanged.
 
 Before writing a page, the pass SHALL batch
 `Resolver.follow_canonical_device_id` for that page in one query, SHALL skip a
@@ -106,8 +129,8 @@ composite-check marker.
 - **WHEN** a new sweep result for `agent-a` and a device in scope is ingested
 - **THEN** that device SHALL be re-evaluated by the next incremental pass
 - **AND** the result row SHALL reflect the new observation
-- **AND** devices in scope whose input rows did not change SHALL NOT be
-  evaluated by that pass
+- **AND** devices in scope whose input timestamps are not later than the
+  lagged mark SHALL NOT be evaluated by that pass
 
 #### Scenario: Ingestion does no composite-check work
 
@@ -123,11 +146,14 @@ composite-check marker.
 - **THEN** the next incremental pass SHALL NOT select that device for the
   metadata input
 
-#### Scenario: Empty pass leaves a nil mark
+#### Scenario: A commit during the read is selected next pass
 
-- **GIVEN** a check whose `last_incremental_at` is nil
-- **WHEN** a pass selects no devices
-- **THEN** `last_incremental_at` SHALL remain nil
+- **GIVEN** an incremental pass that stored its start clock as
+  `last_incremental_at`
+- **WHEN** an availability row commits after that pass's dirty read with
+  `updated_at` just before the stored mark
+- **THEN** the next incremental pass SHALL select that device
+- **AND** `changed_at` SHALL NOT move when the verdict is unchanged
 
 #### Scenario: Merge between the dirty read and the write
 

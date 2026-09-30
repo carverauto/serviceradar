@@ -45,8 +45,9 @@ read. It is never recomputed one job per input change.
 - Add an incremental evaluation pass per enabled check. Each check keeps
   `last_incremental_at`, the database clock (`SELECT now()`) taken at the
   start of the last successful pass, before its dirty read. The incremental
-  pass selects, in bounded queries, the in-scope devices whose input rows
-  changed after that mark: per-agent availability `updated_at` for the check's
+  pass selects, in bounded queries, the in-scope devices whose input timestamps
+  are later than that mark minus `@watermark_slack` (a module attribute,
+  default two minutes): per-agent availability `updated_at` for the check's
   vantage-point agents, and for metadata inputs the provenance timestamp
   `:device_metadata` resolves
   (`metadata['__fact_provenance'][path]['updated_at']` on each configured
@@ -57,10 +58,12 @@ read. It is never recomputed one job per input change.
   verdicts stay as fresh as the reactive path made them.
 - Keep the periodic full pass on `evaluation_interval_seconds`, scheduled from
   the existing `composite_checks.last_evaluated_at` (advanced only by a
-  successful full pass). It covers the two transitions that produce no row
-  change: an input aging past `max_age` and a device entering or leaving scope.
-  It also covers metadata keys that have no provenance timestamp. This pass
-  remains required.
+  successful full pass). A nil `last_evaluated_at` or a nil
+  `last_incremental_at` also runs the full pass. A successful full pass
+  advances both clocks, including when the scope is empty. The full pass covers
+  the two transitions that produce no row change: an input aging past `max_age`
+  and a device entering or leaving scope. It also covers metadata keys that
+  have no provenance timestamp. This pass remains required.
 - Make the write side set-based. `persist_page` writes each page's results with
   one multi-row upsert and never writes a result for a merged-away uid.
   Canonical availability is a bulk form of `Device.set_availability`
@@ -69,7 +72,8 @@ read. It is never recomputed one job per input change.
   memory against `load_existing`, so verdict events are unchanged.
 - Oban keeps exactly one job kind for composite checks: the per-check
   scheduler (`EvaluationWorker`), which now runs both the incremental and the
-  full pass.
+  full pass. The job has one attempt and inserts one successor on every
+  outcome, including a failure. The next tick is the retry.
 
 ## Value and Tradeoff
 
@@ -81,11 +85,16 @@ read. It is never recomputed one job per input change.
   instead of within the Oban debounce window. Both are tens of seconds.
 - Risk: the availability dirty query must be indexed.
   `device_agent_availability.updated_at` is stamped with `now()` inside the
-  ingestor's INSERT, so it moves when an observation commits and cannot precede
-  a pass mark taken before that commit. Metadata dirtiness is the fact
-  provenance timestamp on the check's configured paths. Sweep status writes and
-  `set_availability` do not write that provenance, so they do not dirty a
-  device; a metadata key with no provenance is covered by the full pass only.
+  ingestor's INSERT. `now()` is `transaction_timestamp()`, so a transaction
+  that began before the pass's `SELECT now()` can commit after the dirty read
+  with a timestamp before the stored mark. The dirty predicate looks back
+  `@watermark_slack` (default two minutes) behind that mark; the slack, not
+  the stamp, is what selects that row on the next pass. A device in the
+  overlap is re-evaluated idempotently. Metadata dirtiness is the same lagged
+  comparison on the fact provenance timestamp of the check's configured paths.
+  Sweep status writes and `set_availability` do not write that provenance, so
+  they do not dirty a device; a metadata key with no provenance is covered by
+  the full pass only.
 - Decision point: the pass follows the canonical uid at evaluation time (one
   batched `Resolver.follow_canonical_device_id` query per page), skips a uid
   that does not resolve to a live device, and writes no result for a
