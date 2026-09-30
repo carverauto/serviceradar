@@ -11,6 +11,14 @@ import {WORLD_TILE_SIZE} from "./world_tile_decode"
 // Coarsen the complete viewport instead of dropping tiles when a large display
 // would exceed the watch/geometry budget. TileLayer keeps parent/child coverage.
 class BoundedWorldTileset extends Tileset2D {
+  reloadAll() {
+    // deck.gl's reloadAll drops unselected cache entries without rebuilding
+    // its render list. A visible fallback parent can then survive refinement
+    // forever. Retain bounded cached tiles and invalidate their content in
+    // place so refinement still owns visibility, including while loading.
+    for (const tile of this.tiles) tile.setNeedsReload()
+  }
+
   getTileIndices(options) {
     let maxZoom = options.maxZoom
     let indices = super.getTileIndices(options)

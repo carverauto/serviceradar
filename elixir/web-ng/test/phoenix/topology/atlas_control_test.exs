@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
   use ExUnit.Case, async: false
 
   import Plug.Conn
+  import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Endpoint
@@ -9,6 +10,40 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
   alias ServiceRadarWebNGWeb.TopologySnapshotController
 
   @moduletag :db_free
+
+  test "rendered Inferred control defaults off and dispatches its layer toggle" do
+    alias ServiceRadarWebNGWeb.TopologyLive.GodView
+    alias ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents
+
+    assigns = %{
+      snapshot_url: "/topology/snapshot/latest",
+      stream_state: :ok,
+      last_node_count: 0,
+      last_edge_count: 0,
+      pipeline_stats: %{},
+      controls_collapsed: false,
+      visual_layers: %{mantle: true, atmosphere: true},
+      zoom_mode: "auto",
+      causal_filters: %{healthy: true, unavailable: true, unknown: true},
+      topology_layers: %{backbone: true, inferred: false, endpoints: true, mtr_paths: false},
+      timezone: "Etc/UTC"
+    }
+
+    socket = Phoenix.Component.assign(%Phoenix.LiveView.Socket{}, assigns)
+
+    Enum.reduce([false, true, false], socket, fn enabled, socket ->
+      html = render_component(&GodViewTemplateComponents.surface/1, socket.assigns)
+      control = html |> LazyHTML.from_fragment() |> LazyHTML.query("button[phx-value-layer='inferred']")
+      assert LazyHTML.text(control) |> String.trim() == "Inferred"
+      assert LazyHTML.attribute(control, "aria-pressed") == [to_string(enabled)]
+      [event] = LazyHTML.attribute(control, "phx-click")
+      [layer] = LazyHTML.attribute(control, "phx-value-layer")
+      {:noreply, next} = GodView.handle_event(event, %{"layer" => layer}, socket)
+      assert next.assigns.topology_layers.inferred == !enabled
+      assert next.assigns.topology_layers.backbone
+      next
+    end)
+  end
 
   setup do
     previous_flag = Application.get_env(:serviceradar_web_ng, :god_view_enabled)

@@ -27,7 +27,9 @@ impl Default for Budget {
     }
 }
 
-const CLUSTER_DEPTH: u8 = 3;
+// A 512-pixel tile resolves occupied 16-pixel cells. The same density rule
+// applies to infrastructure and endpoints; node/edge budgets still cap detail.
+const CLUSTER_DEPTH: u8 = 5;
 
 /// `bins[side] == 0` keeps that side's canonical intersections. A positive count
 /// is the equal-width cap both tiles that share the side apply.

@@ -27,6 +27,57 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it("retires cached parents during geometry invalidation while refinement is loading", async () => {
+    const layer = new WorldTileLayer({id: "refinement", maxZoom: 16})
+    const pending = new Map()
+    const tileset = new layer.props.TilesetClass({
+      tileSize: layer.props.tileSize, extent: layer.props.extent,
+      minZoom: 0, maxZoom: 16, maxRequests: 0, maxCacheSize: 64,
+      refinementStrategy: layer.props.refinementStrategy,
+      getTileData: ({id}) => new Promise(resolve => pending.set(id, resolve)),
+    })
+    const viewport = zoom => new OrthographicViewport({width: 512, height: 512, target: [256, 256, 0], zoom})
+    const finish = async selected => {
+      await vi.waitFor(() => expect(selected.every(item => pending.has(item.id))).toBe(true))
+      for (const item of selected) {pending.get(item.id)({byteLength: 1}); pending.delete(item.id)}
+      await Promise.all(selected.map(item => item.data))
+    }
+    try {
+      tileset.update(viewport(0))
+      await finish(tileset.selectedTiles)
+      tileset.update(viewport(0))
+      const parents = tileset.tiles.filter(item => item.isVisible)
+      expect(parents).toHaveLength(1)
+      tileset.update(viewport(1))
+      const children = [...tileset.selectedTiles]
+      expect(children).toHaveLength(4)
+      expect(tileset.tiles.filter(item => item.isVisible)).toEqual(parents)
+      // A generation update reloads selected tiles while a cached parent is
+      // still providing coverage. Exercise deck.gl's real invalidation path.
+      tileset.reloadAll()
+      tileset.update(viewport(1))
+      expect(tileset.tiles.filter(item => tileset.isTileVisible(item))).toEqual(parents)
+      await finish(children)
+      tileset.update(viewport(1))
+      const visible = tileset.tiles.filter(item => tileset.isTileVisible(item))
+      expect(visible.map(item => item.id).sort()).toEqual(children.map(item => item.id).sort())
+      expect(visible.length).toBeLessThanOrEqual(64)
+      for (const child of children) {
+        expect(visible.some(item => item !== child && item.index.z < child.index.z)).toBe(false)
+      }
+      // Settled reloads must preserve the selected representation as well.
+      tileset.reloadAll()
+      tileset.update(viewport(1))
+      await finish(children)
+      tileset.update(viewport(1))
+      expect(tileset.tiles.filter(item => tileset.isTileVisible(item)).map(item => item.id).sort())
+        .toEqual(children.map(item => item.id).sort())
+    } finally {
+      for (const resolve of pending.values()) resolve(null)
+      tileset.finalize()
+    }
+  })
+
   it("toggles both inferred edge passes through the map topology control", () => {
     const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
     renderer.cache.manifest = {layout_version: worldTileKey.layout_version, zmax: 16}

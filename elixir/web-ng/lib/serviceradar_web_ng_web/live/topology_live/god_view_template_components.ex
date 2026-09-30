@@ -210,6 +210,15 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   >
                     {label}
                   </button>
+                  <button
+                    type="button"
+                    class={overlay_filter_button_class(@topology_layers.inferred)}
+                    phx-click="toggle_topology_layer"
+                    phx-value-layer="inferred"
+                    aria-pressed={to_string(@topology_layers.inferred)}
+                  >
+                    Inferred
+                  </button>
                 </div>
               </div>
             </div>
