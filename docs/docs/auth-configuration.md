@@ -20,7 +20,7 @@ Self-hosted deployments bootstrap an admin user at startup if no admin exists.
 
 Helm and Docker Compose set these for you (typically via a generated secret/file). After the first login, manage users in **Settings -> Auth -> Users**.
 
-Keep `SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=false` for normal installs so a password changed in the UI is not overwritten on restart. Set it to `true` when the mounted secret/file is the intended source of truth for the bootstrap admin password.
+Keep `SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=false` for normal installs. Set it to `true` when a rotated mounted secret/file should re-grant bootstrap admin access while the database persists.
 
 With `SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=true`, bootstrap re-applies the secret only when the secret itself **rotated** since the last apply (for example the generated secret or admin-creds file was regenerated while the database persisted); that rotation re-grants login instead of locking the operator out. A password changed through the UI or a reset flow persists across restarts and upgrades either way: bootstrap never reverts it while the secret is unchanged. On the first upgrade to rotation tracking, bootstrap records the mounted secret without changing the existing password. Subsequent secret rotations can then be detected.
 
