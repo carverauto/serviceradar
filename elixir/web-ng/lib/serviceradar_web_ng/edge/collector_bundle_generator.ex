@@ -23,7 +23,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       └── README.md                # Installation instructions
 
   `update.sh` copies `certs/` only when all three files are in the bundle.
-  A package marked ready with NATS credentials and no PEMs still downloads.
+  README.md lists those certificate files, and the mTLS note, only when the
+  files are in the bundle. A package marked ready with NATS credentials and
+  no PEMs still downloads.
 
   Falcosidekick is the Kubernetes exception: its bundle ships Helm values and
   a deploy script, and it expects the cluster-wide `serviceradar-runtime-certs`
@@ -94,7 +96,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
             {"#{package_dir}/certs/ca-chain.pem", package.ca_chain_pem},
             {"#{package_dir}/config/#{config_filename(package)}", generate_config(package, opts)},
             {"#{package_dir}/update.sh", generate_update_script(package)},
-            {"#{package_dir}/README.md", generate_readme(package)}
+            {"#{package_dir}/README.md", generate_readme(package, tls_key_pem)}
           ]
       end
 
@@ -699,9 +701,10 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     """
   end
 
-  defp generate_readme(package) do
+  defp generate_readme(package, tls_key_pem \\ nil) do
     collector_type = to_string(package.collector_type)
     config_file = config_filename(package)
+    cert_contents = readme_cert_contents(package, tls_key_pem)
 
     port_info =
       case package.collector_type do
@@ -752,10 +755,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     ## Contents
 
     - `creds/nats.creds` - NATS account credentials
-    - `certs/collector.pem` - TLS certificate
-    - `certs/collector-key.pem` - TLS private key (keep secure!)
-    - `certs/ca-chain.pem` - CA certificate chain
-    - `config/#{config_file}` - Collector configuration
+    #{cert_contents}- `config/#{config_file}` - Collector configuration
     - `update.sh` - Update script (copies files, restarts service)
 
     ## Network Ports
@@ -764,11 +764,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     ## Security Notes
 
-    - The private key and NATS credentials should be kept secure (mode 600)
-    - Credentials authenticate this collector to your NATS account
-    - All messages are scoped to this deployment's account
-    - mTLS ensures encrypted, authenticated communication
-
+    #{readme_security_notes(tls_key_pem, cert_contents)}
     ## Troubleshooting
 
     Check collector status and logs:
@@ -786,6 +782,55 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     Documentation: https://docs.serviceradar.cloud
     Issues: https://github.com/carverauto/serviceradar/issues
     """
+  end
+
+  # create_tarball/4 drops nil entries, so the README lists a cert file only
+  # when that entry is present.
+  defp readme_cert_contents(package, tls_key_pem) do
+    lines =
+      Enum.reject(
+        [
+          bundle_readme_line(package.tls_cert_pem, "- `certs/collector.pem` - TLS certificate"),
+          bundle_readme_line(
+            tls_key_pem,
+            "- `certs/collector-key.pem` - TLS private key (keep secure!)"
+          ),
+          bundle_readme_line(package.ca_chain_pem, "- `certs/ca-chain.pem` - CA certificate chain")
+        ],
+        &is_nil/1
+      )
+
+    case lines do
+      [] -> ""
+      _ -> Enum.join(lines, "\n") <> "\n"
+    end
+  end
+
+  defp bundle_readme_line(nil, _line), do: nil
+  defp bundle_readme_line(_content, line), do: line
+
+  defp readme_security_notes(tls_key_pem, cert_contents) do
+    credential_line =
+      if is_nil(tls_key_pem) do
+        "- NATS credentials should be kept secure (mode 600)"
+      else
+        "- The private key and NATS credentials should be kept secure (mode 600)"
+      end
+
+    lines = [
+      credential_line,
+      "- Credentials authenticate this collector to your NATS account",
+      "- All messages are scoped to this deployment's account"
+    ]
+
+    lines =
+      if cert_contents == "" do
+        lines
+      else
+        lines ++ ["- mTLS ensures encrypted, authenticated communication"]
+      end
+
+    Enum.join(lines, "\n") <> "\n"
   end
 
   defp generate_edge_site_section(%{edge_site: %EdgeSite{} = site}) do
