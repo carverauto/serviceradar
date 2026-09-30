@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner
