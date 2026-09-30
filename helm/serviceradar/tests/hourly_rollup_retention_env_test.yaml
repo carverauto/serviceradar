@@ -1,0 +1,53 @@
+suite: hourly rollup and timeseries retention environment
+templates:
+  - templates/core.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  # DataRetentionWorker reads these to reconcile the hourly metric rollups and
+  # raw timeseries_metrics. The rollups were only ever governed by a migration
+  # constant, so an unwired value here silently keeps 395 days of them.
+  - it: renders the default retention windows
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS
+            value: "395"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS
+            value: "7"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: passes operator overrides through
+    set:
+      core.observabilityRetention.hourlyRollupDays: 14
+      core.observabilityRetention.timeseriesMetricsDays: 10
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS
+            value: "14"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS
+            value: "10"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

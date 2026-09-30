@@ -448,6 +448,13 @@ core:
     otelTracesDays: 3
     logsDays: 30
     ocsfNetworkActivityDays: 90
+    # Raw timeseries_metrics (SNMP/interface counters). The hourly rollups
+    # refresh their last 5 days from it, so keep this above 5.
+    timeseriesMetricsDays: 7
+    # Hourly metric rollups (cpu/memory/disk/process_metrics_hourly and
+    # timeseries_metrics_*_hourly), which back long-range charts and seasonal
+    # anomaly baselines. Chunks older than 7 days are compressed. Minimum 7.
+    hourlyRollupDays: 395
     # Raw netprobe-to-process attribution observations are hot staging data used
     # to correlate delayed NetFlow/IPFIX rows. Lower this to discard unmatched
     # raw observations quickly; keep it at least 15 minutes.

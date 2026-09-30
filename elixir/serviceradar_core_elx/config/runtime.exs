@@ -1138,6 +1138,9 @@ if config_env() == :prod do
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,
     ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
+    timeseries_metrics_retention_days: "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
+    # DataRetentionWorker floors this at 7 days, clear of the rollups' 5-day refresh window.
+    hourly_rollup_retention_days: "SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS" |> parse_int_env.(395) |> max(1),
     sweep_host_result_retention_days: "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
     sweep_execution_retention_days: "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
     trivy_retention_days: "SERVICERADAR_TRIVY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),

@@ -44,6 +44,26 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_dataset_snapshot_retention_days 2
   @default_dataset_snapshot_keep_last 1
   @default_topology_link_retention_days 30
+  @default_hourly_rollup_retention_days 395
+  # The hourly rollups refresh the last 5 days from raw (migration
+  # 20260716210000). Retention inside that window would re-materialize dropped
+  # buckets, and TimescaleDB rejects a compression policy that overlaps it, so
+  # both stay at 7 days: the raw source's own retention.
+  @min_hourly_rollup_retention_days 7
+  @hourly_rollup_compress_after_days 7
+  # Retention drops whole chunks, so the chunk interval bounds how long data
+  # outlives its retention window. The rollups were created with a 70-day
+  # interval, which let a 7-day policy keep ten weeks of rows.
+  @hourly_rollup_chunk_interval_hours 24
+  @hourly_rollups ~w(
+    cpu_metrics_hourly
+    memory_metrics_hourly
+    disk_metrics_hourly
+    process_metrics_hourly
+    timeseries_metrics_hourly
+    timeseries_metrics_disk_hourly
+    timeseries_metrics_interface_hourly
+  )
   @query_timeout_ms 120_000
 
   @impl Oban.Worker
@@ -52,6 +72,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     batch_size = Keyword.get(config, :batch_size, @default_batch_size)
 
     reconcile_timescale_tables(config)
+    reconcile_hourly_rollups(config)
     # Widening rollup retention costs storage on every deployment and only pays
     # for itself once raw history is served from the cold tier, so it follows
     # the enable flag from here instead of being a one-way migration. Returns
@@ -191,6 +212,172 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
             "policy refreshes will progressively DELETE materialized history " <>
             "for dropped regions; clamp start_offset below the source retention",
           hazards: inspect(hazards)
+        )
+    end
+  end
+
+  @doc """
+  Reconcile retention, chunk interval and compression for the hourly metric
+  rollups (continuous aggregates).
+
+  Their migrations register a fixed 395-day retention and no compression, so
+  without this they grow until the volume fills. Views that are absent, or a
+  database without TimescaleDB, are skipped.
+  """
+  @spec reconcile_hourly_rollups(keyword()) :: :ok
+  def reconcile_hourly_rollups(config) do
+    retention_days = hourly_rollup_retention_days(config)
+
+    Enum.each(@hourly_rollups, fn view ->
+      run_rollup_sql(view, :retention, rollup_retention_sql(view, retention_days))
+      run_rollup_sql(view, :compression, rollup_compression_sql(view))
+    end)
+  end
+
+  defp hourly_rollup_retention_days(config) do
+    configured =
+      config
+      |> Keyword.get(:hourly_rollup_retention_days, @default_hourly_rollup_retention_days)
+      |> positive_integer(@default_hourly_rollup_retention_days)
+
+    if configured < @min_hourly_rollup_retention_days do
+      Logger.warning("Hourly rollup retention is below the rollup refresh window; clamping",
+        configured_days: configured,
+        applied_days: @min_hourly_rollup_retention_days
+      )
+    end
+
+    max(configured, @min_hourly_rollup_retention_days)
+  end
+
+  defp rollup_retention_sql(view, retention_days) do
+    """
+    DO $$
+    DECLARE
+      ts_schema text;
+      retention interval := make_interval(days => #{retention_days});
+      current_drop interval;
+    BEGIN
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
+      IF ts_schema IS NULL THEN
+        RETURN;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.continuous_aggregates
+        WHERE view_schema = 'platform'
+          AND view_name = '#{view}'
+      ) THEN
+        RETURN;
+      END IF;
+
+      -- jobs records a CAGG policy against either the view or its
+      -- materialization hypertable depending on the TimescaleDB version.
+      SELECT (j.config->>'drop_after')::interval
+      INTO current_drop
+      FROM timescaledb_information.continuous_aggregates ca
+      JOIN timescaledb_information.jobs j
+        ON j.proc_name = 'policy_retention'
+       AND j.hypertable_schema IN (ca.materialization_hypertable_schema, ca.view_schema)
+       AND j.hypertable_name IN (ca.materialization_hypertable_name, ca.view_name)
+      WHERE ca.view_schema = 'platform'
+        AND ca.view_name = '#{view}'
+      LIMIT 1;
+
+      -- add_retention_policy resets the job's next_start, so only re-register
+      -- the policy when the window actually changed.
+      IF current_drop IS DISTINCT FROM retention THEN
+        EXECUTE format(
+          'SELECT %I.remove_retention_policy(%L::regclass, if_exists => true)',
+          ts_schema,
+          'platform.#{view}'
+        );
+
+        EXECUTE format(
+          'SELECT %I.add_retention_policy(%L::regclass, %L::interval, if_not_exists => true)',
+          ts_schema,
+          'platform.#{view}',
+          retention
+        );
+      END IF;
+
+      EXECUTE format(
+        'SELECT %I.drop_chunks(%L::regclass, older_than => now() - %L::interval)',
+        ts_schema,
+        'platform.#{view}',
+        retention
+      );
+    END;
+    $$;
+    """
+  end
+
+  defp rollup_compression_sql(view) do
+    """
+    DO $$
+    DECLARE
+      ts_schema text;
+      mat regclass;
+      compressed boolean;
+    BEGIN
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
+      IF ts_schema IS NULL THEN
+        RETURN;
+      END IF;
+
+      SELECT format('%I.%I', ca.materialization_hypertable_schema, ca.materialization_hypertable_name)::regclass,
+             ca.compression_enabled
+      INTO mat, compressed
+      FROM timescaledb_information.continuous_aggregates ca
+      WHERE ca.view_schema = 'platform'
+        AND ca.view_name = '#{view}';
+
+      IF mat IS NULL THEN
+        RETURN;
+      END IF;
+
+      EXECUTE format(
+        'SELECT %I.set_chunk_time_interval(%L::regclass, INTERVAL ''#{@hourly_rollup_chunk_interval_hours} hours'')',
+        ts_schema,
+        mat
+      );
+
+      -- Segment-by defaults to the view's GROUP BY columns.
+      IF NOT compressed THEN
+        EXECUTE 'ALTER MATERIALIZED VIEW platform.#{view} SET (timescaledb.compress = true)';
+      END IF;
+
+      EXECUTE format(
+        'SELECT %I.add_compression_policy(%L::regclass, compress_after => INTERVAL ''#{@hourly_rollup_compress_after_days} days'', if_not_exists => true)',
+        ts_schema,
+        'platform.#{view}'
+      );
+    END;
+    $$;
+    """
+  end
+
+  defp run_rollup_sql(view, step, sql) do
+    case SQL.query(Repo, sql, [], timeout: @query_timeout_ms) do
+      {:ok, _result} ->
+        :ok
+
+      {:error, error} ->
+        Logger.warning("Failed to reconcile hourly rollup",
+          view: view,
+          step: step,
+          reason: Exception.message(error)
         )
     end
   end

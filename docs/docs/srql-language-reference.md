@@ -333,8 +333,8 @@ fields; using a field that the entity does not support returns an
 | `disk_metrics` | `disk` | Disk utilization time-series |
 | `process_metrics` | `processes` | Per-process CPU/memory time-series |
 | `timeseries_metrics` | `timeseries` | Generic time-series metrics (incl. SNMP) |
-| `timeseries_metric_interface_hourly` | `timeseries_metrics_interface_hourly`, `interface_metrics_hourly` | Hourly interface counter rollups keyed by device and `if_index` (395-day retention) |
-| `timeseries_metric_disk_hourly` | `timeseries_metrics_disk_hourly` | Hourly `sysmon.disk` gauge rollups keyed by device and mount point (395-day retention) |
+| `timeseries_metric_interface_hourly` | `timeseries_metrics_interface_hourly`, `interface_metrics_hourly` | Hourly interface counter rollups keyed by device and `if_index` (configurable retention, default 395 days; see `core.observabilityRetention.hourlyRollupDays`) |
+| `timeseries_metric_disk_hourly` | `timeseries_metrics_disk_hourly` | Hourly `sysmon.disk` gauge rollups keyed by device and mount point (configurable retention, default 395 days; see `core.observabilityRetention.hourlyRollupDays`) |
 | `snmp_metrics` | `snmp` | SNMP-collected metrics |
 | `rperf_metrics` | `rperf` | rperf network performance metrics (shares the time-series schema) |
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
@@ -817,7 +817,7 @@ Sortable fields: `timestamp`, `gateway_id`, `metric_name`, `metric_type`,
 `in:timeseries_metric_disk_hourly` reads the hourly continuous aggregate of
 `sysmon.disk` gauges. Each row is one (device, series, mount point) bucket, so
 a filling data volume is not averaged into its host's other filesystems. Rows
-are kept for 395 days; `time:` bounds match whole hourly buckets. The entity
+are kept for the configured retention (default 395 days; operator-configurable via `core.observabilityRetention.hourlyRollupDays`); `time:` bounds match whole hourly buckets. The entity
 returns rows only: `stats:`, `bucket:` and `agg:` are rejected.
 
 | Field | Description |
