@@ -304,6 +304,7 @@ plugins; inventory rows remain and age out through normal availability handling.
 - Whether core should reconcile open condition alerts against forwarded scope-complete
   markers (D16) in this change or a follow-up.
 - How operator-launched management actions bind to the account's Starlink credential
-  rule (the dispatcher supports multiple named grants per invocation; the binding of a
-  named requirement to a provisioned credential rule, rather than a static secret ID or
-  a secret-selecting input, is to be confirmed during implementation).
+  rule — resolved: `credential_source: package_rule` with `rule_input` lets an input
+  select a provisioned rule; `credential_source: assignment_schedule` with `requirement`
+  takes the bound schedule credential. See `docs/docs/wasm-plugins.md` and
+  `ServiceRadar.Plugins.ActionCredentialRequirements`.
