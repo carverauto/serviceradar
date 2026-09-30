@@ -550,7 +550,8 @@ defmodule ServiceRadar.NetworkDiscovery.World do
       %DateTime{} = updated_at ->
         Map.put(published, :generated_at, DateTime.to_iso8601(updated_at))
 
-      _ -> published
+      _ ->
+        published
     end
   end
 

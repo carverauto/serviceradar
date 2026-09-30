@@ -765,9 +765,10 @@ fn stale_backbone_shortcut_stays_out_of_the_overview_and_the_packet_path() {
 fn aged_attachment_and_hosted_links_stay_connected() {
     let router = "sr:router.example.test";
     let access = "sr:access.example.test";
+    let peer = "sr:peer.example.test";
     let leaf = "sr:leaf.example.test";
     let guest = "sr:guest.example.test";
-    let ids = [router, access, leaf, guest];
+    let ids = [router, access, peer, leaf, guest];
     let attach_stale = view_edge(
         "ATTACHED_TO",
         "attach-stale",
@@ -801,6 +802,15 @@ fn aged_attachment_and_hosted_links_stay_connected() {
         .with_last_seen("2024-02-01T00:00:00Z"),
         view_edge(
             "ATTACHED_TO",
+            "attach-peer-leaf",
+            (peer, 1, "p1"),
+            (leaf, 3, "p3"),
+            "direct-physical",
+            true,
+        )
+        .with_last_seen("2024-02-01T00:00:00Z"),
+        view_edge(
+            "ATTACHED_TO",
             "attach-shortcut",
             (router, 4, "p4"),
             (leaf, 2, "p2"),
@@ -809,6 +819,16 @@ fn aged_attachment_and_hosted_links_stay_connected() {
         )
         .with_stale(true)
         .with_last_seen("2019-01-01T00:00:00Z"),
+        view_edge(
+            "CANONICAL_TOPOLOGY",
+            "backbone-shortcut",
+            (router, 6, "p6"),
+            (leaf, 4, "p4"),
+            "direct-physical",
+            true,
+        )
+        .with_stale(true)
+        .with_last_seen("2018-01-01T00:00:00Z"),
         view_edge(
             "HOSTED_ON",
             "hosted-guest",
@@ -868,6 +888,14 @@ fn aged_attachment_and_hosted_links_stay_connected() {
             .as_deref(),
         Some(access)
     );
+    assert!(candidate
+        .relations
+        .iter()
+        .any(|row| row.relation_id == "backbone-shortcut" && row.stale));
+    assert!(candidate
+        .relations
+        .iter()
+        .any(|row| row.relation_id == "attach-peer-leaf" && !row.stale));
     assert!(candidate.positions.iter().any(|row| row.device_id == guest));
     let geometry = &candidate.world.geometry;
     let detail = geometry
@@ -877,6 +905,10 @@ fn aged_attachment_and_hosted_links_stay_connected() {
         .relations
         .iter()
         .any(|row| row.id == "attach-shortcut"));
+    assert!(detail
+        .relations
+        .iter()
+        .any(|row| row.id == "backbone-shortcut"));
     let mut split = false;
     for z in [0_u8, 8, 16] {
         let point = geometry.search(router).unwrap();
@@ -898,6 +930,7 @@ fn aged_attachment_and_hosted_links_stay_connected() {
                     edge.id
                 );
                 assert!(!ids.contains("attach-shortcut"));
+                assert!(!ids.contains("backbone-shortcut"));
                 ids.contains(id).then_some(edge)
             })
         };

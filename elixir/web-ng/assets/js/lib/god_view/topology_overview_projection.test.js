@@ -70,6 +70,37 @@ function denseLowTrustFanoutGraph(endpointCount = 160) {
 }
 
 describe("topology_overview_projection", () => {
+  it("prefers current topology over stale high-trust links and retains multihoming", () => {
+    const nodes = [
+      {id: "core", details: {type: "Router", topology_plane: "backbone"}},
+      {id: "access-a", details: {type: "Switch", topology_plane: "backbone"}},
+      {id: "access-b", details: {type: "Switch", topology_plane: "backbone"}},
+      {id: "leaf", details: {type: "Switch", topology_plane: "backbone"}},
+    ]
+    const index = new Map(nodes.map((node, i) => [node.id, i]))
+    const overview = prepareTopologyOverviewInput({
+      nodes,
+      edges: [
+        {id: "core-access-a", source: index.get("core"), target: index.get("access-a"), topologyClass: "backbone", evidenceClass: "direct"},
+        {id: "access-a-leaf", source: index.get("access-a"), target: index.get("leaf"), topologyClass: "inferred", evidenceClass: "inferred"},
+        {id: "access-b-leaf", source: index.get("access-b"), target: index.get("leaf"), topologyClass: "inferred", evidenceClass: "inferred"},
+        {id: "stale-core-leaf", source: index.get("core"), target: index.get("leaf"), topologyClass: "backbone", evidenceClass: "direct", stale: true},
+      ],
+    })
+
+    expect(overview.treeRelations.map((relation) => relation.pairId).sort()).toEqual([
+      "overview:pair:access-a|core",
+      "overview:pair:access-a|leaf",
+      "overview:pair:access-b|leaf",
+    ])
+    expect(overview.crossLinks).toContainEqual(expect.objectContaining({
+      pairId: "overview:pair:core|leaf",
+      semanticRelationIds: ["stale-core-leaf"],
+      trustRank: 0,
+      evidence: [expect.objectContaining({stale: true})],
+    }))
+  })
+
   it("keeps a physically connected hypervisor visible without expanding its guests", () => {
     const overview = prepareTopologyOverviewInput({
       nodes: [

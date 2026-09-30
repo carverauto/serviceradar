@@ -246,6 +246,7 @@ function aggregatePairs(graph, normalized) {
       evidence: evidenceFor(edge, relationId, sourceId, targetId),
       relationId,
       trustRank: trustRank(edge),
+      stale: truthy(edge?.stale),
     })
     current.hasTransport = current.hasTransport || transport
     current.hasAttachment = current.hasAttachment || attachment
@@ -257,12 +258,15 @@ function aggregatePairs(graph, normalized) {
       const byId = left.relationId.localeCompare(right.relationId)
       return byId === 0 ? stableJson(left.evidence).localeCompare(stableJson(right.evidence)) : byId
     })
+    const currentEntries = entries.filter((entry) => !entry.stale)
+    const preferredEntries = currentEntries.length > 0 ? currentEntries : entries
     return {
       ...pair,
       entries,
       evidence: entries.map((entry) => entry.evidence),
       semanticRelationIds: sortedUnique(entries.map((entry) => entry.relationId)),
-      trustRank: Math.min(...entries.map((entry) => entry.trustRank)),
+      freshnessRank: currentEntries.length > 0 ? 0 : 1,
+      trustRank: Math.min(...preferredEntries.map((entry) => entry.trustRank)),
     }
   })
 
@@ -366,7 +370,9 @@ function overviewNodes(normalized, pairs, maximumEndpoints, boundedPage) {
 }
 
 function comparePair(left, right) {
-  return left.trustRank - right.trustRank || left.pairId.localeCompare(right.pairId)
+  return left.freshnessRank - right.freshnessRank ||
+    left.trustRank - right.trustRank ||
+    left.pairId.localeCompare(right.pairId)
 }
 
 function createUnionFind(nodeIds) {

@@ -46,6 +46,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldLayout do
         :relation_count,
         :pipeline_stats
       ]
+
       argument :layout_version, :uuid, allow_nil?: false
       change set_attribute(:layout_version, arg(:layout_version))
       upsert? true

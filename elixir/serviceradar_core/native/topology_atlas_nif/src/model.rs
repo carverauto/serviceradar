@@ -646,15 +646,15 @@ fn layout_forest(rows: &[RelationRow]) -> Vec<Relation> {
     let mut candidates: Vec<_> = rows.iter().collect();
     candidates.sort_unstable_by(|left, right| {
         (
-            trust_rank(left),
             u8::from(left.stale),
+            trust_rank(left),
             std::cmp::Reverse(left.last_seen.as_deref().unwrap_or("")),
             device_pair(&left.source_id, &left.target_id),
             &left.relation_id,
         )
             .cmp(&(
-                trust_rank(right),
                 u8::from(right.stale),
+                trust_rank(right),
                 std::cmp::Reverse(right.last_seen.as_deref().unwrap_or("")),
                 device_pair(&right.source_id, &right.target_id),
                 &right.relation_id,
