@@ -6,20 +6,25 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
     * a FULL push carries every unrun slot of the lease, in a window from now. A new lease ends
       that window just after its last slot. The same lease ends it at the later of that and the
-      cursor already delivered, so the agent drops slots it no longer holds. It is sent for a
+      high water already sent, so the agent drops slots it may still hold. It is sent for a
       new lease (first delivery, or a fence bump or reissue, which changes the lease id), after
       core dropped a delivered slot that has not started, after the agent refused the last push,
-      and when the last push was not acknowledged within `ack_grace_seconds/0`;
+      and when the last push was not acknowledged within `ack_grace_seconds/0`. When that lease
+      was already delivered and no unrun slot remains, the full push still goes out, with an
+      empty slot list and no production capability, in a window that reaches the high water;
     * otherwise a TAIL push carries only the slots minted since the cursor, in a window starting
-      at the cursor, and nothing is sent when there are none.
+      at the cursor and ending just after its last slot, and nothing is sent when there are none.
 
-  The cursor stored for every push is just after the last slot that push carried. It is not the
-  further end a same-lease full push may tell the agent, and it is not the horizon, so a slot
-  the lease pass mints later (it mints a bounded number per pass) always falls in a later window.
+  Two positions are recorded. The cursor (`delivered_window_end`) is just after the last slot
+  the push carried, so a slot the lease pass mints later (it mints a bounded number per pass)
+  falls in a later window. An empty full push carries no slot, and its cursor is the window
+  end it sent. The high water (`delivered_high_water`) is the furthest window end sent for the
+  current lease id and starts again at the window end when the lease id changes. A drop is
+  looked for up to the high water.
 
   Every push of one lease signs the same issuance time (`lease_issued_at`, the first push of
-  the lease), and its production capability runs from there to the end of the last slot pushed,
-  so the newest capability the agent holds covers every slot it was given.
+  the lease). A push that carries slots signs a production capability from there to the end of
+  the last slot pushed, so the newest capability the agent holds covers every slot it was given.
 
   A group that no longer leases to an agent gets a `revoked` push, and its delivery row is
   removed once the agent's session accepted it. The row has no foreign key, so it remains when
@@ -164,18 +169,42 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     end
   end
 
-  defp full(_state, _same_lease?, [], _now), do: :up_to_date
+  defp full(nil, false, [], _now), do: :up_to_date
+
+  defp full(%SweepLeaseDelivery{} = state, true, [], now) do
+    bare(state.lease_issued_at, now, clearing_end(now, state.delivered_high_water))
+  end
+
+  defp full(_state, false, [], now) do
+    bare(now, now, DateTime.add(now, 1, :microsecond))
+  end
 
   defp full(state, same_lease?, unrun, now) do
     cursor = carried_end(unrun)
+
+    window_end =
+      if(same_lease?, do: latest(cursor, state.delivered_high_water), else: cursor)
 
     %{
       kind: :full,
       issued_at: if(same_lease?, do: state.lease_issued_at, else: now),
       window_start: now,
-      window_end: if(same_lease?, do: latest(cursor, state.delivered_window_end), else: cursor),
+      window_end: window_end,
       cursor: cursor,
+      high_water: high_water(state, same_lease?, window_end),
       slots: unrun
+    }
+  end
+
+  defp bare(issued_at, window_start, window_end) do
+    %{
+      kind: :full,
+      issued_at: issued_at,
+      window_start: window_start,
+      window_end: window_end,
+      cursor: window_end,
+      high_water: window_end,
+      slots: []
     }
   end
 
@@ -193,12 +222,18 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
           window_start: state.delivered_window_end,
           window_end: cursor,
           cursor: cursor,
+          high_water: latest(state.delivered_high_water, cursor),
           slots: slots
         }
     end
   end
 
   defp carried_end(slots), do: window_end_after(List.last(slots))
+
+  defp clearing_end(now, high_water), do: latest(high_water, DateTime.add(now, 1, :microsecond))
+
+  defp high_water(_state, false, window_end), do: window_end
+  defp high_water(state, true, window_end), do: latest(state.delivered_high_water, window_end)
 
   defp window_end_after(%SweepExecutionSlot{slot_start: start}),
     do: DateTime.add(start, 1, :microsecond)
@@ -221,25 +256,18 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   defp dropped_since?(assignment, delivery, now) do
     delivered_at = delivery.delivered_at
-    window_end = delivery.delivered_window_end
+    high_water = delivery.delivered_high_water
 
     SweepExecutionSlot
     |> Ash.Query.filter(
       producer_assignment_id == ^assignment.id and state == :dropped and
-        updated_at > ^delivered_at and slot_start > ^now and slot_start < ^window_end
+        updated_at > ^delivered_at and slot_start > ^now and slot_start < ^high_water
     )
     |> Ash.exists(actor: actor())
   end
 
   defp send_push(assignment, lease_id, push, %{key: key, contract: contract}, now, sender) do
-    with {:ok, capability} <-
-           LeaseCapabilities.production_capability(
-             assignment,
-             push.slots,
-             contract,
-             key,
-             push.issued_at
-           ),
+    with {:ok, capability} <- push_capability(assignment, push, contract, key),
          {:ok, slots} <- lease_slots(assignment, push.slots, key) do
       payload =
         SweepLeaseV1.encode(%SweepLeaseV1{
@@ -262,6 +290,18 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
           {:ok, {:not_delivered, reason}}
       end
     end
+  end
+
+  defp push_capability(_assignment, %{slots: []}, _contract, _key), do: {:ok, nil}
+
+  defp push_capability(assignment, push, contract, key) do
+    LeaseCapabilities.production_capability(
+      assignment,
+      push.slots,
+      contract,
+      key,
+      push.issued_at
+    )
   end
 
   defp lease_slots(assignment, slots, key) do
@@ -303,6 +343,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
         lease_id: lease_id,
         lease_issued_at: push.issued_at,
         delivered_window_end: push.cursor,
+        delivered_high_water: push.high_water,
         delivered_payload_sha256: sha256_hex(payload),
         delivered_at: now
       },

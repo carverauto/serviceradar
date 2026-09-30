@@ -10,11 +10,13 @@ defmodule ServiceRadar.Repo.Migrations.CreateSweepLeaseDeliveries do
   `lease_id` and `lease_issued_at` name the lease last pushed and its signed issuance time
   (every push of one lease signs the same `not_before`, so a slot delivered earlier stays
   inside the newest production capability). `delivered_window_end` is the cursor, just after
-  the last slot actually pushed, so the next tail starts there. A same-lease full push may
-  tell the agent a window that reaches further, through the previous cursor, so the agent
-  drops slots it no longer holds; that further end is not stored. The ack columns hold the
-  agent's answer to the push whose digest is `delivered_payload_sha256`. Any other ack is
-  ignored.
+  the last slot the push carried, so the next tail starts there. An empty full push carries
+  no slot, and its cursor is the window end it sent. `delivered_high_water` is the furthest
+  window end sent for the current lease id, how far the agent may still hold slots; a new
+  lease id starts it at that push's window end. A same-lease full push tells the agent a
+  window that reaches the high water, so a retry still clears every slot the agent may hold,
+  and a drop is looked for up to that high water. The ack columns hold the agent's answer to
+  the push whose digest is `delivered_payload_sha256`. Any other ack is ignored.
   """
   use Ecto.Migration
 
@@ -31,6 +33,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateSweepLeaseDeliveries do
       lease_id                 UUID         NOT NULL,
       lease_issued_at          TIMESTAMPTZ  NOT NULL,
       delivered_window_end     TIMESTAMPTZ  NOT NULL,
+      delivered_high_water     TIMESTAMPTZ  NOT NULL,
       delivered_payload_sha256 TEXT         NOT NULL,
       delivered_at             TIMESTAMPTZ  NOT NULL,
       acked_payload_sha256     TEXT,

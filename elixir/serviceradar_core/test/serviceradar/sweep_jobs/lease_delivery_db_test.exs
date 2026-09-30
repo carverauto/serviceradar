@@ -105,14 +105,18 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                installed: true
              })
 
+    # Ahead of the drop's wall clock, so the shrink is the delivery those drops are
+    # since, and growing the horizon back is a tail from the short cursor.
+    later = DateTime.add(now, 120, :second)
+
     setting!(ctx.admin, :partition, ctx.partition.id,
       leasing_enabled: true,
       horizon_seconds: 1_800
     )
 
-    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, shrunk, _}
-    assert shrunk.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
+    assert shrunk.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
     assert shrunk.slots != []
     assert length(shrunk.slots) < length(first.slots)
     assert shrunk.window_end_unix_nano == first.window_end_unix_nano
@@ -122,21 +126,117 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert cursor == List.last(shrunk.slots).slot_start_unix_nano + 1_000
     assert cursor < shrunk.window_end_unix_nano
 
+    assert DateTime.to_unix(row.delivered_high_water, :nanosecond) ==
+             shrunk.window_end_unix_nano
+
     setting!(ctx.admin, :partition, ctx.partition.id,
       leasing_enabled: true,
       horizon_seconds: 7_200
     )
 
-    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, tail, _}
 
-    reminted =
-      MapSet.difference(starts(first.slots), starts(shrunk.slots))
-
-    assert reminted != MapSet.new()
-    assert starts(tail.slots) == reminted
+    assert tail.slots != []
     assert tail.window_start_unix_nano == cursor
-    refute tail.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
+    refute tail.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
+    assert Enum.all?(tail.slots, &(&1.slot_start_unix_nano >= cursor))
+    assert MapSet.disjoint?(starts(tail.slots), starts(shrunk.slots))
+    assert Enum.any?(tail.slots, &(&1.slot_start_unix_nano < first.window_end_unix_nano))
+
+    assert tail.window_end_unix_nano ==
+             List.last(tail.slots).slot_start_unix_nano + 1_000
+  end
+
+  test "a refused shrink is retried out to the window the agent already holds", ctx do
+    lease_on!(ctx, 7_200)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, payload}
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
+    setting!(ctx.admin, :partition, ctx.partition.id,
+      leasing_enabled: true,
+      horizon_seconds: 1_800
+    )
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, shrunk, shrunk_payload}
+    assert shrunk.slots != []
+    assert length(shrunk.slots) < length(first.slots)
+    assert shrunk.window_end_unix_nano == first.window_end_unix_nano
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(shrunk_payload),
+               installed: false,
+               error: "plan rejected"
+             })
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, retry, _}
+    assert retry.lease_id == first.lease_id
+    assert retry.slots != []
+    assert length(retry.slots) < length(first.slots)
+    assert retry.window_end_unix_nano == first.window_end_unix_nano
+    assert List.last(retry.slots).slot_start_unix_nano + 1_000 < retry.window_end_unix_nano
+
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+
+    assert DateTime.to_unix(row.delivered_window_end, :nanosecond) ==
+             List.last(retry.slots).slot_start_unix_nano + 1_000
+
+    assert DateTime.to_unix(row.delivered_high_water, :nanosecond) ==
+             first.window_end_unix_nano
+  end
+
+  test "an empty horizon replaces the delivered window with no slots and no capability",
+       ctx do
+    lease_on!(ctx, 7_200)
+    group = leased_group!(ctx)
+    now = clear_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, payload}
+    assert first.slots != []
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
+    setting!(ctx.admin, :partition, ctx.partition.id,
+      leasing_enabled: true,
+      horizon_seconds: 1
+    )
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, cleared, _}
+    assert cleared.lease_id == first.lease_id
+    refute cleared.revoked
+    assert cleared.slots == []
+    assert cleared.production_capability == nil
+    assert cleared.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
+    assert cleared.window_end_unix_nano == first.window_end_unix_nano
+
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+
+    assert DateTime.to_unix(row.delivered_window_end, :nanosecond) ==
+             cleared.window_end_unix_nano
+
+    assert DateTime.to_unix(row.delivered_high_water, :nanosecond) ==
+             cleared.window_end_unix_nano
   end
 
   test "a later pass pushes only the newly minted tail under the first issuance time", ctx do
@@ -435,6 +535,18 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              |> Ash.create()
 
     uid
+  end
+
+  # A one-second horizon contains a fire only in the last second before a 15-minute
+  # boundary. Step back from that second so the horizon holds no slot.
+  defp clear_now do
+    now = DateTime.utc_now()
+
+    if rem(DateTime.to_unix(now), 900) >= 899 do
+      DateTime.add(now, -2, :second)
+    else
+      now
+    end
   end
 
   defp digest(payload), do: Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
