@@ -241,7 +241,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: "max_file_store: 30000000000\n"
+          pattern: "max_file_store: 36000000000\n"
 
   - it: counts the BMP stream at its own size and replicas
     set:
