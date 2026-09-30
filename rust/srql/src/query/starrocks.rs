@@ -46,11 +46,11 @@ fn translate_inner(
             viz: super::viz::meta_for_plan(plan),
         });
     }
-    // MTR has no rollup, so both entry points compile it the same way. It is
-    // not a `Dataset`: its stats grammar is the CNPG MTR builders' own, parsed
-    // by them and rendered by `mtr`, not the generic stats compiler below.
+    // MTR follows the CNPG MTR builders; `mtr_hops` stats whose whole shape
+    // the hourly hop rollup can re-aggregate read it unless the freshness gate
+    // asked for the raw table (`allow_rollup` false).
     if matches!(plan.entity, Entity::MtrHops | Entity::MtrTraces) {
-        return mtr::translate(plan, database);
+        return mtr::translate(plan, database, allow_rollup);
     }
     // OTel metrics likewise have no rollup and answer the CNPG builders' own
     // count-only stats grammar.

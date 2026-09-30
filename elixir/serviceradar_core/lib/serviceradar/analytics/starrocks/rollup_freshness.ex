@@ -55,7 +55,12 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
     metrics: {"timeseries_metrics_hourly", "timeseries_metrics", "timestamp", 60},
     events: {"events_hourly", "events", "time", 60},
     traces_stats: {"traces_stats_5m", "otel_traces", "timestamp", 5},
-    traces_red: {"spans_red_1h", "otel_traces", "timestamp", 60}
+    traces_red: {"spans_red_1h", "otel_traces", "timestamp", 60},
+    mtr_hops: {"mtr_hops_hourly", "mtr_hops", "time", 60},
+    # The destination view is built over a join, but its buckets are the trace
+    # hours (a row exists for every hour with any trace), so its source mark is
+    # mtr_traces' newest row, not the join's.
+    mtr_destination: {"mtr_destination_hourly", "mtr_traces", "time", 60}
   }
 
   @spec dataset_for_sql(term()) :: atom() | nil

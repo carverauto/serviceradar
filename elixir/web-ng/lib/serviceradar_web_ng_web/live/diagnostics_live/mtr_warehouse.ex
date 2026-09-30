@@ -16,9 +16,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   precision, a boolean, a list, a decoded JSON document, a float) -- so the
   callers shape both backends' answers with the same code and templates do not
   change. The translations and the places they cannot be literal are listed at
-  the SQL builders. Result parity against a live warehouse is NOT yet proven:
-  the parity harness (extend-starrocks-to-all-telemetry task 1.4) does not
-  exist, so these readers ship with SQL-shape tests only.
+  the SQL builders. Result parity against a live warehouse is checked by the
+  MTR reader parity test (`test/phoenix/live/dashboard_live/mtr_reader_parity_test.exs`),
+  which seeds the same synthetic traces and hops into a scratch CNPG database
+  and the warehouse and asserts each reader answers the same from both.
+
+  The dashboard card and sparklines read the day-partitioned destination
+  rollup `mtr_destination_hourly` (`priv/starrocks/0025`) while it is fresh
+  (`RollupFreshness`), with the lower edge floored to the bucket so the
+  rollup and its raw fallback select the same rows; a stale or missing view
+  reads the raw tables, which yield the same quantities.
 
   The Frontend is queried over the MySQL text protocol, which takes no bind
   parameters, so values reach it as literals. Every interpolated value is
@@ -36,6 +43,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Analytics.StarRocks.Retention
+  alias ServiceRadar.Analytics.StarRocks.RollupFreshness
 
   @list_trace_columns ~w(
     id time agent_id check_id check_name device_id target target_ip target_reached total_hops
@@ -70,11 +79,48 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   @array_columns ~w(ecmp_addrs agent_ids)
   @json_columns ~w(mpls_labels)
 
+  @mtr_tables ~w(mtr_traces mtr_hops)
+
   @one_second_us 1_000_000
+  @one_hour_seconds 3_600
 
   @doc "Whether MTR reads belong to the warehouse: the global `analytics.starrocks.enabled` flag."
   @spec enabled?() :: boolean()
   def enabled?, do: Readers.enabled?()
+
+  @doc """
+  The MTR retention as the warehouse applies it: the `mtr` dataset's
+  partition TTL (`Retention.days_by_table/1`, one value for `mtr_traces` and
+  `mtr_hops` alike), not the CNPG policy the settings page reconciles.
+
+  Both tables report `:ok`: the boot applier sets their `partition_live_number`
+  with retries until the Frontend accepts it, and there is no per-table
+  configuration to drift -- the dataset is one knob
+  (`SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR`, Helm `retentionDays.mtr`).
+  `:days_by_table` in `opts` replaces the source for tests.
+  """
+  @spec retention_status(keyword()) :: map()
+  def retention_status(opts \\ []) do
+    days_by_table = Keyword.get_lazy(opts, :days_by_table, &Retention.days_by_table/0)
+    days = mtr_days(days_by_table)
+
+    %{
+      configured_days: days,
+      status: :ok,
+      tables: Map.new(@mtr_tables, &{&1, %{status: :ok, days: days}}),
+      backend: :starrocks
+    }
+  end
+
+  # One dataset owns both tables, so both carry the same TTL; if a caller
+  # hands in per-table days that disagree, report the shorter window rather
+  # than a retention the data does not have.
+  defp mtr_days(days_by_table) do
+    @mtr_tables
+    |> Enum.map(&Keyword.get(days_by_table, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.min(fn -> Keyword.get(Env.default_retention_days(), :mtr) end)
+  end
 
   # ---------------------------------------------------------------------------
   # Trace list, page, coverage
@@ -609,13 +655,29 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   """
   @spec dashboard_summary(DateTime.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def dashboard_summary(%DateTime{} = cutoff, opts \\ []) do
+    lower = floor_hour(cutoff)
+
+    sql =
+      if destination_rollup_fresh?(opts) do
+        destination_summary_rollup_sql(lower)
+      else
+        destination_summary_raw_sql(lower)
+      end
+
+    run(opts, sql)
+  end
+
+  # The card's computation over the raw tables, clause for clause the query
+  # the dashboard's CNPG path runs (the selected traces LEFT JOIN their reached
+  # trace's terminal hop).
+  defp destination_summary_raw_sql(lower) do
     latency_rows = "dh.avg_us IS NOT NULL AND dh.received > 0"
 
-    sql = """
+    """
     WITH selected_traces AS (
       SELECT `id`, `time`, target_reached, total_hops
       FROM #{table("mtr_traces")}
-      WHERE `time` >= #{datetime(cutoff)}
+      WHERE `time` >= #{datetime(lower)}
     ),
     destination_hops AS (
       SELECT trace_id, sent, received, avg_us
@@ -634,7 +696,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
           AND st.target_reached
           AND h.hop_number = st.total_hops
           AND h.`time` >= st.`time`
-        WHERE h.`time` >= #{datetime(cutoff)}
+        WHERE h.`time` >= #{datetime(lower)}
       ) terminal_candidates
       WHERE terminal_rank = 1
     )
@@ -654,8 +716,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
     FROM selected_traces st
     LEFT JOIN destination_hops dh ON dh.trace_id = st.`id`
     """
+  end
 
-    run(opts, sql)
+  # The same card over the destination rollup: every count the card shows is
+  # evaluated per trace inside the view (`priv/starrocks/0025`), so summing the
+  # stored columns over the hours at or after `lower` is the raw query's
+  # answer for the same (hour-floored) window.
+  defp destination_summary_rollup_sql(lower) do
+    """
+    SELECT
+      SUM(path_count) AS path_count,
+      SUM(endpoint_sample_count) AS endpoint_sample_count,
+      SUM(loss_sample_count) AS loss_sample_count,
+      SUM(latency_sample_count) AS latency_sample_count,
+      #{destination_loss_pct_sql()} AS avg_loss_pct,
+      #{destination_latency_ms_sql()} AS avg_latency_ms,
+      SUM(degraded_count) AS degraded_count
+    FROM #{table("mtr_destination_hourly")}
+    WHERE `bucket` >= #{datetime(lower)}
+      AND `day` >= #{datetime(day_of(lower))}
+    """
   end
 
   @doc """
@@ -673,9 +753,27 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   def destination_sparkline(%DateTime{} = cutoff, bucket_seconds, metric, limit, opts \\ [])
       when is_integer(bucket_seconds) and bucket_seconds > 0 and is_integer(limit) and limit > 0 and
              metric in [:latency_ms, :loss_pct] do
+    # Only `limit` buckets can be drawn, so the scan never starts earlier than
+    # `limit` buckets before `:now`, and the lower edge is floored to the
+    # bucket so the rollup read and the raw fallback select the same rows.
+    lower = sparkline_lower_edge(cutoff, bucket_seconds, limit, opts)
+
+    sql =
+      if rem(bucket_seconds, @one_hour_seconds) == 0 and destination_rollup_fresh?(opts) do
+        destination_sparkline_rollup_sql(lower, bucket_seconds, metric, limit)
+      else
+        destination_sparkline_raw_sql(lower, bucket_seconds, metric, limit)
+      end
+
+    run(opts, sql)
+  end
+
+  # The sparkline's computation over the raw tables: the reached traces'
+  # terminal hops, bucketed by trace time.
+  defp destination_sparkline_raw_sql(lower, bucket_seconds, metric, limit) do
     {value_expr, denominator_expr} = sparkline_value(metric)
 
-    sql = """
+    """
     WITH destination_hops AS (
       SELECT trace_time, sent, received, avg_us
       FROM (
@@ -697,8 +795,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
           AND t.target_reached
           AND h.hop_number = t.total_hops
           AND h.`time` >= t.`time`
-        WHERE t.`time` >= #{datetime(cutoff)}
-          AND h.`time` >= #{datetime(cutoff)}
+        WHERE t.`time` >= #{datetime(lower)}
+          AND h.`time` >= #{datetime(lower)}
       ) terminal_candidates
       WHERE terminal_rank = 1
     )
@@ -715,8 +813,49 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
     ) recent
     ORDER BY bucket ASC
     """
+  end
 
-    run(opts, sql)
+  # The same sparkline over the destination rollup. A whole-hour bucket
+  # re-buckets the view's hour rows on the same midnight-anchored grid, so the
+  # summed-probe ratio per bucket is the raw query's value for the same
+  # (bucket-floored) window.
+  defp destination_sparkline_rollup_sql(lower, bucket_seconds, metric, limit) do
+    {value_expr, denominator_expr} = destination_sparkline_value(metric)
+
+    """
+    SELECT bucket, value
+    FROM (
+      SELECT
+        time_slice(`bucket`, INTERVAL #{bucket_seconds} SECOND) AS bucket,
+        #{value_expr} AS value
+      FROM #{table("mtr_destination_hourly")}
+      WHERE `bucket` >= #{datetime(lower)}
+        AND `day` >= #{datetime(day_of(lower))}
+      GROUP BY 1
+      HAVING #{denominator_expr} > 0
+      ORDER BY 1 DESC
+      LIMIT #{limit}
+    ) recent
+    ORDER BY bucket ASC
+    """
+  end
+
+  # The rollup re-aggregations of the two sparkline values: the same ratios
+  # `sparkline_value/1` computes, over the stored per-hour sums.
+  defp destination_sparkline_value(:latency_ms) do
+    {destination_latency_ms_sql(), "SUM(latency_weight)"}
+  end
+
+  defp destination_sparkline_value(:loss_pct) do
+    {destination_loss_pct_sql(), "SUM(sent_total)"}
+  end
+
+  defp sparkline_lower_edge(cutoff, bucket_seconds, limit, opts) do
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    drawable = DateTime.to_unix(now) - limit * bucket_seconds
+    edge = max(DateTime.to_unix(cutoff), drawable)
+
+    DateTime.from_unix!(edge - Integer.mod(edge, bucket_seconds))
   end
 
   defp sparkline_value(:latency_ms) do
@@ -745,6 +884,34 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
 
     "CAST(SUM(CASE WHEN #{rows} THEN #{weighted} END) AS DOUBLE) / " <>
       "NULLIF(CAST(SUM(CASE WHEN #{rows} THEN #{alias_name}.received END) AS DOUBLE), 0) / 1000.0"
+  end
+
+  # The same two ratios over the destination rollup's stored per-hour sums
+  # (`priv/starrocks/0025`): the sent-filtered probe totals and the
+  # reply-weighted latency sums the view already restricted the same way.
+  defp destination_loss_pct_sql do
+    "100.0 * CAST(SUM(sent_total) - SUM(received_total) AS DOUBLE) / " <>
+      "NULLIF(CAST(SUM(sent_total) AS DOUBLE), 0)"
+  end
+
+  defp destination_latency_ms_sql do
+    "CAST(SUM(avg_us_weighted) AS DOUBLE) / " <>
+      "NULLIF(CAST(SUM(latency_weight) AS DOUBLE), 0) / 1000.0"
+  end
+
+  # The destination rollup is an async view with no schedule, so a reader must
+  # verify it has caught up before trusting it (RollupFreshness); a stale or
+  # missing view, or a failed probe, reads the raw tables instead.
+  defp destination_rollup_fresh?(opts) do
+    RollupFreshness.fresh?(:mtr_destination, opts)
+  end
+
+  defp floor_hour(%DateTime{} = value) do
+    DateTime.from_unix!(DateTime.to_unix(value) - Integer.mod(DateTime.to_unix(value), @one_hour_seconds))
+  end
+
+  defp day_of(%DateTime{} = value) do
+    DateTime.new!(value.year, value.month, value.day, 0, 0, 0, {0, 0}, value.calendar)
   end
 
   # ---------------------------------------------------------------------------

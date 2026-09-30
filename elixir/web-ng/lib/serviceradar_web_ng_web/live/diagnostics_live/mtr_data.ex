@@ -238,14 +238,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     cnpg_query(opts).(query, params)
   end
 
-  def retention_status(scope \\ nil) do
-    settings =
-      case MtrSettings.get_settings(scope: scope) do
-        {:ok, %MtrSettings{} = settings} -> settings
-        _ -> nil
-      end
+  def retention_status(scope \\ nil, opts \\ []) do
+    if MtrWarehouse.enabled?() do
+      # With the warehouse on, the CNPG MTR hypertables stop receiving rows and
+      # the retention that governs the data is the warehouse's partition TTL,
+      # not the CNPG policy the settings page reconciles (that page still owns
+      # the CNPG tables for installs without the warehouse).
+      MtrWarehouse.retention_status(opts)
+    else
+      settings =
+        case MtrSettings.get_settings(scope: scope) do
+          {:ok, %MtrSettings{} = settings} -> settings
+          _ -> nil
+        end
 
-    MtrSettings.retention_status(settings)
+      MtrSettings.retention_status(settings)
+    end
   rescue
     reason ->
       %{

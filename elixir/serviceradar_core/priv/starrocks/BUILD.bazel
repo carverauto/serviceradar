@@ -22,6 +22,9 @@
 # 0022 creates the OTel span and trace-summary tables and the two trace rollups.
 # 0023 adds agent_id to ocsf_network_activity.
 # 0024 creates the BMP routing events table, partitioned by day.
+# 0025 creates the two MTR hop rollups (all hops by the hour, and the
+# destination-hop view the dashboard card and sparklines read), partitioned by
+# day in step with their base tables.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

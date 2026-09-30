@@ -184,10 +184,17 @@
       history default), applied to both tables. MTR is not added to the shadow/cutover dataset
       lists in `Env`, since it does not use them. The Settings -> MTR retention still governs
       only the CNPG tables.
-  - [ ] 3.4.5 Hop rollups as async MVs aggregating loss with `loss_ratio(sent, received)` and
+  - [x] 3.4.5 Hop rollups as async MVs aggregating loss with `loss_ratio(sent, received)` and
     latency with `wavg(avg_us, received)`. `mtr_hops.asn` is GeoLite2-only and NULL for every
     internal hop and private AS, so an AS-level rollup is not presented as fleet-wide.
-  - [ ] 3.4.6 Warehouse readers for `MtrData` (trace list, paginated list, coverage, trace
+    - Done: day-partitioned async MVs `mtr_hops_hourly` (every hop at hour grain, storing the
+      probe totals and received-weighted sums the readers re-aggregate) and `mtr_destination_hourly`
+      (the dashboard card/sparklines' per-trace join, pre-evaluated) in `priv/starrocks/0025`,
+      freshness-gated in `RollupFreshness` (`:mtr_hops`, `:mtr_destination`) with raw fallback.
+      `asn`/`asn_org` are deliberately not carried, so asn-shaped SRQL stays on the raw table;
+      servable `in:mtr_hops` stats shapes read the rollup in `rust/srql/src/query/starrocks/mtr.rs`
+      (widened to whole hours in both modes so staleness cannot change the answer).
+  - [x] 3.4.6 Warehouse readers for `MtrData` (trace list, paginated list, coverage, trace
     detail, Compare windows and paths), the dashboard MTR summary and sparklines, the Ash-backed
     trace and Compare pages, the device MTR tab and SRQL `in:mtr_traces`/`in:mtr_hops`; each
     behind its parity comparison.
@@ -196,10 +203,13 @@
       `DiagnosticsLive.MtrWarehouse` serves every `MtrData` reader (so the device MTR tab too), the
       dashboard card and sparklines, and the trace and Compare pages' Ash reads. Filters, including
       the diagnostics page's SRQL-style string (parsed in Elixir, not by the SRQL service), are one
-      term list with a CNPG and a warehouse renderer. Only SQL-shape tests exist: these Elixir
-      readers are not SRQL, so the 1.4 harness does not reach them and their result parity is
-      still NOT proven. Still open:
-      `MtrData.retention_status/1` reports the CNPG retention policy.
+      term list with a CNPG and a warehouse renderer. Result parity is proven by the Elixir tier
+      (`//elixir/web-ng:mtr_reader_parity_test`, run by the SrqlParity action): the same synthetic
+      traces/hops seeded into a scratch CNPG database and the warehouse, each `MtrData` reader run
+      against both, the card/sparklines' rollup reads compared against their raw fallbacks. The
+      Elixir tier was chosen over extending the Rust harness because these readers render SQL in
+      Elixir, not SRQL. `MtrData.retention_status/1` reports the warehouse's partition TTL
+      (`Retention`, default 365 days) when StarRocks is enabled, the CNPG policy otherwise.
     - SRQL `in:mtr_traces`/`in:mtr_hops`/`in:mtr_hop_stats` (the system report panels) have a
       StarRocks dialect (`rust/srql/src/query/starrocks/mtr.rs`), and `Readers.mode_for/1` sends
       MTR SRQL to it whenever StarRocks is enabled, to CNPG otherwise. It renders the CNPG MTR

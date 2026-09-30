@@ -149,6 +149,10 @@ actions:
             FLAGS="$FLAGS --test_env=SRQL_PARITY_ONLY"
           fi
           bazel test $FLAGS //integration_tests/srql_parity:parity_test
+          # Reader-level MTR parity (extend-starrocks 3.4.6): the Elixir tier the Rust
+          # harness cannot reach. Same environment, same credentials; the test seeds its
+          # own scratch databases and drops the CNPG one.
+          bazel test $FLAGS //elixir/web-ng:mtr_reader_parity_test
 
   - name: "BazelCI"
     env:

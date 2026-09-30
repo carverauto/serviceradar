@@ -27,6 +27,17 @@
 //!
 //! A hop row carries its trace's `target_ip` and `device_id` and is stored at
 //! its trace's `time`, so no shape here joins hops to traces.
+//!
+//! `in:mtr_hops` stats whose whole shape the hourly hop rollup
+//! `mtr_hops_hourly` (`priv/starrocks/0025`) can re-aggregate -- every
+//! aggregate a `loss_ratio(sent, received)` / `wavg(value, received)` /
+//! `count()` over the columns it stores, every dimension and filter one it
+//! carries, every time bucket a whole number of hours -- read the rollup when
+//! the freshness gate allows, and the same shape recompiled against the raw
+//! table (`translate_raw`) reads the same widened whole-hour window, so a
+//! stale view can only cost the rollup, never change the answer. Anything
+//! else (an `asn` or `asn_org` shape, a scalar column aggregate, an exact
+//! unbucketed window) reads `mtr_hops` as before.
 
 use super::super::filters_common::NumericValue;
 use super::super::mtr_hops::{
@@ -35,7 +46,8 @@ use super::super::mtr_hops::{
 use super::super::mtr_traces::{self, ParsedTraceAgg, TraceAggKind, TraceGroupDim};
 use super::super::{PaginationMeta, QueryPlan, TranslateResponse, types::BindParam};
 use super::{
-    loss_ratio_sql, pg_order_sql, rollup_stats_kind, sql_literal, text_filter_sql, wavg_sql,
+    exclusive_hour_end, floor_hour, loss_ratio_sql, pg_order_sql, rollup_stats_kind, sql_literal,
+    text_filter_sql, wavg_sql,
 };
 use crate::{
     error::{Result, ServiceError},
@@ -147,11 +159,35 @@ const TRACE_TEXT_FIELDS: &[&str] = &[
 ];
 
 const SECONDS_PER_DAY: i64 = 86_400;
+const HOURLY_GRAIN_SECONDS: i64 = 3_600;
+
+/// The hourly hop rollup (`priv/starrocks/0025`). Its grain is the hour and the
+/// dimensions below, so a query it serves widens its window to whole hours
+/// and re-aggregates the stored sums; everything else reads `mtr_hops`.
+const HOP_HOURLY_TABLE: &str = "mtr_hops_hourly";
+
+/// Columns the hop rollup groups by besides `day`/`bucket`. `asn` and
+/// `asn_org` are absent on purpose: they are GeoLite2-only and NULL for every
+/// internal hop and private AS, so an AS-level rollup must not be presented as
+/// fleet-wide; an asn-shaped query stays on the raw table, where the reader
+/// sees the NULL groups it filters past.
+const ROLLUP_DIMENSIONS: &[&str] = &["addr", "hop_number", "target_ip", "device_id"];
+
+/// `wavg` value columns the rollup stores a received-weighted sum for.
+const ROLLUP_WAVG_VALUES: &[&str] = &["avg_us", "min_us", "max_us", "jitter_us"];
 
 #[derive(Clone, Copy)]
 enum Table {
     Hops,
     Traces,
+}
+
+/// Which `mtr_hops` source a stats query reads: the raw table or the hourly
+/// hop rollup.
+#[derive(Clone, Copy, PartialEq)]
+enum HopSource {
+    Raw,
+    Hourly,
 }
 
 impl Table {
@@ -163,7 +199,11 @@ impl Table {
     }
 }
 
-pub(super) fn translate(plan: &QueryPlan, database: &str) -> Result<TranslateResponse> {
+pub(super) fn translate(
+    plan: &QueryPlan,
+    database: &str,
+    allow_rollup: bool,
+) -> Result<TranslateResponse> {
     let table = match plan.entity {
         Entity::MtrHops => Table::Hops,
         Entity::MtrTraces => Table::Traces,
@@ -176,9 +216,51 @@ pub(super) fn translate(plan: &QueryPlan, database: &str) -> Result<TranslateRes
     };
     refuse_unimplemented_features(plan, table)?;
 
-    let from = format!("{database}.{}", table.name());
-    let (mut predicates, params) = time_bounds(plan);
     let stats = plan.stats.as_ref().map(|stats| stats.as_raw());
+    // The hop stats parse is shared by the servability decision and the
+    // rendering below, so it happens once, here.
+    let hop_stats = match (&stats, table) {
+        (Some(raw), Table::Hops) => Some(mtr_hops::parse_hop_stats(raw)?),
+        _ => None,
+    };
+    // Whether the hourly hop rollup (`priv/starrocks/0025`) can re-aggregate
+    // this stats shape, decided before any rendering. Like `hourly_rollup` for
+    // the flows, this is a property of the query, not of the source: a shape
+    // it can serve is scored on whole hours, so the window widens to them in
+    // BOTH modes and the rollup-freshness gate cannot change the answer -- the
+    // raw recompile (`allow_rollup` false) reads the same widened hours.
+    let servable = hop_stats
+        .as_ref()
+        .is_some_and(|(aggs, dims)| hop_hourly_rollup(aggs, dims, &plan.filters));
+    let source = if servable && allow_rollup {
+        HopSource::Hourly
+    } else {
+        HopSource::Raw
+    };
+    let from = match (table, servable && allow_rollup) {
+        (Table::Hops, true) => format!("{database}.{HOP_HOURLY_TABLE}"),
+        _ => format!("{database}.{}", table.name()),
+    };
+    let time_column = if matches!((table, source), (Table::Hops, HopSource::Hourly)) {
+        "bucket"
+    } else {
+        "time"
+    };
+    let (mut predicates, params) = time_bounds(plan, time_column, servable);
+    if matches!((table, source), (Table::Hops, HopSource::Hourly)) {
+        // `day` is the view's partition column; bound it so the scan skips the
+        // days the window cannot touch, as the trace rollup reads do.
+        if let Some(range) = &plan.time_range {
+            predicates.push(format!(
+                "`day` >= date_trunc('day', '{}')",
+                range.start.format("%Y-%m-%d %H:%M:%S%.6f")
+            ));
+            predicates.push(format!(
+                "`day` <= '{}'",
+                range.end.format("%Y-%m-%d %H:%M:%S%.6f")
+            ));
+        }
+    }
     for filter in &plan.filters {
         predicates.push(match (table, stats.is_some()) {
             (Table::Hops, false) => hop_row_filter(filter)?,
@@ -193,11 +275,17 @@ pub(super) fn translate(plan: &QueryPlan, database: &str) -> Result<TranslateRes
         format!(" WHERE {}", predicates.join(" AND "))
     };
 
-    let sql = match (table, stats) {
-        (Table::Hops, Some(raw)) => {
-            let (aggs, dims) = mtr_hops::parse_hop_stats(raw)?;
-            let aggs = aggs.iter().map(hop_agg).collect::<Vec<_>>();
-            let dims = dims.iter().map(hop_dim).collect::<Result<Vec<_>>>()?;
+    let sql = match (table, &stats) {
+        (Table::Hops, Some(_)) => {
+            let (aggs, dims) = hop_stats.expect("hop stats parsed above");
+            let aggs = aggs
+                .iter()
+                .map(|agg| hop_agg(agg, source))
+                .collect::<Vec<_>>();
+            let dims = dims
+                .iter()
+                .map(|dim| hop_dim(dim, source))
+                .collect::<Result<Vec<_>>>()?;
             stats_sql(
                 plan,
                 &from,
@@ -266,24 +354,64 @@ fn quoted(column: &str) -> String {
 }
 
 /// `[start, end)`, the bounds CNPG binds, as naive UTC `DATETIME` literals with
-/// microseconds. No `time:` means no bound, as on CNPG.
-fn time_bounds(plan: &QueryPlan) -> (Vec<String>, Vec<BindParam>) {
+/// microseconds. No `time:` means no bound, as on CNPG. `hour_grained` says
+/// the query is scored on whole hours because the hourly hop rollup can serve
+/// it -- the bounds then widen to `floor_hour(start)` and
+/// `exclusive_hour_end(end)`, the same widening `time_predicate` applies to an
+/// hour-grained flows query, in both the rollup and the raw recompile.
+fn time_bounds(
+    plan: &QueryPlan,
+    time_column: &str,
+    hour_grained: bool,
+) -> (Vec<String>, Vec<BindParam>) {
     let Some(range) = &plan.time_range else {
         return (Vec::new(), Vec::new());
     };
     let literal = |value: chrono::DateTime<chrono::Utc>| {
         format!("'{}'", value.format("%Y-%m-%d %H:%M:%S%.6f"))
     };
+    let (lower, upper) = if hour_grained {
+        (floor_hour(range.start), exclusive_hour_end(range.end))
+    } else {
+        (range.start, range.end)
+    };
     (
         vec![
-            format!("`time` >= {}", literal(range.start)),
-            format!("`time` < {}", literal(range.end)),
+            format!("`{time_column}` >= {}", literal(lower)),
+            format!("`{time_column}` < {}", literal(upper)),
         ],
-        vec![
-            BindParam::timestamptz(range.start),
-            BindParam::timestamptz(range.end),
-        ],
+        vec![BindParam::timestamptz(lower), BindParam::timestamptz(upper)],
     )
+}
+
+/// Whether the hourly hop rollup (`priv/starrocks/0025`) can re-aggregate this
+/// stats shape by summing its stored columns. The view groups by
+/// `(day, hour, target_ip, device_id, addr, hop_number)` and stores the probe
+/// totals `loss_ratio(sent, received)` is a ratio of, a received-weighted sum
+/// per `wavg` value column, and the hop count, so a query is servable exactly
+/// when it is bucketed on whole hours (a scalar total over an exact window has
+/// no bucket to absorb the rollup's hour grain -- the same rule that keeps the
+/// flows rollup on the downsample path), every aggregate is one the stored
+/// columns re-aggregate, and every dimension and filter names a carried one.
+/// `asn`/`asn_org` are deliberately not carried (see `ROLLUP_DIMENSIONS`).
+fn hop_hourly_rollup(aggs: &[ParsedHopAgg], dims: &[GroupDim], filters: &[Filter]) -> bool {
+    let hour_bucket = |dim: &GroupDim| matches!(dim, GroupDim::TimeBucket { seconds } if seconds % HOURLY_GRAIN_SECONDS == 0);
+    let agg_ok = aggs.iter().all(|agg| match &agg.kind {
+        HopAggKind::LossRatio { sent, received } => sent == "sent" && received == "received",
+        HopAggKind::Wavg { value, weight } => {
+            weight == "received" && ROLLUP_WAVG_VALUES.contains(&value.as_str())
+        }
+        HopAggKind::CountRows => true,
+        HopAggKind::Column { .. } => false,
+    });
+    let dim_ok = dims.iter().all(|dim| match dim {
+        GroupDim::Column(column) => ROLLUP_DIMENSIONS.contains(column),
+        GroupDim::TimeBucket { seconds } => seconds % HOURLY_GRAIN_SECONDS == 0,
+    });
+    let filter_ok = filters
+        .iter()
+        .all(|filter| ROLLUP_DIMENSIONS.contains(&filter.field.as_str()));
+    agg_ok && dim_ok && filter_ok && dims.iter().any(hour_bucket)
 }
 
 fn numeric_literal(value: NumericValue) -> String {
@@ -557,14 +685,27 @@ struct Dim {
     column: Option<&'static str>,
 }
 
-fn hop_agg(agg: &ParsedHopAgg) -> Agg {
-    let expr = match &agg.kind {
-        HopAggKind::LossRatio { sent, received } => {
+fn hop_agg(agg: &ParsedHopAgg, source: HopSource) -> Agg {
+    let expr = match (&agg.kind, source) {
+        (HopAggKind::LossRatio { sent, received }, HopSource::Raw) => {
             loss_ratio_sql(&quoted(sent), &quoted(received))
         }
-        HopAggKind::Wavg { value, weight } => wavg_sql(&quoted(value), &quoted(weight)),
-        HopAggKind::CountRows => "COUNT(*)".to_string(),
-        HopAggKind::Column { function, column } => format!("{function}({})", quoted(column)),
+        // The rollup stores the probe totals the ratio is of, so the same
+        // formula over their sums re-aggregates it exactly across hours.
+        (HopAggKind::LossRatio { .. }, HopSource::Hourly) =>
+            "CASE WHEN COALESCE(SUM(sent_total), 0) > 0 THEN 100.0 * (CAST(SUM(sent_total) AS DOUBLE) - CAST(COALESCE(SUM(received_total), 0) AS DOUBLE)) / CAST(SUM(sent_total) AS DOUBLE) ELSE NULL END".to_string(),
+        (HopAggKind::Wavg { value, weight }, HopSource::Raw) => {
+            wavg_sql(&quoted(value), &quoted(weight))
+        }
+        // Likewise the received-weighted sums: `SUM(weighted) / SUM(weight)`
+        // over hour rows is the raw `wavg` over their union.
+        (HopAggKind::Wavg { value, .. }, HopSource::Hourly) => format!(
+            "CASE WHEN SUM(COALESCE(received_total, 0)) > 0 THEN SUM({value}_weighted) / CAST(SUM(COALESCE(received_total, 0)) AS DOUBLE) ELSE NULL END"
+        ),
+        (HopAggKind::CountRows, HopSource::Raw) => "COUNT(*)".to_string(),
+        (HopAggKind::CountRows, HopSource::Hourly) => "SUM(hop_count)".to_string(),
+        // `hop_hourly_rollup` refuses this shape before choosing the rollup.
+        (HopAggKind::Column { .. }, HopSource::Hourly) => unreachable!("column aggregate on the hop rollup"),
     };
     Agg {
         expr,
@@ -603,17 +744,21 @@ fn trace_agg(agg: &ParsedTraceAgg) -> Result<Agg> {
 /// floors epoch seconds (`to_timestamp(floor(epoch / n) * n)`). Both anchors
 /// fall on a UTC midnight, so the grids agree exactly when the width divides a
 /// day, and only then.
-fn time_bucket_sql(seconds: i64) -> Result<String> {
+fn time_bucket_sql(seconds: i64, source: HopSource) -> Result<String> {
     if seconds <= 0 || SECONDS_PER_DAY % seconds != 0 {
         return Err(ServiceError::InvalidRequest(format!(
             "StarRocks MTR time buckets must divide a day evenly; {seconds}s would cut \
              different bucket edges than CNPG"
         )));
     }
-    Ok(format!("time_slice(`time`, INTERVAL {seconds} SECOND)"))
+    let column = match source {
+        HopSource::Raw => "`time`",
+        HopSource::Hourly => "bucket",
+    };
+    Ok(format!("time_slice({column}, INTERVAL {seconds} SECOND)"))
 }
 
-fn hop_dim(dim: &GroupDim) -> Result<Dim> {
+fn hop_dim(dim: &GroupDim, source: HopSource) -> Result<Dim> {
     Ok(match dim {
         GroupDim::Column(column) => Dim {
             expr: quoted(column),
@@ -621,7 +766,10 @@ fn hop_dim(dim: &GroupDim) -> Result<Dim> {
             column: Some(column),
         },
         GroupDim::TimeBucket { seconds } => Dim {
-            expr: time_bucket_sql(*seconds)?,
+            // The rollup's `bucket` is already hour-floored, and a width that
+            // divides a day cuts the same edges over an hour-floored value as
+            // over the raw `time`, so the grid does not move with the source.
+            expr: time_bucket_sql(*seconds, source)?,
             alias: dim.alias().to_string(),
             column: None,
         },
@@ -636,7 +784,7 @@ fn trace_dim(dim: &TraceGroupDim) -> Result<Dim> {
             column: Some(column),
         },
         TraceGroupDim::TimeBucket { seconds } => Dim {
-            expr: time_bucket_sql(*seconds)?,
+            expr: time_bucket_sql(*seconds, HopSource::Raw)?,
             alias: dim.alias().to_string(),
             column: None,
         },
@@ -759,6 +907,8 @@ mod tests {
 
     const LOSS: &str = "CASE WHEN COALESCE(SUM(`sent`), 0) > 0 THEN 100.0 * (CAST(SUM(`sent`) AS DOUBLE) - CAST(COALESCE(SUM(`received`), 0) AS DOUBLE)) / CAST(SUM(`sent`) AS DOUBLE) ELSE NULL END";
     const LATENCY: &str = "CASE WHEN SUM(COALESCE(`received`, 0)) > 0 THEN SUM(CAST(`avg_us` AS DOUBLE) * CAST(COALESCE(`received`, 0) AS DOUBLE)) / CAST(SUM(COALESCE(`received`, 0)) AS DOUBLE) ELSE NULL END";
+    const LOSS_ROLLUP: &str = "CASE WHEN COALESCE(SUM(sent_total), 0) > 0 THEN 100.0 * (CAST(SUM(sent_total) AS DOUBLE) - CAST(COALESCE(SUM(received_total), 0) AS DOUBLE)) / CAST(SUM(sent_total) AS DOUBLE) ELSE NULL END";
+    const LATENCY_ROLLUP: &str = "CASE WHEN SUM(COALESCE(received_total, 0)) > 0 THEN SUM(avg_us_weighted) / CAST(SUM(COALESCE(received_total, 0)) AS DOUBLE) ELSE NULL END";
 
     /// The live MTR path analytics panels (`priv/dashboards/mtr-path-analytics.json`)
     /// and the earlier panel set `mtr_hops.rs` keeps under test.
@@ -779,7 +929,8 @@ mod tests {
             let sql = compile(query);
             assert!(
                 sql.contains(" FROM serviceradar.mtr_hops ")
-                    || sql.contains(" FROM serviceradar.mtr_traces "),
+                    || sql.contains(" FROM serviceradar.mtr_traces ")
+                    || sql.contains(" FROM serviceradar.mtr_hops_hourly "),
                 "{query}: {sql}"
             );
             assert!(sql.contains(" GROUP BY "), "{query}: {sql}");
@@ -823,11 +974,13 @@ mod tests {
     }
 
     #[test]
-    fn the_trend_keeps_the_newest_hourly_buckets_and_renders_them_oldest_first() {
+    fn the_trend_reads_the_hourly_rollup_over_its_bucket_column() {
         let sql = compile(PANEL_QUERIES[3]);
-        let bucket = "time_slice(`time`, INTERVAL 3600 SECOND)";
+        let bucket = "time_slice(bucket, INTERVAL 3600 SECOND)";
         assert!(
-            sql.starts_with(&format!("SELECT * FROM (SELECT {LOSS} AS `loss`, {bucket} AS `bucket` FROM serviceradar.mtr_hops WHERE ")),
+            sql.starts_with(&format!(
+                "SELECT * FROM (SELECT {LOSS_ROLLUP} AS `loss`, {bucket} AS `bucket` FROM serviceradar.mtr_hops_hourly WHERE `bucket` >= '"
+            )),
             "{sql}"
         );
         assert!(
@@ -836,6 +989,9 @@ mod tests {
             )),
             "{sql}"
         );
+        // The partition column is bounded so the scan skips untouched days.
+        assert!(sql.contains(" AND `day` >= date_trunc('day', '"), "{sql}");
+        assert!(sql.contains(" AND `day` <= '"), "{sql}");
     }
 
     #[test]
@@ -845,10 +1001,118 @@ mod tests {
         );
         assert!(!sorted.contains("NULLS"), "{sorted}");
         assert!(
-            sorted.contains("ORDER BY time_slice(`time`, INTERVAL 3600 SECOND) DESC LIMIT 50"),
+            sorted.contains("ORDER BY time_slice(bucket, INTERVAL 3600 SECOND) DESC LIMIT 50"),
             "{sorted}"
         );
         assert!(sorted.contains(" GROUP BY `addr`, time_slice("), "{sorted}");
+    }
+
+    /// A shape the rollup serves is scored on whole hours in BOTH modes: the
+    /// fresh read and the gate's raw recompile bind the same widened window,
+    /// so staleness can only cost the rollup, never change the answer.
+    #[test]
+    fn an_hourly_shape_widens_to_whole_hours_in_both_modes() {
+        let query = "in:mtr_hops stats:loss_ratio(sent, received) as loss by time:1h limit:500";
+        let mut p = plan(query);
+        p.time_range = Some(crate::time::TimeRange {
+            start: Utc.with_ymd_and_hms(2026, 1, 1, 0, 30, 0).unwrap()
+                + chrono::Duration::microseconds(123_456),
+            end: Utc.with_ymd_and_hms(2026, 1, 2, 2, 45, 0).unwrap(),
+        });
+        let fresh = super::super::translate(&p, DB).expect("compile").sql;
+        assert!(
+            fresh.contains(
+                " FROM serviceradar.mtr_hops_hourly WHERE `bucket` >= '2026-01-01 00:00:00.000000' AND `bucket` < '2026-01-02 03:00:00.000000'"
+            ),
+            "{fresh}"
+        );
+        let stale = super::super::translate_raw(&p, DB)
+            .expect("compile raw")
+            .sql;
+        assert!(
+            stale.contains(
+                " FROM serviceradar.mtr_hops WHERE `time` >= '2026-01-01 00:00:00.000000' AND `time` < '2026-01-02 03:00:00.000000'"
+            ),
+            "{stale}"
+        );
+    }
+
+    /// A scalar total over an exact window is not hour-grained: the rollup
+    /// knows whole hours only, so the `by addr` panels keep the exact bounds.
+    #[test]
+    fn scalar_shapes_stay_on_the_raw_table_with_exact_bounds() {
+        let sql = compile(PANEL_QUERIES[0]);
+        assert!(
+            sql.starts_with(&format!(
+                "SELECT {LOSS} AS `loss`, `addr` AS `addr` FROM serviceradar.mtr_hops WHERE `time` >= '"
+            )),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn asn_shapes_never_read_the_hop_rollup() {
+        for query in [
+            PANEL_QUERIES[2],
+            "in:mtr_hops time:last_24h asn_org:%example% stats:count() as n by addr,time:1h limit:5",
+        ] {
+            let sql = compile(query);
+            assert!(
+                sql.contains(" FROM serviceradar.mtr_hops "),
+                "asn is GeoLite2-only; its shapes stay raw: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn shapes_the_rollup_cannot_re_aggregate_stay_raw() {
+        for query in [
+            // A column aggregate the rollup stores no equivalent of.
+            "in:mtr_hops time:last_24h stats:sum(sent) as v by addr,time:1h limit:5",
+            "in:mtr_hops time:last_24h stats:avg(loss_pct) as v by addr,time:1h limit:5",
+            // A filter outside the view's dimensions.
+            "in:mtr_hops time:last_24h trace_id:8e1c1f3a-0000-4000-8000-000000000001 stats:count() as n by addr,time:1h limit:5",
+            "in:mtr_hops time:last_24h reply_rst:>0 stats:count() as n by addr,time:1h limit:5",
+            // A group the view does not carry.
+            "in:mtr_hops time:last_24h stats:count() as n by hostname,time:1h limit:5",
+            // Sub-hour buckets: the view knows whole hours only.
+            "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr,time:30m limit:5",
+        ] {
+            let sql = compile(query);
+            assert!(
+                sql.contains(" FROM serviceradar.mtr_hops "),
+                "{query}: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_rollup_serves_every_wavg_value_column_by_its_stored_weighted_sum() {
+        for column in ["avg_us", "min_us", "max_us", "jitter_us"] {
+            let query = format!(
+                "in:mtr_hops time:last_24h stats:wavg({column}, received) as v by addr,time:1h limit:5"
+            );
+            let sql = compile(&query);
+            assert!(
+                sql.contains(&format!(
+                    "SUM({column}_weighted) / CAST(SUM(COALESCE(received_total, 0)) AS DOUBLE)"
+                )),
+                "{query}: {sql}"
+            );
+            assert!(
+                sql.contains(" FROM serviceradar.mtr_hops_hourly "),
+                "{query}: {sql}"
+            );
+        }
+        // The latency panel's rolling spelling, over the rollup.
+        let sql = compile(
+            "in:mtr_hops time:last_24h stats:wavg(avg_us, received) as latency by time:1h limit:20",
+        );
+        assert!(sql.contains(LATENCY_ROLLUP), "{sql}");
+        assert!(
+            !sql.contains(LATENCY),
+            "the raw formula stays on the raw table: {sql}"
+        );
     }
 
     #[test]

@@ -126,6 +126,8 @@ pub const STARROCKS_MATERIALIZED_VIEWS: &[&str] = &[
     "events_hourly",
     "traces_stats_5m",
     "spans_red_1h",
+    "mtr_hops_hourly",
+    "mtr_destination_hourly",
 ];
 
 /// Splits a pg_dump file into statements: `;` ends one outside quotes, dollar quotes and
