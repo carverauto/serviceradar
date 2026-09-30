@@ -112,16 +112,16 @@ end
 # against its sweep contract entry (ServiceRadar.Edge.SweepContract).
 config :serviceradar_core,
        :edge_record_contract_registry,
-       # =============================================================================
-       # Logger level override
-       # =============================================================================
-       # Production defaults to :info (see prod.exs); the hot-path per-message logs are
-       # Logger.debug, so :info keeps useful breadcrumbs without the self-telemetry
-       # storm. Operators tune verbosity at runtime via SERVICERADAR_LOG_LEVEL — e.g.
-       # =debug to surface the hot-path traces, =warning to quiet it. Invalid values
-       # fall back to :info rather than crashing boot.
        System.get_env("SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY")
 
+# =============================================================================
+# Logger level override
+# =============================================================================
+# Production defaults to :info (see prod.exs); the hot-path per-message logs are
+# Logger.debug, so :info keeps useful breadcrumbs without the self-telemetry
+# storm. Operators tune verbosity at runtime via SERVICERADAR_LOG_LEVEL — e.g.
+# =debug to surface the hot-path traces, =warning to quiet it. Invalid values
+# fall back to :info rather than crashing boot.
 if config_env() == :prod do
   log_level =
     case System.get_env("SERVICERADAR_LOG_LEVEL") do
