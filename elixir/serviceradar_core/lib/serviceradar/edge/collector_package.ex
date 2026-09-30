@@ -186,11 +186,9 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
       # TLS material is optional. The collector worker records NATS creds only;
       # bundle downloads that need a key supply these arguments themselves.
-      argument :tls_cert_pem, :string, sensitive?: true
-      argument :tls_key_pem, :string, sensitive?: true
-      argument :ca_chain_pem, :string, sensitive?: true
-
-      change transition_state(:ready)
+      argument :tls_cert_pem, :string, allow_nil?: true, sensitive?: true
+      argument :tls_key_pem, :string, allow_nil?: true, sensitive?: true
+      argument :ca_chain_pem, :string, allow_nil?: true, sensitive?: true
 
       change transition_state(:ready)
 

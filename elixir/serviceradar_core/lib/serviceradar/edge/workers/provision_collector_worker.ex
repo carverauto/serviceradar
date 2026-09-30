@@ -65,7 +65,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     # In single-deployment mode, NATS config comes from environment
     with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_status(package),
-         {:ok, _package} <- mark_provisioning(package),
+         {:ok, package} <- mark_provisioning(package),
          {:ok, nats_config} <- get_nats_config(),
          {:ok, user_creds} <- generate_user_credentials(nats_config, package),
          {:ok, credential} <- create_credential_record(package, user_creds),
@@ -139,6 +139,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
       {:error, :package_not_pending}
     end
   end
+
+  defp mark_provisioning(%{status: :provisioning} = package), do: {:ok, package}
 
   defp mark_provisioning(package) do
     actor = SystemActor.system(:provision_collector)
