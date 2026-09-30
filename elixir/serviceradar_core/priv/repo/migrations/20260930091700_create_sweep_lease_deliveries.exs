@@ -2,12 +2,19 @@ defmodule ServiceRadar.Repo.Migrations.CreateSweepLeaseDeliveries do
   @moduledoc """
   What core has delivered of each sweep schedule lease, and what the agent acknowledged.
 
-  One row per producer assignment. `lease_id` and `lease_issued_at` name the lease last pushed
-  and its signed issuance time (every push of one lease signs the same `not_before`, so a slot
-  delivered earlier stays inside the newest production capability). `delivered_window_end` is
-  how far the delivered window reaches, so the next push can carry only the newly minted tail.
-  The ack columns hold the agent's answer to the latest push it acknowledged; an ack whose
-  payload digest differs from `delivered_payload_sha256` answers an older push.
+  One row per producer assignment. The row has no foreign keys: it outlives the assignment and
+  the group, so destroying either leaves it for the lease pass to revoke on the control stream
+  and delete once the session accepted it. `producer_assignment_id` is the primary key and
+  `(sweep_group_id, agent_id)` is unique.
+
+  `lease_id` and `lease_issued_at` name the lease last pushed and its signed issuance time
+  (every push of one lease signs the same `not_before`, so a slot delivered earlier stays
+  inside the newest production capability). `delivered_window_end` is the cursor, just after
+  the last slot actually pushed, so the next tail starts there. A same-lease full push may
+  tell the agent a window that reaches further, through the previous cursor, so the agent
+  drops slots it no longer holds; that further end is not stored. The ack columns hold the
+  agent's answer to the push whose digest is `delivered_payload_sha256`. Any other ack is
+  ignored.
   """
   use Ecto.Migration
 
@@ -18,10 +25,8 @@ defmodule ServiceRadar.Repo.Migrations.CreateSweepLeaseDeliveries do
 
     execute("""
     CREATE TABLE IF NOT EXISTS #{schema}.#{@table} (
-      producer_assignment_id   UUID         PRIMARY KEY
-                               REFERENCES #{schema}.sweep_producer_assignments (id) ON DELETE CASCADE,
-      sweep_group_id           UUID         NOT NULL
-                               REFERENCES #{schema}.sweep_groups (id) ON DELETE CASCADE,
+      producer_assignment_id   UUID         PRIMARY KEY,
+      sweep_group_id           UUID         NOT NULL,
       agent_id                 TEXT         NOT NULL,
       lease_id                 UUID         NOT NULL,
       lease_issued_at          TIMESTAMPTZ  NOT NULL,

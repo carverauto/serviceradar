@@ -4,23 +4,28 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   A push is a `Serviceradar.Edge.V1.SweepLeaseV1` window replacement (see its proto comment):
 
-    * a FULL push carries every unrun slot of the lease, in a window from now to the end of the
-      window already delivered (or its last slot, if later). It is sent for a new lease (first
-      delivery, or a fence bump or reissue, which changes the lease id), after core dropped a
-      delivered slot that has not started, after the agent refused the last push, and when the
-      last push was not acknowledged within `ack_grace_seconds/0`;
-    * otherwise a TAIL push carries only the slots minted since, in a window starting where the
-      delivered window ended, and nothing is sent when there are none.
+    * a FULL push carries every unrun slot of the lease, in a window from now. A new lease ends
+      that window just after its last slot. The same lease ends it at the later of that and the
+      cursor already delivered, so the agent drops slots it no longer holds. It is sent for a
+      new lease (first delivery, or a fence bump or reissue, which changes the lease id), after
+      core dropped a delivered slot that has not started, after the agent refused the last push,
+      and when the last push was not acknowledged within `ack_grace_seconds/0`;
+    * otherwise a TAIL push carries only the slots minted since the cursor, in a window starting
+      at the cursor, and nothing is sent when there are none.
 
-  A window ends just after the last slot it carries, not at the horizon, so a slot the lease
-  pass mints later (it mints a bounded number per pass) always falls in a later window.
+  The cursor stored for every push is just after the last slot that push carried. It is not the
+  further end a same-lease full push may tell the agent, and it is not the horizon, so a slot
+  the lease pass mints later (it mints a bounded number per pass) always falls in a later window.
 
   Every push of one lease signs the same issuance time (`lease_issued_at`, the first push of
   the lease), and its production capability runs from there to the end of the last slot pushed,
   so the newest capability the agent holds covers every slot it was given.
 
   A group that no longer leases to an agent gets a `revoked` push, and its delivery row is
-  removed once the agent's session accepted it.
+  removed once the agent's session accepted it. The row has no foreign key, so it remains when
+  the assignment or the group is destroyed; `withdraw_orphans/3` sends that same revocation
+  for a row whose assignment is missing or revoked, or whose group is missing. An
+  acknowledgement is stored only when its payload digest is the one last pushed.
 
   Core pushes only to agents advertising `capability/0` on their control stream; an agent that
   is not connected simply receives the full window on the next pass that reaches it.
@@ -37,6 +42,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   alias ServiceRadar.SweepJobs.LeaseCapabilities
   alias ServiceRadar.SweepJobs.LeasePass
   alias ServiceRadar.SweepJobs.SweepExecutionSlot
+  alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepLeaseDelivery
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
 
@@ -105,32 +111,32 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   end
 
   @doc """
-  Records an agent's answer to a lease push. `ack` is the decoded `Monitoring.SweepLeaseAck`
-  fields: `:sweep_group_id`, `:payload_sha256`, `:installed`, `:error`,
-  `:installed_through_unix_nano` and `:installed_slot_count`. An ack for a group the agent holds
-  no delivery for is ignored.
+  Revokes every delivery whose producer assignment no longer exists or is revoked, or whose
+  sweep group no longer exists. A row is removed once the session accepted the revocation;
+  otherwise the next pass retries. Returns how many were withdrawn.
+  """
+  @spec withdraw_orphans(DateTime.t(), sender()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def withdraw_orphans(%DateTime{} = now, sender) do
+    with {:ok, rows} <- orphan_rows() do
+      {:ok, Enum.count(rows, &withdraw(&1, now, sender))}
+    end
+  end
+
+  @doc """
+  Records an agent's answer to the lease push last delivered. `ack` is the decoded
+  `Monitoring.SweepLeaseAck` fields: `:sweep_group_id`, `:payload_sha256`, `:installed`,
+  `:error`, `:installed_through_unix_nano` and `:installed_slot_count`. An ack is stored only
+  when `:payload_sha256` equals that push's digest; an ack for an older push, or for a group
+  the agent holds no delivery for, changes nothing.
   """
   @spec record_ack(String.t(), map(), DateTime.t()) :: :ok | {:error, term()}
   def record_ack(agent_id, ack, now \\ DateTime.utc_now()) when is_binary(agent_id) do
     with {:ok, group_id} <- Ecto.UUID.cast(Map.get(ack, :sweep_group_id)),
          {:ok, %SweepLeaseDelivery{} = row} <- get_by_group_agent(group_id, agent_id) do
-      row
-      |> Ash.Changeset.for_update(
-        :record_ack,
-        %{
-          acked_payload_sha256: Map.get(ack, :payload_sha256),
-          ack_installed: Map.get(ack, :installed) == true,
-          ack_error: blank_to_nil(Map.get(ack, :error)),
-          acked_through: from_nanos(Map.get(ack, :installed_through_unix_nano)),
-          acked_slot_count: Map.get(ack, :installed_slot_count),
-          acked_at: now
-        },
-        actor: actor()
-      )
-      |> Ash.update()
-      |> case do
-        {:ok, _row} -> :ok
-        {:error, reason} -> {:error, reason}
+      if Map.get(ack, :payload_sha256) == row.delivered_payload_sha256 do
+        apply_ack(row, ack, now)
+      else
+        :ok
       end
     else
       :error -> {:error, :invalid_sweep_group_id}
@@ -161,14 +167,14 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   defp full(_state, _same_lease?, [], _now), do: :up_to_date
 
   defp full(state, same_lease?, unrun, now) do
-    last_end = window_end_after(List.last(unrun))
+    cursor = carried_end(unrun)
 
     %{
       kind: :full,
       issued_at: if(same_lease?, do: state.lease_issued_at, else: now),
       window_start: now,
-      window_end:
-        if(same_lease?, do: latest(last_end, state.delivered_window_end), else: last_end),
+      window_end: if(same_lease?, do: latest(cursor, state.delivered_window_end), else: cursor),
+      cursor: cursor,
       slots: unrun
     }
   end
@@ -179,17 +185,21 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
         :up_to_date
 
       slots ->
+        cursor = carried_end(slots)
+
         %{
           kind: :tail,
           issued_at: state.lease_issued_at,
           window_start: state.delivered_window_end,
-          window_end: window_end_after(List.last(slots)),
+          window_end: cursor,
+          cursor: cursor,
           slots: slots
         }
     end
   end
 
-  # A window is half-open, so it ends just after the start of the last slot it carries.
+  defp carried_end(slots), do: window_end_after(List.last(slots))
+
   defp window_end_after(%SweepExecutionSlot{slot_start: start}),
     do: DateTime.add(start, 1, :microsecond)
 
@@ -292,7 +302,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
         agent_id: assignment.agent_id,
         lease_id: lease_id,
         lease_issued_at: push.issued_at,
-        delivered_window_end: push.window_end,
+        delivered_window_end: push.cursor,
         delivered_payload_sha256: sha256_hex(payload),
         delivered_at: now
       },
@@ -303,6 +313,57 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
       {:ok, _row} -> {:ok, :pushed}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp apply_ack(row, ack, now) do
+    row
+    |> Ash.Changeset.for_update(
+      :record_ack,
+      %{
+        acked_payload_sha256: Map.get(ack, :payload_sha256),
+        ack_installed: Map.get(ack, :installed) == true,
+        ack_error: blank_to_nil(Map.get(ack, :error)),
+        acked_through: from_nanos(Map.get(ack, :installed_through_unix_nano)),
+        acked_slot_count: Map.get(ack, :installed_slot_count),
+        acked_at: now
+      },
+      actor: actor()
+    )
+    |> Ash.update()
+    |> case do
+      {:ok, _row} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp orphan_rows do
+    with {:ok, rows} <- Ash.read(SweepLeaseDelivery, actor: actor()) do
+      classify_orphans(rows)
+    end
+  end
+
+  defp classify_orphans([]), do: {:ok, []}
+
+  defp classify_orphans(rows) do
+    assignment_ids = Enum.map(rows, & &1.producer_assignment_id)
+    group_ids = rows |> Enum.map(& &1.sweep_group_id) |> Enum.uniq()
+
+    with {:ok, assignments} <- read_ids(SweepProducerAssignment, assignment_ids),
+         {:ok, groups} <- read_ids(SweepGroup, group_ids) do
+      states = Map.new(assignments, &{&1.id, &1.state})
+      present = MapSet.new(groups, & &1.id)
+
+      {:ok,
+       Enum.filter(rows, fn row ->
+         states[row.producer_assignment_id] != :active or row.sweep_group_id not in present
+       end)}
+    end
+  end
+
+  defp read_ids(resource, ids) do
+    resource
+    |> Ash.Query.filter(id in ^ids)
+    |> Ash.read(actor: actor())
   end
 
   defp withdraw(row, now, sender) do

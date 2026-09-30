@@ -1,7 +1,8 @@
 defmodule ServiceRadar.SweepJobs.SweepLeaseDelivery do
   @moduledoc """
-  What core has delivered of one assignment's sweep schedule lease, and the agent's last
-  acknowledgement. `ServiceRadar.SweepJobs.LeaseDelivery` is the only writer.
+  What core has delivered of one assignment's sweep schedule lease, and the agent's
+  acknowledgement of that push. The row outlives the assignment and the group.
+  `ServiceRadar.SweepJobs.LeaseDelivery` is the only writer.
   """
 
   use Ash.Resource,
