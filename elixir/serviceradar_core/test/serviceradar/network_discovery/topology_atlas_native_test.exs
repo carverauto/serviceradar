@@ -228,6 +228,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert info.target == Enum.at(glyphs, edge.target)
     assert info.source.kind == :boundary
     assert info.target.kind == :boundary
+    assert info.last_seen == nil
 
     assert {:ok, first} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id)
     assert first.total_relations == 257
@@ -268,6 +269,45 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
              TopologyAtlas.bundle_info(world, tile.selection, "invented-missing-bundle")
 
     assert {:error, :invalid_identity} = TopologyAtlas.bundle_detail(world, tile.selection, nil)
+  end
+
+  test "bundle info reports a stored observation time only when every member shares it" do
+    a = corner("sr:seen-a.example.com", 100, 100)
+    b = corner("sr:seen-b.example.com", 8_000_000, 100)
+    c = corner("sr:seen-c.example.com", 100, 8_000_000)
+    d = corner("sr:seen-d.example.com", 8_000_000, 8_000_000)
+    e = corner("sr:seen-e.example.com", 4_000_000, 4_000_000)
+
+    relations = [
+      observed("invented-shared-1", a, b, 1, "2020-01-01T00:00:00Z"),
+      observed("invented-shared-2", a, b, 2, "2020-01-01T00:00:00Z"),
+      observed("invented-mixed-1", b, c, 1, "2020-01-01T00:00:00Z"),
+      observed("invented-mixed-2", b, c, 2, "2024-02-01T00:00:00Z"),
+      observed("invented-single", c, d, 1, "2024-06-01T00:00:00Z"),
+      observed("invented-blank-1", d, e, 1, ""),
+      observed("invented-blank-2", d, e, 2, nil)
+    ]
+
+    assert {:ok, builder} = TopologyAtlas.new_builder("invented-observation-layout", 16)
+    assert :ok = TopologyAtlas.add_positions(builder, [a, b, c, d, e])
+    assert :ok = TopologyAtlas.add_relations(builder, relations)
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    assert {:ok, %{edges: edges} = tile} = TopologyAtlas.tile(world, 0, 0, 0)
+
+    observed_times =
+      Map.new(edges, fn edge ->
+        assert {:ok, info} = TopologyAtlas.bundle_info(world, tile.selection, edge.id)
+        assert {:ok, page} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id)
+        assert page.total_relations == length(page.relations)
+        {MapSet.new(Enum.map(page.relations, & &1.id)), info.last_seen}
+      end)
+
+    assert observed_times[MapSet.new(["invented-shared-1", "invented-shared-2"])] ==
+             "2020-01-01T00:00:00Z"
+
+    assert observed_times[MapSet.new(["invented-mixed-1", "invented-mixed-2"])] == nil
+    assert observed_times[MapSet.new(["invented-single"])] == "2024-06-01T00:00:00Z"
+    assert observed_times[MapSet.new(["invented-blank-1", "invented-blank-2"])] == nil
   end
 
   test "packaged health updates are atomic, revision-bound, and separate from tile geometry" do
@@ -359,6 +399,27 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert :ok = TopologyAtlas.add_positions(builder, positions)
     assert {:ok, world} = TopologyAtlas.finish_world(builder)
     world
+  end
+
+  defp corner(id, x, y) do
+    id
+    |> position(x, true)
+    |> Map.merge(%{y: y, component_z: 0, component_x: 0, component_y: 0})
+  end
+
+  defp observed(id, source, target, port, last_seen) do
+    %{
+      relation_id: id,
+      source_id: source.device_id,
+      target_id: target.device_id,
+      evidence_class: "endpoint-attachment",
+      kind: "ATTACHED_TO",
+      source_if_index: port,
+      source_if_name: "p#{port}",
+      target_if_index: port,
+      target_if_name: "p#{port}",
+      last_seen: last_seen
+    }
   end
 
   defp position(id, coordinate, active) do

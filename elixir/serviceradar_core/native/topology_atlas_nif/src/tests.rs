@@ -978,3 +978,113 @@ fn aged_attachment_and_hosted_links_stay_connected() {
     assert!(!current.stale);
     assert_eq!(current.last_seen.as_deref(), Some("2024-06-01T00:00:00Z"));
 }
+
+fn stamp(mut row: RelationRow, last_seen: Option<&str>) -> RelationRow {
+    row.last_seen = last_seen.map(str::to_owned);
+    row
+}
+
+fn placed(id: &str, x: u32, y: u32) -> PositionRow {
+    PositionRow {
+        device_id: id.into(),
+        label: "Synthetic device".into(),
+        x,
+        y,
+        min_zoom: 0,
+        parent_id: None,
+        component_id: "synthetic-component".into(),
+        component_z: 0,
+        component_x: 0,
+        component_y: 0,
+        placement_depth: 4,
+        active: true,
+    }
+}
+
+#[test]
+fn bundle_observation_time_is_shared_across_members() {
+    let a = "sr:seen-a.example.test";
+    let b = "sr:seen-b.example.test";
+    let c = "sr:seen-c.example.test";
+    let d = "sr:seen-d.example.test";
+    let e = "sr:seen-e.example.test";
+    let mut builder = Builder::new("synthetic-observation".into(), 16).unwrap();
+    builder
+        .add_positions(vec![
+            placed(a, 100, 100),
+            placed(b, 8_000_000, 100),
+            placed(c, 100, 8_000_000),
+            placed(d, 8_000_000, 8_000_000),
+            placed(e, 4_000_000, 4_000_000),
+        ])
+        .unwrap();
+    builder
+        .add_relations(vec![
+            stamp(
+                physical("invented-shared-1", a, b, 1, "p1", 1, "p1"),
+                Some("2020-01-01T00:00:00Z"),
+            ),
+            stamp(
+                physical("invented-shared-2", a, b, 2, "p2", 2, "p2"),
+                Some("2020-01-01T00:00:00Z"),
+            ),
+            stamp(
+                physical("invented-mixed-1", b, c, 1, "p1", 1, "p1"),
+                Some("2020-01-01T00:00:00Z"),
+            ),
+            stamp(
+                physical("invented-mixed-2", b, c, 2, "p2", 2, "p2"),
+                Some("2024-02-01T00:00:00Z"),
+            ),
+            stamp(
+                physical("invented-single", c, d, 1, "p1", 1, "p1"),
+                Some("2024-06-01T00:00:00Z"),
+            ),
+            stamp(
+                physical("invented-blank-1", d, e, 1, "p1", 1, "p1"),
+                Some(""),
+            ),
+            stamp(physical("invented-blank-2", d, e, 2, "p2", 2, "p2"), None),
+        ])
+        .unwrap();
+    let world = builder.finish().unwrap();
+    let tile = world
+        .geometry
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    let mut observed = BTreeMap::new();
+    for edge in &tile.edges {
+        let info = world
+            .geometry
+            .bundle_info(&tile.selection, &edge.id)
+            .unwrap();
+        let page = world
+            .geometry
+            .bundle_detail(&tile.selection, &edge.id, None)
+            .unwrap();
+        let ids: BTreeSet<_> = page.relations.iter().map(|row| row.id.clone()).collect();
+        assert_eq!(ids.len() as u64, page.total_relations);
+        observed.insert(ids, info.last_seen);
+    }
+    let members = |ids: &[&str]| {
+        ids.iter()
+            .map(|id| (*id).to_owned())
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(
+        observed[&members(&["invented-shared-1", "invented-shared-2"])].as_deref(),
+        Some("2020-01-01T00:00:00Z")
+    );
+    assert_eq!(
+        observed[&members(&["invented-mixed-1", "invented-mixed-2"])],
+        None
+    );
+    assert_eq!(
+        observed[&members(&["invented-single"])].as_deref(),
+        Some("2024-06-01T00:00:00Z")
+    );
+    assert_eq!(
+        observed[&members(&["invented-blank-1", "invented-blank-2"])],
+        None
+    );
+}

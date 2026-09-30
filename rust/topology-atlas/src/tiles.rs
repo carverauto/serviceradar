@@ -126,6 +126,7 @@ pub struct TileEdge {
     pub topology_class: TopologyClass,
     /// Last-known evidence. A stale bundle never shares geometry with a current one.
     pub stale: bool,
+    pub last_seen: Option<String>,
     /// Fractions of the canonical segment for continuous procedural flow.
     /// Bundles represent aggregate flow and use their own full segment.
     pub start: f64,
@@ -156,6 +157,7 @@ pub struct World {
     pub(crate) relations: Vec<Relation>,
     pub(crate) relation_classes: Vec<TopologyClass>,
     pub(crate) relation_stale: Vec<bool>,
+    pub(crate) relation_last_seen: Vec<Option<String>>,
     pub(crate) endpoints: Vec<Line>,
     pub(crate) segments: SegmentIndex,
     pub(crate) details: DetailIndex,
@@ -207,6 +209,18 @@ impl World {
             hash.update([u8::from(*bit)]);
         }
         self.detail_revision = digest_hex(hash);
+        self
+    }
+
+    pub fn with_relation_last_seen(mut self, seen: impl Fn(&Relation) -> Option<String>) -> Self {
+        self.relation_last_seen = self
+            .relations
+            .iter()
+            .map(|edge| match seen(edge) {
+                Some(value) if !value.is_empty() => Some(value),
+                _ => None,
+            })
+            .collect();
         self
     }
 
@@ -276,6 +290,7 @@ impl World {
             importance,
             relation_classes: vec![TopologyClass::Unknown; relations.len()],
             relation_stale: vec![false; relations.len()],
+            relation_last_seen: vec![None; relations.len()],
             relations,
             endpoints,
             segments,
@@ -530,6 +545,7 @@ impl World {
             let edge = self.endpoints[i as usize];
             let class = self.relation_classes[i as usize];
             let stale = self.relation_stale[i as usize];
+            let seen = self.relation_last_seen[i as usize].clone();
             let source_point = published_portal(cell, clipped.source, seam);
             let target_point = published_portal(cell, clipped.target, seam);
             let quantized = source_point != clipped.source || target_point != clipped.target;
@@ -561,6 +577,9 @@ impl World {
                         edge.count += 1;
                         edge.start = 0.0;
                         edge.end = 1.0;
+                        if edge.last_seen != seen {
+                            edge.last_seen = None;
+                        }
                     })
                     .or_insert_with(|| TileEdge {
                         id: if quantized || profile == TileProfile::AggregateOnly {
@@ -573,6 +592,7 @@ impl World {
                         count: 1,
                         topology_class: class,
                         stale,
+                        last_seen: seen.clone(),
                         start: if quantized { 0.0 } else { clipped.start },
                         end: if quantized { 1.0 } else { clipped.end },
                     });

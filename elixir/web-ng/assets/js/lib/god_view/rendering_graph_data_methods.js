@@ -560,7 +560,7 @@ export const godViewRenderingGraphDataMethods = {
         const protocols = Array.from(new Set(relations.map((relation) => String(relation?.protocol || "")).filter(Boolean))).sort()
         const evidenceClasses = Array.from(new Set(relations.map((relation) => String(relation?.evidenceClass || "")).filter(Boolean))).sort()
 
-        return {
+        const built = {
           routeId: route.id,
           sourceId: route.sourceId,
           targetId: route.targetId,
@@ -594,6 +594,8 @@ export const godViewRenderingGraphDataMethods = {
           edgeCount: Math.max(1, relations.length),
           interactionKey: auxiliary ? null : `local:${route.id}`,
         }
+        Object.defineProperty(built, "memberDetails", {value: relations.map((relation) => relation?.details)})
+        return built
       })
       .filter(Boolean)
   },
@@ -783,9 +785,10 @@ export const godViewRenderingGraphDataMethods = {
         .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
       const dominantClass = classBuckets.length === 1 ? classBuckets[0][0] : ""
       const presentation = deterministicRelationPresentation(edge.presentationRelations)
+      const memberDetails = edge.presentationRelations.map((relation) => relation?.details)
       const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, presentationRelations: _presentationRelations, memberCount: _memberCount, freshMembers: _freshMembers, sharedSeen: _sharedSeen, ...plainEdge} = edge
 
-      return {
+      const built = {
         ...plainEdge,
         details: presentation.details,
         label: presentation.label || labels[0] || edge.label,
@@ -799,6 +802,8 @@ export const godViewRenderingGraphDataMethods = {
         evidenceClasses,
         edgeCount: Math.max(edge.edgeCount, edge.signatures.size),
       }
+      Object.defineProperty(built, "memberDetails", {value: memberDetails})
+      return built
     })
 
     aggregated.sort((left, right) => {

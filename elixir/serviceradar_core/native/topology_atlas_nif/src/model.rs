@@ -381,6 +381,13 @@ fn build_world<'a>(
             .binary_search_by(|row| row.relation_id.cmp(&edge.id))
             .unwrap()]
         .stale
+    })
+    .with_relation_last_seen(|edge| {
+        relations[relations
+            .binary_search_by(|row| row.relation_id.cmp(&edge.id))
+            .unwrap()]
+        .last_seen
+        .clone()
     });
     let overview: BTreeSet<_> = layout_forest(&relations)
         .iter()

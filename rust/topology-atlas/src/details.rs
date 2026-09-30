@@ -196,6 +196,7 @@ pub struct BundleInfo {
     pub relation_count: u64,
     pub source: Glyph,
     pub target: Glyph,
+    pub last_seen: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -582,6 +583,7 @@ impl World {
             relation_count: edge.count,
             source: selection.glyphs[edge.source as usize].clone(),
             target: selection.glyphs[edge.target as usize].clone(),
+            last_seen: edge.last_seen.clone(),
         })
     }
 

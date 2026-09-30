@@ -440,6 +440,7 @@ describe("world tile rendering contract", () => {
     vi.spyOn(renderer, "poll").mockResolvedValue()
     const visible = [{index: {z: 1, x: 0, y: 0}, content: {nodes: [{}, {}], edges: [{}], byteLength: 32}}]
     const titles = []
+    const titleNodes = []
     const notes = []
     let responseBody = null
     vi.stubGlobal("fetch", () => responseBody
@@ -487,20 +488,30 @@ describe("world tile rendering contract", () => {
       renderer.viewportLoaded(visible)
       expect(pushEvent.mock.calls.at(-1)[1]).toMatchObject({zoom_mode: "local", zoom_tier: "local"})
       renderer.openPanel = node => {
+        titleNodes.push(node)
         titles.push(node.textContent)
         notes.length = 0
         renderer.panel = {append(child) { notes.push(child.textContent) }}
       }
-      await renderer.showSelection({kind: "edge", count: 3, stale: true, lastSeen: "2020-01-01T00:00:00Z"}, {layout_version: "layout", generation: "1", kind: "edge", id: "stale-ac"})
-      expect(titles.at(-1)).toBe("3 relations · last known · 2020-01-01T00:00:00Z")
-      await renderer.showSelection({kind: "edge", count: 3, stale: true}, {layout_version: "layout", generation: "1", kind: "edge", id: "stale-ac"})
-      expect(titles.at(-1)).toBe("3 relations · last known")
       await renderer.showSelection({kind: "device", label: "access", id: "sr:access"}, {layout_version: "layout", generation: "1", kind: "device", id: "sr:access"})
       expect(titles.at(-1)).toBe("access")
       const json = value => {
         const bytes = new TextEncoder().encode(JSON.stringify(value))
         return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
       }
+      const bundle = (id, extra) => json({details: {bundle: {id, relation_count: 2, ...extra}, scene: {kind: "bundle_members", id}}})
+      responseBody = bundle("bundle:shared", {last_seen: "2020-01-01T00:00:00Z"})
+      await renderer.showSelection({kind: "bundle", count: 2, stale: true, id: "bundle:shared"}, {layout_version: "layout", generation: "1", kind: "bundle", id: "bundle:shared"})
+      expect(titleNodes.at(-1).textContent).toBe("2 relations · last known · 2020-01-01T00:00:00Z")
+      expect(notes).toEqual(["Selected topology connection", "last known · 2020-01-01T00:00:00Z", "Show members"])
+      responseBody = bundle("bundle:mixed", {last_seen: null})
+      await renderer.showSelection({kind: "bundle", count: 2, stale: true, id: "bundle:mixed"}, {layout_version: "layout", generation: "1", kind: "bundle", id: "bundle:mixed"})
+      expect(titleNodes.at(-1).textContent).toBe("2 relations · last known")
+      expect(notes).toEqual(["Selected topology connection", "last known", "Show members"])
+      responseBody = bundle("bundle:one", {relation_count: 1, last_seen: "2024-06-01T00:00:00Z"})
+      await renderer.showSelection({kind: "bundle", count: 1, id: "bundle:one"}, {layout_version: "layout", generation: "1", kind: "bundle", id: "bundle:one"})
+      expect(titleNodes.at(-1).textContent).toBe("1 relations · 2024-06-01T00:00:00Z")
+      expect(notes).toEqual(["Selected topology connection", "2024-06-01T00:00:00Z", "Show members"])
       responseBody = json({details: {relation: {stale: true, last_seen: "2020-01-01T00:00:00Z"}, device: {label: "access"}}})
       await renderer.showSelection({kind: "device", label: "access", id: "sr:access"}, {layout_version: "layout", generation: "1", kind: "device", id: "sr:access"})
       expect(notes).toEqual(["access", "last known · 2020-01-01T00:00:00Z", "Open neighborhood", "Share device"])

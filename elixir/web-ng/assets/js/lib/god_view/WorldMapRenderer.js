@@ -35,6 +35,14 @@ function worldZoomTier(zoom) {
   return "local"
 }
 
+function storedObservation(details) {
+  const values = [details?.bundle?.last_seen, details?.relation?.last_seen]
+  for (const value of values) {
+    if (typeof value === "string" && value !== "") return value
+  }
+  return ""
+}
+
 /** The persistent world camera owns bounded ELK scenes and returns to its retained tiles. */
 export default class WorldMapRenderer {
   constructor(el, pushEvent, handleEvent, {csrfToken = ""} = {}) {
@@ -486,17 +494,20 @@ export default class WorldMapRenderer {
     this.selection?.abort()
     const selection = new globalThis.AbortController()
     this.selection = selection
-    this.openPanel(element("div", "font-semibold", selectionTitle(object)))
+    const title = element("div", "font-semibold", selectionTitle(object))
+    this.openPanel(title)
     try {
       const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
       if (selection.signal.aborted || this.destroyed) return
       const details = result.details
+      const seen = storedObservation(details)
+      const stale = object?.stale === true || details?.relation?.stale === true
+      title.textContent = selectionTitle({label: object.label, count: object.count, stale, lastSeen: seen})
       const text = details.members ? `${details.members.toLocaleString()} devices` : details.device?.label || details.device?.id || "Selected topology connection"
       this.panel.append(element("p", "mt-2 text-sr-muted", text))
-      const relation = details.relation
       const observation = []
-      if (relation?.stale === true) observation.push("last known")
-      if (typeof relation?.last_seen === "string" && relation.last_seen !== "") observation.push(relation.last_seen)
+      if (stale) observation.push("last known")
+      if (seen) observation.push(seen)
       if (observation.length > 0) this.panel.append(element("p", "mt-2 text-sr-muted", observation.join(" · ")))
       const open = element("button", "btn btn-sm mt-3", object.kind === "device" ? "Open neighborhood" : "Show members")
       // Scene identity comes from the server. A device neighborhood is the

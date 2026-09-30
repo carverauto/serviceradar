@@ -258,6 +258,7 @@ struct WireBundleInfo {
     relation_count: u64,
     source: WireGlyph,
     target: WireGlyph,
+    last_seen: Option<String>,
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -275,6 +276,7 @@ fn bundle_info(
                 relation_count: info.relation_count,
                 source: info.source.into(),
                 target: info.target.into(),
+                last_seen: info.last_seen,
             })
         })
     })

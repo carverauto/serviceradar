@@ -7,8 +7,11 @@ import {applyTopologyOverviewToGraph, layoutTopologyOverview} from "./layout_elk
 import {LANDSCAPE_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "./layout_elk_scene"
 import {collapsedFarm01Graph, expandedFarm01Graph} from "./fixtures/farm01_topology_regression"
 import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
+import {godViewLifecycleStreamDecodeMethods} from "./lifecycle_stream_decode_methods"
 import {godViewRenderingGraphDataMethods, hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
+import {godViewRenderingSelectionMethods} from "./rendering_selection_methods"
 import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
+import {snapshotIpcBytes} from "./fixtures/snapshot_ipc"
 import {prepareTopologyOverviewInput} from "./topology_overview_projection"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
@@ -1245,5 +1248,67 @@ describe("rendering_graph_data_methods", () => {
     expect(out.nodeData[0].stateReason).toBe("reason")
     expect(ctx.stateReasonForNode).toHaveBeenCalledTimes(1)
     expect(ctx.stateReasonForNode.mock.calls[0][0]).toBe(out.nodeData[0])
+  })
+})
+
+describe("bounded observation inspection", () => {
+  it("shows a shared stored time only for the inspected bounded route", () => {
+    const decoder = createStateBackedContext({}, {
+      normalizeDisplayLabel: (value, fallback) => (typeof value === "string" && value.trim() !== "" ? value : fallback),
+    })
+    Object.assign(decoder, bindApi(decoder, godViewLifecycleStreamDecodeMethods))
+    const decoded = decoder.decodeArrowGraph(snapshotIpcBytes({
+      metadataEntries: [["payload_kind", "detail"], ["layout_profile", "radial-overview"]],
+      nodes: [
+        {id: "core", label: "core"},
+        {id: "access", label: "access"},
+        {id: "leaf", label: "leaf"},
+      ],
+      edges: [
+        {source: 0, target: 1, details: {id: "shared-a", last_seen: "2020-01-01T00:00:00Z", source_if_index: 1, target_if_index: 1}},
+        {source: 0, target: 1, details: {id: "shared-b", last_seen: "2020-01-01T00:00:00Z", source_if_index: 2, target_if_index: 2}},
+        {source: 0, target: 2, details: {id: "mixed-a", last_seen: "2020-01-01T00:00:00Z", source_if_index: 3, target_if_index: 3}},
+        {source: 0, target: 2, details: {id: "mixed-b", last_seen: "2021-05-01T00:00:00Z", source_if_index: 4, target_if_index: 4}},
+        {source: 1, target: 2, details: {id: "only", last_seen: "2024-06-01T00:00:00Z", source_if_index: 5, target_if_index: 5}},
+      ],
+    }))
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+    const relationId = (detailsId) => decoded.edges.find((edge) => edge.details.id === detailsId).id
+    const ctx = baseContext({
+      state: {selectedEdgeKey: "local:route-shared", hoveredEdgeKey: null},
+      overrides: {selectEdgeLabels: godViewRenderingSelectionMethods.selectEdgeLabels},
+    })
+    const prepared = ctx.buildTopologySceneEdgeData({
+      nodes: decoded.nodes,
+      edges: decoded.edges,
+      _topologyScene: {
+        routes: [
+          {id: "route-shared", sourceId: "core", targetId: "access", points: [{x: 0, y: 0}, {x: 40, y: 0}], relationIds: [relationId("shared-a"), relationId("shared-b")]},
+          {id: "route-mixed", sourceId: "core", targetId: "leaf", points: [{x: 0, y: 0}, {x: 0, y: 40}], relationIds: [relationId("mixed-a"), relationId("mixed-b")]},
+          {id: "route-only", sourceId: "access", targetId: "leaf", points: [{x: 40, y: 0}, {x: 0, y: 40}], relationIds: [relationId("only")]},
+        ],
+      },
+    }, (edge) => edge.topologyClass || "backbone", () => true, () => true)
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+
+    const shared = ctx.selectEdgeLabels(prepared, "local")
+    expect(shared).toHaveLength(1)
+    expect(shared[0].lastSeen).toBe("2020-01-01T00:00:00Z")
+    expect(shared[0].connectionLabel).toContain("2020-01-01T00:00:00Z")
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 2})
+
+    ctx.state.selectedEdgeKey = "local:route-mixed"
+    const mixed = ctx.selectEdgeLabels(prepared, "local")
+    expect(mixed).toHaveLength(1)
+    expect(mixed[0].lastSeen).toBeUndefined()
+    expect(mixed[0].connectionLabel).not.toContain("2020-01-01T00:00:00Z")
+    expect(mixed[0].connectionLabel).not.toContain("2021-05-01T00:00:00Z")
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 4})
+
+    ctx.state.selectedEdgeKey = "local:route-only"
+    const only = ctx.selectEdgeLabels(prepared, "local")
+    expect(only[0].lastSeen).toBe("2024-06-01T00:00:00Z")
+    expect(only[0].connectionLabel).toContain("2024-06-01T00:00:00Z")
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 5})
   })
 })
