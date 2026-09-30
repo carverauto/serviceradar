@@ -26,6 +26,8 @@ impl Default for Budget {
     }
 }
 
+const CLUSTER_DEPTH: u8 = 3;
+
 /// AggregateOnly bounds identifiers independently of canonical identity length.
 /// The encoder still owns the final serialized byte budget.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -212,19 +214,24 @@ impl World {
         let mut limit = budget.nodes;
         let mut candidates = 0;
         loop {
-            let plan = self.plan(cell, limit, profile);
-            let (result, examined) = self.edges(cell, plan, budget, profile);
-            candidates += examined;
-            if let Some(mut tile) = result {
-                tile.candidate_relations = candidates;
-                tile.revision = self.revision(&tile);
-                tile.selection.tile_revision = tile.revision.clone();
-                if tile.selection.retained_bytes() > MAX_SELECTION_BYTES {
-                    return Err(Error::SelectionBudgetExceeded);
+            for coalesce in [false, true] {
+                let plan = self.plan(cell, limit, profile);
+                let (result, examined) = self.edges(cell, plan, budget, profile, coalesce);
+                candidates += examined;
+                if let Some(mut tile) = result {
+                    tile.candidate_relations = candidates;
+                    tile.revision = self.revision(&tile);
+                    tile.selection.tile_revision = tile.revision.clone();
+                    if tile.selection.retained_bytes() > MAX_SELECTION_BYTES {
+                        return Err(Error::SelectionBudgetExceeded);
+                    }
+                    return Ok(tile);
                 }
-                return Ok(tile);
             }
-            limit = (limit / 2).max(1);
+            if limit == 1 {
+                return Err(Error::ExhaustedWorld);
+            }
+            limit /= 2;
         }
     }
 
@@ -272,7 +279,11 @@ impl World {
             let Some((i, _)) = groups
                 .iter()
                 .enumerate()
-                .filter(|(_, g)| g.cell.z < 24 && !unsplittable.contains(&g.cell))
+                .filter(|(_, g)| {
+                    g.cell.z < 24
+                        && g.cell.z < cell.z.saturating_add(CLUSTER_DEPTH)
+                        && !unsplittable.contains(&g.cell)
+                })
                 .max_by_key(|(_, g)| (g.count, std::cmp::Reverse(g.cell)))
             else {
                 break;
@@ -369,22 +380,33 @@ impl World {
         mut plan: Plan,
         budget: Budget,
         profile: TileProfile,
+        coalesce: bool,
     ) -> (Option<Tile>, usize) {
         let mut proxies = BTreeMap::new();
         let mut bundles = BTreeMap::<(u32, u32), TileEdge>::new();
         let mut internal = 0;
         let (candidates, complete) = self.segments.visit(cell, |i, clipped| {
             let edge = self.endpoints[i as usize];
+            let source_point = if coalesce {
+                side_anchor(cell, clipped.source)
+            } else {
+                clipped.source
+            };
+            let target_point = if coalesce {
+                side_anchor(cell, clipped.target)
+            } else {
+                clipped.target
+            };
             let source = plan.endpoint(
                 edge.source,
-                clipped.source,
+                source_point,
                 &self.layout_version,
                 cell.z,
                 &mut proxies,
             );
             let target = plan.endpoint(
                 edge.target,
-                clipped.target,
+                target_point,
                 &self.layout_version,
                 cell.z,
                 &mut proxies,
@@ -529,6 +551,23 @@ impl Plan {
                 });
                 index
             })
+    }
+}
+
+fn side_anchor(cell: Cell, point: (f64, f64)) -> (f64, f64) {
+    let (left_i, top_i) = cell.origin();
+    let width = f64::from(cell.width());
+    let left = f64::from(left_i);
+    let top = f64::from(top_i);
+    let right = left + width;
+    let bottom = top + width;
+    let (x, y) = point;
+    let vertical = x == left || x == right;
+    let horizontal = y == top || y == bottom;
+    match (vertical, horizontal) {
+        (true, false) => (x, top + width / 2.0),
+        (false, true) => (left + width / 2.0, y),
+        _ => point,
     }
 }
 

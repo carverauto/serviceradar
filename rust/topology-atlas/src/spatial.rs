@@ -17,7 +17,6 @@ pub(crate) struct Line {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Clip {
-    /// Shared phase fractions include fixed endpoint-owner connector reserves.
     pub start: f64,
     pub end: f64,
     pub source: (f64, f64),
@@ -259,8 +258,6 @@ fn contains(bounds: Bounds, point: Point) -> bool {
         && point.y < bounds.bottom
 }
 
-/// Four shared side midpoints and four exact grid corners bound proxy count at
-/// eight per tile. This choice never depends on the density of either neighbor.
 fn portal(a: Point, b: Point, at: Parameter, bounds: Bounds) -> Option<(f64, f64)> {
     let denominator = i128::from(at.denominator);
     let numerator = i128::from(at.numerator);
@@ -280,43 +277,19 @@ fn portal(a: Point, b: Point, at: Parameter, bounds: Bounds) -> Option<(f64, f64
     } else {
         None
     };
+    let along = at.value();
     match (vertical, horizontal) {
         (Some(x), Some(y)) => Some((f64::from(x), f64::from(y))),
         (Some(x), None) => Some((
             f64::from(x),
-            (f64::from(bounds.top) + f64::from(bounds.bottom)) / 2.0,
+            f64::from(a.y) + (f64::from(b.y) - f64::from(a.y)) * along,
         )),
         (None, Some(y)) => Some((
-            (f64::from(bounds.left) + f64::from(bounds.right)) / 2.0,
+            f64::from(a.x) + (f64::from(b.x) - f64::from(a.x)) * along,
             f64::from(y),
         )),
         (None, None) => None,
     }
-}
-
-/// A point on a grid boundary belongs to the tile on its right/bottom. If its
-/// relation leaves that owner immediately, preserve the rendered connection
-/// from the point to the shared portal even though its canonical clip is empty.
-fn endpoint_closure(point: Point, other: Point, width: u32) -> Option<((f64, f64), f64)> {
-    let left = point.x / width * width;
-    let top = point.y / width * width;
-    let exits_owner =
-        (point.x == left && other.x < point.x) || (point.y == top && other.y < point.y);
-    if !exits_owner {
-        return None;
-    }
-    let bounds = Bounds {
-        left,
-        top,
-        right: left + width,
-        bottom: top + width,
-    };
-    let portal = portal(point, other, Parameter::ZERO, bounds)?;
-    // Reserve a fixed phase interval even if this raw device equals the
-    // portal: its displayed aggregate can still need a visible connector.
-    // Both neighbors derive this interval without seeing each other's plan.
-    // The tile builder omits only genuinely coincident rendered endpoints.
-    Some((portal, f64::from(width) / 2.0))
 }
 
 fn clip(a: Point, b: Point, bounds: Bounds) -> Option<Clip> {
@@ -363,45 +336,13 @@ fn clip(a: Point, b: Point, bounds: Bounds) -> Option<Clip> {
         }
     }
     let order = start.compare(end);
-    if order.is_gt() {
-        return None;
-    }
-
-    let width = bounds.right - bounds.left;
-    let source_closure = endpoint_closure(a, b, width);
-    let target_closure = endpoint_closure(b, a, width);
-    let source_length = source_closure.map_or(0.0, |(_, length)| length);
-    let target_length = target_closure.map_or(0.0, |(_, length)| length);
-    let canonical_length = (dx as f64).hypot(dy as f64);
-    let total = source_length + canonical_length + target_length;
-
-    if order.is_eq() {
-        if start.compare(Parameter::ZERO).is_eq() && owns_source {
-            let (portal, _) = source_closure?;
-            return Some(Clip {
-                start: 0.0,
-                end: source_length / total,
-                source: source_point,
-                target: portal,
-            });
-        }
-        if end.compare(Parameter::ONE).is_eq() && owns_target {
-            let (portal, _) = target_closure?;
-            return Some(Clip {
-                start: (source_length + canonical_length) / total,
-                end: 1.0,
-                source: portal,
-                target: target_point,
-            });
-        }
-        // Merely touching a corner without owning a canonical endpoint must
-        // not create an extra segment in either adjacent non-owning tile.
+    if !order.is_lt() {
         return None;
     }
 
     Some(Clip {
-        start: (source_length + start.value() * canonical_length) / total,
-        end: (source_length + end.value() * canonical_length) / total,
+        start: start.value(),
+        end: end.value(),
         source: if owns_source {
             source_point
         } else {

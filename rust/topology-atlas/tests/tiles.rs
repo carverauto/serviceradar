@@ -237,13 +237,109 @@ fn crossing_segments_survive_without_endpoints_and_share_exact_boundaries() {
     }
     let a = &left.glyphs[left.edges[0].target as usize];
     let b = &right.glyphs[right.edges[0].source as usize];
-    assert_eq!((a.x, a.y), (8_388_608.0, 6_291_456.0));
+    assert_eq!((a.x, a.y), (8_388_608.0, 5_000_000.0));
     assert_eq!((a.x, a.y), (b.x, b.y));
     assert_eq!(left.edges[0].end, right.edges[0].start);
     let outside = world
         .tile(Cell::new(2, 1, 0).unwrap(), Budget::default())
         .unwrap();
     assert!(outside.edges.is_empty() && outside.glyphs.is_empty());
+}
+
+#[test]
+fn diagonal_crossings_stay_on_their_canonical_segments() {
+    let segments = [
+        (
+            position(1, 1_000_000, 4_500_000, 0),
+            position(2, 12_000_000, 7_000_000, 0),
+        ),
+        (
+            position(3, 1_000_000, 5_000_000, 0),
+            position(4, 12_000_000, 6_500_000, 0),
+        ),
+    ];
+    let points: Vec<_> = segments
+        .iter()
+        .flat_map(|(a, b)| [a.clone(), b.clone()])
+        .collect();
+    let relations: Vec<_> = segments.iter().map(|(a, b)| edge(a, b)).collect();
+    let world = World::new("diagonal".into(), 4, points, relations).unwrap();
+    let left = world
+        .tile(Cell::new(2, 1, 1).unwrap(), Budget::default())
+        .unwrap();
+    let right = world
+        .tile(Cell::new(2, 2, 1).unwrap(), Budget::default())
+        .unwrap();
+    let seam = 8_388_608.0;
+    let midpoint = (4_194_304.0 + seam) / 2.0;
+    let mut shared = Vec::new();
+    for edge in &left.edges {
+        let portal = &left.glyphs[edge.target as usize];
+        if portal.x != seam {
+            continue;
+        }
+        let mate = right
+            .edges
+            .iter()
+            .find(|other| {
+                let point = &right.glyphs[other.source as usize];
+                point.x == portal.x && point.y == portal.y
+            })
+            .expect("neighbor shares the canonical intersection");
+        assert_eq!(edge.end, mate.start);
+        assert_eq!(portal.id, right.glyphs[mate.source as usize].id);
+        assert_ne!(portal.y, midpoint);
+        assert!(
+            segments.iter().any(|(a, b)| {
+                let dx = f64::from(b.x) - f64::from(a.x);
+                let dy = f64::from(b.y) - f64::from(a.y);
+                let y = f64::from(a.y) + (seam - f64::from(a.x)) / dx * dy;
+                (portal.y - y).abs() < 1e-3
+            }),
+            "seam {} left the canonical segment",
+            portal.y
+        );
+        shared.push(portal.y);
+    }
+    assert_eq!(shared.len(), 2);
+    assert_ne!(shared[0], shared[1]);
+}
+
+#[test]
+fn nearby_devices_cluster_at_overview_and_resolve_at_detail() {
+    let origin = Cell::new(3, 1, 1).unwrap().origin().0;
+    let points = vec![
+        position(1, origin + 64, origin + 64, 8),
+        position(2, origin + 64 + 512, origin + 64, 8),
+        position(3, origin + 64, origin + 64 + 512, 8),
+    ];
+    let relations = vec![edge(&points[0], &points[1]), edge(&points[1], &points[2])];
+    let world = World::new("cluster-synthetic".into(), 16, points.clone(), relations).unwrap();
+    let overview = world
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    assert_eq!(overview.device_count, 3);
+    assert_eq!(overview.glyphs.len(), 1);
+    assert_eq!(overview.glyphs[0].kind, GlyphKind::Aggregate);
+    assert_eq!(overview.glyphs[0].count, 3);
+    assert_eq!(overview.internal_relations, 2);
+
+    for point in &points {
+        let cell = Cell::at_point(16, point.x, point.y).unwrap();
+        let tile = world.tile(cell, Budget::default()).unwrap();
+        assert_eq!(tile.device_count, 1);
+        let device = tile
+            .glyphs
+            .iter()
+            .find(|glyph| glyph.kind == GlyphKind::Device)
+            .unwrap();
+        assert_eq!(device.id, point.id);
+        assert_eq!(device.label, point.label);
+        assert_eq!(
+            (device.x, device.y),
+            (f64::from(point.x), f64::from(point.y))
+        );
+    }
 }
 
 #[test]
@@ -330,25 +426,22 @@ fn corners_and_owned_boundary_contacts_preserve_adjacency_and_flow_phase() {
             .unwrap();
         assert_eq!(owner.internal_relations, 1);
         assert_eq!(owner.device_count, 1);
+        assert!(owner.edges.is_empty());
+        assert!(owner.glyphs.iter().any(|glyph| glyph.kind == kind));
+        assert_eq!(neighbor.edges.len(), 1);
         let continuation = &neighbor.edges[0];
-        if y == WORLD_EXTENT / 4 && kind == GlyphKind::Device {
-            // A zero-length rendered connector is omitted, not counted as an
-            // additional internal relation. Its reserved phase stays stable.
-            assert!(owner.edges.is_empty());
-            assert!(continuation.start > 0.0);
-            continue;
-        }
-        assert_eq!(owner.edges.len(), 1);
-        let closure = &owner.edges[0];
-        assert_eq!(owner.glyphs[closure.source as usize].kind, kind);
+        let portal = &neighbor.glyphs[continuation.source as usize];
+        assert_eq!(portal.kind, GlyphKind::Boundary);
         assert_eq!(
-            owner.glyphs[closure.target as usize].id,
-            neighbor.glyphs[continuation.source as usize].id
+            (portal.x, portal.y),
+            (f64::from(WORLD_EXTENT / 2), f64::from(y))
         );
-        assert_eq!(closure.start, 0.0);
-        assert!(closure.end > 0.0 && closure.end < 1.0);
-        assert_eq!(closure.end, continuation.start);
+        assert_eq!(continuation.start, 0.0);
         assert_eq!(continuation.end, 1.0);
+        if kind == GlyphKind::Device {
+            let far = &neighbor.glyphs[continuation.target as usize];
+            assert_eq!((far.x, far.y), (1.0, f64::from(y)));
+        }
     }
 }
 

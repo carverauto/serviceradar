@@ -23,11 +23,11 @@ struct Layout {
     children: Vec<(usize, f64, f64)>,
 }
 
-pub(crate) fn place(
-    tree: &[(usize, Option<usize>)],
-    component: Cell,
-    engine: &Elk,
-) -> Result<HashMap<usize, (u32, u32)>, Error> {
+pub(crate) struct Drawing {
+    layouts: HashMap<usize, Layout>,
+}
+
+pub(crate) fn compose(tree: &[(usize, Option<usize>)], engine: &Elk) -> Result<Drawing, Error> {
     let local: HashMap<_, _> = tree
         .iter()
         .enumerate()
@@ -128,20 +128,41 @@ pub(crate) fn place(
             },
         );
     }
-    let layout = layouts.get(&0).ok_or(Error::LayoutUnavailable)?;
+    Ok(Drawing { layouts })
+}
+
+pub(crate) fn finest_cell(drawing: &Drawing, expected: usize) -> Result<u8, Error> {
+    for z in (0..=12).rev() {
+        if project(drawing, Cell { z, x: 0, y: 0 }, expected).is_ok() {
+            return Ok(z);
+        }
+    }
+    Err(Error::ExhaustedWorld)
+}
+
+pub(crate) fn project(
+    drawing: &Drawing,
+    component: Cell,
+    expected: usize,
+) -> Result<HashMap<usize, (u32, u32)>, Error> {
+    let root = drawing.layouts.get(&0).ok_or(Error::LayoutUnavailable)?;
     let width = f64::from(component.width());
-    let scale = (width - 2.0) / layout.width.max(layout.height).max(1.0);
+    let scale = (width - 2.0) / root.width.max(root.height).max(1.0);
     let (left, top) = component.origin();
-    let offset_x = (width - layout.width * scale) / 2.0;
-    let offset_y = (width - layout.height * scale) / 2.0;
+    let offset_x = (width - root.width * scale) / 2.0;
+    let offset_y = (width - root.height * scale) / 2.0;
     let mut occupied = HashSet::new();
     let mut result = HashMap::new();
     // Apply accumulated offsets once per device, rather than copying each
     // descendant's geometry through every ancestor in a deep hierarchy.
-    let mut pending = vec![(0, 0.0, 0.0)];
-    while let Some((root, dx, dy)) = pending.pop() {
-        let layout = layouts.remove(&root).ok_or(Error::LayoutUnavailable)?;
-        for (id, x, y) in layout.points {
+    let mut pending = vec![(0usize, 0.0, 0.0)];
+    let mut seen = HashSet::new();
+    while let Some((node, dx, dy)) = pending.pop() {
+        if !seen.insert(node) {
+            return Err(Error::LayoutUnavailable);
+        }
+        let layout = drawing.layouts.get(&node).ok_or(Error::LayoutUnavailable)?;
+        for &(id, x, y) in &layout.points {
             let x = left + (offset_x + (x + dx) * scale).round() as u32;
             let y = top + (offset_y + (y + dy) * scale).round() as u32;
             if !component.contains(x, y) || !occupied.insert((x, y)) {
@@ -152,11 +173,11 @@ pub(crate) fn place(
         pending.extend(
             layout
                 .children
-                .into_iter()
-                .map(|(id, x, y)| (id, x + dx, y + dy)),
+                .iter()
+                .map(|&(id, x, y)| (id, x + dx, y + dy)),
         );
     }
-    if result.len() != tree.len() || !layouts.is_empty() {
+    if result.len() != expected || seen.len() != drawing.layouts.len() {
         return Err(Error::LayoutUnavailable);
     }
     Ok(result)

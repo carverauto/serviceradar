@@ -42,9 +42,16 @@ pub fn reconcile(
             .iter()
             .find_map(|(i, _)| known.get(devices[*i].id.as_str()).copied());
         let root = tree[0].0;
-        let component = match anchor {
-            Some(position) => position.component,
-            None => cells.reserve(&devices[root].id, component_depth)?,
+        let drawing = if anchor.is_none() {
+            Some(crate::elk_hierarchy::compose(&tree, elk.as_ref().unwrap())?)
+        } else {
+            None
+        };
+        let component = if let Some(drawing) = &drawing {
+            let finest = crate::elk_hierarchy::finest_cell(drawing, tree.len())?;
+            cells.reserve(&devices[root].id, component_depth, finest)?
+        } else {
+            anchor.expect("anchored tree").component
         };
         let component_id =
             anchor.map_or_else(|| devices[root].id.clone(), |p| p.component_id.clone());
@@ -55,15 +62,10 @@ pub fn reconcile(
         if u16::from(component.z) + u16::from(placement_depth) > 24 {
             return Err(Error::ExhaustedWorld);
         }
-        let fresh_geometry = if anchor.is_none() {
-            Some(crate::elk_hierarchy::place(
-                &tree,
-                component,
-                elk.as_ref().unwrap(),
-            )?)
-        } else {
-            None
-        };
+        let fresh_geometry = drawing
+            .as_ref()
+            .map(|drawing| crate::elk_hierarchy::project(drawing, component, tree.len()))
+            .transpose()?;
         for &(i, parent) in &tree {
             let device = &devices[i];
             let position = if let Some(old) = known.get(device.id.as_str()) {
@@ -383,26 +385,43 @@ impl ComponentCells {
         }
     }
 
-    fn reserve(&mut self, id: &str, initial_depth: u8) -> Result<Cell, Error> {
+    fn reserve(&mut self, id: &str, initial_depth: u8, finest: u8) -> Result<Cell, Error> {
         let seed = hash(id);
-        let total = 1u64 << 24;
-        for z in initial_depth..=12 {
-            let count = 1u64 << (2 * z);
-            if total / count > (total - self.occupied_area) / 4 {
-                continue;
-            }
-            for offset in 0..count.min(128) {
-                let (x, y) = morton_xy(seed.wrapping_add(offset) % count);
-                let cell = Cell { z, x, y };
-                if !self.prefixes.contains(&cell)
-                    && !(0..=z).any(|a| self.leaves.contains(&cell.ancestor(a)))
-                {
-                    self.insert(cell);
-                    return Ok(cell);
-                }
+        let finest = finest.min(12);
+        if initial_depth <= finest
+            && let Some(cell) = self.find(seed, initial_depth, finest, true)
+        {
+            self.insert(cell);
+            return Ok(cell);
+        }
+        for z in (0..=finest).rev() {
+            if let Some(cell) = self.find(seed, z, z, false) {
+                self.insert(cell);
+                return Ok(cell);
             }
         }
         Err(Error::ExhaustedWorld)
+    }
+
+    fn find(&self, seed: u64, from: u8, to: u8, area_limited: bool) -> Option<Cell> {
+        let total = 1u64 << 24;
+        for z in from..=to {
+            let count = 1u64 << (2 * z);
+            if area_limited && total / count > (total - self.occupied_area) / 4 {
+                continue;
+            }
+            let samples = if area_limited { count.min(128) } else { count };
+            for offset in 0..samples {
+                let (x, y) = morton_xy(seed.wrapping_add(offset) % count);
+                let cell = Cell { z, x, y };
+                if !self.prefixes.contains(&cell)
+                    && !(0..=z).any(|ancestor| self.leaves.contains(&cell.ancestor(ancestor)))
+                {
+                    return Some(cell);
+                }
+            }
+        }
+        None
     }
 }
 
