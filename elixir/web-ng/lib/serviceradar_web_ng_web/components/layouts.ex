@@ -131,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               <div :if={not Map.get(@srql, :enabled, false)} class="ml-auto flex-1"></div>
 
               <div class="flex shrink-0 items-center gap-2">
-                <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
+                <%!-- Theme selection is available in the operations profile menu. --%>
                 {render_slot(@topbar_actions)}
 
                 <%= if not @signed_in? do %>
@@ -816,7 +816,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   @doc """
-  Dark / light theme toggle.
+  Dark / light / system theme toggle.
 
   Rendered in the operations topbar profile menu. Selection is persisted by
   `theme_init.js` using the `phx:set-theme` event.
@@ -829,11 +829,21 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       id="theme-toggle"
       class="relative flex flex-row items-center rounded-full border border-sr-line bg-sr-subtle shadow-sr-control"
     >
-      <div class="absolute left-0 h-full w-1/2 rounded-full border border-sr-line bg-sr-raised shadow-sr-control transition-[left] duration-200 ease-sr-out [[data-theme=dark]_&]:left-1/2" />
+      <div class="absolute left-0 h-full w-1/3 rounded-full border border-sr-line bg-sr-raised shadow-sr-control transition-[left] duration-200 ease-sr-out [[data-theme-preference=light]_&]:left-1/3 [[data-theme-preference=dark]_&]:left-2/3" />
 
       <button
         type="button"
-        class="relative z-[1] flex w-1/2 cursor-pointer p-2 text-sr-muted outline-none transition-colors hover:text-sr-ink focus-visible:text-sr-ink"
+        class="relative z-[1] flex w-1/3 cursor-pointer p-2 text-sr-muted outline-none transition-colors hover:text-sr-ink focus-visible:text-sr-ink"
+        phx-click={JS.dispatch("phx:set-theme")}
+        data-phx-theme="system"
+        aria-label="System theme"
+      >
+        <.icon name="hero-computer-desktop-micro" class="size-4" />
+      </button>
+
+      <button
+        type="button"
+        class="relative z-[1] flex w-1/3 cursor-pointer p-2 text-sr-muted outline-none transition-colors hover:text-sr-ink focus-visible:text-sr-ink"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
         aria-label="Light theme"
@@ -843,7 +853,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       <button
         type="button"
-        class="relative z-[1] flex w-1/2 cursor-pointer p-2 text-sr-muted outline-none transition-colors hover:text-sr-ink focus-visible:text-sr-ink"
+        class="relative z-[1] flex w-1/3 cursor-pointer p-2 text-sr-muted outline-none transition-colors hover:text-sr-ink focus-visible:text-sr-ink"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
         aria-label="Dark theme"

@@ -36,14 +36,15 @@ defmodule ServiceRadarWebNGWeb.LayoutsTopbarActionsTest do
     assert summary_html =~ "pointer-events-none"
   end
 
-  test "operations profile menu offers only light and dark theme selection" do
+  test "operations profile menu offers system, light and dark theme selection" do
     document = (&preview/1) |> render_component(%{}) |> LazyHTML.from_fragment()
 
     assert document
            |> LazyHTML.filter("#ops-topbar #ops-profile-menu #theme-toggle button")
-           |> LazyHTML.attribute("data-phx-theme") == ["light", "dark"]
+           |> LazyHTML.attribute("data-phx-theme") == ["system", "light", "dark"]
 
     for {theme, label} <- [
+          {"system", "System theme"},
           {"light", "Light theme"},
           {"dark", "Dark theme"}
         ] do
