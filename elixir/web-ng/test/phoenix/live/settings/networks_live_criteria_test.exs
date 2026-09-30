@@ -4,8 +4,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CriteriaConversionTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -13,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CriteriaConversionTest do
   alias ServiceRadarWebNG.AccountsFixtures
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup :register_and_log_in_admin_user
 

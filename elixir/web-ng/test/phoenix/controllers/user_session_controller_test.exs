@@ -7,11 +7,11 @@ defmodule ServiceRadarWebNGWeb.UserSessionControllerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadarWebNG.Accounts
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup do
     %{user: user_fixture()}

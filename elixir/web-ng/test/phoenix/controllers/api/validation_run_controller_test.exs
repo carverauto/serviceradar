@@ -2,11 +2,11 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.Inventory.DeviceIdentifier
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = ServiceRadarWebNG.AccountsFixtures.user_fixture(%{role: :operator})

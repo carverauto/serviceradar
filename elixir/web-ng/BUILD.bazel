@@ -393,9 +393,10 @@ ex_unit_tests(
     #
     # Excluding them states the truth -- these are not database-free tests --
     # instead of tagging them :db_free, which would make them run without the
-    # database they need. They belong in a DB-backed target; until one exists
-    # they are not covered by Bazel, and that is now visible rather than
-    # disguised as green.
+    # database they need. They also need the SRQL NIF or a live AGE graph, so
+    # they stay off //elixir/web-ng:networks_live_db_test. Each file is listed
+    # with a reason in UNROUTED_TEST_SOURCES in
+    # build/contracts/web_ng_test_lane_routing_contract_test.py.
     srcs = glob(
         ["test/**/*_test.exs"],
         exclude = [

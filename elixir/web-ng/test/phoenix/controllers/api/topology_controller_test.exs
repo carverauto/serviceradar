@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNGWeb.Api.TopologyControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = admin_user_fixture()

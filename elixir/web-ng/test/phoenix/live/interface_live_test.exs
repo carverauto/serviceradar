@@ -2,12 +2,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
   # Writes to shared tables; keep serial to avoid deadlocks in CNPG-backed tests.
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()

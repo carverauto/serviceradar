@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian
+
+  @moduletag :web_ng_shared_fixture_db
 
   describe "GET /api/admin/plugin-assignments/:id" do
     test "returns 404 for an unknown assignment", %{conn: conn} do

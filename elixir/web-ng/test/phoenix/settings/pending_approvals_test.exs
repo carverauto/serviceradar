@@ -10,10 +10,10 @@ defmodule ServiceRadarWebNGWeb.Settings.PendingApprovalsTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Settings.PendingApprovals
+
+  @moduletag :web_ng_shared_fixture_db
 
   defp viewer_scope, do: %Scope{permissions: MapSet.new(["plugins.view"])}
 

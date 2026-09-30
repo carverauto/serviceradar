@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNG.CameraRelayWebRTCSignalingManagerTest do
   use ExUnit.Case, async: false
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNG.CameraRelayWebRTCSignalingManager
+
+  @moduletag :db_free
 
   defmodule RemoteManagerStub do
     @moduledoc false

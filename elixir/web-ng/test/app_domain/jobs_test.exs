@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNG.JobsTest do
   use ServiceRadarWebNG.DataCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadarWebNG.Jobs
   alias ServiceRadarWebNG.Jobs.Schedule
   alias ServiceRadarWebNG.Repo
+
+  @moduletag :web_ng_shared_fixture_db
 
   describe "schedules" do
     test "validates cron expressions" do

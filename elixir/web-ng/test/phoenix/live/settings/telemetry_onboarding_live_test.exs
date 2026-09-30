@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :web_ng_shared_fixture_db
 
   @trace_id "aabbccddeeff00112233445566778899"
 

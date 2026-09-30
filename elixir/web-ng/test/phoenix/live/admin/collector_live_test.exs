@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0]
+
+  @moduletag :web_ng_shared_fixture_db
 
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="

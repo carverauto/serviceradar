@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNGWeb.AnsibleCatalogLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()

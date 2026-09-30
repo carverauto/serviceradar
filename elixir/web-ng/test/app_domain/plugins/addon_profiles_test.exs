@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNG.Plugins.AddonProfilesTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Plugins.AddonAssignment
@@ -12,6 +10,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfilesTest do
   alias ServiceRadarWebNG.Plugins.AddonProfiles
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "delete removes the profile and its profile-owned assignments" do
     addon_id = "addon-profile-delete-#{System.unique_integer([:positive])}"

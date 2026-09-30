@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.CompositeChecks.CompositeCheck
@@ -13,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
   alias ServiceRadarWebNG.AccountsFixtures
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup :register_and_log_in_admin_user
 

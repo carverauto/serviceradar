@@ -348,8 +348,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp materialize_projection_attachment_nodes(nodes, _edges) when is_list(nodes), do: nodes
 
   defp materialize_projection_attachment_edge_nodes(edge, nodes_by_id, known_infrastructure_ips, acc)
-       when is_map(edge) and is_map(nodes_by_id) and is_struct(known_infrastructure_ips, MapSet) and
-              is_map(acc) do
+       when is_map(edge) and is_map(nodes_by_id) and is_struct(known_infrastructure_ips, MapSet) and is_map(acc) do
     if materializable_projection_attachment_edge?(edge) do
       Enum.reduce(projection_attachment_endpoint_sides(edge, nodes_by_id), acc, fn
         {_side, endpoint_id, endpoint_node}, inner when is_binary(endpoint_id) ->
@@ -370,9 +369,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp materialize_projection_attachment_edge_nodes(_edge, _nodes_by_id, _known_infrastructure_ips, acc)
-       when is_map(acc),
-       do: acc
+  defp materialize_projection_attachment_edge_nodes(_edge, _nodes_by_id, _known_infrastructure_ips, acc) when is_map(acc),
+    do: acc
 
   defp materialize_projection_attachment_endpoint(
          edge,
@@ -977,9 +975,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     # as segment evidence for the connectivity forest; routing those edges
     # into collapse would fold transit paths into endpoint clusters.
     attachment_endpoint_side_count(edge, device_by_id) == 1 and
-      non_router_access_attachment_anchor?(
-        Map.get(device_by_id, attachment_anchor_id(edge, device_by_id))
-      ) and
+      non_router_access_attachment_anchor?(Map.get(device_by_id, attachment_anchor_id(edge, device_by_id))) and
       attachment_identity_hint?(edge, device_by_id)
   end
 
@@ -1041,8 +1037,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   # e.g. a UniFi uplink row, must survive to carry the pair), and any flow,
   # any interface telemetry, or a higher tier keeps the edge (a quiet second
   # leg must stay visible).
-  defp shadowed_by_direct_edge?(edge, direct_pairs)
-       when is_map(edge) and is_struct(direct_pairs, MapSet) do
+  defp shadowed_by_direct_edge?(edge, direct_pairs) when is_map(edge) and is_struct(direct_pairs, MapSet) do
     with "endpoint-attachment" <- evidence_class(edge),
          pair when not is_nil(pair) <- unordered_edge_pair(edge),
          true <- MapSet.member?(direct_pairs, pair),

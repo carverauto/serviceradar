@@ -2,10 +2,10 @@ defmodule ServiceRadarWebNG.OutboundMailSettingsTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Integrations.OutboundMailSettings
   alias ServiceRadar.OutboundMail
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "stores local mail credentials encrypted and reloads them for delivery config" do
     # A missing settings row is "no operator override", not a failure, so the

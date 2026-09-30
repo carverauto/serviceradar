@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.AuthoredDashboardVariablesTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
+
+  @moduletag :db_free
 
   test "substitute escapes string variables as SRQL literals" do
     variables = [

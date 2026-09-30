@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   A collector bundle contains everything needed to configure an already-installed collector:
   - NATS credentials file (.creds) for account-isolated messaging
-  - mTLS certificates for secure communication on host-installed collectors
+  - mTLS certificates for host-installed collectors, when the package has them
   - Collector configuration file (TOML for flowgger/otel, JSON for trapd/netflow)
   - Update or deploy script for the target runtime
 
@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       collector-package-<id>/
       ├── creds/
       │   └── nats.creds           # NATS account credentials
-      ├── certs/
+      ├── certs/                   # omitted entirely when the package has no TLS material
       │   ├── collector.pem        # TLS certificate
       │   ├── collector-key.pem    # TLS private key
       │   └── ca-chain.pem         # CA certificate chain
@@ -21,6 +21,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       │   └── <collector>.toml     # Collector configuration (or .json)
       ├── update.sh                # Script to copy files and restart service
       └── README.md                # Installation instructions
+
+  `update.sh` copies `certs/` only when all three files are in the bundle.
+  A package marked ready with NATS credentials and no PEMs still downloads.
 
   Falcosidekick is the Kubernetes exception: its bundle ships Helm values and
   a deploy script, and it expects the cluster-wide `serviceradar-runtime-certs`
@@ -54,9 +57,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   ## Parameters
 
-    * `package` - The CollectorPackage struct (must have TLS certs populated)
-    * `nats_creds` - The decrypted NATS credentials content
-    * `tls_key_pem` - The decrypted TLS private key
+    * `package` - The CollectorPackage struct. Nil TLS PEM fields are left out of the tarball.
+    * `nats_creds` - Plaintext NATS credentials (AshCloak decrypts the field when it is loaded)
+    * `tls_key_pem` - Plaintext TLS private key, or nil when the package has none
     * `opts` - Additional options:
       * `:nats_url` - NATS server URL (default: from config)
 

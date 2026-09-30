@@ -12,8 +12,6 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Ecto.Query
   import ExUnit.CaptureLog
 
@@ -29,6 +27,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   alias ServiceRadarWebNG.Plugins.NativeAddonSyncWorker
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @repo_url "https://github.com/carverauto/serviceradar"
   @index_asset_name "serviceradar-native-addon-index.json"

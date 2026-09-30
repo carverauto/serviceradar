@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Dashboards.DashboardInstance
@@ -15,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.DashboardLive.Data
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup :register_and_log_in_user
 

@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheckTest do
   use ExUnit.Case, async: false
 
-  @moduletag :db_free
-
   import Plug.Conn
 
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
+
+  @moduletag :db_free
 
   describe "init/1" do
     test "rejects an empty config" do

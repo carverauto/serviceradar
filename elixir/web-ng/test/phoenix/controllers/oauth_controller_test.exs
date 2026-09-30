@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNGWeb.OAuthControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Identity.OAuthClient.Credentials
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.AshTestHelpers
+
+  @moduletag :web_ng_shared_fixture_db
 
   @password_action :oauth_password_grant
   @client_credentials_action :oauth_client_credentials

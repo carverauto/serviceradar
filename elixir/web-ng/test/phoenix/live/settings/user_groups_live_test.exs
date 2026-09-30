@@ -8,8 +8,6 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLiveTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Actors.SystemActor
@@ -18,6 +16,8 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "shows identity-provider group mappings as user groups", %{conn: conn} do
     group_name = "network-ops-#{System.unique_integer([:positive])}"

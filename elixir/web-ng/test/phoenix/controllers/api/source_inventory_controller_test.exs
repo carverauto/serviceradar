@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadarWebNG.Accounts.Scope
+
+  @moduletag :web_ng_shared_fixture_db
 
   defmodule ReaderStub do
     @moduledoc false

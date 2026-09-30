@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
-
-  @moduletag :web_ng_shared_fixture_db
   use ExUnitProperties
 
   import Phoenix.LiveViewTest
@@ -13,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
   @xss_payloads [
     "<script>alert(1)</script>",
     "\"><img src=x onerror=alert(1)>",

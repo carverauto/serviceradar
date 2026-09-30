@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Repo
   alias ServiceRadar.Spatial.SurveyPoseSample
   alias ServiceRadar.Spatial.SurveyRfObservation
   alias ServiceRadar.Spatial.SurveySpectrumObservation
   alias ServiceRadarWebNG.FieldSurveyReview
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "review projection includes floorplan segments in bounds" do
     review =

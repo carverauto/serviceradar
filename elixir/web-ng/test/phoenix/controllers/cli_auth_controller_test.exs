@@ -14,13 +14,13 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :web_ng_shared_fixture_db
 
   @moduletag :integration
 

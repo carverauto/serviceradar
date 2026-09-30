@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNG.FieldSurveyArtifactStoreTest do
   use ExUnit.Case, async: false
 
-  @moduletag :db_free
-
   import ExUnit.CaptureLog
 
   alias Gnat.Jetstream.API.Object
   alias ServiceRadarWebNG.FieldSurveyArtifactStore
+
+  @moduletag :db_free
 
   @moduletag :jetstream_retirement
 

@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNG.TempArchiveTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNG.TempArchive
+
+  @moduletag :db_free
 
   test "creates a gzipped tarball from in-memory files" do
     assert {:ok, tarball} =

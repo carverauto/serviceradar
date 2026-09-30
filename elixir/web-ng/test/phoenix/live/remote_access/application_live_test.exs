@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNGWeb.RemoteAccessApplicationLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0]
 
   alias ServiceRadar.Edge.RemoteAccessTcpTarget
   alias ServiceRadarWebNG.Accounts.Scope
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     previous_app_enabled = Application.get_env(:serviceradar_web_ng, :remote_access_app_enabled)

@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNG.Edge.ComponentTemplatesTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNG.Edge.ComponentTemplates
+
+  @moduletag :db_free
 
   describe "list/3" do
     test "returns empty list when datasvc not configured" do

@@ -12,17 +12,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginRepositoryLiveTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0, user_fixture: 0]
 
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Plugins.PluginRepository
   alias ServiceRadar.Repo
-  alias ServiceRadar.Identity.RBAC
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @moduletag :integration
 

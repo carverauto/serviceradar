@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
   use ServiceRadarWebNG.DataCase
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.Users
   alias ServiceRadarWebNG.Bootstrap.AdminUser
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup do
     System.put_env("SERVICERADAR_ADMIN_EMAIL", "root@localhost")

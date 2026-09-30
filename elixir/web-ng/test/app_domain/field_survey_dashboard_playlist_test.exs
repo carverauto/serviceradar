@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNG.FieldSurveyDashboardPlaylistTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.FieldSurveyDashboardPlaylist
+
+  @moduletag :web_ng_shared_fixture_db
 
   defmodule FloorplanRasterSRQLStub do
     @moduledoc false

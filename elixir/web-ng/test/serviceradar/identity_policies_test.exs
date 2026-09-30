@@ -7,12 +7,11 @@ defmodule ServiceRadar.IdentityPoliciesTest do
   """
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
-
-  @moduletag :web_ng_shared_fixture_db
   use ServiceRadarWebNG.PolicyTestHelpers
 
   alias ServiceRadar.Identity.User
 
+  @moduletag :web_ng_shared_fixture_db
   describe "User read policies" do
     setup do
       admin = admin_user_fixture()

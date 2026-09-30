@@ -8,12 +8,12 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
 
   use ServiceRadarWebNG.DataCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.TokenRevocation
+
+  @moduletag :web_ng_shared_fixture_db
 
   describe "subject_for_token/2" do
     test "returns user:id format for user resource" do

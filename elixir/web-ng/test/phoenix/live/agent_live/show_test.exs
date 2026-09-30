@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Plugins.AddonAssignment
@@ -11,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.AgentLive.Show
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     old = Application.get_env(:serviceradar_web_ng, :srql_module)

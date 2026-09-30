@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Ecto.Query, only: [from: 2]
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, system_actor: 0]
 
@@ -22,6 +20,8 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @repo_url "https://github.com/carverauto/serviceradar"
   # Synthetic registry URL for the periodic-sync worker tests: the worker only

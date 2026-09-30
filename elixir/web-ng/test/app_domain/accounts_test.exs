@@ -1,14 +1,14 @@
 defmodule ServiceRadarWebNG.AccountsTest do
   use ServiceRadarWebNG.DataCase
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AccountsFixtures
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.Accounts.Scope
+
+  @moduletag :web_ng_shared_fixture_db
 
   describe "get_user_by_email/1" do
     test "does not return the user if the email does not exist" do

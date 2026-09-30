@@ -10,14 +10,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLiveTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadarWebNG.AshTestHelpers
+
+  @moduletag :web_ng_shared_fixture_db
 
   defp settings!(mappings) do
     actor = SystemActor.system(:authorization_live_test)

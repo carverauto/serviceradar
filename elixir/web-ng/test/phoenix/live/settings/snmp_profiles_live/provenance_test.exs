@@ -11,8 +11,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.ProvenanceTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Plugins.PluginPackage
@@ -21,6 +19,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.ProvenanceTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrowserModal
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup :register_and_log_in_admin_user
 

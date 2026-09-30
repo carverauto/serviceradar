@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, actor_for_user: 1, user_fixture: 0, system_actor: 0]
 
@@ -10,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingToken
+
+  @moduletag :web_ng_shared_fixture_db
 
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="

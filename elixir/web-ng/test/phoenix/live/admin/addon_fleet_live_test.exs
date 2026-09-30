@@ -8,8 +8,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Plugins.AddonAssignment
@@ -19,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
   alias ServiceRadar.Plugins.AddonStatus
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = admin_user_fixture()

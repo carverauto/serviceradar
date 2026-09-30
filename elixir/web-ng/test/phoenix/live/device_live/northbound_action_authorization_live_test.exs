@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionAuthorizationLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Identity.RBAC
@@ -10,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionAuthorizationLiveTest 
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user =

@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
@@ -11,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub
   alias ServiceRadarWebNG.TestSupport.RemoteDesktopWebRTCSignalingManagerStub
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :remote_access_session_manager)

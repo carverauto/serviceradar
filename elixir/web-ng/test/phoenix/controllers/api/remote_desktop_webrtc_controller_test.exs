@@ -1,14 +1,14 @@
 defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0]
 
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.RemoteDesktopWebRTCSignalingManagerStub
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     previous_enabled = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)

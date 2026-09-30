@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Plugins.Plugin
@@ -11,6 +9,8 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
+
+  @moduletag :web_ng_shared_fixture_db
 
   @manifest %{
     "id" => "assignment-upgrade-test",

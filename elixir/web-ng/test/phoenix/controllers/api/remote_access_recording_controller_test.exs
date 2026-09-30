@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessSession
@@ -11,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.Auth.Guardian
+
+  @moduletag :web_ng_shared_fixture_db
 
   defmodule AuditSink do
     @moduledoc false

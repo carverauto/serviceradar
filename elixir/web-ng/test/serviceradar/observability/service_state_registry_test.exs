@@ -2,8 +2,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
@@ -14,6 +12,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   alias ServiceRadar.Repo
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "scheduled health-result plugin assignments appear as pending service rows" do
     gateway = gateway_fixture()
@@ -477,6 +477,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
                actor: system_actor(),
                domain: ServiceRadar.Plugins
              )
+
     assert :ok = ServiceStateRegistry.deactivate_for_package(package)
     assert [] = active_logical_states_for(agent, runtime_service_name)
     assert Enum.all?(states, &(reloaded_state(&1).state == "inactive"))

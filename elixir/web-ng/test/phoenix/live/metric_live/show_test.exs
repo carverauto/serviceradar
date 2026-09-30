@@ -7,11 +7,11 @@ defmodule ServiceRadarWebNGWeb.MetricLive.ShowTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :web_ng_shared_fixture_db
 
   @span_id "0bd8613253e905b1"
   @trace_id "aabbccddeeff00112233445566778899"

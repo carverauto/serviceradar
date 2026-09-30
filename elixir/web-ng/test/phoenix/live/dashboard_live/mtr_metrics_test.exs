@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadarWebNGWeb.DashboardLive.Data
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "dashboard MTR metrics use reached terminal destinations with counter and reply weighting" do
     timestamp = DateTime.truncate(DateTime.utc_now(), :second)

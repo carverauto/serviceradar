@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     previous_module = Application.get_env(:serviceradar_web_ng, :camera_analysis_workers)

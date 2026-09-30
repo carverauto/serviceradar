@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.McpOAuthTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Actors.SystemActor
@@ -15,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.McpOAuthTest do
   alias ServiceRadarWebNG.Mcp.OAuth.Pkce
   alias ServiceRadarWebNG.Mcp.OAuth.Server
   alias ServiceRadarWebNGWeb.FeatureFlags
+
+  @moduletag :web_ng_shared_fixture_db
 
   @ip "127.0.0.1"
   @redirect "http://127.0.0.1:43721/callback"

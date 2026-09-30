@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup :register_and_log_in_admin_user
 

@@ -15,8 +15,6 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationActionControllerTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Notifications.ActionLinks
@@ -24,6 +22,8 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationActionControllerTest do
   alias ServiceRadar.Notifications.NotificationAcknowledgement
   alias ServiceRadar.Notifications.NotificationActionToken
   alias ServiceRadar.Notifications.NotificationDelivery
+
+  @moduletag :web_ng_shared_fixture_db
 
   @base "https://serviceradar.test"
   @provider %{provider_type: :native}

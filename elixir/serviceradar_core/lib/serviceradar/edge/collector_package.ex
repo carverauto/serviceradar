@@ -26,7 +26,9 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
   - NATS credentials file (.creds)
   - Collector configuration (collector-specific)
-  - mTLS certificates (from deployment CA)
+  - mTLS certificates when the package has them (omitted from the bundle otherwise;
+    Falcosidekick uses the cluster runtime-cert secret). Bundle layout:
+    `ServiceRadarWebNG.Edge.CollectorBundleGenerator`
   - Installation instructions
   """
 
@@ -60,14 +62,18 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       transition :fail, from: [:pending, :provisioning], to: :failed
       transition :download, from: :ready, to: :downloaded
       transition :install, from: :downloaded, to: :installed
-      transition :revoke, from: [:pending, :provisioning, :ready, :downloaded, :installed], to: :revoked
+
+      transition :revoke,
+        from: [:pending, :provisioning, :ready, :downloaded, :installed],
+        to: :revoked
     end
   end
 
   cloak do
     vault(ServiceRadar.Vault)
     attributes([:nats_creds_ciphertext, :tls_key_pem_ciphertext])
-    # Not decrypted by default for security - use ServiceRadar.Vault.decrypt/1 when needed
+    # Not decrypted unless a query loads the attribute. AshCloak returns plaintext
+    # on that load; do not pass the loaded value to Vault.decrypt/1.
     decrypt_by_default([])
   end
 

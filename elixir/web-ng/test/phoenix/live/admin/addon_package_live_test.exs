@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Infrastructure.Agent
@@ -13,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   defmodule FakeNativeAddonCatalogClient do
     @moduledoc false

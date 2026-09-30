@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AshTestHelpers
+
+  @moduletag :web_ng_shared_fixture_db
 
   describe "auth users live" do
     test "renders for admin", %{conn: conn} do

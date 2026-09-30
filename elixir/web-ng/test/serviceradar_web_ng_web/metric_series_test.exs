@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.MetricSeriesTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.MetricSeries
+
+  @moduletag :db_free
 
   defp point(overrides) do
     Map.merge(

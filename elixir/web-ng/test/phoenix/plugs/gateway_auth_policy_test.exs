@@ -1,14 +1,14 @@
 defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.UserAuth
+
+  @moduletag :web_ng_shared_fixture_db
 
   @rsa_private_key JOSE.JWK.generate_key({:rsa, 2048})
   @rsa_public_key JOSE.JWK.to_public(@rsa_private_key)

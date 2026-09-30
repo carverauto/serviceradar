@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.AgentTracker
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :admin})

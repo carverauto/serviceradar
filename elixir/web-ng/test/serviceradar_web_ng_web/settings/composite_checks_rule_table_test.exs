@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTableTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTable
+
+  @moduletag :db_free
 
   defp input(key, kind, position) do
     %{key: key, label: key, kind: kind, position: position}

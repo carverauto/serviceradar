@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Actors.SystemActor
@@ -10,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
   alias ServiceRadar.Observability.MtrPolicy
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :web_ng_shared_fixture_db
 
   defmodule SRQLStub do
     @moduledoc false

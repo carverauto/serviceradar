@@ -3,9 +3,7 @@ defmodule ServiceRadarWebNG.ClientIPTest do
 
   alias ServiceRadarWebNG.ClientIP
 
-  # The unit tier is an ALLOW-LIST (test_helper.exs: exclude: [:test], include: [:db_free]).
-  # Without this tag the whole module is loaded and silently excluded -- which is how the
-  # three tests below shipped in #366 without ever having run in CI.
+  # Lane tag. See elixir/web-ng/AGENTS.md ("Tests here are excluded by default").
   @moduletag :db_free
 
   setup do

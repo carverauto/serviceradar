@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNG.Authorization.PermissionsTest do
   use ExUnit.Case, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Automation.Ansible.AutomationOperation
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
@@ -12,6 +10,8 @@ defmodule ServiceRadarWebNG.Authorization.PermissionsTest do
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Authorization
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "admin can manage auth and user resources" do
     auth = Authorization.can(%User{role: :admin})

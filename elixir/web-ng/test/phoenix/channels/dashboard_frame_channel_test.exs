@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.ChannelTest
 
   alias ServiceRadar.Dashboards.DashboardInstance
@@ -12,6 +10,8 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
   alias ServiceRadarWebNGWeb.UserSocket
+
+  @moduletag :web_ng_shared_fixture_db
 
   @endpoint ServiceRadarWebNGWeb.Endpoint
 

@@ -11,8 +11,6 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentialsTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AccountsFixtures
 
@@ -22,6 +20,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentialsTest do
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+
+  @moduletag :web_ng_shared_fixture_db
 
   # Real logins stamp sudo mode in the session (20-minute window); the
   # ApiCredentials LiveView mounts under `:require_sudo_mode`, so tests must

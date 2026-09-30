@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
+
+  @moduletag :db_free
 
   describe "create_tarball/4 for falcosidekick" do
     test "does not bundle a second certificate set" do

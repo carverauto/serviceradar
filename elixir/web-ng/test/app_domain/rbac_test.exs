@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNG.RBACTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RBAC
@@ -11,6 +9,8 @@ defmodule ServiceRadarWebNG.RBACTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "can?/2 resolves current permissions for scopes without persisted ones" do
     user = AccountsFixtures.user_fixture(%{role: :admin})

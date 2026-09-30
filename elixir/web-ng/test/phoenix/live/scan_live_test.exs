@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.ScanLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AshTestHelpers
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()

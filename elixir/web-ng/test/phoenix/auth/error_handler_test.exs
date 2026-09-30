@@ -8,11 +8,11 @@ defmodule ServiceRadarWebNGWeb.Auth.ErrorHandlerTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ExUnit.CaptureLog
 
   alias ServiceRadarWebNGWeb.Auth.ErrorHandler
+
+  @moduletag :web_ng_shared_fixture_db
 
   describe "auth_error/3 for JSON API requests" do
     test "returns 401 with JSON for unauthenticated error", %{conn: conn} do
