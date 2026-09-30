@@ -513,7 +513,9 @@ if config_env() == :prod do
       :section_count,
       :chunks,
       :bytes,
-      :limit_bytes
+      :limit_bytes,
+      :parts,
+      :dropped_points
     ]
 
   config :logger,

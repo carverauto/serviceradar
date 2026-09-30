@@ -415,7 +415,38 @@ func marshalMTRMetricEnvelope(results []mtrCheckResult, ctx metricEnvelopeContex
 	return gproto.Marshal(batch)
 }
 
-func marshalSweepMetricEnvelopeFromMap(decoded map[string]any, ctx metricEnvelopeContext) ([]byte, error) {
+// marshalSweepMetricEnvelopesFromMap encodes the sweep payload as one or
+// more MetricBatch payloads whose encoded size stays under
+// sweepMetricBatchMaxBytes, so no single batch approaches the NATS
+// max_payload. It also returns the number of points dropped because a
+// single point could not fit under the bound.
+func marshalSweepMetricEnvelopesFromMap(decoded map[string]any, ctx metricEnvelopeContext) ([][]byte, int, error) {
+	if len(decoded) == 0 {
+		return nil, 0, errSweepPayloadEmpty
+	}
+
+	batch, err := buildSweepMetricBatch(decoded, ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	split := splitMetricBatchByEncodedSize(batch, sweepMetricBatchMaxBytes())
+
+	payloads := make([][]byte, 0, len(split.Parts))
+
+	for _, part := range split.Parts {
+		encoded, err := gproto.Marshal(part)
+		if err != nil {
+			return nil, 0, fmt.Errorf("marshal sweep metric batch part: %w", err)
+		}
+
+		payloads = append(payloads, encoded)
+	}
+
+	return payloads, split.DroppedPoints, nil
+}
+
+func buildSweepMetricBatch(decoded map[string]any, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	if len(decoded) == 0 {
 		return nil, errSweepPayloadEmpty
 	}
@@ -503,7 +534,7 @@ func marshalSweepMetricEnvelopeFromMap(decoded map[string]any, ctx metricEnvelop
 		return nil, errSweepNoMetricPoints
 	}
 
-	return gproto.Marshal(builder.batch)
+	return builder.batch, nil
 }
 
 type sweepMetricBuilder struct {

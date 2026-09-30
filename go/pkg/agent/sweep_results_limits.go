@@ -10,6 +10,13 @@ const (
 	defaultSweepResultsMaxHosts      = 1000
 	minSweepResultsMaxChunkBytes     = 64 * 1024
 	minSweepResultsMaxHosts          = 100
+
+	// defaultSweepMetricBatchMaxBytes bounds the encoded size of each sweep
+	// MetricBatch the agent emits, so no single batch approaches the NATS
+	// server max_payload (1 MiB by default). The gateway still splits anything
+	// that slips through; this bound keeps the common path in one message.
+	defaultSweepMetricBatchMaxBytes = 768 * 1024
+	minSweepMetricBatchMaxBytes     = 64 * 1024
 )
 
 func sweepResultsChunkLimits() (int, int) {
@@ -25,6 +32,16 @@ func sweepResultsChunkLimits() (int, int) {
 	}
 
 	return maxBytes, maxHosts
+}
+
+func sweepMetricBatchMaxBytes() int {
+	maxBytes := envInt("SWEEP_METRICS_MAX_BATCH_BYTES", defaultSweepMetricBatchMaxBytes)
+
+	if maxBytes < minSweepMetricBatchMaxBytes {
+		maxBytes = minSweepMetricBatchMaxBytes
+	}
+
+	return maxBytes
 }
 
 func envInt(key string, fallback int) int {

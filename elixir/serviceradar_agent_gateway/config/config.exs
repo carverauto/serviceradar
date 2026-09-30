@@ -35,7 +35,9 @@ config :logger, :console,
     :section_count,
     :chunks,
     :bytes,
-    :limit_bytes
+    :limit_bytes,
+    :parts,
+    :dropped_points
   ]
 
 config :serviceradar_agent_gateway, :icmp_metrics_publisher,

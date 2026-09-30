@@ -51,6 +51,7 @@ go_library(
         "kv.go",
         "mapper_config_gateway.go",
         "mapper_service.go",
+        "metric_batch_split.go",
         "metric_envelope.go",
         "mock_agent.go",
         "mtr_bulk.go",
