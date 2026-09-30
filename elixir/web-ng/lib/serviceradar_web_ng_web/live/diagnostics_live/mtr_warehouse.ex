@@ -21,11 +21,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   which seeds the same synthetic traces and hops into a scratch CNPG database
   and the warehouse and asserts each reader answers the same from both.
 
-  The dashboard card and sparklines read the day-partitioned destination
-  rollup `mtr_destination_hourly` (`priv/starrocks/0025`) while it is fresh
-  (`RollupFreshness`), with the lower edge floored to the bucket so the
-  rollup and its raw fallback select the same rows; a stale or missing view
-  reads the raw tables, which yield the same quantities.
+  The dashboard card and whole-hour sparklines read the day-partitioned
+  destination rollup `mtr_destination_hourly` (`priv/starrocks/0025`) while
+  it is fresh (`RollupFreshness`), with the lower edge floored to the bucket
+  so the rollup and its raw fallback select the same rows. A shorter
+  sparkline keeps its cutoff and reads the raw tables. A stale or missing
+  view reads the raw tables over that same edge.
 
   The Frontend is queried over the MySQL text protocol, which takes no bind
   parameters, so values reach it as literals. Every interpolated value is
@@ -112,13 +113,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
     }
   end
 
-  # One dataset owns both tables, so both carry the same TTL; if a caller
-  # hands in per-table days that disagree, report the shorter window rather
-  # than a retention the data does not have.
+  # `Retention.days_by_table/0` is `{table, days}` pairs with binary table
+  # names. One dataset owns both tables, so both carry the same TTL; if the
+  # two disagree, report the shorter window.
   defp mtr_days(days_by_table) do
     @mtr_tables
-    |> Enum.map(&Keyword.get(days_by_table, &1))
-    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(fn table ->
+      case List.keyfind(days_by_table, table, 0) do
+        {_table, days} when is_integer(days) -> [days]
+        _missing -> []
+      end
+    end)
     |> Enum.min(fn -> Keyword.get(Env.default_retention_days(), :mtr) end)
   end
 
@@ -753,10 +758,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   def destination_sparkline(%DateTime{} = cutoff, bucket_seconds, metric, limit, opts \\ [])
       when is_integer(bucket_seconds) and bucket_seconds > 0 and is_integer(limit) and limit > 0 and
              metric in [:latency_ms, :loss_pct] do
-    # Only `limit` buckets can be drawn, so the scan never starts earlier than
-    # `limit` buckets before `:now`, and the lower edge is floored to the
-    # bucket so the rollup read and the raw fallback select the same rows.
-    lower = sparkline_lower_edge(cutoff, bucket_seconds, limit, opts)
+    # Whole-hour buckets floor to the bucket so the rollup and the raw
+    # fallback select the same rows. Shorter buckets keep `cutoff`: those
+    # windows never read the hourly rollup, and `LIMIT` already keeps the
+    # newest `limit` points.
+    lower = sparkline_lower_edge(cutoff, bucket_seconds)
 
     sql =
       if rem(bucket_seconds, @one_hour_seconds) == 0 and destination_rollup_fresh?(opts) do
@@ -850,12 +856,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
     {destination_loss_pct_sql(), "SUM(sent_total)"}
   end
 
-  defp sparkline_lower_edge(cutoff, bucket_seconds, limit, opts) do
-    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-    drawable = DateTime.to_unix(now) - limit * bucket_seconds
-    edge = max(DateTime.to_unix(cutoff), drawable)
-
-    DateTime.from_unix!(edge - Integer.mod(edge, bucket_seconds))
+  defp sparkline_lower_edge(%DateTime{} = cutoff, bucket_seconds) do
+    if rem(bucket_seconds, @one_hour_seconds) == 0 do
+      unix = DateTime.to_unix(cutoff)
+      DateTime.from_unix!(unix - Integer.mod(unix, bucket_seconds))
+    else
+      cutoff
+    end
   end
 
   defp sparkline_value(:latency_ms) do

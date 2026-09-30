@@ -205,22 +205,87 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
     refute sql =~ "mtr_destination_hourly"
   end
 
+  test "a whole-hour sparkline keeps in-range history past the point limit", %{prev: prev} do
+    cutoff = ~U[2026-01-01 12:07:00Z]
+    now = ~U[2026-01-08 12:07:00Z]
+
+    configure(
+      prev,
+      true,
+      recording_with_marks(~N[2026-01-08 12:40:00], ~N[2026-01-08 12:00:00], [])
+    )
+
+    assert {:ok, _} =
+             MtrWarehouse.destination_sparkline(cutoff, 3_600, :loss_pct, 96, now: now)
+
+    assert_received {:warehouse, sql}
+    assert sql =~ "WHERE `bucket` >= '2026-01-01 12:00:00'"
+    refute sql =~ "2026-01-04"
+
+    configure(
+      prev,
+      true,
+      recording_with_marks(~N[2026-01-08 12:40:00], ~N[2026-01-08 06:00:00], [])
+    )
+
+    assert {:ok, _} =
+             MtrWarehouse.destination_sparkline(cutoff, 3_600, :loss_pct, 96, now: now)
+
+    assert_received {:warehouse, sql}
+    assert sql =~ "t.`time` >= '2026-01-01 12:00:00'"
+    refute sql =~ "2026-01-04"
+
+    # last_30d is a 6h bucket and 96 points: 24 days of clamp, 30 days of window.
+    configure(
+      prev,
+      true,
+      recording_with_marks(~N[2026-01-31 12:40:00], ~N[2026-01-31 12:00:00], [])
+    )
+
+    assert {:ok, _} =
+             MtrWarehouse.destination_sparkline(~U[2026-01-01 12:00:00Z], 21_600, :loss_pct, 96,
+               now: ~U[2026-01-31 12:00:00Z]
+             )
+
+    assert_received {:warehouse, sql}
+    assert sql =~ "WHERE `bucket` >= '2026-01-01 12:00:00'"
+    refute sql =~ "2026-01-07"
+  end
+
+  test "a sub-hour sparkline starts at the cutoff", %{prev: prev} do
+    configure(prev, true, recording_mysql(fn _sql -> {:ok, %{columns: ["bucket", "value"], rows: []}} end))
+
+    cutoff = ~U[2026-01-01 12:07:30Z]
+    now = ~U[2026-01-02 12:07:30Z]
+
+    for bucket <- [60, 300, 900] do
+      assert {:ok, _} = MtrWarehouse.destination_sparkline(cutoff, bucket, :loss_pct, 96, now: now)
+
+      assert_received {:warehouse, sql}
+      assert sql =~ "t.`time` >= '2026-01-01 12:07:30'", "bucket #{bucket} floored the cutoff: #{sql}"
+    end
+  end
+
   test "the MTR retention reports the warehouse's dataset TTL when enabled", %{prev: prev} do
     configure(prev, true, recording_mysql(fn _sql -> flunk("retention asks no query") end))
 
-    status = MtrWarehouse.retention_status(days_by_table: [mtr_traces: 365, mtr_hops: 365])
-    assert status.configured_days == 365
+    # The real `{table, days}` list. 180 is not the 365 default, so a missed
+    # lookup cannot pass by falling through to `Env.default_retention_days`.
+    days = StarRocks.Retention.days_by_table(retention_days: [mtr: 180])
+
+    status = MtrWarehouse.retention_status(days_by_table: days)
+    assert status.configured_days == 180
     assert status.status == :ok
 
     assert status.tables == %{
-             "mtr_traces" => %{status: :ok, days: 365},
-             "mtr_hops" => %{status: :ok, days: 365}
+             "mtr_traces" => %{status: :ok, days: 180},
+             "mtr_hops" => %{status: :ok, days: 180}
            }
 
     assert status.backend == :starrocks
 
     # MtrData routes here, and keeps the CNPG policy when the warehouse is off.
-    assert MtrData.retention_status(nil, days_by_table: [mtr_traces: 365, mtr_hops: 365]) == status
+    assert MtrData.retention_status(nil, days_by_table: days) == status
   end
 
   test "MtrData.retention_status keeps the CNPG policy path when the warehouse is disabled", %{prev: prev} do

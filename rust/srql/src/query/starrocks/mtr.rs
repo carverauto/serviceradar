@@ -46,8 +46,8 @@ use super::super::mtr_hops::{
 use super::super::mtr_traces::{self, ParsedTraceAgg, TraceAggKind, TraceGroupDim};
 use super::super::{PaginationMeta, QueryPlan, TranslateResponse, types::BindParam};
 use super::{
-    exclusive_hour_end, floor_hour, loss_ratio_sql, pg_order_sql, rollup_stats_kind, sql_literal,
-    text_filter_sql, wavg_sql,
+    floor_hour, loss_ratio_sql, pg_order_sql, rollup_stats_kind, sql_literal, text_filter_sql,
+    wavg_sql,
 };
 use crate::{
     error::{Result, ServiceError},
@@ -356,9 +356,11 @@ fn quoted(column: &str) -> String {
 /// `[start, end)`, the bounds CNPG binds, as naive UTC `DATETIME` literals with
 /// microseconds. No `time:` means no bound, as on CNPG. `hour_grained` says
 /// the query is scored on whole hours because the hourly hop rollup can serve
-/// it -- the bounds then widen to `floor_hour(start)` and
-/// `exclusive_hour_end(end)`, the same widening `time_predicate` applies to an
-/// hour-grained flows query, in both the rollup and the raw recompile.
+/// it -- the lower bound floors to the hour and the upper bound is the next
+/// hour after `end`, except an `end` already on an hour stays, so an aligned
+/// window does not gain the following hour. Both the rollup and the raw
+/// recompile bind these bounds. This is not the flows helper
+/// `exclusive_hour_end`, which always adds an hour.
 fn time_bounds(
     plan: &QueryPlan,
     time_column: &str,
@@ -371,7 +373,7 @@ fn time_bounds(
         format!("'{}'", value.format("%Y-%m-%d %H:%M:%S%.6f"))
     };
     let (lower, upper) = if hour_grained {
-        (floor_hour(range.start), exclusive_hour_end(range.end))
+        (floor_hour(range.start), hop_hour_upper(range.end))
     } else {
         (range.start, range.end)
     };
@@ -382,6 +384,19 @@ fn time_bounds(
         ],
         vec![BindParam::timestamptz(lower), BindParam::timestamptz(upper)],
     )
+}
+
+/// Exclusive end of an hour-grained hop window. An end already on an hour is
+/// that hour; an end inside an hour rounds up so the partial hour is included.
+/// `exclusive_hour_end` always adds an hour, which is the flows cagg bound and
+/// would count one extra hour of hops here.
+fn hop_hour_upper(value: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    let floored = floor_hour(value);
+    if floored == value {
+        floored
+    } else {
+        floored + chrono::Duration::hours(1)
+    }
 }
 
 /// Whether the hourly hop rollup (`priv/starrocks/0025`) can re-aggregate this
@@ -1033,6 +1048,42 @@ mod tests {
             stale.contains(
                 " FROM serviceradar.mtr_hops WHERE `time` >= '2026-01-01 00:00:00.000000' AND `time` < '2026-01-02 03:00:00.000000'"
             ),
+            "{stale}"
+        );
+    }
+
+    /// An end already on an hour stays. `exclusive_hour_end` would open the
+    /// next hour, and hops in `[end, end+1h)` would change the ratio.
+    #[test]
+    fn an_hour_aligned_end_does_not_include_the_next_hour() {
+        let query = "in:mtr_hops stats:loss_ratio(sent, received) as loss by time:1h limit:500";
+        let mut p = plan(query);
+        p.time_range = Some(crate::time::TimeRange {
+            start: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
+            end: Utc.with_ymd_and_hms(2026, 1, 2, 0, 0, 0).unwrap(),
+        });
+        let fresh = super::super::translate(&p, DB).expect("compile").sql;
+        assert!(
+            fresh.contains(
+                " FROM serviceradar.mtr_hops_hourly WHERE `bucket` >= '2026-01-01 00:00:00.000000' AND `bucket` < '2026-01-02 00:00:00.000000'"
+            ),
+            "{fresh}"
+        );
+        assert!(
+            !fresh.contains("`bucket` < '2026-01-02 01:00:00.000000'"),
+            "{fresh}"
+        );
+        let stale = super::super::translate_raw(&p, DB)
+            .expect("compile raw")
+            .sql;
+        assert!(
+            stale.contains(
+                " FROM serviceradar.mtr_hops WHERE `time` >= '2026-01-01 00:00:00.000000' AND `time` < '2026-01-02 00:00:00.000000'"
+            ),
+            "{stale}"
+        );
+        assert!(
+            !stale.contains("`time` < '2026-01-02 01:00:00.000000'"),
             "{stale}"
         );
     }
