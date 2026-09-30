@@ -115,6 +115,23 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       assert Enum.any?(file_names, &String.ends_with?(&1, "/certs/collector.pem"))
     end
 
+    test "downloads a bundle when TLS certificates were not provisioned", %{conn: _conn} do
+      {package, token} = create_ready_collector_package(:flowgger, %{tls: false})
+
+      conn =
+        build_conn()
+        |> put_req_header("x-serviceradar-download-token", token)
+        |> post(~p"/api/collectors/#{package.id}/bundle", %{})
+
+      body = response(conn, 200)
+      {:ok, files} = :erl_tar.extract({:binary, body}, [:compressed, :memory])
+      file_names = Enum.map(files, fn {name, _content} -> to_string(name) end)
+
+      assert Enum.any?(file_names, &String.ends_with?(&1, "/creds/nats.creds"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "/config/flowgger.toml"))
+      refute Enum.any?(file_names, &String.contains?(&1, "/certs/"))
+    end
+
     test "downloads a falcosidekick bundle that reuses runtime certs", %{conn: _conn} do
       {package, token} =
         create_ready_collector_package(:falcosidekick, %{
@@ -283,14 +300,30 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       )
       |> Ash.create!(actor: system_actor())
 
-    ready_package =
+    tls_args =
+      if Map.get(overrides, :tls, true) do
+        %{
+          tls_cert_pem: sample_tls_cert(),
+          tls_key_pem: sample_tls_key(),
+          ca_chain_pem: sample_ca_chain()
+        }
+      else
+        %{}
+      end
+
+    base_changeset =
       provisioning_package
       |> Ash.Changeset.new()
       |> Ash.Changeset.set_argument(:nats_credential_id, credential.id)
       |> Ash.Changeset.set_argument(:nats_creds_content, sample_nats_creds())
-      |> Ash.Changeset.set_argument(:tls_cert_pem, sample_tls_cert())
-      |> Ash.Changeset.set_argument(:tls_key_pem, sample_tls_key())
-      |> Ash.Changeset.set_argument(:ca_chain_pem, sample_ca_chain())
+
+    ready_changeset =
+      Enum.reduce(tls_args, base_changeset, fn {key, value}, acc ->
+        Ash.Changeset.set_argument(acc, key, value)
+      end)
+
+    ready_package =
+      ready_changeset
       |> Ash.Changeset.for_update(:ready, %{}, actor: system_actor())
       |> Ash.update!(actor: system_actor())
 

@@ -12,8 +12,8 @@ ExUnit.configure(
 # A lane that selects nothing means the tag/filter wiring broke; fail rather than pass vacuously.
 # 8 GodView stream cases are tagged :skip as known-divergent (product decisions
 # tracked in https://github.com/carverauto/serviceradar/issues/4988); they load
-# but never select, so the lane expects 2334 instead of 2342.
-expected_selected_tests = 2334
+# but never select, so the lane expects 2335 instead of 2343.
+expected_selected_tests = 2335
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

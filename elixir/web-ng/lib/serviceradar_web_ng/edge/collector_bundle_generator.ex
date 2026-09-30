@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     * `{:ok, tarball_binary}` - The gzipped tarball as binary
     * `{:error, reason}` - If bundle creation fails
   """
-  @spec create_tarball(CollectorPackage.t(), String.t(), String.t(), keyword()) ::
+  @spec create_tarball(CollectorPackage.t(), String.t(), String.t() | nil, keyword()) ::
           {:ok, binary()} | {:error, term()}
   def create_tarball(package, nats_creds, tls_key_pem, opts \\ []) do
     package_dir = "collector-package-#{short_id(package.id)}"
@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
           ]
       end
 
-    create_tar_gz(files)
+    create_tar_gz(Enum.reject(files, fn {_name, content} -> is_nil(content) end))
   end
 
   @doc """

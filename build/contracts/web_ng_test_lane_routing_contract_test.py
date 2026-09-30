@@ -7,27 +7,26 @@ web-ng selects tests by tag across three lanes:
   * ``//elixir/web-ng:topology_atlas_db_test`` -> ``:topology_atlas_db``
 
 ``test/test_helper.exs`` registers ``ServiceRadarWebNG.Test.LaneCoverageGuard``,
-which fails the database-free lane at RUNTIME when an individual test carries no
-lane tag at all. This contract is the static half of the same guarantee, and it
-owns the two things a formatter cannot see:
+which fails the database-free lane at runtime when an individual test carries no
+lane tag at all. Tag presence is that guard's job: this contract does not parse
+test source. It checks the two routing facts a formatter cannot see:
 
-  * a test tagged for a DB lane runs only if its FILE is in that lane's ``srcs``
-    -- tag presence and target membership must agree in both directions;
-  * files excluded from the ``unit_tests`` glob entirely (``test/integration``,
-    ``test/property``) are never loaded by any lane, so they are only honest when
-    each one is listed below with a reason. A new such file fails this test until
-    it is deliberately classified.
+  * a file is routed when the evaluated Bazel query puts it in a DB lane's
+    ``srcs``, or when the ``unit_tests`` glob loads it (everything under
+    ``test/`` except ``test/integration`` and ``test/property``);
+  * files excluded from that glob and absent from every DB lane's evaluated
+    ``srcs`` are never loaded, so each one must be listed below with a reason.
+    A new such file fails this test until it is deliberately classified.
 
-Lane tags are the atoms ExUnit actually registers: ``@moduletag``, ``@tag``, and
-``@describetag`` nodes in the Elixir AST. Comments and string literals do not
-count. Lane membership is the ``srcs`` attribute of the evaluated Bazel query
-for the two DB targets (``web_ng_lane_target_query``), not the BUILD text.
+Lane membership is the ``srcs`` attribute of ``web_ng_lane_target_query``, not
+the BUILD text.
 """
 
 import os
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
 
 def _runfiles_root():
     srcdir = os.environ.get("TEST_SRCDIR")
@@ -45,9 +44,6 @@ LANE_QUERY = Path(
     )
 )
 
-LANE_TAGS = ("db_free", "web_ng_shared_fixture_db", "topology_atlas_db")
-LANE_TAG_SET = set(LANE_TAGS)
-LANE_ATTRIBUTES = {"moduletag", "tag", "describetag"}
 NETWORKS_TARGET = "//elixir/web-ng:networks_live_db_test"
 TOPOLOGY_TARGET = "//elixir/web-ng:topology_atlas_db_test"
 WEB_NG_LABEL = "//elixir/web-ng:"
@@ -81,50 +77,6 @@ def test_files():
     )
 
 
-def lane_tags_in(source):
-    return lane_tags_in_source((WEB_NG / source).read_text())
-
-
-def lane_tags_in_source(source):
-    """Lane atoms on @moduletag, @tag, and @describetag in the Elixir AST."""
-    tags = set()
-    tokens = _tokenize(source)
-    index = 0
-    while index < len(tokens):
-        if (
-            tokens[index][0] == "at"
-            and index + 1 < len(tokens)
-            and tokens[index + 1][0] == "ident"
-            and tokens[index + 1][1] in LANE_ATTRIBUTES
-        ):
-            tag = _lane_tag_at(tokens, index + 2)
-            if tag:
-                tags.add(tag)
-        index += 1
-    return tags
-
-
-def _lane_tag_at(tokens, index):
-    if index < len(tokens) and tokens[index] == ("op", "("):
-        index += 1
-    if index >= len(tokens):
-        return None
-    kind, value = tokens[index]
-    if kind == "atom" and value in LANE_TAG_SET:
-        return value
-    if kind == "ident" and value in LANE_TAG_SET and _keyword_enables(tokens, index):
-        return value
-    return None
-
-
-def _keyword_enables(tokens, index):
-    if index + 1 >= len(tokens) or tokens[index + 1][0] != "colon":
-        return False
-    if index + 2 >= len(tokens):
-        return True
-    return tokens[index + 2] not in {("ident", "false"), ("atom", "false")}
-
-
 def evaluated_lane_srcs(query_path):
     """Map each DB lane target to the test sources Bazel put in its srcs."""
     query = ET.parse(query_path)
@@ -152,228 +104,18 @@ def evaluated_lane_srcs(query_path):
     return srcs
 
 
-def _tokenize(source):
-    tokens = []
-    _scan(source, 0, len(source), tokens)
-    return tokens
+def _routed(source, networks_srcs, topology_srcs):
+    if source in networks_srcs or source in topology_srcs:
+        return True
+    return not source.startswith(GLOB_EXCLUDED_DIRS)
 
 
-def _scan(source, start, end, tokens):
-    index = start
-    while index < end:
-        char = source[index]
-        if char in " \t\r\n,":
-            index += 1
-            continue
-        if char == "#":
-            newline = source.find("\n", index, end)
-            index = end if newline < 0 else newline + 1
-            continue
-        if char == "@":
-            tokens.append(("at", "@"))
-            index += 1
-            continue
-        if char == ":":
-            index = _scan_colon(source, index, end, tokens)
-            continue
-        if char == '"':
-            index = _scan_string(source, index, end, tokens)
-            continue
-        if char == "'":
-            index = _scan_charlist(source, index, end, tokens)
-            continue
-        if char == "~" and index + 1 < end and (source[index + 1].isalpha() or source[index + 1] in "\"'([{</|"):
-            index = _scan_sigil(source, index, end, tokens)
-            continue
-        if char == "?" and index + 1 < end and source[index + 1] not in " \t\r\n":
-            index = _skip_char_literal(source, index, end)
-            continue
-        if char.isalpha() or char == "_":
-            index = _scan_ident(source, index, end, tokens)
-            continue
-        tokens.append(("op", char))
-        index += 1
-    return index
-
-
-def _scan_colon(source, index, end, tokens):
-    nxt = index + 1
-    if nxt < end and source[nxt] == '"':
-        atom_end = _skip_quoted(source, nxt, end, '"', interpolate=False)
-        tokens.append(("atom", source[nxt + 1:atom_end - 1]))
-        return atom_end
-    if nxt < end and (source[nxt].isalpha() or source[nxt] == "_"):
-        cursor = nxt + 1
-        while cursor < end and (source[cursor].isalnum() or source[cursor] in "_@!?") and source[cursor] not in "!?":
-            cursor += 1
-        if cursor < end and source[cursor] in "!?":
-            cursor += 1
-        tokens.append(("atom", source[nxt:cursor]))
-        return cursor
-    tokens.append(("colon", ":"))
-    return nxt
-
-
-def _scan_ident(source, index, end, tokens):
-    cursor = index + 1
-    while cursor < end and (source[cursor].isalnum() or source[cursor] == "_"):
-        cursor += 1
-    if cursor < end and source[cursor] in "!?":
-        cursor += 1
-    tokens.append(("ident", source[index:cursor]))
-    return cursor
-
-
-def _scan_string(source, index, end, tokens):
-    if source.startswith('"""', index):
-        return _scan_delimited(source, index + 3, end, '"""', interpolate=True, tokens=tokens)
-    return _scan_delimited(source, index + 1, end, '"', interpolate=True, tokens=tokens)
-
-
-def _scan_charlist(source, index, end, tokens):
-    if source.startswith("'''", index):
-        return _scan_delimited(source, index + 3, end, "'''", interpolate=True, tokens=tokens)
-    return _scan_delimited(source, index + 1, end, "'", interpolate=True, tokens=tokens)
-
-
-def _scan_delimited(source, index, end, closer, interpolate, tokens):
-    while index < end:
-        if source.startswith(closer, index):
-            return index + len(closer)
-        if source[index] == "\\":
-            index += 2
-            continue
-        if interpolate and source.startswith("#{", index):
-            index = _scan_braces(source, index + 2, end, tokens)
-            continue
-        index += 1
-    return index
-
-
-def _scan_braces(source, index, end, tokens):
-    depth = 1
-    while index < end and depth:
-        char = source[index]
-        if char == "#":
-            newline = source.find("\n", index, end)
-            index = end if newline < 0 else newline + 1
-            continue
-        if char == '"':
-            index = _scan_string(source, index, end, tokens)
-            continue
-        if char == "'":
-            index = _scan_charlist(source, index, end, tokens)
-            continue
-        if char == "~" and index + 1 < end and (source[index + 1].isalpha() or source[index + 1] in "\"'([{</|"):
-            index = _scan_sigil(source, index, end, tokens)
-            continue
-        if char == "{":
-            depth += 1
-            index += 1
-            continue
-        if char == "}":
-            depth -= 1
-            index += 1
-            continue
-        if char == "@":
-            tokens.append(("at", "@"))
-            index += 1
-            continue
-        if char == ":":
-            index = _scan_colon(source, index, end, tokens)
-            continue
-        if char.isalpha() or char == "_":
-            index = _scan_ident(source, index, end, tokens)
-            continue
-        if char in " \t\r\n,":
-            index += 1
-            continue
-        tokens.append(("op", char))
-        index += 1
-    return index
-
-
-def _scan_sigil(source, index, end, tokens):
-    cursor = index + 1
-    while cursor < end and source[cursor].isalpha():
-        cursor += 1
-    if cursor >= end:
-        tokens.append(("sigil", ""))
-        return cursor
-    name = source[index + 1:cursor]
-    interpolate = not name or name[0].islower()
-    opener = source[cursor]
-    pairs = {"(": ")", "[": "]", "{": "}", "<": ">"}
-    if opener in pairs:
-        return _scan_nested(source, cursor + 1, end, opener, pairs[opener], interpolate, tokens)
-    if opener == '"':
-        if source.startswith('"""', cursor):
-            return _scan_delimited(source, cursor + 3, end, '"""', interpolate, tokens)
-        return _scan_delimited(source, cursor + 1, end, '"', interpolate, tokens)
-    if opener == "'":
-        if source.startswith("'''", cursor):
-            return _scan_delimited(source, cursor + 3, end, "'''", interpolate, tokens)
-        return _scan_delimited(source, cursor + 1, end, "'", interpolate, tokens)
-    return _scan_delimited(source, cursor + 1, end, opener, interpolate, tokens)
-
-
-def _scan_nested(source, index, end, opener, closer, interpolate, tokens):
-    depth = 1
-    while index < end and depth:
-        if source[index] == "\\":
-            index += 2
-            continue
-        if interpolate and source.startswith("#{", index):
-            index = _scan_braces(source, index + 2, end, tokens)
-            continue
-        if source[index] == opener:
-            depth += 1
-        elif source[index] == closer:
-            depth -= 1
-        index += 1
-    return index
-
-
-def _skip_quoted(source, index, end, quote, interpolate):
-    return _scan_delimited(source, index + 1, end, quote, interpolate, tokens=[])
-
-
-def _skip_char_literal(source, index, end):
-    cursor = index + 1
-    if cursor < end and source[cursor] == "\\":
-        return min(end, cursor + 2)
-    return min(end, cursor + 1)
-
-
-class WebNgLaneRoutingParseTest(unittest.TestCase):
-    def test_lane_tags_come_from_attribute_ast_not_text(self):
-        ignored = '''
-        defmodule ExampleTest do
-          # @moduletag :db_free
-          @moduledoc """
-          prose mentions @tag :db_free
-          """
-          @moduletag :web_ng_shared_fixture_db
-          @moduletag db_free: false
-          test "string" do
-            assert "@describetag :db_free" == "nope"
-            _ = ~s"""
-            @moduletag :db_free
-            """
-          end
-          describe "group" do
-            @describetag :topology_atlas_db
-            test "kept" do
-              :ok
-            end
-          end
-        end
-        '''
-        self.assertEqual(
-            lane_tags_in_source(ignored),
-            {"web_ng_shared_fixture_db", "topology_atlas_db"},
-        )
-        self.assertEqual(lane_tags_in_source("@tag(:db_free)\n"), {"db_free"})
+class WebNgTestLaneRoutingContractTest(unittest.TestCase):
+    def setUp(self):
+        self.files = test_files()
+        srcs = evaluated_lane_srcs(LANE_QUERY)
+        self.networks_srcs = srcs[NETWORKS_TARGET]
+        self.topology_srcs = srcs[TOPOLOGY_TARGET]
 
     def test_evaluated_query_srcs_are_label_sets(self):
         import tempfile
@@ -404,90 +146,48 @@ class WebNgLaneRoutingParseTest(unittest.TestCase):
             {"test/phoenix/topology/world_health_source_db_test.exs"},
         )
 
-
-class WebNgTestLaneRoutingContractTest(unittest.TestCase):
-    def setUp(self):
-        self.files = test_files()
-        srcs = evaluated_lane_srcs(LANE_QUERY)
-        self.networks_srcs = srcs[NETWORKS_TARGET]
-        self.topology_srcs = srcs[TOPOLOGY_TARGET]
-
     def test_every_file_is_routed_or_declared_unrouted(self):
         routed = []
-        unrouted = []
         for source in self.files:
-            tags = lane_tags_in(source)
-            if tags:
+            if _routed(source, self.networks_srcs, self.topology_srcs):
                 routed.append(source)
+                self.assertNotIn(
+                    source,
+                    UNROUTED_TEST_SOURCES,
+                    "%s is loaded by a lane and is also on UNROUTED_TEST_SOURCES. "
+                    "Remove the inventory entry." % source,
+                )
             elif source in UNROUTED_TEST_SOURCES:
-                unrouted.append(source)
+                continue
             else:
                 self.fail(
-                    "%s carries no lane tag (%s) and is not on UNROUTED_TEST_SOURCES. "
-                    "Route it: @moduletag :db_free when it needs no database, "
-                    "@moduletag :web_ng_shared_fixture_db (plus the networks_live_db_test "
-                    "srcs list and web_ng_db_runner_contract_test.py) when it does. "
-                    "If it genuinely cannot run in any lane, add it to "
-                    "UNROUTED_TEST_SOURCES with a reason."
-                    % (source, ", ".join(":" + t for t in LANE_TAGS))
+                    "%s is not in an evaluated DB lane srcs list, sits outside the "
+                    "unit_tests glob, and is not on UNROUTED_TEST_SOURCES. Route it "
+                    "by adding the file to the lane target that should load it. If "
+                    "it genuinely cannot run in any lane, add it to "
+                    "UNROUTED_TEST_SOURCES with a reason." % source
                 )
         self.assertTrue(routed, "no routed test files found at all")
 
-    def test_db_lane_tag_implies_srcs_membership(self):
-        for source in self.files:
-            tags = lane_tags_in(source)
-            if "web_ng_shared_fixture_db" in tags:
-                self.assertIn(
-                    source,
-                    self.networks_srcs,
-                    "%s tags :web_ng_shared_fixture_db but is not a src of "
-                    "//elixir/web-ng:networks_live_db_test, so that lane never loads "
-                    "it and no lane runs those tests." % source,
-                )
-            if "topology_atlas_db" in tags:
-                self.assertIn(
-                    source,
-                    self.topology_srcs,
-                    "%s tags :topology_atlas_db but is not a src of "
-                    "//elixir/web-ng:topology_atlas_db_test." % source,
-                )
-
-    def test_db_lane_srcs_are_tagged(self):
-        for source in self.networks_srcs:
-            self.assertIn(
-                "web_ng_shared_fixture_db",
-                lane_tags_in(source),
-                "%s is a src of networks_live_db_test but no test in it is tagged "
-                ":web_ng_shared_fixture_db, so the lane loads it and selects "
-                "nothing from it." % source,
-            )
-        for source in self.topology_srcs:
-            self.assertIn(
-                "topology_atlas_db",
-                lane_tags_in(source),
-                "%s is a src of topology_atlas_db_test but no test in it is tagged "
-                ":topology_atlas_db." % source,
-            )
-
     def test_unrouted_inventory_has_no_stale_or_shadow_entries(self):
         known = set(self.files)
+        routed = self.networks_srcs | self.topology_srcs
         for source, reason in UNROUTED_TEST_SOURCES.items():
             self.assertIn(source, known, "UNROUTED_TEST_SOURCES lists %s, which no longer exists" % source)
             self.assertTrue(
                 source.startswith(GLOB_EXCLUDED_DIRS),
-                "%s IS inside the unit_tests glob, so it can carry a lane tag; "
+                "%s IS inside the unit_tests glob, so a lane loads it; "
                 "do not exempt it, route it." % source,
+            )
+            self.assertNotIn(
+                source,
+                routed,
+                "%s is on UNROUTED_TEST_SOURCES but an evaluated lane srcs list "
+                "loads it. Remove the inventory entry." % source,
             )
             self.assertTrue(
                 reason.strip(),
                 "%s needs a non-empty reason for being unrouted" % source,
-            )
-        # Files carrying a lane tag must not sit on the unrouted inventory.
-        for source in UNROUTED_TEST_SOURCES:
-            self.assertFalse(
-                lane_tags_in(source),
-                "%s is on UNROUTED_TEST_SOURCES but carries a lane tag; remove "
-                "the inventory entry." % source,
             )
 
 
