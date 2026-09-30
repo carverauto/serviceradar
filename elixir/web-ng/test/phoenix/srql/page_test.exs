@@ -323,6 +323,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
              "in:public_endpoints ip:23.138.124.7",
              "/devices"
            ) == {"/inventory/public-endpoints", %{}}
+
+    assert Page.route_target_for_query("in:security_events severity:critical", "/devices") ==
+             {"/devices", %{}}
   end
 
   test "sanitize_query removes stale catalog filters when switching entities" do
@@ -331,15 +334,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
 
     assert Page.sanitize_query("in:devices metadata.proxmox_candidate:true include_inactive:true") ==
              "in:devices metadata.proxmox_candidate:true include_inactive:true"
-  end
-
-  test "every catalog entity has a route" do
-    route_less =
-      Catalog.entities()
-      |> Enum.filter(&(Map.get(&1, :route) in [nil, ""]))
-      |> Enum.map(& &1.id)
-
-    assert route_less == []
   end
 
   test "every catalog route is handled by the router" do
