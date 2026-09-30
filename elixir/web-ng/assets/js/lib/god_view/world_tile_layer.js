@@ -125,25 +125,31 @@ export default class WorldTileLayer extends TileLayer {
       frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edges`, data: frame.lines, pickable: true,
         visible: this.props.links !== false,
-        getColor: [92, 132, 160, 150], getWidth: 1.5, widthUnits: "pixels",
+        getColor: [55, 175, 124, 135], getWidth: 1.5, widthUnits: "pixels",
       }),
       flow && flow.length > 0 && new PacketFlowLayer(props, common, {
         id: `${props.id}-packets`, data: flow, animate: true, pickable: false,
         parameters: GOD_VIEW_ADDITIVE_BLEND,
         // Across at most 64 tiles, bound particles globally as well as per edge.
-        zoomDensity: 1 / 64,
+        zoomDensity: 1 / Math.max(1, Math.min(64, this.props.visibleTileCount)),
       }),
       frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
-        radiusUnits: "pixels", stroked: true, lineWidthUnits: "pixels", getLineWidth: 1,
+        radiusUnits: "pixels", stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.5,
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 9 : 4) : 0,
         getFillColor: (_, info) => {
+          if (node(info).kind === "device") return [232, 242, 237, 255]
           const counts = health.get(node(info).id)
           if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
           return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
         },
-        getLineColor: [210, 226, 240, 230],
-        updateTriggers: {getFillColor: overlay, getRadius: [overlay, filters]},
+        getLineColor: (_, info) => {
+          if (node(info).kind !== "device") return [210, 226, 240, 230]
+          const counts = health.get(node(info).id)
+          if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
+          return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
+        },
+        updateTriggers: {getFillColor: overlay, getLineColor: overlay, getRadius: [overlay, filters]},
       }),
       frame.nodes.length > 0 && new TextLayer(props, common, {
         id: `${props.id}-labels`, data: frame.nodes, pickable: false,
@@ -169,6 +175,7 @@ WorldTileLayer.defaultProps = {
   refinementStrategy: "no-overlap",
   overlays: {type: "object", value: null, compare: false},
   overlayRevision: 0,
+  visibleTileCount: 64,
   packetFlow: true,
   links: true,
   filters: {type: "object", value: null, compare: false},

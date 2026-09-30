@@ -108,7 +108,15 @@ The system MUST provide a WebAssembly execution layer for Arrow-backed God-View 
 ### Requirement: Persistent world layout is deterministic and incrementally stable
 God-View SHALL support an invented topology of 1,000,000 devices and at least 2,000,000 relations using server-authored hierarchical world coordinates persisted through platform migrations. A `layout_version` SHALL identify an explicit coordinate space and placement configuration. An ordinary incremental update SHALL preserve existing coordinates; only an explicit full relayout SHALL publish a different coordinate space.
 
+Fresh world placement SHALL reuse the existing pinned ELK radial engine through bounded hierarchy batches of at most 512 nodes, with validated subtree envelopes composed into persisted coordinates before tile generation. Tiles SHALL NOT run independent layout passes. The layout worker SHALL retain the prior accepted publication when ELK execution or geometry validation fails. An incompatible placement algorithm SHALL trigger a staged new layout version on reconciliation and SHALL NOT relabel old Morton coordinates as ELK output.
+
 Initial placement SHALL use authoritative sites when available, otherwise stable transport components, then infrastructure and attachment groups. Stable identifiers SHALL break ties independently of input row order. Existing placement slots and parent assignments SHALL survive incremental insertion, deletion, component merge/split, and changes to preferred roots unless a new layout version is explicitly published. Deleted slots SHALL NOT cause surviving positions to be renumbered.
+
+#### Scenario: Radial layout remains visible through the tile engine
+- **GIVEN** an invented root with endpoint attachments whose count fits a standard tile
+- **WHEN** the background worker computes and publishes a fresh world
+- **THEN** the endpoints SHALL occupy the ELK radial level and the tile SHALL retain their names, coordinates and connections
+- **AND** the Home view SHALL fit the accepted active-device bounds
 
 #### Scenario: Equivalent fresh input produces equivalent coordinates
 - **GIVEN** identical invented canonical membership, relations, seed, and layout configuration in different input orders
@@ -144,7 +152,7 @@ The server SHALL distinguish stable `layout_version`, immutable publication `gen
 - **AND** publication generation or source-poll identity alone SHALL NOT invalidate its ETag
 
 ### Requirement: Quadtree tiles conserve membership within hard budgets
-The server SHALL expose quadtree tiles keyed by `(layout_version, z, x, y)` within a fixed world extent and declared maximum zoom. Every admitted device SHALL have exactly one owning tile and one visible representation at every zoom: an individual device or membership in one stable aggregate. Importance-based `min_zoom` SHALL determine eligibility for individual display without overriding density or byte budgets.
+The server SHALL expose quadtree tiles keyed by `(layout_version, z, x, y)` within a fixed world extent and declared maximum zoom. Every admitted device SHALL have exactly one owning tile and one visible representation at every zoom: an individual device or membership in one stable aggregate. Importance-based `min_zoom` SHALL prioritize individual display without overriding density or byte budgets. A singleton representation in the standard profile SHALL preserve the device identity, label and authoritative coordinates rather than displaying an aggregate count of one. The compact aggregate-only profile SHALL continue bounding identifier bytes.
 
 Each tile SHALL enforce node, relation, label, total-feature, and actual encoded-byte limits during construction. An oversized tile SHALL generalize further; it SHALL NOT silently truncate membership or transmit overflow. Boundary and context proxies SHALL count against feature budgets but contribute zero represented-device membership. Aggregate payloads SHALL contain bounded summaries and navigation references, not complete member lists.
 
@@ -161,6 +169,13 @@ Each tile SHALL enforce node, relation, label, total-feature, and actual encoded
 - **THEN** stable aggregates and bounded detail/member-page references SHALL represent the excess
 - **AND** every admitted device SHALL remain reachable by search and bounded detail navigation
 - **AND** no overflow member list SHALL be embedded in the tile
+
+#### Scenario: Large worlds use map-style level of detail
+- **GIVEN** a canonical world contains one million or more admitted devices
+- **WHEN** the operator zooms out
+- **THEN** the viewport SHALL display bounded clusters and grouped relations without requiring every individual device glyph or label to fit on screen
+- **AND** panning SHALL load bounded visible tiles and neighboring prefetch rather than the complete canonical world
+- **AND** zooming in SHALL reveal nearby individual devices subject to density and encoded-byte budgets
 
 ### Requirement: Tile relations preserve identity across bundles and clipping
 The tile engine SHALL bundle low-zoom relations by their visible endpoint or aggregate pair while retaining stable bundle identity and represented-relation counts. Long relations SHALL become visible when their endpoint representations are eligible and SHALL be clipped deterministically across tiles. The spatial index SHALL find a crossing segment even when both endpoints lie outside the requested tile, without scanning all canonical relations for every tile request. Every returned edge endpoint SHALL be local to its batch.
@@ -292,7 +307,7 @@ Packet attribution SHALL admit only direct physical evidence with no virtual rol
 - **AND** telemetry refresh SHALL NOT refetch geometry or extend a sample's freshness timestamp
 
 ### Requirement: Tile navigation preserves bounded detail scenes and cached maps
-The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded prefetch and an LRU cache, reusing #4749 typed WebGPU sublayers and procedural packet flow. Picking SHALL fetch details by stable identity. ELK SHALL run only on a bounded device-neighborhood, component/aggregate-member, or rendered-bundle-member detail scene, with explicit entry and exit.
+The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded prefetch and an LRU cache, reusing #4749 typed WebGPU sublayers and procedural packet flow. Picking SHALL fetch details by stable identity. Browser ELK SHALL run only on a bounded device-neighborhood, component/aggregate-member, or rendered-bundle-member detail scene, with explicit entry and exit.
 
 #### Scenario: Panning back reuses cached geometry
 - **GIVEN** an unchanged previously visited area remains within the LRU budget

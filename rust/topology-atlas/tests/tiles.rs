@@ -199,7 +199,6 @@ fn every_zoom_conserves_members_under_dense_fanout_budgets() {
             for glyph in &tile.glyphs {
                 if glyph.kind == GlyphKind::Device {
                     let p = points.iter().find(|p| p.id == glyph.id).unwrap();
-                    assert!(p.min_zoom <= z);
                     assert_eq!((glyph.x, glyph.y), (f64::from(p.x), f64::from(p.y)));
                 } else if glyph.kind == GlyphKind::Boundary {
                     assert_eq!(glyph.count, 0);
@@ -299,10 +298,20 @@ fn corners_and_owned_boundary_contacts_preserve_adjacency_and_flow_phase() {
         assert!(tangent.glyphs.is_empty() && tangent.edges.is_empty());
     }
 
-    for (y, minimum_zoom, kind) in [
-        (5_000_000, 0, GlyphKind::Device),
-        (WORLD_EXTENT / 4, 8, GlyphKind::Aggregate),
-        (WORLD_EXTENT / 4, 0, GlyphKind::Device),
+    for (y, minimum_zoom, kind, profile) in [
+        (5_000_000, 0, GlyphKind::Device, TileProfile::Standard),
+        (
+            WORLD_EXTENT / 4,
+            8,
+            GlyphKind::Aggregate,
+            TileProfile::AggregateOnly,
+        ),
+        (
+            WORLD_EXTENT / 4,
+            8,
+            GlyphKind::Device,
+            TileProfile::Standard,
+        ),
     ] {
         let a = position(3, WORLD_EXTENT / 2, y, minimum_zoom);
         let b = position(4, 1, y, 0);
@@ -314,10 +323,10 @@ fn corners_and_owned_boundary_contacts_preserve_adjacency_and_flow_phase() {
         )
         .unwrap();
         let owner = world
-            .tile(Cell::new(1, 1, 0).unwrap(), Budget::default())
+            .tile_with_profile(Cell::new(1, 1, 0).unwrap(), Budget::default(), profile)
             .unwrap();
         let neighbor = world
-            .tile(Cell::new(1, 0, 0).unwrap(), Budget::default())
+            .tile_with_profile(Cell::new(1, 0, 0).unwrap(), Budget::default(), profile)
             .unwrap();
         assert_eq!(owner.internal_relations, 1);
         assert_eq!(owner.device_count, 1);

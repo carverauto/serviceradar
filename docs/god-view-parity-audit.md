@@ -5,8 +5,8 @@ This is an implementation audit, not a completed hardware/product acceptance rep
 
 | Behavior | Current implementation | Evidence and remaining work |
 | --- | --- | --- |
-| World Home and pan/zoom | Persisted 2^24 world; Home fits the 512-unit display extent; bounded tile LOD | Existing million-browser check totals 1M and exercises pan/zoom/cache. Real product million-data proof remains #4909. |
-| ELK layout | Explicit neighborhood/member scenes use `GodViewRenderer.mountScene`, schema 3 and `elk-scene-detail` | Existing WebGPU tests open ELK scenes at DPR 1/2. Test real product scenes, paging and resize on hardware. World positions are server coordinates, not ELK geometry. |
+| World Home and pan/zoom | Persisted 2^24 world; Home fits active-device bounds, with a legacy extent fallback; bounded tile LOD | Existing million-browser check totals 1M and exercises pan/zoom/cache. Real product million-data proof remains #4909. |
+| ELK layout | Explicit neighborhood/member scenes use `GodViewRenderer.mountScene`, schema 3 and `elk-scene-detail` | Existing WebGPU tests open ELK scenes at DPR 1/2. Test real product scenes, paging and resize on hardware. The background worker now composes bounded executions of the pinned ELK radial engine into persisted world positions; the tile browser retains its bounded delivery path. Native connected 1M/2M geometry passes. Authenticated product and hardware acceptance remain pending. |
 | Control ownership | World owns global subscriptions; active detail needs local control delivery | Found missing scene callbacks and retained-world zoom movement. Fixed with scene-local callbacks and retained map-camera ownership. Remote browser regression passed. |
 | Traffic toggle | Existing renderer forced atmosphere back on in every render | Removed forced enable; passing browser checks visible packet layers off/on and saved settings on cached reopen. |
 | Detail traffic | `WorldScene.encode` writes zero edge counters; detail scenes have no live overlay refresh | FAIL: add bounded, revision-fenced scene telemetry using persisted interface bindings. Do not count fixture-only animated detail as product proof. |

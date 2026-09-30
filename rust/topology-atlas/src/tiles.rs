@@ -304,6 +304,23 @@ impl World {
                 groups.extend(children);
             }
         }
+        // A singleton has real coordinates and a name even below its semantic
+        // promotion zoom. AggregateOnly still bounds canonical identifier bytes.
+        if profile == TileProfile::Standard {
+            groups.retain(|g| {
+                if g.count != 1 {
+                    return true;
+                }
+                let i = g
+                    .range
+                    .clone()
+                    .find(|i| selected.binary_search(&(*i as u32)).is_err())
+                    .expect("one remaining member") as u32;
+                selected.push(i);
+                selected.sort_unstable();
+                false
+            });
+        }
         let mut glyphs = Vec::new();
         let mut promoted = HashMap::new();
         for i in selected {

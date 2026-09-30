@@ -1,3 +1,4 @@
+import {radialGraph} from "../../../../../../js/topology-layout/radial_graph"
 import {isLazySnapshotDetails} from "./snapshot_columns"
 
 const SEMANTIC_ENVELOPE = 112
@@ -276,23 +277,8 @@ export function buildElkRadialOverviewGraph(input, {radius = RADIAL_BASE_RADIUS}
   const nodes = expectedNodes(input)
   const semantic = semanticNodes(input)
   const orderById = new Map(semantic.map((node, index) => [node.id, index]))
-  const graph = {
-    id: "topology-overview",
-    layoutOptions: {
-      "elk.algorithm": "radial",
-      "org.eclipse.elk.radial.centerOnRoot": "true",
-      "org.eclipse.elk.radial.sorter": "ID",
-      "org.eclipse.elk.radial.radius": String(radius),
-      "org.eclipse.elk.radial.compactor": "NONE",
-      // Allocate each subtree's wedge by how many leaves it carries, not by the size of the
-      // node at its root. Under NODE_SIZE an anchor got the same narrow wedge whether it had
-      // one child or an expanded cluster's twenty-four, so the members were crammed into a few
-      // degrees and their routes ran together into a single bright fan.
-      "org.eclipse.elk.radial.wedgeCriteria": "LEAF_NUMBER",
-      "elk.spacing.nodeNode": String(NODE_SPACING),
-      "elk.padding": `[top=${SCENE_PADDING},left=${SCENE_PADDING},bottom=${SCENE_PADDING},right=${SCENE_PADDING}]`,
-    },
-    children: nodes.map((node) => ({
+  return radialGraph(
+    nodes.map((node) => ({
       id: node.id,
       ...nodeDimensions(node, input),
       layoutOptions: {
@@ -300,13 +286,13 @@ export function buildElkRadialOverviewGraph(input, {radius = RADIAL_BASE_RADIUS}
         "serviceradar.synthetic": String(Boolean(node.synthetic || syntheticIds(input).has(node.id))),
       },
     })),
-    edges: expectedRelations(input).map((relation) => ({
+    expectedRelations(input).map((relation) => ({
       id: relation.id,
       sources: [relation.sourceId],
       targets: [relation.targetId],
     })),
-  }
-  return graph
+    {radius, padding: SCENE_PADDING},
+  )
 }
 
 export function decodeElkRadialOverview(layout, input) {

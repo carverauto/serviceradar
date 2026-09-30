@@ -114,6 +114,21 @@ fn publication_preserves_reservations_and_exports_only_real_deltas() {
     assert_eq!(changed.deltas.deactivate_device_ids, vec![ids[2]]);
     assert_eq!(changed.deltas.upsert_relations.len(), 1);
     assert_eq!(changed.world.info.node_count, 2);
+    let active: Vec<_> = changed.positions.iter().filter(|p| p.active).collect();
+    assert_eq!(
+        changed.world.info.bounds,
+        vec![
+            vec![
+                active.iter().map(|p| p.x).min().unwrap(),
+                active.iter().map(|p| p.y).min().unwrap()
+            ],
+            vec![
+                active.iter().map(|p| p.x).max().unwrap(),
+                active.iter().map(|p| p.y).max().unwrap()
+            ],
+        ],
+        "Fit bounds exclude inactive reservations"
+    );
     assert!(changed.world.geometry.search(ids[2]).is_none());
     for row in &changed.positions {
         assert_eq!((row.x, row.y), locations[&row.device_id]);
@@ -199,11 +214,9 @@ fn rejected_import_is_atomic_and_inactive_points_remain_reserved() {
         })
         .collect();
     assert!(builder.add_positions(oversized).is_err());
-    assert!(
-        builder
-            .add_positions(vec![old.clone(), old.clone()])
-            .is_err()
-    );
+    assert!(builder
+        .add_positions(vec![old.clone(), old.clone()])
+        .is_err());
     builder
         .add_positions(vec![PositionRow {
             active: false,

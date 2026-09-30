@@ -27,7 +27,7 @@ defmodule WorldBrowserFixture do
     end)
 
     {:ok, world} = TopologyAtlas.finish_world(builder)
-    {:ok, %{node_count: 1_000_000, relation_count: 2_000_000}} = TopologyAtlas.world_info(world)
+    {:ok, %{node_count: 1_000_000, relation_count: 2_000_000, bounds: bounds}} = TopologyAtlas.world_info(world)
     import_ms = System.monotonic_time(:millisecond) - started
     samples = Enum.map(["sr:node-0000011.example.test", "sr:node-0500011.example.test"], &sample(world, &1))
     {:ok, health} = TopologyAtlas.new_health(world, 1)
@@ -35,7 +35,7 @@ defmodule WorldBrowserFixture do
 
     tiles =
       samples
-      |> keys()
+      |> keys(bounds)
       |> Map.new(fn key ->
         {:ok, tile} = WorldTile.build(world, key)
         true = byte_size(tile.payload) <= 262_144
@@ -73,7 +73,8 @@ defmodule WorldBrowserFixture do
         zmax: 16,
         extent: 16_777_216,
         node_count: 1_000_000,
-        relation_count: 2_000_000
+        relation_count: 2_000_000,
+        bounds: bounds
       },
       samples: samples,
       tiles: tiles,
@@ -146,7 +147,7 @@ defmodule WorldBrowserFixture do
     %{device_id: id, x: position.x, y: position.y, zoom: position.min_zoom, scene: Base.encode64(scene.payload)}
   end
 
-  defp keys(samples) do
+  defp keys(samples, bounds) do
     low = for z <- 0..3, x <- 0..(2 ** z - 1), y <- 0..(2 ** z - 1), do: {z, x, y}
 
     high =
@@ -162,7 +163,8 @@ defmodule WorldBrowserFixture do
     # Include the continuous search flights, not just their destinations.
     # The renderer may adopt the destination zoom before the target finishes
     # interpolation, so cover that zoom over the whole invented route too.
-    origin = %{x: 8_388_608, y: 8_388_608, zoom: 0}
+    [[left, top], [right, bottom]] = bounds
+    origin = %{x: (left + right) / 2, y: (top + bottom) / 2, zoom: 0}
 
     flights =
       for [from, to] <- Enum.chunk_every([origin | samples], 2, 1, :discard),

@@ -40,6 +40,15 @@ afterEach(() => {
 })
 
 describe("world geometry cache", () => {
+  it("rejects invalid graph bounds before replacing accepted geometry", () => {
+    const store = cache()
+    for (const bounds of [null, [[1, 2]], [[0, 0], [Infinity, 1]], [[2, 0], [1, 1]], [[0, 0], [2 ** 24 + 1, 2 ** 24]]]) {
+      expect(() => store.observe({...manifest, generation: 2, bounds})).toThrow("Invalid topology bounds")
+      expect(store.manifest.generation).toBe(1)
+    }
+    expect(store.observe({...manifest, generation: 2, bounds: [[100, 200], [300, 400]]})).toBe(true)
+  })
+
   it("coalesces duplicate HTTP reads and revisits retained geometry without fetching", async () => {
     const fetcher = automaticFetch()
     const store = cache()

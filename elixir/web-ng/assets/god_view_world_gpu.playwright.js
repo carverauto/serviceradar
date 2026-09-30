@@ -36,7 +36,7 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
     if (url.pathname === "/topology/tiles/manifest") {
       manifestRequests += 1
       if (manifestRequests === 1) return route.fulfill({status: 503, json: {error: "not_ready"}})
-      return route.fulfill({json: {layout_version: version, generation: 1, zmax: 16, extent: 2 ** 24, node_count: 2, relation_count: 1}})
+      return route.fulfill({json: {layout_version: version, generation: 1, zmax: 16, extent: 2 ** 24, node_count: 2, relation_count: 1, bounds: [[192 * 32768, 192 * 32768], [208 * 32768, 216 * 32768]]}})
     }
     if (url.pathname === "/topology/tiles/search") {
       expect(url.searchParams.get("device_id")).toBe("invented-device-a")
@@ -146,7 +146,7 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
   await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:reset_view")({}))
   await page.waitForFunction(() => {
     const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
-    return viewport.zoom === 0 && viewport.target[0] === 256 && viewport.target[1] === 256
+    return viewport.zoom > 4 && viewport.target[0] === 200 && viewport.target[1] === 204
   })
   expect(errors).toEqual([])
 })

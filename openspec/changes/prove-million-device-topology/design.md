@@ -76,6 +76,13 @@ coverage, cache behavior, bounded ELK details, traffic transitions and frame
 performance. Existing generated Arrow fixtures and mocked telemetry browser
 checks remain useful focused tests, but do not establish this pipeline proof.
 
+The million-device figure describes the navigable topology population, not the
+number of simultaneous glyphs. A zoomed-out Home view presents bounded clusters
+and grouped links with correct membership counts. Operators pan through tiled
+coverage and zoom to nearby devices; density limits can retain aggregates even
+at maximum zoom. Acceptance must not require a million individual nodes or labels
+to fit on one screen.
+
 ## Delivery and isolation
 
 Use treehouse and remote RBE with --config=remote; no Docker, local compilation

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use dgraph_topology::{CanonicalEdge, CanonicalGraph};
 use rustler::NifMap;
 use serviceradar_topology_atlas::{
-    ALGORITHM, Cell, Device, Position, Relation, WORLD_EXTENT, World, reconcile,
+    reconcile, Cell, Device, Position, Relation, World, ALGORITHM, WORLD_EXTENT,
 };
 use sha2::{Digest, Sha256};
 
@@ -156,6 +156,7 @@ pub struct Info {
     pub zmax: u8,
     pub algorithm_version: String,
     pub extent: u32,
+    pub bounds: Vec<Vec<u32>>,
     pub node_count: u64,
     pub relation_count: u64,
 }
@@ -316,11 +317,26 @@ fn build_world<'a>(
         .filter(|p| p.active)
         .map(PositionRow::position)
         .collect();
+    let bounds = active
+        .iter()
+        .fold(None::<(u32, u32, u32, u32)>, |bounds, p| {
+            Some(match bounds {
+                None => (p.x, p.y, p.x, p.y),
+                Some((left, top, right, bottom)) => {
+                    (left.min(p.x), top.min(p.y), right.max(p.x), bottom.max(p.y))
+                }
+            })
+        })
+        .map_or_else(
+            || vec![vec![0, 0], vec![WORLD_EXTENT, WORLD_EXTENT]],
+            |(left, top, right, bottom)| vec![vec![left, top], vec![right, bottom]],
+        );
     let info = Info {
         layout_version: layout_version.clone(),
         zmax,
         algorithm_version: ALGORITHM.into(),
         extent: WORLD_EXTENT,
+        bounds,
         node_count: active.len() as u64,
         relation_count: relations.len() as u64,
     };

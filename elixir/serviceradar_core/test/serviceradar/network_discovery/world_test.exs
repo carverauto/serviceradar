@@ -181,9 +181,19 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert {:ok, %{layout_version: active, generation: 1}} = World.active_manifest(scope())
     assert active == layout.layout_version
 
-    metadata = %{source_digest: "synthetic-retry", node_count: 1, relation_count: 0}
+    metadata = %{
+      algorithm_version: "invented-replacement-v2",
+      zmax: 12,
+      source_digest: "synthetic-retry",
+      node_count: 1,
+      relation_count: 0
+    }
+
     assert :ok = World.stage_candidate(staged.layout_version, metadata, [position(4)], [])
-    assert {:ok, %{generation: 2}} = World.activate_relayout(1, staged.layout_version)
+
+    assert {:ok, %{generation: 2, algorithm_version: "invented-replacement-v2", zmax: 12}} =
+             World.activate_relayout(1, staged.layout_version)
+
     assert {:ok, nil} = World.lookup_device(scope(), staged.layout_version, "sr:host03")
     assert {:ok, %{x: 400}} = World.lookup_device(scope(), staged.layout_version, "sr:host04")
 

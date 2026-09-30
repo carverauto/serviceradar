@@ -83,7 +83,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert :ok = TopologyAtlas.add_positions(builder, positions)
     assert :ok = TopologyAtlas.add_relations(builder, bindings ++ [loop_binding])
     assert {:ok, world} = TopologyAtlas.finish_world(builder)
-    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
+    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0, %{nodes: 9, edges: 256})
     assert is_reference(tile.selection)
     assert tile.selection_bytes > 0
     aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
@@ -91,16 +91,23 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, selection} =
              TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
 
-    assert {:ok, %{member_count: 1, retained_bytes: bytes}} =
+    assert {:ok, %{member_count: count, retained_bytes: bytes}} =
              TopologyAtlas.aggregate_info(selection)
 
     assert bytes > 0
+    assert count == aggregate.count
+    assert count > 1
 
-    assert {:ok, %{nodes: [member], next_cursor: nil}} =
+    assert {:ok, %{nodes: members, next_cursor: nil}} =
              TopologyAtlas.detail(world, {:aggregate_members, selection})
 
-    refute member.device_id in [a.device_id, b.device_id]
-    assert member.device_id in Enum.map(positions, & &1.device_id)
+    assert length(members) == count
+
+    assert MapSet.subset?(
+             MapSet.new(members, & &1.device_id),
+             MapSet.new(Enum.drop(positions, 2), & &1.device_id)
+           )
+
     scope = {:component_members, "synthetic-component"}
     assert {:ok, first} = TopologyAtlas.detail(world, scope)
     assert length(first.nodes) == 64

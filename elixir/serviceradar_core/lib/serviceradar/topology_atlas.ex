@@ -66,6 +66,7 @@ defmodule ServiceRadar.TopologyAtlas do
 
   def add_relations(_builder, _rows), do: {:error, :invalid_rows}
 
+  defdelegate algorithm_version(), to: Native
   defdelegate finish_world(builder), to: Native
   defdelegate reconcile(builder, graph), to: Native
   defdelegate world_info(world), to: Native

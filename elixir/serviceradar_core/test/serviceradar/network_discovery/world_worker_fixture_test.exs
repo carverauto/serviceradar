@@ -64,7 +64,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
       publish_while_source_changes(job, version, List.last(ids), edges)
 
-      assert {:ok, %{generation: 1, node_count: 503, relation_count: 503}} =
+      assert {:ok,
+              %{
+                generation: 1,
+                node_count: 503,
+                relation_count: 503,
+                algorithm_version: "hierarchical-elk-radial-v2"
+              }} =
                World.active_manifest(scope())
 
       assert {:ok, nil} = World.lookup_device(scope(), version, List.last(ids))
@@ -80,7 +86,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert DateTime.diff(followup.scheduled_at, DateTime.utc_now(), :second) <= 1
       assert_drain_success()
 
-      assert {:ok, %{generation: 2, node_count: 504, relation_count: 503} = manifest} =
+      assert {:ok,
+              %{generation: 2, layout_version: ^version, node_count: 504, relation_count: 503} =
+                manifest} =
                World.active_manifest(scope())
 
       after_positions = placements()

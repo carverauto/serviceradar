@@ -11,6 +11,8 @@ import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode
 import {readBoundedBody, worldJson} from "./world_http"
 import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
 
+const MAP_BUTTON_CLASS = "inline-flex min-h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-sr-control border border-sr-line bg-sr-subtle px-3 text-sm font-semibold text-sr-brand shadow-sr-control outline-none hover:border-sr-line-hover hover:bg-sr-control focus-visible:ring-2 focus-visible:ring-sr-focus"
+
 function element(tag, className, text) {
   const node = document.createElement(tag)
   node.className = className
@@ -46,6 +48,7 @@ export default class WorldMapRenderer {
   async mount() {
     this.el.replaceChildren()
     this.el.style.position = "relative"
+    this.el.style.backgroundColor = "var(--sr-color-canvas)"
     this.canvas = element("canvas", "absolute inset-0 h-full w-full")
     this.summary = element("div", "absolute bottom-2 left-3 right-3 pointer-events-none text-xs text-sr-muted", "Loading topology…")
     this.summary.setAttribute("role", "status")
@@ -53,13 +56,13 @@ export default class WorldMapRenderer {
     const input = element("input", "input input-sm bg-sr-surface")
     input.placeholder = "Find device by ID"
     input.setAttribute("aria-label", "Find device by ID")
-    const find = element("button", "btn btn-sm", "Find")
+    const find = element("button", MAP_BUTTON_CLASS, "Find")
     find.type = "submit"
-    this.back = element("button", "btn btn-sm", "Back to map")
+    this.back = element("button", MAP_BUTTON_CLASS, "Back to map")
     this.back.type = "button"
     this.back.hidden = true
     this.back.addEventListener("click", () => this.returnToMap())
-    const share = element("button", "btn btn-sm", "Share map")
+    const share = element("button", MAP_BUTTON_CLASS, "Share map")
     share.type = "button"
     share.addEventListener("click", () => this.shareMap())
     this.toolbar.append(input, find, share, this.back)
@@ -163,7 +166,14 @@ export default class WorldMapRenderer {
   }
 
   overviewView() {
-    return {target: [256, 256, 0], zoom: Math.min(0, Math.max(-2, Math.log2(Math.max(128, Math.min(this.el.clientWidth, this.el.clientHeight) - 100) / WORLD_TILE_SIZE)))}
+    const bounds = this.cache.manifest?.bounds
+    if (!bounds) return {target: [256, 256, 0], zoom: Math.min(0, Math.max(-2, Math.log2(Math.max(128, Math.min(this.el.clientWidth, this.el.clientHeight) - 100) / WORLD_TILE_SIZE)))}
+    const scale = WORLD_TILE_SIZE / WORLD_EXTENT
+    const width = Math.max(2, (bounds[1][0] - bounds[0][0]) * scale)
+    const height = Math.max(2, (bounds[1][1] - bounds[0][1]) * scale)
+    const zoom = Math.log2(Math.min(Math.max(128, this.el.clientWidth - 160) / width, Math.max(128, this.el.clientHeight - 140) / height))
+    return {target: [(bounds[0][0] + bounds[1][0]) * scale / 2, (bounds[0][1] + bounds[1][1]) * scale / 2, 0],
+      zoom: Math.max(-2, Math.min(this.cache.manifest?.zmax ?? 16, zoom))}
   }
 
   setView(viewState) {
@@ -265,7 +275,7 @@ export default class WorldMapRenderer {
       this.sceneCache.clear()
       this.overlays.setVisible([])
       this.returnToMap()
-      if (!previous) this.restoreLocation()
+      if (!previous) {this.setView(this.overviewView()); this.restoreLocation()}
       else if (previous.layout_version !== manifest.layout_version) {
         this.setView(this.overviewView())
         this.locationNotice("The topology layout changed. Showing the current Home view.")
@@ -327,6 +337,8 @@ export default class WorldMapRenderer {
     if (this.destroyed) return
     this.cache.setVisible(tiles.map(tile => tile.index))
     const geometries = tiles.map(tile => tile.content).filter(Boolean)
+    const count = Math.max(1, tiles.length)
+    if (count !== this.visibleTileCount) {this.visibleTileCount = count; this.render()}
     this.overlays.setVisible(geometries)
     void this.overlays.poll()
     this.scheduleWatch()
@@ -353,7 +365,7 @@ export default class WorldMapRenderer {
       maxZoom: this.cache.manifest.zmax, getTileData: this.getTileData,
       updateTriggers: {getTileData: this.geometryRevision},
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
-      links: this.links, filters: this.filters,
+      links: this.links, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
       onViewportLoad: this.onViewportLoad, onTileError: this.onTileError,
     })], _animate: !this.detailRenderer && this.packetFlow})
   }

@@ -34,6 +34,11 @@ export class WorldTileCache {
         !Number.isInteger(manifest.zmax) || manifest.zmax < 0 || manifest.zmax > 24 || manifest.extent !== WORLD_EXTENT) {
       throw new Error("Invalid topology manifest")
     }
+    if (manifest.bounds !== undefined && (!Array.isArray(manifest.bounds) || manifest.bounds.length !== 2 ||
+        !manifest.bounds.every(point => Array.isArray(point) && point.length === 2 && point.every(value => Number.isSafeInteger(value) && value >= 0 && value <= WORLD_EXTENT)) ||
+        manifest.bounds[0].some((value, axis) => value > manifest.bounds[1][axis]))) {
+      throw new Error("Invalid topology bounds")
+    }
     if (this.manifest?.layout_version === manifest.layout_version && this.manifest.generation >= manifest.generation) return false
     const reset = this.manifest?.layout_version !== manifest.layout_version
     this.epoch += 1

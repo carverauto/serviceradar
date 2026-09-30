@@ -96,10 +96,23 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   defp record_request(job), do: {:ok, job}
 
   defp prepare("reconcile", version) do
-    case World.stream_active(%{}, &load_previous/2) do
-      {:ok, state} -> {:ok, Map.put(state, :mode, :incremental)}
-      {:error, :not_ready} -> fresh_state(version, 0, :initial)
-      {:error, _reason} = error -> error
+    case World.active_manifest(scope()) do
+      {:ok, manifest} ->
+        if manifest.algorithm_version == TopologyAtlas.algorithm_version() do
+          with {:ok, state} <- World.stream_active(%{}, &load_previous/2) do
+            {:ok, Map.put(state, :mode, :incremental)}
+          end
+        else
+          # Keep the accepted world available until its replacement is completely
+          # staged. The generation fence rejects a competing publication.
+          fresh_state(version, manifest.generation, :relayout)
+        end
+
+      {:error, :not_ready} ->
+        fresh_state(version, 0, :initial)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

@@ -34,6 +34,9 @@ pub fn reconcile(
         .unwrap_or_else(|| depth_for(fresh_components.saturating_mul(4)).max(1));
     let mut positions: Vec<Option<Position>> = vec![None; devices.len()];
 
+    let elk = (fresh_components > 0)
+        .then(crate::elk::Elk::new)
+        .transpose()?;
     for tree in forest {
         let anchor = tree
             .iter()
@@ -52,7 +55,16 @@ pub fn reconcile(
         if u16::from(component.z) + u16::from(placement_depth) > 24 {
             return Err(Error::ExhaustedWorld);
         }
-        for (rank, &(i, parent)) in tree.iter().enumerate() {
+        let fresh_geometry = if anchor.is_none() {
+            Some(crate::elk_hierarchy::place(
+                &tree,
+                component,
+                elk.as_ref().unwrap(),
+            )?)
+        } else {
+            None
+        };
+        for &(i, parent) in &tree {
             let device = &devices[i];
             let position = if let Some(old) = known.get(device.id.as_str()) {
                 let mut old = (*old).clone();
@@ -60,7 +72,7 @@ pub fn reconcile(
                 old.min_zoom = minimum_zoom(device.importance);
                 old
             } else if anchor.is_none() {
-                let (x, y) = morton_point(component, placement_depth, rank as u64 * 4);
+                let (x, y) = fresh_geometry.as_ref().unwrap()[&i];
                 Position {
                     id: device.id.clone(),
                     label: device.label.clone(),

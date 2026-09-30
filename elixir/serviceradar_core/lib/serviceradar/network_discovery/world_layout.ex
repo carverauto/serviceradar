@@ -39,7 +39,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldLayout do
     end
 
     update :publish do
-      accept [:status, :source_digest, :node_count, :relation_count]
+      accept [:status, :algorithm_version, :zmax, :source_digest, :node_count, :relation_count]
     end
 
     destroy :discard

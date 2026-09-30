@@ -96,7 +96,13 @@ defmodule ServiceRadar.NetworkDiscovery.World do
                update(
                  layout,
                  :publish,
-                 Map.take(metadata, [:source_digest, :node_count, :relation_count])
+                 Map.take(metadata, [
+                   :algorithm_version,
+                   :zmax,
+                   :source_digest,
+                   :node_count,
+                   :relation_count
+                 ])
                ) do
           :ok
         end

@@ -128,6 +128,11 @@ fn take<T>(resource: &Mutex<Option<T>>) -> Result<T> {
         .ok_or_else(|| "resource already consumed".into())
 }
 
+#[rustler::nif]
+fn algorithm_version() -> String {
+    serviceradar_topology_atlas::ALGORITHM.into()
+}
+
 #[rustler::nif(schedule = "DirtyIo")]
 fn new_builder(env: Env<'_>, layout_version: String, zmax: u8) -> Term<'_> {
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {

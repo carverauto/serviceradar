@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use serviceradar_topology_atlas::{
-    Budget, Cell, Device, HealthIndex, HealthObservation, HealthState, Relation, WORLD_EXTENT,
-    World, reconcile,
+    Budget, Cell, Device, GlyphKind, HealthIndex, HealthObservation, HealthState, Relation,
+    WORLD_EXTENT, World, reconcile,
 };
 
 fn device(id: &str, importance: u8) -> Device {
@@ -88,6 +88,44 @@ fn deterministic_world_preserves_positions_parents_and_tombstones() {
 }
 
 #[test]
+fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
+    let root = device("sr:root.example.test", 0);
+    let mut nodes = vec![root.clone()];
+    nodes.extend((0..16).map(|n| device(&format!("sr:leaf-{n:02}.example.test"), 2)));
+    let links: Vec<_> = nodes[1..]
+        .iter()
+        .map(|n| relation(&root.id, &n.id))
+        .collect();
+    let points = reconcile(nodes.clone(), &links, &[]).unwrap();
+    let center = points.iter().find(|p| p.id == root.id).unwrap();
+    let distances: Vec<_> = points
+        .iter()
+        .filter(|p| p.id != root.id)
+        .map(|p| (f64::from(p.x) - f64::from(center.x)).hypot(f64::from(p.y) - f64::from(center.y)))
+        .collect();
+    let minimum = distances.iter().copied().fold(f64::INFINITY, f64::min);
+    let maximum = distances.iter().copied().fold(0.0, f64::max);
+    assert!(
+        minimum > 0.0 && maximum / minimum < 1.001,
+        "ELK leaves occupy one radial level: {distances:?}"
+    );
+    let world = World::new("radial-synthetic".into(), 16, points.clone(), links).unwrap();
+    let tile = world
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    assert_eq!(tile.device_count, nodes.len() as u64);
+    assert_eq!(tile.edges.len(), nodes.len() - 1);
+    assert_eq!(tile.internal_relations, 0);
+    assert_eq!(tile.glyphs.len(), nodes.len());
+    for glyph in &tile.glyphs {
+        assert_eq!(glyph.kind, GlyphKind::Device);
+        let point = points.iter().find(|p| p.id == glyph.id).unwrap();
+        assert_eq!(glyph.label, point.label);
+        assert_eq!((glyph.x, glyph.y), (f64::from(point.x), f64::from(point.y)));
+    }
+}
+
+#[test]
 fn invented_million_device_hierarchy_and_one_percent_growth() {
     let (mut nodes, mut links) = hierarchy::hierarchy();
     let started = Instant::now();
@@ -99,6 +137,15 @@ fn invented_million_device_hierarchy_and_one_percent_growth() {
         started.elapsed().as_millis()
     );
     assert_eq!(world.len(), COUNT);
+    assert_eq!(
+        world
+            .iter()
+            .map(|p| &p.component_id)
+            .collect::<HashSet<_>>()
+            .len(),
+        1,
+        "the invented million-device network is connected"
+    );
     assert_eq!(
         world
             .iter()

@@ -214,6 +214,7 @@ filegroup(
         "js/lib/spatial_location.js",
         "js/utils/dashboard_user_time.js",
         "js/utils/user_time.js",
+        "//js/topology-layout:radial_graph",
     ],
 )
 
@@ -242,6 +243,7 @@ js_test(
         "js/lib/spatial_location.js",
         ":bundle_srcs",
         ":node_modules",
+        "//js/topology-layout:radial_graph",
     ],
     entry_point = "god_view_scene_test_runner.mjs",
     tags = ["unit_test"],
@@ -370,6 +372,7 @@ js_run_binary(
         "god_view_elk_scene_harness.js",
         ":god_view_scene_test_srcs",
         ":node_modules",
+        "//js/topology-layout:radial_graph",
     ],
     outs = ["god_view_elk_scene.bundle.js"],
     args = [
@@ -460,7 +463,7 @@ filegroup(
 # sources that Tailwind scans via `@source "../component/src"`.
 filegroup(
     name = "bundle_srcs",
-    srcs = glob(
+    srcs = ["//js/topology-layout:radial_graph"] + glob(
         [
             "css/**",
             "js/**",

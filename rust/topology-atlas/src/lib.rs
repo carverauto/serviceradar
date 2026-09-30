@@ -2,6 +2,8 @@
 //! changing the coordinate space requires a new, explicitly published layout.
 
 mod details;
+mod elk;
+mod elk_hierarchy;
 mod health;
 mod layout;
 mod spatial;
@@ -22,7 +24,7 @@ pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, TileProfile, World};
 
 /// Integers in this extent are exactly representable by Float32.
 pub const WORLD_EXTENT: u32 = 1 << 24;
-pub const ALGORITHM: &str = "hierarchical-morton-v1";
+pub const ALGORITHM: &str = "hierarchical-elk-radial-v2";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device {
@@ -99,6 +101,7 @@ pub struct Position {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    LayoutUnavailable,
     InvalidCell,
     InvalidIdentity,
     DuplicateIdentity(String),
