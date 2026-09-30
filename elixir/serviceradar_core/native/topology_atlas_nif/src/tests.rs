@@ -726,7 +726,7 @@ fn stale_backbone_shortcut_stays_out_of_the_overview_and_the_packet_path() {
     assert_eq!(stats.final_edges, 3);
     assert_eq!(stats.final_direct, 3);
     assert_eq!(stats.final_inferred, 0);
-    assert_eq!(stats.edge_class_observed, 0);
+    assert_eq!(stats.edge_class_observed, None);
     let restored = {
         let mut cold = Builder::new("synthetic-stale-forest".into(), 16).unwrap();
         cold.add_positions(candidate.positions).unwrap();

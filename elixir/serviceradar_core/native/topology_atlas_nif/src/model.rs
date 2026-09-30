@@ -885,7 +885,7 @@ pub struct PipelineStats {
     pub edge_class_attachment: u64,
     pub edge_class_inferred: u64,
     pub edge_class_hosted: u64,
-    pub edge_class_observed: u64,
+    pub edge_class_observed: Option<u64>,
     pub backbone_edge_count: u64,
 }
 
@@ -920,7 +920,7 @@ fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats
         edge_class_attachment: attachment,
         edge_class_inferred: inferred,
         edge_class_hosted: hosted,
-        edge_class_observed: 0,
+        edge_class_observed: None,
         backbone_edge_count: backbone,
     }
 }

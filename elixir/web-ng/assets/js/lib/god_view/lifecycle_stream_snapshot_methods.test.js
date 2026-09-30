@@ -877,7 +877,6 @@ describe("lifecycle_stream_snapshot_methods", () => {
         edge_class_attachment: 57,
         edge_class_inferred: 12,
         edge_class_hosted: 3,
-        edge_class_observed: 0,
       },
       pushEvent: vi.fn(),
       summary: {textContent: ""},
@@ -901,7 +900,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
 
     await methods.handleSnapshot(buildFrame([1, 2, 3]))
 
-    expect(state.summary.textContent).toContain("classes=bb:0/att:57/inf:12/host:3/obs:0")
+    expect(state.summary.textContent).toContain("classes=bb:0/att:57/inf:12/host:3/obs:—")
     expect(state.summary.textContent).toContain("backbone=EMPTY")
     expect(state.pushEvent).toHaveBeenCalledWith(
       "god_view_stream_stats",

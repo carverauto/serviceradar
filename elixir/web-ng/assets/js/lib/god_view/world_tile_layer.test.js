@@ -418,7 +418,7 @@ describe("world tile rendering contract", () => {
         manifest: {
           layout_version: worldTileKey.layout_version, generation: 4, zmax: 16, node_count: 12, relation_count: 9,
           generated_at: "2026-03-01T00:00:00Z",
-          pipeline_stats: {raw_links: 4, edge_class_observed: 0, note: "unmeasured"},
+          pipeline_stats: {raw_links: 4, note: "unmeasured"},
         },
         setVisible() {}, prefetch() {},
       }
@@ -432,7 +432,7 @@ describe("world tile rendering contract", () => {
       expect(payload.generated_at).toBe("2026-03-01T00:00:00Z")
       expect(payload.zoom_mode).toBe("auto")
       expect(payload.zoom_tier).toBe("global")
-      expect(payload.pipeline_stats).toEqual({raw_links: 4, edge_class_observed: 0})
+      expect(payload.pipeline_stats).toEqual({raw_links: 4})
       expect(payload.rendered_node_count).toBe(2)
       expect(payload.pipeline_stats.rendered_node_count).toBeUndefined()
       const select = mode => {

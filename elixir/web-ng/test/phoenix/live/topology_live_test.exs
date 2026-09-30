@@ -116,8 +116,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
           "edge_class_backbone" => 0,
           "edge_class_attachment" => 57,
           "edge_class_inferred" => 12,
-          "edge_class_hosted" => 3,
-          "edge_class_observed" => 0
+          "edge_class_hosted" => 3
         }
       })
 
@@ -128,6 +127,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     assert html =~ "att:57"
     assert html =~ "inf:12"
     assert html =~ "host:3"
+    assert html =~ "obs:—"
     assert html =~ "edges are included in the topology map"
     refute html =~ "Show attachment layers"
     refute html =~ "No topology data yet"

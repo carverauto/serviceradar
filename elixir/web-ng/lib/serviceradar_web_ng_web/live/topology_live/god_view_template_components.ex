@@ -56,7 +56,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
               edges are included in the topology map.
             </span>
             <span class="font-mono text-[10px] text-sr-muted">
-              bb:{backbone_warning.counts.backbone} att:{backbone_warning.counts.attachment} inf:{backbone_warning.counts.inferred} host:{backbone_warning.counts.hosted} obs:{backbone_warning.counts.observed}
+              bb:{backbone_warning.counts.backbone || "—"} att:{backbone_warning.counts.attachment ||
+                "—"} inf:{backbone_warning.counts.inferred || "—"} host:{backbone_warning.counts.hosted ||
+                "—"} obs:{backbone_warning.counts.observed || "—"}
             </span>
           </div>
         </div>
@@ -452,13 +454,16 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
 
     counts = %{
       backbone: backbone,
-      attachment: pipeline_class_count(pipeline_stats, :edge_class_attachment) || 0,
-      inferred: pipeline_class_count(pipeline_stats, :edge_class_inferred) || 0,
-      hosted: pipeline_class_count(pipeline_stats, :edge_class_hosted) || 0,
-      observed: pipeline_class_count(pipeline_stats, :edge_class_observed) || 0
+      attachment: pipeline_class_count(pipeline_stats, :edge_class_attachment),
+      inferred: pipeline_class_count(pipeline_stats, :edge_class_inferred),
+      hosted: pipeline_class_count(pipeline_stats, :edge_class_hosted),
+      observed: pipeline_class_count(pipeline_stats, :edge_class_observed)
     }
 
-    other_edges = counts.attachment + counts.inferred + counts.hosted + counts.observed
+    other_edges =
+      [counts.attachment, counts.inferred, counts.hosted, counts.observed]
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sum()
 
     if backbone == 0 and other_edges > 0 do
       %{counts: counts, other_edges: other_edges}
