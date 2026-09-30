@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
   alias ServiceRadar.Identity.RBAC, as: RBACCore
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Observability.BmpSettings
 
   @impl true
   def can(%User{} = user) do
@@ -38,6 +39,9 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
 
       "settings.rbac.manage" ->
         all(permissions, RoleProfile)
+
+      "settings.networks.manage" ->
+        all(permissions, BmpSettings)
 
       "ansible.controllers.manage" ->
         all(permissions, AnsibleController)

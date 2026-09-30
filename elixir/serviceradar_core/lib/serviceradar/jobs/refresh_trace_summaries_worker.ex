@@ -587,8 +587,19 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       Repo.transact(
         fn ->
           case SQL.query!(Repo, @try_refresh_lock_sql, [@watermark_key]) do
-            %{rows: [[true]]} -> refresh_summaries()
-            %{rows: [[false]]} -> {:error, :refresh_in_progress}
+            %{rows: [[true]]} ->
+              # A missing relation aborts the transaction, so the next statement
+              # commits as {:error, :rollback} instead of the undefined_table
+              # result the query helpers already handle. Probe with to_regclass
+              # before any of those statements.
+              if trace_summary_relations_present?() do
+                refresh_summaries()
+              else
+                {:ok, :tables_missing}
+              end
+
+            %{rows: [[false]]} ->
+              {:error, :refresh_in_progress}
           end
         end,
         timeout: :infinity
@@ -604,12 +615,25 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
           :ok
         end
 
+      {:ok, :tables_missing} ->
+        :ok
+
       {:error, :refresh_in_progress} ->
         {:snooze, 1}
 
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp trace_summary_relations_present? do
+    Enum.all?(["observability_watermarks", "otel_traces", "otel_trace_summaries"], fn name ->
+      case SQL.query(Repo, "SELECT to_regclass($1)", [name]) do
+        {:ok, %{rows: [[relation]]}} when is_binary(relation) -> true
+        {:ok, _} -> false
+        {:error, error} -> raise error
+      end
+    end)
   end
 
   # Oban's documented snooze compensation: each snooze raised `max_attempts`

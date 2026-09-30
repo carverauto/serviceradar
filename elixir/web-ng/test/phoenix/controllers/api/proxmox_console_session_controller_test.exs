@@ -162,7 +162,10 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
     test "denies websocket upgrade without credential-use permission", %{conn: conn, user: user} do
       put_test_permissions(user, ["devices.console.open"])
 
-      conn = get(conn, ~p"/v1/proxmox/console-sessions/#{Ecto.UUID.generate()}/stream")
+      conn =
+        conn
+        |> put_req_header("host", "www.example.com")
+        |> get(~p"/v1/proxmox/console-sessions/#{Ecto.UUID.generate()}/stream")
 
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"

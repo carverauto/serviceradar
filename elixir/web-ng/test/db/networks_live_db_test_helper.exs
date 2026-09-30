@@ -9,9 +9,11 @@ ExUnit.configure(
   max_cases: 1
 )
 
-# 8 GodView stream cases are tagged :skip as known-divergent (product decisions
-# tracked in https://github.com/carverauto/serviceradar/issues/4988); they load
-# but never select, so the lane expects 2335 instead of 2343.
+# Lane arbiter from the filtered run: summary "3 properties, 2340 tests,
+# 8 skipped (2 excluded)". That 2343 includes the 8 skipped GodView cases
+# (https://github.com/carverauto/serviceradar/issues/4988) and excludes the
+# 2 :db_free-only cases. after_suite total is 2345, so selected is
+# total - excluded - skipped = 2335.
 expected_selected_tests = 2335
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->

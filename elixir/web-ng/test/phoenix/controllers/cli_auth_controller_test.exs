@@ -99,9 +99,9 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
       end)
     end
 
-    test "rate-limits at the 11th request in the same window", %{conn: conn} do
-      # Fill the bucket; 11th call should 429.
-      Enum.each(1..10, fn _ -> RateLimiter.record(@device_action, @ip) end)
+    test "rate-limits once the configured cli_device_auth window is full", %{conn: conn} do
+      {limit, _window} = RateLimiter.resolve_bucket(@device_action)
+      Enum.each(1..limit, fn _ -> RateLimiter.record(@device_action, @ip) end)
 
       conn =
         post_with_ip(conn, ~p"/api/v1/cli/auth/device", %{

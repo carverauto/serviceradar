@@ -147,7 +147,11 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       Application.put_env(:serviceradar_web_ng, :collector_bundle_generator, BrokenCollectorBundleGenerator)
 
       on_exit(fn ->
-        Application.put_env(:serviceradar_web_ng, :collector_bundle_generator, previous)
+        if is_nil(previous) do
+          Application.delete_env(:serviceradar_web_ng, :collector_bundle_generator)
+        else
+          Application.put_env(:serviceradar_web_ng, :collector_bundle_generator, previous)
+        end
       end)
 
       {package, token} = create_ready_collector_package(:flowgger)

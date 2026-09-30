@@ -77,8 +77,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "relay_session_id" => ^relay_session_id,
              "status" => "opening",
              "playback_state" => "pending",
-             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs",
+             "preferred_playback_transport" => "membrane_webrtc",
              "available_playback_transports" => [
+               "membrane_webrtc",
                "websocket_h264_annexb_webcodecs",
                "websocket_h264_annexb_jmuxer_mse"
              ],
@@ -105,8 +106,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "playback_state" => "ready",
              "media_ingest_id" => "core-media-1",
              "viewer_count" => 2,
-             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs",
+             "preferred_playback_transport" => "membrane_webrtc",
              "available_playback_transports" => [
+               "membrane_webrtc",
                "websocket_h264_annexb_webcodecs",
                "websocket_h264_annexb_jmuxer_mse"
              ]
@@ -129,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "playback_state" => "closed",
              "termination_kind" => "viewer_idle",
              "close_reason" => "viewer idle timeout",
-             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs"
+             "preferred_playback_transport" => "membrane_webrtc"
            } = Jason.decode!(payload)
   end
 

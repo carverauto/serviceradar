@@ -264,6 +264,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     assert_receive {:srql_query, "in:test_optional_rows"}
     refute_receive {:srql_query, _query}, 50
 
+    age_refreshed_frames(socket.channel_pid)
     send(socket.channel_pid, :dashboard_frame_tick)
 
     assert_receive {:srql_query, "in:test_rows"}
@@ -537,7 +538,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     assert_push "frames:replace", %{"frames" => [%{"id" => "required", "status" => "ok"}]}
     assert_receive {:srql_query, "in:test_rows"}
 
-    # Tick again over identical data.
+    # Tick again over identical data. A tick that lands inside the refresh
+    # interval re-runs nothing, so age the stamps to the interval boundary.
+    age_refreshed_frames(socket.channel_pid)
     send(socket.channel_pid, :dashboard_frame_tick)
     assert_receive {:srql_query, "in:test_rows"}
 
@@ -615,6 +618,22 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     ref = push(socket, "frames:refresh", %{})
     assert_reply ref, :error, %{reason: "refresh_in_progress"}
+  end
+
+  defp age_refreshed_frames(channel_pid) do
+    wait_until_settled(channel_pid)
+
+    :sys.replace_state(channel_pid, fn state ->
+      now = System.monotonic_time(:millisecond)
+      refresh_ms = state.assigns.refresh_ms
+
+      aged =
+        Map.new(state.assigns.frame_refreshed_at || %{}, fn {id, _last} ->
+          {id, now - refresh_ms}
+        end)
+
+      %{state | assigns: Map.put(state.assigns, :frame_refreshed_at, aged)}
+    end)
   end
 
   defp wait_until_settled(channel_pid, attempts \\ 20) do

@@ -123,8 +123,8 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
   test "error span gets error styling and expands details", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 
-    assert has_element?(lv, "#trace-spans-row-1 .badge-error")
-    refute has_element?(lv, "#trace-spans-row-2 .badge-error")
+    assert has_element?(lv, "#trace-spans-row-1 .text-red-700", "error")
+    refute has_element?(lv, "#trace-spans-row-2 .text-red-700")
 
     lv
     |> element("#trace-spans-row-1")
@@ -259,7 +259,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
 
   @tag :web_ng_shared_fixture_db
   test "invalid trace id redirects back to the traces pane", %{conn: conn} do
-    assert {:error, {:live_redirect, %{to: "/observability?tab=traces"}}} =
+    assert {:error, {:live_redirect, %{to: "/observability/traces"}}} =
              live(conn, ~p"/observability/traces/not-a-trace-id")
   end
 
