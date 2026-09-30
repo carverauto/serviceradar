@@ -24,6 +24,7 @@ struct Layout {
 }
 
 pub(crate) struct Drawing {
+    root: usize,
     layouts: HashMap<usize, Layout>,
 }
 
@@ -39,9 +40,23 @@ pub(crate) fn compose(tree: &[(usize, Option<usize>)], engine: &Elk) -> Result<D
             children[local[parent]].push(n);
         }
     }
+    let roots: HashSet<_> = tree
+        .iter()
+        .enumerate()
+        .filter_map(|(n, (_, parent))| parent.is_none().then_some(n))
+        .collect();
+    let root = if roots.len() > 1 {
+        let root = children.len();
+        // Keep each component's own radial drawing intact. Its envelope is
+        // placed by the same bounded ELK composition as any other subtree.
+        children.push((0..tree.len()).filter(|n| roots.contains(n)).collect());
+        root
+    } else {
+        0
+    };
     // Bound even a million-leaf star. These layout-only grouping nodes carry
     // child envelopes, never inventory identity or aggregate membership.
-    for node in 0..tree.len() {
+    for node in 0..children.len() {
         let mut level = std::mem::take(&mut children[node]);
         while level.len() >= BATCH {
             let mut next = Vec::new();
@@ -54,7 +69,7 @@ pub(crate) fn compose(tree: &[(usize, Option<usize>)], engine: &Elk) -> Result<D
         children[node] = level;
     }
     let mut chunks = Vec::new();
-    let mut pending = VecDeque::from([0]);
+    let mut pending = VecDeque::from([root]);
     while let Some(root) = pending.pop_front() {
         let mut chunk = Chunk {
             members: vec![root],
@@ -64,7 +79,10 @@ pub(crate) fn compose(tree: &[(usize, Option<usize>)], engine: &Elk) -> Result<D
         let mut cursor = 0;
         while cursor < chunk.members.len() {
             let node = chunk.members[cursor];
-            if chunk.members.len() + children[node].len() <= BATCH {
+            if roots.len() > 1 && node != chunk.members[0] && roots.contains(&node) {
+                chunk.frontier.insert(node);
+                pending.push_back(node);
+            } else if chunk.members.len() + children[node].len() <= BATCH {
                 for child in &children[node] {
                     chunk.members.push(*child);
                     chunk.edges.push((node, *child));
@@ -128,7 +146,7 @@ pub(crate) fn compose(tree: &[(usize, Option<usize>)], engine: &Elk) -> Result<D
             },
         );
     }
-    Ok(Drawing { layouts })
+    Ok(Drawing { root, layouts })
 }
 
 pub(crate) fn finest_cell(drawing: &Drawing, expected: usize) -> Result<u8, Error> {
@@ -145,7 +163,10 @@ pub(crate) fn project(
     component: Cell,
     expected: usize,
 ) -> Result<HashMap<usize, (u32, u32)>, Error> {
-    let root = drawing.layouts.get(&0).ok_or(Error::LayoutUnavailable)?;
+    let root = drawing
+        .layouts
+        .get(&drawing.root)
+        .ok_or(Error::LayoutUnavailable)?;
     let width = f64::from(component.width());
     let scale = (width - 2.0) / root.width.max(root.height).max(1.0);
     let (left, top) = component.origin();
@@ -155,7 +176,7 @@ pub(crate) fn project(
     let mut result = HashMap::new();
     // Apply accumulated offsets once per device, rather than copying each
     // descendant's geometry through every ancestor in a deep hierarchy.
-    let mut pending = vec![(0usize, 0.0, 0.0)];
+    let mut pending = vec![(drawing.root, 0.0, 0.0)];
     let mut seen = HashSet::new();
     while let Some((node, dx, dy)) = pending.pop() {
         if !seen.insert(node) {

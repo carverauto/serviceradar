@@ -27,6 +27,59 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it("admits nonoverlapping labels across tile seams and readmits them on zoom", async () => {
+    const layer = new WorldTileLayer({id: "label-seams", maxZoom: 1})
+    const viewport = zoom => new OrthographicViewport({width: 1024, height: 512, target: [256, 100, 0], zoom})
+    const tileset = new layer.props.TilesetClass({
+      tileSize: 512, extent: layer.props.extent, minZoom: 1, maxZoom: 1,
+      refinementStrategy: layer.props.refinementStrategy,
+      getTileData: ({index}) => {
+        const xs = index.y === 0 ? (index.x === 0 ? [250, 252, 254] : [256, 258, 260]) : []
+        return {...tile(), key: {...worldTileKey, ...index}, edges: [],
+          positions: new Float64Array(xs.flatMap(x => [x, 100])),
+          nodes: xs.map((x, index) => ({id: `sr:label-${x}.example.test`, label: `host-${x}.example.test`, kind: "device", index, count: 1})),
+        }
+      },
+    })
+    layer.state = {tileset}
+    try {
+      const rendered = async zoom => {
+        layer.context = {viewport: viewport(zoom)}
+        tileset.update(layer.context.viewport)
+        await vi.waitFor(() => expect(tileset.isLoaded).toBe(true))
+        tileset.update(layer.context.viewport)
+        const labels = layer.renderLayers().flat(Infinity).filter(item => item?.id.endsWith("-labels") && layer.filterSubLayer({layer: item}))
+        const boxes = []
+        for (const label of labels) {
+          const value = (key, row) => typeof label.props[key] === "function" ? label.props[key](row) : label.props[key]
+          for (const row of label.props.data) {
+            const text = value("getText", row)
+            if (!text) continue
+            const [x, y] = layer.context.viewport.project(value("getPosition", row))
+            const [dx, dy] = value("getPixelOffset", row)
+            const width = text.length * 11
+            const height = Math.ceil(11 * 1.25)
+            const left = x + dx - ({start: 0, middle: width / 2, end: width}[value("getTextAnchor", row)])
+            const top = y + dy - ({top: 0, center: height / 2, bottom: height}[value("getAlignmentBaseline", row)])
+            const box = {left, top, right: left + width, bottom: top + height}
+            for (const other of boxes) {
+              expect(Math.min(box.right, other.right) <= Math.max(box.left, other.left) ||
+                Math.min(box.bottom, other.bottom) <= Math.max(box.top, other.top)).toBe(true)
+            }
+            boxes.push(box)
+          }
+        }
+        return boxes.length
+      }
+      const dense = await rendered(1)
+      expect(dense).toBeGreaterThan(0)
+      expect(dense).toBeLessThan(6)
+      expect(await rendered(6)).toBe(6)
+    } finally {
+      tileset.finalize()
+    }
+  })
+
   it("retires cached parents during geometry invalidation while refinement is loading", async () => {
     const layer = new WorldTileLayer({id: "refinement", maxZoom: 16})
     const pending = new Map()

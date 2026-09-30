@@ -4,6 +4,7 @@ import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 import {GOD_VIEW_ALPHA_BLEND, GOD_VIEW_ADDITIVE_BLEND} from "./gpu_parameters"
 import {nodeGlyphLayerData} from "./rendering_node_frame"
+import {admitTopologyLabels} from "./rendering_label_collision"
 import {godViewRenderingStyleEdgeParticleMethods} from "./rendering_style_edge_particle_methods"
 import {edgeTopologyClassValue, edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 import {WORLD_TILE_SIZE} from "./world_tile_decode"
@@ -106,6 +107,80 @@ function flowFrame(geometry, overlay) {
 
 /** Schema-3 binary sublayers, sharing #4749's glyph packing and packet shader. */
 export default class WorldTileLayer extends TileLayer {
+  tileOverlay(geometry) {
+    const candidate = this.props.overlays?.get(`${geometry.key.z}/${geometry.key.x}/${geometry.key.y}`)
+    return candidate?.layout_version === geometry.key.layout_version &&
+      candidate?.generation === geometry.generation && candidate?.revision === geometry.revision ? candidate : null
+  }
+
+  nodeShown(counts) {
+    const filters = this.props.filters || {}
+    return counts
+      ? ["healthy", "unavailable", "unknown"].some(state => counts[state] > 0 && filters[state] !== false)
+      : filters.unknown !== false
+  }
+
+  renderLayers() {
+    const layers = super.renderLayers()
+    const {viewport} = this.context
+    const {tileset} = this.state
+    const nodes = new Map()
+    const glyphBoxes = []
+    const routeCorridors = []
+    for (const tile of tileset.tiles) {
+      if (!tile.content || !tileset.isTileVisible(tile)) continue
+      const geometry = tile.content
+      const health = new Map((this.tileOverlay(geometry)?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
+      for (const node of geometryFrame(geometry).nodes) {
+        if (!this.nodeShown(health.get(node.id)) || nodes.has(node.id)) continue
+        const point = viewport.project(node.position)
+        const radius = node.kind === "aggregate" ? 9 : 4
+        if (point[0] + radius < 0 || point[0] - radius > viewport.width ||
+            point[1] + radius < 0 || point[1] - radius > viewport.height) continue
+        nodes.set(node.id, {...node, point})
+        glyphBoxes.push({nodeId: node.id, left: point[0] - radius, right: point[0] + radius,
+          top: point[1] - radius, bottom: point[1] + radius})
+      }
+      if (this.props.links === false) continue
+      for (const edge of geometry.edges) {
+        if (edgeTopologyClassValue(edge) === "inferred" && this.props.inferred !== true) continue
+        routeCorridors.push({
+          sourceId: geometry.nodes[edge.source].id, targetId: geometry.nodes[edge.target].id,
+          points: [edge.source, edge.target].map(index => viewport.project([
+            geometry.positions[index * 2], geometry.positions[index * 2 + 1], 0,
+          ])),
+          strokeWidth: 1.5,
+        })
+      }
+    }
+    // One admission pass covers all refined visible tiles. Tile-local passes
+    // would independently accept colliding labels on either side of a seam.
+    const candidates = [...nodes.values()]
+      .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+      .slice(0, 512)
+      .map(node => ({nodeId: node.id, point: node.point, fontSize: 11,
+        text: node.kind === "aggregate" ? node.count.toLocaleString() : node.label,
+        role: node.kind === "aggregate" ? "summary" : "member"}))
+    const {admitted} = admitTopologyLabels({
+      candidates, glyphBoxes, routeCorridors, maximumCount: 128,
+      safeRect: {left: 0, top: 0, right: viewport.width, bottom: viewport.height},
+    })
+    const labels = admitted.map(placement => ({...nodes.get(placement.nodeId), ...placement}))
+    return [layers, new TextLayer(this.getSubLayerProps({id: "labels"}), {
+      coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND,
+      data: labels, pickable: false, getPosition: item => item.position,
+      getText: item => item.kind === "aggregate" ? item.count.toLocaleString() : item.label,
+      getSize: 11, sizeUnits: "pixels", getColor: [220, 232, 242, 240],
+      getPixelOffset: item => item.pixelOffset, getTextAnchor: item => item.textAnchor,
+      getAlignmentBaseline: item => item.alignmentBaseline,
+      fontFamily: "sans-serif", characterSet: "auto",
+    })]
+  }
+
+  filterSubLayer(context) {
+    return context.layer.props.tile ? super.filterSubLayer(context) : true
+  }
+
   getPickingInfo(params) {
     const info = super.getPickingInfo(params)
     if (info.picked && !info.object) info.object = info.sourceTileSubLayer?.props.data.resolve?.(info.index)
@@ -116,20 +191,13 @@ export default class WorldTileLayer extends TileLayer {
     const geometry = props.data
     if (!geometry) return null
     const frame = geometryFrame(geometry)
-    const candidate = this.props.overlays?.get(`${geometry.key.z}/${geometry.key.x}/${geometry.key.y}`)
-    const overlay = candidate?.layout_version === geometry.key.layout_version &&
-      candidate?.generation === geometry.generation && candidate?.revision === geometry.revision ? candidate : null
+    const overlay = this.tileOverlay(geometry)
     const edgeClass = index => edgeTopologyClassValue(geometry.edges[index])
     const edgeStyle = index => edgeTopologyVisualStyleValue({topologyClass: edgeClass(index)})
     const shownEdge = index => edgeClass(index) !== "inferred" || this.props.inferred === true
     const health = new Map((overlay?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
     const filters = this.props.filters || {}
-    const shown = item => {
-      const counts = health.get(item.id)
-      return counts
-        ? ["healthy", "unavailable", "unknown"].some(state => counts[state] > 0 && filters[state] !== false)
-        : filters.unknown !== false
-    }
+    const shown = item => this.nodeShown(health.get(item.id))
     const common = {coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND}
     const node = ({index}) => frame.nodes[index]
     const healthColor = item => {
@@ -183,14 +251,6 @@ export default class WorldTileLayer extends TileLayer {
           return healthColor(node(info))
         },
         updateTriggers: {getFillColor: overlay, getLineColor: overlay, getRadius: [overlay, filters]},
-      }),
-      frame.nodes.length > 0 && new TextLayer(props, common, {
-        id: `${props.id}-labels`, data: frame.nodes, pickable: false,
-        getPosition: item => item.position,
-        getText: item => shown(item) ? (item.kind === "aggregate" ? item.count.toLocaleString() : item.label) : "",
-        getSize: 11, sizeUnits: "pixels", getColor: [220, 232, 242, 240],
-        getPixelOffset: [0, 15], fontFamily: "sans-serif", characterSet: "auto",
-        updateTriggers: {getText: [overlay, filters]},
       }),
     ]
   }

@@ -33,7 +33,10 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
 
     Enum.reduce([false, true, false], socket, fn enabled, socket ->
       html = render_component(&GodViewTemplateComponents.surface/1, socket.assigns)
-      control = html |> LazyHTML.from_fragment() |> LazyHTML.query("button[phx-value-layer='inferred']")
+
+      control =
+        html |> LazyHTML.from_fragment() |> LazyHTML.query("button[phx-value-layer='inferred']")
+
       assert LazyHTML.text(control) |> String.trim() == "Inferred"
       assert LazyHTML.attribute(control, "aria-pressed") == [to_string(enabled)]
       [event] = LazyHTML.attribute(control, "phx-click")
