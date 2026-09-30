@@ -140,14 +140,23 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     end
   end
 
-  defp mark_provisioning(%{status: :provisioning} = package), do: {:ok, package}
-
   defp mark_provisioning(package) do
-    actor = SystemActor.system(:provision_collector)
+    with {:ok, current} <- get_package(package.id) do
+      cond do
+        current.status == :provisioning ->
+          {:ok, current}
 
-    package
-    |> Ash.Changeset.for_update(:provision, %{}, actor: actor)
-    |> Ash.update()
+        current.status == :pending ->
+          actor = SystemActor.system(:provision_collector)
+
+          current
+          |> Ash.Changeset.for_update(:provision, %{}, actor: actor)
+          |> Ash.update()
+
+        true ->
+          {:error, :package_not_pending}
+      end
+    end
   end
 
   defp get_nats_config do
@@ -255,13 +264,19 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     # (SPIFFE/SPIRE, cert-manager). We only set the NATS credentials.
     actor = SystemActor.system(:provision_collector)
 
-    package
-    |> Ash.Changeset.for_update(
-      :ready,
-      %{nats_credential_id: credential_id, nats_creds_content: nats_creds_content},
-      actor: actor
-    )
-    |> Ash.update()
+    with {:ok, current} <- get_package(package.id) do
+      if current.status == :provisioning do
+        current
+        |> Ash.Changeset.for_update(
+          :ready,
+          %{nats_credential_id: credential_id, nats_creds_content: nats_creds_content},
+          actor: actor
+        )
+        |> Ash.update()
+      else
+        {:error, :package_not_pending}
+      end
+    end
   end
 
   defp mark_failed(package_id, message) do

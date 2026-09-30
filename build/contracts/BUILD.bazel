@@ -95,6 +95,16 @@ genquery(
     scope = ["//elixir/web-ng:networks_live_db_test"],
 )
 
+genquery(
+    name = "web_ng_lane_target_query",
+    expression = "set(//elixir/web-ng:networks_live_db_test //elixir/web-ng:topology_atlas_db_test)",
+    opts = ["--output=xml"],
+    scope = [
+        "//elixir/web-ng:networks_live_db_test",
+        "//elixir/web-ng:topology_atlas_db_test",
+    ],
+)
+
 py_test(
     name = "web_ng_db_runner_contract_test",
     size = "small",
@@ -111,7 +121,7 @@ py_test(
     size = "small",
     srcs = ["web_ng_test_lane_routing_contract_test.py"],
     data = [
-        "//elixir/web-ng:BUILD.bazel",
+        ":web_ng_lane_target_query",
         "//elixir/web-ng:srcs",
     ],
 )
