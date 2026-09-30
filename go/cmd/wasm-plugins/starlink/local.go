@@ -117,8 +117,6 @@ var localAlertNames = map[string]string{
 	"slowEthernetSpeeds":            "slow_ethernet_speeds",
 	"softwareInstallPending":        "software_update_reboot_pending",
 	"movingTooFastForPolicy":        "moving_too_fast_for_policy",
-	"sandboxDisabled":               "sandbox_disabled",
-	"onlyOverFlightBlocked":         "only_overflight_blocked",
 }
 
 func localAlertName(raw string) string {
@@ -295,6 +293,8 @@ func decodeWifiDiagnostics(msg []byte) (localDiagnostics, error) {
 
 // decodeRouterHTTPSDiagnostics reads the router's HTTPS diagnostics JSON,
 // which reports both the router and the dish behind it.
+// The router section is intentionally ignored: it carries no vendor device ID,
+// so there is no stable identifier to attribute its alerts to.
 func decodeRouterHTTPSDiagnostics(body []byte) []localDiagnostics {
 	root := gjson.ParseBytes(body)
 	var out []localDiagnostics

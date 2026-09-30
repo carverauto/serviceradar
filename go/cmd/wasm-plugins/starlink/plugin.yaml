@@ -143,13 +143,12 @@ producer_schedules:
         required: true
         resolution_location: agent
         grants:
-          - name: telemetry_read
+          - name: telemetry_read_inventory
             grant_type: oauth2_client_credentials
             purpose: inventory_telemetry
             allow:
               methods:
                 - GET
-                - POST
               hosts:
                 - starlink.com
               ports:
@@ -157,6 +156,26 @@ producer_schedules:
               paths:
                 - /api/public/v2/account
                 - /api/public/v2/user-terminals
+            inject:
+              type: oauth2_client_credentials
+              token_method: POST
+              token_host: starlink.com
+              token_port: "443"
+              token_path: /api/auth/connect/token
+              field_client_id: client_id
+              field_client_secret: client_secret
+              fixed_grant_type: client_credentials
+          - name: telemetry_read_stream
+            grant_type: oauth2_client_credentials
+            purpose: inventory_telemetry
+            allow:
+              methods:
+                - POST
+              hosts:
+                - starlink.com
+              ports:
+                - 443
+              paths:
                 - /api/public/v2/telemetry/stream
                 - /api/public/v2/telemetry/query
             inject:
@@ -240,6 +259,9 @@ alert_rules:
       subject_prefix: starlink.alert
       attribute_equals:
         level: critical
+      # level: ok is synthesized by the agent condition debounce: when a
+      # condition scope completes with a key absent, the debounce emits a
+      # synthetic clear event with level: ok for that key.
       recovery:
         subject_prefix: starlink.alert
         attribute_equals:
