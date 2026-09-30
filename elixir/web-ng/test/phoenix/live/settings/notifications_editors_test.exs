@@ -17,8 +17,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Notifications.NotificationChannel
@@ -28,6 +26,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
   alias ServiceRadarWebNG.NotificationsFixtures
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     provider = NotificationsFixtures.provider_fixture("webhook")

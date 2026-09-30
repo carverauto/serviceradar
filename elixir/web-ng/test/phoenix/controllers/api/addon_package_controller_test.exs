@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNGWeb.Api.AddonPackageControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNGWeb.Api.AddonPackageController
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup do
     original = Application.get_env(:serviceradar_web_ng, :plugin_storage)

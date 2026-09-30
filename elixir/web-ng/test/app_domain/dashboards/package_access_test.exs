@@ -2,21 +2,21 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadar.Dashboards.DashboardAccessGrant
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardInstanceAccessGrant
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.Identity.UserGroupMembership
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Dashboards
-  alias ServiceRadar.Identity.RBAC
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup do
     admin = admin_user_fixture()

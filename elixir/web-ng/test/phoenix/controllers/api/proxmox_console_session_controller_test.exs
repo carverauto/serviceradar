@@ -1,14 +1,14 @@
 defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.ProxmoxConsoleSessionManagerStub
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :proxmox_console_session_manager)

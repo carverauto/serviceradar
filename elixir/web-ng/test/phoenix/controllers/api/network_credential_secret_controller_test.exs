@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.NetworkCredentialsStub
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     previous = Application.get_env(:serviceradar_web_ng, :network_credentials)

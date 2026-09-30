@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNG.InfrastructureTest do
   use ServiceRadarWebNG.DataCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadarWebNG.Repo
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "list_gateways returns gateways ordered by last_seen desc" do
     Repo.insert_all("gateways", [

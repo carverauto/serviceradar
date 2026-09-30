@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.AnsibleOperationsLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.Accounts.Scope
@@ -10,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleOperationsLiveTest do
   alias ServiceRadarWebNG.AnsibleAutomation.History, as: AutomationHistory
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()

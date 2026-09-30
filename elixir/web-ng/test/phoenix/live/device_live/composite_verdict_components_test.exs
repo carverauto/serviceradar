@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictComponentsTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictComponents
+
+  @moduletag :db_free
 
   defp input(attrs) do
     Map.merge(

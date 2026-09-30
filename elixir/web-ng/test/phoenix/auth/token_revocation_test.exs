@@ -8,9 +8,9 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadarWebNG.Auth.TokenRevocation
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup do
     # Generate unique JTI for each test to avoid collisions. Revocations carry

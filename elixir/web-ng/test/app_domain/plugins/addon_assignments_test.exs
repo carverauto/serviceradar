@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Plugins.AddonAssignment
@@ -10,6 +8,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.AddonAssignments
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "upsert updates an existing assignment even when form attrs include immutable keys" do
     addon_id = unique_addon_id("upsert")

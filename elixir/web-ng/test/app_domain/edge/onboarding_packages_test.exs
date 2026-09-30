@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   use ServiceRadarWebNG.DataCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Edge.OnboardingPackages
+
+  @moduletag :web_ng_shared_fixture_db
 
   @actor system_actor()
 

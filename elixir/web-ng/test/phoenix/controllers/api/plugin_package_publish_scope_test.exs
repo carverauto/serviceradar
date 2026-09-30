@@ -16,12 +16,12 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, api_token_with_raw_fixture: 2, user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian
+
+  @moduletag :web_ng_shared_fixture_db
 
   @manifest %{
     "id" => "scope-probe",

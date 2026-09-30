@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator

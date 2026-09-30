@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
+
+  @moduletag :db_free
 
   describe "panel_attrs_from_output/4 trend queries" do
     test "replaces only top-level time tokens" do

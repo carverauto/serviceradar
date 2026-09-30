@@ -23,8 +23,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsAuthorizationTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Notifications.NotificationChannel
@@ -36,6 +34,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsAuthorizationTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.NotificationsFixtures
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Access, as: NotificationsAccess
+
+  @moduletag :web_ng_shared_fixture_db
 
   @refusal "not authorized"
 

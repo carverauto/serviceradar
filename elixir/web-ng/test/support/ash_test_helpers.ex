@@ -617,8 +617,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     end
   end
 
-  defp assert_control_partition(_agent_uid, _partition_id, 0),
-    do: flunk("control-session partition did not converge")
+  defp assert_control_partition(_agent_uid, _partition_id, 0), do: flunk("control-session partition did not converge")
 
   defp assert_control_partition(agent_uid, partition_id, attempts) do
     case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do

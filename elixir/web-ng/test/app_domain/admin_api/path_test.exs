@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNG.AdminApi.PathTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNG.AdminApi.Path
+
+  @moduletag :db_free
 
   test "encodes attacker-controlled path segments as a single segment" do
     assert Path.admin_path(["users", "123/../../../internal/secrets?token=hunter2"]) ==

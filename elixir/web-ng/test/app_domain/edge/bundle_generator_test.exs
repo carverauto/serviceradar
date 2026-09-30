@@ -1,12 +1,12 @@
 defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   use ServiceRadarWebNG.DataCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.OnboardingPackages
+
+  @moduletag :web_ng_shared_fixture_db
 
   @onboarding_token_private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
 

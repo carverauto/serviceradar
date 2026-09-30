@@ -15,9 +15,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientRetryTest do
 
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
+
+  @moduletag :db_free
 
   test "retries a closed pooled connection" do
     assert OIDCClient.stale_connection?(%Req.TransportError{reason: :closed})

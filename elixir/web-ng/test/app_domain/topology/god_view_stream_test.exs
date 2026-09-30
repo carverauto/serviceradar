@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Camera.StreamProfile, as: CameraStreamProfile
@@ -14,6 +12,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.RuntimeGraph
+
+  @moduletag :web_ng_shared_fixture_db
 
   @topology_link_metadata %{
     "relation_type" => "CONNECTS_TO",
@@ -848,7 +848,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       )
       |> Ash.create!()
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "lldp",
         local_device_id: left_uid,
         local_if_name: "eth0",
@@ -856,7 +857,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         neighbor_device_id: right_uid,
         neighbor_mgmt_addr: "10.255.0.2",
         metadata: @topology_link_metadata
-    })
+      })
 
     assert {:ok, %{snapshot: first}} = latest_snapshot_for_test()
 
@@ -923,7 +924,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           )
           |> Ash.create!()
 
-        :ok = seed_runtime_link(%{
+        :ok =
+          seed_runtime_link(%{
             protocol: "lldp",
             local_device_id: core_uid,
             local_if_name: "eth#{idx}",
@@ -931,7 +933,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
             neighbor_device_id: uid,
             neighbor_mgmt_addr: "10.250.#{div(idx, 255)}.#{rem(idx, 255)}",
             metadata: @topology_link_metadata
-        })
+          })
 
         uid
       end)
@@ -1010,7 +1012,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       )
       |> Ash.create!()
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "lldp",
         local_device_id: local_uid,
         local_if_name: "eth0",
@@ -1018,7 +1021,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         neighbor_device_id: unresolved_id,
         neighbor_mgmt_addr: "10.255.0.77",
         metadata: @topology_link_metadata
-    })
+      })
 
     assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
 
@@ -1072,7 +1075,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       |> Ash.create!()
 
     # UniFi evidence without interface attribution.
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "UniFi-API",
         local_device_id: left_uid,
         local_if_name: nil,
@@ -1085,10 +1089,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           "confidence_tier" => "low",
           "source" => "unifi-api"
         }
-    })
+      })
 
     # SNMP-attributed LLDP evidence for the same pair.
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "lldp",
         local_device_id: left_uid,
         local_if_name: "eth7",
@@ -1096,7 +1101,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         neighbor_device_id: right_uid,
         neighbor_mgmt_addr: "10.10.10.2",
         metadata: @topology_link_metadata
-    })
+      })
 
     assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
 
@@ -1157,7 +1162,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       )
       |> Ash.create!()
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "UniFi-API",
         local_device_id: left_uid,
         local_if_name: nil,
@@ -1170,7 +1176,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           "confidence_tier" => "low",
           "source" => "unifi-api"
         }
-    })
+      })
 
     assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
 
@@ -1190,7 +1196,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     create_topology_device(actor, left_uid, "left-snmp-pref-#{suffix}.local")
     create_topology_device(actor, right_uid, "right-snmp-pref-#{suffix}.local")
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "UniFi-API",
         local_device_id: left_uid,
         local_if_name: "ac:8b:a9:d5:87:dd",
@@ -1203,9 +1210,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           "confidence_tier" => "low",
           "source" => "unifi-api"
         }
-    })
+      })
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "SNMP-L2",
         local_device_id: left_uid,
         local_if_name: "0/7",
@@ -1218,7 +1226,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           "confidence_tier" => "medium",
           "source" => "snmp-l2"
         }
-    })
+      })
 
     create_interface_observation(actor, now, left_uid, "0/7", 7)
     insert_metric(now, left_uid, 7, "ifOutUcastPkts", 123)
@@ -1274,7 +1282,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     create_topology_device(actor, right_uid, "alias-right-#{suffix}.local")
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "SNMP-L2",
         local_device_id: mac_alias,
         local_if_name: "0/8",
@@ -1287,7 +1296,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           "confidence_tier" => "medium",
           "source" => "snmp-l2"
         }
-    })
+      })
 
     create_interface_observation(actor, now, left_uid, "0/8", 8)
     insert_metric(now, left_uid, 8, "ifOutUcastPkts", 77)
@@ -1339,7 +1348,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       )
       |> Ash.create!()
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "lldp",
         local_device_id: router_uid,
         local_if_name: "eth0",
@@ -1347,7 +1357,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         neighbor_device_id: peer_uid,
         neighbor_mgmt_addr: peer_ip,
         metadata: @topology_link_metadata
-    })
+      })
 
     assert {:ok, %{snapshot: first}} = latest_snapshot_for_test()
 
@@ -1441,7 +1451,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       )
       |> Ash.create!()
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "lldp",
         local_device_id: target_uid,
         local_if_name: "eth0",
@@ -1449,7 +1460,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         neighbor_device_id: neighbor_uid,
         neighbor_mgmt_addr: "203.0.113.250",
         metadata: @topology_link_metadata
-    })
+      })
 
     assert {:ok, %{snapshot: first}} = latest_snapshot_for_test()
     tracked = [target_uid, neighbor_uid]
@@ -1544,7 +1555,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       )
       |> Ash.create!()
 
-    :ok = seed_runtime_link(%{
+    :ok =
+      seed_runtime_link(%{
         protocol: "lldp",
         local_device_id: router_uid,
         local_if_name: "eth0",
@@ -1552,7 +1564,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         neighbor_device_id: peer_uid,
         neighbor_mgmt_addr: peer_ip,
         metadata: @topology_link_metadata
-    })
+      })
 
     assert {:ok, %{snapshot: first}} = latest_snapshot_for_test()
 
@@ -3485,74 +3497,75 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     primary_row = fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
       %{
         local_device_id: primary_switch_uid,
-            local_device_ip: "192.0.3.10",
-            local_if_name: nil,
-            local_if_index: 1,
-            neighbor_if_name: endpoint_mac,
-            neighbor_if_index: nil,
-            neighbor_device_id: endpoint_uid,
-            neighbor_mgmt_addr: endpoint_ip,
-            protocol: "SNMP-L2",
-            evidence_class: "inferred-segment",
-            confidence_tier: "medium",
-            confidence_reason: "arp_fdb_port_mapping",
-            flow_pps: 0,
-            flow_bps: 0,
-            capacity_bps: 0,
-            flow_pps_ab: 0,
-            flow_pps_ba: 0,
-            flow_bps_ab: 0,
-            flow_bps_ba: 0,
-            telemetry_source: "none",
-            telemetry_observed_at: "2026-03-19T12:00:00Z",
-            metadata: %{
-              "source" => "SNMP-L2",
-              "inference" => "arp_fdb_port_mapping",
-              "confidence_tier" => "medium",
-              "confidence_score" => 72.0,
-              "evidence_class" => "inferred-segment"
-            }
-          }
+        local_device_ip: "192.0.3.10",
+        local_if_name: nil,
+        local_if_index: 1,
+        neighbor_if_name: endpoint_mac,
+        neighbor_if_index: nil,
+        neighbor_device_id: endpoint_uid,
+        neighbor_mgmt_addr: endpoint_ip,
+        protocol: "SNMP-L2",
+        evidence_class: "inferred-segment",
+        confidence_tier: "medium",
+        confidence_reason: "arp_fdb_port_mapping",
+        flow_pps: 0,
+        flow_bps: 0,
+        capacity_bps: 0,
+        flow_pps_ab: 0,
+        flow_pps_ba: 0,
+        flow_bps_ab: 0,
+        flow_bps_ba: 0,
+        telemetry_source: "none",
+        telemetry_observed_at: "2026-03-19T12:00:00Z",
+        metadata: %{
+          "source" => "SNMP-L2",
+          "inference" => "arp_fdb_port_mapping",
+          "confidence_tier" => "medium",
+          "confidence_score" => 72.0,
+          "evidence_class" => "inferred-segment"
+        }
+      }
     end
 
     rows =
       Enum.flat_map(
         endpoint_specs,
         fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} = spec ->
-        List.duplicate(primary_row.(spec), 3) ++
-          [
-            %{
-              local_device_id: secondary_switch_uid,
-            local_device_ip: "192.0.3.11",
-            local_if_name: nil,
-            local_if_index: 1,
-            neighbor_if_name: endpoint_mac,
-            neighbor_if_index: nil,
-            neighbor_device_id: endpoint_uid,
-            neighbor_mgmt_addr: endpoint_ip,
-            protocol: "SNMP-L2",
-            evidence_class: "inferred-segment",
-            confidence_tier: "medium",
-            confidence_reason: "arp_fdb_port_mapping",
-            flow_pps: 0,
-            flow_bps: 0,
-            capacity_bps: 0,
-            flow_pps_ab: 0,
-            flow_pps_ba: 0,
-            flow_bps_ab: 0,
-            flow_bps_ba: 0,
-            telemetry_source: "none",
-            telemetry_observed_at: "2026-03-19T12:00:00Z",
-            metadata: %{
-              "source" => "SNMP-L2",
-              "inference" => "arp_fdb_port_mapping",
-              "confidence_tier" => "medium",
-              "confidence_score" => 72.0,
-              "evidence_class" => "inferred-segment"
-            }
-          }
-        ]
-      end)
+          List.duplicate(primary_row.(spec), 3) ++
+            [
+              %{
+                local_device_id: secondary_switch_uid,
+                local_device_ip: "192.0.3.11",
+                local_if_name: nil,
+                local_if_index: 1,
+                neighbor_if_name: endpoint_mac,
+                neighbor_if_index: nil,
+                neighbor_device_id: endpoint_uid,
+                neighbor_mgmt_addr: endpoint_ip,
+                protocol: "SNMP-L2",
+                evidence_class: "inferred-segment",
+                confidence_tier: "medium",
+                confidence_reason: "arp_fdb_port_mapping",
+                flow_pps: 0,
+                flow_bps: 0,
+                capacity_bps: 0,
+                flow_pps_ab: 0,
+                flow_pps_ba: 0,
+                flow_bps_ab: 0,
+                flow_bps_ba: 0,
+                telemetry_source: "none",
+                telemetry_observed_at: "2026-03-19T12:00:00Z",
+                metadata: %{
+                  "source" => "SNMP-L2",
+                  "inference" => "arp_fdb_port_mapping",
+                  "confidence_tier" => "medium",
+                  "confidence_score" => 72.0,
+                  "evidence_class" => "inferred-segment"
+                }
+              }
+            ]
+        end
+      )
 
     replace_runtime_graph_links!(graph_ref, rows)
 
@@ -5028,36 +5041,38 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
                                                                 ip: endpoint_ip,
                                                                 mac: endpoint_mac
                                                               } ->
-        %{
-          local_device_id: preferred_switch_uid,
-          local_device_ip: "198.51.104.1",
-          local_if_name: nil,
-          local_if_index: 2,
-          neighbor_if_name: endpoint_mac,
-          neighbor_if_index: nil,
-          neighbor_device_id: endpoint_uid,
-          neighbor_mgmt_addr: endpoint_ip,
-          protocol: "snmp-l2",
-          evidence_class: "inferred-segment",
-          confidence_tier: "medium",
-          confidence_reason: "arp_fdb_port_mapping",
-          flow_pps: 0,
-          flow_bps: 0,
-          capacity_bps: 0,
-          flow_pps_ab: 0,
-          flow_pps_ba: 0,
-          flow_bps_ab: 0,
-          flow_bps_ba: 0,
-          telemetry_source: "none",
-          telemetry_observed_at: "2026-04-13T04:00:00Z",
-          metadata: %{
-            "relation_type" => "INFERRED_TO",
-            "relation_family" => "INFERRED_TO",
-            "evidence_class" => "inferred-segment",
-            "source" => "SNMP-L2"
-          }
-        }
-        |> List.duplicate(3)
+        List.duplicate(
+          %{
+            local_device_id: preferred_switch_uid,
+            local_device_ip: "198.51.104.1",
+            local_if_name: nil,
+            local_if_index: 2,
+            neighbor_if_name: endpoint_mac,
+            neighbor_if_index: nil,
+            neighbor_device_id: endpoint_uid,
+            neighbor_mgmt_addr: endpoint_ip,
+            protocol: "snmp-l2",
+            evidence_class: "inferred-segment",
+            confidence_tier: "medium",
+            confidence_reason: "arp_fdb_port_mapping",
+            flow_pps: 0,
+            flow_bps: 0,
+            capacity_bps: 0,
+            flow_pps_ab: 0,
+            flow_pps_ba: 0,
+            flow_bps_ab: 0,
+            flow_bps_ba: 0,
+            telemetry_source: "none",
+            telemetry_observed_at: "2026-04-13T04:00:00Z",
+            metadata: %{
+              "relation_type" => "INFERRED_TO",
+              "relation_family" => "INFERRED_TO",
+              "evidence_class" => "inferred-segment",
+              "source" => "SNMP-L2"
+            }
+          },
+          3
+        )
       end)
 
     secondary_rows =
@@ -8545,7 +8560,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
            end)
   end
 
-
   test "latest_snapshot/0 limits topology-sighting members rendered for expanded endpoint clusters" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
@@ -9414,7 +9428,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         :ok
     end
   end
-
 
   defp create_interface_observation(actor, timestamp, device_id, if_name, if_index) do
     Interface

@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.CameraMultiviewTest do
   use ExUnit.Case, async: false
 
-  @moduletag :db_free
-
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.CameraMultiview
+
+  @moduletag :db_free
 
   describe "format_error/1" do
     test "includes the assigned agent id for offline relay targets" do

@@ -8,12 +8,12 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
   """
   use ExUnit.Case, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
+
+  @moduletag :web_ng_shared_fixture_db
 
   # Param-decoding tests, not authz tests: carry both catalog permissions
   # these queries need so the RBAC gate passes them through.

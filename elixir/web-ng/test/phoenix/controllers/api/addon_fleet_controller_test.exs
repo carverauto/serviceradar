@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNGWeb.Api.AddonFleetControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.AddonFleetController
+
+  @moduletag :web_ng_shared_fixture_db
 
   defmodule FleetReaderStub do
     @moduledoc false

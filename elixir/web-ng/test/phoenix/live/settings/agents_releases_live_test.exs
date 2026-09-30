@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Ash.Expr
   import Phoenix.LiveViewTest
 
@@ -18,6 +16,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
   alias ServiceRadarWebNG.AccountsFixtures
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @release_public_key "ot8W1BsqSvXV7KEjLL+RkQz106lzcIJNCY91OXSqBpk="
   @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="

@@ -733,24 +733,27 @@ And **never** do this:
 
 ## Tests here are excluded by default
 
-`test/test_helper.exs` configures `exclude: [:test], include: [:db_free]` for the
-database-free tier. That is an **allow-list**: a test file without
-`@moduletag :db_free` is loaded by the Bazel shard — it appears in the runner's
-`-r` list — and then contributes nothing. The shard still passes.
-
-So a new test file here runs **only** if you tag it:
-
-```elixir
-defmodule ServiceRadarWebNGWeb.MyTest do
-  use ExUnit.Case, async: true
-
-  @moduletag :db_free
-```
-
+`test/test_helper.exs` configures `exclude: [:test], include: [:db_free]` for
+`//elixir/web-ng:unit_tests`. That tier is an allow-list: a file in the glob is
+loaded, and only `@moduletag :db_free` (or `@tag :db_free` on one case) runs.
 This is the opposite of `serviceradar_core`, whose unit tier is a deny-list and
-therefore defaults to running. Do not carry an assumption across.
+therefore defaults to running.
 
-`test_helper.exs` now fails any target that executes zero tests, which catches a
-whole shard going silent. It does **not** catch a single untagged file inside an
-otherwise-populated shard. Verify a new test actually runs before trusting it:
-break an assertion on purpose, watch the shard go red, then put it back.
+Every test needs one lane tag. `ServiceRadarWebNG.Test.LaneCoverageGuard`
+(registered only in that database-free configuration) fails the lane when an
+excluded or skipped test has none of them.
+
+| Tag | Lane | Also required |
+| --- | --- | --- |
+| `:db_free` | `//elixir/web-ng:unit_tests` | nothing else; the unit target globs `test/**/*_test.exs` except `test/integration` and `test/property` |
+| `:web_ng_shared_fixture_db` | `//elixir/web-ng:networks_live_db_test` | add the file to that target's `srcs` and to `SHARED_FIXTURE_SOURCES` in `build/contracts/web_ng_db_runner_contract_test.py`, and set `expected_selected_tests` in `test/db/networks_live_db_test_helper.exs` to the cases that lane selects |
+| `:topology_atlas_db` | `//elixir/web-ng:topology_atlas_db_test` | add the file to that target's `srcs` |
+
+`test/integration` and `test/property` are outside the unit glob. A file there
+that no database lane's `srcs` loads must be listed, with a reason, in
+`UNROUTED_TEST_SOURCES` in
+`build/contracts/web_ng_test_lane_routing_contract_test.py`.
+
+The `after_suite` hook in `test_helper.exs` fails a target that executes zero
+tests. It does not see one untagged test inside a shard that still ran
+something; the guard does.

@@ -1,14 +1,14 @@
 defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ExUnit.CaptureLog
 
   alias Oban.Job
   alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
+
+  @moduletag :web_ng_shared_fixture_db
 
   @repo ServiceRadar.Repo
 

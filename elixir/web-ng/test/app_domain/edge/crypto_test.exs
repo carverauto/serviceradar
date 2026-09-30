@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNG.Edge.CryptoTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNG.Edge.Crypto
+
+  @moduletag :db_free
 
   describe "generate_token/0" do
     test "generates a URL-safe base64 token" do

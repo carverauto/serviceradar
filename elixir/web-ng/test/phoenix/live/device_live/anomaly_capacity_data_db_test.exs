@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataDBTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup do
     if !Process.whereis(ServiceRadarWebNG.TaskSupervisor) do

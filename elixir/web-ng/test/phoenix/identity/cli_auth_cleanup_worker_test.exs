@@ -15,14 +15,14 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.CliAuthCleanupWorker
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :web_ng_shared_fixture_db
 
   @moduletag :integration
 

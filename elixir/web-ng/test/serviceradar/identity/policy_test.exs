@@ -8,8 +8,6 @@ defmodule ServiceRadar.Identity.PolicyTest do
 
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import ServiceRadarWebNG.AshTestHelpers,
     only: [
       admin_user_fixture: 1,
@@ -20,6 +18,8 @@ defmodule ServiceRadar.Identity.PolicyTest do
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Identity.User
+
+  @moduletag :web_ng_shared_fixture_db
 
   defp unwrap_results({:ok, %Ash.Page.Keyset{results: results}}), do: results
   defp unwrap_results({:ok, results}) when is_list(results), do: results

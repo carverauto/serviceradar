@@ -1,14 +1,14 @@
 defmodule ServiceRadarWebNG.AlertActionsTransactionTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Notifications.NotificationAcknowledgement
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.AlertActions
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup do
     user = AccountsFixtures.user_fixture(%{role: :admin})

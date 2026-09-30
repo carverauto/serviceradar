@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.EventLive.IndexTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :operator})

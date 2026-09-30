@@ -37,8 +37,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsExtensibilityTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Notifications.Declarative.Catalog
@@ -56,6 +54,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsExtensibilityTest do
   alias ServiceRadarWebNG.NotificationsFixtures
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @key "acme_pager"
   @host "93.184.216.34"

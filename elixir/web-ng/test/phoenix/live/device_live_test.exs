@@ -31,8 +31,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
-  alias ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
+  alias ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
   alias ServiceRadarWebNGWeb.NorthboundActionComponents

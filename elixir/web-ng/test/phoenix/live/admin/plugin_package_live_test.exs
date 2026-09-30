@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   import ServiceRadarWebNG.AshTestHelpers,
@@ -19,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PluginRepository
   alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
@@ -28,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @repo_url "https://github.com/carverauto/serviceradar"
   @external_repo_url "https://github.com/carverauto/serviceradar-plugin-example-inventory"
@@ -279,7 +280,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       |> Keyword.fetch!(:trusted_upload_signing_keys)
 
     repository =
-      ServiceRadar.Plugins.PluginRepository
+      PluginRepository
       |> Ash.Changeset.for_create(
         :create,
         %{
@@ -1718,7 +1719,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   defp create_repository!(name, repo_url) do
     {public_key, _private_key} = :crypto.generate_key(:eddsa, :ed25519)
 
-    ServiceRadar.Plugins.PluginRepository
+    PluginRepository
     |> Ash.Changeset.for_create(
       :create,
       %{

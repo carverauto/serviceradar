@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.AuthControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Swoosh.TestAssertions
 
   alias ServiceRadar.Actors.SystemActor
@@ -13,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @password_action :auth_local
   @reset_action :auth_password_reset

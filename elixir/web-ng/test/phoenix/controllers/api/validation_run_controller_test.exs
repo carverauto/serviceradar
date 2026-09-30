@@ -2,14 +2,14 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.ValidationRunController
+
+  @moduletag :web_ng_shared_fixture_db
 
   @moduletag :web_ng_shared_fixture_db
 

@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNGWeb.DashboardPackageLive.ShowTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Dashboards
+
+  @moduletag :web_ng_shared_fixture_db
 
   test "unauthorized viewer sees the same not-found as an unknown slug", %{conn: conn} do
     admin = AshTestHelpers.admin_user_fixture()

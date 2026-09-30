@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.McpTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.OAuthClient.Credentials
   alias ServiceRadar.Identity.RBAC
@@ -14,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.McpTest do
   alias ServiceRadar.Security.SecurityEvent
   alias ServiceRadarWebNG.Mcp
   alias ServiceRadarWebNGWeb.FeatureFlags
+
+  @moduletag :web_ng_shared_fixture_db
 
   @ip "127.0.0.1"
 

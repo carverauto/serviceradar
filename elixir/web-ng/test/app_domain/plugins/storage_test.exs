@@ -1,13 +1,13 @@
 defmodule ServiceRadarWebNG.Plugins.StorageTest do
   use ExUnit.Case, async: false
 
-  @moduletag :db_free
-
   import ExUnit.CaptureLog
 
   alias Gnat.Jetstream.API.Object
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.Storage
+
+  @moduletag :db_free
 
   @gib 1_073_741_824
 

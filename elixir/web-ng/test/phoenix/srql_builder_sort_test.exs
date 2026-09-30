@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.SRQLBuilderSortTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.SRQL.Builder
+
+  @moduletag :db_free
 
   test "builds default devices query with sort and limit" do
     state = Builder.default_state("devices", 100)

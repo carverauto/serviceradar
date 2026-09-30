@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNGWeb.Api.OpenapiControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  @moduletag :web_ng_shared_fixture_db
-
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNGWeb.OpenAPI.AdminSpec
+
+  @moduletag :web_ng_shared_fixture_db
 
   describe "GET /api/admin/openapi" do
     test "returns admin OpenAPI document for admin user", %{conn: conn} do

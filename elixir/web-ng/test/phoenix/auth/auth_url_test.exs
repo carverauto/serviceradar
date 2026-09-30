@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.AuthURLTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.AuthURL
+
+  @moduletag :db_free
 
   test "password reset URL uses the configured canonical endpoint" do
     assert AuthURL.password_reset_url("reset-token") ==

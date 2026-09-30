@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
-  @moduletag :web_ng_shared_fixture_db
-
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Credentials.NetworkCredentialRule
@@ -14,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.RemoteAccessDesktopTargets
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup :register_and_log_in_admin_user
 
