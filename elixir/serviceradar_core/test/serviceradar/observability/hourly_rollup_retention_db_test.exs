@@ -103,9 +103,11 @@ defmodule ServiceRadar.Observability.HourlyRollupRetentionDbTest do
          AND d.hypertable_name = ca.materialization_hypertable_name
         LEFT JOIN timescaledb_information.jobs retention
           ON retention.proc_name = 'policy_retention'
+         AND retention.hypertable_schema IN (ca.materialization_hypertable_schema, ca.view_schema)
          AND retention.hypertable_name IN (ca.view_name, ca.materialization_hypertable_name)
         LEFT JOIN timescaledb_information.jobs compression
           ON compression.proc_name = 'policy_compression'
+         AND compression.hypertable_schema IN (ca.materialization_hypertable_schema, ca.view_schema)
          AND compression.hypertable_name IN (ca.view_name, ca.materialization_hypertable_name)
         WHERE ca.view_schema = 'platform' AND ca.view_name = $1
         """,
