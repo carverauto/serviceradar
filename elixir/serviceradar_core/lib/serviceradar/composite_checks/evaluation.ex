@@ -145,12 +145,16 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
           uids = Enum.filter(page, &MapSet.member?(in_scope, &1))
           {:ok, rows} = evaluate_devices(check, inputs, rules, uids, opts)
           persist_canonical_availability(check, rows)
-          {:cont, {:ok, count + length(rows), acc ++ persist_page(check, rows, mark)}}
+          {:cont, {:ok, count + length(rows), [persist_page(check, rows, mark) | acc]}}
 
         {:error, reason} ->
           {:halt, {:error, {:scope_query_failed, reason}}}
       end
     end)
+    |> case do
+      {:ok, count, reversed} -> {:ok, count, reversed |> Enum.reverse() |> List.flatten()}
+      error -> error
+    end
   end
 
   @doc """
@@ -277,13 +281,16 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   end
 
   defp run_pages(check, normalized, inputs, rules, started_at, opts) do
-    normalized
-    |> Scope.stream_uids(opts)
-    |> Enum.reduce({0, []}, fn uids, {count, acc} ->
-      {:ok, rows} = evaluate_devices(check, inputs, rules, uids, opts)
-      persist_canonical_availability(check, rows)
-      {count + length(rows), acc ++ persist_page(check, rows, started_at)}
-    end)
+    {count, reversed} =
+      normalized
+      |> Scope.stream_uids(opts)
+      |> Enum.reduce({0, []}, fn uids, {count, acc} ->
+        {:ok, rows} = evaluate_devices(check, inputs, rules, uids, opts)
+        persist_canonical_availability(check, rows)
+        {count + length(rows), [persist_page(check, rows, started_at) | acc]}
+      end)
+
+    {count, reversed |> Enum.reverse() |> List.flatten()}
   end
 
   @doc """

@@ -116,9 +116,14 @@ defmodule ServiceRadar.CompositeChecks.ScopeTest do
         [_, list] = Regex.run(~r/uid:\((.*)\)$/, query)
 
         uids =
-          list
-          |> String.split(",")
-          |> Enum.map(&(&1 |> String.trim_leading("\"") |> String.trim_trailing("\"")))
+          ~r/"(?:\\.|[^"\\])*"/
+          |> Regex.scan(list)
+          |> List.flatten()
+          |> Enum.map(fn quoted ->
+            quoted
+            |> String.slice(1..-2//1)
+            |> String.replace(~r/\\(.)/, "\\1")
+          end)
           |> Enum.reject(&(&1 == "out-of-scope"))
 
         {:ok, %{rows: Enum.map(uids, &%{"uid" => &1}), next_cursor: nil}}
@@ -170,6 +175,11 @@ defmodule ServiceRadar.CompositeChecks.ScopeTest do
       assert {:ok, in_scope} = Scope.contains?("in:devices", [], runner: RecordingRunner)
       assert MapSet.size(in_scope) == 0
       refute_received {:srql_request, _query, _opts}
+    end
+
+    test "round-trips a uid containing a comma" do
+      assert {:ok, in_scope} = Scope.contains?("in:devices", ["a,b"], runner: RecordingRunner)
+      assert in_scope == MapSet.new(["a,b"])
     end
 
     test "returns the runner error rather than an empty scope" do
