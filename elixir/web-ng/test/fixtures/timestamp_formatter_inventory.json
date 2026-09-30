@@ -137,17 +137,9 @@
   },
   {
     "path": "assets/js/lib/god_view/WorldMapRenderer.js",
-    "matcher": "js_to_iso_string",
-    "occurrence": 1,
-    "fingerprint": "bf78ec44b056594d16f3d1f6dfad85e82931e82c25076fef567f3a91ca6d5910",
-    "classification": "canonical_machine",
-    "reason": "UTC timestamp in the topology transport contract."
-  },
-  {
-    "path": "assets/js/lib/god_view/WorldMapRenderer.js",
     "matcher": "js_to_locale_time",
     "occurrence": 1,
-    "fingerprint": "f66e7658dcb34f0a3fc7b126a08a3d14f73212bf948b97464600f615b2e09f37",
+    "fingerprint": "8b27343716a8dc1bb07d48a94860c9a6a59af5bc60269cd1334e70dd3c3e6b39",
     "classification": "infrastructure",
     "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },
@@ -155,7 +147,7 @@
     "path": "assets/js/lib/god_view/WorldMapRenderer.js",
     "matcher": "js_to_locale_time",
     "occurrence": 2,
-    "fingerprint": "a6abd2196ea0bf055327a824e2c213f0ffda2fdf73628f24a62f8d2f104928fb",
+    "fingerprint": "3cf0c9a23bc89152cc10413fa730913be485dec9fa00f6a3c2560f7e0597fd64",
     "classification": "infrastructure",
     "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },
@@ -163,15 +155,7 @@
     "path": "assets/js/lib/god_view/WorldMapRenderer.js",
     "matcher": "js_to_locale_time",
     "occurrence": 3,
-    "fingerprint": "1ccc3d3b3bf6b1ae99d9db173c4625ede0885db27b5652f2560977d37a9f6bde",
-    "classification": "infrastructure",
-    "reason": "Numeric device, aggregate, and relation counts; not timestamps."
-  },
-  {
-    "path": "assets/js/lib/god_view/WorldMapRenderer.js",
-    "matcher": "js_to_locale_time",
-    "occurrence": 4,
-    "fingerprint": "d09d3731494e6de15e929ee352ba3fc0d3710bdf66878da2b2031744d6c8496d",
+    "fingerprint": "d1b90bef87b9acef8f49bdcda9444b9ad8307ec879da239adb8aae6da211d950",
     "classification": "infrastructure",
     "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },

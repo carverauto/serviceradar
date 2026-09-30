@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use serviceradar_topology_atlas::{
-    Budget, Cell, DetailScope, Error, GlyphKind, Position, Relation, RelationCursor, TileProfile,
-    TopologyClass, WORLD_EXTENT, World,
+    Budget, Cell, DetailScope, Error, GlyphKind, MAX_SELECTION_BYTES, Position, Relation,
+    RelationCursor, TileProfile, TopologyClass, WORLD_EXTENT, World,
 };
 
 fn position(i: u32, x: u32, y: u32, min_zoom: u8) -> Position {
@@ -25,6 +25,23 @@ fn edge(a: &Position, b: &Position) -> Relation {
         source: a.id.clone(),
         target: b.id.clone(),
     }
+}
+
+#[test]
+fn tile_selection_budget_includes_owned_observation_timestamps() {
+    let points = vec![
+        position(1, 1_000_000, 1_000_000, 0),
+        position(2, 2_000_000, 1_000_000, 0),
+    ];
+    let relation = edge(&points[0], &points[1]);
+    let world = World::new("timestamp-budget".into(), 16, points, vec![relation])
+        .unwrap()
+        .with_relation_last_seen(|_| Some("t".repeat(MAX_SELECTION_BYTES + 1)));
+
+    assert!(matches!(
+        world.tile(Cell::new(0, 0, 0).unwrap(), Budget::default()),
+        Err(Error::SelectionBudgetExceeded)
+    ));
 }
 
 #[test]

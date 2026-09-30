@@ -50,7 +50,13 @@ impl TileSelection {
                 .iter()
                 .map(|g| g.id.capacity() + g.label.capacity())
                 .sum::<usize>()
-            + self.edges.iter().map(|e| e.id.capacity()).sum::<usize>()
+            + self
+                .edges
+                .iter()
+                .map(|edge| {
+                    edge.id.capacity() + edge.last_seen.as_ref().map_or(0, String::capacity)
+                })
+                .sum::<usize>()
     }
 
     fn endpoint(&self, index: u32, point: (f64, f64)) -> Option<u32> {

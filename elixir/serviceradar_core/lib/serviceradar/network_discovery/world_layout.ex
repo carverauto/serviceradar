@@ -27,7 +27,14 @@ defmodule ServiceRadar.NetworkDiscovery.WorldLayout do
     defaults [:read]
 
     create :stage do
-      accept [:algorithm_version, :zmax, :source_digest, :node_count, :relation_count, :pipeline_stats]
+      accept [
+        :algorithm_version,
+        :zmax,
+        :source_digest,
+        :node_count,
+        :relation_count,
+        :pipeline_stats
+      ]
     end
 
     create :initialize_stage do
