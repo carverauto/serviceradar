@@ -11,9 +11,10 @@
 # "built and tested together" here, and re-aligning the tags would mint a runner tag with no
 # content behind it. The patch line is per image now.
 #
-# A bump here touches exactly two files: every container_image in //buildbuddy.yaml
-# (grep 'buildbuddy-workflow-runner:' re-derives that list) and warmup_additional_images in
-# //k8s/buildbuddy/values-workflows.yaml. Push the image BEFORE moving any reference.
+# A bump here touches three places: every container_image in //buildbuddy.yaml
+# (grep 'buildbuddy-workflow-runner:' re-derives that list), warmup_additional_images in
+# //k8s/buildbuddy/values-workflows.yaml, and the pinned image strings in
+# //build/contracts/ci_heavy_gate_contract_test.py. Push the image BEFORE moving any reference.
 #
 #   docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
 #     -f docker/images/Dockerfile.workflow-runner \

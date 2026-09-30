@@ -725,9 +725,9 @@ Rules for any Bazel run dispatched onto the BuildBuddy workflow fleet -- an
 manual `bazel` invocation inside a workflow-executor pod. Recorded after
 issue 4855 (2026-09-27): a hosted-Bazel invocation ran as root on a
 workflow-executor pod, installed `make` with `apt-get` because the runner image
-shipped none, and used `--config=ci` whose cache paths point at the node volume
-every workflow runner shares. Seven root-owned action-cache entries later, every
-Elixir-building run on that executor died with
+shipped none, and used `--config=ci`. Seven root-owned action-cache entries
+under `/bazel-cache/disk/ac` later, every Elixir-building run on that executor
+died with
 `Staging prebuilt otp 28.1 failed: (Exit 34) ... Permission denied`, including a
 PR's BazelCI and the staging `LargeIngestionGate`.
 

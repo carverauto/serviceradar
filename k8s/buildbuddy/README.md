@@ -232,9 +232,10 @@ the lockstep rule was retired). After changing `docker/images/Dockerfile.workflo
    (v1.0.24.4 was pushed with buildx's default attestation index and is deliberately unreferenced;
    keep `--provenance=false --sbom=false` so the tag is a plain single manifest like every
    earlier one).
-2. Bump the tag in the two files that reference it: every `container_image` in `buildbuddy.yaml`
-   (`grep 'buildbuddy-workflow-runner:' buildbuddy.yaml` re-derives the list) and
-   `warmup_additional_images` in `k8s/buildbuddy/values-workflows.yaml`. Push the image BEFORE
+2. Bump the tag in the three places that reference it: every `container_image` in `buildbuddy.yaml`
+   (`grep 'buildbuddy-workflow-runner:' buildbuddy.yaml` re-derives the list),
+   `warmup_additional_images` in `k8s/buildbuddy/values-workflows.yaml`, and the pinned image
+   strings in `build/contracts/ci_heavy_gate_contract_test.py`. Push the image BEFORE
    moving any reference -- the PR's own BazelCI workflow runs in the new image.
 3. The warm-list half takes effect at the next workflow-fleet Helm rollout; nothing else is
    needed for workflow steps, which name the image per run from `buildbuddy.yaml`.
