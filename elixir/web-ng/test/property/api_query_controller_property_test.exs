@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.ApiQueryControllerPropertyTest do
   alias ServiceRadarWebNG.TestSupport.PropertyOpts
   alias ServiceRadarWebNG.TestSupport.SRQLStub
 
+  @moduletag :db_free
+
   setup do
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
     Application.put_env(:serviceradar_web_ng, :srql_module, SRQLStub)

@@ -64,13 +64,7 @@ UNROUTED_TEST_SOURCES = {
         "env-gated (SRQL_INTEGRATION=1); needs a live database and the SRQL NIF",
     "test/integration/graph_cypher_integration_test.exs":
         "env-gated (SRQL_INTEGRATION=1); needs a live database with the AGE graph",
-    "test/property/api_query_controller_property_test.exs":
-        "property suite; exercises SRQL compilation paths that need the SRQL NIF",
     "test/property/srql_property_test.exs":
-        "property suite; exercises SRQL compilation paths that need the SRQL NIF",
-    "test/property/srql_query_input_property_test.exs":
-        "property suite; exercises SRQL compilation paths that need the SRQL NIF",
-    "test/property/edge_onboarding_token_property_test.exs":
         "property suite; exercises SRQL compilation paths that need the SRQL NIF",
 }
 
