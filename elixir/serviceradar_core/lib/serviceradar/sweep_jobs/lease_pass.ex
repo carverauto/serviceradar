@@ -27,8 +27,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   one shorter than `LeaseSchedule.min_interval_seconds/0` (a dense cron) is not leased.
 
   The pass is idempotent and keeps no state of its own: running it twice, or after a crash
-  part-way through, converges on the same slots. With no leasing enabled and no active
-  assignment it reads nothing else.
+  part-way through, converges on the same slots. With no leasing enabled, no active
+  assignment and no delivery row it reads nothing else. A delivery row outlives its group, so
+  a pass with one still revokes it.
   """
 
   alias Ash.Error.Query.NotFound
@@ -44,6 +45,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   alias ServiceRadar.SweepJobs.LeaseSettings
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepLeaseDelivery
   alias ServiceRadar.SweepJobs.SweepLeaseSetting
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -70,18 +72,18 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   @spec max_new_slots_per_assignment() :: pos_integer()
   def max_new_slots_per_assignment, do: @max_new_slots_per_assignment
 
-  @doc "Runs the pass over every sweep group."
-  @spec run(DateTime.t()) :: {:ok, summary() | :idle} | {:error, term()}
-  def run(now \\ DateTime.utc_now()) do
-    with {:ok, true} <- active?(),
-         {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
-      delivery = delivery_context()
-      {:ok, Enum.reduce(groups, empty(), &add(&2, reconcile_group(&1, now, delivery)))}
-    else
-      {:ok, false} -> {:ok, :idle}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  @doc """
+  Runs the pass over every sweep group.
+
+  With a delivery context, each group is delivered and then deliveries whose assignment or
+  group is gone are revoked. `delivery` overrides `delivery_context/0`.
+  """
+  @spec run(DateTime.t(), delivery() | nil) :: {:ok, summary() | :idle} | {:error, term()}
+  def run(now \\ DateTime.utc_now(), delivery \\ :context)
+
+  def run(%DateTime{} = now, :context), do: execute(now, delivery_context())
+
+  def run(%DateTime{} = now, delivery), do: execute(now, delivery)
 
   @doc """
   Runs the pass over one sweep group. With a `delivery` context (the issuer authority and a
@@ -168,7 +170,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
     end
   end
 
-  # Leasing is enabled somewhere, or an assignment is still active and may need revoking.
+  # Leasing is on somewhere, an assignment is still active, or a delivery row still has to
+  # reach its agent. The row outlives the group, so it keeps the pass alive on its own.
   defp active? do
     with {:ok, enabled} <-
            SweepLeaseSetting
@@ -177,8 +180,40 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
          {:ok, assigned} <-
            SweepProducerAssignment
            |> Ash.Query.filter(state == :active)
+           |> Ash.exists(actor: actor()),
+         {:ok, delivered} <-
+           SweepLeaseDelivery
+           |> Ash.Query.filter(true)
            |> Ash.exists(actor: actor()) do
-      {:ok, enabled or assigned}
+      {:ok, enabled or assigned or delivered}
+    end
+  end
+
+  defp execute(now, delivery) do
+    with {:ok, true} <- active?(),
+         {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
+      summary =
+        groups
+        |> Enum.reduce(empty(), &add(&2, reconcile_group(&1, now, delivery)))
+        |> add(orphan_withdrawals(now, delivery))
+
+      {:ok, summary}
+    else
+      {:ok, false} -> {:ok, :idle}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp orphan_withdrawals(_now, nil), do: empty()
+
+  defp orphan_withdrawals(now, %{sender: sender}) do
+    case LeaseDelivery.withdraw_orphans(now, sender) do
+      {:ok, count} ->
+        %{empty() | withdrawn: count}
+
+      {:error, reason} ->
+        Logger.warning("Sweep lease pass: withdrawing orphaned leases: #{inspect(reason)}")
+        %{empty() | errors: 1}
     end
   end
 

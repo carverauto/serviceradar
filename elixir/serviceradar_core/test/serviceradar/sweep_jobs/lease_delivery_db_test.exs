@@ -89,6 +89,56 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     refute_receive {:pushed, _, _, _, _}, 50
   end
 
+  test "shrinking the horizon and growing it back delivers the re-minted slots as a tail",
+       ctx do
+    lease_on!(ctx, 7_200)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, payload}
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
+    setting!(ctx.admin, :partition, ctx.partition.id,
+      leasing_enabled: true,
+      horizon_seconds: 1_800
+    )
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, shrunk, _}
+    assert shrunk.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
+    assert shrunk.slots != []
+    assert length(shrunk.slots) < length(first.slots)
+    assert shrunk.window_end_unix_nano == first.window_end_unix_nano
+
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    cursor = DateTime.to_unix(row.delivered_window_end, :nanosecond)
+    assert cursor == List.last(shrunk.slots).slot_start_unix_nano + 1_000
+    assert cursor < shrunk.window_end_unix_nano
+
+    setting!(ctx.admin, :partition, ctx.partition.id,
+      leasing_enabled: true,
+      horizon_seconds: 7_200
+    )
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, tail, _}
+
+    reminted =
+      MapSet.difference(starts(first.slots), starts(shrunk.slots))
+
+    assert reminted != MapSet.new()
+    assert starts(tail.slots) == reminted
+    assert tail.window_start_unix_nano == cursor
+    refute tail.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
+  end
+
   test "a later pass pushes only the newly minted tail under the first issuance time", ctx do
     lease_on!(ctx, 3_600)
     group = leased_group!(ctx)
@@ -192,6 +242,79 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     # An ack for a group the agent was never given is ignored.
     assert :ok =
              LeaseDelivery.record_ack(ctx.agent, %{sweep_group_id: Ecto.UUID.generate()})
+  end
+
+  test "a late ack for an older push does not overwrite the current push's ack", ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, first_payload}
+    first_digest = digest(first_payload)
+
+    later = DateTime.add(now, 1_800, :second)
+    LeasePass.reconcile_group(group, later, ctx.delivery)
+    assert_receive {:pushed, _, _, _, second_payload}
+    second_digest = digest(second_payload)
+    refute second_digest == first_digest
+
+    through = DateTime.add(later, 3_600, :second)
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: second_digest,
+               installed: true,
+               installed_through_unix_nano: DateTime.to_unix(through, :nanosecond),
+               installed_slot_count: 9
+             })
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: first_digest,
+               installed: false,
+               error: "stale",
+               installed_slot_count: 1
+             })
+
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    assert row.acked_payload_sha256 == second_digest
+    assert row.ack_installed
+    assert row.acked_slot_count == 9
+    assert is_nil(row.ack_error)
+
+    assert DateTime.to_unix(row.acked_through, :microsecond) ==
+             DateTime.to_unix(through, :microsecond)
+  end
+
+  test "destroying a leased group revokes the delivery on the next pass", ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, _}
+    assert {:ok, [_row]} = LeaseDelivery.list_for_group(group.id)
+
+    assert :ok = Ash.destroy(group, actor: ctx.admin)
+
+    setting!(ctx.admin, :partition, ctx.partition.id,
+      leasing_enabled: false,
+      horizon_seconds: 3_600
+    )
+
+    assert {:ok, %{withdrawn: 1, pushed: 0, errors: 0}} =
+             LeasePass.run(now, ctx.delivery)
+
+    assert_receive {:pushed, _, group_id, revocation, _}
+    assert group_id == group.id
+    assert revocation.revoked
+    assert revocation.lease_id == first.lease_id
+    assert revocation.slots == []
+    assert revocation.production_capability == nil
+    assert {:ok, []} = LeaseDelivery.list_for_group(group.id)
   end
 
   test "an agent the group stops leasing to gets a revocation and loses its delivery", ctx do
@@ -313,6 +436,10 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     uid
   end
+
+  defp digest(payload), do: Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
+
+  defp starts(slots), do: MapSet.new(slots, & &1.slot_start_unix_nano)
 
   defp assignment!(group, agent_id) do
     assert {:ok, %{} = assignment} = ProducerAssignments.get(group.id, agent_id)
