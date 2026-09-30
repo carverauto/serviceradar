@@ -45,14 +45,39 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
   end
 
   defp maybe_bootstrap_admin(email, password) do
-    case Users.get_by_email(email, authorize?: false) do
+    result =
+      Repo.transaction(fn ->
+        Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["bootstrap_admin_user"])
+
+        user =
+          User
+          |> Ash.Query.for_read(:by_email, %{email: email}, authorize?: false)
+          |> Ash.Query.lock(:for_update)
+          |> Ash.read_one!()
+
+        bootstrap_admin(user, email, password)
+      end)
+
+    case result do
+      {:ok, notifications} ->
+        Ash.Notifier.notify(notifications)
+        :ok
+
+      {:error, error} ->
+        Logger.error("[bootstrap] Failed to bootstrap admin user: #{inspect(error)}")
+        :error
+    end
+  end
+
+  defp bootstrap_admin(user, email, password) do
+    case user do
       %User{} = user ->
         maybe_sync_admin_password(user, password)
 
       nil ->
         if admin_exists?() do
           Logger.info("[bootstrap] Admin user already present; skipping #{email}")
-          :ok
+          []
         else
           create_admin_user(email, password)
         end
@@ -63,7 +88,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
     cond do
       not force_password_sync?() ->
         Logger.info("[bootstrap] Admin user #{email} already exists; skipping")
-        :ok
+        []
 
       Users.valid_password?(user, password) ->
         Logger.info("[bootstrap] Admin user #{email} already exists and password matches; skipping")
@@ -71,7 +96,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
         # Refresh the marker so a later rotation of this same secret is still
         # detected (also self-heals deployments that predate the marker).
         record_applied_secret(email, password)
-        :ok
+        []
 
       secret_rotated_since_last_apply?(email, password) ->
         reset_admin_password(user, password)
@@ -82,38 +107,24 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
             "the secret is unchanged; keeping the operator-set password"
         )
 
-        :ok
+        []
     end
   end
 
   defp reset_admin_password(%User{email: email} = user, password) do
     actor = SystemActor.system(:bootstrap)
 
-    result =
-      Repo.transaction(fn ->
-        with {:ok, _updated_user, notifications} <-
-               User.admin_set_password(user, %{password: password}, actor: actor, return_notifications?: true),
-             :ok <- record_applied_secret(email, password) do
-          notifications
-        else
-          error -> Repo.rollback(error)
-        end
-      end)
+    with {:ok, _updated_user, notifications} <-
+           User.admin_set_password(user, %{password: password}, actor: actor, return_notifications?: true),
+         :ok <- record_applied_secret(email, password) do
+      Logger.warning(
+        "[bootstrap] Admin user #{email} password reset from " <>
+          "SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=true (bootstrap secret rotated)"
+      )
 
-    case result do
-      {:ok, notifications} ->
-        Ash.Notifier.notify(notifications)
-
-        Logger.warning(
-          "[bootstrap] Admin user #{email} password reset from " <>
-            "SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=true (bootstrap secret rotated)"
-        )
-
-        :ok
-
-      {:error, error} ->
-        Logger.error("[bootstrap] Failed to reset admin password: #{inspect(error)}")
-        :error
+      notifications
+    else
+      error -> Repo.rollback(error)
     end
   end
 
@@ -171,8 +182,8 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
   defp create_admin_user(email, password) do
     actor = SystemActor.system(:bootstrap)
 
-    with {:ok, user} <-
-           Users.register_with_password(
+    with {:ok, user, created_notifications} <-
+           User.register_with_password(
              %{
                email: email,
                display_name: @default_display_name,
@@ -180,24 +191,29 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
                password_confirmation: password
              },
              actor: actor,
-             authorize?: true
+             authorize?: true,
+             return_notifications?: true
            ),
-         {:ok, user} <- ensure_admin_role(user, actor),
-         {:ok, _} <- Users.confirm(user, actor: actor) do
+         {:ok, user, role_notifications} <- ensure_admin_role(user, actor),
+         {:ok, _, confirmed_notifications} <-
+           user
+           |> Ash.Changeset.for_update(:update, %{}, actor: actor)
+           |> Ash.Changeset.force_change_attribute(:confirmed_at, DateTime.truncate(DateTime.utc_now(), :second))
+           |> Ash.update(return_notifications?: true),
+         :ok <- record_applied_secret(email, password) do
       Logger.info("[bootstrap] Created admin user #{email}")
-      record_applied_secret(email, password)
-      :ok
+      created_notifications ++ role_notifications ++ confirmed_notifications
     else
-      {:error, error} ->
+      error ->
         Logger.error("[bootstrap] Failed to create admin user: #{inspect(error)}")
-        :error
+        Repo.rollback(error)
     end
   end
 
-  defp ensure_admin_role(%User{role: :admin} = user, _actor), do: {:ok, user}
+  defp ensure_admin_role(%User{role: :admin} = user, _actor), do: {:ok, user, []}
 
   defp ensure_admin_role(user, actor) do
-    Users.update_role(user, :admin, actor: actor)
+    User.update_role(user, %{role: :admin}, actor: actor, return_notifications?: true)
   end
 
   defp admin_exists? do

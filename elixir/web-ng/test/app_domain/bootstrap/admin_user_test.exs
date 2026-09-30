@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.Users
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Bootstrap.AdminUser
 
   @moduletag :web_ng_shared_fixture_db
@@ -16,6 +17,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
     on_exit(fn ->
       System.delete_env("SERVICERADAR_ADMIN_EMAIL")
       System.delete_env("SERVICERADAR_ADMIN_PASSWORD")
+      System.delete_env("SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC")
     end)
 
     :ok
@@ -148,5 +150,96 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
     assert :ok = AdminUser.ensure_admin_user()
     assert :ok = AdminUser.ensure_admin_user()
     assert Users.valid_password?(Users.get_by_email("root@localhost", authorize?: false), operator_password)
+  end
+
+  @tag sandbox: :unboxed
+  test "a delayed concurrent bootstrap preserves a password changed after rotation" do
+    email = "bootstrap-race-#{System.unique_integer([:positive])}@example.com"
+    initial_secret = "initial-bootstrap-secret-57!"
+    rotated_secret = "rotated-bootstrap-secret-82!"
+    operator_password = "operator-after-rotation-93!"
+    actor = SystemActor.system(:admin_user_test)
+
+    on_exit(fn ->
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        Repo.query!("DELETE FROM platform.admin_secret_markers WHERE admin_email = $1", [email])
+        Repo.query!("DELETE FROM platform.ng_users WHERE email = $1", [email])
+      end)
+    end)
+
+    assert {:ok, _user} =
+             Users.register_with_password(
+               %{email: email, password: initial_secret, password_confirmation: initial_secret},
+               actor: actor
+             )
+
+    System.put_env("SERVICERADAR_ADMIN_EMAIL", email)
+    System.put_env("SERVICERADAR_ADMIN_PASSWORD", initial_secret)
+    System.put_env("SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC", "true")
+    assert :ok = AdminUser.ensure_admin_user()
+
+    System.put_env("SERVICERADAR_ADMIN_PASSWORD", rotated_secret)
+    parent = self()
+
+    rotation =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          assert :ok = AdminUser.ensure_admin_user()
+          assert Users.valid_password?(Users.get_by_email(email, authorize?: false), rotated_secret)
+          %{rows: [[backend_pid]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(parent, {:rotation_pending, backend_pid})
+
+          receive do
+            :change_operator_password ->
+              user = Users.get_by_email(email, authorize?: false)
+
+              assert {:ok, _user} =
+                       User.admin_set_password(user, %{password: operator_password}, actor: actor)
+          after
+            10_000 -> flunk("concurrent bootstrap never reached the rotation transaction")
+          end
+        end)
+      end)
+
+    assert_receive {:rotation_pending, rotation_backend}, 10_000
+
+    delayed =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          %{rows: [[backend_pid]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(parent, {:delayed_bootstrap, backend_pid})
+          AdminUser.ensure_admin_user()
+        end)
+      end)
+
+    try do
+      assert_receive {:delayed_bootstrap, delayed_backend}, 10_000
+      await_blocked_bootstrap(delayed_backend, rotation_backend, System.monotonic_time(:millisecond) + 5_000)
+      send(rotation.pid, :change_operator_password)
+      assert {:ok, {:ok, _user}} = Task.await(rotation, 10_000)
+      assert {:ok, :ok} = Task.await(delayed, 10_000)
+
+      refreshed = Users.get_by_email(email, authorize?: false)
+      assert Users.valid_password?(refreshed, operator_password)
+      refute Users.valid_password?(refreshed, rotated_secret)
+      assert :ok = AdminUser.ensure_admin_user()
+      assert Users.valid_password?(Users.get_by_email(email, authorize?: false), operator_password)
+    after
+      Task.shutdown(rotation, :brutal_kill)
+      Task.shutdown(delayed, :brutal_kill)
+    end
+  end
+
+  defp await_blocked_bootstrap(delayed_backend, rotation_backend, deadline) do
+    %{rows: [[blocked?]]} =
+      Repo.query!("SELECT $1::int = ANY(pg_blocking_pids($2::int))", [rotation_backend, delayed_backend])
+
+    unless blocked? do
+      assert System.monotonic_time(:millisecond) < deadline,
+             "delayed bootstrap did not wait for the pending rotation"
+
+      Process.sleep(10)
+      await_blocked_bootstrap(delayed_backend, rotation_backend, deadline)
+    end
   end
 end
