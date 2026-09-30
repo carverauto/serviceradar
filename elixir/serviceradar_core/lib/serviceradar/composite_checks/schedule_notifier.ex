@@ -29,6 +29,10 @@ defmodule ServiceRadar.CompositeChecks.ScheduleNotifier do
   # (CompositeCheck -> ScheduleNotifier -> EvaluationWorker -> CompositeCheck)
   # and deadlocks the build.
   @impl Ash.Notifier
+  # Recording a pass's marks happens inside the running evaluation job; it is
+  # not a schedule change.
+  def notify(%Notification{action: %{name: :record_pass}}), do: :ok
+
   def notify(%Notification{action: %{type: :destroy}, data: %{id: id}}) do
     EvaluationWorker.cancel(id)
     :ok

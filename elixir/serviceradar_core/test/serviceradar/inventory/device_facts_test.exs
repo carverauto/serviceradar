@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.DeviceFactsTest do
   alias ServiceRadar.CompositeChecks.Resolvers.DeviceMetadata
   alias ServiceRadar.Inventory.Changes.MergeDeviceFacts
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Repo
 
   defp actor, do: SystemActor.system(:device_facts_test)
 
@@ -56,17 +57,69 @@ defmodule ServiceRadar.Inventory.DeviceFactsTest do
   end
 
   test "a caller-supplied timestamp is ignored", %{device: device} do
-    before = DateTime.utc_now()
-
     {:ok, updated} =
       write(device, %{"nac_applied" => true, "updated_at" => "1999-01-01T00:00:00Z"})
 
-    {:ok, stamped, _} =
-      updated.metadata
-      |> get_in([DeviceMetadata.provenance_key(), "nac_applied", "updated_at"])
+    stamped = provenance_at(updated, "nac_applied")
+
+    # The stamp is the database clock of the writing transaction, which under
+    # the test sandbox is the test's own transaction start: bound it against
+    # that clock rather than against an application clock read.
+    assert abs(DateTime.diff(stamped, database_now(), :second)) < 60
+  end
+
+  # Composite checks select a device when its provenance updated_at is later
+  # than a mark taken with the database now(). An application timestamp taken
+  # before the write's transaction opened could fall behind that mark, so the
+  # stamp must be the database clock at the writing statement.
+  test "stamps provenance with the database clock of the writing transaction", %{device: device} do
+    {:ok, {updated, transaction_now}} =
+      Repo.transaction(fn ->
+        transaction_now = database_now()
+        # An application-side stamp would be at least this much later.
+        Process.sleep(20)
+        {:ok, updated} = write(device, %{"nac_applied" => true})
+        {updated, transaction_now}
+      end)
+
+    assert provenance_at(updated, "nac_applied") == transaction_now
+  end
+
+  # The facts write merges in the database. Writing a whole map computed from
+  # the loaded record would silently revert a key another writer committed
+  # after that record was read.
+  test "keeps metadata another writer committed after the device was loaded", %{device: device} do
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices
+      SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"other_writer": "kept"}'::jsonb
+      WHERE uid = $1
+      """,
+      [device.uid]
+    )
+
+    # `device` is the stale struct loaded before that write.
+    assert {:ok, updated} = write(device, %{"nac_applied" => true})
+    assert updated.metadata["other_writer"] == "kept"
+    assert updated.metadata["nac_applied"] == true
+
+    {:ok, reloaded} = Device.get_by_uid(device.uid, false, actor: actor())
+    reloaded = if is_list(reloaded), do: hd(reloaded), else: reloaded
+    assert reloaded.metadata["other_writer"] == "kept"
+  end
+
+  defp provenance_at(device, key) do
+    {:ok, stamped, _offset} =
+      device.metadata
+      |> get_in([DeviceMetadata.provenance_key(), key, "updated_at"])
       |> DateTime.from_iso8601()
 
-    assert DateTime.compare(stamped, before) in [:gt, :eq]
+    DateTime.truncate(stamped, :microsecond)
+  end
+
+  defp database_now do
+    %{rows: [[now]]} = Repo.query!("SELECT now()")
+    DateTime.truncate(now, :microsecond)
   end
 
   test "rejects an invalid key and writes nothing", %{device: device} do

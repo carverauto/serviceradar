@@ -1,23 +1,44 @@
 defmodule ServiceRadar.CompositeChecks.EvaluationWorker do
   @moduledoc """
-  Evaluates one composite check on its configured interval, then reschedules
-  itself.
+  Runs one evaluation pass for one composite check.
 
-  The periodic pass is required even though inputs also drive an event-driven
-  refresh, and it is not a fallback. Two transitions produce no event at all:
+  `ServiceRadar.CompositeChecks.TickWorker` inserts this job for every enabled
+  check once a minute, and enabling a check inserts it for an immediate first
+  run. The job decides which pass to run:
 
-    * an input aging past its `max_age` — nothing happens, the clock just moves
-    * a device entering or leaving the scope as inventory syncs — the device did
+    * the **full pass** when `last_evaluated_at` or `last_incremental_at` is nil,
+      or when `evaluation_interval_seconds` has elapsed since
+      `last_evaluated_at` (the completion time of the last successful full
+      pass);
+    * otherwise the **incremental pass**, over the devices whose inputs changed
+      since `last_incremental_at`.
+
+  The periodic full pass is required even though the incremental pass follows
+  input changes, and it is not a fallback. Two transitions produce no input
+  write at all:
+
+    * an input aging past its `max_age` -- nothing happens, the clock just moves
+    * a device entering or leaving the scope as inventory syncs -- the device did
       not change from this check's perspective
 
-  Both are only discoverable by re-evaluating. Do not delete this worker in
-  favour of the event path.
+  Both are only discoverable by re-evaluating the whole scope. Do not delete the
+  full pass in favour of the incremental one.
+
+  The job has one attempt and never inserts a successor: the next minute tick
+  is the retry, which is safe because a failed pass advances neither mark.
+  Uniqueness over available, scheduled and executing jobs keeps at most one job
+  per check in flight, so a tick that lands while a pass is still running
+  inserts nothing and two passes for one check never overlap.
   """
 
+  # The contract is uniqueness over available, scheduled and executing. With
+  # max_attempts: 1 a job can never become retryable, and nothing here
+  # suspends jobs, so Oban's :incomplete group is exactly those three states;
+  # naming it avoids Oban's warning that a partial list can break uniqueness.
   use Oban.Worker,
     queue: :monitoring,
-    max_attempts: 3,
-    unique: [period: 30, keys: [:check_id], states: :incomplete]
+    max_attempts: 1,
+    unique: [keys: [:check_id], states: :incomplete, period: :infinity]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck
@@ -32,9 +53,8 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorker do
 
     case CompositeCheck.get_by_id(check_id, actor: actor) do
       {:ok, %{state: :enabled} = check} ->
-        result = Evaluation.run(check, actor: actor)
-        reschedule(check)
-        handle_result(check, result)
+        pass = pass_for(check, Evaluation.db_now())
+        handle_result(check, pass, run_pass(pass, check, actor))
 
       {:ok, _check} ->
         {:ok, :skipped}
@@ -44,9 +64,28 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorker do
     end
   end
 
-  defp handle_result(check, {:ok, summary}) do
+  @doc """
+  Which pass a job for `check` runs at `now`.
+
+  Measured from `last_evaluated_at`, which a successful full pass stamps at
+  completion, so a full pass that ran longer than the interval is not due
+  again on the next tick.
+  """
+  @spec pass_for(map(), DateTime.t()) :: :full | :incremental
+  def pass_for(%{last_evaluated_at: nil}, _now), do: :full
+  def pass_for(%{last_incremental_at: nil}, _now), do: :full
+
+  def pass_for(%{last_evaluated_at: last, evaluation_interval_seconds: interval}, now) do
+    if DateTime.diff(now, last, :second) >= interval, do: :full, else: :incremental
+  end
+
+  defp run_pass(:full, check, actor), do: Evaluation.run_full(check, actor: actor)
+  defp run_pass(:incremental, check, actor), do: Evaluation.run_incremental(check, actor: actor)
+
+  defp handle_result(check, pass, {:ok, summary}) do
     Logger.debug("composite check evaluated",
       check_id: check.id,
+      pass: pass,
       evaluated: summary.evaluated,
       transitions: length(summary.transitions),
       removed: summary.removed
@@ -55,9 +94,10 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorker do
     {:ok, summary}
   end
 
-  defp handle_result(check, {:error, reason} = error) do
+  defp handle_result(check, pass, {:error, reason} = error) do
     Logger.warning("composite check evaluation failed",
       check_id: check.id,
+      pass: pass,
       reason: inspect(reason)
     )
 
@@ -65,7 +105,10 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorker do
   end
 
   @doc """
-  Schedules the next evaluation for a check.
+  Inserts an evaluation job for an enabled check to run now.
+
+  Uniqueness makes this a no-op while a job for the check is available,
+  scheduled or executing, so a save during a pass does not fork the schedule.
 
   Safe to call when Oban is unavailable: a check must stay saveable when the
   scheduler is down, matching the contract sweep groups already have.
@@ -74,10 +117,10 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorker do
   # a compile-time dependency that closes a cycle with ScheduleNotifier.
   def ensure_scheduled(check)
 
-  def ensure_scheduled(%{state: :enabled, id: id, evaluation_interval_seconds: interval}) do
+  def ensure_scheduled(%{state: :enabled, id: id}) do
     if ObanSupport.available?() do
       %{check_id: id}
-      |> new(schedule_in: interval)
+      |> new()
       |> ObanSupport.safe_insert()
     else
       {:error, :oban_unavailable}
@@ -100,6 +143,4 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorker do
   rescue
     _ -> :ok
   end
-
-  defp reschedule(check), do: ensure_scheduled(check)
 end

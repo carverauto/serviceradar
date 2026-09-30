@@ -11,16 +11,33 @@ defmodule ServiceRadar.Inventory.Changes.MergeDeviceFacts do
 
   Any invalid fact rejects the whole request. A partial write would leave the
   caller believing every fact landed.
+
+  The merge runs in the database, in one statement inside the action's
+  transaction, and stamps each fact's provenance `updated_at` with the
+  database `now()` there. Two reasons:
+
+    * `metadata` has many independent writers. Writing a whole map computed in
+      Elixir would be a read-modify-write that silently reverts keys other
+      writers committed in between (see `MergeDeviceMetadata`).
+    * composite checks select devices whose provenance `updated_at` is later
+      than a mark they take with the database `now()`, less a fixed slack. That
+      only holds when the timestamp is the database clock at the writing
+      statement; an application timestamp taken before the transaction opened
+      could fall behind the mark and the change would never be selected.
   """
 
   use Ash.Resource.Change
 
   alias ServiceRadar.CompositeChecks.Resolvers.DeviceMetadata
+  alias ServiceRadar.Repo
 
   @key_pattern ~r/^[a-z][a-z0-9_]{0,63}$/
   @reserved_keys ~w(passive_fingerprint identity_state identity_source)
   @max_facts 32
 
+  # `{:ok, change(...)}`, not a bare `:ok`: the change registers an after_action
+  # hook, and Ash rebuilds atomic updates from a second changeset -- returning
+  # `:ok` would drop the hook and silently write nothing.
   @impl true
   def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 
@@ -31,11 +48,15 @@ defmodule ServiceRadar.Inventory.Changes.MergeDeviceFacts do
 
     with :ok <- validate_facts(facts),
          :ok <- validate_cap(existing, facts) do
-      Ash.Changeset.force_change_attribute(
-        changeset,
-        :metadata,
-        merge(existing, facts, source(context))
-      )
+      values = Map.new(facts, fn {key, value} -> {to_string(key), value} end)
+      sources = Map.new(values, fn {key, _value} -> {key, source(context)} end)
+
+      # An after_action, not a changed attribute: Ash.Type.Map has no atomic
+      # expression support, so routing this through the attribute would write a
+      # literal map computed here, which is the read-modify-write above.
+      Ash.Changeset.after_action(changeset, fn _changeset, record ->
+        merge(record, values, sources)
+      end)
     else
       {:error, message} -> Ash.Changeset.add_error(changeset, field: :facts, message: message)
     end
@@ -87,21 +108,41 @@ defmodule ServiceRadar.Inventory.Changes.MergeDeviceFacts do
     end
   end
 
-  defp merge(existing, facts, source) do
-    stamped_at = DateTime.to_iso8601(DateTime.utc_now())
-    provenance_key = DeviceMetadata.provenance_key()
+  # The maps go in at jsonb-cast placeholders so Postgrex encodes them once; a
+  # pre-encoded binary would land as a jsonb string scalar.
+  defp merge(record, values, sources) do
+    case Repo.query(
+           """
+           UPDATE platform.ocsf_devices
+           SET metadata =
+             (COALESCE(metadata, '{}'::jsonb) || CAST($2 AS jsonb))
+             || jsonb_build_object(
+                  CAST($3 AS text),
+                  COALESCE(metadata -> CAST($3 AS text), '{}'::jsonb)
+                  || (
+                    SELECT jsonb_object_agg(
+                      e.key,
+                      jsonb_build_object('source', e.value, 'updated_at', to_jsonb(now()))
+                    )
+                    FROM jsonb_each_text(CAST($4 AS jsonb)) AS e
+                  )
+                )
+           WHERE uid = $1
+           RETURNING metadata
+           """,
+           [record.uid, values, DeviceMetadata.provenance_key(), sources]
+         ) do
+      {:ok, %{rows: [[merged]]}} ->
+        {:ok, %{record | metadata: merged}}
 
-    Enum.reduce(facts, existing, fn {key, value}, acc ->
-      key = to_string(key)
-      provenance = Map.get(acc, provenance_key, %{})
+      {:ok, %{rows: []}} ->
+        # Removed between the read and here. Nothing to merge into, and
+        # inventing a row would resurrect it.
+        {:ok, record}
 
-      acc
-      |> Map.put(key, value)
-      |> Map.put(
-        provenance_key,
-        Map.put(provenance, key, %{"source" => source, "updated_at" => stamped_at})
-      )
-    end)
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp scalar?(value), do: is_boolean(value) or is_number(value) or is_binary(value)
