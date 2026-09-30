@@ -133,15 +133,57 @@ build:ci --config=remote_base
 # workstations keep the public grpcs URL via cache_only / remote.
 # --remote_bytestream_uri_prefix stays on carverauto.buildbuddy.io.
 build:ci --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
-# The Bazel CLIENT's caches, on the node volume //k8s/buildbuddy bind-mounts into the workflow
-# runner at /bazel-cache, so a fresh runner does not re-download and re-extract every external
-# repo. The repo caches are the ones that keep toolchains off the network; the disk cache is
-# action outputs. CI-only -- this path exists on the executors and nowhere else, and the init
-# container in //k8s/buildbuddy/values-workflows.yaml is what makes it writable by the runner.
-build:ci --disk_cache=/bazel-cache/disk
+# The Bazel CLIENT's caches, split by whether concurrent Bazel servers may share them.
+#
+# The two REPO caches sit on the node volume //k8s/buildbuddy bind-mounts into every workflow
+# runner at /bazel-cache. They are safe to share: the repository cache is content-addressed and
+# write-once, the repo contents cache file-locks (its own gc_lock protocol), and they are what
+# keeps toolchains off the network so a fresh runner does not re-download and re-extract every
+# external repo. The init container in //k8s/buildbuddy/values-workflows.yaml makes these
+# writable by the runner user; CI-only -- these paths exist on the workflow executors and
+# nowhere else.
+#
+# The DISK cache is deliberately NOT on that volume, and NOT under `~`. One workflow-executor
+# pod hosts several Bazel servers at once: two concurrent 36GB runs fit its memory limits, and
+# every parked recycled runner keeps a resident server alive (startup --max_idle_secs=0 from the
+# ci_runner). With --experimental_disk_cache_gc_max_size set, EACH server runs its own disk-cache
+# GC as an idle task once it has been idle for --experimental_disk_cache_gc_idle_delay (default
+# 5m). That GC only locks out other GC passes (<cache>/gc/lock); readers and writers take no
+# lock, so one server's background deletions raced another server's reads on the shared directory
+# and failed BazelCI with
+#   Staging prebuilt otp 28.1 failed: (Exit 34):
+#     [unix_jni.cc:444] /bazel-cache/disk/ac/b4/<hash> (Permission denied)
+# on a Markdown-only change -- https://github.com/carverauto/serviceradar/issues/4863.
+#
+# `~` is the wrong place to get that privacy. The workflow action sets no HOME (OCI spec env is
+# PATH and HOSTNAME). ci_runner ensureHomeDir() then sets HOME to {workspace}/.home, which is
+# /buildbuddy-execroot/.home. Bazel expands `~` from user.home, so ~/.cache/... lands inside the
+# workspace bind. That bind is the only tree Workspace.DiskUsageBytes walks for
+# max_runner_disk_size_bytes (100GB in //k8s/buildbuddy/values-workflows.yaml). Checkout +
+# output-base + a cache that GC will not trim until the server has been idle for 5 minutes
+# (cap 50G) can cross 100GB, and the runner is rejected with max_disk_usage_exceeded -- which
+# drops the warm cache this profile exists to keep. build:remote below still uses `~`: a
+# workstation HOME is the real home, and nothing there measures the workspace against a recycle
+# budget.
+#
+# A directory created directly under / is also wrong. The runner is the buildbuddy user, uid
+# 1001 (//docker/images/Dockerfile.workflow-runner; the action user defaults to that name). /
+# is root:root 0755, so uid 1001 cannot create it, and the executor init container only sees
+# the shared hostPath, not each runner's overlay. useradd --create-home already owns
+# /home/buildbuddy. The disk cache lives there, and it is deliberately not another bind of
+# /bazel-caches. A shared bind is the Exit 34 race. Each runner container has its own overlay
+# upperdir (/cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper), so the same absolute
+# path is a private directory per runner. A recycled runner keeps that container, so the cache
+# stays warm across its own runs; removing the runner deletes the bundle and the cache with it.
+# The path is outside /buildbuddy-execroot, so it does not count against the 100GB workspace
+# recycle limit. It does sit on the cache-workflows xfs (the overlay's disk). The GC cap is
+# that bound, PER RUNNER: 50G x the two concurrent runners an 80Gi executor hosts is 100G on
+# that disk, separate from the workspace measurement. Action outputs missing from a fresh
+# runner's cache come from the remote cache instead -- that is what it is for.
+build:ci --disk_cache=/home/buildbuddy/bazel-disk-cache
 build:ci --repository_cache=/bazel-cache/repo
 build:ci --repo_contents_cache=/bazel-cache/repo-contents
-build:ci --experimental_disk_cache_gc_max_size=100G
+build:ci --experimental_disk_cache_gc_max_size=50G
 build:ci --keep_going
 build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 build:ci --build_metadata=ROLE=CI
