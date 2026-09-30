@@ -21,6 +21,20 @@ defmodule ServiceRadar.Observability.EventRule do
     schema "platform"
   end
 
+  json_api do
+    type "event-rule"
+
+    routes do
+      base "/event-rules"
+      get :by_id
+      index :read
+      index :active, route: "/active"
+      post :create
+      patch :update
+      delete :destroy
+    end
+  end
+
   code_interface do
     define :list, action: :read
     define :list_active, action: :active
@@ -114,20 +128,6 @@ defmodule ServiceRadar.Observability.EventRule do
 
   identities do
     identity :unique_name, [:name]
-  end
-
-  json_api do
-    type "event-rule"
-
-    routes do
-      base "/event-rules"
-      get :by_id
-      index :read
-      index :active, route: "/active"
-      post :create
-      patch :update
-      delete :destroy
-    end
   end
 
   defmodule InvalidateLogPromotionRulesCache do
