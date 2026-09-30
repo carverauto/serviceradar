@@ -715,3 +715,48 @@ message ScheduledPlanHeaderV1 {
   // not distinguish from an omitted commitment.
   bytes mtr_ordinal_range_commitment = 11;
 }
+
+// ---------------------------------------------------------------------------
+// Sweep schedule lease (core -> agent)
+// ---------------------------------------------------------------------------
+
+// SweepLeaseSlotV1 is one execution core minted ahead of time: its id, its slot,
+// the plan it binds, and one signed SCHEDULED_SWEEP source authorization per plan
+// range, in plan order. The collection window is [slot_start, collection_expires];
+// both authorizations and records must fall inside it with no tolerance.
+message SweepLeaseSlotV1 {
+  bytes execution_id = 1;                    // UUIDv7 whose time is the slot start
+  int64 slot_start_unix_nano = 2;
+  int64 collection_expires_unix_nano = 3;    // MUST be > slot_start
+  ScheduledPlanHeaderV1 plan_header = 4;
+  repeated ScheduledPlanPageV1 plan_pages = 5;
+  repeated EdgeSourceAuthorizationV1 source_authorizations = 6;
+}
+
+// SweepLeaseV1 is one push of a sweep group's lease to the agent that runs it.
+//
+// A push is a WINDOW REPLACEMENT, not a delta list: `slots` is the complete set of
+// the lease's slots whose start lies in [window_start, window_end). The agent keeps
+// one lease per sweep group. When `lease_id` differs from the installed lease the
+// agent discards the installed one and installs this; otherwise it removes every
+// installed slot starting inside the window and inserts `slots`. A slot core has
+// dropped therefore disappears from the agent without a separate delete message,
+// and a push covering only the newly minted tail extends the lease cheaply.
+//
+// `revoked` withdraws the group's lease: the agent drops every slot it has not
+// started and returns the group to its local schedule. A revocation carries no
+// capability; withdrawing authority needs none.
+message SweepLeaseV1 {
+  uint32 lease_version = 1;                          // 1
+  bytes sweep_group_id = 2;                          // UUID
+  bytes lease_id = 3;                                // == production claims run_id
+  bytes producer_assignment_id = 4;                  // UUID
+  uint64 authority_epoch = 5;
+  // Absent only when `revoked`. Its not_before is the lease's signed issuance time,
+  // the clock floor the agent checks before running a slot.
+  EdgeSignedCapabilityV1 production_capability = 6;
+  int64 window_start_unix_nano = 7;
+  int64 window_end_unix_nano = 8;                    // MUST be > window_start
+  repeated SweepLeaseSlotV1 slots = 9;               // ascending slot_start, inside the window
+  bool revoked = 10;
+}

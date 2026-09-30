@@ -154,7 +154,7 @@
       group is re-enabled, is a new lease for that (group, agent), reissued
       under a new epoch through the existing reissue path, not a re-plan of
       the old slots.
-  - [ ] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
+  - [x] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
     mount and signs, per lease, the production capability (`run_id` = the lease)
     and one SCHEDULED_SWEEP source authorization per (execution, range). Every
     authorization for an execution shares `context_id` equal to that
@@ -167,6 +167,7 @@
     builds and signs both capabilities from the stored slots, as Issuer in
     `design.md` says. The chart mount and generated key arrive with M2.0f,
     which deploys the gateway trust that verifies them.
+    Proven by BuildBuddy invocation 0862db39-cbf4-4383-b0dd-3287c93e6b7b.
   - [ ] M2.0d Lease delivery. Core sends the lease to the agent over the
     existing authenticated control path: per lease the production capability;
     per scheduled execution its plan and one source authorization per range. The
@@ -175,6 +176,22 @@
     execution grants are not used: no check on the record path consults them, and
     they need three signatures and two stored artifacts per (execution, range).
     They stay in the backlog.
+    - [ ] M2.0d1 Carrier. `SweepLeaseV1`/`SweepLeaseSlotV1` (edge/v1
+      `sweep.proto`) carry a lease as a window replacement, and the control
+      stream gains `SweepLeaseChunk` (gateway to agent, only for agents
+      advertising `sweep_lease_v1`) and `SweepLeaseAck` (agent to gateway), as
+      Carrier in `design.md` says. Core reads the installation's contract
+      registry document through the parser the gateway now shares
+      (`ContractRegistryDocument`), and `SweepContract` gives the values a
+      production capability signs; the effective grant digest is derived from
+      the contract and the lease scope.
+    - [ ] M2.0d2 Core delivery. Core builds, signs and pushes each connected
+      agent's lease (the newly minted tail, or the whole window after a drop
+      or a new lease), and records each ack.
+    - [ ] M2.0d3 Agent install. The agent reassembles, checks and stores the
+      lease per sweep group across restarts, and acknowledges it.
+    - [ ] M2.0d4 Remaining horizon. Core shows each agent's acknowledged
+      horizon per leased group.
   - [ ] M2.0e Agent lease execution. For a leased group the agent's local
     ticker is replaced by the lease: it runs each slot at its time from its own
     clock whether or not it is connected, and refuses a lease slot when its wall
