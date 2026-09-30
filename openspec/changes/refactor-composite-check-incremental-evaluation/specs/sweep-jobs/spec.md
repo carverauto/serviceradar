@@ -1,13 +1,13 @@
 ## ADDED Requirements
 
-### Requirement: Sweep Ingestion Has No Per-Device Side Effects For Derived State
+### Requirement: Sweep Ingestion Enqueues No Composite-Check Work
 
-Sweep result ingestion SHALL NOT enqueue background jobs, publish per-device
-notifications, or write marker rows on behalf of subsystems that derive state
-from availability rows.
+Sweep result ingestion SHALL NOT enqueue a composite-check job or write a
+composite-check marker.
 
-Subsystems that derive state from per-agent availability (composite checks
-today) SHALL discover changed rows from the rows' own update timestamps.
+Ingestion SHALL stamp `device_agent_availability.updated_at` with `now()`
+inside the INSERT statement. Composite checks discover changed availability
+rows from that timestamp.
 
 #### Scenario: Ingesting a chunk enqueues nothing
 
@@ -15,4 +15,5 @@ today) SHALL discover changed rows from the rows' own update timestamps.
 - **WHEN** the chunk is ingested
 - **THEN** the number of Oban jobs SHALL be unchanged
 - **AND** the per-agent availability rows for those devices SHALL carry an
-  `updated_at` later than before ingestion
+  `updated_at` assigned by `now()` inside the INSERT, later than before
+  ingestion

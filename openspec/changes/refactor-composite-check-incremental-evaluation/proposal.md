@@ -42,20 +42,31 @@ read. It is never recomputed one job per input change.
   `SweepResultsIngestor` writes availability rows and stops; it has no
   knowledge of composite checks. `CompositeChecks.Refresh` and
   `RefreshWorker` are removed.
-- Add an incremental evaluation pass per enabled check. Each check keeps a
-  high-water mark of the last evaluation. The incremental pass selects, in one
-  bounded query, the in-scope devices whose input rows changed after that mark
-  (per-agent availability for the check's vantage-point agents, device
-  metadata for metadata inputs) and evaluates only those devices through the
-  existing paged `Evaluation.evaluate_devices/5`. It runs on a short interval
-  (tens of seconds) so verdicts stay as fresh as the reactive path made them.
-- Keep the periodic full pass on `evaluation_interval_seconds` for the two
-  transitions that produce no row change: an input aging past `max_age` and a
-  device entering or leaving scope. This is unchanged and remains required.
+- Add an incremental evaluation pass per enabled check. Each check keeps
+  `last_incremental_at`, the database clock (`SELECT now()`) taken at the
+  start of the last successful pass, before its dirty read. The incremental
+  pass selects, in bounded queries, the in-scope devices whose input rows
+  changed after that mark: per-agent availability `updated_at` for the check's
+  vantage-point agents, and for metadata inputs the provenance timestamp
+  `:device_metadata` resolves
+  (`metadata['__fact_provenance'][path]['updated_at']` on each configured
+  path). It never reads `ocsf_devices.modified_time`. It evaluates only those
+  devices through the existing paged `Evaluation.evaluate_devices/5`, following
+  the canonical uid for the page in one query and skipping a uid that does not
+  resolve to a live device. It runs on a short interval (tens of seconds) so
+  verdicts stay as fresh as the reactive path made them.
+- Keep the periodic full pass on `evaluation_interval_seconds`, scheduled from
+  the existing `composite_checks.last_evaluated_at` (advanced only by a
+  successful full pass). It covers the two transitions that produce no row
+  change: an input aging past `max_age` and a device entering or leaving scope.
+  It also covers metadata keys that have no provenance timestamp. This pass
+  remains required.
 - Make the write side set-based. `persist_page` writes each page's results with
-  one multi-row upsert; canonical availability is written with one set-based
-  update per page. Transitions are still computed in memory against
-  `load_existing`, so verdict events are unchanged.
+  one multi-row upsert and never writes a result for a merged-away uid.
+  Canonical availability is a bulk form of `Device.set_availability`
+  (`is_available` only: one update for healthy uids, one for down uids,
+  skipping `:degraded` and `:unknown`). Transitions are still computed in
+  memory against `load_existing`, so verdict events are unchanged.
 - Oban keeps exactly one job kind for composite checks: the per-check
   scheduler (`EvaluationWorker`), which now runs both the incremental and the
   full pass.
@@ -68,16 +79,17 @@ read. It is never recomputed one job per input change.
   composite pass becomes cheap enough to run more often than it does today.
 - Freshness: a verdict follows an input change within one incremental interval
   instead of within the Oban debounce window. Both are tens of seconds.
-- Risk: the dirty query must be indexed. `device_agent_availability.updated_at`
-  moves on every upsert and needs an index; `ocsf_devices.updated_at` is an Ash
-  `update_timestamp`, so metadata writes through Ash move it, but a raw write
-  path that does not is picked up by the full pass only. The design records
-  the audit.
-- Decision point: if the identity fence cannot be preserved without per-device
-  jobs, keep a single job per page carrying the dirty uids rather than one per
-  device. The design shows the fence is applied at evaluation time by the
-  incremental pass the same way the full pass applies it, so this fallback is
-  not expected to be needed.
+- Risk: the availability dirty query must be indexed.
+  `device_agent_availability.updated_at` is stamped with `now()` inside the
+  ingestor's INSERT, so it moves when an observation commits and cannot precede
+  a pass mark taken before that commit. Metadata dirtiness is the fact
+  provenance timestamp on the check's configured paths. Sweep status writes and
+  `set_availability` do not write that provenance, so they do not dirty a
+  device; a metadata key with no provenance is covered by the full pass only.
+- Decision point: the pass follows the canonical uid at evaluation time (one
+  batched `Resolver.follow_canonical_device_id` query per page), skips a uid
+  that does not resolve to a live device, and writes no result for a
+  merged-away uid. That needs no per-device job and no per-page fallback job.
 
 ## Relationship to other changes
 
@@ -103,8 +115,10 @@ read. It is never recomputed one job per input change.
   (`refresh.ex`, `refresh_worker.ex`, `evaluation.ex`, `evaluation_worker.ex`,
   `scope.ex`, `composite_check.ex`),
   `elixir/serviceradar_core/lib/serviceradar/sweep_jobs/sweep_results_ingestor.ex`,
-  a migration adding the evaluation high-water mark and the
-  `device_agent_availability(updated_at)` index, and the tests under
+  a migration adding `last_incremental_at` (the full-pass clock
+  `last_evaluated_at` already exists) and the
+  `device_agent_availability(agent_id, updated_at)` index, the ingestor
+  stamping that `updated_at` with `now()` inside the INSERT, and the tests under
   `elixir/serviceradar_core/test/serviceradar/composite_checks/`.
 - Operational: no configuration change. Oban `monitoring` queue load drops from
   one job per swept device to one job per enabled check per interval.

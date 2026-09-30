@@ -42,26 +42,41 @@ about composite checks, and each job still evaluates devices that did not
 change. The dirty-set query below makes the hook unnecessary, so the hook goes.
 `CompositeChecks.Refresh` and `RefreshWorker` are deleted, not deprecated.
 
-### 2. Dirty set from row timestamps, not from a dirty table
+### 2. Dirty set from the timestamps the inputs read
 
-Each check records `last_incremental_at` (the start time of its last completed
-incremental or full pass). The incremental pass computes the dirty set as:
+Each check records `last_incremental_at`. It only gates the dirty read. The
+mark is the database clock (`SELECT now()`) taken at the start of the pass,
+before the dirty read. The incremental pass computes the dirty set as:
 
 - devices with a `device_agent_availability` row for one of the check's
   vantage-point agents whose `updated_at > last_incremental_at`;
-- when the check has a metadata input, devices whose `ocsf_devices.updated_at >
-  last_incremental_at`;
+- when the check has a `:device_metadata` input, devices for which any
+  configured metadata path has
+  `metadata['__fact_provenance'][path]['updated_at']` later than
+  `last_incremental_at` (the provenance timestamp
+  `Resolvers.DeviceMetadata` resolves);
 - intersected with the check's scope.
 
-`device_agent_availability.updated_at` is set on every upsert by the ingestor
-(`EXCLUDED.updated_at` in the conflict update), so it moves exactly when an
-observation is accepted. It has no index today; the migration adds
-`(agent_id, updated_at)`. `ocsf_devices.updated_at` is an Ash
-`update_timestamp`, so writes through Ash actions move it. Raw `update_all`
-paths that skip it (the ingestor's own availability and discovery-source
-updates are examples) leave a metadata change for the full pass, which is
-acceptable: those paths do not write the metadata a `:device_metadata` input
-reads.
+The metadata predicate reads that provenance timestamp and never
+`ocsf_devices.modified_time`. `ocsf_devices` has no `updated_at`. Sweep status
+writes and `Device.set_availability` do not write `__fact_provenance`, so they
+do not dirty a device. A metadata key with no provenance timestamp is covered
+by the full pass only.
+
+`device_agent_availability.updated_at` moves when an observation is accepted.
+The ingestor stamps it with `now()` inside the INSERT (and the conflict update
+keeps that inserted value), not with an application `DateTime.utc_now()` taken
+before `insert_all` commits. A row committed after a pass's read therefore
+cannot carry a timestamp before that pass's mark. The column has no index
+today; the migration adds `(agent_id, updated_at)`.
+
+A pass that selected nothing does not advance a nil `last_incremental_at`.
+`updated_at > NULL` matches nothing, so writing a mark after that empty read
+would hide rows the pass never saw. A successful pass that selected devices,
+and a successful full pass that evaluated at least one in-scope device,
+advance `last_incremental_at` to the mark taken at the start. A failed pass
+does not advance it. A successful empty pass whose mark is already set
+advances it to that same start clock.
 
 Alternative rejected: a `composite_check_dirty_devices` table the ingestor
 inserts into. It reintroduces a write into ingestion, needs its own pruning,
@@ -101,47 +116,70 @@ conflict_target: [:device_uid, :check_id])`. `changed_at` is carried per row.
 The Ash `:upsert` action stays for the authoring preview and tests that use it
 but is no longer on the evaluation path.
 
-Canonical availability for a check with `write_canonical_availability` becomes
-one `update_all` per page over `ocsf_devices` for the healthy uids and one for
-the down uids, replacing the per-device get and update. Both run through the
-same `Device` policy actor the per-device path used, via a bulk Ash action or a
-raw query behind the existing `set_availability` semantics, whichever the
-implementer finds already exists for the sweep path (the ingestor's
-`update_device_statuses_available/3` is the precedent).
+Canonical availability for a check with `write_canonical_availability` is a
+bulk form of `Device.set_availability`: `is_available` only (the only field
+that action accepts), one update for the healthy uids and one for the down
+uids, skipping `:degraded` and `:unknown`. It is not the ingestor's
+`update_device_statuses_available/3`. That statement matches
+`availability_source_agent_id` to the sweep reporter and also rewrites
+`last_seen_time` and sweep metadata. A composite pass has no sweep reporter,
+so that statement updates zero rows; dropping the reporter predicate would
+clobber sweep failure state. The page write does not dirty the device: it
+does not write fact provenance.
 
 ### 5. One scheduler
 
-`EvaluationWorker` runs the incremental pass every `incremental_interval`
-(a module attribute, default thirty seconds, not operator-facing) and the full
-pass when `evaluation_interval_seconds` has elapsed since the last full pass.
-A full pass also advances `last_incremental_at`, so no device is evaluated
-twice for one change. The Oban `unique` on `check_id` is unchanged.
+`EvaluationWorker` wakes every `incremental_interval` (a module attribute,
+default thirty seconds, not operator-facing). The full pass is due when
+`evaluation_interval_seconds` has elapsed since
+`composite_checks.last_evaluated_at`, or when that column is nil. The column
+already exists and is never written today; it is the full-pass clock. A due
+tick runs the full pass and not the incremental pass, so a device is not
+evaluated twice for one change. A successful full pass advances
+`last_evaluated_at`, and advances `last_incremental_at` under the rules in
+decision 2. Every other tick runs only the incremental pass, which advances
+`last_incremental_at` and does not advance `last_evaluated_at`.
 
-A pass that fails does not advance the high-water mark, so the next pass picks
-the same dirty set up again. The full pass's mark-and-sweep of out-of-scope
-rows is untouched and still runs only after a complete full pass.
+The worker's successor is inserted from `perform`, as today, with `schedule_in`
+equal to the incremental interval. The Oban `unique` period on `check_id` is
+shorter than that reschedule gap: 10 seconds, states `:incomplete`, against
+the 30-second gap. The running job was inserted one gap ago, so it falls
+outside the unique window and the successor is kept. A period equal to the gap
+counts the still-executing job as a duplicate and discards the successor.
 
-### 6. Identity fence
+A pass that fails does not advance either mark, so the next pass picks the
+same dirty set up again. The full pass's mark-and-sweep of out-of-scope rows
+is untouched and still runs only after a complete full pass.
 
-`RefreshWorker` pinned each device's identity revision at enqueue time and
-re-resolved at run time because of the gap the debounce introduced. The
-incremental pass has no such gap: it reads the dirty uids and evaluates them in
-the same pass, and `evaluate_devices/5` loads rows by uid at evaluation time.
-A device merged between two passes simply stops appearing under its old uid
-and appears under the survivor's, which the full pass's scope sweep already
-handles. No pin is needed.
+### 6. Canonical uid at evaluation time
+
+The incremental pass follows the canonical uid at evaluation time. For each
+page it batch-resolves `Resolver.follow_canonical_device_id` in one query,
+skips a uid that does not resolve to a live device, and never writes a result
+for a merged-away uid. The follow sits on the shared page path both passes
+use (`evaluate_devices/5` before the write), so a full pass has the same rule.
+A merge between the dirty read and the write therefore cannot restore a result
+row for the losing uid. No enqueue-time pin and no per-device job.
 
 ## Verification
 
 - Incremental pass test: two devices in scope, one receives a new availability
   row after the mark, the pass evaluates exactly that device and advances the
   mark. Removing the timestamp filter must fail the test (the other device
-  would be evaluated).
+  would be evaluated). A metadata check is dirtied only by
+  `__fact_provenance` for a configured path; a sweep status write or
+  `set_availability` on an otherwise unchanged device is not selected. A pass
+  that selects nothing leaves a nil mark nil.
+- Merge test: a device selected by the dirty read is merged away before the
+  write. The pass writes no result for the merged-away uid, and skips the uid
+  when the canonical follow does not resolve to a live device.
 - Set-based write test: a page of N results produces one insert statement,
   asserted with a query counter or `Repo` telemetry, and identical rows to the
   previous per-device path.
-- Ingestion test: `SweepResultsIngestor` performs no Oban insert; assert
-  `Oban.Job` count in the `monitoring` queue is unchanged across an ingest.
+- Ingestion test: `SweepResultsIngestor` enqueues no composite-check job and
+  writes no composite-check marker. Assert the `Oban.Job` count is unchanged
+  across an ingest. Availability events and device invalidation broadcasts
+  still publish.
 - Statement count over a 1,000-device page of the full pass is asserted below
   a fixed ceiling (pages, not devices).
 
