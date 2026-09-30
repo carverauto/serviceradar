@@ -911,8 +911,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
     DateTime.from_unix!(DateTime.to_unix(value) - Integer.mod(DateTime.to_unix(value), @one_hour_seconds))
   end
 
+  # UTC midnight of `value`'s UTC day. The `day` partition column is
+  # `date_trunc('day', time)`, and `DateTime.new!/3` takes a date, a time, and a zone.
   defp day_of(%DateTime{} = value) do
-    DateTime.new!(value.year, value.month, value.day, 0, 0, 0, {0, 0}, value.calendar)
+    value
+    |> utc()
+    |> DateTime.to_date()
+    |> DateTime.new!(~T[00:00:00], "Etc/UTC")
   end
 
   # ---------------------------------------------------------------------------

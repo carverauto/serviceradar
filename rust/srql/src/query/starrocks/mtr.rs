@@ -1131,8 +1131,9 @@ mod tests {
             // A filter outside the view's dimensions.
             "in:mtr_hops time:last_24h trace_id:8e1c1f3a-0000-4000-8000-000000000001 stats:count() as n by addr,time:1h limit:5",
             "in:mtr_hops time:last_24h reply_rst:>0 stats:count() as n by addr,time:1h limit:5",
-            // A group the view does not carry.
-            "in:mtr_hops time:last_24h stats:count() as n by hostname,time:1h limit:5",
+            // A group the view does not carry. `hostname` is not a group field
+            // on either backend; `asn` is, and the rollup leaves it off.
+            "in:mtr_hops time:last_24h stats:count() as n by asn,time:1h limit:5",
             // Sub-hour buckets: the view knows whole hours only.
             "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr,time:30m limit:5",
         ] {

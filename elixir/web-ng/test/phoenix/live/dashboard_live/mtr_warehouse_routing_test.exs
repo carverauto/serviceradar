@@ -109,7 +109,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
     refute sql =~ "FILTER ("
     refute sql =~ "::"
     # The cutoff bounds traces and hops alike, and a hop is never older than its trace.
-    assert length(Regex.scan(~r/`time` >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}'/, sql)) == 2
+    # `floor_hour` lands on a whole second, and `NaiveDateTime.to_string` then
+    # omits the zero fraction, so the bound is accepted with or without it.
+    assert length(Regex.scan(~r/`time` >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?'/, sql)) ==
+             2
     assert sql =~ "AND h.`time` >= st.`time`"
     assert sql =~ "COUNT(CASE WHEN dh.sent > 0 THEN dh.trace_id END) AS loss_sample_count"
 
