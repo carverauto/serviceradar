@@ -539,6 +539,8 @@ message ControlStreamRequest {
     CommandResult command_result = 4;
     ConfigAck config_ack = 5;
     ConsoleFrame console_frame = 6;
+    // The agent's answer to one sweep lease push.
+    SweepLeaseAck sweep_lease_ack = 7;
   }
 }
 
@@ -552,7 +554,38 @@ message ControlStreamResponse {
     // config_push_chunks capability. Chunks of one push are contiguous and
     // reassemble exactly like StreamConfig chunks.
     AgentConfigChunk config_chunk = 4;
+    // One chunk of a sweep lease push, sent only to agents advertising the
+    // sweep_lease_v1 capability.
+    SweepLeaseChunk sweep_lease_chunk = 5;
   }
+}
+
+// SweepLeaseChunk carries one slice of an encoded serviceradar.edge.v1.SweepLeaseV1.
+// Chunks of one push are contiguous and reassemble like AgentConfigChunk: index 0
+// starts a push, the final chunk completes it, and the SHA-256 of the whole
+// payload must match before the agent decodes it.
+message SweepLeaseChunk {
+  string sweep_group_id = 1;
+  bytes payload = 2;
+  int32 chunk_index = 3;              // Zero-based
+  int32 total_chunks = 4;
+  bool is_final = 5;
+  string payload_sha256 = 6;          // SHA-256 hex digest of the full payload
+}
+
+// SweepLeaseAck answers one lease push, identified by its payload digest.
+// `installed` is false when the agent refused the push, and `error` says why.
+// After an install, `installed_through_unix_nano` is the collection end of the
+// last slot the agent now holds for the group, which is how far it can run
+// without core.
+message SweepLeaseAck {
+  string sweep_group_id = 1;
+  bytes lease_id = 2;
+  string payload_sha256 = 3;
+  bool installed = 4;
+  string error = 5;
+  int64 installed_through_unix_nano = 6;
+  uint32 installed_slot_count = 7;
 }
 
 // CredentialBrokerResolveRequest asks the gateway/control plane to resolve a

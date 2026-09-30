@@ -21,9 +21,10 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
     * The production window runs from issuance to the end of the lease's last slot, so every
       record the lease produces carries an event time inside it.
 
-  Sweep runs inside the agent, so the package is a fixed built-in identity, and the contract
-  fields come from the caller: they must equal the gateway's contract registry entry for the
-  sweep observation contract.
+  Sweep runs inside the agent, so the package is a fixed built-in identity. The contract fields
+  come from the caller (`ServiceRadar.Edge.SweepContract.current/0` reads them from the same
+  registry document the gateway admits against), and the effective grant digest is derived here
+  from that contract and the lease scope.
   """
 
   alias ServiceRadar.Edge.IssuerKey
@@ -38,6 +39,7 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
   @package_id "serviceradar.agent.sweep"
   @package_sha256 :crypto.hash(:sha256, "serviceradar.agent.sweep.package.v1")
   @lease_scope_domain "serviceradar.sweep.lease_scope.v1"
+  @effective_grant_domain "serviceradar.sweep.effective_grant.v1"
 
   @contract_keys [
     :contract_id,
@@ -45,7 +47,6 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
     :contract_bundle_sha256,
     :registry_epoch,
     :registry_snapshot_sha256,
-    :effective_grant_sha256,
     :cost_model_version,
     :max_projected_row_count,
     :max_projected_write_bytes
@@ -57,7 +58,6 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
           contract_bundle_sha256: <<_::256>>,
           registry_epoch: pos_integer(),
           registry_snapshot_sha256: <<_::256>>,
-          effective_grant_sha256: <<_::256>>,
           cost_model_version: pos_integer(),
           max_projected_row_count: pos_integer(),
           max_projected_write_bytes: pos_integer()
@@ -95,6 +95,25 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
   end
 
   @doc """
+  The effective grant digest a lease's records name: SHA-256 over a domain tag, the contract
+  reference (id, version, bundle, registry epoch and snapshot) and the lease scope digest, each
+  length-framed or big-endian. It binds the grant to both the contract and what the lease may
+  sweep.
+  """
+  @spec effective_grant_sha256(contract(), <<_::256>>) :: <<_::256>>
+  def effective_grant_sha256(contract, <<_::256>> = lease_scope_sha256) do
+    :crypto.hash(:sha256, [
+      frame(@effective_grant_domain),
+      frame(contract.contract_id),
+      <<contract.contract_version::unsigned-64>>,
+      frame(contract.contract_bundle_sha256),
+      <<contract.registry_epoch::unsigned-64>>,
+      frame(contract.registry_snapshot_sha256),
+      frame(lease_scope_sha256)
+    ])
+  end
+
+  @doc """
   The signed production capability of the lease the slots belong to. Every slot must be
   planned under the assignment's current epoch and share one lease, check set and range list.
   """
@@ -122,6 +141,9 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
       lease_end = slots |> Enum.map(& &1.collection_expires) |> Enum.max(DateTime)
       principal = assignment.agent_id
 
+      scope_sha256 =
+        lease_scope_sha256(assignment.sweep_group_id, first.check_set_sha256, cidrs)
+
       claims = %EdgeProductionClaimsV1{
         contract_id: contract.contract_id,
         contract_version: contract.contract_version,
@@ -138,11 +160,10 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
         run_shard: assignment.run_shard,
         authority_epoch: assignment.authority_epoch,
         scope_id: uuid(assignment.sweep_group_id),
-        scope_sha256:
-          lease_scope_sha256(assignment.sweep_group_id, first.check_set_sha256, cidrs),
+        scope_sha256: scope_sha256,
         package_sha256: @package_sha256,
         registry_snapshot_sha256: contract.registry_snapshot_sha256,
-        effective_grant_sha256: contract.effective_grant_sha256,
+        effective_grant_sha256: effective_grant_sha256(contract, scope_sha256),
         max_projected_row_count: contract.max_projected_row_count,
         max_projected_write_bytes: contract.max_projected_write_bytes,
         cost_model_version: contract.cost_model_version,
@@ -271,7 +292,7 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilities do
   defp valid_contract_value?(:contract_id, value), do: is_binary(value) and value != ""
 
   defp valid_contract_value?(key, value)
-       when key in [:contract_bundle_sha256, :registry_snapshot_sha256, :effective_grant_sha256],
+       when key in [:contract_bundle_sha256, :registry_snapshot_sha256],
        do: is_binary(value) and byte_size(value) == 32
 
   defp valid_contract_value?(_key, value), do: is_integer(value) and value > 0

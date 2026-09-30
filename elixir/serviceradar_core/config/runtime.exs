@@ -353,6 +353,13 @@ case System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE") do
     :ok
 end
 
+# The installation's edge-record contract registry document: the same JSON the agent gateway
+# reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
+# against its sweep contract entry (ServiceRadar.Edge.SweepContract).
+config :serviceradar_core,
+       :edge_record_contract_registry,
+       System.get_env("SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY")
+
 if is_map(remote_access_ssh_certificate_policy) and
      map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,

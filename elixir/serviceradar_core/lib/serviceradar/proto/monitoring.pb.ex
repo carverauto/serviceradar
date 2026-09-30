@@ -772,6 +772,7 @@ defmodule Monitoring.ControlStreamRequest do
   field :command_result, 4, type: Monitoring.CommandResult, json_name: "commandResult", oneof: 0
   field :config_ack, 5, type: Monitoring.ConfigAck, json_name: "configAck", oneof: 0
   field :console_frame, 6, type: Monitoring.ConsoleFrame, json_name: "consoleFrame", oneof: 0
+  field :sweep_lease_ack, 7, type: Monitoring.SweepLeaseAck, json_name: "sweepLeaseAck", oneof: 0
 end
 
 defmodule Monitoring.ControlStreamResponse do
@@ -788,6 +789,44 @@ defmodule Monitoring.ControlStreamResponse do
   field :config, 2, type: Monitoring.AgentConfigResponse, oneof: 0
   field :console_frame, 3, type: Monitoring.ConsoleFrame, json_name: "consoleFrame", oneof: 0
   field :config_chunk, 4, type: Monitoring.AgentConfigChunk, json_name: "configChunk", oneof: 0
+
+  field :sweep_lease_chunk, 5,
+    type: Monitoring.SweepLeaseChunk,
+    json_name: "sweepLeaseChunk",
+    oneof: 0
+end
+
+defmodule Monitoring.SweepLeaseChunk do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.SweepLeaseChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :sweep_group_id, 1, type: :string, json_name: "sweepGroupId"
+  field :payload, 2, type: :bytes
+  field :chunk_index, 3, type: :int32, json_name: "chunkIndex"
+  field :total_chunks, 4, type: :int32, json_name: "totalChunks"
+  field :is_final, 5, type: :bool, json_name: "isFinal"
+  field :payload_sha256, 6, type: :string, json_name: "payloadSha256"
+end
+
+defmodule Monitoring.SweepLeaseAck do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.SweepLeaseAck",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :sweep_group_id, 1, type: :string, json_name: "sweepGroupId"
+  field :lease_id, 2, type: :bytes, json_name: "leaseId"
+  field :payload_sha256, 3, type: :string, json_name: "payloadSha256"
+  field :installed, 4, type: :bool
+  field :error, 5, type: :string
+  field :installed_through_unix_nano, 6, type: :int64, json_name: "installedThroughUnixNano"
+  field :installed_slot_count, 7, type: :uint32, json_name: "installedSlotCount"
 end
 
 defmodule Monitoring.CredentialBrokerResolveRequest do
