@@ -278,6 +278,59 @@ fn disconnected_devices_do_not_shrink_the_connected_radial_overview() {
 }
 
 #[test]
+fn fresh_elk_component_keeps_unique_centers_in_a_crowded_world() {
+    // One free z=11 cell remains. Coarser siblings occupy every other branch,
+    // so the area walk's next fresh component is a z=12 cell of width 4096.
+    let mut previous = Vec::new();
+    for z in 1..=11 {
+        for (dx, dy) in [(1u32, 0u32), (0, 1), (1, 1)] {
+            let cell = Cell::new(z, dx, dy).unwrap();
+            let (left, top) = cell.origin();
+            let mid = cell.width() / 2;
+            let id = format!("sr:reserved-{z}-{dx}-{dy}.example.test");
+            previous.push(serviceradar_topology_atlas::Position {
+                id: id.clone(),
+                label: id,
+                x: left + mid,
+                y: top + mid,
+                min_zoom: 0,
+                parent_id: None,
+                component_id: format!("sr:reserved-component-{z}-{dx}-{dy}.example.test"),
+                component: cell,
+                placement_depth: 1,
+            });
+        }
+    }
+    let hub = device("sr:hub-46772.example.test", 0);
+    let mut nodes = vec![hub.clone()];
+    nodes.extend((0..25_000).map(|n| device(&format!("sr:spoke-{n:05}.example.test"), 2)));
+    let links: Vec<_> = nodes[1..]
+        .iter()
+        .map(|spoke| relation(&hub.id, &spoke.id))
+        .collect();
+    let placed = reconcile(nodes, &links, &previous).unwrap();
+    let component = placed[0].component;
+    assert!(
+        placed
+            .iter()
+            .all(|p| p.component == component && component.contains(p.x, p.y)),
+        "star leaked outside {component:?}"
+    );
+    assert_eq!(
+        placed
+            .iter()
+            .map(|p| (p.x, p.y))
+            .collect::<HashSet<_>>()
+            .len(),
+        placed.len()
+    );
+    assert!(
+        component.width() >= 8_192,
+        "quantized into a cell smaller than the radial drawing: {component:?}"
+    );
+}
+
+#[test]
 fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
     let root = device("sr:root.example.test", 0);
     let mut nodes = vec![root.clone()];
@@ -300,16 +353,26 @@ fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
         "ELK leaves occupy one radial level: {distances:?}"
     );
     let world = World::new("radial-synthetic".into(), 16, points.clone(), links).unwrap();
-    let tile = world
+    let overview = world
         .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
         .unwrap();
-    assert_eq!(tile.device_count, nodes.len() as u64);
-    assert_eq!(tile.edges.len(), nodes.len() - 1);
-    assert_eq!(tile.internal_relations, 0);
-    assert_eq!(tile.glyphs.len(), nodes.len());
-    for glyph in &tile.glyphs {
-        assert_eq!(glyph.kind, GlyphKind::Device);
-        let point = points.iter().find(|p| p.id == glyph.id).unwrap();
+    assert_eq!(overview.device_count, nodes.len() as u64);
+    for glyph in &overview.glyphs {
+        if glyph.kind == GlyphKind::Device {
+            let point = points.iter().find(|p| p.id == glyph.id).unwrap();
+            assert_eq!(glyph.label, point.label);
+            assert_eq!((glyph.x, glyph.y), (f64::from(point.x), f64::from(point.y)));
+        }
+    }
+    for point in &points {
+        let tile = world
+            .tile(Cell::at_point(16, point.x, point.y).unwrap(), Budget::default())
+            .unwrap();
+        let glyph = tile
+            .glyphs
+            .iter()
+            .find(|glyph| glyph.kind == GlyphKind::Device && glyph.id == point.id)
+            .unwrap();
         assert_eq!(glyph.label, point.label);
         assert_eq!((glyph.x, glyph.y), (f64::from(point.x), f64::from(point.y)));
     }

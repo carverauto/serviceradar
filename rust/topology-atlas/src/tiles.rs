@@ -326,7 +326,6 @@ impl World {
                 if tile.selection.retained_bytes() > MAX_SELECTION_BYTES {
                     return Err(Error::SelectionBudgetExceeded);
                 }
-                return Ok(tile);
             }
             if limit == 1 {
                 break;
