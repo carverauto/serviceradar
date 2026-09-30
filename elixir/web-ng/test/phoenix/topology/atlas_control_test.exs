@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
   import Plug.Conn
   import Phoenix.LiveViewTest, only: [render_component: 2]
+  import Plug.Conn
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Endpoint
