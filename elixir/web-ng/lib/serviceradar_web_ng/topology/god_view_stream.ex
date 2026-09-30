@@ -1602,6 +1602,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @doc false
   @spec edge_topology_class_counts([map()]) :: %{
           backbone: non_neg_integer(),
+          logical: non_neg_integer(),
           attachment: non_neg_integer(),
           inferred: non_neg_integer(),
           hosted: non_neg_integer(),
@@ -1620,17 +1621,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   def edge_topology_class_counts(_edges), do: empty_edge_topology_class_counts()
 
   defp empty_edge_topology_class_counts do
-    %{backbone: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0}
+    %{backbone: 0, logical: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0}
   end
 
   defp edge_topology_class_count_key(edge) do
     case edge_topology_class(edge) do
       "endpoints" -> :attachment
+      "logical" -> :logical
       "inferred" -> :inferred
       "hosted" -> :hosted
       "observed" -> :observed
-      # "backbone" and "logical" both render under the backbone layer and
-      # drive the client backbone layout (see edgeDrivesBackboneLayout).
       _ -> :backbone
     end
   end
@@ -5088,6 +5088,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> Map.put(:final_inferred, count_by_evidence(edges, "inferred"))
     |> Map.put(:final_attachment, count_by_evidence(edges, "endpoint-attachment"))
     |> Map.put(:edge_class_backbone, class_counts.backbone)
+    |> Map.put(:edge_class_logical, class_counts.logical)
     |> Map.put(:edge_class_attachment, class_counts.attachment)
     |> Map.put(:edge_class_inferred, class_counts.inferred)
     |> Map.put(:edge_class_hosted, class_counts.hosted)

@@ -16,7 +16,6 @@
 
 //! Typed JSON mutations and reads. Callers do not concatenate DQL for writes.
 
-use chrono::{SecondsFormat, Utc};
 use dgraph_client::{DgraphClient, Mutation};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -302,13 +301,9 @@ impl TopologyClient {
             "topo.pair_support_rank": edge.pair_support_rank(),
             "topo.stale": false,
         });
-        // Always present: an edge without `topo.last_seen` never matches the
-        // prune filter's `lt()` and would outlive every cutoff.
-        node["topo.last_seen"] = if edge.last_seen().is_empty() {
-            json!(Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true))
-        } else {
-            json!(edge.last_seen())
-        };
+        if !edge.last_seen().is_empty() {
+            node["topo.last_seen"] = json!(edge.last_seen());
+        }
         if !edge.mutation_id().is_empty() {
             node["topo.mutation_id"] = json!(edge.mutation_id());
         }
@@ -727,7 +722,7 @@ impl EndpointId {
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct CanonicalEdgeRow {
     #[serde(default, rename = "topo.last_seen")]
-    last_seen: String,
+    last_seen: Option<String>,
     #[serde(default, rename = "topo.stale")]
     stale: bool,
     #[serde(default, rename = "topo.link_key")]
@@ -812,18 +807,22 @@ impl CanonicalEdgeRow {
         if canonical && self.stale {
             return None;
         }
-        let current = chrono::DateTime::parse_from_rfc3339(&self.last_seen)
-            .is_ok_and(|last_seen| last_seen >= stale_cutoff);
+        let current = self
+            .last_seen
+            .as_deref()
+            .and_then(|last_seen| chrono::DateTime::parse_from_rfc3339(last_seen).ok())
+            .is_some_and(|last_seen| last_seen >= stale_cutoff);
         // Canonical rows ignore the cutoff. Attachment rows past the cutoff, or
         // already marked, stay in the view as last-known evidence.
         let stale = !canonical && (self.stale || !current);
         let kind = self.kind.clone();
         let seen = self.last_seen.clone();
-        Some(
-            crate::types::NeighbourhoodEdge::new(kind, self.into_edge()?)
-                .with_stale(stale)
-                .with_last_seen(seen),
-        )
+        let edge = self.into_edge()?;
+        let mut view = crate::types::NeighbourhoodEdge::new(kind, edge).with_stale(stale);
+        if let Some(seen) = seen {
+            view = view.with_last_seen(seen);
+        }
+        Some(view)
     }
 
     fn into_neighbourhood(self) -> Option<crate::types::NeighbourhoodEdge> {
@@ -946,5 +945,19 @@ mod tests {
         }))
         .expect("endpoint");
         assert_eq!(endpoint.id(), Some("sr:host01.example.com"));
+    }
+
+    #[test]
+    fn missing_observation_time_stays_unknown_and_attachment_is_stale() {
+        let cutoff = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z").unwrap();
+        let mut row = row(
+            serde_json::json!({ "device.id": "synthetic-a" }),
+            serde_json::json!({ "device.id": "synthetic-b" }),
+        );
+        row.kind = "ATTACHED_TO".into();
+
+        let edge = row.into_view_edge(cutoff).expect("attachment remains visible");
+        assert!(edge.stale());
+        assert_eq!(edge.last_seen(), None);
     }
 }

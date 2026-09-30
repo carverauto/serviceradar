@@ -191,6 +191,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewStreamState do
       :final_inferred,
       :final_attachment,
       :edge_class_backbone,
+      :edge_class_logical,
       :edge_class_attachment,
       :edge_class_inferred,
       :edge_class_hosted,

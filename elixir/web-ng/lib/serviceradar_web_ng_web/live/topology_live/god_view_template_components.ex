@@ -455,6 +455,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
 
     counts = %{
       backbone: backbone,
+      logical: pipeline_class_count(pipeline_stats, :edge_class_logical),
       attachment: pipeline_class_count(pipeline_stats, :edge_class_attachment),
       inferred: pipeline_class_count(pipeline_stats, :edge_class_inferred),
       hosted: pipeline_class_count(pipeline_stats, :edge_class_hosted),
@@ -463,7 +464,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
     }
 
     other_edges =
-      [counts.attachment, counts.inferred, counts.hosted, counts.observed, counts.unknown]
+      [counts.logical, counts.attachment, counts.inferred, counts.hosted, counts.observed, counts.unknown]
       |> Enum.filter(&is_integer/1)
       |> Enum.sum()
 

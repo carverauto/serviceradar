@@ -13,6 +13,7 @@ describe("topology_class_stats", () => {
   it("edgeClassCounts normalizes numeric and string counts", () => {
     const counts = edgeClassCounts({
       edge_class_backbone: 4,
+      edge_class_logical: 2,
       edge_class_attachment: "57",
       edge_class_inferred: 12,
       edge_class_hosted: "3",
@@ -20,7 +21,7 @@ describe("topology_class_stats", () => {
       edge_class_unknown: 2,
     })
 
-    expect(counts).toEqual({backbone: 4, attachment: 57, inferred: 12, hosted: 3, observed: null, unknown: 2})
+    expect(counts).toEqual({backbone: 4, logical: 2, attachment: 57, inferred: 12, hosted: 3, observed: null, unknown: 2})
   })
 
   it("edgeClassCounts prefers backbone_edge_count when present", () => {
@@ -29,6 +30,7 @@ describe("topology_class_stats", () => {
   })
 
   it("backboneEmptyState fires only when backbone is zero and other classes exist", () => {
+    expect(backboneEmptyState({backbone_edge_count: 0, edge_class_logical: 3})).toEqual(true)
     expect(
       backboneEmptyState({backbone_edge_count: 0, edge_class_attachment: 57, edge_class_inferred: 12}),
     ).toEqual(true)
@@ -44,13 +46,14 @@ describe("topology_class_stats", () => {
       formatEdgeClassStatus({
         backbone_edge_count: 0,
         edge_class_backbone: 0,
+        edge_class_logical: 0,
         edge_class_attachment: 57,
         edge_class_inferred: 12,
         edge_class_hosted: 3,
         edge_class_observed: 2,
         edge_class_unknown: 5,
       }),
-    ).toEqual("classes=bb:0/att:57/inf:12/host:3/obs:2/unk:5 backbone=EMPTY")
+    ).toEqual("classes=bb:0/att:57/inf:12/log:0/host:3/obs:2/unk:5 backbone=EMPTY")
 
     expect(
       formatEdgeClassStatus({
@@ -60,7 +63,7 @@ describe("topology_class_stats", () => {
         edge_class_inferred: 0,
         edge_class_hosted: 0,
       }),
-    ).toEqual("classes=bb:8/att:4/inf:0/host:0/obs:—/unk:—")
+    ).toEqual("classes=bb:8/att:4/inf:0/log:—/host:0/obs:—/unk:—")
 
     expect(formatEdgeClassStatus(null)).toEqual("")
     expect(formatEdgeClassStatus({final_edges: 7})).toEqual("")

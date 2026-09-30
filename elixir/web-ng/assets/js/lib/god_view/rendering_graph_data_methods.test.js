@@ -1154,7 +1154,7 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData.map((edge) => [edge.sourceId, edge.targetId])).toEqual([["client", "switch"]])
   })
 
-  it("buildVisibleGraphData keeps a single trunk from the anchor to an expanded cluster", () => {
+  it("buildVisibleGraphData preserves every member link from an expanded cluster", () => {
     const ctx = baseContext({
       state: {
         topologyLayers: {backbone: true, inferred: false, endpoints: true},
@@ -1237,7 +1237,8 @@ describe("rendering_graph_data_methods", () => {
       ],
       edges: [
         {source: 0, target: 1, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "census", topologyClass: "endpoints"},
-        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "near", topologyClass: "endpoints"},
+        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "near", topologyClass: "endpoints", id: "near-current"},
+        {source: 1, target: 2, flowPps: 70, flowBps: 700, capacityBps: 1000, label: "near-stale", topologyClass: "endpoints", stale: true, id: "near-stale"},
         {source: 1, target: 3, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "far", topologyClass: "endpoints"},
         {source: 1, target: 4, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "farther", topologyClass: "endpoints"},
       ],
@@ -1251,9 +1252,15 @@ describe("rendering_graph_data_methods", () => {
       "client-near",
       "switch",
     ])
-    expect(out.edgeData).toHaveLength(1)
-    expect(out.edgeData[0].sourceId === "switch" || out.edgeData[0].targetId === "switch").toEqual(true)
-    expect([out.edgeData[0].sourceId, out.edgeData[0].targetId]).toContain("client-near")
+    expect(out.edgeData).toHaveLength(4)
+    expect(out.edgeData.map((edge) => [edge.sourceId, edge.targetId]).sort()).toEqual([
+      ["client-near", "switch"],
+      ["client-near", "switch"],
+      ["client-far", "switch"],
+      ["client-farther", "switch"],
+    ].sort())
+    expect(out.edgeData.filter((edge) => edge.sourceId === "client-near" || edge.targetId === "client-near")).toHaveLength(2)
+    expect(out.edgeData.some((edge) => edge.stale === true && edge.flowPps === 0 && edge.telemetryEligible === false)).toBe(true)
   })
 
   it("buildVisibleGraphData keeps endpoint nodes visible when the endpoint layer is enabled", () => {

@@ -798,6 +798,30 @@ fn unknown_evidence_stays_out_of_backbone_publication_counts() {
 }
 
 #[test]
+fn logical_relations_are_not_reported_as_physical_backbone() {
+    let left = "sr:logical-left.example.test";
+    let right = "sr:logical-right.example.test";
+    let mut logical = RelationRow::canonical(edge(left, right, 1, 0));
+    logical.relation_id = "logical-only".into();
+    logical.evidence_class = Some("direct-logical".into());
+    let candidate = Builder::new("synthetic-logical-counts".into(), 16)
+        .unwrap()
+        .reconcile(SourceGraph {
+            devices: BTreeMap::from([
+                (left.into(), device(left)),
+                (right.into(), device(right)),
+            ]),
+            relations: BTreeMap::from([(logical.relation_id.clone(), logical)]),
+            raw_links: 1,
+        })
+        .unwrap();
+
+    assert_eq!(candidate.pipeline_stats.edge_class_backbone, 0);
+    assert_eq!(candidate.pipeline_stats.backbone_edge_count, 0);
+    assert_eq!(candidate.pipeline_stats.edge_class_logical, 1);
+}
+
+#[test]
 fn aged_attachment_and_hosted_links_stay_connected() {
     let router = "sr:router.example.test";
     let access = "sr:access.example.test";

@@ -882,6 +882,7 @@ pub struct PipelineStats {
     pub final_inferred: u64,
     pub final_attachment: u64,
     pub edge_class_backbone: u64,
+    pub edge_class_logical: u64,
     pub edge_class_attachment: u64,
     pub edge_class_inferred: u64,
     pub edge_class_hosted: u64,
@@ -896,6 +897,7 @@ fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats
     let mut inferred = 0u64;
     let mut attachment = 0u64;
     let mut backbone = 0u64;
+    let mut logical = 0u64;
     let mut hosted = 0u64;
     let mut unknown = 0u64;
     for row in relations {
@@ -905,7 +907,7 @@ fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats
                 direct += 1;
                 backbone += 1;
             }
-            TopologyClass::Logical => backbone += 1,
+            TopologyClass::Logical => logical += 1,
             TopologyClass::Hosted => hosted += 1,
             TopologyClass::Endpoints => attachment += 1,
             TopologyClass::Inferred => inferred += 1,
@@ -920,6 +922,7 @@ fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats
         final_inferred: inferred,
         final_attachment: attachment,
         edge_class_backbone: backbone,
+        edge_class_logical: logical,
         edge_class_attachment: attachment,
         edge_class_inferred: inferred,
         edge_class_hosted: hosted,
