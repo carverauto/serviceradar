@@ -211,6 +211,34 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
 
 Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.
 
+### Workflow runner image bumps
+
+The workflow runner image (`registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag>`,
+from `docker/images/Dockerfile.workflow-runner`) is versioned on its own `v1.0.24.x` patch line --
+it is NOT re-tagged in lockstep with the action image above (see the Dockerfile header for why
+the lockstep rule was retired). After changing `docker/images/Dockerfile.workflow-runner`:
+
+1. Build and push the new tag (requires Harbor access; see `scripts/docker-login.sh`):
+   ```bash
+   docker buildx build \
+     --platform linux/amd64 --provenance=false --sbom=false \
+     -f docker/images/Dockerfile.workflow-runner \
+     -t registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5 \
+     --push docker/images/
+   ```
+   Never re-push over an existing tag: the executors warm this image, so a moved tag means some
+   executors hold the old layers and others the new, with nothing in git showing a change -- and
+   Harbor holds this repository immutable anyway, so a bad tag can only be abandoned, not fixed
+   (v1.0.24.4 was pushed with buildx's default attestation index and is deliberately unreferenced;
+   keep `--provenance=false --sbom=false` so the tag is a plain single manifest like every
+   earlier one).
+2. Bump the tag in the two files that reference it: every `container_image` in `buildbuddy.yaml`
+   (`grep 'buildbuddy-workflow-runner:' buildbuddy.yaml` re-derives the list) and
+   `warmup_additional_images` in `k8s/buildbuddy/values-workflows.yaml`. Push the image BEFORE
+   moving any reference -- the PR's own BazelCI workflow runs in the new image.
+3. The warm-list half takes effect at the next workflow-fleet Helm rollout; nothing else is
+   needed for workflow steps, which name the image per run from `buildbuddy.yaml`.
+
 ## Two fleets
 
 There are **two helm releases of the same chart** in this namespace, and they must not be

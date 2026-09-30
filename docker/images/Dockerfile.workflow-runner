@@ -3,18 +3,27 @@
 # Not to be confused with //docker/Dockerfile.rbe, which is the image Bazel ACTIONS execute in
 # on the executors. This one hosts the `bazel` client that drives them.
 #
-# TAGGED IDENTICALLY TO rbe-executor, PATCH INCLUDED. They are the two halves of one Bazel run,
-# so one shared version says "these were built and tested together". Both images are rebuilt and
-# pushed at every bump even when only one of them changed -- v1.0.24.3 added lld to the executor
-# and nothing here, and this image still went to .3.
+# VERSIONED ON ITS OWN PATCH LINE (v1.0.24.x). This image and //docker/Dockerfile.rbe are the
+# two halves of one Bazel run -- this hosts the client, that hosts the actions -- and they were
+# tagged identically, patch included, through v1.0.24.3. The hermetic-LLVM migration then moved
+# the executor to v1.0.25.1 without rebuilding this image, and that was correct: this image
+# hosts the Bazel client, not the toolchain, so an executor content change says nothing about
+# "built and tested together" here, and re-aligning the tags would mint a runner tag with no
+# content behind it. The patch line is per image now.
 #
-# //buildbuddy.yaml lists every workflow action's container_image (BazelCI and
-# Elixir Quality (daily) today) a bump has to update, and the grep that re-derives
-# that list. Push both images BEFORE moving any reference.
+# A bump here touches exactly two files: every container_image in //buildbuddy.yaml
+# (grep 'buildbuddy-workflow-runner:' re-derives that list) and warmup_additional_images in
+# //k8s/buildbuddy/values-workflows.yaml. Push the image BEFORE moving any reference.
 #
-#   docker build --platform linux/amd64 -f docker/images/Dockerfile.workflow-runner \
-#     -t registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag> docker/images/
-#   docker push registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag>
+#   docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+#     -f docker/images/Dockerfile.workflow-runner \
+#     -t registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag> --push docker/images/
+#
+# --provenance=false --sbom=false is not optional. Without them buildx wraps the image in an
+# OCI index carrying an unknown/unknown attestation manifest; every earlier tag in this
+# registry family is a plain single manifest, and Harbor holds this repository immutable, so a
+# mis-shaped tag cannot be repaired -- only abandoned. v1.0.24.4 was pushed that way and left
+# unreferenced; v1.0.24.5 is the same layers in the established shape.
 #
 # Never re-push over an existing tag: the executors warm this image
 # (//k8s/buildbuddy/values-workflows.yaml), so a moved tag means some executors hold the old
@@ -92,6 +101,12 @@ FROM registry.carverauto.dev/mirror/library/ubuntu:24.04@sha256:d1e2e92c075e5ca1
 #                  py_binary rule execution, not a shebang or a shell-invoked `python3`.
 # patch            http_archive falls back to the system binary for any patch its native
 #                  implementation will not take.
+# make             REQUIRED since v1.0.24.5 (issue 4855). Tool builds shell out to `make`; a
+#                  hosted-Bazel dispatch that found it missing ran `apt-get install make` AS
+#                  ROOT and wrote root-owned entries into the caches the workflow runners share
+#                  on /bazel-cache, which then failed every uid-1001 runner with Permission
+#                  denied. Ship the binary instead of letting a run escalate to install it
+#                  (//docs/agent-runbooks.md, "Hosted-Bazel dispatches").
 # curl, wget       repository rules that shell out instead of using Bazel's downloader.
 # unzip, zip,      likewise for archive handling; Bazel extracts most formats itself but
 # xz-utils, bzip2  several rule sets exec these directly.
@@ -104,12 +119,14 @@ FROM registry.carverauto.dev/mirror/library/ubuntu:24.04@sha256:d1e2e92c075e5ca1
 # --no-install-recommends is what keeps this small: git's recommends alone pull in perl-doc,
 # less and a mail transport agent.
 #
-# NOT build-essential. gcc/g++/binutils/make is the single largest thing upstream has that this
-# does not. Database callers use --strategy=TestRunner=local, which runs already-built test
-# binaries here while compilation and linking remain eligible for RBE under --config=ci. The
-# remote C toolchain lives in the executor image, not this runner. If a genuine runner-local link
-# ever fails with "linker `cc` not found", add build-essential -- that is the fix, and it costs
-# ~80 MB.
+# NOT build-essential. gcc/g++/binutils is the single largest thing upstream has that this does
+# not. Database callers use --strategy=TestRunner=local, which runs already-built test binaries
+# here while compilation and linking remain eligible for RBE under --config=ci. The remote C
+# toolchain lives in the executor image, not this runner. If a genuine runner-local link ever
+# fails with "linker `cc` not found", add build-essential -- that is the fix, and it costs
+# ~80 MB. `make` itself ships (v1.0.24.5): it is reached by name rather than through the
+# compiler, and the apt-get-as-root workaround for its absence is what poisoned the shared
+# caches in issue 4855.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       bzip2 \
@@ -117,6 +134,7 @@ RUN apt-get update \
       curl \
       file \
       git \
+      make \
       netbase \
       openssl \
       patch \
