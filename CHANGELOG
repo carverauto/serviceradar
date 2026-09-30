@@ -1,38 +1,68 @@
-# ServiceRadar v1.4.77
+# ServiceRadar v1.4.78
 
-Traces, BMP routing events and the JSON:API telemetry routes read
-the StarRocks warehouse when it is enabled, and the remaining flow
-readers cut over. Agents receive large configs in chunks, and
-sweep configs get smaller. Dashboards gain plugin actions, live
-events, host-owned confirmation and report import, and God View
-is served from a tiled world map.
+Sweep overlap records the targets a group compiled, and those records
+follow inventory. Composite checks re-evaluate only devices a sweep
+just changed. Dashboard frames page through large SRQL results, and a
+failed config read leaves the agent on its running config.
 
 ## Upgrade Notes
 
-- Every agent applies one new sweep config after core upgrades;
-  it sweeps the same targets.
-- The JSON:API sysmon endpoints (`/api/v2/cpu_metrics`,
-  `/memory_metrics`, `/disk_metrics`, `/process_metrics`, their
-  `_hourly` variants and `/cpu_cluster_metrics`) are removed. Use
-  SRQL or `timeseries_metrics` `sysmon.*`.
-- The standalone SRQL HTTP server (`srql_bin`, `/api/query`) is
-  removed; nothing in the supported install deployed it.
-- Helm: core's `geoip-mmdb` and `advisory-feeds` scratch volumes
-  default to `emptyDir`. Set `emptyDir: false` to keep the PVCs.
-- With StarRocks enabled and the flow cutover list blank, flows
-  cut over to the warehouse by default.
-- Migrations widen NetFlow interface speed to bigint and add CNPG
-  log indexes ordered by event timestamp.
+- Migrations add `platform.sweep_group_declared_targets`,
+  `composite_checks.last_incremental_at`, and a concurrent index
+  `device_agent_availability_agent_updated_idx` on
+  `(agent_id, updated_at)`. Helm `core.migrations.expectedVersion`
+  is `20261002100100`. The index builds outside a transaction and
+  does not take the migration lock.
+- Composite checks no longer run inside sweep ingestion. A minute
+  cron re-evaluates devices whose availability changed since the
+  last mark. A nil `last_incremental_at` runs one full pass first.
+  No backfill is required.
+- `in:device_sweep_overlap` reads declared targets from
+  `sweep_group_declared_targets`. Rows appear after the next
+  successful compile of each group. A failed target-query read
+  leaves the previous rows in place.
+- Dashboard frames no longer stop at 2,000 rows. A frame fetches
+  further SRQL pages, 2,000 rows at a time, up to the limit it
+  declares. A mid-page error returns status `partial` with
+  `truncated: true`.
 
 ## Whats New
 
-**Unreleased**
-- Sweep diagnostics: declared targets in `in:device_sweep_overlap` now
-  follow inventory changes. A query-based group's device targets are
-  recorded whenever its config is compiled for an agent, not only when the
-  group is edited, so a device added later no longer shows as observed but
-  not declared. An unchanged set is not rewritten, and concurrent writers of
-  the same group no longer interleave.
+**1.4.78**
+- Sweep diagnostics: `in:device_sweep_overlap` reports declared
+  targets. Each sweep group persists its declared targets (network,
+  static, and explicit device) once per group, and the view derives
+  agent eligibility from the group. A query-based group's device
+  targets are recorded whenever its config is compiled for an agent,
+  not only when the group is edited, so a device added later shows
+  as declared. An unchanged set is not rewritten, and concurrent
+  writers of the same group do not interleave. A failed target-query
+  read does not replace the stored rows (PR #4970, PR #4974,
+  issue #4963).
+- Composite checks: sweep ingestion no longer evaluates them. A
+  minute cron runs a full pass when the check has never completed
+  one or its interval has elapsed, and otherwise re-evaluates only
+  devices whose vantage-agent availability changed since the last
+  mark (PR #4982, issue #4978).
+- Dashboards: frames follow SRQL `next_cursor` in 2,000-row pages
+  up to the frame's own limit. A frame that passes its own cursor
+  still returns one page. A failure after some pages returns status
+  `partial` and `truncated: true` (PR #4973).
+- Dashboards: two replicas seeding the same slug keep the winner's
+  dashboard. Dashboard and panel creation run in one transaction
+  (PR #4968).
+- Agent config: a failed read of sweep, mapper, sysmon, visibility,
+  or bumblebee config is not cached or delivered as an empty or
+  disabled config. The agent keeps its running config and the
+  failure is logged (PR #4971, issue #4862).
+- HTTP egress: JSON callers use `fetch_json/2`. Redirects are
+  checked per hop, credentials and custom secret headers are not
+  forwarded across origins, and a partial streamed download does
+  not replace a complete artifact. Plugin release catalog browsing
+  decodes JSON again (PR #4981).
+- Armis: a search total that comes back as a marker string no
+  longer fails the sync before it emits devices. The integration
+  details page reads the stored sync result (PR #4967).
 
 **1.4.77**
 - Sweep config: compiled sweep configs are smaller and cheaper to build.
