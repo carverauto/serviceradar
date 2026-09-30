@@ -17,6 +17,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundLedger do
 
   require Logger
 
+  # Postgres wire-protocol limit on bound parameters in one statement.
+  @max_bound_parameters 65_535
+
   @terminal_outcomes [:accepted, :failed, :unattempted]
 
   @spec examples(Ecto.UUID.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
@@ -245,11 +248,23 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundLedger do
     if rows == [] do
       :ok
     else
-      {_count, _returning} =
-        Repo.insert_all(IntegrationUpdateRunTarget, rows,
+      # One row per distinct Armis source ID. Postgres's wire protocol caps a
+      # single statement at 65535 bound parameters and insert_all/3 does not
+      # chunk on its own, so a collection of a few thousand IDs failed the whole
+      # bind with "postgresql protocol can not handle N parameters". Chunk by the
+      # rows' actual field count so this stays correct if fields are added. The
+      # chunks run inside bind/3's transaction, so the bind stays atomic.
+      field_count = rows |> hd() |> map_size()
+      batch_size = max(div(@max_bound_parameters, field_count), 1)
+
+      rows
+      |> Enum.chunk_every(batch_size)
+      |> Enum.each(fn batch ->
+        Repo.insert_all(IntegrationUpdateRunTarget, batch,
           on_conflict: :nothing,
           conflict_target: [:integration_update_run_id, :source_object_id]
         )
+      end)
 
       :ok
     end
