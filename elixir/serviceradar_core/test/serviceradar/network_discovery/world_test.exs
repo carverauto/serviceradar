@@ -73,7 +73,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
       | source_if_index: 13,
         source_if_name: "eth13",
         target_if_index: 17,
-        target_if_name: "eth17"
+        target_if_name: "eth17",
+        stale: true,
+        last_seen: "2020-01-01T00:00:00Z"
     }
 
     relations = [relation("link-red", 1, 2), blue]
@@ -140,11 +142,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
              source_if_index: 21,
              source_if_name: "eth21",
              target_if_index: 17,
-             target_if_name: "eth17"
+             target_if_name: "eth17",
+             stale: true,
+             last_seen: "2020-01-01T00:00:00Z"
            } =
              Enum.find(after_relations, &(&1.relation_id == "link-blue"))
 
-    assert %{source_if_index: 7, target_if_index: 9} =
+    assert %{source_if_index: 7, target_if_index: 9, stale: false, last_seen: nil} =
              Enum.find(after_relations, &(&1.relation_id == "link-red"))
 
     assert {:ok, %{label: "host01-renamed.example.com", min_zoom: 4, x: 100, y: 200}} =

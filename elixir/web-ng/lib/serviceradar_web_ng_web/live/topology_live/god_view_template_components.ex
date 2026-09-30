@@ -315,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
       </:header>
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-sr-muted">Raw Observations</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Source Links</div>
           <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :raw_links, "—")}</div>
         </div>
         <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">

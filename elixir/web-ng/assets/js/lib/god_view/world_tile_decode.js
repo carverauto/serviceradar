@@ -20,7 +20,6 @@ const requiredColumns = {
   edge_detail_represented_count: "Float64",
   edge_detail_phase_start: "Float64",
   edge_detail_phase_end: "Float64",
-  edge_detail_stale: "Uint8",
   details_irregular: "Uint8",
 }
 
@@ -100,6 +99,7 @@ export function decodeWorldTile(bytes, expected) {
   const edges = new Array(edgeCount)
   const edgeIds = new Set()
   const edgeClass = columns.edgeStrings("edge_topology_class")
+  const hasStaleColumn = table.schema.fields.some(field => field.name === "edge_detail_stale")
   for (let index = 0; index < edgeCount; index += 1) {
     const source = columns.edgeSource[index]
     const target = columns.edgeTarget[index]
@@ -115,7 +115,8 @@ export function decodeWorldTile(bytes, expected) {
     requireValue(Number.isSafeInteger(count) && count > 0, "relation count")
     requireValue(Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end <= 1 && start < end, "flow phase")
     edgeIds.add(id)
-    edges[index] = {id, index, source, target, count, start, end, topologyClass, stale: details.stale === true}
+    const stale = hasStaleColumn ? details.stale === true : false
+    edges[index] = {id, index, source, target, count, start, end, topologyClass, stale}
   }
   return {key: {...expected}, revision, columns, positions, nodes, edges, byteLength: bytes.byteLength}
 }

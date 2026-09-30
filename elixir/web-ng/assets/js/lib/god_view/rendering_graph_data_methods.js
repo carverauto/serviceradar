@@ -1,11 +1,25 @@
 import {topologyRelationId} from "./topology_relation_identity"
 import {hasManagedTopologyScene, isOverviewScene} from "./topology_layout_mode"
 import {nodeRenderFrame} from "./rendering_node_frame"
-import {copyDetails, detailsHaveSparkline, snapshotDetailsJson} from "./snapshot_columns"
+import {copyDetails, detailsHaveSparkline, isLazySnapshotDetails, snapshotDetailsJson} from "./snapshot_columns"
 
 // String.prototype.localeCompare builds a collator per call; one shared default-locale collator
 // orders identically and is what makes pairing tens of thousands of edges affordable.
 const compareText = new Intl.Collator().compare
+
+function relationIsStale(relation) {
+  if (relation?.stale === true) return true
+  if (relation?.stale === false) return false
+  return relation?.details?.stale === true
+}
+
+function relationLastSeen(relation) {
+  if (typeof relation?.lastSeen === "string" && relation.lastSeen !== "") return relation.lastSeen
+  const details = relation?.details
+  if (!details || typeof details !== "object" || isLazySnapshotDetails(details)) return ""
+  const seen = details.last_seen
+  return typeof seen === "string" && seen !== "" ? seen : ""
+}
 
 const INCIDENT_ENDPOINT = 1
 const INCIDENT_NON_ENDPOINT = 2
@@ -330,7 +344,9 @@ export const godViewRenderingGraphDataMethods = {
         const sourceId = effective.shape === "local" ? src.id : src.id || edge.sourceCluster || "src"
         const targetId = effective.shape === "local" ? dst.id : dst.id || edge.targetCluster || "dst"
         const rawEdgeId = edge.id || edge.edge_id || edge.label || edge.type || `${sourceId}:${targetId}:${edgeIndex}`
-        const telemetryEligible = edge.telemetryEligible === false || edge.telemetry_eligible === false
+        const stale = relationIsStale(edge)
+        const seen = relationLastSeen(edge)
+        const telemetryEligible = stale || edge.telemetryEligible === false || edge.telemetry_eligible === false
           ? false
           : true
         const topologyClass = edgeTopologyClass(edge)
@@ -351,6 +367,8 @@ export const godViewRenderingGraphDataMethods = {
           label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
           connectionLabel,
           telemetryEligible,
+          ...(stale ? {stale: true} : {}),
+          ...(seen ? {lastSeen: seen} : {}),
           topologyClass,
           topologyClassCounts: edge.topologyClassCounts || null,
           protocol: String(edge.protocol || ""),
@@ -489,6 +507,9 @@ export const godViewRenderingGraphDataMethods = {
         }
 
         for (const relation of relations) {
+          const bucket = classBucketForEdge(relation)
+          topologyClassCounts[bucket] += 1
+          if (relationIsStale(relation)) continue
           const sourceId = String(nodeByIndex[Number(relation?.source)]?.id || "")
           const targetId = String(nodeByIndex[Number(relation?.target)]?.id || "")
           const reversed = sourceId === route.targetId && targetId === route.sourceId
@@ -496,9 +517,13 @@ export const godViewRenderingGraphDataMethods = {
           directional.flowPpsBa += Number(reversed ? relation.flowPpsAb : relation.flowPpsBa) || 0
           directional.flowBpsAb += Number(reversed ? relation.flowBpsBa : relation.flowBpsAb) || 0
           directional.flowBpsBa += Number(reversed ? relation.flowBpsAb : relation.flowBpsBa) || 0
-          const bucket = classBucketForEdge(relation)
-          topologyClassCounts[bucket] += 1
         }
+        const measured = relations.filter((relation) => !relationIsStale(relation))
+        const allStale = relations.length > 0 && measured.length === 0
+        const seenValues = relations.map(relationLastSeen)
+        const sharedSeen = seenValues.length > 0 && seenValues.every((seen) => seen !== "" && seen === seenValues[0])
+          ? seenValues[0]
+          : ""
 
         const metadataNumber = (field) => {
           if (!useRouteMetadata) return null
@@ -509,8 +534,8 @@ export const godViewRenderingGraphDataMethods = {
         const numeric = (field, fallback = 0) => {
           const metadataValue = metadataNumber(field)
           if (metadataValue !== null) return metadataValue
-          return relations.length > 0
-            ? relations.reduce((total, relation) => total + (Number(relation?.[field]) || 0), 0)
+          return measured.length > 0
+            ? measured.reduce((total, relation) => total + (Number(relation?.[field]) || 0), 0)
             : fallback
         }
         const directionalNumeric = (field, fallback) => metadataNumber(field) ?? fallback
@@ -525,11 +550,13 @@ export const godViewRenderingGraphDataMethods = {
         const label = auxiliary
           ? ""
           : String((useRouteMetadata && metadata.label) || presentation.label || `${route.sourceId} -> ${route.targetId}`)
-        const telemetryEligible = useRouteMetadata && (Object.hasOwn(metadata, "telemetryEligible") || Object.hasOwn(metadata, "telemetry_eligible"))
-          ? metadata.telemetryEligible !== false && metadata.telemetry_eligible !== false
-          : relations.length > 0
-            ? relations.some((relation) => relation?.telemetryEligible !== false && relation?.telemetry_eligible !== false)
-            : true
+        const telemetryEligible = allStale
+          ? false
+          : useRouteMetadata && (Object.hasOwn(metadata, "telemetryEligible") || Object.hasOwn(metadata, "telemetry_eligible"))
+            ? metadata.telemetryEligible !== false && metadata.telemetry_eligible !== false
+            : measured.length > 0
+              ? measured.some((relation) => relation?.telemetryEligible !== false && relation?.telemetry_eligible !== false)
+              : true
         const protocols = Array.from(new Set(relations.map((relation) => String(relation?.protocol || "")).filter(Boolean))).sort()
         const evidenceClasses = Array.from(new Set(relations.map((relation) => String(relation?.evidenceClass || "")).filter(Boolean))).sort()
 
@@ -553,6 +580,8 @@ export const godViewRenderingGraphDataMethods = {
           label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
           connectionLabel: this.connectionKindFromLabel(label),
           telemetryEligible: auxiliary ? false : telemetryEligible,
+          ...(allStale ? {stale: true} : {}),
+          ...(sharedSeen ? {lastSeen: sharedSeen} : {}),
           topologyClass: dominantClass(topologyClassCounts),
           topologyClassCounts,
           protocol: protocols.length === 1 ? protocols[0] : "",
@@ -699,6 +728,9 @@ export const godViewRenderingGraphDataMethods = {
         label: edge.label,
         connectionLabel: edge.connectionLabel,
         telemetryEligible: false,
+        memberCount: 0,
+        freshMembers: 0,
+        sharedSeen: "",
         topologyClass: "",
         topologyClassCounts: emptyClassCounts(),
         protocol: String(edge.protocol || ""),
@@ -713,20 +745,25 @@ export const godViewRenderingGraphDataMethods = {
       }
 
       const edgeWeight = Math.max(1, Number(edge.weight || edge.edgeCount || 1))
-      const flowPpsAb = Number(edge.flowPpsAb || 0)
-      const flowPpsBa = Number(edge.flowPpsBa || 0)
-      const flowBpsAb = Number(edge.flowBpsAb || 0)
-      const flowBpsBa = Number(edge.flowBpsBa || 0)
-
+      const seen = relationLastSeen(edge)
+      current.memberCount += 1
+      current.sharedSeen = current.memberCount === 1 ? seen : (current.sharedSeen === seen ? seen : "")
       current.weight += edgeWeight
-      current.flowPps += Number(edge.flowPps || 0)
-      current.flowPpsAb += pair.forward ? flowPpsAb : flowPpsBa
-      current.flowPpsBa += pair.forward ? flowPpsBa : flowPpsAb
-      current.flowBps += Number(edge.flowBps || 0)
-      current.flowBpsAb += pair.forward ? flowBpsAb : flowBpsBa
-      current.flowBpsBa += pair.forward ? flowBpsBa : flowBpsAb
       current.capacityBps = Math.max(current.capacityBps, Number(edge.capacityBps || 0))
-      current.telemetryEligible = current.telemetryEligible || edge.telemetryEligible !== false
+      if (!relationIsStale(edge)) {
+        const flowPpsAb = Number(edge.flowPpsAb || 0)
+        const flowPpsBa = Number(edge.flowPpsBa || 0)
+        const flowBpsAb = Number(edge.flowBpsAb || 0)
+        const flowBpsBa = Number(edge.flowBpsBa || 0)
+        current.freshMembers += 1
+        current.flowPps += Number(edge.flowPps || 0)
+        current.flowPpsAb += pair.forward ? flowPpsAb : flowPpsBa
+        current.flowPpsBa += pair.forward ? flowPpsBa : flowPpsAb
+        current.flowBps += Number(edge.flowBps || 0)
+        current.flowBpsAb += pair.forward ? flowBpsAb : flowBpsBa
+        current.flowBpsBa += pair.forward ? flowBpsBa : flowBpsAb
+        current.telemetryEligible = current.telemetryEligible || edge.telemetryEligible !== false
+      }
       current.edgeCount += Math.max(1, Number(edge.edgeCount || 1))
       current.topologyClassCounts[classBucket] = Number(current.topologyClassCounts[classBucket] || 0) + 1
       current.signatures.add(edgeSignature(edge))
@@ -746,7 +783,7 @@ export const godViewRenderingGraphDataMethods = {
         .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
       const dominantClass = classBuckets.length === 1 ? classBuckets[0][0] : ""
       const presentation = deterministicRelationPresentation(edge.presentationRelations)
-      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, presentationRelations: _presentationRelations, ...plainEdge} = edge
+      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, presentationRelations: _presentationRelations, memberCount: _memberCount, freshMembers: _freshMembers, sharedSeen: _sharedSeen, ...plainEdge} = edge
 
       return {
         ...plainEdge,
@@ -755,6 +792,8 @@ export const godViewRenderingGraphDataMethods = {
         topologyClass: dominantClass,
         protocol: protocols.length === 1 ? protocols[0] : "",
         evidenceClass: evidenceClasses.length === 1 ? evidenceClasses[0] : "",
+        ...(edge.memberCount > 0 && edge.freshMembers === 0 ? {stale: true, telemetryEligible: false} : {}),
+        ...(edge.sharedSeen ? {lastSeen: edge.sharedSeen} : {}),
         labels,
         protocols,
         evidenceClasses,

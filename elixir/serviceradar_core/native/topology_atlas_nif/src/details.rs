@@ -102,6 +102,8 @@ struct WireDetailRelation {
     target: u32,
     evidence_class: Option<String>,
     role: Option<String>,
+    stale: bool,
+    last_seen: Option<String>,
 }
 
 fn detail_relations(
@@ -119,6 +121,8 @@ fn detail_relations(
                 target: edge.target,
                 evidence_class: row.evidence_class.clone(),
                 role: row.role.clone(),
+                stale: row.stale,
+                last_seen: row.last_seen.clone(),
             })
         })
         .collect()

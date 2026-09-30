@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNG.Topology.WorldScene do
       edges: Enum.map(level.edges, &{Map.fetch!(index, &1.source), Map.fetch!(index, &1.target), 0, 0, 0, "", 0}),
       edge_meta: Enum.map(level.edges, &edge_meta/1),
       edge_directional: [],
-      edge_details: Enum.map(level.edges, &Jason.encode!(%{id: &1.id, role: &1.role})),
+      edge_details: Enum.map(level.edges, &edge_details/1),
       root_bitmap_bytes: 0,
       affected_bitmap_bytes: 0,
       healthy_bitmap_bytes: 0,
@@ -64,6 +64,18 @@ defmodule ServiceRadarWebNG.Topology.WorldScene do
 
   defp edge_meta(edge) do
     {Map.get(edge, :topology_class) || GodViewStream.edge_topology_class(edge), "", to_string(edge.evidence_class)}
+  end
+
+  defp edge_details(edge) do
+    details = %{id: edge.id, role: edge.role, stale: Map.get(edge, :stale) == true}
+    last_seen = Map.get(edge, :last_seen)
+
+    details =
+      if is_binary(last_seen) and last_seen != "",
+        do: Map.put(details, :last_seen, last_seen),
+        else: details
+
+    Jason.encode!(details)
   end
 
   defp node(node, detail) do

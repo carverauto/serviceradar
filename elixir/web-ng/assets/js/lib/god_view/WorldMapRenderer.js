@@ -8,7 +8,6 @@ import {WorldTileCache} from "./world_tile_cache"
 import {WorldOverlays} from "./world_overlays"
 import WorldTileLayer from "./world_tile_layer"
 import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode"
-import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
 import {readBoundedBody, worldJson} from "./world_http"
 import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
 
@@ -23,7 +22,17 @@ function element(tag, className, text) {
 
 function selectionTitle(object) {
   const title = object.label || `${object.count.toLocaleString()} relations`
-  return object.stale ? `${title} · last known` : title
+  const seen = typeof object.lastSeen === "string" && object.lastSeen !== "" ? object.lastSeen : ""
+  const parts = [title]
+  if (object.stale) parts.push("last known")
+  if (seen) parts.push(seen)
+  return parts.join(" · ")
+}
+
+function worldZoomTier(zoom) {
+  if (zoom < 2) return "global"
+  if (zoom < 7) return "regional"
+  return "local"
 }
 
 /** The persistent world camera owns bounded ELK scenes and returns to its retained tiles. */
@@ -35,6 +44,7 @@ export default class WorldMapRenderer {
     this.packetFlow = true
     this.links = true
     this.inferred = false
+    this.zoomMode = "auto"
     this.filters = {}
     this.destroyed = false
     this.sceneCache = new Map()
@@ -406,7 +416,7 @@ export default class WorldMapRenderer {
       }
     }
     if (Object.keys(stats).length > 0) payload.pipeline_stats = stats
-    if (typeof this.viewState?.zoom === "number") payload.zoom_tier = godViewLayoutClusterMethods.resolveZoomTier(this.viewState.zoom)
+    if (typeof this.viewState?.zoom === "number") payload.zoom_tier = worldZoomTier(this.viewState.zoom)
     if (this.zoomMode) payload.zoom_mode = this.zoomMode
     this.pushEvent("god_view_stream_stats", payload)
   }
@@ -483,6 +493,11 @@ export default class WorldMapRenderer {
       const details = result.details
       const text = details.members ? `${details.members.toLocaleString()} devices` : details.device?.label || details.device?.id || "Selected topology connection"
       this.panel.append(element("p", "mt-2 text-sr-muted", text))
+      const relation = details.relation
+      const observation = []
+      if (relation?.stale === true) observation.push("last known")
+      if (typeof relation?.last_seen === "string" && relation.last_seen !== "") observation.push(relation.last_seen)
+      if (observation.length > 0) this.panel.append(element("p", "mt-2 text-sr-muted", observation.join(" · ")))
       const open = element("button", "btn btn-sm mt-3", object.kind === "device" ? "Open neighborhood" : "Show members")
       // Scene identity comes from the server. A device neighborhood is the
       // same scene when picked from a parent tile, child tile, or search.

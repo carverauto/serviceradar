@@ -32,7 +32,8 @@ defmodule ServiceRadar.TopologyAtlas do
     telemetry_eligible: false,
     kind: "CANONICAL_TOPOLOGY",
     active: true,
-    stale: false
+    stale: false,
+    last_seen: nil
   }
   @operations [
     :insert_positions,

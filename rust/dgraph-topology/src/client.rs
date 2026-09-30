@@ -415,18 +415,19 @@ impl TopologyClient {
         let (retain, remove): (Vec<&String>, Vec<&String>) = kinds
             .iter()
             .partition(|kind| matches!(kind.as_str(), "ATTACHED_TO" | "HOSTED_ON" | "INFERRED_TO"));
-        let marked = self.mark_aged_edges(cutoff, &retain).await?;
-        let deleted = self.delete_aged_edges(cutoff, &remove).await?;
+        let marked = self.age_edges(cutoff, &retain, false).await?;
+        let deleted = self.age_edges(cutoff, &remove, true).await?;
         Ok(marked + deleted)
     }
 
-    async fn aged_edges(
+    async fn age_edges(
         &self,
         cutoff: &str,
         kinds: &[&String],
-    ) -> Result<Vec<UidRow>, TopologyError> {
+        delete: bool,
+    ) -> Result<usize, TopologyError> {
         if kinds.is_empty() {
-            return Ok(Vec::new());
+            return Ok(0);
         }
         let cutoff_q = dql_string(cutoff)?;
         let mut kind_filters = Vec::with_capacity(kinds.len());
@@ -438,61 +439,20 @@ impl TopologyClient {
         let query = format!(
             "{{
   stale(func: type(TopologyEdge)) @filter(({kind_filter}) AND lt(topo.last_seen, {cutoff_q})) {{
-    uid
+    aged as uid
   }}
 }}"
         );
-        let parsed: StaleQuery = self.query(&query).await?;
-        Ok(parsed.stale)
-    }
-
-    async fn mark_aged_edges(
-        &self,
-        cutoff: &str,
-        kinds: &[&String],
-    ) -> Result<usize, TopologyError> {
-        let rows = self.aged_edges(cutoff, kinds).await?;
-        if rows.is_empty() {
-            return Ok(0);
-        }
-        let set: Vec<Value> = rows
-            .iter()
-            .map(|row| json!({ "uid": row.uid, "topo.stale": true }))
-            .collect();
-        let mut txn = self.client.new_txn();
-        let mutation = Mutation::new().set_json(
-            serde_json::to_vec(&set).map_err(|err| TopologyError::Serde(err.to_string()))?,
-        );
-        txn.mutate(mutation)
-            .await
-            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
-        txn.commit()
-            .await
-            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
-        Ok(rows.len())
-    }
-
-    async fn delete_aged_edges(
-        &self,
-        cutoff: &str,
-        kinds: &[&String],
-    ) -> Result<usize, TopologyError> {
-        let rows = self.aged_edges(cutoff, kinds).await?;
-        if rows.is_empty() {
-            return Ok(0);
-        }
-        let delete: Vec<Value> = rows.iter().map(|row| json!({ "uid": row.uid })).collect();
-        let mut txn = self.client.new_txn();
-        let mutation = Mutation::new().delete_json(
-            serde_json::to_vec(&delete).map_err(|err| TopologyError::Serde(err.to_string()))?,
-        );
-        txn.mutate(mutation)
-            .await
-            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
-        txn.commit()
-            .await
-            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
-        Ok(rows.len())
+        let mut target = json!({ "uid": "uid(aged)" });
+        let parsed: StaleQuery = if delete {
+            self.upsert(&query, "@if(gt(len(aged), 0))", &json!({}), Some(&target))
+                .await?
+        } else {
+            target["topo.stale"] = json!(true);
+            self.upsert(&query, "@if(gt(len(aged), 0))", &target, None)
+                .await?
+        };
+        Ok(parsed.stale.len())
     }
 
     /// Upsert the provided canonical edges, then delete canonical edges whose
@@ -858,7 +818,12 @@ impl CanonicalEdgeRow {
         // already marked, stay in the view as last-known evidence.
         let stale = !canonical && (self.stale || !current);
         let kind = self.kind.clone();
-        Some(crate::types::NeighbourhoodEdge::new(kind, self.into_edge()?).with_stale(stale))
+        let seen = self.last_seen.clone();
+        Some(
+            crate::types::NeighbourhoodEdge::new(kind, self.into_edge()?)
+                .with_stale(stale)
+                .with_last_seen(seen),
+        )
     }
 
     fn into_neighbourhood(self) -> Option<crate::types::NeighbourhoodEdge> {

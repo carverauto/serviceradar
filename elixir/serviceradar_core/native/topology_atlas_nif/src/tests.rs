@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dgraph_topology::{CanonicalDevice, CanonicalEdge, NeighbourhoodEdge, TopologyView};
 use serviceradar_topology_atlas::{Budget, Cell, DetailScope, Device, TopologyClass};
@@ -759,4 +759,222 @@ fn stale_backbone_shortcut_stays_out_of_the_overview_and_the_packet_path() {
             assert!(tile.edges.iter().all(|edge| !edge.stale));
         }
     }
+}
+
+#[test]
+fn aged_attachment_and_hosted_links_stay_connected() {
+    let router = "sr:router.example.test";
+    let access = "sr:access.example.test";
+    let leaf = "sr:leaf.example.test";
+    let guest = "sr:guest.example.test";
+    let ids = [router, access, leaf, guest];
+    let attach_stale = view_edge(
+        "ATTACHED_TO",
+        "attach-stale",
+        (router, 2, "p2"),
+        (access, 2, "p2"),
+        "direct-physical",
+        true,
+    )
+    .with_stale(true)
+    .with_last_seen("2020-01-01T00:00:00Z");
+    let stale_key = attach_stale.edge().link_key().to_owned();
+    let edges = vec![
+        view_edge(
+            "ATTACHED_TO",
+            "attach-fresh",
+            (router, 1, "p1"),
+            (access, 1, "p1"),
+            "direct-physical",
+            true,
+        )
+        .with_last_seen("2024-02-01T00:00:00Z"),
+        attach_stale,
+        view_edge(
+            "ATTACHED_TO",
+            "attach-al",
+            (access, 3, "p3"),
+            (leaf, 1, "p1"),
+            "direct-physical",
+            true,
+        )
+        .with_last_seen("2024-02-01T00:00:00Z"),
+        view_edge(
+            "ATTACHED_TO",
+            "attach-shortcut",
+            (router, 4, "p4"),
+            (leaf, 2, "p2"),
+            "direct-physical",
+            true,
+        )
+        .with_stale(true)
+        .with_last_seen("2019-01-01T00:00:00Z"),
+        view_edge(
+            "HOSTED_ON",
+            "hosted-guest",
+            (access, 5, "p5"),
+            (guest, 1, "p1"),
+            "hosted-virtual",
+            true,
+        )
+        .with_last_seen("2024-03-01T00:00:00Z"),
+    ];
+    let devices: Vec<_> = ids.iter().map(|id| canonical_device(id, id)).collect();
+    let mut builder = Builder::new("synthetic-aged-attachment".into(), 16).unwrap();
+    builder
+        .add_inventory(
+            ids.iter()
+                .enumerate()
+                .map(|(index, id)| InventoryRow {
+                    id: (*id).into(),
+                    label: (*id).into(),
+                    importance: if index == 0 { 0 } else { 1 },
+                })
+                .collect(),
+        )
+        .unwrap();
+    let candidate = builder
+        .reconcile(
+            SourceGraph::from_view(TopologyView::new(devices.clone(), edges.clone())).unwrap(),
+        )
+        .unwrap();
+    let row = |id: &str| {
+        candidate
+            .relations
+            .iter()
+            .find(|row| row.relation_id == id)
+            .unwrap_or_else(|| panic!("missing {id}"))
+    };
+    let aged = row("attach-stale");
+    assert!(aged.stale);
+    assert!(!aged.telemetry_eligible);
+    assert_eq!(aged.last_seen.as_deref(), Some("2020-01-01T00:00:00Z"));
+    let fresh = row("attach-fresh");
+    assert!(!fresh.stale);
+    assert!(!fresh.telemetry_eligible);
+    assert_eq!(fresh.last_seen.as_deref(), Some("2024-02-01T00:00:00Z"));
+    let hosted = row("hosted-guest");
+    assert!(!hosted.stale);
+    assert!(!hosted.telemetry_eligible);
+    assert_eq!(hosted.last_seen.as_deref(), Some("2024-03-01T00:00:00Z"));
+    assert!(row("attach-shortcut").stale);
+    assert_eq!(
+        candidate
+            .positions
+            .iter()
+            .find(|row| row.device_id == leaf)
+            .unwrap()
+            .parent_id
+            .as_deref(),
+        Some(access)
+    );
+    assert!(candidate.positions.iter().any(|row| row.device_id == guest));
+    let geometry = &candidate.world.geometry;
+    let detail = geometry
+        .detail(&DetailScope::Neighborhood(router.into()), None)
+        .unwrap();
+    assert!(detail
+        .relations
+        .iter()
+        .any(|row| row.id == "attach-shortcut"));
+    let mut split = false;
+    for z in [0_u8, 8, 16] {
+        let point = geometry.search(router).unwrap();
+        let tile = geometry
+            .tile(
+                Cell::at_point(z, point.x, point.y).unwrap(),
+                Budget::default(),
+            )
+            .unwrap();
+        let members = |id: &str| {
+            tile.edges.iter().find_map(|edge| {
+                let page = geometry
+                    .bundle_detail(&tile.selection, &edge.id, None)
+                    .unwrap();
+                let ids: BTreeSet<_> = page.relations.iter().map(|row| row.id.as_str()).collect();
+                assert!(
+                    !(ids.contains("attach-fresh") && ids.contains("attach-stale")),
+                    "bundle {} mixed current and stale attachments",
+                    edge.id
+                );
+                assert!(!ids.contains("attach-shortcut"));
+                ids.contains(id).then_some(edge)
+            })
+        };
+        if let (Some(current), Some(known)) = (members("attach-fresh"), members("attach-stale")) {
+            assert_ne!(current.id, known.id);
+            assert_eq!(current.topology_class, known.topology_class);
+            assert_eq!(current.topology_class, TopologyClass::Endpoints);
+            assert!(!current.stale);
+            assert!(known.stale);
+            assert_eq!(
+                (current.source, current.target),
+                (known.source, known.target)
+            );
+            let only = |edge_id: &str, relation_id: &str| {
+                let page = geometry
+                    .bundle_detail(&tile.selection, edge_id, None)
+                    .unwrap();
+                assert_eq!(
+                    page.relations
+                        .iter()
+                        .map(|row| row.id.as_str())
+                        .collect::<Vec<_>>(),
+                    vec![relation_id]
+                );
+            };
+            only(&current.id, "attach-fresh");
+            only(&known.id, "attach-stale");
+            split = true;
+        }
+    }
+    assert!(split);
+    let restored = {
+        let mut cold = Builder::new("synthetic-aged-attachment".into(), 16).unwrap();
+        cold.add_positions(candidate.positions.clone()).unwrap();
+        cold.add_relations(candidate.relations.to_vec()).unwrap();
+        cold.finish().unwrap()
+    };
+    let stored = restored
+        .relations
+        .iter()
+        .find(|row| row.relation_id == "attach-stale")
+        .unwrap();
+    assert!(stored.stale);
+    assert_eq!(stored.last_seen.as_deref(), Some("2020-01-01T00:00:00Z"));
+    let refreshed = edges
+        .into_iter()
+        .map(|edge| {
+            if edge.edge().link_key() == stale_key {
+                edge.with_stale(false)
+                    .with_last_seen("2024-06-01T00:00:00Z")
+            } else {
+                edge
+            }
+        })
+        .collect();
+    let mut next = Builder::new("synthetic-aged-attachment".into(), 16).unwrap();
+    next.add_inventory(
+        ids.iter()
+            .enumerate()
+            .map(|(index, id)| InventoryRow {
+                id: (*id).into(),
+                label: (*id).into(),
+                importance: if index == 0 { 0 } else { 1 },
+            })
+            .collect(),
+    )
+    .unwrap();
+    next.add_positions(candidate.positions).unwrap();
+    next.add_relations(candidate.relations.to_vec()).unwrap();
+    let again = next
+        .reconcile(SourceGraph::from_view(TopologyView::new(devices, refreshed)).unwrap())
+        .unwrap();
+    let current = again
+        .relations
+        .iter()
+        .find(|row| row.relation_id == "attach-stale")
+        .unwrap();
+    assert!(!current.stale);
+    assert_eq!(current.last_seen.as_deref(), Some("2024-06-01T00:00:00Z"));
 }

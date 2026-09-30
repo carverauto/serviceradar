@@ -38,6 +38,12 @@ describe("world tile wire boundary", () => {
     expect(() => decodeWorldTile(tile({edges: [...edges, edges[0]]}), key)).toThrow("edge_count")
   })
 
+  it("accepts a schema v3 tile that has no stale column", () => {
+    const decoded = decodeWorldTile(tile({omitColumns: ["edge_detail_stale"]}), key)
+    expect(decoded.edges[0].stale).toBe(false)
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+  })
+
   it("reads a last-known edge from its flag column", () => {
     const decoded = decodeWorldTile(tile({edges: [{source: 0, target: 1, details: {
       id: "bundle:a", represented_count: 90000, phase_start: 0.25, phase_end: 0.75, stale: true,

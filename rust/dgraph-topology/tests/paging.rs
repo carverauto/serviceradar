@@ -598,6 +598,20 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
             .collect::<BTreeSet<_>>(),
         stale_keys
     );
+    assert_eq!(
+        view.edges()
+            .iter()
+            .find(|edge| edge.edge().link_key() == "invented-view-1")
+            .and_then(|edge| edge.last_seen()),
+        Some("2030-01-02T00:00:00Z")
+    );
+    assert_eq!(
+        view.edges()
+            .iter()
+            .find(|edge| edge.edge().link_key() == "ATTACHED_TO-missing")
+            .and_then(|edge| edge.last_seen()),
+        None
+    );
     assert!(
         view.edges()
             .iter()

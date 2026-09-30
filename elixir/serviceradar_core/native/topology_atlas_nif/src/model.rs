@@ -98,6 +98,7 @@ pub struct RelationRow {
     pub kind: String,
     pub active: bool,
     pub stale: bool,
+    pub last_seen: Option<String>,
 }
 
 impl RelationRow {
@@ -142,6 +143,7 @@ impl RelationRow {
             kind: "CANONICAL_TOPOLOGY".into(),
             active: true,
             stale: false,
+            last_seen: None,
         }
     }
 
@@ -470,10 +472,12 @@ impl SourceGraph {
         let mut relations = BTreeMap::new();
         for edge in edges {
             let stale = edge.stale();
+            let seen = edge.last_seen().map(str::to_owned);
             let kind = edge.kind().to_owned();
             let mut row = RelationRow::canonical(edge.into_edge());
             row.kind = kind;
             row.stale = stale;
+            row.last_seen = seen;
             if row.kind != "CANONICAL_TOPOLOGY" || stale {
                 row.telemetry_eligible = false;
             }
@@ -637,12 +641,14 @@ fn layout_forest(rows: &[RelationRow]) -> Vec<Relation> {
         (
             trust_rank(left),
             u8::from(left.stale),
+            std::cmp::Reverse(left.last_seen.as_deref().unwrap_or("")),
             device_pair(&left.source_id, &left.target_id),
             &left.relation_id,
         )
             .cmp(&(
                 trust_rank(right),
                 u8::from(right.stale),
+                std::cmp::Reverse(right.last_seen.as_deref().unwrap_or("")),
                 device_pair(&right.source_id, &right.target_id),
                 &right.relation_id,
             ))
@@ -736,7 +742,14 @@ fn prefer(candidate: &RelationRow, keeper: &RelationRow) -> bool {
             _ => match (physical_class(candidate), physical_class(keeper)) {
                 (true, false) => true,
                 (false, true) => false,
-                _ => candidate.relation_id < keeper.relation_id,
+                _ => match (&candidate.last_seen, &keeper.last_seen) {
+                    (Some(candidate_seen), Some(keeper_seen)) if candidate_seen != keeper_seen => {
+                        candidate_seen > keeper_seen
+                    }
+                    (Some(_), None) => true,
+                    (None, Some(_)) => false,
+                    _ => candidate.relation_id < keeper.relation_id,
+                },
             },
         },
     }
@@ -826,6 +839,10 @@ fn source_digest(devices: &BTreeMap<String, Device>, relations: &[RelationRow]) 
         }
         hash.update([u8::from(r.telemetry_eligible)]);
         hash.update([u8::from(r.stale)]);
+        hash.update([u8::from(r.last_seen.is_some())]);
+        if let Some(seen) = &r.last_seen {
+            field(&mut hash, seen);
+        }
         field(&mut hash, &r.kind);
     }
     hash.finalize()

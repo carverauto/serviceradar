@@ -5,6 +5,7 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorldStaleEvidence do
   def up do
     alter table(:topology_world_relations, prefix: "platform") do
       add(:stale, :boolean, null: false, default: false)
+      add(:last_seen, :text, null: true)
     end
 
     alter table(:topology_world_layouts, prefix: "platform") do
@@ -18,6 +19,7 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorldStaleEvidence do
     end
 
     alter table(:topology_world_relations, prefix: "platform") do
+      remove(:last_seen)
       remove(:stale)
     end
   end

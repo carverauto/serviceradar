@@ -63,6 +63,7 @@ export const godViewLifecycleStreamDecodeMethods = {
     const edgeEvidenceClass = columns.edgeStrings("edge_evidence_class")
 
     const edges = new Array(edgeCount)
+    const hasStaleColumn = columns.table.schema.fields.some(field => field.name === "edge_detail_stale")
     for (let i = 0; i < edgeCount; i += 1) {
       const {details, metadata} = columns.edgeDetailsAndMetadata(i)
       const edge = {
@@ -88,6 +89,7 @@ export const godViewLifecycleStreamDecodeMethods = {
       const sourceId = String(nodes[edge.source]?.id ?? "").trim()
       const targetId = String(nodes[edge.target]?.id ?? "").trim()
       edge.id = canonicalSemanticRelationId(edge, sourceId, targetId)
+      edge.stale = hasStaleColumn ? details.stale === true : false
       edges[i] = edge
     }
 

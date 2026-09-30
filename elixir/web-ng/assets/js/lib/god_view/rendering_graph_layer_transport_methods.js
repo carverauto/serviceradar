@@ -13,6 +13,11 @@ const auxiliarySplits = new WeakMap()
 
 // Routed scenes draw auxiliary (manifold) edges separately. Split once per edge list, so a
 // hover or camera refresh that reuses the list does not scan it again.
+function lastKnownEdgeColor(edge, color) {
+  if (edge?.stale !== true || !(color?.[3] > 0)) return color
+  return [148, 163, 184, Math.max(1, Math.round(color[3] * 0.45))]
+}
+
 function splitAuxiliaryEdges(edgeData) {
   const cached = auxiliarySplits.get(edgeData)
   if (cached) return cached
@@ -113,7 +118,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               const style = edgeTopologyVisualStyleValue(d)
               const edgeAlpha =
                 Math.round((alphaBase + (alphaBoost * zoomParticleVisibility)) * alphaMult(d) * style.mantleAlphaScale)
-              return [base[0], base[1], base[2], Math.max(style.mantleAlphaFloor, Math.min(255, edgeAlpha))]
+              return lastKnownEdgeColor(d, [base[0], base[1], base[2], Math.max(style.mantleAlphaFloor, Math.min(255, edgeAlpha))])
             },
             getWidth: (d) => {
               const style = edgeTopologyVisualStyleValue(d)
@@ -151,7 +156,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
                         : this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
                       const style = edgeTopologyVisualStyleValue(d)
                       const edgeAlpha = Math.min(255, color[3] * alphaMult(d) * style.crustAlphaScale)
-                      return [color[0], color[1], color[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                      return lastKnownEdgeColor(d, [color[0], color[1], color[2], Math.max(style.crustAlphaFloor, edgeAlpha)])
                     },
                   }
                 : {
@@ -161,13 +166,13 @@ export const godViewRenderingGraphLayerTransportMethods = {
                       const source = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
                       const style = edgeTopologyVisualStyleValue(d)
                       const edgeAlpha = Math.min(255, source[3] * alphaMult(d) * style.crustAlphaScale)
-                      return [source[0], source[1], source[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                      return lastKnownEdgeColor(d, [source[0], source[1], source[2], Math.max(style.crustAlphaFloor, edgeAlpha)])
                     },
                     getTargetColor: (d) => {
                       const target = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target
                       const style = edgeTopologyVisualStyleValue(d)
                       const edgeAlpha = Math.min(255, target[3] * alphaMult(d) * style.crustAlphaScale)
-                      return [target[0], target[1], target[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                      return lastKnownEdgeColor(d, [target[0], target[1], target[2], Math.max(style.crustAlphaFloor, edgeAlpha)])
                     },
                   }),
               getWidth: (d) => {

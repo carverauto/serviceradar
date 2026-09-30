@@ -62,7 +62,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
         :telemetry_eligible,
         :kind,
         :active,
-        :stale
+        :stale,
+        :last_seen
       ]
 
       upsert? true
@@ -80,6 +81,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
         :kind,
         :active,
         :stale,
+        :last_seen,
         :updated_at
       ]
     end
@@ -116,6 +118,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
     attribute :telemetry_eligible, :boolean, allow_nil?: false, default: false, public?: true
     attribute :kind, :string, allow_nil?: false, default: "CANONICAL_TOPOLOGY", public?: true
     attribute :stale, :boolean, allow_nil?: false, default: false, public?: true
+    attribute :last_seen, :string, allow_nil?: true, public?: true
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

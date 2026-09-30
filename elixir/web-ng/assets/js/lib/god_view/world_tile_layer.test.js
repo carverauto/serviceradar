@@ -427,47 +427,95 @@ describe("world tile rendering contract", () => {
   })
 
   it("forwards publication time, camera tier, and source counts", async () => {
+    vi.useFakeTimers()
+    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
+    vi.stubGlobal("document", {createElement: domNode})
+    vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
+    vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
+    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
+    const handlers = new Map()
     const pushEvent = vi.fn()
-    const renderer = new WorldMapRenderer({clientWidth: 800, clientHeight: 600}, pushEvent, vi.fn())
-    renderer.cache = {
-      manifest: {
-        layout_version: worldTileKey.layout_version, generation: 4, zmax: 16, node_count: 12, relation_count: 9,
-        generated_at: "2026-03-01T00:00:00Z",
-        pipeline_stats: {raw_links: 4, edge_class_observed: 0, note: "unmeasured"},
-      },
-      setVisible() {}, prefetch() {},
-    }
-    renderer.overlays = {setVisible() {}, poll() {}}
-    renderer.scheduleWatch = () => {}
-    renderer.status = () => {}
-    renderer.render = () => {}
-    renderer.viewState = {zoom: 0}
-    renderer.deviceType = "webgpu"
+    const renderer = new WorldMapRenderer({...domNode(), clientWidth: 800, clientHeight: 600}, pushEvent, (name, callback) => handlers.set(name, callback))
+    vi.spyOn(renderer, "poll").mockResolvedValue()
     const visible = [{index: {z: 1, x: 0, y: 0}, content: {nodes: [{}, {}], edges: [{}], byteLength: 32}}]
-    renderer.viewportLoaded(visible)
-    const payload = pushEvent.mock.calls.at(-1)[1]
-    expect(payload.generated_at).toBe("2026-03-01T00:00:00Z")
-    expect(payload.zoom_tier).toBe("regional")
-    expect(payload.zoom_mode).toBeUndefined()
-    expect(payload.pipeline_stats).toEqual({raw_links: 4, edge_class_observed: 0})
-    expect(payload.rendered_node_count).toBe(2)
-    expect(payload.pipeline_stats.rendered_node_count).toBeUndefined()
-    renderer.setZoomMode("global")
-    renderer.viewportLoaded(visible)
-    const selected = pushEvent.mock.calls.at(-1)[1]
-    expect(selected.zoom_mode).toBe("global")
-    expect(selected.zoom_tier).toBe("regional")
     const titles = []
-    vi.stubGlobal("document", {createElement: () => ({className: "", textContent: "", style: {}, append() {}, setAttribute() {}})})
-    vi.stubGlobal("fetch", () => Promise.reject(new Error("stopped")))
-    renderer.openPanel = node => {
-      titles.push(node.textContent)
-      renderer.panel = {append() {}}
+    const notes = []
+    let responseBody = null
+    vi.stubGlobal("fetch", () => responseBody
+      ? Promise.resolve({ok: true, headers: {get() { return null }}, arrayBuffer: async () => responseBody, body: null})
+      : Promise.reject(new Error("stopped")))
+    try {
+      await renderer.mount()
+      renderer.scheduleLocationUpdate = () => {}
+      renderer.cache = {
+        manifest: {
+          layout_version: worldTileKey.layout_version, generation: 4, zmax: 16, node_count: 12, relation_count: 9,
+          generated_at: "2026-03-01T00:00:00Z",
+          pipeline_stats: {raw_links: 4, edge_class_observed: 0, note: "unmeasured"},
+        },
+        setVisible() {}, prefetch() {},
+      }
+      renderer.overlays = {setVisible() {}, poll() {}}
+      renderer.scheduleWatch = () => {}
+      renderer.status = () => {}
+      renderer.render = () => {}
+      renderer.deviceType = "webgpu"
+      renderer.viewportLoaded(visible)
+      const payload = pushEvent.mock.calls.at(-1)[1]
+      expect(payload.generated_at).toBe("2026-03-01T00:00:00Z")
+      expect(payload.zoom_mode).toBe("auto")
+      expect(payload.zoom_tier).toBe("global")
+      expect(payload.pipeline_stats).toEqual({raw_links: 4, edge_class_observed: 0})
+      expect(payload.rendered_node_count).toBe(2)
+      expect(payload.pipeline_stats.rendered_node_count).toBeUndefined()
+      const select = mode => {
+        handlers.get("god_view:set_zoom_mode")({mode})
+        renderer.viewportLoaded(visible)
+        return pushEvent.mock.calls.at(-1)[1]
+      }
+      expect(select("global")).toMatchObject({zoom_mode: "global", zoom_tier: "global"})
+      expect(renderer.viewState.zoom).toBe(0)
+      expect(select("regional")).toMatchObject({zoom_mode: "regional", zoom_tier: "regional"})
+      expect(renderer.viewState.zoom).toBe(4)
+      expect(select("local")).toMatchObject({zoom_mode: "local", zoom_tier: "local"})
+      expect(renderer.viewState.zoom).toBe(10)
+      renderer.viewState.zoom = 3
+      renderer.viewportLoaded(visible)
+      expect(pushEvent.mock.calls.at(-1)[1]).toMatchObject({zoom_mode: "local", zoom_tier: "regional"})
+      renderer.viewState.zoom = 8
+      renderer.viewportLoaded(visible)
+      expect(pushEvent.mock.calls.at(-1)[1]).toMatchObject({zoom_mode: "local", zoom_tier: "local"})
+      renderer.openPanel = node => {
+        titles.push(node.textContent)
+        notes.length = 0
+        renderer.panel = {append(child) { notes.push(child.textContent) }}
+      }
+      await renderer.showSelection({kind: "edge", count: 3, stale: true, lastSeen: "2020-01-01T00:00:00Z"}, {layout_version: "layout", generation: "1", kind: "edge", id: "stale-ac"})
+      expect(titles.at(-1)).toBe("3 relations · last known · 2020-01-01T00:00:00Z")
+      await renderer.showSelection({kind: "edge", count: 3, stale: true}, {layout_version: "layout", generation: "1", kind: "edge", id: "stale-ac"})
+      expect(titles.at(-1)).toBe("3 relations · last known")
+      await renderer.showSelection({kind: "device", label: "access", id: "sr:access"}, {layout_version: "layout", generation: "1", kind: "device", id: "sr:access"})
+      expect(titles.at(-1)).toBe("access")
+      const json = value => {
+        const bytes = new TextEncoder().encode(JSON.stringify(value))
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+      }
+      responseBody = json({details: {relation: {stale: true, last_seen: "2020-01-01T00:00:00Z"}, device: {label: "access"}}})
+      await renderer.showSelection({kind: "device", label: "access", id: "sr:access"}, {layout_version: "layout", generation: "1", kind: "device", id: "sr:access"})
+      expect(notes).toEqual(["access", "last known · 2020-01-01T00:00:00Z", "Open neighborhood", "Share device"])
+      responseBody = json({details: {relation: {last_seen: "2024-02-01T00:00:00Z"}, device: {label: "fresh"}}})
+      await renderer.showSelection({kind: "device", label: "fresh", id: "sr:fresh"}, {layout_version: "layout", generation: "1", kind: "device", id: "sr:fresh"})
+      expect(notes).toEqual(["fresh", "2024-02-01T00:00:00Z", "Open neighborhood", "Share device"])
+      responseBody = json({details: {relation: {}, device: {label: "current"}}})
+      await renderer.showSelection({kind: "device", label: "current", id: "sr:current"}, {layout_version: "layout", generation: "1", kind: "device", id: "sr:current"})
+      expect(notes).toEqual(["current", "Open neighborhood", "Share device"])
+    } finally {
+      clearInterval(renderer.timer)
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
     }
-    await renderer.showSelection({kind: "edge", count: 3, stale: true}, {layout_version: "layout", generation: "1", kind: "edge", id: "stale-ac"})
-    expect(titles).toEqual(["3 relations · last known"])
-    await renderer.showSelection({kind: "device", label: "access", id: "sr:access"}, {layout_version: "layout", generation: "1", kind: "device", id: "sr:access"})
-    expect(titles.at(-1)).toBe("access")
   })
 
   it("keeps graph classification stable when telemetry pages change or disappear", () => {

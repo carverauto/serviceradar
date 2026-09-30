@@ -82,6 +82,7 @@ impl TileSelection {
         line: Line,
         clip: Clip,
         class: crate::TopologyClass,
+        stale: bool,
     ) -> Option<&TileEdge> {
         let source = self.endpoint(
             line.source,
@@ -92,7 +93,10 @@ impl TileSelection {
             published_portal(self.cell, clip.target, self.seam),
         )?;
         self.edges.iter().find(|edge| {
-            edge.source == source && edge.target == target && edge.topology_class == class
+            edge.source == source
+                && edge.target == target
+                && edge.topology_class == class
+                && edge.stale == stale
         })
     }
 }
@@ -540,9 +544,12 @@ impl World {
             RELATION_CANDIDATE_LIMIT,
             |i, clip| {
                 let line = self.endpoints[i as usize];
-                if let Some(edge) =
-                    selection.rendered_edge(line, clip, self.relation_classes[i as usize])
-                {
+                if let Some(edge) = selection.rendered_edge(
+                    line,
+                    clip,
+                    self.relation_classes[i as usize],
+                    self.relation_stale[i as usize],
+                ) {
                     rows.push(SelectedRelation {
                         relation_index: i,
                         relation_id: self.relations[i as usize].id.clone(),
@@ -613,7 +620,12 @@ impl World {
             |i, clip| {
                 let line = self.endpoints[i as usize];
                 if selection
-                    .rendered_edge(line, clip, self.relation_classes[i as usize])
+                    .rendered_edge(
+                        line,
+                        clip,
+                        self.relation_classes[i as usize],
+                        self.relation_stale[i as usize],
+                    )
                     .is_some_and(|rendered| rendered.id == edge.id)
                 {
                     let endpoints = [line.source, line.target].map(|node| {

@@ -14,6 +14,8 @@ The topology read model SHALL acquire Dgraph Device vertices and admitted topolo
 - **WHEN** the atlas reads the topology view and publishes the world
 - **THEN** the latest aged evidence SHALL remain, marked stale, without retaining an unbounded history of earlier sightings
 - **AND** the current same-class relation SHALL be preferred for the layout forest
+- **AND** the observation time SHALL be the stored timestamp and SHALL NOT be manufactured
+- **AND** aging SHALL mark or delete a row only when its stored last_seen is still older than the cutoff in the same mutation
 - **AND** packet animation SHALL NOT use the stale evidence
 - **AND** an explicitly deleted edge SHALL NOT reappear
 - **AND** the canonical backbone API and causal readers SHALL remain current-only
