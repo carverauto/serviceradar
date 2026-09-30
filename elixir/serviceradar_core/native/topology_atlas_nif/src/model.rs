@@ -885,6 +885,7 @@ pub struct PipelineStats {
     pub edge_class_attachment: u64,
     pub edge_class_inferred: u64,
     pub edge_class_hosted: u64,
+    pub edge_class_unknown: u64,
     pub edge_class_observed: Option<u64>,
     pub backbone_edge_count: u64,
 }
@@ -896,6 +897,7 @@ fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats
     let mut attachment = 0u64;
     let mut backbone = 0u64;
     let mut hosted = 0u64;
+    let mut unknown = 0u64;
     for row in relations {
         pairs.insert(device_pair(&row.source_id, &row.target_id));
         match row.topology_class() {
@@ -903,10 +905,11 @@ fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats
                 direct += 1;
                 backbone += 1;
             }
-            TopologyClass::Logical | TopologyClass::Unknown => backbone += 1,
+            TopologyClass::Logical => backbone += 1,
             TopologyClass::Hosted => hosted += 1,
             TopologyClass::Endpoints => attachment += 1,
             TopologyClass::Inferred => inferred += 1,
+            TopologyClass::Unknown => unknown += 1,
         }
     }
     PipelineStats {
@@ -920,6 +923,7 @@ fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats
         edge_class_attachment: attachment,
         edge_class_inferred: inferred,
         edge_class_hosted: hosted,
+        edge_class_unknown: unknown,
         edge_class_observed: None,
         backbone_edge_count: backbone,
     }

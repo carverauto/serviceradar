@@ -762,6 +762,42 @@ fn stale_backbone_shortcut_stays_out_of_the_overview_and_the_packet_path() {
 }
 
 #[test]
+fn unknown_evidence_stays_out_of_backbone_publication_counts() {
+    let left = "sr:unknown-left.example.test";
+    let right = "sr:unknown-right.example.test";
+    let view = TopologyView::new(
+        vec![canonical_device(left, left), canonical_device(right, right)],
+        vec![
+            view_edge(
+                "CANONICAL_TOPOLOGY",
+                "missing-evidence",
+                (left, 1, "p1"),
+                (right, 1, "p1"),
+                "",
+                false,
+            ),
+            view_edge(
+                "CANONICAL_TOPOLOGY",
+                "unrecognized-evidence",
+                (left, 2, "p2"),
+                (right, 2, "p2"),
+                "unrecognized",
+                false,
+            ),
+        ],
+    );
+    let candidate = Builder::new("synthetic-unknown-evidence".into(), 16)
+        .unwrap()
+        .reconcile(SourceGraph::from_view(view).unwrap())
+        .unwrap();
+
+    assert_eq!(candidate.pipeline_stats.final_edges, 2);
+    assert_eq!(candidate.pipeline_stats.edge_class_backbone, 0);
+    assert_eq!(candidate.pipeline_stats.backbone_edge_count, 0);
+    assert_eq!(candidate.pipeline_stats.edge_class_unknown, 2);
+}
+
+#[test]
 fn aged_attachment_and_hosted_links_stay_connected() {
     let router = "sr:router.example.test";
     let access = "sr:access.example.test";

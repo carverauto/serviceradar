@@ -358,6 +358,97 @@ describe("rendering_graph_data_methods", () => {
     expect(aggregateVisibleEdges).not.toHaveBeenCalled()
   })
 
+  it.each([
+    {name: "current-only", includeCurrent: true, includeStale: false, expectedEdges: 1},
+    {name: "stale-only", includeCurrent: false, includeStale: true, expectedEdges: 1},
+    {name: "mixed current and stale evidence", includeCurrent: true, includeStale: true, expectedEdges: 2},
+  ])("keeps $name route membership separate through ELK rendering", async ({includeCurrent, includeStale, expectedEdges}) => {
+    const nodes = [
+      {id: "router-a", details: {type: "Router", topology_plane: "backbone"}},
+      {id: "switch-b", details: {type: "Switch", topology_plane: "backbone"}},
+    ]
+    const edges = []
+    if (includeCurrent) {
+      edges.push({
+        id: "current-backbone",
+        source: 0,
+        target: 1,
+        topologyClass: "backbone",
+        evidenceClass: "direct",
+        flowPps: 9,
+        metadata: {relation_type: "CONNECTS_TO", topology_plane: "backbone"},
+      })
+    }
+    if (includeStale) {
+      edges.push({
+        id: "stale-attachment",
+        source: 0,
+        target: 1,
+        topologyClass: "endpoints",
+        evidenceClass: "endpoint-attachment",
+        stale: true,
+        flowPps: 400,
+        metadata: {relation_type: "ATTACHED_TO", topology_plane: "attachment"},
+      })
+    }
+
+    const graph = {nodes, edges}
+    const input = prepareTopologySceneInput(graph)
+    const scene = await layoutTopologyScene(input, {engine: new ELK(), profile: LANDSCAPE_PROFILE})
+    const effective = {shape: "local", ...applyTopologySceneToGraph(graph, scene)}
+    const out = baseContext().buildVisibleGraphData(effective)
+
+    expect(scene.physicalRoutes).toHaveLength(1)
+    expect(out.edgeData).toHaveLength(expectedEdges)
+    expect(out.edgeData.every((edge) => edge.path.length > 1)).toBe(true)
+    if (includeCurrent && includeStale) {
+      const current = out.edgeData.find((edge) => edge.relationIds.includes("current-backbone"))
+      const stale = out.edgeData.find((edge) => edge.relationIds.includes("stale-attachment"))
+      expect(current).toMatchObject({flowPps: 9, telemetryEligible: true})
+      expect(current.stale).toBeUndefined()
+      expect(stale).toMatchObject({stale: true, flowPps: 0, telemetryEligible: false})
+      expect(current.path).toEqual(scene.physicalRoutes[0].points.map((point) => [point.x, point.y, 0]))
+      expect(stale.path).toEqual(current.path)
+      expect(current.interactionKey).not.toEqual(stale.interactionKey)
+    } else if (includeStale) {
+      expect(out.edgeData[0]).toMatchObject({stale: true, flowPps: 0, telemetryEligible: false})
+    } else {
+      expect(out.edgeData[0]).toMatchObject({flowPps: 9, telemetryEligible: true})
+      expect(out.edgeData[0].stale).toBeUndefined()
+    }
+  })
+
+  it.each([
+    {name: "current-only", current: true, stale: false, expectedEdges: 1},
+    {name: "stale-only", current: false, stale: true, expectedEdges: 1},
+    {name: "mixed current and stale", current: true, stale: true, expectedEdges: 2},
+  ])("keeps $name raw pair routes separate", ({current, stale, expectedEdges}) => {
+    const ctx = baseContext()
+    const edges = []
+    if (current) edges.push({id: "current", source: 0, target: 1, topologyClass: "backbone", flowPps: 5})
+    if (stale) edges.push({id: "stale", source: 0, target: 1, topologyClass: "endpoints", stale: true, flowPps: 300})
+    const out = ctx.buildVisibleGraphData({
+      shape: "local",
+      nodes: [
+        {id: "router-a", x: 0, y: 0, state: 0, label: "Router A", operUp: 1, details: {}},
+        {id: "switch-b", x: 100, y: 0, state: 1, label: "Switch B", operUp: 1, details: {}},
+      ],
+      edges,
+    })
+
+    expect(out.edgeData).toHaveLength(expectedEdges)
+    if (current && stale) {
+      expect(new Set(out.edgeData.map((edge) => edge.interactionKey)).size).toBe(2)
+      expect(out.edgeData.find((edge) => !edge.stale)).toMatchObject({flowPps: 5})
+      expect(out.edgeData.find((edge) => edge.stale)).toMatchObject({stale: true, flowPps: 0, telemetryEligible: false})
+    } else if (stale) {
+      expect(out.edgeData[0]).toMatchObject({stale: true, flowPps: 0, telemetryEligible: false})
+    } else {
+      expect(out.edgeData[0]).toMatchObject({flowPps: 5})
+      expect(out.edgeData[0].stale).toBeUndefined()
+    }
+  })
+
   it("samples a scene route midpoint by cumulative polyline distance", () => {
     const ctx = baseContext()
     const effective = {

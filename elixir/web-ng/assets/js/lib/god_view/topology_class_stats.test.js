@@ -17,9 +17,10 @@ describe("topology_class_stats", () => {
       edge_class_inferred: 12,
       edge_class_hosted: "3",
       edge_class_observed: -1,
+      edge_class_unknown: 2,
     })
 
-    expect(counts).toEqual({backbone: 4, attachment: 57, inferred: 12, hosted: 3, observed: null})
+    expect(counts).toEqual({backbone: 4, attachment: 57, inferred: 12, hosted: 3, observed: null, unknown: 2})
   })
 
   it("edgeClassCounts prefers backbone_edge_count when present", () => {
@@ -31,7 +32,7 @@ describe("topology_class_stats", () => {
     expect(
       backboneEmptyState({backbone_edge_count: 0, edge_class_attachment: 57, edge_class_inferred: 12}),
     ).toEqual(true)
-    expect(backboneEmptyState({backbone_edge_count: 0, edge_class_hosted: 1})).toEqual(true)
+    expect(backboneEmptyState({backbone_edge_count: 0, edge_class_unknown: 1})).toEqual(true)
     expect(backboneEmptyState({backbone_edge_count: 8, edge_class_attachment: 57})).toEqual(false)
     expect(backboneEmptyState({backbone_edge_count: 0})).toEqual(false)
     expect(backboneEmptyState({final_edges: 42})).toEqual(false)
@@ -47,8 +48,9 @@ describe("topology_class_stats", () => {
         edge_class_inferred: 12,
         edge_class_hosted: 3,
         edge_class_observed: 2,
+        edge_class_unknown: 5,
       }),
-    ).toEqual("classes=bb:0/att:57/inf:12/host:3/obs:2 backbone=EMPTY")
+    ).toEqual("classes=bb:0/att:57/inf:12/host:3/obs:2/unk:5 backbone=EMPTY")
 
     expect(
       formatEdgeClassStatus({
@@ -58,7 +60,7 @@ describe("topology_class_stats", () => {
         edge_class_inferred: 0,
         edge_class_hosted: 0,
       }),
-    ).toEqual("classes=bb:8/att:4/inf:0/host:0/obs:—")
+    ).toEqual("classes=bb:8/att:4/inf:0/host:0/obs:—/unk:—")
 
     expect(formatEdgeClassStatus(null)).toEqual("")
     expect(formatEdgeClassStatus({final_edges: 7})).toEqual("")

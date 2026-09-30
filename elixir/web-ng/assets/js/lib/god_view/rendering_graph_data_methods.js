@@ -450,15 +450,15 @@ export const godViewRenderingGraphDataMethods = {
       : "unknown"
 
     return routes
-      .map((route) => {
+      .flatMap((route) => {
         const auxiliary = route?.auxiliary === true
         if (
           auxiliary
             ? !(route?.semanticRouteIds || []).some((routeId) => visibleSemanticRouteIds.has(String(routeId)))
             : !routeVisible(route)
-        ) return null
+        ) return []
         const path = finiteRoutePath(route?.points)
-        if (path.length < 2) return null
+        if (path.length < 2) return []
 
         const routeRelationIds = Array.isArray(route?.relationIds)
           ? [...route.relationIds].sort((left, right) => String(left).localeCompare(String(right)))
@@ -470,7 +470,7 @@ export const godViewRenderingGraphDataMethods = {
             relationIds: [],
             missingRelationIds: [],
           })
-          return null
+          return []
         }
 
         const missingRelationIds = routeRelationIds.filter((relationId) => {
@@ -484,120 +484,125 @@ export const godViewRenderingGraphDataMethods = {
             relationIds: routeRelationIds,
             missingRelationIds,
           })
-          return null
+          return []
         }
 
         const resolvedRelations = routeRelationIds.flatMap((relationId) =>
           (relationById.get(relationId) || []).map((relation) => ({relationId, relation})),
         )
         const enabledRelations = resolvedRelations.filter(({relation}) => relationVisible(relation))
-        if (resolvedRelations.length > 0 && enabledRelations.length === 0) return null
-        const relations = enabledRelations.map(({relation}) => relation)
-        const relationIds = resolvedRelations.length > 0
-          ? Array.from(new Set(enabledRelations.map(({relationId}) => relationId)))
-          : routeRelationIds
-        const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {}
-        const useRouteMetadata = false
-        const topologyClassCounts = emptyClassCounts()
-        const directional = {
-          flowPpsAb: 0,
-          flowPpsBa: 0,
-          flowBpsAb: 0,
-          flowBpsBa: 0,
-        }
+        if (resolvedRelations.length > 0 && enabledRelations.length === 0) return []
+        const freshnessGroups = [false, true]
+          .map((stale) => enabledRelations.filter(({relation}) => relationIsStale(relation) === stale))
+          .filter((group) => group.length > 0)
+        return freshnessGroups.map((freshnessGroup) => {
+          const relations = freshnessGroup.map(({relation}) => relation)
+          const relationIds = freshnessGroup.map(({relationId}) => relationId)
+          const freshnessSuffix = freshnessGroups.length > 1
+            ? (relationIsStale(relations[0]) ? ":stale" : ":current")
+            : ""
+          const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {}
+          const useRouteMetadata = false
+          const topologyClassCounts = emptyClassCounts()
+          const directional = {
+            flowPpsAb: 0,
+            flowPpsBa: 0,
+            flowBpsAb: 0,
+            flowBpsBa: 0,
+          }
 
-        for (const relation of relations) {
-          const bucket = classBucketForEdge(relation)
-          topologyClassCounts[bucket] += 1
-          if (relationIsStale(relation)) continue
-          const sourceId = String(nodeByIndex[Number(relation?.source)]?.id || "")
-          const targetId = String(nodeByIndex[Number(relation?.target)]?.id || "")
-          const reversed = sourceId === route.targetId && targetId === route.sourceId
-          directional.flowPpsAb += Number(reversed ? relation.flowPpsBa : relation.flowPpsAb) || 0
-          directional.flowPpsBa += Number(reversed ? relation.flowPpsAb : relation.flowPpsBa) || 0
-          directional.flowBpsAb += Number(reversed ? relation.flowBpsBa : relation.flowBpsAb) || 0
-          directional.flowBpsBa += Number(reversed ? relation.flowBpsAb : relation.flowBpsBa) || 0
-        }
-        const measured = relations.filter((relation) => !relationIsStale(relation))
-        const allStale = relations.length > 0 && measured.length === 0
-        const seenValues = relations.map(relationLastSeen)
-        const sharedSeen = seenValues.length > 0 && seenValues.every((seen) => seen !== "" && seen === seenValues[0])
-          ? seenValues[0]
-          : ""
+          for (const relation of relations) {
+            const bucket = classBucketForEdge(relation)
+            topologyClassCounts[bucket] += 1
+            if (relationIsStale(relation)) continue
+            const sourceId = String(nodeByIndex[Number(relation?.source)]?.id || "")
+            const targetId = String(nodeByIndex[Number(relation?.target)]?.id || "")
+            const reversed = sourceId === route.targetId && targetId === route.sourceId
+            directional.flowPpsAb += Number(reversed ? relation.flowPpsBa : relation.flowPpsAb) || 0
+            directional.flowPpsBa += Number(reversed ? relation.flowPpsAb : relation.flowPpsBa) || 0
+            directional.flowBpsAb += Number(reversed ? relation.flowBpsBa : relation.flowBpsAb) || 0
+            directional.flowBpsBa += Number(reversed ? relation.flowBpsAb : relation.flowBpsBa) || 0
+          }
+          const allStale = relationIsStale(relations[0])
+          const measured = allStale ? [] : relations
+          const seenValues = relations.map(relationLastSeen)
+          const sharedSeen = seenValues.length > 0 && seenValues.every((seen) => seen !== "" && seen === seenValues[0])
+            ? seenValues[0]
+            : ""
 
-        const metadataNumber = (field) => {
-          if (!useRouteMetadata) return null
-          if (!Object.hasOwn(metadata, field)) return null
-          const value = Number(metadata[field])
-          return Number.isFinite(value) ? value : null
-        }
-        const numeric = (field, fallback = 0) => {
-          const metadataValue = metadataNumber(field)
-          if (metadataValue !== null) return metadataValue
-          return measured.length > 0
-            ? measured.reduce((total, relation) => total + (Number(relation?.[field]) || 0), 0)
-            : fallback
-        }
-        const directionalNumeric = (field, fallback) => metadataNumber(field) ?? fallback
-        const relationWeight = relations.reduce(
-          (total, relation) => total + Math.max(1, Number(relation?.weight || 1)),
-          0,
-        ) || 1
-        const relationCapacityBps = relations.length > 0
-          ? Math.max(0, ...relations.map((relation) => Number(relation?.capacityBps) || 0))
-          : 0
-        const presentation = deterministicRelationPresentation(relations)
-        const label = auxiliary
-          ? ""
-          : String((useRouteMetadata && metadata.label) || presentation.label || `${route.sourceId} -> ${route.targetId}`)
-        const telemetryEligible = allStale
-          ? false
-          : useRouteMetadata && (Object.hasOwn(metadata, "telemetryEligible") || Object.hasOwn(metadata, "telemetry_eligible"))
-            ? metadata.telemetryEligible !== false && metadata.telemetry_eligible !== false
-            : measured.length > 0
-              ? measured.some((relation) => relation?.telemetryEligible !== false && relation?.telemetry_eligible !== false)
-              : true
-        const protocols = Array.from(new Set(relations.map((relation) => String(relation?.protocol || "")).filter(Boolean))).sort()
-        const evidenceClasses = Array.from(new Set(relations.map((relation) => String(relation?.evidenceClass || "")).filter(Boolean))).sort()
-
-        const built = {
-          routeId: route.id,
-          sourceId: route.sourceId,
-          targetId: route.targetId,
-          sourcePosition: [...path[0]],
-          targetPosition: [...path[path.length - 1]],
-          path,
-          relationIds,
-          weight: metadataNumber("weight") ?? relationWeight,
-          flowPps: numeric("flowPps"),
-          flowPpsAb: directionalNumeric("flowPpsAb", directional.flowPpsAb),
-          flowPpsBa: directionalNumeric("flowPpsBa", directional.flowPpsBa),
-          flowBps: numeric("flowBps"),
-          flowBpsAb: directionalNumeric("flowBpsAb", directional.flowBpsAb),
-          flowBpsBa: directionalNumeric("flowBpsBa", directional.flowBpsBa),
-          capacityBps: metadataNumber("capacityBps") ?? relationCapacityBps,
-          midpoint: midpointOnPath(path),
-          label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
-          connectionLabel: this.connectionKindFromLabel(label),
-          telemetryEligible: auxiliary ? false : telemetryEligible,
-          ...(allStale ? {stale: true} : {}),
-          ...(sharedSeen ? {lastSeen: sharedSeen} : {}),
-          topologyClass: dominantClass(topologyClassCounts),
-          topologyClassCounts,
-          protocol: protocols.length === 1 ? protocols[0] : "",
-          evidenceClass: evidenceClasses.length === 1 ? evidenceClasses[0] : "",
-          auxiliary,
-          semanticRouteIds: [...(route?.semanticRouteIds || [])],
-          details: useRouteMetadata && metadata.details && typeof metadata.details === "object"
-            ? metadata.details
-            : presentation.details,
-          edgeCount: Math.max(1, relations.length),
-          interactionKey: auxiliary ? null : `local:${route.id}`,
-        }
-        Object.defineProperty(built, "memberDetails", {value: relations.map((relation) => relation?.details)})
-        return built
+          const metadataNumber = (field) => {
+            if (!useRouteMetadata) return null
+            if (!Object.hasOwn(metadata, field)) return null
+            const value = Number(metadata[field])
+            return Number.isFinite(value) ? value : null
+          }
+          const numeric = (field, fallback = 0) => {
+            const metadataValue = metadataNumber(field)
+            if (metadataValue !== null) return metadataValue
+            return measured.length > 0
+              ? measured.reduce((total, relation) => total + (Number(relation?.[field]) || 0), 0)
+              : fallback
+          }
+          const directionalNumeric = (field, fallback) => metadataNumber(field) ?? fallback
+          const relationWeight = relations.reduce(
+            (total, relation) => total + Math.max(1, Number(relation?.weight || 1)),
+            0,
+          ) || 1
+          const relationCapacityBps = relations.length > 0
+            ? Math.max(0, ...relations.map((relation) => Number(relation?.capacityBps) || 0))
+            : 0
+          const presentation = deterministicRelationPresentation(relations)
+          const label = auxiliary
+            ? ""
+            : String((useRouteMetadata && metadata.label) || presentation.label || `${route.sourceId} -> ${route.targetId}`)
+          const telemetryEligible = allStale
+            ? false
+            : useRouteMetadata && (Object.hasOwn(metadata, "telemetryEligible") || Object.hasOwn(metadata, "telemetry_eligible"))
+              ? metadata.telemetryEligible !== false && metadata.telemetry_eligible !== false
+              : measured.length > 0
+                ? measured.some((relation) => relation?.telemetryEligible !== false && relation?.telemetry_eligible !== false)
+                : true
+          const protocols = Array.from(new Set(relations.map((relation) => String(relation?.protocol || "")).filter(Boolean))).sort()
+          const evidenceClasses = Array.from(new Set(relations.map((relation) => String(relation?.evidenceClass || "")).filter(Boolean))).sort()
+  
+          const built = {
+            routeId: `${route.id}${freshnessSuffix}`,
+            sourceId: route.sourceId,
+            targetId: route.targetId,
+            sourcePosition: [...path[0]],
+            targetPosition: [...path[path.length - 1]],
+            path,
+            relationIds,
+            weight: metadataNumber("weight") ?? relationWeight,
+            flowPps: numeric("flowPps"),
+            flowPpsAb: directionalNumeric("flowPpsAb", directional.flowPpsAb),
+            flowPpsBa: directionalNumeric("flowPpsBa", directional.flowPpsBa),
+            flowBps: numeric("flowBps"),
+            flowBpsAb: directionalNumeric("flowBpsAb", directional.flowBpsAb),
+            flowBpsBa: directionalNumeric("flowBpsBa", directional.flowBpsBa),
+            capacityBps: metadataNumber("capacityBps") ?? relationCapacityBps,
+            midpoint: midpointOnPath(path),
+            label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
+            connectionLabel: this.connectionKindFromLabel(label),
+            telemetryEligible: auxiliary ? false : telemetryEligible,
+            ...(allStale ? {stale: true} : {}),
+            ...(sharedSeen ? {lastSeen: sharedSeen} : {}),
+            topologyClass: dominantClass(topologyClassCounts),
+            topologyClassCounts,
+            protocol: protocols.length === 1 ? protocols[0] : "",
+            evidenceClass: evidenceClasses.length === 1 ? evidenceClasses[0] : "",
+            auxiliary,
+            semanticRouteIds: [...(route?.semanticRouteIds || [])],
+            details: useRouteMetadata && metadata.details && typeof metadata.details === "object"
+              ? metadata.details
+              : presentation.details,
+            edgeCount: Math.max(1, relations.length),
+            interactionKey: auxiliary ? null : `local:${route.id}${freshnessSuffix}`,
+          }
+          Object.defineProperty(built, "memberDetails", {value: relations.map((relation) => relation?.details)})
+          return built
+        })
       })
-      .filter(Boolean)
   },
   collapseExpandedMemberTrunks(edgeData, visibleNodes) {
     if (!Array.isArray(edgeData) || edgeData.length === 0) return []
@@ -711,11 +716,15 @@ export const godViewRenderingGraphDataMethods = {
 
     for (const edge of edgeData) {
       const pair = canonicalPair(edge)
-      const key = `${pair.left}|${pair.right}`
+      const pairKey = `${pair.left}|${pair.right}`
+      const stale = relationIsStale(edge)
+      const key = `${pairKey}|${stale ? "stale" : "current"}`
       const classBucket = classBucketForEdge(edge)
       const current = acc.get(key) || {
         sourceId: pair.left,
         targetId: pair.right,
+        pairKey,
+        stale,
         sourcePosition: pair.forward ? edge.sourcePosition : edge.targetPosition,
         targetPosition: pair.forward ? edge.targetPosition : edge.sourcePosition,
         weight: 0,
@@ -731,7 +740,6 @@ export const godViewRenderingGraphDataMethods = {
         connectionLabel: edge.connectionLabel,
         telemetryEligible: false,
         memberCount: 0,
-        freshMembers: 0,
         sharedSeen: "",
         topologyClass: "",
         topologyClassCounts: emptyClassCounts(),
@@ -757,7 +765,6 @@ export const godViewRenderingGraphDataMethods = {
         const flowPpsBa = Number(edge.flowPpsBa || 0)
         const flowBpsAb = Number(edge.flowBpsAb || 0)
         const flowBpsBa = Number(edge.flowBpsBa || 0)
-        current.freshMembers += 1
         current.flowPps += Number(edge.flowPps || 0)
         current.flowPpsAb += pair.forward ? flowPpsAb : flowPpsBa
         current.flowPpsBa += pair.forward ? flowPpsBa : flowPpsAb
@@ -776,6 +783,13 @@ export const godViewRenderingGraphDataMethods = {
       acc.set(key, current)
     }
 
+    const pairVariants = new Map()
+    for (const edge of acc.values()) {
+      const variants = pairVariants.get(edge.pairKey) || new Set()
+      variants.add(edge.stale)
+      pairVariants.set(edge.pairKey, variants)
+    }
+
     const aggregated = Array.from(acc.values()).map((edge) => {
       const labels = Array.from(edge.labels).sort()
       const protocols = Array.from(edge.protocols).sort()
@@ -786,7 +800,10 @@ export const godViewRenderingGraphDataMethods = {
       const dominantClass = classBuckets.length === 1 ? classBuckets[0][0] : ""
       const presentation = deterministicRelationPresentation(edge.presentationRelations)
       const memberDetails = edge.presentationRelations.map((relation) => relation?.details)
-      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, presentationRelations: _presentationRelations, memberCount: _memberCount, freshMembers: _freshMembers, sharedSeen: _sharedSeen, ...plainEdge} = edge
+      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, presentationRelations: _presentationRelations, memberCount: _memberCount, sharedSeen: _sharedSeen, pairKey: _pairKey, stale: _stale, ...plainEdge} = edge
+      const freshnessSuffix = pairVariants.get(edge.pairKey)?.size > 1
+        ? `:${edge.stale ? "stale" : "current"}`
+        : ""
 
       const built = {
         ...plainEdge,
@@ -795,7 +812,8 @@ export const godViewRenderingGraphDataMethods = {
         topologyClass: dominantClass,
         protocol: protocols.length === 1 ? protocols[0] : "",
         evidenceClass: evidenceClasses.length === 1 ? evidenceClasses[0] : "",
-        ...(edge.memberCount > 0 && edge.freshMembers === 0 ? {stale: true, telemetryEligible: false} : {}),
+        interactionKey: `${edge.interactionKey}${freshnessSuffix}`,
+        ...(edge.stale ? {stale: true, telemetryEligible: false} : {}),
         ...(edge.sharedSeen ? {lastSeen: edge.sharedSeen} : {}),
         labels,
         protocols,

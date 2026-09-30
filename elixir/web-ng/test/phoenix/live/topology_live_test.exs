@@ -133,6 +133,27 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     refute html =~ "No topology data yet"
   end
 
+  test "counts unknown topology evidence outside the backbone warning", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    html =
+      render_hook(view, "god_view_stream_stats", %{
+        "node_count" => 2,
+        "edge_count" => 1,
+        "pipeline_stats" => %{
+          "final_edges" => 1,
+          "backbone_edge_count" => 0,
+          "edge_class_backbone" => 0,
+          "edge_class_unknown" => 1
+        }
+      })
+
+    assert html =~ "Backbone unavailable"
+    assert html =~ "bb:0"
+    assert html =~ "unk:1"
+    assert html =~ "att:—"
+  end
+
   test "does not show the backbone-empty warning for a healthy snapshot", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/topology")
 

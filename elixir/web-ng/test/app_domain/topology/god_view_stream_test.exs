@@ -377,6 +377,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(stats, :edge_class_attachment) == 1
     assert Map.get(stats, :edge_class_inferred) == 1
     assert Map.get(stats, :edge_class_hosted) == 0
+    assert Map.get(stats, :edge_class_unknown) == 0
     refute Map.has_key?(stats, :edge_class_observed)
   end
 
