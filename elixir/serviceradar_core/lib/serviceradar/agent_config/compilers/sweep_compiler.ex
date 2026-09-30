@@ -38,6 +38,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLQuery
+  alias ServiceRadar.SweepJobs.DeclaredTargets
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
@@ -93,6 +94,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
             "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
             groups: Enum.map(compiled_groups, &compiled_group_summary/1)
           )
+
+          # Record what this agent is about to receive as each group's declared
+          # targets, so query-derived declarations follow inventory changes and
+          # not only group edits. A failed read never reaches here. Unchanged
+          # sets are skipped, and recording never fails the compile.
+          DeclaredTargets.record_compiled(compiled_groups)
 
           # Compute config hash for change detection
           config_hash = config_hash(compiled_groups)

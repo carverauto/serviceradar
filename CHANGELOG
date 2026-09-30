@@ -26,6 +26,14 @@ is served from a tiled world map.
 
 ## Whats New
 
+**Unreleased**
+- Sweep diagnostics: declared targets in `in:device_sweep_overlap` now
+  follow inventory changes. A query-based group's device targets are
+  recorded whenever its config is compiled for an agent, not only when the
+  group is edited, so a device added later no longer shows as observed but
+  not declared. An unchanged set is not rewritten, and concurrent writers of
+  the same group no longer interleave.
+
 **1.4.77**
 - Sweep config: compiled sweep configs are smaller and cheaper to build.
   Each device target now carries only `device_uid` in its metadata; the

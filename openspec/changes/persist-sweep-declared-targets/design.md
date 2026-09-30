@@ -22,8 +22,9 @@ smaller, not persisted.
   production; persist one small row per (group, target); keep the compiled
   document ephemeral.
 - Non-Goals: persisting compiled sweep config documents (works against
-  `refactor-sweep-config-shared-targets`); refreshing declared targets on
-  device-inventory drift; changing the observed side or the availability
+  `refactor-sweep-config-shared-targets`); a periodic refresh worker
+  (inventory drift is handled by recording at compile time instead, see the
+  follow-up decision below); changing the observed side or the availability
   attribution columns; any Go agent change.
 
 ## Decisions
@@ -55,8 +56,9 @@ smaller, not persisted.
   edit cannot overwrite a later one. Group destroy needs no hook: the FK
   cascades.
 - Decision: the refresh reuses the compiler's own target resolution. A new
-  public `SweepCompiler.declared_targets/1` returns
-  `%{static: [target], device: [%{target:, device_uid:}]}` from the same
+  public `SweepCompiler.declared_targets/2` returns
+  `%{static: [target], device: [%{target:, device_uid:}]}`, or
+  `{:error, reason}` for a failed target-query read, from the same
   normalize/paginate/normalize-ip path `compile/3` uses, so the persisted
   relation is what the compiler would deliver.
   `refactor-sweep-config-shared-targets` will optimize query evaluation
@@ -85,20 +87,37 @@ smaller, not persisted.
 
 ## Risks / Trade-offs
 
-- Declared device targets go stale between group edits (inventory drift
-  changes the SRQL result set; nothing rewrites the rows until the group's
-  targeting changes again). Accepted: the alternative is a periodic
-  fleet-wide SRQL refresh worker, which is real scope, and today's baseline
-  is that declared rows NEVER exist. The compiler stays the freshness
-  authority for what agents actually receive.
-- A refresh can fail (DB hiccup, SRQL error). An SRQL resolution
-  failure degrades exactly as it does in `compile/3`: static targets still
-  persist, the failed device resolution is logged per group. A persistence
-  failure is logged and leaves the previous snapshot in place (upsert-then-
-  prune ordering keeps the old set visible rather than an empty one).
+- Inventory drift. As first shipped, declared device targets went stale
+  between group edits: a device added to or removed from inventory changes
+  the SRQL result set, and nothing rewrote the rows until the group's
+  targeting changed again. The follow-up below records at compile time, so
+  the rows follow the targets agents actually receive.
+- A refresh can fail (DB hiccup, SRQL error). A failed target-query read
+  returns `{:error, reason}` from `SweepCompiler.declared_targets/2`, and
+  `DeclaredTargets.refresh/1` returns it before upserting or pruning, so the
+  previous rows stay; a compile whose read failed returns an error and
+  records nothing. A persistence failure rolls back, leaving the previous
+  snapshot in place.
 - Legacy `agent_ids` rows written before normalization could carry
   duplicates; the declared side keeps a cheap GROUP BY dedup so one
   duplicate agent id cannot fan out declared rows.
+
+## Follow-up: record at compile time
+
+- Decision: `SweepCompiler.compile/3` records each group's declared targets
+  from what it just compiled for the agent
+  (`DeclaredTargets.record_compiled/1`), so query-derived rows follow
+  inventory changes without a periodic worker and match what agents
+  received. The notifier still records immediately on targeting edits.
+- Decision: both paths share one writer: one transaction that takes a
+  per-group `pg_try_advisory_xact_lock` (a writer finding it taken skips,
+  since another writer is recording the same group), skips the write when
+  the stored rows already equal the set (so `declared_at` moves only when
+  the declaration changes), then upserts and prunes. The compile path also
+  keeps a digest of the last recorded set under the `:sweep` config type, so
+  an unchanged group costs no database round trip. A notifier refresh that
+  loses the lock to a concurrent compile is caught up by the next compile,
+  which the edit's `:sweep` invalidation triggers.
 
 ## Migration Plan
 
