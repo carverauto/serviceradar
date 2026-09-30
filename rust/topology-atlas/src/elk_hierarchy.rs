@@ -79,10 +79,7 @@ pub(crate) fn compose(tree: &[(usize, Option<usize>)], engine: &Elk) -> Result<D
         let mut cursor = 0;
         while cursor < chunk.members.len() {
             let node = chunk.members[cursor];
-            if roots.len() > 1 && node != chunk.members[0] && roots.contains(&node) {
-                chunk.frontier.insert(node);
-                pending.push_back(node);
-            } else if chunk.members.len() + children[node].len() <= BATCH {
+            if chunk.members.len() + children[node].len() <= BATCH {
                 for child in &children[node] {
                     chunk.members.push(*child);
                     chunk.edges.push((node, *child));
