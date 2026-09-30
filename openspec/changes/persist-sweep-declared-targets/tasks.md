@@ -71,18 +71,15 @@
 - [x] 5.3 `openspec validate persist-sweep-declared-targets --strict` and
       the two annotated changes still list cleanly.
 
-## 6. Follow-up: inventory drift and query failures
+## 6. Follow-up: inventory drift
 
 - [x] 6.1 Record declared targets from `SweepCompiler.compile/3`
-      (`DeclaredTargets.record_compiled/2`), skipping unchanged sets by
-      digest.
-- [x] 6.2 `SweepCompiler.declared_targets/2` returns `device: :unresolved`
-      for a failed, raising or partly read target query;
-      `DeclaredTargets.refresh/1` and the compile path keep the previous rows
-      for such a group.
-- [x] 6.3 One writer for both paths: a transaction behind a per-group
-      `pg_try_advisory_xact_lock`, no rewrite when the stored rows already
-      match.
-- [x] 6.4 Tests: unit coverage of unresolved and partial queries; fixture
-      database coverage of inventory drift picked up at compile, a failing
-      query keeping rows, and an unchanged recompile keeping `declared_at`.
+      (`DeclaredTargets.record_compiled/1`), skipping unchanged sets by
+      digest; a compile whose target-query read failed records nothing.
+- [x] 6.2 One writer for `refresh/1` and the compile path: a transaction
+      behind a per-group `pg_try_advisory_xact_lock`, no rewrite when the
+      stored rows already match.
+- [x] 6.3 Fixture database tests: a device added after the group was created
+      is declared once a config compiles; a compile whose query fails keeps
+      the recorded device targets; an unchanged recompile keeps
+      `declared_at`.

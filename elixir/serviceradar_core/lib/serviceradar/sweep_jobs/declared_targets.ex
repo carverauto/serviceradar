@@ -10,21 +10,20 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargets do
 
     * `refresh/1`, from `ServiceRadar.SweepJobs.DeclaredTargetsNotifier`,
       when a group's targeting is edited;
-    * `record_compiled/2`, from `SweepCompiler.compile/3`, with the targets a
-      group was just compiled into an agent's config. A query-based group's
-      device targets change with inventory, not only with edits, so this is
-      what keeps SRQL-declared rows current. It records exactly what agents
-      received.
+    * `record_compiled/1`, from `SweepCompiler.compile/3`, with the targets
+      each group was just compiled into an agent's config. A query-based
+      group's device targets change with inventory, not only with edits, so
+      this is what keeps its SRQL rows current, and it records exactly what
+      agents received. A compile whose target-query read failed returns an
+      error and never reaches it.
 
-  Both go through one writer. A group whose target query did not fully
-  resolve is never written, so a transient SRQL failure keeps the previous
-  declaration instead of pruning it to "declares no devices". A write runs in
-  one transaction behind a per-group `pg_try_advisory_xact_lock`: a writer
-  that finds the lock taken skips, because another writer is recording the
-  same group right now. A set equal to the stored rows is not rewritten, so
-  `declared_at` only moves when the declaration changes, and the compile path
-  also keeps a digest of the last recorded set under the `:sweep` config type
-  to skip the database entirely.
+  Both go through one writer: a single transaction behind a per-group
+  `pg_try_advisory_xact_lock`. A writer that finds the lock taken skips,
+  because another writer is recording the same group right now. A set equal
+  to the stored rows is not rewritten, so `declared_at` only moves when the
+  declaration changes. The compile path also keeps a digest of the last
+  recorded set under the `:sweep` config type, so an unchanged group costs no
+  database round trip.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -45,38 +44,39 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargets do
   @lock_class "sweep_group_declared_targets"
 
   @doc """
-  Replaces the persisted declared-target rows for `group`, resolving its
-  targets now.
+  Replaces the persisted declared-target rows for `group`.
 
-  Returns `{:ok, row_count}`, `{:error, :target_query_unresolved}` when the
-  group's target query did not fully resolve (the previous rows are kept),
-  `{:error, :busy}` when another writer holds the group, or `{:error, reason}`.
+  Upsert first, then prune rows the group no longer declares, in one
+  transaction: a failure leaves the previous snapshot visible rather than an
+  empty declared side. A failed target-query read returns `{:error, reason}`
+  and does not upsert or prune. Returns `{:ok, row_count}`, `{:error, :busy}`
+  when another writer holds the group, or `{:error, reason}`.
   """
   @spec refresh(SweepGroup.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def refresh(%SweepGroup{} = group) do
-    case SweepCompiler.declared_targets(group) do
-      %{device: :unresolved} ->
-        {:error, :target_query_unresolved}
-
-      %{static: static, device: device} ->
-        write(group.id, build_rows(group.id, static, device))
+    with {:ok, rows} <- build_rows(group) do
+      write(group.id, rows)
     end
   end
 
   @doc """
-  Records the declared targets of compiled sweep groups, skipping the groups
-  in `unresolved` and every group whose set is unchanged since it was last
+  Records the declared targets of groups `SweepCompiler.compile/3` just
+  compiled, skipping every group whose set is unchanged since it was last
   recorded. Never raises.
   """
-  @spec record_compiled([map()], MapSet.t()) :: :ok
-  def record_compiled(compiled_groups, unresolved) do
-    for %{"id" => group_id} = compiled <- compiled_groups,
-        not MapSet.member?(unresolved, group_id) do
-      device = SweepCompiler.declared_device_targets(compiled["device_targets"] || [])
-      record_if_changed(group_id, build_rows(group_id, compiled["targets"] || [], device))
-    end
+  @spec record_compiled([map()]) :: :ok
+  def record_compiled(compiled_groups) do
+    Enum.each(compiled_groups, fn %{"id" => group_id} = compiled ->
+      device =
+        Enum.map(compiled["device_targets"] || [], fn device_target ->
+          %{
+            target: device_target["network"],
+            device_uid: get_in(device_target, ["metadata", "device_uid"])
+          }
+        end)
 
-    :ok
+      record_if_changed(group_id, declared_rows(group_id, compiled["targets"] || [], device))
+    end)
   end
 
   defp record_if_changed(group_id, rows) do
@@ -110,7 +110,17 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargets do
       )
   end
 
-  defp build_rows(group_id, static, device) do
+  defp build_rows(group) do
+    case SweepCompiler.declared_targets(group) do
+      {:error, reason} ->
+        {:error, reason}
+
+      %{static: static, device: device} ->
+        {:ok, declared_rows(group.id, static, device)}
+    end
+  end
+
+  defp declared_rows(group_id, static, device) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     declared =
@@ -141,9 +151,6 @@ defmodule ServiceRadar.SweepJobs.DeclaredTargets do
     |> Enum.sort()
   end
 
-  # Upsert first, then prune rows the group no longer declares, in one
-  # transaction: a failure leaves the previous snapshot visible rather than an
-  # empty or half-written declared side.
   defp write(group_id, rows) do
     actor = SystemActor.system(:sweep_compiler)
 

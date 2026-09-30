@@ -254,7 +254,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupDeclaredTargetsDbTest do
                %{"203.0.113.60" => {device.uid, :srql}}
     end
 
-    test "a target query that fails at compile time keeps the recorded device targets", %{
+    test "a compile whose target query fails keeps the recorded device targets", %{
       actor: actor,
       unique: unique
     } do
@@ -267,7 +267,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupDeclaredTargetsDbTest do
 
       ConfigCache.invalidate(:sweep)
 
-      assert {:ok, _config} =
+      assert {:error, _reason} =
                SweepCompiler.compile("default", nil,
                  query_page_fn: fn _query, _opts -> {:error, :srql_unavailable} end
                )

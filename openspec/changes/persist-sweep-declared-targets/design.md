@@ -57,7 +57,8 @@ smaller, not persisted.
   cascades.
 - Decision: the refresh reuses the compiler's own target resolution. A new
   public `SweepCompiler.declared_targets/2` returns
-  `%{static: [target], device: [%{target:, device_uid:}] | :unresolved}` from the same
+  `%{static: [target], device: [%{target:, device_uid:}]}`, or
+  `{:error, reason}` for a failed target-query read, from the same
   normalize/paginate/normalize-ip path `compile/3` uses, so the persisted
   relation is what the compiler would deliver.
   `refactor-sweep-config-shared-targets` will optimize query evaluation
@@ -91,35 +92,32 @@ smaller, not persisted.
   the SRQL result set, and nothing rewrote the rows until the group's
   targeting changed again. The follow-up below records at compile time, so
   the rows follow the targets agents actually receive.
-- A refresh can fail (DB hiccup, SRQL error). As first shipped, an SRQL
-  resolution failure degraded as in `compile/3` (no device targets), and the
-  refresh then pruned the group's SRQL rows. The follow-up below keeps them
-  instead. A persistence failure is logged and rolls back, leaving the
-  previous snapshot in place.
+- A refresh can fail (DB hiccup, SRQL error). A failed target-query read
+  returns `{:error, reason}` from `SweepCompiler.declared_targets/2`, and
+  `DeclaredTargets.refresh/1` returns it before upserting or pruning, so the
+  previous rows stay; a compile whose read failed returns an error and
+  records nothing. A persistence failure rolls back, leaving the previous
+  snapshot in place.
+- Legacy `agent_ids` rows written before normalization could carry
+  duplicates; the declared side keeps a cheap GROUP BY dedup so one
+  duplicate agent id cannot fan out declared rows.
 
-## Follow-up: record at compile time; keep rows on query failure
+## Follow-up: record at compile time
 
 - Decision: `SweepCompiler.compile/3` records each group's declared targets
   from what it just compiled for the agent
-  (`DeclaredTargets.record_compiled/2`), so query-derived rows follow
+  (`DeclaredTargets.record_compiled/1`), so query-derived rows follow
   inventory changes without a periodic worker and match what agents
   received. The notifier still records immediately on targeting edits.
-- Decision: a group whose target query failed, raised or was only partly
-  read is not written. `SweepCompiler.declared_targets/2` returns
-  `device: :unresolved` for it and `compile_groups_with_resolution/3` reports
-  it, so a transient SRQL error keeps the previous declaration instead of
-  pruning it to "declares no devices". The agent still receives whatever
-  the partial read produced.
 - Decision: both paths share one writer: one transaction that takes a
   per-group `pg_try_advisory_xact_lock` (a writer finding it taken skips,
   since another writer is recording the same group), skips the write when
   the stored rows already equal the set (so `declared_at` moves only when
   the declaration changes), then upserts and prunes. The compile path also
   keeps a digest of the last recorded set under the `:sweep` config type, so
-  an unchanged group costs no database round trip.
-- Legacy `agent_ids` rows written before normalization could carry
-  duplicates; the declared side keeps a cheap GROUP BY dedup so one
-  duplicate agent id cannot fan out declared rows.
+  an unchanged group costs no database round trip. A notifier refresh that
+  loses the lock to a concurrent compile is caught up by the next compile,
+  which the edit's `:sweep` invalidation triggers.
 
 ## Migration Plan
 

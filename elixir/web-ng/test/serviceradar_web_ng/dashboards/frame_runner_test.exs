@@ -157,6 +157,123 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
     end
   end
 
+  # Like FakeCursorSRQL but completes in one page (no next_cursor).
+  # Used for tests that want to observe what cursor the first call receives
+  # without triggering the auto-pagination loop.
+  defmodule FakeOneShotCursorSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "query" => query,
+             "cursor" => Map.get(opts, :cursor),
+             "limit" => Map.get(opts, :limit)
+           }
+         ],
+         "pagination" => %{
+           "limit" => Map.get(opts, :limit)
+         }
+       }}
+    end
+  end
+
+  # Returns two pages: first page (no cursor) → 3 rows + next_cursor,
+  # second page (cursor present) → 2 rows + no next_cursor.
+  defmodule FakePaginatedSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      case Map.get(opts, :cursor) do
+        nil ->
+          {:ok,
+           %{
+             "results" => [
+               %{"q" => query, "page" => 1, "n" => 1},
+               %{"q" => query, "page" => 1, "n" => 2},
+               %{"q" => query, "page" => 1, "n" => 3}
+             ],
+             "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
+           }}
+
+        "page-2" ->
+          {:ok,
+           %{
+             "results" => [%{"q" => query, "page" => 2, "n" => 1}, %{"q" => query, "page" => 2, "n" => 2}],
+             "pagination" => %{"limit" => Map.get(opts, :limit)}
+           }}
+      end
+    end
+  end
+
+  # Returns one page of 3 rows with a next_cursor, then errors on the second page.
+  defmodule FakePartialErrorSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      case Map.get(opts, :cursor) do
+        nil ->
+          {:ok,
+           %{
+             "results" => [
+               %{"q" => query, "page" => 1, "n" => 1},
+               %{"q" => query, "page" => 1, "n" => 2},
+               %{"q" => query, "page" => 1, "n" => 3}
+             ],
+             "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
+           }}
+
+        "page-2" ->
+          {:error, :srql_unavailable}
+      end
+    end
+  end
+
+  # Returns one page of 2 rows + next_cursor, then a zero-row page with another cursor.
+  # The zero-row page must stop pagination rather than looping forever.
+  defmodule FakeZeroRowPageSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      case Map.get(opts, :cursor) do
+        nil ->
+          {:ok,
+           %{
+             "results" => [%{"q" => query, "page" => 1, "n" => 1}, %{"q" => query, "page" => 1, "n" => 2}],
+             "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
+           }}
+
+        "page-2" ->
+          {:ok,
+           %{
+             "results" => [],
+             "pagination" => %{"next_cursor" => "page-3", "limit" => Map.get(opts, :limit)}
+           }}
+      end
+    end
+  end
+
+  # Returns one page of 2 rows with next_cursor, then a non-list (bare map) response.
+  defmodule FakeNonListPageSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      case Map.get(opts, :cursor) do
+        nil ->
+          {:ok,
+           %{
+             "results" => [%{"q" => query, "n" => 1}, %{"q" => query, "n" => 2}],
+             "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
+           }}
+
+        "page-2" ->
+          {:ok, %{"error" => "unexpected_format"}}
+      end
+    end
+  end
+
   defmodule FakeConcurrentSRQL do
     @moduledoc false
 
@@ -395,7 +512,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
     assert [%{"id" => "optional", "required" => false}] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)
   end
 
-  test "caps frame count and row limit" do
+  test "caps frame count; rows reflect what SRQL returns within the page size" do
     frames =
       for index <- 1..20 do
         %{"id" => "f#{index}", "query" => "in:devices", "encoding" => "json_rows", "limit" => 10_000}
@@ -403,7 +520,10 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
 
     results = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)
 
+    # Max 12 frames processed regardless of how many are declared.
     assert length(results) == 12
+    # FakeSRQL fills one page of @max_page_size rows with no next_cursor,
+    # so each frame carries exactly one page worth of results.
     assert Enum.all?(results, &(length(&1["results"]) == 2_000))
   end
 
@@ -437,7 +557,77 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
              %{
                "results" => [%{"cursor" => nil, "limit" => 200}]
              }
-           ] = FrameRunner.run(frames, :scope, srql_module: FakeCursorSRQL)
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeOneShotCursorSRQL)
+  end
+
+  test "auto-paginates frames that have no explicit cursor" do
+    frames = [
+      %{"id" => "devices", "query" => "in:devices type:camera", "encoding" => "json_rows", "limit" => 10}
+    ]
+
+    assert [
+             %{
+               "id" => "devices",
+               "status" => "ok",
+               "results" => results
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakePaginatedSRQL)
+
+    assert length(results) == 5
+    assert Enum.count(results, &(&1["page"] == 1)) == 3
+    assert Enum.count(results, &(&1["page"] == 2)) == 2
+  end
+
+  test "returns partial status and truncated flag when mid-pagination SRQL error occurs" do
+    frames = [
+      %{"id" => "devices", "query" => "in:devices type:camera", "encoding" => "json_rows", "limit" => 10}
+    ]
+
+    assert [
+             %{
+               "id" => "devices",
+               "status" => "partial",
+               "truncated" => true,
+               "results" => results
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakePartialErrorSRQL)
+
+    assert length(results) == 3
+    assert Enum.all?(results, &(&1["page"] == 1))
+  end
+
+  test "stops pagination when SRQL returns zero rows with a next_cursor" do
+    frames = [
+      %{"id" => "devices", "query" => "in:devices", "encoding" => "json_rows", "limit" => 100}
+    ]
+
+    assert [
+             %{
+               "id" => "devices",
+               "status" => "ok",
+               "results" => results
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeZeroRowPageSRQL)
+
+    assert length(results) == 2
+    assert Enum.all?(results, &(&1["page"] == 1))
+  end
+
+  test "returns partial status and truncated flag when mid-pagination non-list response occurs after rows are accumulated" do
+    frames = [
+      %{"id" => "devices", "query" => "in:devices", "encoding" => "json_rows", "limit" => 100}
+    ]
+
+    assert [
+             %{
+               "id" => "devices",
+               "status" => "partial",
+               "truncated" => true,
+               "results" => results
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeNonListPageSRQL)
+
+    assert length(results) == 2
   end
 
   test "security findings source probes are optional" do
