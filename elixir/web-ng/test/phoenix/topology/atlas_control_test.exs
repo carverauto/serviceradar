@@ -1,8 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
   use ExUnit.Case, async: false
 
-  import Plug.Conn
   import Phoenix.LiveViewTest, only: [render_component: 2]
+  import Plug.Conn
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Endpoint
@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
       control =
         html |> LazyHTML.from_fragment() |> LazyHTML.query("button[phx-value-layer='inferred']")
 
-      assert LazyHTML.text(control) |> String.trim() == "Inferred"
+      assert control |> LazyHTML.text() |> String.trim() == "Inferred"
       assert LazyHTML.attribute(control, "aria-pressed") == [to_string(enabled)]
       [event] = LazyHTML.attribute(control, "phx-click")
       [layer] = LazyHTML.attribute(control, "phx-value-layer")

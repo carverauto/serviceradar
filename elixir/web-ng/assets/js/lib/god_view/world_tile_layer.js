@@ -166,6 +166,8 @@ export default class WorldTileLayer extends TileLayer {
       safeRect: {left: 0, top: 0, right: viewport.width, bottom: viewport.height},
     })
     const labels = admitted.map(placement => ({...nodes.get(placement.nodeId), ...placement}))
+    // An empty automatic character set cannot initialize a WebGPU font atlas.
+    if (labels.length === 0) return layers
     return [layers, new TextLayer(this.getSubLayerProps({id: "labels"}), {
       coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND,
       data: labels, pickable: false, getPosition: item => item.position,

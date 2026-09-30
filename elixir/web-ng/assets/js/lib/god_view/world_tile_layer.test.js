@@ -43,6 +43,9 @@ describe("world tile rendering contract", () => {
     })
     layer.state = {tileset}
     try {
+      layer.context = {viewport: viewport(1)}
+      // No glyph atlas should be initialized before any labels are admitted.
+      expect(layer.renderLayers().flat(Infinity).filter(item => item?.id.endsWith("-labels"))).toHaveLength(0)
       const rendered = async zoom => {
         layer.context = {viewport: viewport(zoom)}
         tileset.update(layer.context.viewport)
@@ -74,6 +77,10 @@ describe("world tile rendering contract", () => {
       const dense = await rendered(1)
       expect(dense).toBeGreaterThan(0)
       expect(dense).toBeLessThan(6)
+      const hidden = layer.clone({filters: {unknown: false}})
+      hidden.state = {tileset}
+      hidden.context = layer.context
+      expect(hidden.renderLayers().flat(Infinity).filter(item => item?.id.endsWith("-labels"))).toHaveLength(0)
       expect(await rendered(6)).toBe(6)
     } finally {
       tileset.finalize()
