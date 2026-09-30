@@ -58,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
       |> assign(:has_next?, false)
       |> assign(:query_error, nil)
       |> assign(:selected_event, nil)
+      |> assign(:refresh_pending?, false)
       |> load_events()
 
     {:ok, socket}
@@ -121,12 +122,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   end
 
   @impl true
-  def handle_info({:security_event, _event}, socket) do
-    if socket.assigns.can_view? and socket.assigns.cursors == [] do
-      {:noreply, load_events(socket)}
+  def handle_info({:security_event, event}, socket) do
+    with true <- socket.assigns.can_view? and socket.assigns.cursors == [],
+         false <- socket.assigns.refresh_pending?,
+         {:ok, start_at, end_at} <- time_range(socket.assigns.filters),
+         at when not is_nil(at) <- Map.get(event, :occurred_at),
+         true <- DateTime.compare(at, start_at) != :lt,
+         true <- is_nil(end_at) or DateTime.compare(at, end_at) != :gt do
+      Process.send_after(self(), :refresh_events, 250)
+      {:noreply, assign(socket, :refresh_pending?, true)}
     else
-      {:noreply, socket}
+      _ -> {:noreply, socket}
     end
+  end
+
+  def handle_info(:refresh_events, socket) do
+    socket = assign(socket, :refresh_pending?, false)
+
+    if socket.assigns.can_view? and socket.assigns.cursors == [],
+      do: {:noreply, load_events(socket)},
+      else: {:noreply, socket}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}

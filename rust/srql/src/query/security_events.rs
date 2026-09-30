@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     error::{Result, ServiceError},
-    parser::{Filter, FilterOp},
+    parser::{Filter, FilterOp, FilterValue},
 };
 use diesel::{pg::Pg, sql_query};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -78,7 +78,12 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 fn filter_condition(filter: &Filter, binds: &mut Vec<BindParam>) -> Result<String> {
     if !matches!(
         filter.op,
-        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::In
+        FilterOp::Eq
+            | FilterOp::NotEq
+            | FilterOp::Like
+            | FilterOp::NotLike
+            | FilterOp::In
+            | FilterOp::NotIn
     ) {
         return Err(ServiceError::InvalidRequest(format!(
             "unsupported security_events operator for '{}'",
@@ -94,24 +99,29 @@ fn filter_condition(filter: &Filter, binds: &mut Vec<BindParam>) -> Result<Strin
         "correlation_id" => text_condition("correlation_id", filter, binds),
         "id" => text_condition("id::text", filter, binds),
         "search" => {
-            let value = filter.value.as_scalar()?;
-            // Search is a literal, case-insensitive substring across these four columns.
-            let pattern = format!(
-                "%{}%",
-                value
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_")
-            );
-            let parts: Vec<String> = ["actor_id", "ip", "route", "correlation_id"]
-                .iter()
-                .map(|column| {
+            let values = match &filter.value {
+                FilterValue::Scalar(value) => std::slice::from_ref(value),
+                FilterValue::List(values) => values.as_slice(),
+            };
+            let mut parts = Vec::new();
+            for value in values {
+                let pattern = format!(
+                    "%{}%",
+                    value
+                        .replace('\\', "\\\\")
+                        .replace('%', "\\%")
+                        .replace('_', "\\_")
+                );
+                for column in ["actor_id", "ip", "route", "correlation_id"] {
                     binds.push(BindParam::Text(pattern.clone()));
-                    format!("COALESCE({column}, '') ILIKE ?")
-                })
-                .collect();
+                    parts.push(format!("COALESCE({column}, '') ILIKE ?"));
+                }
+            }
             let condition = format!("({})", parts.join(" OR "));
-            if matches!(filter.op, FilterOp::NotEq) {
+            if matches!(
+                filter.op,
+                FilterOp::NotEq | FilterOp::NotLike | FilterOp::NotIn
+            ) {
                 Ok(format!("NOT {condition}"))
             } else {
                 Ok(condition)

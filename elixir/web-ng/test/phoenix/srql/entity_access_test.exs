@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+  alias ServiceRadarWebNGWeb.SRQL.Page
 
   @moduletag :db_free
 
@@ -12,22 +13,21 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
   # ServiceRadar.Inventory.InterfaceSettings context, not the Rust SRQL engine.
   @non_rust_srql_entities MapSet.new(["interface_settings"])
 
-  test "audit event aliases require the audit permission even for an events reader" do
+  test "security events require the audit permission even for an events reader" do
     events_reader = %Scope{user: nil, permissions: MapSet.new(["observability.events.view"])}
     auditor = %Scope{user: nil, permissions: MapSet.new(["settings.audit.view"])}
 
-    for entity <- ["security_events", "audit_events"] do
-      assert {:ok, _} = Native.parse_ast("in:#{entity} limit:1")
-      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", events_reader)
-      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", nil)
-      assert :ok = EntityAccess.authorize("in:#{entity}", auditor)
-    end
+    assert {:ok, _} = Native.parse_ast("in:security_events limit:1")
+    assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", events_reader)
+    assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", nil)
+    assert :ok = EntityAccess.authorize("in:security_events", auditor)
   end
 
-  test "audit catalog advertises the browsing vocabulary and route" do
-    event = Catalog.entity("audit_events")
+  test "audit catalog advertises the browsing vocabulary without query navigation" do
+    event = Catalog.entity("security_events")
     assert event.id == "security_events"
-    assert event.route == "/settings/audit/events"
+    assert Catalog.structured()["entities"]["security_events"]["route"] == nil
+    assert Page.route_for_query("in:security_events severity:critical", "/devices") == "/devices"
     assert event.default_time == "last_24h"
     assert event.default_sort_field == "occurred_at"
     assert event.default_sort_dir == "desc"

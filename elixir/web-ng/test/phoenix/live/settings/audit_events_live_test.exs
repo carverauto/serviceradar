@@ -42,10 +42,42 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
     view |> element("#audit-events-previous") |> render_click()
     assert hd(row_ids(view)) == latest.id
     live_event = record(DateTime.add(DateTime.utc_now(), 1, :second), marker)
-    send(view.pid, {:security_event, live_event})
+    handler_id = {__MODULE__, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:service_radar, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        if self() == view.pid and String.contains?(metadata.query, "security_events") do
+          send(test_pid, :audit_read)
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    for _ <- 1..50, do: send(view.pid, {:security_event, live_event})
+    assert_receive :audit_read, 1_000
     assert hd(row_ids(view)) == live_event.id
+    refute_receive :audit_read, 350
+
     send(view.pid, {:security_event, latest})
+    assert_receive :audit_read, 1_000
     assert Enum.count(row_ids(view), &(&1 == latest.id)) == 1
+
+    send(view.pid, {:security_event, live_event})
+    view |> element("#audit-events-next") |> render_click()
+    assert_receive :audit_read
+    assert row_ids(view) == Enum.map(Enum.drop(events, 23), & &1.id)
+    refute_receive :audit_read, 350
+
+    filter(view, %{"time" => "custom", "from" => "2001-01-01T00:00", "to" => "2001-01-02T00:00"})
+    assert_receive :audit_read
+    for _ <- 1..50, do: send(view.pid, {:security_event, live_event})
+    assert row_ids(view) == []
+    refute_receive :audit_read, 350
   end
 
   test "combined filters, literal search and time changes reset paging; clear restores defaults",
@@ -109,12 +141,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
     literal = record(DateTime.utc_now(), marker, %{route: "/invented/%literal"})
 
     assert {:ok, %{"results" => [row]}} =
-             SRQL.query("in:audit_events actor_id:#{marker} search:%literal", %{scope: auditor})
+             SRQL.query("in:security_events actor_id:#{marker} search:%literal", %{scope: auditor})
 
     assert row["id"] == literal.id
 
+    for query <- [
+          "search:(%literal,absent-invented-text)",
+          "!search:(login,absent-invented-text)",
+          "!route:%login%",
+          "!route:(/invented/login,/invented/absent)"
+        ] do
+      assert {:ok, %{"results" => [row]}} =
+               SRQL.query("in:security_events actor_id:#{marker} #{query}", %{scope: auditor})
+
+      assert row["id"] == literal.id
+    end
+
     assert {:ok, %{"results" => []}} =
-             SRQL.query("in:audit_events actor_id:#{marker} search:absent-invented-text", %{
+             SRQL.query("in:security_events actor_id:#{marker} search:absent-invented-text", %{
                scope: auditor
              })
   end

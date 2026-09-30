@@ -174,7 +174,7 @@ pub(in crate::query) fn text_condition(
         let owned: Vec<String> = values.iter().map(ToString::to_string).collect();
         binds.push(BindParam::TextArray(owned));
         return Ok(match filter.op {
-            FilterOp::NotEq => format!("NOT ({column} = ANY(?))"),
+            FilterOp::NotEq | FilterOp::NotIn => format!("NOT ({column} = ANY(?))"),
             _ => format!("{column} = ANY(?)"),
         });
     }
@@ -184,7 +184,9 @@ pub(in crate::query) fn text_condition(
     if value.contains('%') {
         binds.push(BindParam::Text(value));
         return Ok(match filter.op {
-            FilterOp::NotEq => format!("({column} IS NULL OR {column} NOT ILIKE ?)"),
+            FilterOp::NotEq | FilterOp::NotLike => {
+                format!("({column} IS NULL OR {column} NOT ILIKE ?)")
+            }
             _ => format!("{column} ILIKE ?"),
         });
     }

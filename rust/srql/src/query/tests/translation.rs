@@ -2185,7 +2185,7 @@ fn downsample_rejects_unknown_aggregates_with_the_full_list() {
 fn security_events_translation_is_bound_and_stably_paginated() {
     let config = test_config();
     let request = QueryRequest {
-        query: "in:audit_events kind:login_failed severity:critical actor_id:invented-actor ip:192.0.2.8 route:/login correlation_id:invented-correlation search:denied sort:occurred_at:desc limit:25".into(),
+        query: "in:security_events kind:login_failed severity:critical actor_id:invented-actor ip:192.0.2.8 route:/login correlation_id:invented-correlation search:denied sort:occurred_at:desc limit:25".into(),
         limit: None,
         cursor: Some(encode_cursor(25, &config.cursor_secret).unwrap()),
         direction: QueryDirection::Next,
@@ -2228,9 +2228,94 @@ fn security_events_translation_is_bound_and_stably_paginated() {
 }
 
 #[test]
+fn security_events_text_operators_preserve_polarity_and_values() {
+    let config = test_config();
+    for field in [
+        "kind",
+        "severity",
+        "actor_id",
+        "ip",
+        "route",
+        "correlation_id",
+        "id",
+    ] {
+        let column = if field == "id" { "id::text" } else { field };
+        for (value, positive, negative) in [
+            (
+                "invented",
+                format!("{column} = $3"),
+                format!("{column} <> $3"),
+            ),
+            (
+                "%invented%",
+                format!("{column} ILIKE $3"),
+                format!("{column} NOT ILIKE $3"),
+            ),
+            (
+                "(first,second)",
+                format!("{column} = ANY($3)"),
+                format!("NOT ({column} = ANY($3))"),
+            ),
+        ] {
+            for (prefix, predicate) in [("", &positive), ("!", &negative)] {
+                let request = QueryRequest {
+                    query: format!("in:security_events {prefix}{field}:{value}"),
+                    limit: None,
+                    cursor: None,
+                    direction: QueryDirection::Next,
+                    mode: None,
+                    permitted_signals: None,
+                };
+                let result = translate_request(&config, request).unwrap();
+                assert!(result.sql.contains(predicate), "{}", result.sql);
+                if value.starts_with('(') {
+                    assert!(
+                        matches!(&result.params[2], BindParam::TextArray(values) if values == &["first", "second"])
+                    );
+                } else {
+                    assert!(matches!(&result.params[2], BindParam::Text(text) if text == value));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn security_events_search_lists_and_negation_keep_patterns_literal() {
+    let config = test_config();
+    for (value, patterns) in [
+        ("%literal_", vec![r"%\%literal\_%"]),
+        (
+            r"(login,%literal_,path\part)",
+            vec!["%login%", r"%\%literal\_%", r"%path\\part%"],
+        ),
+    ] {
+        for prefix in ["", "!"] {
+            let request = QueryRequest {
+                query: format!("in:security_events {prefix}search:{value}"),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+                permitted_signals: None,
+            };
+            let result = translate_request(&config, request).unwrap();
+            assert_eq!(result.sql.contains("NOT (COALESCE"), prefix == "!");
+            assert_eq!(result.sql.matches(" ILIKE $").count(), patterns.len() * 4);
+            for (index, pattern) in patterns.iter().enumerate() {
+                for param in &result.params[2 + index * 4..6 + index * 4] {
+                    assert!(matches!(param, BindParam::Text(text) if text == pattern));
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn security_events_refuses_unsupported_queries() {
     let config = test_config();
     for query in [
+        "in:audit_events limit:1",
         "in:security_events details:secret",
         "in:security_events sort:details:desc",
         "in:security_events stats:count() as n",

@@ -317,7 +317,7 @@ fields; using a field that the entity does not support returns an
 |----------------|---------|-------------|
 | `devices` | `device`, `device_inventory` | Device inventory and current state |
 | `events` | `activity` | Normalized OCSF events and activity |
-| `security_events` | `audit_events` | Control-plane security audit log. Requires `settings.audit.view`. |
+| `security_events` | | Control-plane security audit log. Requires `settings.audit.view`. |
 | `logs` | — | Application and system logs (OpenTelemetry) |
 | `threat_intel_matches` | `threat_intel_match`, `ioc_matches`, `ioc_match` | Current IP/CIDR cache-to-indicator memberships. Requires `observability.netflow.view`. |
 | `flows` | `flow`, `network_activity` | NetFlow / network activity records (raw 5-tuples) |
@@ -425,14 +425,16 @@ Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
 
 ### security_events
 
-`in:security_events` (alias `audit_events`) reads the control-plane security
+`in:security_events` reads the control-plane security
 log behind Settings -> Audit -> Events. It requires `settings.audit.view`;
 permission to read OCSF `events` or `security_findings` does not grant access.
 
 Filters: `kind`, `severity`, `actor_id`, `ip`, `route`, `correlation_id`, `id`,
 and `search`. Dedicated fields support equality, lists and `%` wildcards.
 `search` matches a literal, case-insensitive substring across actor ID, IP,
-route and correlation ID. Details are returned but cannot be searched or sorted.
+route and correlation ID. Lists match any of the search terms; negation excludes
+all matching terms. The builder offers equality and inequality for literal search.
+Details are returned but cannot be searched or sorted.
 Severity values are `info`, `warning` and `critical`; the catalog publishes the
 current kind vocabulary.
 
@@ -442,7 +444,7 @@ Limits and SRQL cursors follow the standard bounded pagination contract.
 
 ```text
 in:security_events time:last_7d kind:login_failed severity:critical limit:25
-in:audit_events ip:192.0.2.8 route:/login time:last_24h
+in:security_events ip:192.0.2.8 route:/login time:last_24h
 in:security_events search:invented-correlation limit:25
 ```
 

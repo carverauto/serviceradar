@@ -6,6 +6,29 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
 
   @moduletag :db_free
 
+  test "audit filters preserve wildcards and literal search when edited" do
+    for prefix <- ["", "!"] do
+      for field <- ~w(kind severity actor_id ip route correlation_id id search) do
+        query = "in:security_events #{prefix}#{field}:%invented_% limit:25"
+        assert {:ok, state} = Builder.parse(query)
+        assert Builder.build(state) =~ "#{prefix}#{field}:%invented_%"
+      end
+    end
+
+    state = Builder.default_state("security_events", 25)
+
+    for op <- ["equals", "not_equals"] do
+      state =
+        Map.put(state, "filters", [
+          %{"field" => "search", "op" => op, "value" => "%literal"},
+          %{"field" => "search", "op" => op, "value" => "invented_login"}
+        ])
+
+      prefix = if op == "equals", do: "", else: "!"
+      assert Builder.build(state) =~ "#{prefix}search:(%literal,invented_login)"
+    end
+  end
+
   test "parse supports quoted filter values with spaces" do
     query = ~s|in:devices type:"Access Point" sort:last_seen:desc limit:20|
 

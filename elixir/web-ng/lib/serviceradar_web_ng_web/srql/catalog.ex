@@ -100,17 +100,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "security_events",
       label: "Security audit events",
-      exact_fields: [
-        "kind",
-        "severity",
-        "actor_id",
-        "ip",
-        "route",
-        "correlation_id",
-        "id",
-        "search"
-      ],
-      route: "/settings/audit/events",
+      exact_fields: ["search"],
+      address_fields: ["ip"],
       default_time: "last_24h",
       default_sort_field: "occurred_at",
       default_sort_dir: "desc",
@@ -2376,7 +2367,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   # catalog record per entity. Without this, opening a legacy query in the
   # visual builder silently falls back to the generic timestamp-sorted shape.
   @entity_aliases %{
-    "audit_events" => "security_events",
     "cpu" => "cpu_metrics",
     "memory" => "memory_metrics",
     "disk" => "disk_metrics",

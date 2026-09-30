@@ -754,7 +754,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       [field, value] ->
         {field, negated} = parse_filter_field(field)
         value = String.trim(value)
-        {op, final_value} = parse_filter_value(negated, value)
+        {op, final_value} = parse_filter_value(negated, value, String.downcase(field))
 
         filter = %{
           "field" => String.downcase(field),
@@ -787,7 +787,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     end
   end
 
-  defp parse_filter_value(negated, value) do
+  defp parse_filter_value(negated, value, field) do
     value = String.trim(value)
     value = maybe_unquote(value)
 
@@ -814,7 +814,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       String.starts_with?(value, "<") ->
         {"lt", String.replace_prefix(value, "<", "")}
 
-      String.contains?(value, "%") ->
+      field != "search" and String.contains?(value, "%") ->
         op = if negated, do: "not_contains", else: "contains"
         {op, unwrap_like(value)}
 
