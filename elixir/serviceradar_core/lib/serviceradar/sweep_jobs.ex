@@ -39,6 +39,7 @@ defmodule ServiceRadar.SweepJobs do
     resource ServiceRadar.SweepJobs.SweepGroupExecution
     resource ServiceRadar.SweepJobs.SweepExecutionSlot
     resource ServiceRadar.SweepJobs.SweepLeaseSetting
+    resource ServiceRadar.SweepJobs.SweepLeaseDelivery
     resource ServiceRadar.SweepJobs.SweepProducerAssignment
     resource ServiceRadar.SweepJobs.SweepHostResult
   end

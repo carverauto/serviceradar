@@ -29,6 +29,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @max_endpoint_inventory_cohort_size 128
   @max_endpoint_inventory_cohort_concurrency 16
   @send_timeout 5_000
+  # A lease push writes megabytes of chunks inside the call.
+  @sweep_lease_send_timeout 30_000
+  @sweep_lease_capability "sweep_lease_v1"
   @sweep_dispatch_max_concurrency 8
   @endpoint_inventory_capability "endpoint-inventory"
   @endpoint_inventory_cache_query_type "endpoint_inventory.cache_query"
@@ -989,6 +992,32 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def push_config(_partition_id, _agent_id), do: {:error, :invalid_edge_principal}
 
+  @doc """
+  Pushes one encoded `Serviceradar.Edge.V1.SweepLeaseV1` to the agent's control session, which
+  sends it as `SweepLeaseChunk`s. Only agents advertising `sweep_lease_v1` receive leases;
+  `ServiceRadar.SweepJobs.LeaseDelivery` decides what to push.
+  """
+  @spec push_sweep_lease(String.t(), String.t(), binary()) :: :ok | {:error, term()}
+  def push_sweep_lease(agent_id, sweep_group_id, payload)
+      when is_binary(agent_id) and is_binary(sweep_group_id) and is_binary(payload) do
+    with {:ok, pid, metadata} <- lookup_control_session(agent_id, nil, nil),
+         :ok <- require_sweep_lease_capability(metadata) do
+      call_control_session(
+        agent_id,
+        pid,
+        {:push_sweep_lease, sweep_group_id, payload},
+        metadata,
+        @sweep_lease_send_timeout
+      )
+    end
+  end
+
+  defp require_sweep_lease_capability(metadata) do
+    if @sweep_lease_capability in capabilities_from_metadata(metadata),
+      do: :ok,
+      else: {:error, :sweep_lease_unsupported}
+  end
+
   # The agent's last acknowledged config version — what it is actually running.
   # Used to decide whether a dependency-triggered push would change anything.
   defp agent_known_config_version(agent_id) do
@@ -1040,8 +1069,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     list_online_sessions()
   end
 
-  defp call_control_session(agent_id, pid, request, metadata) do
-    GenServer.call(pid, request, @send_timeout)
+  defp call_control_session(agent_id, pid, request, metadata, timeout \\ @send_timeout) do
+    GenServer.call(pid, request, timeout)
   catch
     :exit, {:noproc, _} ->
       maybe_unregister_control_session(agent_id, pid, metadata)

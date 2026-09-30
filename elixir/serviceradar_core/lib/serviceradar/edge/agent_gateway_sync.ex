@@ -134,6 +134,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   @doc """
+  Records an agent's answer to a sweep lease push (`ServiceRadar.SweepJobs.LeaseDelivery`).
+  """
+  @spec record_sweep_lease_ack(String.t(), map()) :: :ok | {:error, term()}
+  def record_sweep_lease_ack(agent_id, ack) when is_binary(agent_id) and is_map(ack) do
+    ServiceRadar.SweepJobs.LeaseDelivery.record_ack(agent_id, ack)
+  end
+
+  @doc """
   Records the config version most recently pushed to an agent over the control
   stream. The first-push timestamp of a version anchors wedge detection (an agent
   that never acks a pushed version becomes config-unhealthy after the window), so a
