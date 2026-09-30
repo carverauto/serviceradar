@@ -60,7 +60,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       transition :fail, from: [:pending, :provisioning], to: :failed
       transition :download, from: :ready, to: :downloaded
       transition :install, from: :downloaded, to: :installed
-      transition :revoke, from: [:ready, :downloaded, :installed], to: :revoked
+      transition :revoke, from: [:pending, :provisioning, :ready, :downloaded, :installed], to: :revoked
     end
   end
 

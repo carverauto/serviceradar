@@ -140,14 +140,23 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     end
   end
 
-  defp mark_provisioning(%{status: :provisioning} = package), do: {:ok, package}
-
   defp mark_provisioning(package) do
-    actor = SystemActor.system(:provision_collector)
+    with {:ok, current} <- get_package(package.id) do
+      cond do
+        current.status == :provisioning ->
+          {:ok, current}
 
-    package
-    |> Ash.Changeset.for_update(:provision, %{}, actor: actor)
-    |> Ash.update()
+        current.status == :pending ->
+          actor = SystemActor.system(:provision_collector)
+
+          current
+          |> Ash.Changeset.for_update(:provision, %{}, actor: actor)
+          |> Ash.update()
+
+        true ->
+          {:error, :package_not_pending}
+      end
+    end
   end
 
   defp get_nats_config do
@@ -258,12 +267,18 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     # supply it on the :ready action; this worker records the NATS creds.
     actor = SystemActor.system(:provision_collector)
 
-    package
-    |> Ash.Changeset.new()
-    |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
-    |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
-    |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
-    |> Ash.update()
+    with {:ok, current} <- get_package(package.id) do
+      if current.status == :provisioning do
+        current
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
+        |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
+        |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
+        |> Ash.update()
+      else
+        {:error, :package_not_pending}
+      end
+    end
   end
 
   defp mark_failed(package_id, message) do
