@@ -15,16 +15,21 @@ provenance timestamp produce no incremental dirty row.
 The full pass SHALL run when `evaluation_interval_seconds` has elapsed since
 `composite_checks.last_evaluated_at`, when `last_evaluated_at` is nil, or when
 `last_incremental_at` is nil. A successful full pass SHALL advance both
-`last_evaluated_at` and `last_incremental_at` to the database clock taken at
-the start of that pass (`SELECT now()` before the read), including when the
-scope selected no devices. An incremental pass SHALL NOT advance
-`last_evaluated_at`.
+`last_evaluated_at` and `last_incremental_at` to the horizon taken in one
+statement before that pass's read, including when the scope selected no
+devices. That horizon SHALL be
+`least(now(), coalesce((SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND state <> 'idle' AND xact_start IS NOT NULL), now()))`.
+An incremental pass SHALL NOT advance `last_evaluated_at`.
 
-A minute tick SHALL insert at most one evaluation job per enabled check. That
-job SHALL have one attempt and SHALL NOT insert another job. A failed job
-SHALL leave the marks unchanged, and the next tick SHALL run the pass. Disable
-and destroy SHALL cancel pending evaluation jobs and SHALL NOT schedule
-another.
+A minute tick and an enable SHALL each insert an evaluation job with
+`unique: [keys: [:check_id], states: [:available, :scheduled, :executing], period: :infinity]`.
+At most one evaluation job in those states SHALL exist per check. A tick that
+lands while a job for that check is available, scheduled, or executing SHALL
+insert nothing. The next tick after that job completes SHALL insert exactly
+one. The job SHALL have one attempt and SHALL NOT insert another job. A
+failed job SHALL leave the marks unchanged, and the next tick after it
+completes SHALL run the pass. Disable and destroy SHALL cancel pending
+evaluation jobs and SHALL NOT schedule another.
 
 The page write SHALL include only devices that are live at write time
 (`deleted_at` nil on the page's device load). A uid missing from that load
@@ -85,12 +90,26 @@ SHALL get no result row and no verdict transition.
 - **AND** neither `last_evaluated_at` nor `last_incremental_at` SHALL advance
 - **AND** the next minute tick SHALL run the pass again
 
+#### Scenario: A tick during an executing job inserts nothing
+
+- **GIVEN** an enabled check whose evaluation job is executing
+- **WHEN** the minute tick runs
+- **THEN** it SHALL insert no evaluation job
+- **AND** exactly one evaluation job SHALL exist for that check
+
+#### Scenario: A tick after completion inserts one job
+
+- **GIVEN** an enabled check whose previous evaluation job has completed
+- **WHEN** the minute tick runs
+- **THEN** it SHALL insert exactly one evaluation job for that check
+
 #### Scenario: A check save does not fork the schedule
 
-- **GIVEN** an enabled check with an incomplete evaluation job inserted within
-  the last 55 seconds
+- **GIVEN** an enabled check with an evaluation job that is available,
+  scheduled, or executing
 - **WHEN** the check is saved
-- **THEN** exactly one incomplete evaluation job SHALL exist for that check
+- **THEN** exactly one evaluation job in those states SHALL exist for that
+  check
 
 ### Requirement: Event-Driven Refresh
 
@@ -99,32 +118,39 @@ input timestamps are later than `last_incremental_at` minus
 `@watermark_slack`, selecting that dirty set in pages of at most 200 uids and
 evaluating it through the same paged evaluation the periodic pass uses.
 
-`last_incremental_at` SHALL gate only the dirty read. The mark SHALL be the
-database clock (`SELECT now()`) taken at the start of the pass, before the
-dirty read. A successful incremental pass SHALL advance `last_incremental_at`
-to that mark, including when it selected nothing. A failed pass SHALL NOT
-advance it.
+`last_incremental_at` SHALL gate only the dirty read. The mark a pass stores
+SHALL be the horizon
+`least(now(), coalesce((SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND state <> 'idle' AND xact_start IS NOT NULL), now()))`,
+taken in one statement before the dirty read. A successful incremental pass
+SHALL advance `last_incremental_at` to that mark, including when it selected
+nothing. A failed pass SHALL NOT advance it.
 
 The dirty set SHALL include a device when a `device_agent_availability` row
 for one of the check's vantage-point agents has `updated_at` later than
 `last_incremental_at - @watermark_slack`, or when a configured
 `:device_metadata` path has `metadata['__fact_provenance'][path]['updated_at']`
 later than that same lagged mark. `@watermark_slack` SHALL be a module
-attribute, default two minutes, and SHALL exceed the longest availability
-upsert transaction. The predicate SHALL NOT read `ocsf_devices.modified_time`.
-Sweep status writes and `Device.set_availability` SHALL NOT dirty a device. A
-metadata key with no provenance timestamp SHALL be covered by the full pass
-only.
+attribute, default 30 seconds, and SHALL be a fixed margin for
+`pg_stat_activity` statistics lag. The predicate SHALL NOT read
+`ocsf_devices.modified_time`. Sweep status writes and
+`Device.set_availability` SHALL NOT dirty a device. A metadata key with no
+provenance timestamp SHALL be covered by the full pass only.
 
-The availability arm SHALL use the `(agent_id, updated_at)` index. Ingestion
-SHALL stamp `device_agent_availability.updated_at` with `now()` inside the
-INSERT. `now()` is `transaction_timestamp()`, fixed when the inserting
-transaction begins. An insert that began before the pass's `SELECT now()` can
-commit after the dirty read with a timestamp before the stored mark. The
-lagged window, not that stamp, SHALL make the next pass select that row.
-Re-evaluating a device in the overlap
-SHALL be idempotent: the same inputs SHALL yield the same verdict, and
-`changed_at` SHALL NOT move when the verdict is unchanged.
+The availability arm SHALL use the `(agent_id, updated_at)` index. Both arms
+SHALL stamp with `now()` inside the writing statement. Ingestion SHALL stamp
+`device_agent_availability.updated_at` with `now()` inside the INSERT.
+`MergeDeviceFacts` SHALL write
+`metadata['__fact_provenance'][path]['updated_at']` with `now()` inside the
+fact write. `now()` is `transaction_timestamp()`, fixed when the inserting
+transaction begins. An application timestamp taken before that transaction
+opens can precede the horizon, so the fact write SHALL use the transaction
+timestamp. A writer whose transaction is open when the mark is taken has
+`xact_start` at or after the mark, so its `now()` stamp is at or after the
+horizon. A writer that starts after the read stamps later than the mark. A
+writer whose transaction opened before the mark and committed after the read
+SHALL be selected by the next pass. Re-evaluating a device inside the
+statistics-lag margin SHALL be idempotent: the same inputs SHALL yield the
+same verdict, and `changed_at` SHALL NOT move when the verdict is unchanged.
 
 Before writing a page, the pass SHALL load that page's devices with
 `deleted_at` nil and SHALL skip any uid missing from that load. A skipped uid
@@ -157,12 +183,14 @@ composite-check marker.
 - **THEN** the next incremental pass SHALL NOT select that device for the
   metadata input
 
-#### Scenario: A commit during the read is selected next pass
+#### Scenario: A writer open before the mark commits after the read
 
-- **GIVEN** an incremental pass that stored its start clock as
+- **GIVEN** an incremental pass that stored its horizon as
   `last_incremental_at`
-- **WHEN** an availability row commits after that pass's dirty read with
-  `updated_at` just before the stored mark
+- **WHEN** a writer whose transaction opened before that mark commits after
+  the pass's dirty read
+- **AND** the row's `updated_at` was assigned by `now()` inside that writer's
+  statement
 - **THEN** the next incremental pass SHALL select that device
 - **AND** `changed_at` SHALL NOT move when the verdict is unchanged
 

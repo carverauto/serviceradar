@@ -45,9 +45,27 @@ change. The dirty-set query below makes the hook unnecessary, so the hook goes.
 ### 2. Dirty set from the timestamps the inputs read
 
 Each check records `last_incremental_at`. It only gates the dirty read. The
-mark is the database clock (`SELECT now()`) taken at the start of the pass,
-before the dirty read. The incremental pass computes the dirty set as rows
-with `updated_at > last_incremental_at - @watermark_slack`:
+mark a pass stores is a horizon behind every still-open writer, taken in one
+statement before the dirty read:
+
+```
+least(now(), coalesce(
+  (SELECT min(xact_start) FROM pg_stat_activity
+    WHERE datname = current_database()
+      AND backend_type = 'client backend'
+      AND state <> 'idle'
+      AND xact_start IS NOT NULL),
+  now()))
+```
+
+Any writer whose transaction is open at that moment has `xact_start` at or
+after the mark, so a stamp assigned by `now()` inside that transaction is at
+or after the horizon. A writer that starts after the read stamps later than
+the mark. The same horizon is what a successful full pass stores in both
+clocks.
+
+The incremental pass computes the dirty set as rows with
+`updated_at > last_incremental_at - @watermark_slack`:
 
 - a `device_agent_availability` row for one of the check's vantage-point
   agents;
@@ -56,10 +74,8 @@ with `updated_at > last_incremental_at - @watermark_slack`:
   `Resolvers.DeviceMetadata` resolves);
 - intersected with the check's scope.
 
-`@watermark_slack` is a module attribute, default two minutes. It must exceed
-the longest availability upsert transaction. The ingestor's `insert_all` is
-one short statement, so two minutes covers it. The same lag applies to the
-provenance comparison.
+`@watermark_slack` is a module attribute, default 30 seconds. It is a fixed
+safety margin for `pg_stat_activity` statistics lag.
 
 The metadata predicate reads that provenance timestamp and never
 `ocsf_devices.modified_time`. `ocsf_devices` has no `updated_at`. Sweep status
@@ -67,25 +83,32 @@ writes and `Device.set_availability` do not write `__fact_provenance`, so they
 do not dirty a device. A metadata key with no provenance timestamp is covered
 by the full pass only.
 
-`device_agent_availability.updated_at` moves when an observation is accepted.
-The ingestor stamps it with `now()` inside the INSERT (and the conflict update
-keeps that inserted value), not with an application `DateTime.utc_now()` taken
-before `insert_all`. PostgreSQL `now()` is `transaction_timestamp()`, fixed
-when the inserting transaction begins. An insert that began before the pass's
-`SELECT now()` can stay invisible to the dirty read and commit with
-`updated_at` before the mark the pass stores. The slack is what makes the next
-window select that row. The stamp does not. Re-evaluating a device in the
-overlap is idempotent: the same inputs yield the same verdict, and `changed_at`
-does not move when the verdict is unchanged. The column has no index today;
-the migration adds `(agent_id, updated_at)`.
+Both arms stamp inside SQL with `now()`. The ingestor stamps
+`device_agent_availability.updated_at` with `now()` inside the INSERT (and the
+conflict update keeps that inserted value). `MergeDeviceFacts` writes
+`__fact_provenance[path].updated_at` with the transaction timestamp inside the
+fact write (`jsonb_set` with `to_jsonb(now())` or equivalent), in place of the
+application `DateTime.utc_now()` it takes today before the transaction opens.
+An application stamp taken before `xact_start` can precede the horizon.
+PostgreSQL `now()` is `transaction_timestamp()`, fixed when the inserting
+transaction begins.
+
+A writer whose transaction opened before the pass's mark and committed after
+its read is selected by the next pass. Where that writer was visible in
+`pg_stat_activity`, the stored horizon sits at or before its `xact_start`.
+The 30-second margin covers a writer the statistics view had not yet shown.
+Re-evaluating a device inside that margin is idempotent: the same inputs yield
+the same verdict, and `changed_at` does not move when the verdict is
+unchanged. The availability column has no index today; the migration adds
+`(agent_id, updated_at)`.
 
 A nil `last_incremental_at` is not an incremental read. That tick runs the
 full pass, the same as a nil `last_evaluated_at`. A successful full pass
-always advances both clocks to its start clock, including when the scope
+always advances both clocks to that horizon, including when the scope
 selected no devices. An empty scope has nothing for a nil watermark to miss.
-A successful incremental pass always advances `last_incremental_at` to its
-start clock, including when it selected nothing. A failed pass advances
-neither clock.
+A successful incremental pass always advances `last_incremental_at` to that
+horizon, including when it selected nothing. A failed pass advances neither
+clock.
 
 Alternative rejected: a `composite_check_dirty_devices` table the ingestor
 inserts into. It reintroduces a write into ingestion, needs its own pruning,
@@ -147,18 +170,27 @@ when `evaluation_interval_seconds` has elapsed since
 `last_incremental_at` is nil. `last_evaluated_at` already exists and is never
 written today; it is the full-pass clock. A due tick runs the full pass and
 not the incremental pass, so a device is not evaluated twice for one change.
-A successful full pass advances both clocks to its start clock. Every other
-tick runs only the incremental pass, which advances `last_incremental_at` and
-does not advance `last_evaluated_at`.
+A successful full pass advances both clocks to the horizon from decision 2.
+Every other tick runs only the incremental pass, which advances
+`last_incremental_at` and does not advance `last_evaluated_at`.
 
-`EvaluationWorker` never inserts a successor. It has `max_attempts: 1`. The
-next cron tick is the retry, which is safe because a failed pass advances
-neither mark. Disable and destroy still cancel pending jobs through
-`ScheduleNotifier` and do not schedule another. `ensure_scheduled` on enable
-inserts the same job for an immediate first run. Both inserters use
-`unique: [keys: [:check_id], states: :incomplete, period: 55]`. A check save
-while a job inserted in that window is still incomplete is a no-op, so no
-second chain can form.
+`EvaluationWorker` never inserts a successor. It has `max_attempts: 1`, so
+there is no retryable state. The next cron tick after the job completes is
+the retry, which is safe because a failed pass advances neither mark. Disable
+and destroy still cancel pending jobs through `ScheduleNotifier` and do not
+schedule another. `ensure_scheduled` on enable inserts the same job for an
+immediate first run. Both inserters use
+`unique: [keys: [:check_id], states: [:available, :scheduled, :executing], period: :infinity]`.
+At most one evaluation job in those states exists per check. A tick that
+lands while the previous pass is still executing inserts nothing: two passes
+for one check never run concurrently. The next tick after completion inserts
+exactly one job. A check save while a job is available, scheduled, or
+executing inserts nothing further.
+
+An executing job orphaned by a node crash stays in `:executing` until
+`Oban.Plugins.Lifeline` rescues it. `rescue_after` is runtime-configured in
+`serviceradar_core/config/runtime.exs`. Lifeline discards that job, and the
+next tick inserts a new one.
 
 The full pass's mark-and-sweep of out-of-scope rows is untouched and still
 runs only after a complete full pass.
@@ -182,16 +214,18 @@ existing rows when devices merge. There is no canonical-uid follow.
   mark. Removing the timestamp filter must fail the test (the other device
   would be evaluated). A metadata check is dirtied only by
   `__fact_provenance` for a configured path; a sweep status write or
-  `set_availability` on an otherwise unchanged device is not selected. A row
-  that commits after the read with `updated_at` just before the stored mark is
-  selected by the next pass. Re-evaluating it does not move `changed_at` when
-  the verdict is unchanged.
+  `set_availability` on an otherwise unchanged device is not selected. A writer
+  whose transaction opened before the pass's mark and committed after its read
+  is selected by the next pass. Re-evaluating it does not move `changed_at`
+  when the verdict is unchanged.
 - Nil `last_incremental_at` runs the full pass. A successful full pass over an
-  empty scope advances both clocks. A successful incremental pass that selects
-  nothing still advances `last_incremental_at`. A failing pass advances neither
-  mark and inserts no further job. The next minute tick runs it again.
-- A save of an enabled check while an evaluation job is incomplete leaves
-  exactly one incomplete job for that check.
+  empty scope advances both clocks to the horizon. A successful incremental
+  pass that selects nothing still advances `last_incremental_at` to that
+  horizon. A failing pass advances neither mark and inserts no further job.
+  The next minute tick after completion runs it again.
+- A tick during an executing job inserts nothing. A tick after completion
+  inserts exactly one job. A save of an enabled check while a job is
+  available, scheduled, or executing leaves exactly one job in those states.
 - Merge test: a device selected by the dirty read is merged away before the
   write. The pass writes no result and emits no transition for that uid,
   because it is absent from the live device load.
@@ -204,6 +238,14 @@ existing rows when devices merge. There is no canonical-uid follow.
   still publish.
 - Statement count over a 1,000-device page of the full pass is asserted below
   a fixed ceiling (pages, not devices).
+
+## Risks
+
+Composite freshness after a node crash is bounded by
+`Oban.Plugins.Lifeline`'s `rescue_after`, which is runtime-configured in
+`serviceradar_core/config/runtime.exs`. The crashed job stays `:executing`,
+and uniqueness keeps the minute tick from inserting another until Lifeline
+discards it. Operators sizing `rescue_after` should account for this.
 
 ## Follow-ups
 

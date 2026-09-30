@@ -43,20 +43,23 @@ read. It is never recomputed one job per input change.
   knowledge of composite checks. `CompositeChecks.Refresh` and
   `RefreshWorker` are removed.
 - Add an incremental evaluation pass per enabled check. Each check keeps
-  `last_incremental_at`, the database clock (`SELECT now()`) taken at the
-  start of the last successful pass, before its dirty read. The incremental
-  pass selects, in bounded queries, the in-scope devices whose input timestamps
-  are later than that mark minus `@watermark_slack` (a module attribute,
-  default two minutes): per-agent availability `updated_at` for the check's
-  vantage-point agents, and for metadata inputs the provenance timestamp
+  `last_incremental_at`, a horizon behind every still-open writer, taken in
+  one statement before the dirty read:
+  `least(now(), coalesce((SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND state <> 'idle' AND xact_start IS NOT NULL), now()))`.
+  The incremental pass selects, in bounded queries, the in-scope devices whose
+  input timestamps are later than that mark minus `@watermark_slack` (a module
+  attribute, default 30 seconds, a margin for `pg_stat_activity` statistics
+  lag): per-agent availability `updated_at` for the check's vantage-point
+  agents, and for metadata inputs the provenance timestamp
   `:device_metadata` resolves
   (`metadata['__fact_provenance'][path]['updated_at']` on each configured
-  path). It never reads `ocsf_devices.modified_time`. Dirty pages hold at most
-  200 uids, and each page is scope-filtered with one SRQL `uid:(...)` list.
-  It evaluates those devices through the existing paged
-  `Evaluation.evaluate_devices/5`, writing only devices that are live at write
-  time (`deleted_at` nil on the page's device load). It runs once a minute, so
-  verdicts stay as fresh as the reactive path made them.
+  path), stamped with `now()` inside the fact write. It never reads
+  `ocsf_devices.modified_time`. Dirty pages hold at most 200 uids, and each
+  page is scope-filtered with one SRQL `uid:(...)` list. It evaluates those
+  devices through the existing paged `Evaluation.evaluate_devices/5`, writing
+  only devices that are live at write time (`deleted_at` nil on the page's
+  device load). It runs once a minute, so verdicts stay as fresh as the
+  reactive path made them.
 - Keep the periodic full pass on `evaluation_interval_seconds`, scheduled from
   the existing `composite_checks.last_evaluated_at` (advanced only by a
   successful full pass). A nil `last_evaluated_at` or a nil
@@ -75,9 +78,13 @@ read. It is never recomputed one job per input change.
   memory against `load_existing`, so verdict events are unchanged.
 - Oban keeps one evaluation job per enabled check. `CompositeChecks.TickWorker`
   runs from the existing Cron crontab every minute and inserts that job.
-  `EvaluationWorker` has one attempt and never inserts a successor. The next
-  tick is the retry. Enabling a check inserts the same unique job for an
-  immediate first run; disabling or deleting it cancels pending jobs.
+  `EvaluationWorker` has one attempt and never inserts a successor. The tick
+  and `ensure_scheduled` both insert with
+  `unique: [keys: [:check_id], states: [:available, :scheduled, :executing], period: :infinity]`,
+  so at most one job in those states exists per check. A tick during an
+  executing job inserts nothing; the next tick after completion inserts
+  exactly one. Enabling a check inserts the same job for an immediate first
+  run; disabling or deleting it cancels pending jobs.
 
 ## Value and Tradeoff
 
@@ -86,18 +93,23 @@ read. It is never recomputed one job per input change.
   table stops churning tens of thousands of rows per sweep cycle; a full
   composite pass becomes cheap enough to run more often than it does today.
 - Freshness: a verdict follows an input change within the one-minute tick.
-- Risk: the availability dirty query must be indexed.
-  `device_agent_availability.updated_at` is stamped with `now()` inside the
-  ingestor's INSERT. `now()` is `transaction_timestamp()`, so a transaction
-  that began before the pass's `SELECT now()` can commit after the dirty read
-  with a timestamp before the stored mark. The dirty predicate looks back
-  `@watermark_slack` (default two minutes) behind that mark; the slack, not
-  the stamp, is what selects that row on the next pass. A device in the
-  overlap is re-evaluated idempotently. Metadata dirtiness is the same lagged
-  comparison on the fact provenance timestamp of the check's configured paths.
-  Sweep status writes and `set_availability` do not write that provenance, so
-  they do not dirty a device; a metadata key with no provenance is covered by
-  the full pass only.
+- Risk: the availability dirty query must be indexed. Both input arms stamp
+  with `now()` inside the write: `device_agent_availability.updated_at` in the
+  ingestor INSERT, and `__fact_provenance[path].updated_at` inside the
+  `MergeDeviceFacts` fact write. `now()` is `transaction_timestamp()`. The
+  mark a pass stores is the least of `now()` and the oldest open client
+  `xact_start` in the current database, taken before the dirty read, so an
+  open writer's stamp is at or after that horizon. `@watermark_slack` (default
+  30 seconds) is a margin for `pg_stat_activity` statistics lag. A writer
+  whose transaction opened before the mark and committed after the read is
+  selected by the next pass, and a device in that margin is re-evaluated
+  idempotently. Sweep status writes and `set_availability` do not write that
+  provenance, so they do not dirty a device; a metadata key with no provenance
+  is covered by the full pass only. After a node crash, composite freshness is
+  bounded by `Oban.Plugins.Lifeline`'s `rescue_after`
+  (`serviceradar_core/config/runtime.exs`): the orphaned executing job blocks
+  a new insert until Lifeline discards it. Operators sizing `rescue_after`
+  should account for this.
 - Decision point: the page write skips a uid that is not live at write time.
   The device load already issued for metadata (`deleted_at` nil) is that
   filter, and it runs for every page. A merged-away device is absent from it.
@@ -129,6 +141,8 @@ read. It is never recomputed one job per input change.
   the Oban Cron entry in `serviceradar_core/config/runtime.exs` and
   `serviceradar_core_elx/config/runtime.exs`,
   `elixir/serviceradar_core/lib/serviceradar/sweep_jobs/sweep_results_ingestor.ex`,
+  `elixir/serviceradar_core/lib/serviceradar/inventory/changes/merge_device_facts.ex`
+  (provenance `updated_at` stamped with `now()` inside the fact write),
   a migration adding `last_incremental_at` (the full-pass clock
   `last_evaluated_at` already exists) and the
   `device_agent_availability(agent_id, updated_at)` index, the ingestor

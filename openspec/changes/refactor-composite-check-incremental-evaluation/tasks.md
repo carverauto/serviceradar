@@ -12,10 +12,11 @@
 - [ ] 2.1 `Scope.contains?/2`: run the scope query with an SRQL `uid:(...)` list
   for one page. `@dirty_page_limit` is 200, distinct from the full pass
   `page_limit` of 1,000. Do not send `uid in (...)` or more than 200 uids.
-- [ ] 2.2 `Evaluation.dirty_uids/3`: take the mark with `SELECT now()` before the
-  read. `@watermark_slack` is a module attribute, default two minutes, longer
-  than the availability upsert transaction. Stream pages of at most 200 uids
-  whose `device_agent_availability` (for the check's vantage-point agents) has
+- [ ] 2.2 `Evaluation.dirty_uids/3`: take the mark in one statement before the
+  read, `least(now(), coalesce((SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND state <> 'idle' AND xact_start IS NOT NULL), now()))`.
+  `@watermark_slack` is a module attribute, default 30 seconds, a margin for
+  `pg_stat_activity` statistics lag. Stream pages of at most 200 uids whose
+  `device_agent_availability` (for the check's vantage-point agents) has
   `updated_at > mark - @watermark_slack`, or, when a metadata input exists,
   whose configured path has
   `metadata['__fact_provenance'][path]['updated_at']` later than that same
@@ -23,7 +24,7 @@
   through `Scope.contains?/2`.
 - [ ] 2.3 `Evaluation.run_incremental/2`: evaluate the dirty pages with
   `evaluate_devices/5` and `persist_page/4`. On success, always advance
-  `last_incremental_at` to the start-of-pass database clock, including when
+  `last_incremental_at` to the horizon taken before the read, including when
   nothing was selected. On failure, advance nothing. Never sweep out-of-scope
   rows. Never advance `last_evaluated_at`. Do not run this pass when
   `last_incremental_at` is nil.
@@ -31,17 +32,22 @@
   (`* * * * *` in `serviceradar_core/config/runtime.exs` and
   `serviceradar_core_elx/config/runtime.exs`). It inserts one
   `EvaluationWorker` job per enabled check.
-  `unique: [keys: [:check_id], states: :incomplete, period: 55]`.
+  `unique: [keys: [:check_id], states: [:available, :scheduled, :executing], period: :infinity]`.
   `EvaluationWorker` has `max_attempts: 1` and never inserts a successor.
+  A tick while a job for that check is available, scheduled, or executing
+  inserts nothing. The next tick after completion inserts exactly one.
   When `last_evaluated_at` is nil, `last_incremental_at` is nil, or
   `evaluation_interval_seconds` has elapsed since `last_evaluated_at`, that
   job runs only the full pass. Otherwise it runs only the incremental pass.
-  A successful full pass always advances both clocks to its start clock,
-  including when the scope selected no devices. An incremental pass advances
-  only `last_incremental_at`. A failed pass advances neither.
+  A successful full pass always advances both clocks to the horizon taken
+  before its read, including when the scope selected no devices. An
+  incremental pass advances only `last_incremental_at`. A failed pass advances
+  neither.
 - [ ] 2.5 `ScheduleNotifier.ensure_scheduled` on enable inserts that same unique
-  job for an immediate first run. `cancel` on disable or destroy is unchanged.
-  A save while a job for that check is incomplete inserts nothing further.
+  job for an immediate first run, with
+  `unique: [keys: [:check_id], states: [:available, :scheduled, :executing], period: :infinity]`.
+  `cancel` on disable or destroy is unchanged. A save while a job for that
+  check is available, scheduled, or executing inserts nothing further.
 - [ ] 2.6 Make the page device load unconditional (`deleted_at` is nil). Skip a
   uid missing from that load: no result row and no verdict transition. Both
   passes use this load. Do not call `Resolver.follow_canonical_device_id`.
@@ -64,18 +70,22 @@
 - [ ] 4.3 Stamp `device_agent_availability.updated_at` with `now()` inside the
   ingestor INSERT (and keep that value on conflict). Remove the application
   `DateTime.utc_now()` assigned before `insert_all`. `now()` is
-  `transaction_timestamp()` and does not by itself keep a late commit inside
-  the next window; `@watermark_slack` does.
+  `transaction_timestamp()`, fixed when the inserting transaction begins.
+- [ ] 4.4 `MergeDeviceFacts` writes `__fact_provenance[path].updated_at` with
+  the transaction timestamp inside the fact write (`jsonb_set` with
+  `to_jsonb(now())` or equivalent). Remove the application
+  `DateTime.utc_now()` taken before the transaction opens. An application
+  stamp taken before `xact_start` can precede the horizon.
 
 ## 5. Tests (load `test-audit` first)
 
 - [ ] 5.1 Incremental pass selects devices inside the lagged window and advances
-  the mark; removing the timestamp filter fails it. A metadata check selects a
-  device only when a configured path's `__fact_provenance` `updated_at` is
-  newer than the mark minus `@watermark_slack`. A sweep status write or
-  `set_availability` does not select it. A row that commits after the read
-  with `updated_at` just before the stored mark is selected by the next pass,
-  and `changed_at` does not move when the verdict is unchanged.
+  the mark to the horizon; removing the timestamp filter fails it. A metadata
+  check selects a device only when a configured path's `__fact_provenance`
+  `updated_at` is newer than the mark minus `@watermark_slack`. A sweep status
+  write or `set_availability` does not select it. A writer whose transaction
+  opened before the pass's mark and committed after its read is selected by
+  the next pass, and `changed_at` does not move when the verdict is unchanged.
 - [ ] 5.2 Failed pass leaves both marks unchanged and inserts no evaluation job.
   The next minute tick runs the pass. A nil `last_incremental_at` runs the
   full pass, and a successful full pass over an empty scope advances both
@@ -92,9 +102,9 @@
 - [ ] 5.6 A device merged away between the dirty read and the write gets no
   result row and no verdict transition. The page device load, restricted to
   `deleted_at` nil, is what skips it.
-- [ ] 5.7 Saving an enabled check while an incomplete evaluation job for it was
-  inserted within the last 55 seconds leaves exactly one incomplete job for
-  that check.
+- [ ] 5.7 A tick during an executing job inserts nothing, and a tick after
+  completion inserts exactly one job. A save while a job for that check is
+  available, scheduled, or executing leaves exactly one job in those states.
 
 ## 6. Docs
 
