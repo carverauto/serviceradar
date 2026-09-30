@@ -48,9 +48,10 @@ const THIS_REPO_CANONICAL: &str = "";
 /// as the `runfiles` crate) rather than a hand-rolled lookup. That is not tidiness -- the
 /// hand-rolled version was measurably wrong twice:
 ///
-///   * It read `TEST_SRCDIR`/`RUNFILES_DIR` only. Under `bazel run` -- which is how
-///     `prepare_template` executes -- neither is set, and the runfiles directory has to be
-///     derived from `argv[0]` as `<binary>.runfiles`. `prepare_template` failed on exactly this.
+///   * It read `TEST_SRCDIR`/`RUNFILES_DIR` only. Under `bazel run` -- which is how the
+///     generation lifecycle binaries execute -- neither is set, and the runfiles directory has
+///     to be derived from `argv[0]` as `<binary>.runfiles`. `prepare_generation` failed on
+///     exactly this while it was still `prepare_template`.
 ///   * It located files with `Path::exists`, which cannot work in MANIFEST mode, where runfiles
 ///     is a text manifest rather than a symlink tree.
 ///

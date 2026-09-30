@@ -176,7 +176,7 @@ alias ServiceradarConfig.Manager.Identity
 {:ok, manager} = Manager.load(identity, %{"ci" => bytes}, read_mounted_fun)
 
 Manager.database(manager)
-Manager.database_url_named(manager, "sr_core_template", password)
+Manager.database_url_named(manager, "sr_tpl_" <> String.duplicate("0", 48), password)
 ```
 
 ### Go
@@ -356,7 +356,7 @@ This system is being adopted incrementally. As of this writing:
   instance to load today. Only `localhost` and `ci`, which carry theirs in the artifact, are
   exercised.
 - **Adoption is partial.** `//rust/integration-db` and
-  `//elixir/serviceradar_core:migrate_template` resolve through these managers; the Elixir
+  `//elixir/serviceradar_core:migrate_generation` resolve through these managers; the Elixir
   integration shards still read `SRQL_TEST_*` through a bridge.
 
 Tracked in `openspec/changes/add-unified-config-and-secret-managers`. Check that change's

@@ -44,7 +44,6 @@ use tokio::task::JoinHandle;
 use tokio_postgres::{Client, Config as PgConfig, NoTls};
 
 pub mod generation;
-pub mod template;
 
 /// Prefix every database this crate is willing to create or drop must carry.
 ///
@@ -60,18 +59,6 @@ const MAX_IDENTIFIER_BYTES: usize = 63;
 /// Where //build:run_id_file lands in runfiles. A declared input of every lifecycle target.
 const RUN_ID_RUNFILE: &str = "build/run_id_file.txt";
 
-/// Where //build:template_authority_file lands in runfiles. A declared input of every target
-/// that WRITES the shared template.
-///
-/// Same contract as the run id, for the same reason: the trunk lifecycle is several separate
-/// Bazel invocations sharing no process, and its Rust and Elixir halves must reach the same
-/// answer about whether they may touch `sr_core_template`. Ambient environment would let one
-/// step's answer differ from another's; a declared input cannot.
-const TEMPLATE_AUTHORITY_RUNFILE: &str = "build/template_authority_file.txt";
-
-/// The only content that grants shared-template write access. See //build/template_authority.bzl.
-const TEMPLATE_AUTHORITY_MARKER: &str = "trunk";
-
 /// Collisions only matter between runs that are live at the same time, and the sweep drops
 /// the rest, so eight hex characters over a handful of concurrent runs is ample. A full
 /// dash-stripped UUID still fits: 13-byte prefix + 32 + a shard suffix stays under 63.
@@ -81,7 +68,7 @@ const MAX_RUN_ID_BYTES: usize = 32;
 /// What a step says when the run id was never passed.
 ///
 /// It names the flag, says why there is no default, and gives the whole sequence, because the
-/// failure surfaces in ONE of six invocations and the fix belongs to all of them.
+/// failure surfaces in ONE invocation and the fix belongs to the whole sequence.
 const MISSING_RUN_ID: &str = "\
 --//build:run_id is not set, so there is no database name to operate on.
 
@@ -94,11 +81,14 @@ Mint one id and pass it to EVERY invocation of the sequence:
     RUN_ID=$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)
 
     bazel ... --//build:run_id=$RUN_ID //rust/integration-db:sweep_stale_dbs
-    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:provision_base
-    bazel ... --//build:run_id=$RUN_ID //elixir/serviceradar_core:migrate_run
-    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:provision_db
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation
+    bazel ... --//build:run_id=$RUN_ID //elixir/serviceradar_core:migrate_generation
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:provision_generation
     bazel ... --//build:run_id=$RUN_ID //elixir/serviceradar_core:integration_tests
-    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:teardown_db";
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:teardown_db
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:release_generation";
 
 /// Extensions the schema depends on. Order matters only in that `age` must be present
 /// before any graph is created.
@@ -254,91 +244,6 @@ pub fn shard_database_name(shard: &str) -> Result<String> {
     Ok(name)
 }
 
-/// Refuses to continue unless this checkout may write the shared template database.
-///
-/// The caller declares it with `--//build:template_authority=true`, which means "this checkout
-/// is trunk". `sr_core_template` is cloned by every run and only ever ratchets forward, so
-/// whoever advances it decides the schema every other branch gets -- and a branch that never
-/// lands leaves migrations in it that exist nowhere else, which is what wedged every open pull
-/// request on 2026-09-04.
-///
-/// //buildbuddy.yaml already names these targets only from the push-to-`staging` action, and
-/// that placement is the fix. This is what makes it hold: placement is a convention a later
-/// edit undoes silently, and one a workstation never obeyed at all -- the lifecycle is
-/// documented as runnable by hand against the same shared CNPG fixture CI uses.
-///
-/// It REFUSES rather than quietly redirecting to the per-run base. A caller that reached for a
-/// target named after the template meant the template, and silently doing something else is
-/// how a run comes to report success for work it did not do.
-pub fn require_template_authority(target: &str) -> Result<()> {
-    if is_template_authority() {
-        return Ok(());
-    }
-
-    bail!(
-        "{target} writes the SHARED template {}, which only a trunk checkout may do; pass \
-         --//build:template_authority=true if this checkout IS trunk. A branch applies its own \
-         migrations to its own run base instead: //rust/integration-db:provision_base, then \
-         //elixir/serviceradar_core:migrate_run.",
-        template::TEMPLATE_DATABASE
-    )
-}
-
-/// Whether this checkout may write the shared template database.
-///
-/// Read from a declared build input rather than the environment, for the same reason the run id
-/// is: several invocations must agree, and ambient state lets them differ.
-///
-/// Fails CLOSED. Anything other than the exact marker -- an absent file, an empty one, a mangled
-/// one -- reads as "not the authority". That direction costs a loud refusal the caller can act
-/// on; the other poisons a fixture every open pull request clones.
-fn is_template_authority() -> bool {
-    // Infallible on purpose: every way of not finding the marker -- an undeclared input, an
-    // unreadable file, wrong content -- is the SAME answer, "not the authority". Returning a
-    // Result here would invite a caller to distinguish cases that must not be distinguished,
-    // and a `?` on the lookup would turn a conservative default into a hard failure.
-    let Ok(path) = config::runfile(TEMPLATE_AUTHORITY_RUNFILE) else {
-        return false;
-    };
-
-    let Ok(staged) = fs::read_to_string(&path) else {
-        return false;
-    };
-
-    is_authority_marker(&staged)
-}
-
-/// The pure half of [`is_template_authority`], so the fail-closed rule is unit-testable.
-fn is_authority_marker(staged: &str) -> bool {
-    staged.trim() == TEMPLATE_AUTHORITY_MARKER
-}
-
-/// The URL the Elixir suite connects with: the fixture URL, repointed at [`database_name`].
-///
-/// Everything except the path is preserved, so query parameters such as `sslmode` survive.
-pub fn database_url() -> Result<String> {
-    let fixture = config::Fixture::from_env()?;
-    let name = database_name()?;
-    Ok(fixture.database_url(&name)?.expose().to_string())
-}
-
-/// Remove every credential-bearing URL component before writing a database endpoint to logs.
-///
-/// PostgreSQL accepts passwords in either userinfo or the query string, so stripping only the
-/// text before `@` is insufficient.
-pub fn redacted_database_url(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return "<unparseable>".to_string();
-    };
-    let end = rest.find(['?', '#']).unwrap_or(rest.len());
-    let authority_and_path = &rest[..end];
-
-    match authority_and_path.rsplit_once('@') {
-        Some((_, endpoint)) => format!("{scheme}://***@{endpoint}"),
-        None => format!("{scheme}://{authority_and_path}"),
-    }
-}
-
 /// Refuse to touch anything that is not a per-run database.
 pub fn assert_disposable(database: &str) -> Result<()> {
     if !database.starts_with(DISPOSABLE_PREFIX) {
@@ -347,7 +252,8 @@ pub fn assert_disposable(database: &str) -> Result<()> {
     Ok(())
 }
 
-/// The role that owns the template database and every clone taken from it.
+/// The role that owns every clone this crate creates, and the generation databases
+/// themselves.
 ///
 /// Resolved from `database.owning_role` in the declared environment, alongside the application
 /// role that runs the suite. There is no per-setting environment override: provisioning and test
@@ -545,9 +451,9 @@ pub(crate) async fn install_extensions(database: &str, owner: &str) -> Result<()
     // Observed exactly that: 97 rows in public.schema_migrations, 1 in platform's.
     //
     // The old flow never saw it because it dropped and recreated the database every run, so
-    // there was never a second run against an existing schema. The template is long-lived and
-    // migrated incrementally, so the location has to be stable -- and `platform` is where the
-    // project's own convention puts it.
+    // there was never a second run against an existing schema. A generation database is
+    // long-lived and migrated incrementally, so the location has to be stable -- and `platform`
+    // is where the project's own convention puts it.
     client
         .batch_execute(&format!(
             "CREATE SCHEMA IF NOT EXISTS platform AUTHORIZATION {};",
@@ -612,7 +518,7 @@ pub(crate) async fn install_extensions(database: &str, owner: &str) -> Result<()
 /// is transferred rather than privileges widened.
 ///
 /// Applied after create_graphs rather than by creating the graphs under `SET ROLE`, because
-/// this also has to repair a template whose graphs predate this function. It is idempotent:
+/// this also has to repair a database whose graphs predate this function. It is idempotent:
 /// re-running against already-correct ownership is a no-op, and a graph that does not exist
 /// is skipped.
 async fn own_graph_schemas(client: &Client, owner: &str) -> Result<()> {
@@ -685,8 +591,9 @@ async fn own_graph_schemas(client: &Client, owner: &str) -> Result<()> {
 /// exception is not enough on its own: AGE raises `graph "..." already exists` with an
 /// errcode that is NOT `duplicate_schema`, which is what an earlier version of this function
 /// assumed -- it only ever ran against a freshly created database, so the assumption was
-/// never tested. The template is long-lived and this runs against it on every invocation, so
-/// the existence check is the load-bearing part and the handler is only a race backstop.
+/// never tested. A generation database is long-lived and this runs against one on every
+/// invocation, so the existence check is the load-bearing part and the handler is only a race
+/// backstop.
 ///
 /// `LOAD 'age'` and the search_path are session state, so they are set in the same batch.
 async fn create_graphs(client: &Client) -> Result<()> {
@@ -915,48 +822,6 @@ mod tests {
     }
 
     #[test]
-    fn template_write_authority_fails_closed() {
-        // The safe direction is "not the authority": the write is refused and the shared
-        // template is left exactly as it was found. The unsafe direction ratchets a database
-        // every open pull request clones, which is the failure this mechanism exists to
-        // prevent -- so only the exact marker grants it, and everything else is a refusal.
-        assert!(is_authority_marker("trunk"));
-        assert!(is_authority_marker("trunk\n"));
-        assert!(is_authority_marker("  trunk  "));
-
-        // The empty file an unset flag writes, and every plausible near-miss.
-        assert!(!is_authority_marker(""));
-        assert!(!is_authority_marker("\n"));
-        assert!(!is_authority_marker("true"));
-        assert!(!is_authority_marker("1"));
-        assert!(!is_authority_marker("TRUNK"));
-        assert!(!is_authority_marker("staging"));
-        assert!(!is_authority_marker("trunk trunk"));
-    }
-
-    #[test]
-    fn the_authority_marker_is_where_the_write_targets_look_for_it() {
-        // The dangerous failure of a fail-closed gate is that it fails closed on the ONE caller
-        // it is supposed to admit: a wrong runfile path or a renamed target would make
-        // `is_template_authority` return false even on trunk, and the trunk lifecycle would
-        // refuse itself -- with an error indistinguishable from a branch being correctly
-        // stopped, since both are "not the authority".
-        //
-        // So resolve it here, from a target that declares the same input the write targets do.
-        // The VALUE is not asserted: it follows from --//build:template_authority, which this
-        // test must not care about. What is asserted is that the file is found, is readable, and
-        // holds one of exactly two things.
-        let path = config::runfile(TEMPLATE_AUTHORITY_RUNFILE)
-            .expect("//build:template_authority_file is declared in this target's data");
-        let staged = fs::read_to_string(&path).expect("the staged marker must be readable");
-
-        assert!(
-            staged.trim().is_empty() || is_authority_marker(&staged),
-            "//build/template_authority.bzl writes the marker or nothing, got {staged:?}"
-        );
-    }
-
-    #[test]
     fn stale_database_sweep_rejects_non_positive_age() {
         assert!(validate_stale_age(86_400).is_ok());
         assert!(validate_stale_age(0).is_err());
@@ -972,21 +837,6 @@ mod tests {
         // The srql harness reset `database.database` -- the fixture concurrent branches share --
         // without consulting this guard. It now calls it, so this name must stay rejected.
         assert!(assert_disposable("srql_fixture").is_err());
-    }
-
-    #[test]
-    fn redacted_database_url_hides_userinfo_and_query_credentials() {
-        assert_eq!(
-            redacted_database_url(
-                "postgres://app:userinfo-secret@fixture.example:5432/db?\
-                 password=query-secret&sslmode=verify-full"
-            ),
-            "postgres://***@fixture.example:5432/db"
-        );
-        assert_eq!(
-            redacted_database_url("postgres://fixture.example/db?password=query-secret"),
-            "postgres://fixture.example/db"
-        );
     }
 
     #[test]
@@ -1074,14 +924,16 @@ mod tests {
             error.contains("uuidgen"),
             "must show how to mint one: {error}"
         );
-        // The failure surfaces in one of six invocations but the fix belongs to all of them.
+        // The failure surfaces in one invocation but the fix belongs to the whole sequence.
         for target in [
             "sweep_stale_dbs",
-            "provision_base",
-            "migrate_run",
-            "provision_db",
+            "cleanup_generations",
+            "prepare_generation",
+            "migrate_generation",
+            "provision_generation",
             "integration_tests",
             "teardown_db",
+            "release_generation",
         ] {
             assert!(error.contains(target), "must list {target}: {error}");
         }

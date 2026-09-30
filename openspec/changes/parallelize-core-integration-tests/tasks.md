@@ -15,8 +15,9 @@
       module documentation and in the core test helper guidance.
 - [x] 1.7 Fail closed before Repo startup when any database-backed direct Mix invocation does not
       present the `srql-fixtures` TLS identity, `verify-full`, the fixture CA, and a disposable
-      `sr_core_test_*` or `codex_*` database name. Permit `sr_core_template` only for the typed
-      template-migration lifecycle.
+      `sr_core_test_*` or `codex_*` database name. Template lifecycle access is granted only to
+      a manifest-selected `sr_tpl_<48 hex>` generation; the retired `sr_core_template` is
+      rejected in every mode.
 
 ## 2. Source-separated heavy release qualification
 - [x] 2.1 Move the 50,000-device router case and the identifier-cardinality gate into release-gate

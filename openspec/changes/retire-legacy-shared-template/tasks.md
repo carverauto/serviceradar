@@ -3,34 +3,34 @@
 - [ ] 1.1 Archive `isolate-ci-schema-templates` in its own PR (`openspec archive
       isolate-ci-schema-templates --yes`, then `openspec validate --strict`). This change does
       not supersede it and does not edit its archived record.
-- [ ] 1.2 Re-confirm on current `staging` that no `buildbuddy.yaml` action, `.github` workflow,
+- [x] 1.2 Re-confirm on current `staging` that no `buildbuddy.yaml` action, `.github` workflow,
       `Makefile` target, `.bzl` macro or `.bazelrc` line names any target retired in section 2
       or `--//build:template_authority`. Record the search commands and their empty output in
       the PR.
 
 ## 2. Code phase (one PR; protected-name lists unchanged)
 
-- [ ] 2.1 `rust/integration-db`: delete `prepare_template`, `reset_template`, `provision_base`,
+- [x] 2.1 `rust/integration-db`: delete `prepare_template`, `reset_template`, `provision_base`,
       `provision_db`, `provision_db_large_ingestion` and the `provision_db_<lane>` comprehension
       from `BUILD.bazel`; delete `src/bin/prepare_template.rs`, `src/bin/reset_template.rs`,
       `src/bin/provision_base.rs`, `tests/provision_db_test.rs` and `src/template.rs`; drop
       `pub mod template`.
-- [ ] 2.2 Add `provision_generation_<lane>` for every `integration_lane_names()` entry to the
+- [x] 2.2 Add `provision_generation_<lane>` for every `integration_lane_names()` entry to the
       existing generation `rust_binary` comprehension (operation `clone`, one-lane
       `SERVICERADAR_TEST_DB_SHARDS`), and a unit/contract check that the set matches the lane list.
-- [ ] 2.3 `rust/integration-db/src/lib.rs`: delete `TEMPLATE_AUTHORITY_RUNFILE`,
+- [x] 2.3 `rust/integration-db/src/lib.rs`: delete `TEMPLATE_AUTHORITY_RUNFILE`,
       `TEMPLATE_AUTHORITY_MARKER`, `require_template_authority`, `is_template_authority`,
       `is_authority_marker` and their tests; rewrite `MISSING_RUN_ID` and its test to list the
       generation sequence; delete any helper left without a caller. Keep `PROTECTED_DATABASES`,
       `UNPROTECTED_STALE_QUERY` and the `is_protected_database("sr_core_template")` assertion.
-- [ ] 2.4 `rust/integration-db/BUILD.bazel`: delete `TEMPLATE_WRITE_DATA` and its use as `data` on
+- [x] 2.4 `rust/integration-db/BUILD.bazel`: delete `TEMPLATE_WRITE_DATA` and its use as `data` on
       `serviceradar_integration_db_test`; rewrite the sequencing and "keep legacy callable"
       comments to describe the generation lifecycle only. Update the `src/bin/generation.rs` and
       `src/config/mod.rs` doc comments that cite `prepare_template`.
-- [ ] 2.5 `build/`: delete the `template_authority` `bool_flag`, the `template_authority_file`
+- [x] 2.5 `build/`: delete the `template_authority` `bool_flag`, the `template_authority_file`
       target, its `load`, the `template_authority.bzl` entry in the exported list, and
       `build/template_authority.bzl`.
-- [ ] 2.6 `elixir/serviceradar_core`: delete `migrate_template` and `migrate_run` from
+- [x] 2.6 `elixir/serviceradar_core`: delete `migrate_template` and `migrate_run` from
       `BUILD.bazel`, `test/db/template_env.exs` and `test/db/migrate_db_test.exs` (confirm no
       other target loads `ServiceRadar.DB.MigrateTest`); remove both files from
       `schema_template_helpers`; rewrite the "template migration" comment block and the
@@ -38,33 +38,33 @@
       `migrations_compile_test.exs` comment that names `migrate_template`. Adding no test file,
       so `INTEGRATION_SOURCE_DISPOSITIONS.tsv` needs no row; confirm it has none for the deleted
       files.
-- [ ] 2.7 `config/test_database_guard.exs`: remove the `"sr_core_template"` default and clause so
+- [x] 2.7 `config/test_database_guard.exs`: remove the `"sr_core_template"` default and clause so
       template lifecycle access accepts only `sr_tpl_<48 hex>`. Replace the
       `integration_env_config_test.exs` case that authorizes the singleton with one proving it is
       rejected with and without `template_lifecycle?: true`, and that
       `authorize_template_lifecycle!("sr_core_template")` raises.
-- [ ] 2.8 `build/contracts`: replace the authority-flag and "never writes the shared template"
+- [x] 2.8 `build/contracts`: replace the authority-flag and "never writes the shared template"
       assertions with the retired-names contract from design.md; retarget the
       `provision_db_large_ingestion` rule assertions to `provision_generation_large_ingestion`;
       remove `//build:template_authority.bzl` and `test/db/template_env.exs` from the contract
       `data`. Prove the contract can fail by locally re-adding one retired `name = "..."` block
       and observing red; do not commit that probe.
-- [ ] 2.9 Grep the tree (anchored: `\bsr_core_template\b`, `\btemplate_authority\b`,
+- [x] 2.9 Grep the tree (anchored: `\bsr_core_template\b`, `\btemplate_authority\b`,
       `\b(prepare|reset)_template\b`, `\bmigrate_(template|run)\b`, `\bprovision_(base|db)\b`)
       and account for every remaining hit as one of: protected-name list (kept until 5.x),
       retired-names contract, historical record (`CHANGELOG`, `openspec/changes/archive/`,
       incident-rationale code comments), or documentation covered by task 2.12 (the
       `docs/ci-schema-generation-lifecycle` PR, or its post-deletion re-check).
-- [ ] 2.10 Reconcile the pending `parallelize-core-integration-tests` delta with its owner so that
+- [x] 2.10 Reconcile the pending `parallelize-core-integration-tests` delta with its owner so that
       archiving it cannot restore retired names: its scenarios naming `provision_db` and
       `provision_db_large_ingestion` name the generation clone targets instead, and its guard
       scenario drops the "`sr_core_template` ... outside the typed template-migration lifecycle"
       carve-out. Update its task 1.7 wording the same way. Run `grep -rn` for each edited bullet
       across `openspec/changes/` (excluding `archive/`) first.
-- [ ] 2.11 Tell the owner of `route-bazel-cache-through-shared-edge` that its "Developer selects one
+- [x] 2.11 Tell the owner of `route-bazel-cache-through-shared-edge` that its "Developer selects one
       shard" scenario names `provision_db_s0`..`s7`, which no longer exist, so it is reconciled
       before that change archives.
-- [ ] 2.12 The docs PR on branch `docs/ci-schema-generation-lifecycle` lands before this change's
+- [x] 2.12 The docs PR on branch `docs/ci-schema-generation-lifecycle` lands before this change's
       code phase and rewrites `AGENTS.md` (Hard Rules template bullet and "SRQL Fixture
       Integration Tests"), `docs/agent-runbooks.md`, `elixir/README.md`,
       `rust/integration-db/README.md` and `.agents/skills/srql-fixtures-db-tests/SKILL.md` to the

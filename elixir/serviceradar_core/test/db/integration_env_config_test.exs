@@ -166,10 +166,11 @@ defmodule ServiceRadar.DB.IntegrationEnvConfigTest do
     end
   end
 
-  test "only the typed template lifecycle may address the shared clone template" do
+  test "the database guard rejects the retired shared clone template in every mode" do
     url =
       "postgres://fixture:secret@srql-fixture-rw.srql-fixtures.svc.cluster.local/sr_core_template?sslmode=verify-full"
 
+    # Without the template lifecycle option the name fails the ordinary disposable check.
     assert_raise ArgumentError, ~r/disposable test database/, fn ->
       TestDatabaseGuard.validate!(url,
         ssl_mode: "verify-full",
@@ -177,16 +178,23 @@ defmodule ServiceRadar.DB.IntegrationEnvConfigTest do
       )
     end
 
-    refute TestDatabaseGuard.template_lifecycle_authorized?()
-    TestDatabaseGuard.authorize_template_lifecycle!()
-    assert TestDatabaseGuard.template_lifecycle_authorized?()
+    # With it, the name still fails: only a manifest-selected sr_tpl_<48 hex> generation may
+    # hold template lifecycle authorization, so the singleton cannot be revived through the
+    # guard even by a caller that asks for the lifecycle mode.
+    assert_raise ArgumentError, ~r/disposable test database/, fn ->
+      TestDatabaseGuard.validate!(url,
+        ssl_mode: "verify-full",
+        ca_configured?: true,
+        template_lifecycle?: true
+      )
+    end
 
-    assert :ok =
-             TestDatabaseGuard.validate!(url,
-               ssl_mode: "verify-full",
-               ca_configured?: true,
-               template_lifecycle?: TestDatabaseGuard.template_lifecycle_authorized?()
-             )
+    # And the authorization entrypoint refuses the name outright rather than recording it.
+    assert_raise ArgumentError, ~r/sr_tpl_<48 hex>/, fn ->
+      TestDatabaseGuard.authorize_template_lifecycle!("sr_core_template")
+    end
+
+    refute TestDatabaseGuard.template_lifecycle_authorized?()
   end
 
   test "template authorization permits only the manifest-selected generation" do

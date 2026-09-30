@@ -1,4 +1,4 @@
-//! Explicit keyed lifecycle entrypoints. Legacy prepare_template retains its text interface.
+//! Explicit keyed lifecycle entrypoints.
 use anyhow::{bail, Context, Result};
 use serviceradar_integration_db::{self as db, generation};
 

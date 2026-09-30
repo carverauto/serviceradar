@@ -259,7 +259,7 @@ test-supervised processes inside test BEAMs only, never for deployed application
 - **AND** no async or other serial lane SHALL contain a fixed-external source
 
 #### Scenario: Ordinary provisioning uses one clone per lane
-- **WHEN** the ordinary core lifecycle invokes `provision_db`
+- **WHEN** the ordinary core lifecycle invokes `provision_generation`
 - **THEN** it SHALL clone exactly the frozen async and serial lane suffixes for that run
 - **AND** every database-facing test action SHALL retain local, non-cached execution
 - **AND** it SHALL NOT clone the large-ingestion database
@@ -394,7 +394,7 @@ of the ordinary wildcard's 114-slot workflow-wide preflight.
 
 #### Scenario: Focused heavy target uses a dedicated database
 - **GIVEN** one guarded run id and a current template
-- **WHEN** `provision_db_large_ingestion` and `large_ingestion_release_gate` run
+- **WHEN** `provision_generation_large_ingestion` and `large_ingestion_release_gate` run
 - **THEN** both targets SHALL derive the same `<run>_large_ingestion` database name
 - **AND** both targets SHALL declare the shared run-id file as data
 - **AND** the Elixir target SHALL load `integration_env.exs` before its test configuration loader
@@ -407,7 +407,7 @@ of the ordinary wildcard's 114-slot workflow-wide preflight.
 #### Scenario: Heavy capacity preflight includes bootstrap pools and direct migration connection
 - **GIVEN** the heavy target's parent Repo remains alive while cold bootstrap starts its child Repo
 - **WHEN** the BuildBuddy action starts its observer and waits for readiness before
-  `provision_db_large_ingestion`
+  `provision_generation_large_ingestion`
 - **THEN** the parent Repo pool size SHALL be exactly 12
 - **AND** the cold-bootstrap child Repo pool size SHALL be exactly 2
 - **AND** the direct Postgrex administrator connection opened by `StartupMigrations` SHALL count as
@@ -645,7 +645,7 @@ deployed application.
 - **AND** it SHALL require `sslmode=verify-full` plus the fixture CA
 - **AND** it SHALL target a disposable `sr_core_test_*` or `codex_*` database
 - **AND** it SHALL reject `demo`, production, the shared `srql_fixture` database, and the
-  `sr_core_template` database outside the typed template-migration lifecycle
+  retired `sr_core_template` database in every mode
 
 #### Scenario: Fixture configuration transport changes first
 - **GIVEN** config-manager adoption removes the current fixture environment bridge

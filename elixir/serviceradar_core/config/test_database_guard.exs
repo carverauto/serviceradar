@@ -6,9 +6,10 @@ defmodule ServiceRadar.DB.TestDatabaseGuard do
   @template_authorization_key {__MODULE__, :typed_template_lifecycle}
 
   @doc false
-  def authorize_template_lifecycle!(database \\ "sr_core_template") do
-    if !(database == "sr_core_template" or Regex.match?(~r/\Asr_tpl_[0-9a-f]{48}\z/, database)) do
-      raise ArgumentError, "invalid template generation database"
+  def authorize_template_lifecycle!(database) when is_binary(database) do
+    if !Regex.match?(~r/\Asr_tpl_[0-9a-f]{48}\z/, database) do
+      raise ArgumentError,
+            "invalid template generation database: #{inspect(database)}; expected sr_tpl_<48 hex>"
     end
 
     :persistent_term.put(@template_authorization_key, database)
@@ -64,9 +65,6 @@ defmodule ServiceRadar.DB.TestDatabaseGuard do
         :ok
     end
   end
-
-  defp disposable_database?("sr_core_template", true),
-    do: :persistent_term.get(@template_authorization_key, false) == "sr_core_template"
 
   defp disposable_database?("sr_tpl_" <> _rest = database, true),
     do: :persistent_term.get(@template_authorization_key, false) == database

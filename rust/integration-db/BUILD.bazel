@@ -15,22 +15,10 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 # //config/manager_config/rust, because it varies by nothing and every caller having to supply
 # it was what kept services from using ConfigManager at all. The committed instances stay --
 # those DO vary, by environment. The run id names the database the step may touch.
-#
-# Hoisted because it was previously repeated per target and had already drifted: provision_db
-# carried the rule set without the instances, and the per-shard variants carried neither.
 FIXTURE_DATA = [
     "//build:run_id_file",
     "//config/environments:ci_binpb",
 ]
-
-# The extra input a target needs before it may WRITE the shared template `sr_core_template`.
-#
-# Only the two targets that do declare it, so the rest cannot -- `require_template_authority`
-# fails closed on a missing runfile, which makes "did not declare the input" and "was not given
-# authority" the same answer. It sits beside the run id because it decides the same kind of
-# thing: WHICH database a step may touch, from the build graph rather than from ambient
-# environment, where two steps of one lifecycle could disagree.
-TEMPLATE_WRITE_DATA = ["//build:template_authority_file"]
 
 package(default_visibility = ["//visibility:public"])
 
@@ -83,10 +71,6 @@ rust_test(
     name = "serviceradar_integration_db_test",
     compile_data = ["registry.sql"],
     crate = ":serviceradar_integration_db",
-    # The one declared input this cached test needs: it checks that the authority marker is
-    # readable from the path the write targets look it up by, which is the failure a fail-closed
-    # gate cannot otherwise distinguish from working correctly.
-    data = TEMPLATE_WRITE_DATA,
     deps = all_crate_deps(
         cargo_only = True,
         normal = True,
@@ -141,10 +125,11 @@ rust_test(
 #     -> (elixir) migrate_generation [only when needs_migration] -> prepare_generation [ready]
 #     -> provision_generation -> (elixir) integration_tests -> teardown_db -> release_generation
 #
-# :provision_base, :provision_db*, :prepare_template and :reset_template below are a frozen
-# legacy rollback path: no active workflow invokes them. They write the singleton
-# `sr_core_template` and refuse without --//build:template_authority=true. See
-# docs/docs/ci-schema-templates.md.
+# The retired shared-template lifecycle (provision_base, provision_db*, prepare_template,
+# reset_template and, on the Elixir side, migrate_template/migrate_run) is gone: every database
+# this crate creates is a clone of the run's pinned immutable `sr_tpl_*` generation, and
+# //build/contracts:ci_heavy_gate_contract_test fails if any retired target reappears. The
+# frozen `sr_core_template` database itself stays protected until its approved drop.
 #
 [
     rust_test(
@@ -175,165 +160,6 @@ rust_test(
     ]
 ]
 
-# Split out of the list above because it alone reads the migration filenames: it refuses to
-# clone a template that is behind the migrations on disk, which would otherwise run the suite
-# against a schema that does not match the code under test.
-rust_test(
-    name = "provision_db",
-    size = "medium",
-    srcs = ["tests/provision_db_test.rs"],
-    crate_root = "tests/provision_db_test.rs",
-    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
-    # One database per integration lane, from the same .bzl that generates the Elixir lane
-    # targets, so the two name sets cannot drift.
-    #
-    # env, NOT args: libtest reads a bare argv entry as a test-name filter, so passing lane
-    # names as args matched no test, ran nothing and exited 0 -- green having provisioned
-    # nothing at all.
-    env = {"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_lane_names())},
-    tags = [
-        "external",
-        "manual",
-    ],
-    target_compatible_with = requires_shared_fixture(),
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-        normal_dev = True,
-    ) + [
-        ":serviceradar_integration_db",
-        "//rust/srql:srql_lib",
-    ],
-)
-
-# The source-separated release gate needs only its dedicated database. It deliberately does not
-# participate in integration_lane_names(), so ordinary provisioning remains exactly the frozen
-# async/serial lane set.
-rust_test(
-    name = "provision_db_large_ingestion",
-    size = "medium",
-    srcs = ["tests/provision_db_test.rs"],
-    crate_root = "tests/provision_db_test.rs",
-    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
-    env = {"SERVICERADAR_TEST_DB_SHARDS": LARGE_INGESTION_DB_SHARD},
-    tags = [
-        "external",
-        "manual",
-    ],
-    target_compatible_with = requires_shared_fixture(),
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-        normal_dev = True,
-    ) + [
-        ":serviceradar_integration_db",
-        "//rust/srql:srql_lib",
-    ],
-)
-
-# Focused developer targets clone only the lane that will run, instead of touching seven
-# additional databases. The lane list still comes from the same .bzl as the Elixir targets.
-[
-    rust_test(
-        name = "provision_db_{}".format(lane),
-        size = "medium",
-        srcs = ["tests/provision_db_test.rs"],
-        crate_root = "tests/provision_db_test.rs",
-        data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
-        env = {"SERVICERADAR_TEST_DB_SHARDS": lane},
-        tags = [
-            "external",
-            "manual",
-        ],
-        target_compatible_with = requires_shared_fixture(),
-        deps = all_crate_deps(
-            cargo_only = True,
-            normal = True,
-            normal_dev = True,
-        ) + [
-            ":serviceradar_integration_db",
-            "//rust/srql:srql_lib",
-        ],
-    )
-    for lane in integration_lane_names()
-]
-
-# Creates the template if absent and reports whether it needs migrating.
-#
-# Frozen legacy rollback path: no active workflow invokes this target any more. It refuses
-# without --//build:template_authority=true rather than trusting that it is named from the
-# right action -- advancing the shared template is a write to state every branch reads, and
-# only trunk's migrations ever belonged in it -- see src/template.rs for the incident that
-# split :provision_base apart from this target. Live workflows build schema generations
-# through :prepare_generation / :migrate_generation instead. See docs/docs/ci-schema-templates.md.
-#
-# A binary rather than a test because it reports a human-readable migration status on stdout.
-# `bazel run` builds eligible actions remotely and launches the binary on the caller, which
-# branches on the `migration(s) pending` line without depending on a TestRunner placement strategy.
-rust_binary(
-    name = "prepare_template",
-    srcs = ["src/bin/prepare_template.rs"],
-    data = FIXTURE_DATA + TEMPLATE_WRITE_DATA + ["//elixir/serviceradar_core:migrations"],
-    tags = ["manual"],
-    target_compatible_with = requires_shared_fixture(),
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + [
-        ":serviceradar_integration_db",
-        "//rust/srql:srql_lib",
-    ],
-)
-
-# Creates this run's base database, and reports whether it still needs migrating.
-#
-# Frozen legacy rollback path: no active workflow invokes this target any more. It seeded
-# sr_core_test_<run> from the shared template when that template was a safe seed and from
-# nothing when it was not, so a branch's own migrations landed on a per-run database instead
-# of on state every other branch reads. Live workflows clone per-run databases from an
-# immutable schema generation through :provision_generation instead. See
-# docs/docs/ci-schema-templates.md.
-#
-# A binary for the same reason as :prepare_template -- the caller branches on its stdout to
-# decide whether //elixir/serviceradar_core:migrate_run is worth the BEAM.
-rust_binary(
-    name = "provision_base",
-    srcs = ["src/bin/provision_base.rs"],
-    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
-    tags = ["manual"],
-    target_compatible_with = requires_shared_fixture(),
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + [
-        ":serviceradar_integration_db",
-        "//rust/srql:srql_lib",
-    ],
-)
-
-# Drops the shared template so the next trunk run rebuilds it.
-#
-# Frozen legacy rollback path: no active workflow invokes this target any more. It was the
-# recovery for a template that had diverged from trunk, invoked automatically by the legacy
-# lifecycle when :prepare_template reported the template AHEAD, and by hand from a trunk
-# checkout otherwise -- never from a pull request, since a branch must not be able to destroy
-# state every other branch reads, which --//build:template_authority makes a refusal rather
-# than a rule. See docs/docs/ci-schema-templates.md.
-rust_binary(
-    name = "reset_template",
-    srcs = ["src/bin/reset_template.rs"],
-    data = FIXTURE_DATA + TEMPLATE_WRITE_DATA,
-    tags = ["manual"],
-    target_compatible_with = requires_shared_fixture(),
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + [
-        ":serviceradar_integration_db",
-        "//rust/srql:srql_lib",
-    ],
-)
-
 # Samples the shared fixture while the dedicated IntegrationBenchmark lifecycle runs. It is
 # manual so ordinary wildcards never connect to the fixture; BuildBuddy starts it explicitly
 # after fixture credentials have been materialized.
@@ -353,10 +179,9 @@ rust_binary(
 )
 
 # Keyed generation lifecycle. Every active workflow (BazelCI, LargeIngestionGate,
-# IntegrationBenchmark*) builds through these guarded targets and the ones below;
-# :prepare_template, :provision_base, :provision_db* and :reset_template above are kept
-# only as a frozen legacy rollback path that no workflow invokes. See
-# docs/docs/ci-schema-templates.md.
+# IntegrationBenchmark*) builds schema databases through these guarded targets and the
+# generation binaries below; the legacy shared-template targets that once sat beside them are
+# deleted, and //build/contracts:ci_heavy_gate_contract_test fails if any of them reappears.
 rust_test(
     name = "generation_lifecycle_test",
     size = "large",
@@ -407,4 +232,30 @@ rust_test(
         ("release_generation", "release", ""),
         ("cleanup_generations", "cleanup", ""),
     ]
+]
+
+# Focused developer targets clone only the lane that will run, instead of touching seven
+# additional databases: `provision_generation_<lane>` followed by the matching
+# `integration_tests_<lane>` target. Generated from the same lane list as the Elixir lane
+# targets, so the two name sets cannot drift and no hand-maintained list can shadow it;
+# //build/contracts:ci_heavy_gate_contract_test pins the comprehension to
+# integration_lane_names(). This replaces the retired provision_db_<lane> targets.
+[
+    rust_binary(
+        name = "provision_generation_{}".format(lane),
+        srcs = ["src/bin/generation.rs"],
+        args = ["clone"],
+        data = FIXTURE_DATA + [
+            "//build/schema_template:manifest",
+            "//build/schema_template:policy.json",
+        ],
+        env = {"SERVICERADAR_TEST_DB_SHARDS": lane},
+        tags = ["manual"],
+        target_compatible_with = requires_shared_fixture(),
+        deps = all_crate_deps(
+            cargo_only = True,
+            normal = True,
+        ) + [":serviceradar_integration_db"],
+    )
+    for lane in integration_lane_names()
 ]
