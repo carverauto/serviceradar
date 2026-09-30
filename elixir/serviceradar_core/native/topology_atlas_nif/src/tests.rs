@@ -389,6 +389,8 @@ fn duplicate_physical_evidence_collapses_without_merging_parallel_ports() {
         physical("link-names", a, b, 0, "ge-0/0/1", 0, "ge-0/0/2"),
         physical("link-ab", a, b, 5, "ge-0/0/1", 9, "ge-0/0/2"),
         physical("link-index-alias", a, b, 5, "uplink-a", 9, "uplink-b"),
+        physical("link-partial-source", a, b, 5, "uplink-a", 0, "uplink-b"),
+        physical("link-partial-target", b, a, 9, "uplink-b", 0, "uplink-a"),
         physical("link-parallel", a, b, 6, "ge-0/0/3", 10, "ge-0/0/4"),
         physical("link-shared-parallel", a, b, 5, "ge-0/0/1", 20, "ge-0/0/9"),
         physical("alias-a", a, b, 7, "port-a", 11, "port-b"),
@@ -458,6 +460,9 @@ fn duplicate_physical_evidence_collapses_without_merging_parallel_ports() {
     for row in [
         physical("link-ba", b, a, 9, "ge-0/0/2", 5, "ge-0/0/1"),
         physical("link-ab", a, b, 5, "ge-0/0/1", 9, "ge-0/0/2"),
+        physical("link-index-alias", a, b, 5, "uplink-a", 9, "uplink-b"),
+        physical("link-partial-source", a, b, 5, "uplink-a", 0, "uplink-b"),
+        physical("link-partial-target", b, a, 9, "uplink-b", 0, "uplink-a"),
     ] {
         relations.insert(row.relation_id.clone(), row);
     }

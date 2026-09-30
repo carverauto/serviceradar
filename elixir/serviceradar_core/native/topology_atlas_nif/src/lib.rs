@@ -247,7 +247,7 @@ fn runtime() -> Result<&'static Runtime> {
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
-fn read_graph(env: Env<'_>, url: String) -> Term<'_> {
+fn read_graph(env: Env<'_>, url: String, stale_cutoff: String) -> Term<'_> {
     crate::admission::call(env, &crate::admission::GRAPH_READ, || {
         reply(
             env,
@@ -258,7 +258,7 @@ fn read_graph(env: Env<'_>, url: String) -> Term<'_> {
                 let graph = runtime()?
                     .block_on(async {
                         let client = TopologyClient::connect(&url).await?;
-                        client.query_topology_view().await
+                        client.query_topology_view(&stale_cutoff).await
                     })
                     .map_err(|_| "topology view read failed")?;
                 Ok(ResourceArc::new(GraphResource(Mutex::new(Some(graph)))))

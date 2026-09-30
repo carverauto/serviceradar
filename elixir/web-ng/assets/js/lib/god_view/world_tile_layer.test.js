@@ -1,8 +1,11 @@
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 import {OrthographicViewport} from "@deck.gl/core"
 import WorldTileLayer from "./world_tile_layer"
+import WorldMapRenderer from "./WorldMapRenderer"
 import {decodeWorldTile} from "./world_tile_decode"
 import {worldTileIpc, worldTileKey, worldTileRevision} from "./fixtures/world_tile_ipc"
+
+vi.mock("../GodViewRenderer", () => ({default: class {}}))
 
 function tile() {
   return {...decodeWorldTile(worldTileIpc(), worldTileKey), generation: 1}
@@ -24,6 +27,32 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it("toggles both inferred edge passes through the map topology control", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    renderer.cache.manifest = {layout_version: worldTileKey.layout_version, zmax: 16}
+    renderer.deck = {setProps: vi.fn()}
+    const detailControl = vi.fn()
+    renderer.detailHandlers = new Map([["god_view:set_topology_layers", detailControl]])
+    const geometry = tile()
+    geometry.edges[0].topologyClass = "inferred"
+    renderer.render()
+    for (const enabled of [null, true, false]) {
+      if (enabled !== null) {
+        renderer.setSceneControl("god_view:set_topology_layers", {layers: {inferred: enabled}})
+        expect(detailControl).toHaveBeenLastCalledWith({layers: {inferred: enabled}})
+      }
+      const layer = renderer.deck.setProps.mock.lastCall[0].layers[0]
+      const passes = layer.renderSubLayers({id: "inferred-tile", data: geometry}).filter(Boolean)
+      const edges = passes.filter(item => /-edges$|-edge-mantle$/.test(item.id))
+      expect(edges).toHaveLength(2)
+      for (const edge of edges) {
+        expect(edge.props.getWidth(null, {index: 0}) > 0).toBe(enabled === true)
+        expect(edge.props.getColor(null, {index: 0})[3] > 0).toBe(enabled === true)
+      }
+      expect(passes.some(item => item.id.endsWith("-packets"))).toBe(false)
+    }
+  })
+
   it("coarsens a large orthographic viewport without omitting any of its coverage", () => {
     const layer = new WorldTileLayer({id: "coverage", maxZoom: 16})
     const tileset = new layer.props.TilesetClass({tileSize: 512, extent: [0, 0, 512, 512]})

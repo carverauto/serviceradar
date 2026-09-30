@@ -28,6 +28,7 @@ export default class WorldMapRenderer {
     this.overlayRevision = 0
     this.packetFlow = true
     this.links = true
+    this.inferred = false
     this.filters = {}
     this.destroyed = false
     this.sceneCache = new Map()
@@ -145,6 +146,10 @@ export default class WorldMapRenderer {
     this.sceneControls.set(name, payload)
     this.detailHandlers?.get(name)?.(payload)
     this.pendingDetail?.handlers.get(name)?.(payload)
+    if (name === "god_view:set_topology_layers") {
+      this.inferred = payload.layers?.inferred === true
+      this.render()
+    }
   }
 
   async poll() {
@@ -365,7 +370,7 @@ export default class WorldMapRenderer {
       maxZoom: this.cache.manifest.zmax, getTileData: this.getTileData,
       updateTriggers: {getTileData: this.geometryRevision},
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
-      links: this.links, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
+      links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
       onViewportLoad: this.onViewportLoad, onTileError: this.onTileError,
     })], _animate: !this.detailRenderer && this.packetFlow})
   }

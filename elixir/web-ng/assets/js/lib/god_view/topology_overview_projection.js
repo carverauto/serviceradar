@@ -324,7 +324,7 @@ function attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds
   return normalized.nodes.filter((node) => attachedIds.has(node.id))
 }
 
-function overviewNodes(normalized, pairs, maximumEndpoints) {
+function overviewNodes(normalized, pairs, maximumEndpoints, boundedPage) {
   const infrastructure = normalized.nodes.filter(isTransportInfrastructureNode)
   const infrastructureIds = new Set(infrastructure.map((node) => node.id))
   const summaries = normalized.nodes.filter(
@@ -346,7 +346,9 @@ function overviewNodes(normalized, pairs, maximumEndpoints) {
     ...members.map((node) => node.id),
   ])
   const attached = attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds, maximumEndpoints)
-  const leaves = [...members, ...attached]
+  const leaves = boundedPage
+    ? normalized.nodes.filter((node) => promotableEndpointNode(node) && !excludedIds.has(node.id)).concat(members)
+    : [...members, ...attached]
   const visibleIds = new Set([...infrastructure, ...summaries, ...leaves].map((node) => node.id))
   const roleFor = (node) => {
     if (infrastructureIds.has(node.id)) return "infrastructure"
@@ -565,16 +567,19 @@ export function prepareTopologyOverviewInput(graph) {
   const normalized = normalizeNodes(graph)
   // Requested native pages already have a fixed membership budget. Reuse the
   // same real attachment projection without the unbounded overview fan cap.
-  const maximumEndpoints = graph?._topologyBoundedPage === true && normalized.nodes.length <= 128
-    ? 128 : MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR
+  const boundedPage = graph?._topologyBoundedPage === true && normalized.nodes.length <= 128
+  const maximumEndpoints = boundedPage ? 128 : MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR
   const {pairs, transportDegree, omittedMalformedEdges} = aggregatePairs(graph, normalized)
   const {attached, infrastructureIds, leaves, members, semanticNodes, summaries, visibleIds} =
-    overviewNodes(normalized, pairs, maximumEndpoints)
+    overviewNodes(normalized, pairs, maximumEndpoints, boundedPage)
   const infrastructure = normalized.nodes.filter((node) => infrastructureIds.has(node.id))
+  const forestNodes = boundedPage ? normalized.nodes.filter((node) => visibleIds.has(node.id)) : infrastructure
   const candidatePairs = pairs
-    .filter((pair) => pair.hasTransport && pair.nodeIds.every((id) => infrastructureIds.has(id)))
+    .filter((pair) => boundedPage
+      ? pair.nodeIds.every((id) => visibleIds.has(id))
+      : pair.hasTransport && pair.nodeIds.every((id) => infrastructureIds.has(id)))
     .sort(comparePair)
-  const unionFind = createUnionFind(infrastructure.map((node) => node.id))
+  const unionFind = createUnionFind(forestNodes.map((node) => node.id))
   const treePairs = []
   const crossLinks = []
   for (const pair of candidatePairs) {
@@ -583,8 +588,9 @@ export function prepareTopologyOverviewInput(graph) {
     else crossLinks.push(relationFromPair(pair, left, right))
   }
 
-  const oriented = orientForest(treePairs, infrastructure, transportDegree)
-  const {relations: summaryLeaves, crossLinks: summaryCrossLinks} = summaryRelations(summaries, infrastructureIds, pairs)
+  const oriented = orientForest(treePairs, forestNodes, transportDegree)
+  const {relations: summaryLeaves, crossLinks: summaryCrossLinks} = boundedPage
+    ? {relations: [], crossLinks: []} : summaryRelations(summaries, infrastructureIds, pairs)
   const allCrossLinks = [...crossLinks, ...summaryCrossLinks].sort(
     (left, right) => left.pairId.localeCompare(right.pairId) || left.sourceId.localeCompare(right.sourceId),
   )
@@ -593,7 +599,7 @@ export function prepareTopologyOverviewInput(graph) {
   const treeRelations = [
     ...oriented.relations,
     ...summaryLeaves,
-    ...memberRelations(leaves, visibleIds, pairs, infrastructureIds),
+    ...(boundedPage ? [] : memberRelations(leaves, visibleIds, pairs, infrastructureIds)),
   ]
 
   if (oriented.roots.length > 1) {

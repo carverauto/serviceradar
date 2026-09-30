@@ -268,6 +268,38 @@ describe("topology_overview_projection", () => {
         sourceId: "big-anchor", semanticRelationIds: [`att:big-${index}`],
       })
     }
+    const isolated = {id: "server-isolated", label: "Isolated server", details: {type: "server"}}
+    expect(prepareTopologyOverviewInput({nodes: [isolated], edges: [], _topologyBoundedPage: true}))
+      .toMatchObject({roots: [isolated.id], nodes: [{id: isolated.id, label: isolated.label}]})
+    const expanded = {
+      _topologyBoundedPage: true,
+      nodes: [...nodes, isolated,
+        {id: "server-physical", details: {type: "server"}},
+        {id: "guest-hosted", details: {type: "virtual"}},
+        {id: "synthetic-sighting", details: {type: "server", identity_source: "mapper_topology_sighting"}},
+        {id: "synthetic-attachment", details: {type: "server", identity_source: "endpoint_attachment_projection"}},
+      ],
+      edges: [...edges,
+        {id: "physical-server", source: "small-anchor", target: "server-physical", topologyClass: "backbone"},
+        {id: "hosted-guest", source: "server-physical", target: "guest-hosted", topologyClass: "hosted"},
+        {id: "guest-cross-link", source: "big-anchor", target: "guest-hosted", topologyClass: "inferred"},
+        {id: "synthetic-link", source: "small-anchor", target: "synthetic-sighting", topologyClass: "inferred"},
+      ],
+    }
+    const retained = prepareTopologyOverviewInput(expanded)
+    expect(retained.manifest.nodeIds).toEqual(expanded.nodes.slice(0, -2).map(node => node.id).sort())
+    expect([...retained.treeRelations, ...retained.crossLinks].flatMap(relation => relation.semanticRelationIds).sort())
+      .toEqual(expanded.edges.slice(0, -1).map(edge => edge.id).sort())
+    expect(retained.crossLinks.flatMap(relation => relation.semanticRelationIds)).toContain("guest-cross-link")
+    expect(prepareTopologyOverviewInput({
+      ...expanded,
+      nodes: [...expanded.nodes].reverse(),
+      edges: [...expanded.edges].reverse().map(edge => ({
+        ...edge,
+        source: expanded.nodes[edge.source]?.id ?? edge.source,
+        target: expanded.nodes[edge.target]?.id ?? edge.target,
+      })),
+    })).toEqual(retained)
   })
 
   it("chooses a summary parent by canonical pair when multiple attachment candidates exist", () => {

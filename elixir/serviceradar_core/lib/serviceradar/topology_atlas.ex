@@ -19,6 +19,7 @@ defmodule ServiceRadar.TopologyAtlas do
   """
 
   alias ServiceRadar.Dgraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
   alias ServiceRadar.TopologyAtlas.Native
 
   @relation_defaults %{
@@ -76,7 +77,7 @@ defmodule ServiceRadar.TopologyAtlas do
 
   @doc "Read the canonical graph directly into a native resource from one paged Dgraph snapshot."
   def read_graph do
-    with {:ok, url} <- Dgraph.url(), do: Native.read_graph(url)
+    with {:ok, url} <- Dgraph.url(), do: Native.read_graph(url, Utils.stale_cutoff_iso8601())
   end
 
   def tile(world, z, x, y, budget \\ %{nodes: 128, edges: 256})

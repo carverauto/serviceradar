@@ -485,7 +485,7 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
         "MTR_PATH",
         "",
     ];
-    let edges = kinds
+    let mut edges: Vec<_> = kinds
         .iter()
         .enumerate()
         .map(|(index, kind)| {
@@ -493,6 +493,7 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
                 "uid": format!("{:#x}", 4096 + index + 1),
                 "topo.link_key": format!("invented-view-{index}"),
                 "topo.kind": kind,
+                "topo.last_seen": "2030-01-02T00:00:00Z",
                 "topo.protocol": "lldp",
                 "topo.evidence_class": "direct-physical",
                 "topo.confidence_tier": "high",
@@ -502,6 +503,41 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
             })
         })
         .collect();
+    let mut expected_keys: BTreeSet<_> = (0..4).map(|i| format!("invented-view-{i}")).collect();
+    for kind in &kinds[..4] {
+        for (name, seen, fresh) in [
+            ("expired", Some("2030-01-01T11:59:59Z"), false),
+            ("boundary", Some("2030-01-01T12:00:00Z"), true),
+            ("offset", Some("2030-01-01T13:00:00+02:00"), false),
+            ("missing", None, false),
+            ("invalid", Some("invalid-timestamp"), false),
+        ] {
+            let key = format!("{kind}-{name}");
+            if *kind == "CANONICAL_TOPOLOGY" || fresh {
+                expected_keys.insert(key.clone());
+            }
+            let mut row = edges[0].clone();
+            row["uid"] = json!(format!("{:#x}", 4096 + edges.len() + 1));
+            row["topo.link_key"] = json!(key);
+            row["topo.kind"] = json!(kind);
+            if let Some(seen) = seen {
+                row["topo.last_seen"] = json!(seen);
+            } else {
+                row.as_object_mut().unwrap().remove("topo.last_seen");
+            }
+            edges.push(row);
+        }
+    }
+    let expired: Vec<_> = (1..=256)
+        .map(|index| {
+            let mut row = edges[1].clone();
+            row["uid"] = json!(format!("{index:#x}"));
+            row["topo.link_key"] = json!(format!("expired-prefix-{index}"));
+            row["topo.last_seen"] = json!("2000-01-01T00:00:00Z");
+            row
+        })
+        .collect();
+    edges.splice(0..0, expired);
     let server = RunningServer::start(Fixture {
         nodes: vec![json!({
             "uid": "0x1",
@@ -512,13 +548,23 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
         ..Default::default()
     })
     .await;
-    let view = tokio::time::timeout(Duration::from_secs(10), server.client.query_topology_view())
-        .await
-        .expect("finite view traversal")
-        .expect("complete topology view");
+    let view = tokio::time::timeout(
+        Duration::from_secs(10),
+        server.client.query_topology_view("2030-01-01T12:00:00Z"),
+    )
+    .await
+    .expect("finite view traversal")
+    .expect("complete topology view");
     assert_eq!(view.nodes().len(), 1);
     assert_eq!(view.nodes()[0].id(), "sr:ap-1.example.test");
     assert_eq!(view.nodes()[0].hostname(), Some("ap-1.example.test"));
+    assert_eq!(
+        view.edges()
+            .iter()
+            .map(|edge| edge.edge().link_key().to_owned())
+            .collect::<BTreeSet<_>>(),
+        expected_keys
+    );
     let admitted: BTreeSet<_> = view
         .edges()
         .iter()
@@ -534,6 +580,15 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
         ])
     );
     let fixture = server.fixture.lock().expect("fixture lock");
+    fixture.assert_protocol();
+    assert_eq!(
+        fixture
+            .calls
+            .iter()
+            .filter(|call| call.block == Block::Edges)
+            .count(),
+        2
+    );
     let edge_query = fixture
         .queries
         .iter()

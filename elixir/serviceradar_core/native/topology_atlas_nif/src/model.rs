@@ -511,22 +511,47 @@ fn normalize(rows: impl IntoIterator<Item = RelationRow>) -> Vec<RelationRow> {
             .push(index);
     }
     let mut kept = Vec::new();
-    for mut members in groups.into_values() {
+    for members in groups.into_values() {
+        let mut resolved: Vec<_> = members
+            .iter()
+            .map(|&index| {
+                let original = &rows[index];
+                let mut row = original.clone();
+                for source in [true, false] {
+                    if endpoint(original, source).0.is_some() {
+                        continue;
+                    }
+                    let device = if source {
+                        &original.source_id
+                    } else {
+                        &original.target_id
+                    };
+                    let indices: HashSet<_> = members
+                        .iter()
+                        .map(|&i| &rows[i])
+                        .filter(|other| compatible_link(original, other))
+                        .filter_map(|other| port(other, device).0)
+                        .collect();
+                    if indices.len() == 1 {
+                        absorb(&mut row, source, (indices.into_iter().next(), None));
+                    }
+                }
+                row
+            })
+            .collect();
         // Resolve complete bindings before aliases. An alias compatible with
         // two distinct port pairs is ambiguous; it must not join those cables.
-        members.sort_by_key(|&i| {
-            let row = &rows[i];
+        resolved.sort_by_key(|row| {
             (
                 std::cmp::Reverse(
                     usize::from(row.source_if_index.is_some())
                         + usize::from(row.target_if_index.is_some()),
                 ),
-                &row.relation_id,
+                row.relation_id.clone(),
             )
         });
         let mut links: Vec<RelationRow> = Vec::new();
-        for index in members {
-            let row = &rows[index];
+        for row in &resolved {
             let matches: Vec<_> = links
                 .iter()
                 .enumerate()

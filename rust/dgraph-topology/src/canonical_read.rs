@@ -49,7 +49,7 @@ const VIEW_EDGES: QueryBlock = QueryBlock {
     name: "edges",
     kind: "TopologyEdge",
     filter: r#"(eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "ATTACHED_TO") OR eq(topo.kind, "INFERRED_TO") OR eq(topo.kind, "HOSTED_ON")) AND NOT eq(topo.stale, true)"#,
-    fields: "topo.kind topo.link_key topo.protocol topo.evidence_class topo.confidence_tier
+    fields: "topo.kind topo.last_seen topo.link_key topo.protocol topo.evidence_class topo.confidence_tier
       topo.flow_pps_ab topo.flow_pps_ba topo.flow_bps_ab topo.flow_bps_ba
       topo.capacity_bps topo.telemetry_eligible topo.if_index_ab topo.if_index_ba
       topo.if_name_ab topo.if_name_ba topo.mutation_id topo.pair_support_rank
@@ -63,10 +63,18 @@ pub(crate) async fn graph(client: &DgraphClient) -> Result<CanonicalGraph, Topol
     Ok(CanonicalGraph::new(nodes, edges))
 }
 
-pub(crate) async fn view(client: &DgraphClient) -> Result<TopologyView, TopologyError> {
+pub(crate) async fn view(
+    client: &DgraphClient,
+    stale_cutoff: &str,
+) -> Result<TopologyView, TopologyError> {
+    let stale_cutoff = chrono::DateTime::parse_from_rfc3339(stale_cutoff)
+        .map_err(|error| TopologyError::Serde(error.to_string()))?;
     let mut txn = client.new_read_only_txn();
     let nodes = scan(&mut txn, &DEVICES, Some).await?;
-    let edges = scan(&mut txn, &VIEW_EDGES, CanonicalEdgeRow::into_view_edge).await?;
+    let edges = scan(&mut txn, &VIEW_EDGES, |row: CanonicalEdgeRow| {
+        row.into_view_edge(stale_cutoff)
+    })
+    .await?;
     Ok(TopologyView::new(nodes, edges))
 }
 
@@ -113,7 +121,7 @@ struct PageRow<T> {
 async fn scan<T: DeserializeOwned, U>(
     txn: &mut Txn<ReadOnly>,
     block: &QueryBlock,
-    convert: fn(T) -> Option<U>,
+    convert: impl Fn(T) -> Option<U>,
 ) -> Result<Vec<U>, TopologyError> {
     let mut result = Vec::new();
     let mut after = 0;

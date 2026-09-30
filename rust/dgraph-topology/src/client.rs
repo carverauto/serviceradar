@@ -608,8 +608,8 @@ impl TopologyClient {
     /// # Errors
     ///
     /// As [`Self::query_canonical_edges`].
-    pub async fn query_topology_view(&self) -> Result<TopologyView, TopologyError> {
-        crate::canonical_read::view(&self.client).await
+    pub async fn query_topology_view(&self, stale_cutoff: &str) -> Result<TopologyView, TopologyError> {
+        crate::canonical_read::view(&self.client, stale_cutoff).await
     }
 
     async fn delete_edge_by_link_key(&self, key: &str) -> Result<(), TopologyError> {
@@ -714,6 +714,8 @@ impl EndpointId {
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct CanonicalEdgeRow {
+    #[serde(default, rename = "topo.last_seen")]
+    last_seen: String,
     #[serde(default, rename = "topo.link_key")]
     link_key: String,
     #[serde(default, rename = "topo.kind")]
@@ -782,11 +784,20 @@ impl CanonicalEdgeRow {
         )
     }
 
-    pub(crate) fn into_view_edge(self) -> Option<crate::types::NeighbourhoodEdge> {
+    pub(crate) fn into_view_edge(
+        self,
+        stale_cutoff: chrono::DateTime<chrono::FixedOffset>,
+    ) -> Option<crate::types::NeighbourhoodEdge> {
         if !matches!(
             self.kind.as_str(),
             "CANONICAL_TOPOLOGY" | "ATTACHED_TO" | "INFERRED_TO" | "HOSTED_ON"
         ) {
+            return None;
+        }
+        if self.kind != "CANONICAL_TOPOLOGY"
+            && !chrono::DateTime::parse_from_rfc3339(&self.last_seen)
+                .is_ok_and(|last_seen| last_seen >= stale_cutoff)
+        {
             return None;
         }
         let kind = self.kind.clone();
