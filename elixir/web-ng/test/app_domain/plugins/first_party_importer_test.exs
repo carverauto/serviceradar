@@ -131,7 +131,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
         String.contains?(url, "/service/token") ->
           Process.put(:registry_token_auth_header, header(opts, "authorization"))
-          {:ok, %Req.Response{status: 200, body: %{"token" => "registry-token"}}}
+          {:ok, %Req.Response{status: 200, body: ~s({"token":"registry-token"})}}
 
         String.ends_with?(url, "/v2/serviceradar/wasm-plugin-hello-wasm/manifests/v1.2.3") ->
           if Process.get(:first_party_registry_auth_challenge) && header(opts, "authorization") != "Bearer registry-token" do
@@ -149,7 +149,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
             {:ok,
              %Req.Response{
                status: 200,
-               body: FirstPartyImporterTest.oci_manifest(),
+               body: Jason.encode!(FirstPartyImporterTest.oci_manifest()),
                headers: %{"docker-content-digest" => [FirstPartyImporterTest.oci_manifest_digest()]}
              }}
           end

@@ -200,25 +200,22 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
   # ---------------------------------------------------------------------------
 
   @doc "GET `url` against the GitHub API and return the decoded JSON response body."
-  @spec github_api_get(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec github_api_get(String.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def github_api_get(url, opts \\ []) do
     headers = build_headers(opts, [{"accept", "application/vnd.github+json"}])
 
-    case do_fetch_body(url, headers, opts) do
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
+    case do_fetch_json(url, headers, opts) do
+      {:ok, %{status: 200, body: body}} ->
         {:ok, body}
-
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        case Jason.decode(body) do
-          {:ok, decoded} -> {:ok, decoded}
-          {:error, _} -> {:error, :invalid_json}
-        end
 
       {:ok, %{status: 404}} ->
         {:error, :not_found}
 
       {:ok, %{status: status}} ->
         {:error, {:http_error, status}}
+
+      {:error, %Jason.DecodeError{}} ->
+        {:error, :invalid_json}
 
       {:error, reason} ->
         {:error, reason}
@@ -236,15 +233,12 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
     url = "https://#{@github_api_host}/repos/#{owner}/#{repo}/releases/tags/#{URI.encode(tag)}"
     headers = build_headers(opts, [{"accept", "application/vnd.github+json"}])
 
-    case do_fetch_body(url, headers, opts) do
+    case do_fetch_json(url, headers, opts) do
       {:ok, %{status: 200, body: body}} when is_map(body) ->
         {:ok, body}
 
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        case Jason.decode(body) do
-          {:ok, %{} = decoded} -> {:ok, decoded}
-          _ -> {:error, "Release import returned unexpected payload"}
-        end
+      {:ok, %{status: 200}} ->
+        {:error, "Release import returned unexpected payload"}
 
       {:ok, %{status: 404}} ->
         {:error, not_found_reason(parsed, opts, "Release tag #{tag} was not found")}
@@ -254,6 +248,9 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
 
       {:ok, %{status: status}} ->
         {:error, "Release import failed with HTTP #{status}"}
+
+      {:error, %Jason.DecodeError{}} ->
+        {:error, "Release import returned unexpected payload"}
 
       {:error, reason} ->
         {:error, inspect(reason)}
@@ -268,7 +265,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
     url = "https://#{@github_api_host}/repos/#{owner}/#{repo}/releases?per_page=#{capped}"
     headers = build_headers(opts, [{"accept", "application/vnd.github+json"}])
 
-    case do_fetch_body(url, headers, opts) do
+    case do_fetch_json(url, headers, opts) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, body}
 
@@ -283,6 +280,9 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
 
       {:ok, %{status: status}} ->
         {:error, "Recent plugin releases could not be loaded (HTTP #{status})"}
+
+      {:error, %Jason.DecodeError{}} ->
+        {:error, "Plugin release browser returned an unexpected payload"}
 
       {:error, reason} ->
         {:error, inspect(reason)}
@@ -507,5 +507,10 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
   defp do_fetch_body(url, headers, opts) do
     client = Keyword.get(opts, :http_client, EgressClient)
     client.fetch_body(url, headers: headers)
+  end
+
+  defp do_fetch_json(url, headers, opts) do
+    client = Keyword.get(opts, :http_client, EgressClient)
+    EgressClient.fetch_json(url, headers: headers, http_client: client)
   end
 end

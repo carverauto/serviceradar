@@ -67,8 +67,7 @@ the third consumer, so it moves once rather than being copied a third time.
       Per that client's own documentation the shared Finch pool bypasses the egress
       allowlist and Mint cannot tunnel through the CONNECT proxy this deployment
       runs behind -- so GitHub import cannot work in a proxied deployment today,
-      and only there. Use `fetch_body/2` for API responses and
-      `download_to_file/3` for artifacts.
+      and only there. Follow that module's documentation for which helper to call.
 - [x] 4b.3 Repoint plugins and add-ons at the shared module with no behaviour
       change other than the egress fix, and keep their existing tests green as the
       evidence.
