@@ -7,11 +7,6 @@ const NODE_SPACING = 96
 const SCENE_PADDING = 64
 const EPSILON = 0.01
 const RADIAL_BASE_RADIUS = SEMANTIC_ENVELOPE * 2
-const RADIAL_RADIUS_ATTEMPTS = Object.freeze([
-  RADIAL_BASE_RADIUS,
-  RADIAL_BASE_RADIUS * 2,
-  RADIAL_BASE_RADIUS * 4,
-])
 
 class RetryableRadialGeometryError extends Error {
   constructor(message) {
