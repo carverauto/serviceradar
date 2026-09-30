@@ -21,7 +21,6 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilitiesTest do
     contract_bundle_sha256: :crypto.hash(:sha256, "bundle"),
     registry_epoch: 1,
     registry_snapshot_sha256: :crypto.hash(:sha256, "snapshot"),
-    effective_grant_sha256: :crypto.hash(:sha256, "grant"),
     cost_model_version: 1,
     max_projected_row_count: 10_000,
     max_projected_write_bytes: 16_777_216
@@ -148,7 +147,16 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilitiesTest do
                :crypto.hash(:sha256, "serviceradar.agent.sweep.package.v1")
 
       assert claims.contract_id == @contract.contract_id
-      assert claims.effective_grant_sha256 == @contract.effective_grant_sha256
+
+      assert claims.effective_grant_sha256 ==
+               LeaseCapabilities.effective_grant_sha256(@contract, claims.scope_sha256)
+
+      refute claims.effective_grant_sha256 ==
+               LeaseCapabilities.effective_grant_sha256(
+                 %{@contract | contract_version: 2},
+                 claims.scope_sha256
+               )
+
       assert claims.origin_principal_id == "agent-01"
     end
 

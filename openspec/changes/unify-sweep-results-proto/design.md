@@ -395,6 +395,32 @@ assignment record and the host-key execution grant are not part of the first
 contract: the gateway and EventWriter never consult them, and using them would
 need three signatures and two stored artifacts per (execution, range).
 
+The carrier is `SweepLeaseV1`: the group, the lease id, the assignment, the
+epoch, the production capability (its `not_before` is the signed issuance
+time) and a window `[window_start, window_end)` with every `SweepLeaseSlotV1`
+of the lease starting inside it; a slot carries its execution id, its window,
+its plan header and pages and one source authorization per range. A push is a
+window replacement rather than a list of changes: the agent keeps one lease per
+group, replaces it when the lease id changes, and otherwise swaps the slots
+inside the window for the pushed ones, so a dropped slot disappears without a
+delete message and the rolling tail is cheap to extend. `revoked` withdraws a
+group's lease and carries no capability. A lease can reach megabytes (about
+2,000 slots for five minutes over seven days, each signed once per range), so
+it travels as `SweepLeaseChunk`s on the control stream, reassembled and checked
+by SHA-256 exactly like pushed config chunks, and only to agents advertising
+`sweep_lease_v1`; the agent answers every push with `SweepLeaseAck`, whose
+`installed_through` is how far it can run without core.
+
+The contract a production capability names comes from the installation's
+contract registry document, the same JSON the gateway admits records against,
+read through one shared parser, so core cannot sign against values the
+gateway would withhold. The sweep entry must be `active` on the durable bulk
+lane. Its per-record bounds are one projected row per host, at most 2,000 hosts
+per batch (`MaxSweepHostsPerBatch`), and a 2 KiB write budget per row. The
+effective grant digest is SHA-256 over a domain tag, the contract reference and
+the lease scope digest, so a record's grant names both the contract and what
+the lease may sweep.
+
 **Open questions.** Whether dense or very long leases need a range-signing ABI
 extension (one signature over a run of slots) instead of one signature per
 (execution, range); how lease computation is partitioned across a large fleet;

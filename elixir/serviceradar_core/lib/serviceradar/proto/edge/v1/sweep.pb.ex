@@ -779,3 +779,51 @@ defmodule Serviceradar.Edge.V1.ScheduledPlanHeaderV1 do
   field :network_scope_id, 10, type: :bytes, json_name: "networkScopeId"
   field :mtr_ordinal_range_commitment, 11, type: :bytes, json_name: "mtrOrdinalRangeCommitment"
 end
+
+defmodule Serviceradar.Edge.V1.SweepLeaseSlotV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.SweepLeaseSlotV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :execution_id, 1, type: :bytes, json_name: "executionId"
+  field :slot_start_unix_nano, 2, type: :int64, json_name: "slotStartUnixNano"
+  field :collection_expires_unix_nano, 3, type: :int64, json_name: "collectionExpiresUnixNano"
+  field :plan_header, 4, type: Serviceradar.Edge.V1.ScheduledPlanHeaderV1, json_name: "planHeader"
+
+  field :plan_pages, 5,
+    repeated: true,
+    type: Serviceradar.Edge.V1.ScheduledPlanPageV1,
+    json_name: "planPages"
+
+  field :source_authorizations, 6,
+    repeated: true,
+    type: Serviceradar.Edge.V1.EdgeSourceAuthorizationV1,
+    json_name: "sourceAuthorizations"
+end
+
+defmodule Serviceradar.Edge.V1.SweepLeaseV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.SweepLeaseV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :lease_version, 1, type: :uint32, json_name: "leaseVersion"
+  field :sweep_group_id, 2, type: :bytes, json_name: "sweepGroupId"
+  field :lease_id, 3, type: :bytes, json_name: "leaseId"
+  field :producer_assignment_id, 4, type: :bytes, json_name: "producerAssignmentId"
+  field :authority_epoch, 5, type: :uint64, json_name: "authorityEpoch"
+
+  field :production_capability, 6,
+    type: Serviceradar.Edge.V1.EdgeSignedCapabilityV1,
+    json_name: "productionCapability"
+
+  field :window_start_unix_nano, 7, type: :int64, json_name: "windowStartUnixNano"
+  field :window_end_unix_nano, 8, type: :int64, json_name: "windowEndUnixNano"
+  field :slots, 9, repeated: true, type: Serviceradar.Edge.V1.SweepLeaseSlotV1
+  field :revoked, 10, type: :bool
+end
