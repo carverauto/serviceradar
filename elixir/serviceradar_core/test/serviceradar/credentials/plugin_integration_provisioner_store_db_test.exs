@@ -1,14 +1,13 @@
 defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner.AssignmentStore
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner.ScheduleStore
-  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
-  alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
@@ -19,7 +18,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
   @partition_id "default"
 
   setup_all do
-    ServiceRadar.TestSupport.start_core!()
+    TestSupport.start_core!()
     :ok
   end
 
@@ -408,34 +407,10 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
     }
   end
 
-  # Registered under the test process with a unique agent UID, so the entry
-  # exits with this test and no other test can observe it.
+  # Registered through the canonical helper, which scopes the session to this
+  # test's sandbox: the entry is owned by the calling test process (it exits
+  # with this test) and is skipped by other concurrent tests' config pushes.
   defp register_control_session!(agent_uid) do
-    assert {:ok, _pid} =
-             ProcessRegistry.register(
-               {:agent_control, @partition_id, agent_uid, node()},
-               %{
-                 agent_id: agent_uid,
-                 partition_id: @partition_id,
-                 gateway_node: node(),
-                 capabilities: ["wasm"]
-               }
-             )
-
-    await_control_partition!(agent_uid, 40)
-  end
-
-  defp await_control_partition!(_agent_uid, 0),
-    do: flunk("test control-session partition did not converge")
-
-  defp await_control_partition!(agent_uid, attempts) do
-    case AgentCommandBus.resolve_control_session_evidence(@partition_id, agent_uid, nil) do
-      {:ok, %{agent_id: ^agent_uid, partition_id: @partition_id}} ->
-        :ok
-
-      _other ->
-        Process.sleep(10)
-        await_control_partition!(agent_uid, attempts - 1)
-    end
+    TestSupport.register_agent_control_session!(agent_uid, @partition_id)
   end
 end
