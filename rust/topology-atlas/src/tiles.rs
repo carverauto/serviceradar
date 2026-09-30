@@ -47,11 +47,11 @@ struct RoutingGrade {
     crossings: [usize; 4],
 }
 
-/// None keeps canonical intersections. A positive count is the equal-width cap
-/// shared by adjacent tiles; zero folds the face's bins onto one shared corner.
+/// `bins[side] == 0` keeps that side's canonical intersections. A positive count
+/// is the equal-width cap both tiles that share the side apply.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Seam {
-    bins: [Option<u16>; 4],
+    bins: [u16; 4],
 }
 
 type RoutingKey = (u8, u32, u32, usize, usize);
@@ -707,9 +707,10 @@ pub(crate) fn published_portal(cell: Cell, point: (f64, f64), seam: Seam) -> (f6
     let Some(side) = side_of(cell, point) else {
         return point;
     };
-    let Some(bins) = seam.bins[side] else {
+    let bins = seam.bins[side];
+    if bins == 0 {
         return point;
-    };
+    }
     let (left_i, top_i) = cell.origin();
     let width = f64::from(cell.width());
     let (origin, coord, horizontal) = if side < 2 {
@@ -717,14 +718,6 @@ pub(crate) fn published_portal(cell: Cell, point: (f64, f64), seam: Seam) -> (f6
     } else {
         (f64::from(left_i), point.0, true)
     };
-    if bins == 0 {
-        // Alternating orientation assigns a different corner to each face,
-        // while both neighbors pick the same endpoint of their shared face.
-        // Actual corner crossings stay fixed, including diagonal continuations.
-        let high = (side == 1 || side == 2) == ((cell.x + cell.y) % 2 == 0);
-        let anchor = origin + if high { width } else { 0.0 };
-        return if horizontal { (anchor, point.1) } else { (point.0, anchor) };
-    }
     let local = (coord - origin).clamp(0.0, width);
     let mut bin = ((local / width) * f64::from(bins)).floor() as u16;
     if bin >= bins {
@@ -744,7 +737,7 @@ impl World {
     // not invent different portal positions for the same canonical crossing.
     fn shared_seam(&self, cell: Cell, budget: Budget) -> (Seam, usize) {
         let (own, mut examined) = self.routing_grade(cell, budget);
-        let mut bins = [None; 4];
+        let mut bins = [0; 4];
         let span = 1u32 << cell.z;
         let neighbors = [
             cell.x.checked_sub(1).map(|x| Cell { x, ..cell }),
@@ -768,7 +761,7 @@ impl World {
             };
             let crossings = own.crossings[side].max(other.crossings[side ^ 1]);
             if let Some(cap) = cap.filter(|cap| crossings > usize::from(*cap)) {
-                bins[side] = Some(cap);
+                bins[side] = cap;
             }
         }
         (Seam { bins }, examined)
@@ -815,14 +808,14 @@ impl World {
             loop {
                 let bins = std::array::from_fn(|side| {
                     if crossings[side] > usize::from(cap) {
-                        Some(cap)
+                        cap
                     } else {
-                        None
+                        0
                     }
                 });
                 let (tile, visits) = fits(Seam { bins });
                 examined += visits;
-                if tile.is_some() || cap == 0 {
+                if tile.is_some() || cap == 1 {
                     break;
                 }
                 cap /= 2;
