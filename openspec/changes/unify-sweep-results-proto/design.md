@@ -412,19 +412,24 @@ by SHA-256 exactly like pushed config chunks, and only to agents advertising
 `installed_through_unix_nano` is how far it can run without core.
 
 Core records what it delivered per assignment (`sweep_lease_deliveries`: the
-lease, its issuance time, the cursor just after the last slot pushed, and the
-agent's ack of that push) and the lease pass pushes from that. The table has
-no foreign keys, so the row outlives the assignment and the group. A full
-window goes out for a new lease id, after core dropped a delivered slot that
-has not started, after the agent refused the last push, and when the last push
-went unacknowledged for ten minutes; otherwise only the slots minted since the
-cursor. The recorded cursor is always just after the last slot the push
-carried, because the pass mints a bounded number of slots per run and a later
-slot must land in a later window. A same-lease full push still tells the agent
-a window that reaches the previous cursor when that is later, so the agent
-drops slots that are no longer carried; that further end is not the cursor.
-Every push of a lease signs the same issuance time, the lease's first push,
-and its production capability runs to the end of the last slot pushed, so the
+lease, its issuance time, the cursor just after the last slot pushed, the
+furthest window end sent for the current lease id, and the agent's ack of that
+push) and the lease pass pushes from that. The table has no foreign keys, so
+the row outlives the assignment and the group. A full window goes out for a
+new lease id, after core dropped a delivered slot that has not started, after
+the agent refused the last push, and when the last push went unacknowledged
+for ten minutes; otherwise only the slots minted since the cursor. The recorded
+cursor is always just after the last slot the push carried, because the pass
+mints a bounded number of slots per run and a later slot must land in a later
+window. The high water is the furthest window end sent for the current lease
+and starts again when the lease id changes. A same-lease full push tells the
+agent a window that reaches that high water, including a retry after the agent
+refused the push or the ack was lost, and a drop is detected out to the high
+water. A full push with no unrun slot left is a window replacement with an
+empty slot list and no production capability, and core records its cursor and
+high water as the window end it sent. Every push of a lease signs the same
+issuance time, the lease's first push, and a push that carries slots signs a
+production capability that runs to the end of the last slot pushed, so the
 newest capability covers every slot the agent holds. An ack is stored only
 when its payload digest is the one last pushed; an older ack changes nothing.
 A group that stops leasing to an agent, or a delivery whose assignment is gone

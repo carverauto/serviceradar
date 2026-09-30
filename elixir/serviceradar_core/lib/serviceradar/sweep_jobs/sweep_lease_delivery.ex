@@ -1,8 +1,10 @@
 defmodule ServiceRadar.SweepJobs.SweepLeaseDelivery do
   @moduledoc """
   What core has delivered of one assignment's sweep schedule lease, and the agent's
-  acknowledgement of that push. The row outlives the assignment and the group.
-  `ServiceRadar.SweepJobs.LeaseDelivery` is the only writer.
+  acknowledgement of that push. `delivered_window_end` is the cursor, just after the last
+  slot pushed. `delivered_high_water` is the furthest window end sent for the current lease.
+  The row outlives the assignment and the group. `ServiceRadar.SweepJobs.LeaseDelivery` is
+  the only writer.
   """
 
   use Ash.Resource,
@@ -17,6 +19,7 @@ defmodule ServiceRadar.SweepJobs.SweepLeaseDelivery do
     :lease_id,
     :lease_issued_at,
     :delivered_window_end,
+    :delivered_high_water,
     :delivered_payload_sha256,
     :delivered_at
   ]
@@ -50,6 +53,7 @@ defmodule ServiceRadar.SweepJobs.SweepLeaseDelivery do
         :lease_id,
         :lease_issued_at,
         :delivered_window_end,
+        :delivered_high_water,
         :delivered_payload_sha256,
         :delivered_at,
         :updated_at
@@ -81,6 +85,7 @@ defmodule ServiceRadar.SweepJobs.SweepLeaseDelivery do
     attribute :lease_id, :uuid, allow_nil?: false, public?: true
     attribute :lease_issued_at, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :delivered_window_end, :utc_datetime_usec, allow_nil?: false, public?: true
+    attribute :delivered_high_water, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :delivered_payload_sha256, :string, allow_nil?: false, public?: true
     attribute :delivered_at, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :acked_payload_sha256, :string, public?: true

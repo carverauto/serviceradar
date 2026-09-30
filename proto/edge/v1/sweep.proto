@@ -752,8 +752,8 @@ message SweepLeaseV1 {
   bytes lease_id = 3;                                // == production claims run_id
   bytes producer_assignment_id = 4;                  // UUID
   uint64 authority_epoch = 5;
-  // Absent only when `revoked`. Its not_before is the lease's signed issuance time,
-  // the clock floor the agent checks before running a slot.
+  // Absent when `revoked`, or when `slots` is empty. Its not_before is the lease's
+  // signed issuance time, the clock floor the agent checks before running a slot.
   EdgeSignedCapabilityV1 production_capability = 6;
   int64 window_start_unix_nano = 7;
   int64 window_end_unix_nano = 8;                    // MUST be > window_start
