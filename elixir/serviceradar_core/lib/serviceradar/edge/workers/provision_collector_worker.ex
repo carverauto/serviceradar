@@ -29,6 +29,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   alias ServiceRadar.NATS.AccountClient
   alias ServiceRadar.Oban.Router
 
+  require Ash.Expr
   require Ash.Query
   require Logger
 
@@ -151,7 +152,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
           current
           |> Ash.Changeset.for_update(:provision, %{}, actor: actor)
-          |> Ash.update()
+          |> guarded_update([:pending])
 
         true ->
           {:error, :package_not_pending}
@@ -274,7 +275,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
         |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
         |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
-        |> Ash.update()
+        |> guarded_update([:provisioning])
       else
         {:error, :package_not_pending}
       end
@@ -290,12 +291,32 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         |> Ash.Changeset.new()
         |> Ash.Changeset.set_argument(:error_message, message)
         |> Ash.Changeset.for_update(:fail, %{}, actor: actor)
-        |> Ash.update()
+        |> guarded_update([:pending, :provisioning])
 
       _ ->
         :ok
     end
   end
+
+  defp guarded_update(changeset, statuses) do
+    changeset
+    |> Ash.Changeset.filter(Ash.Expr.expr(status in ^statuses))
+    |> Ash.update()
+    |> case do
+      {:ok, updated} ->
+        {:ok, updated}
+
+      {:error, error} ->
+        if stale_record?(error), do: {:error, :package_not_pending}, else: {:error, error}
+    end
+  end
+
+  defp stale_record?(%Ash.Error.Changes.StaleRecord{}), do: true
+
+  defp stale_record?(%{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &stale_record?/1)
+
+  defp stale_record?(_error), do: false
 
   defp maybe_add_scheduled_at(opts, nil), do: opts
   defp maybe_add_scheduled_at(opts, %DateTime{} = at), do: Keyword.put(opts, :scheduled_at, at)
