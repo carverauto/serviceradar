@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
 
   The dashboard card and whole-hour sparklines read the day-partitioned
   destination rollup `mtr_destination_hourly` (`priv/starrocks/0025`) while
-  it is fresh (`RollupFreshness`), with the lower edge floored to the bucket
+  it is fresh (`RollupFreshness`), with the lower edge floored to the hour
   so the rollup and its raw fallback select the same rows. A shorter
   sparkline keeps its cutoff and reads the raw tables. A stale or missing
   view reads the raw tables over that same edge.
@@ -758,10 +758,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   def destination_sparkline(%DateTime{} = cutoff, bucket_seconds, metric, limit, opts \\ [])
       when is_integer(bucket_seconds) and bucket_seconds > 0 and is_integer(limit) and limit > 0 and
              metric in [:latency_ms, :loss_pct] do
-    # Whole-hour buckets floor to the bucket so the rollup and the raw
-    # fallback select the same rows. Shorter buckets keep `cutoff`: those
-    # windows never read the hourly rollup, and `LIMIT` already keeps the
-    # newest `limit` points.
+    # Whole-hour buckets floor to the hour, the rollup's grain, so the rollup
+    # and the raw fallback select the same rows. Shorter buckets keep `cutoff`.
     lower = sparkline_lower_edge(cutoff, bucket_seconds)
 
     sql =
@@ -824,7 +822,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   # The same sparkline over the destination rollup. A whole-hour bucket
   # re-buckets the view's hour rows on the same midnight-anchored grid, so the
   # summed-probe ratio per bucket is the raw query's value for the same
-  # (bucket-floored) window.
+  # (hour-floored) window.
   defp destination_sparkline_rollup_sql(lower, bucket_seconds, metric, limit) do
     {value_expr, denominator_expr} = destination_sparkline_value(metric)
 
@@ -857,12 +855,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   end
 
   defp sparkline_lower_edge(%DateTime{} = cutoff, bucket_seconds) do
-    if rem(bucket_seconds, @one_hour_seconds) == 0 do
-      unix = DateTime.to_unix(cutoff)
-      DateTime.from_unix!(unix - Integer.mod(unix, bucket_seconds))
-    else
-      cutoff
-    end
+    if rem(bucket_seconds, @one_hour_seconds) == 0, do: floor_hour(cutoff), else: cutoff
   end
 
   defp sparkline_value(:latency_ms) do

@@ -235,21 +235,45 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
     assert sql =~ "t.`time` >= '2026-01-01 12:00:00'"
     refute sql =~ "2026-01-04"
 
-    # last_30d is a 6h bucket and 96 points: 24 days of clamp, 30 days of window.
+    # last_30d is 6h. Floor to the hour, not back to the 6h bucket.
+    cutoff_6h = ~U[2026-01-01 14:07:00Z]
+
     configure(
       prev,
       true,
-      recording_with_marks(~N[2026-01-31 12:40:00], ~N[2026-01-31 12:00:00], [])
+      recording_with_marks(~N[2026-01-31 14:40:00], ~N[2026-01-31 14:00:00], [])
     )
 
-    assert {:ok, _} =
-             MtrWarehouse.destination_sparkline(~U[2026-01-01 12:00:00Z], 21_600, :loss_pct, 96,
-               now: ~U[2026-01-31 12:00:00Z]
-             )
+    assert {:ok, _} = MtrWarehouse.destination_sparkline(cutoff_6h, 21_600, :loss_pct, 96)
 
     assert_received {:warehouse, sql}
-    assert sql =~ "WHERE `bucket` >= '2026-01-01 12:00:00'"
-    refute sql =~ "2026-01-07"
+    assert sql =~ "WHERE `bucket` >= '2026-01-01 14:00:00'"
+    refute sql =~ "`bucket` >= '2026-01-01 12:00:00'"
+
+    configure(
+      prev,
+      true,
+      recording_with_marks(~N[2026-01-31 14:40:00], ~N[2026-01-31 06:00:00], [])
+    )
+
+    assert {:ok, _} = MtrWarehouse.destination_sparkline(cutoff_6h, 21_600, :loss_pct, 96)
+
+    assert_received {:warehouse, sql}
+    assert sql =~ "t.`time` >= '2026-01-01 14:00:00'"
+    refute sql =~ "2026-01-01 12:00:00"
+
+    # last_90d is one day. Floor to the hour, not back to UTC midnight.
+    configure(
+      prev,
+      true,
+      recording_with_marks(~N[2026-04-01 14:40:00], ~N[2026-04-01 14:00:00], [])
+    )
+
+    assert {:ok, _} = MtrWarehouse.destination_sparkline(cutoff_6h, 86_400, :loss_pct, 96)
+
+    assert_received {:warehouse, sql}
+    assert sql =~ "WHERE `bucket` >= '2026-01-01 14:00:00'"
+    refute sql =~ "`bucket` >= '2026-01-01 00:00:00'"
   end
 
   test "a sub-hour sparkline starts at the cutoff", %{prev: prev} do
