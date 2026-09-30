@@ -45,26 +45,8 @@ change. The dirty-set query below makes the hook unnecessary, so the hook goes.
 ### 2. Dirty set from the timestamps the inputs read
 
 Each check records `last_incremental_at`. It only gates the dirty read. The
-mark a pass stores is a horizon behind every still-open writer, taken in one
-statement before the dirty read:
-
-```
-least(now(), coalesce(
-  (SELECT min(xact_start) FROM pg_stat_activity
-    WHERE datname = current_database()
-      AND backend_type = 'client backend'
-      AND state <> 'idle'
-      AND xact_start IS NOT NULL),
-  now()))
-```
-
-Any writer whose transaction is open at that moment has `xact_start` at or
-after the mark, so a stamp assigned by `now()` inside that transaction is at
-or after the horizon. A writer that starts after the read stamps later than
-the mark. The same horizon is what a successful full pass stores in both
-clocks.
-
-The incremental pass computes the dirty set as rows with
+mark is the database clock (`now()`) taken before the dirty read. The
+incremental pass computes the dirty set as rows with
 `updated_at > last_incremental_at - @watermark_slack`:
 
 - a `device_agent_availability` row for one of the check's vantage-point
@@ -74,8 +56,7 @@ The incremental pass computes the dirty set as rows with
   `Resolvers.DeviceMetadata` resolves);
 - intersected with the check's scope.
 
-`@watermark_slack` is a module attribute, default 30 seconds. It is a fixed
-safety margin for `pg_stat_activity` statistics lag.
+`@watermark_slack` is a module attribute, default two minutes.
 
 The metadata predicate reads that provenance timestamp and never
 `ocsf_devices.modified_time`. `ocsf_devices` has no `updated_at`. Sweep status
@@ -83,32 +64,29 @@ writes and `Device.set_availability` do not write `__fact_provenance`, so they
 do not dirty a device. A metadata key with no provenance timestamp is covered
 by the full pass only.
 
-Both arms stamp inside SQL with `now()`. The ingestor stamps
-`device_agent_availability.updated_at` with `now()` inside the INSERT (and the
-conflict update keeps that inserted value). `MergeDeviceFacts` writes
-`__fact_provenance[path].updated_at` with the transaction timestamp inside the
-fact write (`jsonb_set` with `to_jsonb(now())` or equivalent), in place of the
-application `DateTime.utc_now()` it takes today before the transaction opens.
-An application stamp taken before `xact_start` can precede the horizon.
-PostgreSQL `now()` is `transaction_timestamp()`, fixed when the inserting
-transaction begins.
-
-A writer whose transaction opened before the pass's mark and committed after
-its read is selected by the next pass. Where that writer was visible in
-`pg_stat_activity`, the stored horizon sits at or before its `xact_start`.
-The 30-second margin covers a writer the statistics view had not yet shown.
-Re-evaluating a device inside that margin is idempotent: the same inputs yield
-the same verdict, and `changed_at` does not move when the verdict is
-unchanged. The availability column has no index today; the migration adds
-`(agent_id, updated_at)`.
+Both dirty-row writers are one short statement, and that is what makes the
+slack sound. The ingestor writes availability with one autocommit
+`Repo.insert_all`. `MergeDeviceFacts` writes provenance with one Ash update.
+Both stamp `updated_at` with `now()` inside that statement. PostgreSQL `now()`
+is `transaction_timestamp()`, fixed when the statement's transaction begins.
+A writer whose transaction opened before the mark commits within the slack, so
+the next pass selects it. A writer longer than the slack is out of contract,
+and the full pass covers it. Re-evaluating a device inside the overlap is
+idempotent: the same inputs yield the same verdict, and `changed_at` does not
+move when the verdict is unchanged. The availability column has no index
+today; the migration adds `(agent_id, updated_at)`.
 
 A nil `last_incremental_at` is not an incremental read. That tick runs the
 full pass, the same as a nil `last_evaluated_at`. A successful full pass
-always advances both clocks to that horizon, including when the scope
-selected no devices. An empty scope has nothing for a nil watermark to miss.
-A successful incremental pass always advances `last_incremental_at` to that
-horizon, including when it selected nothing. A failed pass advances neither
-clock.
+advances `last_incremental_at` to the pre-read `now()` and advances
+`last_evaluated_at` to `now()` taken at successful completion, including when
+the scope selected no devices. The interval is measured from that completion
+stamp, so a full pass whose wall time exceeds `evaluation_interval_seconds`
+does not become due again on the next tick. An empty scope has nothing for a
+nil watermark to miss. A successful incremental pass always advances
+`last_incremental_at` to its pre-read `now()`, including when it selected
+nothing, and does not advance `last_evaluated_at`. A failed pass advances
+neither clock.
 
 Alternative rejected: a `composite_check_dirty_devices` table the ingestor
 inserts into. It reintroduces a write into ingestion, needs its own pruning,
@@ -128,10 +106,13 @@ reason, composite checks can subscribe then.
 The scope is an SRQL query and cannot be joined in SQL. The incremental pass
 streams the dirty uids in pages of `@dirty_page_limit` (200) and filters each
 page through `Scope.contains?/2`, which adds an SRQL list restriction
-`uid:(...)` for that page. SRQL list filters reject more than 200 values
-(`MAX_FILTER_LIST_VALUES`), and the list form is `uid:(...)`, not
-`uid in (...)`. `@dirty_page_limit` is not the full pass `page_limit` of
-1,000. One SRQL call per dirty page.
+`uid:(...)` for that page and passes an explicit `limit` of at least
+`@dirty_page_limit` (200). SRQL applies `default_limit` 100 when the request
+omits a limit, and `stream_uids/2` returns up to 1,000 rows only because it
+passes `limit:`. A 200-uid in-scope page has to come back whole. SRQL list
+filters reject more than 200 values (`MAX_FILTER_LIST_VALUES`), and the list
+form is `uid:(...)`, not `uid in (...)`. `@dirty_page_limit` is not the full
+pass `page_limit` of 1,000. One SRQL call per dirty page.
 
 A 2,000-device dirty set is ten pages, about ten SRQL calls per minute per
 check. Where a whole sweep lands inside one minute the dirty set approaches
@@ -170,9 +151,10 @@ when `evaluation_interval_seconds` has elapsed since
 `last_incremental_at` is nil. `last_evaluated_at` already exists and is never
 written today; it is the full-pass clock. A due tick runs the full pass and
 not the incremental pass, so a device is not evaluated twice for one change.
-A successful full pass advances both clocks to the horizon from decision 2.
-Every other tick runs only the incremental pass, which advances
-`last_incremental_at` and does not advance `last_evaluated_at`.
+A successful full pass advances `last_incremental_at` to the pre-read `now()`
+from decision 2 and `last_evaluated_at` to `now()` at completion. Every other
+tick runs only the incremental pass, which advances `last_incremental_at` and
+does not advance `last_evaluated_at`.
 
 `EvaluationWorker` never inserts a successor. It has `max_attempts: 1`, so
 there is no retryable state. The next cron tick after the job completes is
@@ -215,14 +197,18 @@ existing rows when devices merge. There is no canonical-uid follow.
   would be evaluated). A metadata check is dirtied only by
   `__fact_provenance` for a configured path; a sweep status write or
   `set_availability` on an otherwise unchanged device is not selected. A writer
-  whose transaction opened before the pass's mark and committed after its read
-  is selected by the next pass. Re-evaluating it does not move `changed_at`
-  when the verdict is unchanged.
+  whose transaction opened within the two-minute slack before the pass's mark
+  and committed after its read is selected by the next pass. Re-evaluating it
+  does not move `changed_at` when the verdict is unchanged. A 200-uid in-scope
+  page returns all 200.
 - Nil `last_incremental_at` runs the full pass. A successful full pass over an
-  empty scope advances both clocks to the horizon. A successful incremental
-  pass that selects nothing still advances `last_incremental_at` to that
-  horizon. A failing pass advances neither mark and inserts no further job.
-  The next minute tick after completion runs it again.
+  empty scope advances `last_incremental_at` to the pre-read `now()` and
+  `last_evaluated_at` to `now()` at completion. A pass that runs longer than
+  `evaluation_interval_seconds` is not due again on the next tick. A
+  successful incremental pass that selects nothing still advances
+  `last_incremental_at` to its pre-read `now()`. A failing pass advances
+  neither mark and inserts no further job. The next minute tick after
+  completion runs it again.
 - A tick during an executing job inserts nothing. A tick after completion
   inserts exactly one job. A save of an enabled check while a job is
   available, scheduled, or executing leaves exactly one job in those states.

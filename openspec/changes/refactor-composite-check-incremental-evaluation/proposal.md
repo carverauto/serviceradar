@@ -43,28 +43,29 @@ read. It is never recomputed one job per input change.
   knowledge of composite checks. `CompositeChecks.Refresh` and
   `RefreshWorker` are removed.
 - Add an incremental evaluation pass per enabled check. Each check keeps
-  `last_incremental_at`, a horizon behind every still-open writer, taken in
-  one statement before the dirty read:
-  `least(now(), coalesce((SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND state <> 'idle' AND xact_start IS NOT NULL), now()))`.
-  The incremental pass selects, in bounded queries, the in-scope devices whose
-  input timestamps are later than that mark minus `@watermark_slack` (a module
-  attribute, default 30 seconds, a margin for `pg_stat_activity` statistics
-  lag): per-agent availability `updated_at` for the check's vantage-point
-  agents, and for metadata inputs the provenance timestamp
-  `:device_metadata` resolves
+  `last_incremental_at`, the database `now()` taken before the dirty read of
+  the last successful pass. The incremental pass selects, in bounded queries,
+  the in-scope devices whose input timestamps are later than that mark minus
+  `@watermark_slack` (a module attribute, default two minutes): per-agent
+  availability `updated_at` for the check's vantage-point agents, and for
+  metadata inputs the provenance timestamp `:device_metadata` resolves
   (`metadata['__fact_provenance'][path]['updated_at']` on each configured
   path), stamped with `now()` inside the fact write. It never reads
   `ocsf_devices.modified_time`. Dirty pages hold at most 200 uids, and each
-  page is scope-filtered with one SRQL `uid:(...)` list. It evaluates those
-  devices through the existing paged `Evaluation.evaluate_devices/5`, writing
-  only devices that are live at write time (`deleted_at` nil on the page's
-  device load). It runs once a minute, so verdicts stay as fresh as the
-  reactive path made them.
+  page is scope-filtered with one SRQL `uid:(...)` list whose request limit
+  is at least 200. It evaluates those devices through the existing paged
+  `Evaluation.evaluate_devices/5`, writing only devices that are live at write
+  time (`deleted_at` nil on the page's device load). It runs once a minute, so
+  verdicts stay as fresh as the reactive path made them.
 - Keep the periodic full pass on `evaluation_interval_seconds`, scheduled from
   the existing `composite_checks.last_evaluated_at` (advanced only by a
   successful full pass). A nil `last_evaluated_at` or a nil
   `last_incremental_at` also runs the full pass. A successful full pass
-  advances both clocks, including when the scope is empty. The full pass covers
+  advances `last_incremental_at` to the pre-read `now()` and
+  `last_evaluated_at` to `now()` at completion, including when the scope is
+  empty. The interval is measured from that completion stamp, so a full pass
+  that runs longer than `evaluation_interval_seconds` is not due again on the
+  next tick. The full pass covers
   the two transitions that produce no row change: an input aging past `max_age`
   and a device entering or leaving scope. It also covers metadata keys that
   have no provenance timestamp. This pass remains required.
@@ -95,17 +96,17 @@ read. It is never recomputed one job per input change.
 - Freshness: a verdict follows an input change within the one-minute tick.
 - Risk: the availability dirty query must be indexed. Both input arms stamp
   with `now()` inside the write: `device_agent_availability.updated_at` in the
-  ingestor INSERT, and `__fact_provenance[path].updated_at` inside the
-  `MergeDeviceFacts` fact write. `now()` is `transaction_timestamp()`. The
-  mark a pass stores is the least of `now()` and the oldest open client
-  `xact_start` in the current database, taken before the dirty read, so an
-  open writer's stamp is at or after that horizon. `@watermark_slack` (default
-  30 seconds) is a margin for `pg_stat_activity` statistics lag. A writer
-  whose transaction opened before the mark and committed after the read is
-  selected by the next pass, and a device in that margin is re-evaluated
-  idempotently. Sweep status writes and `set_availability` do not write that
-  provenance, so they do not dirty a device; a metadata key with no provenance
-  is covered by the full pass only. After a node crash, composite freshness is
+  ingestor's autocommit `Repo.insert_all`, and `__fact_provenance[path].updated_at`
+  inside the one Ash update in `MergeDeviceFacts`. `now()` is
+  `transaction_timestamp()`. The mark is `now()` taken before the dirty read,
+  and the predicate looks back `@watermark_slack` (default two minutes). Those
+  two writers are single short statements, so a writer whose transaction
+  opened before the mark commits within the slack and the next pass selects
+  it. A writer longer than the slack is out of contract and is covered by the
+  full pass. A device in the overlap is re-evaluated idempotently. Sweep
+  status writes and `set_availability` do not write that provenance, so they
+  do not dirty a device; a metadata key with no provenance is covered by the
+  full pass only. After a node crash, composite freshness is
   bounded by `Oban.Plugins.Lifeline`'s `rescue_after`
   (`serviceradar_core/config/runtime.exs`): the orphaned executing job blocks
   a new insert until Lifeline discards it. Operators sizing `rescue_after`

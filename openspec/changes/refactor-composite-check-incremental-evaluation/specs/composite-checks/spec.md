@@ -14,12 +14,12 @@ provenance timestamp produce no incremental dirty row.
 
 The full pass SHALL run when `evaluation_interval_seconds` has elapsed since
 `composite_checks.last_evaluated_at`, when `last_evaluated_at` is nil, or when
-`last_incremental_at` is nil. A successful full pass SHALL advance both
-`last_evaluated_at` and `last_incremental_at` to the horizon taken in one
-statement before that pass's read, including when the scope selected no
-devices. That horizon SHALL be
-`least(now(), coalesce((SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND state <> 'idle' AND xact_start IS NOT NULL), now()))`.
-An incremental pass SHALL NOT advance `last_evaluated_at`.
+`last_incremental_at` is nil. A successful full pass SHALL advance
+`last_incremental_at` to `now()` taken before the read and SHALL advance
+`last_evaluated_at` to `now()` taken at successful completion, including when
+the scope selected no devices. A full pass whose wall time exceeds
+`evaluation_interval_seconds` SHALL NOT be due again on the next tick. An
+incremental pass SHALL NOT advance `last_evaluated_at`.
 
 A minute tick and an enable SHALL each insert an evaluation job with
 `unique: [keys: [:check_id], states: [:available, :scheduled, :executing], period: :infinity]`.
@@ -79,8 +79,18 @@ SHALL get no result row and no verdict transition.
 - **GIVEN** an enabled check whose `last_incremental_at` is nil
 - **WHEN** the scheduler runs
 - **THEN** it SHALL run a full pass
-- **AND** a successful full pass SHALL advance `last_incremental_at` and
-  `last_evaluated_at`, including when the scope selected no devices
+- **AND** a successful full pass SHALL advance `last_incremental_at` to the
+  pre-read `now()` and `last_evaluated_at` to `now()` at completion, including
+  when the scope selected no devices
+
+#### Scenario: A long full pass does not immediately repeat
+
+- **GIVEN** an enabled check whose full pass runs longer than
+  `evaluation_interval_seconds`
+- **WHEN** that pass completes successfully
+- **THEN** `last_evaluated_at` SHALL be `now()` taken at completion
+- **AND** the next tick SHALL NOT run another full pass because the pass
+  started before the interval
 
 #### Scenario: A failing pass does not schedule another job
 
@@ -119,43 +129,40 @@ input timestamps are later than `last_incremental_at` minus
 evaluating it through the same paged evaluation the periodic pass uses.
 
 `last_incremental_at` SHALL gate only the dirty read. The mark a pass stores
-SHALL be the horizon
-`least(now(), coalesce((SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND state <> 'idle' AND xact_start IS NOT NULL), now()))`,
-taken in one statement before the dirty read. A successful incremental pass
-SHALL advance `last_incremental_at` to that mark, including when it selected
-nothing. A failed pass SHALL NOT advance it.
+SHALL be the database `now()` taken before the dirty read. A successful
+incremental pass SHALL advance `last_incremental_at` to that mark, including
+when it selected nothing. A successful full pass SHALL advance
+`last_incremental_at` to the same pre-read `now()`. A failed pass SHALL NOT
+advance it.
 
 The dirty set SHALL include a device when a `device_agent_availability` row
 for one of the check's vantage-point agents has `updated_at` later than
 `last_incremental_at - @watermark_slack`, or when a configured
 `:device_metadata` path has `metadata['__fact_provenance'][path]['updated_at']`
 later than that same lagged mark. `@watermark_slack` SHALL be a module
-attribute, default 30 seconds, and SHALL be a fixed margin for
-`pg_stat_activity` statistics lag. The predicate SHALL NOT read
+attribute, default two minutes. The predicate SHALL NOT read
 `ocsf_devices.modified_time`. Sweep status writes and
 `Device.set_availability` SHALL NOT dirty a device. A metadata key with no
 provenance timestamp SHALL be covered by the full pass only.
 
-The availability arm SHALL use the `(agent_id, updated_at)` index. Both arms
-SHALL stamp with `now()` inside the writing statement. Ingestion SHALL stamp
-`device_agent_availability.updated_at` with `now()` inside the INSERT.
-`MergeDeviceFacts` SHALL write
-`metadata['__fact_provenance'][path]['updated_at']` with `now()` inside the
-fact write. `now()` is `transaction_timestamp()`, fixed when the inserting
-transaction begins. An application timestamp taken before that transaction
-opens can precede the horizon, so the fact write SHALL use the transaction
-timestamp. A writer whose transaction is open when the mark is taken has
-`xact_start` at or after the mark, so its `now()` stamp is at or after the
-horizon. A writer that starts after the read stamps later than the mark. A
-writer whose transaction opened before the mark and committed after the read
-SHALL be selected by the next pass. Re-evaluating a device inside the
-statistics-lag margin SHALL be idempotent: the same inputs SHALL yield the
-same verdict, and `changed_at` SHALL NOT move when the verdict is unchanged.
+The availability arm SHALL use the `(agent_id, updated_at)` index. Both
+dirty-row writers SHALL be one short statement that stamps `updated_at` with
+`now()` inside the statement: the ingestor's autocommit `Repo.insert_all` for
+availability, and one Ash update for fact provenance. `now()` is
+`transaction_timestamp()`, fixed when that statement's transaction begins. A
+writer whose transaction opened within `@watermark_slack` before the mark and
+committed after the read SHALL be selected by the next pass. A writer longer
+than the slack is out of contract and SHALL be covered by the full pass.
+Re-evaluating a device inside the overlap SHALL be idempotent: the same inputs
+SHALL yield the same verdict, and `changed_at` SHALL NOT move when the verdict
+is unchanged.
 
 Before writing a page, the pass SHALL load that page's devices with
 `deleted_at` nil and SHALL skip any uid missing from that load. A skipped uid
 SHALL get no result row and no verdict transition. The scope filter for a
-dirty page SHALL be an SRQL `uid:(...)` list of at most 200 uids.
+dirty page SHALL be an SRQL `uid:(...)` list of at most 200 uids, and that
+scope request SHALL pass a limit of at least the page size. SRQL applies a
+default limit of 100 when the request omits one.
 
 No producer of an input signal SHALL enqueue a composite-check job or write a
 composite-check marker.
@@ -183,12 +190,12 @@ composite-check marker.
 - **THEN** the next incremental pass SHALL NOT select that device for the
   metadata input
 
-#### Scenario: A writer open before the mark commits after the read
+#### Scenario: A writer inside the slack commits after the read
 
-- **GIVEN** an incremental pass that stored its horizon as
+- **GIVEN** an incremental pass that stored its pre-read `now()` as
   `last_incremental_at`
-- **WHEN** a writer whose transaction opened before that mark commits after
-  the pass's dirty read
+- **WHEN** a writer whose transaction opened within `@watermark_slack` before
+  that mark commits after the pass's dirty read
 - **AND** the row's `updated_at` was assigned by `now()` inside that writer's
   statement
 - **THEN** the next incremental pass SHALL select that device

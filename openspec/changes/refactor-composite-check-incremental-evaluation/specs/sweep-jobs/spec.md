@@ -6,13 +6,13 @@ Sweep result ingestion SHALL NOT enqueue a composite-check job or write a
 composite-check marker.
 
 Ingestion SHALL stamp `device_agent_availability.updated_at` with `now()`
-inside the INSERT statement. `now()` is `transaction_timestamp()`, fixed when
-the inserting transaction begins. Composite checks store, in one statement
-before the dirty read, the mark
-`least(now(), coalesce((SELECT min(xact_start) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend' AND state <> 'idle' AND xact_start IS NOT NULL), now()))`
-and select rows later than that mark minus a 30-second margin for
-`pg_stat_activity` statistics lag. A writer whose transaction opened before
-that mark and committed after the read is inside the next pass's dirty set.
+inside the INSERT statement. That INSERT SHALL be one autocommit statement.
+`now()` is `transaction_timestamp()`, fixed when the inserting transaction
+begins. Composite checks take the mark as `now()` before the dirty read and
+select rows later than that mark minus a fixed two-minute slack. A writer
+whose transaction opened within that slack before the mark and committed after
+the read is inside the next pass's dirty set. A writer longer than the slack
+is outside this contract and is covered by the full pass.
 
 #### Scenario: Ingesting a chunk enqueues nothing
 
