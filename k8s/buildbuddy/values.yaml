@@ -97,8 +97,11 @@ extraInitContainers:
         set -eu
         mkdir -p /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
         chown 1001:1001 /bazel-caches /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
-    # The three names are //.bazelrc `build:ci --{disk,repository,repo_contents}_cache`. Nothing
-    # checks the pairing: a rename there just makes Bazel create an unowned directory and fail.
+    # repo and repo-contents pair with //.bazelrc `build:ci --{repository,repo_contents}_cache`.
+    # Nothing checks the pairing: a rename there just makes Bazel create an unowned directory
+    # and fail. `disk` is not that profile's `--disk_cache` (workflow runners use
+    # /bazel-disk-cache on their own rootfs). It stays so a client of this pool that still
+    # passes /bazel-cache/disk can create entries on the hostPath.
     volumeMounts:
       - name: bazel-cache-volume
         mountPath: /bazel-caches

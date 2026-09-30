@@ -400,11 +400,11 @@ Every workflow runner bind-mounts the executor's `/bazel-caches` volume as `/baz
 (the `oci.mounts` entry in `values-workflows.yaml`). Two of the Bazel client's three caches
 live there and are shared by every Bazel server on the pod; the third deliberately does not:
 
-| cache | location | shared across runners? |
-|---|---|---|
-| `--repository_cache` | `/bazel-cache/repo` | yes -- content-addressed, write-once |
-| `--repo_contents_cache` | `/bazel-cache/repo-contents` | yes -- file-locked (`gc_lock`) |
-| `--disk_cache` | `~/.cache/...` inside each runner container | no -- one per Bazel server |
+| cache | location | shared across runners? | counts against `max_runner_disk_size_bytes`? |
+|---|---|---|---|
+| `--repository_cache` | `/bazel-cache/repo` | yes -- content-addressed, write-once | no -- bind mount, not the workspace |
+| `--repo_contents_cache` | `/bazel-cache/repo-contents` | yes -- file-locked (`gc_lock`) | no -- same mount |
+| `--disk_cache` | `/bazel-disk-cache` on each runner's rootfs | no -- one overlay per container | no -- outside the workspace bind |
 
 The disk cache cannot be shared because one executor pod hosts several Bazel servers at
 once. Two concurrent 36GB runs fit its memory limits (the whole point of the 80Gi sizing),
@@ -419,14 +419,27 @@ PR with `(Exit 34): [unix_jni.cc:444] /bazel-cache/disk/ac/b4/<hash> (Permission
 `f525cc80-510b-49ab-80e0-fbc2579e7796` on `buildbuddy-workflows-...-25f5v`, 2026-09-27;
 executor logs showed a parked runner's server idle on the same cache for the entire run).
 
-The per-runner `~` path (`.bazelrc` `build:ci`) puts each server's disk cache inside its own
-runner container's filesystem -- an overlay upperdir under
-`/cache/remotebuilds/executor/oci/run/<id>/` on the same xfs disk as the shared caches, not
-tmpfs, and reclaimed with the runner when it is evicted (measured: exactly one live runner
-bundle on the executor, so dead runners do not leak cache space). A recycled runner keeps
-its cache warm across its own runs; a fresh runner's missing action outputs come from the
-remote cache. `--experimental_disk_cache_gc_max_size=50G` is per runner: the two concurrent
-runners an executor hosts match the 100G pod ceiling the old shared cap enforced.
+`build:ci --disk_cache=/bazel-disk-cache` (`.bazelrc`) is an absolute path, a sibling of the
+`/bazel-cache` mount point, and not a bind of `/bazel-caches`. `~` does not do this. The
+workflow OCI spec sets no `HOME` (env is `PATH` and `HOSTNAME`; `DockerUser` is empty), so
+`ci_runner` `ensureHomeDir()` sets `HOME` to `/buildbuddy-execroot/.home` before Bazel, and
+Bazel expands `~` from `user.home`. That directory is inside the workspace bind.
+`Workspace.DiskUsageBytes` walks only that bind when deciding
+`max_runner_disk_size_bytes` (100GB in `values-workflows.yaml`), so a cache there is added to the checkout and the
+output base. GC does not trim it until the server has been idle for 5 minutes, and a recycled
+runner holding all three can be rejected with `max_disk_usage_exceeded`.
+
+`/bazel-disk-cache` is on the runner rootfs. Each container's writable layer is its own overlay
+upperdir, `/cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper`, on the cache-workflows
+xfs (`/mnt/buildbuddy/cache-workflows`), the same disk as the workspace and the filecache, not
+tmpfs. The filecache startup scan does not walk `remotebuilds` (it only scans group
+directories). The upperdir is outside `/buildbuddy-execroot`, so the 100GB recycle limit does
+not include the disk cache. The cache counts against that xfs disk instead, bounded per runner
+by `--experimental_disk_cache_gc_max_size=50G`: two concurrent runners can hold 100G of disk
+cache there, on top of workspaces that are measured separately. A recycled runner keeps the
+same container, so its cache stays warm; removing the runner deletes the bundle, and the cache
+with it. A fresh runner's missing action outputs come from the remote cache. Do not add an
+`oci.mounts` entry for `/bazel-disk-cache`: one shared directory is the Exit 34 race.
 
 **No helm redeploy is required for the fix to take effect.** The runner reads `.bazelrc` from
 its per-run checkout, so the per-runner disk cache begins with the first run of the merged

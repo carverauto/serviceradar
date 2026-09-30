@@ -148,9 +148,11 @@ extraVolumes:
   # starts warm, and so the small files are not walked by the filecache startup scan. The
   # client DISK cache is deliberately NOT here: several Bazel servers share one executor pod
   # (two concurrent runs plus every parked recycled runner's resident server), and Bazel's
-  # per-server disk-cache GC races readers on a shared directory (Exit 34). The disk cache
-  # therefore lives inside each runner container's own filesystem -- see //.bazelrc
-  # `build:ci --disk_cache`. https://github.com/carverauto/serviceradar/issues/4863
+  # per-server disk-cache GC races readers on a shared directory (Exit 34). It is also not
+  # inside the runner workspace. `~` expands to /buildbuddy-execroot/.home, and that bind is
+  # what max_runner_disk_size_bytes measures. build:ci --disk_cache is the sibling path
+  # /bazel-disk-cache on each runner's own rootfs (overlay upperdir), outside that measurement.
+  # https://github.com/carverauto/serviceradar/issues/4863
   - name: bazel-cache-volume
     hostPath:
       path: /mnt/buildbuddy/bazel-caches-workflows
@@ -206,8 +208,9 @@ extraInitContainers:
         chown 1001:1001 /bazel-caches /bazel-caches/repo /bazel-caches/repo-contents
     # The two names are //.bazelrc `build:ci --{repository,repo_contents}_cache`. Nothing
     # checks the pairing: a rename there just makes Bazel create an unowned directory and
-    # fail. The disk cache is no longer created here -- it lives in each runner container's
-    # own filesystem (see the bazel-cache-volume note above).
+    # fail. The disk cache is not created here. It is /bazel-disk-cache on each runner's
+    # rootfs, a sibling of the /bazel-cache mount and outside the workspace bind this volume
+    # is not part of (see the bazel-cache-volume note above).
     volumeMounts:
       - name: bazel-cache-volume
         mountPath: /bazel-caches
@@ -289,11 +292,16 @@ config:
       # -1 is not unbounded: the pool clamps it to this pod's allocatable RAM, so it tracks
       # `resources` instead of needing an edit whenever those move.
       max_runner_memory_usage_bytes: -1
-      # Default 16 GB, measured over the repo checkout AND the sibling Bazel output base, so a
-      # single real build clears it. Capped rather than -1 because this lands on the node's
-      # /mnt/buildbuddy volume; DiskPressure on that disk is what originally cost a node,
+      # Default 16 GB. Workspace.DiskUsageBytes walks only the runner workspace bind. Inside the
+      # container that bind is /buildbuddy-execroot: the repo checkout, the sibling output-base,
+      # and .home. A single real build clears the old 16GB default on checkout + output-base
+      # alone. /bazel-disk-cache is not under that bind (it is on the runner rootfs, beside the
+      # /bazel-cache mount), so this 100GB does not include the disk cache. The cache's own bound
+      # is build:ci --experimental_disk_cache_gc_max_size=50G per runner, on the cache-workflows
+      # xfs via the overlay. Capped rather than -1 because the workspace itself lands on the
+      # node's /mnt/buildbuddy volume; DiskPressure on that disk is what originally cost a node,
       # not the OS root.
-      max_runner_disk_size_bytes: 100000000000 # 100 GB
+      max_runner_disk_size_bytes: 100000000000 # 100 GB workspace bind; disk cache is outside it
       # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
       # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.
       max_runner_count: 1
@@ -318,7 +326,9 @@ config:
       # See ./values.yaml for why this is an explicit address rather than "".
       dns: "10.43.0.10"
 
-      # On Disk cache
+      # Shared repo caches only. The per-runner disk cache is /bazel-disk-cache, a sibling of
+      # this mount on the runner rootfs, not a second bind: one shared directory is the Exit 34
+      # GC race, and a path under the workspace bind is counted by max_runner_disk_size_bytes.
       mounts:
         # A dedicated path, NOT /root: mounting over the runner's home broke `git init`.
         - source: /bazel-caches
