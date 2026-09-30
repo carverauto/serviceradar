@@ -719,8 +719,15 @@ fn hop_agg(agg: &ParsedHopAgg, source: HopSource) -> Agg {
         ),
         (HopAggKind::CountRows, HopSource::Raw) => "COUNT(*)".to_string(),
         (HopAggKind::CountRows, HopSource::Hourly) => "SUM(hop_count)".to_string(),
-        // `hop_hourly_rollup` refuses this shape before choosing the rollup.
-        (HopAggKind::Column { .. }, HopSource::Hourly) => unreachable!("column aggregate on the hop rollup"),
+        // The rollup stores no per-column aggregate, so `hop_hourly_rollup`
+        // keeps this shape on the raw table: the same `FUNCTION(column)` CNPG
+        // renders, with the column quoted.
+        (HopAggKind::Column { function, column }, HopSource::Raw) => {
+            format!("{function}({})", quoted(column))
+        }
+        (HopAggKind::Column { .. }, HopSource::Hourly) => {
+            unreachable!("column aggregate on the hop rollup")
+        }
     };
     Agg {
         expr,
@@ -1135,6 +1142,17 @@ mod tests {
                 "{query}: {sql}"
             );
         }
+    }
+
+    /// `HopAggKind::Column` on the raw table was the arm the rollup match left
+    /// uncovered. It stays `FUNCTION(`column`)` on `mtr_hops`.
+    #[test]
+    fn a_column_aggregate_renders_on_the_raw_hop_table() {
+        let sql =
+            compile("in:mtr_hops time:last_24h stats:avg(loss_pct) as v by addr,time:1h limit:5");
+        assert!(sql.contains("AVG(`loss_pct`) AS `v`"), "{sql}");
+        assert!(sql.contains(" FROM serviceradar.mtr_hops "), "{sql}");
+        assert!(!sql.contains("mtr_hops_hourly"), "{sql}");
     }
 
     #[test]

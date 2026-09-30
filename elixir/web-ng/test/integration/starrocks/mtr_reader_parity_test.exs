@@ -76,33 +76,21 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     {"mtr_traces", "tcp_port", "integer", "20260924120000_add_mtr_trace_depth_fields"},
     {"mtr_hops", "unreachable_code", "integer", "20260924120000_add_mtr_trace_depth_fields"},
     {"mtr_traces", "tcp_handshake_ttl", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_handshake_attempts", "integer",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_handshake_attempts", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
     {"mtr_traces", "tcp_syn_sent", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_synack_received", "integer",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_synack_received", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
     {"mtr_traces", "tcp_rst_received", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_syn_unanswered", "integer",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_syn_drop_pct", "double precision",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_syn_retransmits", "integer",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_answered_after_retx", "integer",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_syn_unanswered", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_syn_drop_pct", "double precision", "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_syn_retransmits", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_answered_after_retx", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
     {"mtr_traces", "tcp_ack_mismatch", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_synack_duplicates", "integer",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_handshake_rtt_min_us", "bigint",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_handshake_rtt_avg_us", "bigint",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_handshake_rtt_max_us", "bigint",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_traces", "tcp_server_response_us", "bigint",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
-    {"mtr_hops", "reply_time_exceeded", "integer",
-     "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_synack_duplicates", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_handshake_rtt_min_us", "bigint", "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_handshake_rtt_avg_us", "bigint", "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_handshake_rtt_max_us", "bigint", "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_traces", "tcp_server_response_us", "bigint", "20260924130000_add_mtr_tcp_handshake_fields"},
+    {"mtr_hops", "reply_time_exceeded", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
     {"mtr_hops", "reply_unreachable", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
     {"mtr_hops", "reply_synack", "integer", "20260924130000_add_mtr_tcp_handshake_fields"},
     {"mtr_hops", "reply_rst", "integer", "20260924130000_add_mtr_tcp_handshake_fields"}
@@ -425,8 +413,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
           verify: :verify_peer,
           cacerts: [:public_key.pem_decode(env.ca_pem)],
           depth: 3,
-          server_name_indication:
-            env.server_name && String.to_charlist(env.server_name)
+          server_name_indication: env.server_name && String.to_charlist(env.server_name)
         ]
       else
         false
@@ -461,7 +448,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
       for statement <- migration.statements do
         statement = Schema.retarget(statement, database, 1)
 
-        unless String.upcase(statement) =~ ~r/^CREATE DATABASE/ do
+        if !(String.upcase(statement) =~ ~r/^CREATE DATABASE/) do
           starrocks_exec!(conn, statement, database)
         end
       end
@@ -471,7 +458,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp starrocks_exec!(conn, statement, database) do
     case Schema.add_column(statement) do
       {:ok, {table, column}} ->
-        unless column_exists?(conn, database, table, column) do
+        if !column_exists?(conn, database, table, column) do
           sr!(MySQL.query(statement, conn: conn, timeout: 60_000))
         end
 
@@ -500,13 +487,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     baseline = read_baseline!()
 
     for table <- ["mtr_hops", "mtr_traces"] do
-      ddl = baseline_table(baseline, table) |> String.replace("platform.", "")
+      ddl = baseline |> baseline_table(table) |> String.replace("platform.", "")
       pg!(Postgrex.query(conn, ddl, []))
     end
 
     for {table, column, type, migration} <- @post_baseline_columns do
-      pg!(Postgrex.query(conn, "ALTER TABLE #{table} ADD COLUMN IF NOT EXISTS #{column} #{type}", []),
-        migration)
+      pg!(
+        Postgrex.query(conn, "ALTER TABLE #{table} ADD COLUMN IF NOT EXISTS #{column} #{type}", []),
+        migration
+      )
     end
   end
 
@@ -611,95 +600,97 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   }
 
   defp fixture(anchor) do
-    for slot <- 0..26,
-        {target, target_ip, device, reach} <- @target_specs,
-        {agent, gateway} <- @agents,
-        reduce: {[], []} do
-      {traces, hops} ->
-        # Agent two only probes the first target.
-        if agent == "agent-parity-02" and target != "parity-a.example.net" do
-          {traces, hops}
-        else
-          n = length(traces) + 1
-          time = DateTime.add(anchor, slot * 1_200 + n * 7, :second)
-          sent = Enum.at([5, 10, 20], Integer.mod(slot + n, 3))
+    # Agent two only probes the first target.
+    for_result =
+      for slot <- 0..26,
+          {target, target_ip, device, reach} <- @target_specs,
+          {agent, gateway} <- @agents,
+          reduce: {[], []} do
+        {traces, hops} ->
+          if agent == "agent-parity-02" and target != "parity-a.example.net" do
+            {traces, hops}
+          else
+            n = length(traces) + 1
+            time = DateTime.add(anchor, slot * 1_200 + n * 7, :second)
+            sent = Enum.at([5, 10, 20], Integer.mod(slot + n, 3))
 
-          reached? =
-            case reach do
-              :always -> true
-              :third -> Integer.mod(slot, 3) == 0
-              :never -> false
-            end
+            reached? =
+              case reach do
+                :always -> true
+                :third -> Integer.mod(slot, 3) == 0
+                :never -> false
+              end
 
-          path = @paths[target_ip]
-          total_hops = length(path)
-          trace_id = uuid(0x11, n)
+            path = @paths[target_ip]
+            total_hops = length(path)
+            trace_id = uuid(0x11, n)
 
-          trace = %{
-            id: trace_id,
-            time: time,
-            agent_id: agent,
-            gateway_id: gateway,
-            check_id: "parity-chk-#{Integer.mod(n, 3)}",
-            check_name: "parity check #{Integer.mod(n, 3)}",
-            device_id: device,
-            target: target,
-            target_ip: target_ip,
-            target_reached: reached?,
-            total_hops: total_hops,
-            probed_hops: if(reached?, do: total_hops, else: total_hops - 1),
-            last_responding_hop: if(reached?, do: total_hops, else: 1),
-            protocol: "icmp",
-            tcp_port: nil,
-            ip_version: 4,
-            packet_size: 60,
-            partition: nil,
-            error: if(reached?, do: nil, else: "no reply"),
-            created_at: time
-          }
+            trace = %{
+              id: trace_id,
+              time: time,
+              agent_id: agent,
+              gateway_id: gateway,
+              check_id: "parity-chk-#{Integer.mod(n, 3)}",
+              check_name: "parity check #{Integer.mod(n, 3)}",
+              device_id: device,
+              target: target,
+              target_ip: target_ip,
+              target_reached: reached?,
+              total_hops: total_hops,
+              probed_hops: if(reached?, do: total_hops, else: total_hops - 1),
+              last_responding_hop: if(reached?, do: total_hops, else: 1),
+              protocol: "icmp",
+              tcp_port: nil,
+              ip_version: 4,
+              packet_size: 60,
+              partition: nil,
+              error: if(reached?, do: nil, else: "no reply"),
+              created_at: time
+            }
 
-          trace_hops =
-            path
-            |> Enum.with_index(1)
-            |> Enum.map(fn {{addr, asn, received_delta, base_us}, hop_number} ->
-              received =
-                case received_delta do
-                  :never -> 0
-                  0 -> sent
-                  delta -> max(sent + delta, 0)
-                end
+            trace_hops =
+              path
+              |> Enum.with_index(1)
+              |> Enum.map(fn {{addr, asn, received_delta, base_us}, hop_number} ->
+                received =
+                  case received_delta do
+                    :never -> 0
+                    0 -> sent
+                    delta -> max(sent + delta, 0)
+                  end
 
-              avg_us =
-                if is_nil(base_us) or received == 0,
-                  do: nil,
-                  else: base_us + 25 * (sent - received)
+                avg_us =
+                  if is_nil(base_us) or received == 0,
+                    do: nil,
+                    else: base_us + 25 * (sent - received)
 
-              %{
-                id: uuid(0x12, n * 16 + hop_number),
-                time: time,
-                trace_id: trace_id,
-                target_ip: target_ip,
-                device_id: device,
-                hop_number: hop_number,
-                addr: addr,
-                hostname: if(addr, do: "hop-#{hop_number}.parity.example.net"),
-                asn: asn,
-                asn_org: if(asn, do: "PARITY AS #{asn}"),
-                sent: sent,
-                received: received,
-                loss_pct: if(sent > 0, do: 100.0 * (sent - received) / sent, else: 0.0),
-                avg_us: avg_us,
-                min_us: if(avg_us, do: avg_us - 50),
-                max_us: if(avg_us, do: avg_us + 80),
-                jitter_us: if(avg_us, do: 10 + hop_number),
-                created_at: time
-              }
-            end)
+                %{
+                  id: uuid(0x12, n * 16 + hop_number),
+                  time: time,
+                  trace_id: trace_id,
+                  target_ip: target_ip,
+                  device_id: device,
+                  hop_number: hop_number,
+                  addr: addr,
+                  hostname: if(addr, do: "hop-#{hop_number}.parity.example.net"),
+                  asn: asn,
+                  asn_org: if(asn, do: "PARITY AS #{asn}"),
+                  sent: sent,
+                  received: received,
+                  loss_pct: if(sent > 0, do: 100.0 * (sent - received) / sent, else: 0.0),
+                  avg_us: avg_us,
+                  min_us: if(avg_us, do: avg_us - 50),
+                  max_us: if(avg_us, do: avg_us + 80),
+                  jitter_us: if(avg_us, do: 10 + hop_number),
+                  created_at: time
+                }
+              end)
 
             {[trace | traces], trace_hops ++ hops}
-        end
-    end
-    |> then(fn {traces, hops} -> {Enum.reverse(traces), Enum.reverse(hops)} end)
+          end
+      end
+
+    then(for_result, fn {traces, hops} -> {Enum.reverse(traces), Enum.reverse(hops)} end)
   end
 
   # A deterministic synthetic UUID; the prefix keeps trace and hop ids in
@@ -937,7 +928,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   # ---------------------------------------------------------------------------
 
   defp assert_lists_equal(left, right, label) when is_list(left) and is_list(right) do
-    unless lists_equal?(left, right) do
+    if !lists_equal?(left, right) do
       flunk("""
       #{inspect(label)}: CNPG and the warehouse disagree.
 
@@ -957,7 +948,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   end
 
   defp assert_maps_equal(left, right, label) when is_map(left) and is_map(right) do
-    unless maps_equal?(left, right) do
+    if !maps_equal?(left, right) do
       flunk("""
       #{inspect(label)}: CNPG and the warehouse disagree.
 
@@ -978,7 +969,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
 
   defp lists_equal?(left, right) do
     length(left) == length(right) and
-      Enum.zip(left, right) |> Enum.all?(fn {l, r} -> values_equal?(l, r) end)
+      left |> Enum.zip(right) |> Enum.all?(fn {l, r} -> values_equal?(l, r) end)
   end
 
   defp maps_equal?(left, right) do
@@ -988,16 +979,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
 
   defp values_equal?(%DateTime{} = l, %DateTime{} = r), do: DateTime.compare(l, r) == :eq
 
-  defp values_equal?(%NaiveDateTime{} = l, %NaiveDateTime{} = r),
-    do: NaiveDateTime.compare(l, r) == :eq
+  defp values_equal?(%NaiveDateTime{} = l, %NaiveDateTime{} = r), do: NaiveDateTime.compare(l, r) == :eq
 
   # Postgrex returns timestamptz as DateTime and MyXQL returns DATETIME as
   # NaiveDateTime; compare on the naive instant, both are UTC.
-  defp values_equal?(%DateTime{} = l, %NaiveDateTime{} = r),
-    do: values_equal?(DateTime.to_naive(l), r)
+  defp values_equal?(%DateTime{} = l, %NaiveDateTime{} = r), do: values_equal?(DateTime.to_naive(l), r)
 
-  defp values_equal?(%NaiveDateTime{} = l, %DateTime{} = r),
-    do: values_equal?(l, DateTime.to_naive(r))
+  defp values_equal?(%NaiveDateTime{} = l, %DateTime{} = r), do: values_equal?(l, DateTime.to_naive(r))
 
   # A NUMERIC aggregate arrives as Decimal from Postgrex; compare by value,
   # with the same rounding tolerance against a float. These sit above the

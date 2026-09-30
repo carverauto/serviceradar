@@ -47,8 +47,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
     test = self()
 
     fn
-      "SELECT MAX(`time`) FROM serviceradar.mtr_traces" -> mark(raw_max)
-      "SELECT MAX(`bucket`) FROM serviceradar.mtr_destination_hourly" -> mark(mv_max)
+      "SELECT MAX(`time`) FROM serviceradar.mtr_traces" ->
+        mark(raw_max)
+
+      "SELECT MAX(`bucket`) FROM serviceradar.mtr_destination_hourly" ->
+        mark(mv_max)
+
       sql ->
         send(test, {:warehouse, sql})
         {:ok, %{rows: rows}}
@@ -371,9 +375,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
     configure(prev, true, recording_mysql(fn _sql -> {:ok, %{columns: ["bucket", "value"], rows: []}} end))
 
     assert {:ok, %{rows: []}} =
-             ServiceSparklines.warehouse_mtr_sparkline_rows(@cutoff, 900, :loss_pct,
-               now: ~U[2026-01-01 06:00:00Z]
-             )
+             ServiceSparklines.warehouse_mtr_sparkline_rows(@cutoff, 900, :loss_pct, now: ~U[2026-01-01 06:00:00Z])
 
     assert_received {:warehouse, sql}
     assert sql =~ "WHERE t.`time` >= '2026-01-01 00:00:00'"

@@ -380,7 +380,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
 
     assert RollupFreshness.dataset_for_sql(
              "SELECT bucket FROM #{Env.table("mtr_destination_hourly")}"
-           ) == :mtr_destination
+           ) ==
+             :mtr_destination
 
     # The raw-hop fallback names no rollup, so it is never gated.
     assert RollupFreshness.dataset_for_sql("SELECT `time` FROM #{Env.table("mtr_hops")}") == nil
