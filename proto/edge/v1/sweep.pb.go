@@ -3504,8 +3504,8 @@ type SweepLeaseV1 struct {
 	LeaseId              []byte                 `protobuf:"bytes,3,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`                                          // == production claims run_id
 	ProducerAssignmentId []byte                 `protobuf:"bytes,4,opt,name=producer_assignment_id,json=producerAssignmentId,proto3" json:"producer_assignment_id,omitempty"` // UUID
 	AuthorityEpoch       uint64                 `protobuf:"varint,5,opt,name=authority_epoch,json=authorityEpoch,proto3" json:"authority_epoch,omitempty"`
-	// Absent only when `revoked`. Its not_before is the lease's signed issuance time,
-	// the clock floor the agent checks before running a slot.
+	// Absent when `revoked`, or when `slots` is empty. Its not_before is the lease's
+	// signed issuance time, the clock floor the agent checks before running a slot.
 	ProductionCapability *EdgeSignedCapabilityV1 `protobuf:"bytes,6,opt,name=production_capability,json=productionCapability,proto3" json:"production_capability,omitempty"`
 	WindowStartUnixNano  int64                   `protobuf:"varint,7,opt,name=window_start_unix_nano,json=windowStartUnixNano,proto3" json:"window_start_unix_nano,omitempty"`
 	WindowEndUnixNano    int64                   `protobuf:"varint,8,opt,name=window_end_unix_nano,json=windowEndUnixNano,proto3" json:"window_end_unix_nano,omitempty"` // MUST be > window_start
