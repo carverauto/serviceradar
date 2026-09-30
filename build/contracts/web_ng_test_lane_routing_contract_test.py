@@ -6,20 +6,27 @@ web-ng selects tests by tag across three lanes:
   * ``//elixir/web-ng:networks_live_db_test`` -> ``:web_ng_shared_fixture_db``
   * ``//elixir/web-ng:topology_atlas_db_test`` -> ``:topology_atlas_db``
 
+Other ``ex_unit_test`` targets in ``//elixir/web-ng`` are lanes too, including
+a manual target a workflow runs by name. A file that target lists in ``srcs``
+is routed.
+
 ``test/test_helper.exs`` registers ``ServiceRadarWebNG.Test.LaneCoverageGuard``,
 which fails the database-free lane at runtime when an individual test carries no
 lane tag at all. Tag presence is that guard's job: this contract does not parse
 test source. It checks the two routing facts a formatter cannot see:
 
-  * a file is routed when the evaluated Bazel query puts it in a DB lane's
-    ``srcs``, or when the ``unit_tests`` glob loads it (everything under
-    ``test/`` except ``test/integration`` and ``test/property``);
-  * files excluded from that glob and absent from every DB lane's evaluated
-    ``srcs`` are never loaded, so each one must be listed below with a reason.
-    A new such file fails this test until it is deliberately classified.
+  * a file is routed when the evaluated Bazel query puts it in any
+    ``//elixir/web-ng`` ``ex_unit_test`` target's ``srcs``, or when the
+    ``unit_tests`` glob loads it (everything under ``test/`` except
+    ``test/integration`` and ``test/property``);
+  * files excluded from that glob and absent from every such target's
+    evaluated ``srcs`` are never loaded, so each one must be listed below
+    with a reason. A new such file fails this test until it is deliberately
+    classified.
 
 Lane membership is the ``srcs`` attribute of ``web_ng_lane_target_query``, not
-the BUILD text.
+the BUILD text. The two database lanes above must be present in that query;
+every other ``ex_unit_test`` rule in it counts as well.
 """
 
 import os
@@ -78,7 +85,11 @@ def test_files():
 
 
 def evaluated_lane_srcs(query_path):
-    """Map each DB lane target to the test sources Bazel put in its srcs."""
+    """Map each evaluated test target to the test sources Bazel put in its srcs.
+
+    The two database lanes must be present. Every other rule in the query is a
+    lane as well; callers union the values.
+    """
     query = ET.parse(query_path)
     srcs = {}
     for rule in query.findall("rule"):
@@ -104,8 +115,16 @@ def evaluated_lane_srcs(query_path):
     return srcs
 
 
-def _routed(source, networks_srcs, topology_srcs):
-    if source in networks_srcs or source in topology_srcs:
+def lane_src_union(srcs):
+    """Every test source any evaluated web-ng ex_unit_test target loads."""
+    union = set()
+    for values in srcs.values():
+        union.update(values)
+    return union
+
+
+def _routed(source, lane_srcs):
+    if source in lane_srcs:
         return True
     return not source.startswith(GLOB_EXCLUDED_DIRS)
 
@@ -113,9 +132,7 @@ def _routed(source, networks_srcs, topology_srcs):
 class WebNgTestLaneRoutingContractTest(unittest.TestCase):
     def setUp(self):
         self.files = test_files()
-        srcs = evaluated_lane_srcs(LANE_QUERY)
-        self.networks_srcs = srcs[NETWORKS_TARGET]
-        self.topology_srcs = srcs[TOPOLOGY_TARGET]
+        self.lane_srcs = lane_src_union(evaluated_lane_srcs(LANE_QUERY))
 
     def test_evaluated_query_srcs_are_label_sets(self):
         import tempfile
@@ -133,6 +150,11 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
               <label value="//elixir/web-ng:test/phoenix/topology/world_health_source_db_test.exs"/>
             </list>
           </rule>
+          <rule name="//elixir/web-ng:mtr_reader_parity_test" class="ex_unit_test">
+            <list name="srcs">
+              <label value="//elixir/web-ng:test/integration/starrocks/mtr_reader_parity_test.exs"/>
+            </list>
+          </rule>
         </query>
         """
         handle = tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False)
@@ -145,11 +167,19 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
             srcs[TOPOLOGY_TARGET],
             {"test/phoenix/topology/world_health_source_db_test.exs"},
         )
+        self.assertEqual(
+            lane_src_union(srcs),
+            {
+                "test/app_domain/accounts_test.exs",
+                "test/phoenix/topology/world_health_source_db_test.exs",
+                "test/integration/starrocks/mtr_reader_parity_test.exs",
+            },
+        )
 
     def test_every_file_is_routed_or_declared_unrouted(self):
         routed = []
         for source in self.files:
-            if _routed(source, self.networks_srcs, self.topology_srcs):
+            if _routed(source, self.lane_srcs):
                 routed.append(source)
                 self.assertNotIn(
                     source,
@@ -161,17 +191,16 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
                 continue
             else:
                 self.fail(
-                    "%s is not in an evaluated DB lane srcs list, sits outside the "
-                    "unit_tests glob, and is not on UNROUTED_TEST_SOURCES. Route it "
-                    "by adding the file to the lane target that should load it. If "
-                    "it genuinely cannot run in any lane, add it to "
-                    "UNROUTED_TEST_SOURCES with a reason." % source
+                    "%s is not in any evaluated web-ng test target's srcs, sits "
+                    "outside the unit_tests glob, and is not on "
+                    "UNROUTED_TEST_SOURCES. Route it by adding the file to the lane "
+                    "target that should load it. If it genuinely cannot run in any "
+                    "lane, add it to UNROUTED_TEST_SOURCES with a reason." % source
                 )
         self.assertTrue(routed, "no routed test files found at all")
 
     def test_unrouted_inventory_has_no_stale_or_shadow_entries(self):
         known = set(self.files)
-        routed = self.networks_srcs | self.topology_srcs
         for source, reason in UNROUTED_TEST_SOURCES.items():
             self.assertIn(source, known, "UNROUTED_TEST_SOURCES lists %s, which no longer exists" % source)
             self.assertTrue(
@@ -181,9 +210,9 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
             )
             self.assertNotIn(
                 source,
-                routed,
-                "%s is on UNROUTED_TEST_SOURCES but an evaluated lane srcs list "
-                "loads it. Remove the inventory entry." % source,
+                self.lane_srcs,
+                "%s is on UNROUTED_TEST_SOURCES but an evaluated web-ng test "
+                "target loads it. Remove the inventory entry." % source,
             )
             self.assertTrue(
                 reason.strip(),

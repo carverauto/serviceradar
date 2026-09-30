@@ -97,12 +97,12 @@ genquery(
 
 genquery(
     name = "web_ng_lane_target_query",
-    expression = "set(//elixir/web-ng:networks_live_db_test //elixir/web-ng:topology_atlas_db_test)",
+    # deps() of the suite, not a hardcoded pair of lanes. The suite lists every
+    # ex_unit_test in //elixir/web-ng, so a manual target a workflow runs by
+    # name still shows up in this query and its file counts as routed.
+    expression = "kind(ex_unit_test, deps(//elixir/web-ng:web_ng_lane_scope))",
     opts = ["--output=xml"],
-    scope = [
-        "//elixir/web-ng:networks_live_db_test",
-        "//elixir/web-ng:topology_atlas_db_test",
-    ],
+    scope = ["//elixir/web-ng:web_ng_lane_scope"],
 )
 
 py_test(
