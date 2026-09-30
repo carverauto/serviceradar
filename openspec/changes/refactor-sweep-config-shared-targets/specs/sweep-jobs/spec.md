@@ -151,11 +151,12 @@ group. Static `targets` SHALL remain on the group unchanged.
 - **AND** `device_table` SHALL be ordered by device reference, `target_sets`
   by key, `groups` by id, and each set's references in a stable order
 
-#### Scenario: Overlap diagnostics see the same declared targets
-- **GIVEN** a compiled sweep config persisted for an agent in either format
+#### Scenario: Overlap diagnostics ignore compiled-document format
+- **GIVEN** either compiled sweep format
 - **WHEN** the device sweep overlap diagnostics are queried
-- **THEN** they SHALL report the same declared (group, target, device) rows
-  for both formats
+- **THEN** declared rows SHALL come from the persisted declared-target
+  relation, independent of compiled-document format
+  (`persist-sweep-declared-targets`)
 
 ### Requirement: Agent Rehydrates Shared Device Targets With Behavior Parity
 

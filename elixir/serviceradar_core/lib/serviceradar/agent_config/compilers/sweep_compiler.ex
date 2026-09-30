@@ -36,7 +36,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLQuery
+  alias ServiceRadar.SweepJobs.DeclaredTargets
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
@@ -73,35 +75,43 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Load groups whose fixed subset contains this agent (any device partition)
     # plus partition-wide groups in the agent's own partition. Device partition
     # != agent partition for isolation scans.
-    groups = load_sweep_groups(partition, agent_id, actor)
+    #
+    # A failed groups or profiles read returns an error instead of compiling an
+    # empty config: ConfigServer caches every {:ok, _} it is handed, so a
+    # degraded compile would deliver "sweep nothing" to every agent until the
+    # next :sweep invalidation.
+    with {:ok, groups} <- load_sweep_groups(partition, agent_id, actor),
+         {:ok, profiles} <- load_profiles(group_profile_ids(groups), actor) do
+      profile_map = Map.new(profiles, &{&1.id, &1})
 
-    # Load profiles that might be referenced
-    profile_ids =
-      groups
-      |> Enum.map(& &1.profile_id)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
+      case compile_groups(groups, profile_map, opts) do
+        {:error, reason} ->
+          Logger.error("SweepCompiler: failed to compile config - #{inspect(reason)}")
+          {:error, reason}
 
-    profiles = load_profiles(profile_ids, actor)
-    profile_map = Map.new(profiles, &{&1.id, &1})
+        compiled_groups ->
+          Logger.info(
+            "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
+            groups: Enum.map(compiled_groups, &compiled_group_summary/1)
+          )
 
-    compiled_groups = compile_groups(groups, profile_map, opts)
+          # Record what this agent is about to receive as each group's declared
+          # targets, so query-derived declarations follow inventory changes and
+          # not only group edits. A failed read never reaches here. Unchanged
+          # sets are skipped, and recording never fails the compile.
+          DeclaredTargets.record_compiled(compiled_groups)
 
-    Logger.info(
-      "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
-      groups: Enum.map(compiled_groups, &compiled_group_summary/1)
-    )
+          # Compute config hash for change detection
+          config_hash = config_hash(compiled_groups)
 
-    # Compute config hash for change detection
-    config_hash = config_hash(compiled_groups)
-
-    config = %{
-      "groups" => compiled_groups,
-      "compiled_at" => DateTime.to_iso8601(DateTime.utc_now()),
-      "config_hash" => config_hash
-    }
-
-    {:ok, config}
+          {:ok,
+           %{
+             "groups" => compiled_groups,
+             "compiled_at" => DateTime.to_iso8601(DateTime.utc_now()),
+             "config_hash" => config_hash
+           }}
+      end
+    end
   rescue
     e ->
       Logger.error("SweepCompiler: error compiling config - #{inspect(e)}")
@@ -125,18 +135,29 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   @doc false
   # The compile step after groups and profiles are loaded. `:query_page_fn`
   # replaces `SRQLRunner.query_page/2` for target queries.
+  #
+  # Returns the compiled groups, or `{:error, reason}` when a target-query read
+  # fails. A successful compile stays a list so callers can sort and hash it;
+  # a failed read must not come back as groups that quietly sweep nothing.
   @spec compile_groups([SweepGroup.t()], %{optional(term()) => SweepProfile.t()}, keyword()) ::
-          [map()]
+          [map()] | {:error, term()}
   def compile_groups(groups, profile_map, opts \\ []) do
     query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
 
     # The memo also holds failed results, so a failing query runs once per
     # compile rather than once per group that uses it.
-    {compiled_groups, _query_memo} =
-      Enum.map_reduce(groups, %{}, &compile_group(&1, profile_map, &2, query_page_fn))
-
-    # Database row order must not change the compiled config or its version.
-    Enum.sort_by(compiled_groups, & &1["id"])
+    groups
+    |> Enum.reduce_while({:ok, [], %{}}, fn group, {:ok, acc, query_memo} ->
+      case compile_group(group, profile_map, query_memo, query_page_fn) do
+        {:ok, compiled, query_memo} -> {:cont, {:ok, [compiled | acc], query_memo}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      # Database row order must not change the compiled config or its version.
+      {:ok, compiled, _query_memo} -> Enum.sort_by(compiled, & &1["id"])
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """
@@ -181,6 +202,47 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     compile_banner_grab(profile, group)["enabled"] == true
   end
 
+  @doc """
+  Declared targets of a group: static CIDRs/IPs plus SRQL-resolved device targets.
+
+  This is the target set `compile/3` would deliver for the group, projected to
+  the lean shape the declared-target relation persists (issue #4963): one row
+  per group, never one per agent. Device targets carry the device uid the
+  SRQL target query resolved, when it resolved one.
+
+  A saved query that cannot be parsed or cast matches no devices, the same
+  projection compile delivers. A failed read returns `{:error, reason}` so
+  the caller can keep the previous declared rows.
+
+  Accepts the same `:query_page_fn` option as `compile_groups/3`.
+  """
+  @spec declared_targets(SweepGroup.t(), keyword()) ::
+          %{
+            static: [String.t()],
+            device: [%{target: String.t(), device_uid: String.t() | nil}]
+          }
+          | {:error, term()}
+  def declared_targets(%SweepGroup{} = group, opts \\ []) do
+    query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
+    modes = merge_modes(nil, group)
+
+    case compile_targets(group, modes, %{}, query_page_fn) do
+      {:ok, static, device_targets, _query_memo} ->
+        device =
+          Enum.map(device_targets, fn device_target ->
+            %{
+              target: device_target["network"],
+              device_uid: get_in(device_target, ["metadata", "device_uid"])
+            }
+          end)
+
+        %{static: static, device: device}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   # Private helpers
 
   defp compute_config_hash(compiled_groups) do
@@ -206,6 +268,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     }
   end
 
+  defp group_profile_ids(groups) do
+    groups
+    |> Enum.map(& &1.profile_id)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
   defp load_sweep_groups(partition, agent_id, actor) do
     query =
       Ash.Query.for_read(SweepGroup, :for_agent_partition, %{
@@ -229,26 +298,26 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
           )
         end)
 
-        groups
+        {:ok, groups}
 
       {:error, reason} ->
-        Logger.warning("SweepCompiler: failed to load groups - #{inspect(reason)}")
-        []
+        Logger.error("SweepCompiler: failed to load groups - #{inspect(reason)}")
+        {:error, {:sweep_groups_read_failed, reason}}
     end
   end
 
-  defp load_profiles(profile_ids, _actor) when profile_ids == [], do: []
+  defp load_profiles(profile_ids, _actor) when profile_ids == [], do: {:ok, []}
 
   defp load_profiles(profile_ids, actor) do
     query = Ash.Query.filter(SweepProfile, id in ^profile_ids)
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} ->
-        profiles
+        {:ok, profiles}
 
       {:error, reason} ->
-        Logger.warning("SweepCompiler: failed to load profiles - #{inspect(reason)}")
-        []
+        Logger.error("SweepCompiler: failed to load profiles - #{inspect(reason)}")
+        {:error, {:sweep_profiles_read_failed, reason}}
     end
   end
 
@@ -272,35 +341,37 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     modes = drop_unsupported_modes(modes, group)
 
     # Build targets from static CIDRs/IPs and device targets from SRQL rows.
-    {targets, device_targets, query_memo} =
-      compile_targets(group, modes, query_memo, query_page_fn)
+    with {:ok, targets, device_targets, query_memo} <-
+           compile_targets(group, modes, query_memo, query_page_fn) do
+      # Build settings from profile with overrides
+      settings = compile_settings(profile, group)
+      banner_grab = compile_banner_grab(profile, group)
 
-    # Build settings from profile with overrides
-    settings = compile_settings(profile, group)
-    banner_grab = compile_banner_grab(profile, group)
+      compiled =
+        maybe_put_device_targets(
+          %{
+            "id" => group.id,
+            "sweep_group_id" => group.id,
+            "name" => group.name,
+            "description" => group.description,
+            "schedule" => schedule,
+            "targets" => targets,
+            "ports" => ports,
+            "modes" => modes,
+            "banner_grab" => banner_grab,
+            "settings" => settings
+          },
+          device_targets
+        )
 
-    compiled = %{
-      "id" => group.id,
-      "sweep_group_id" => group.id,
-      "name" => group.name,
-      "description" => group.description,
-      "schedule" => schedule,
-      "targets" => targets,
-      "ports" => ports,
-      "modes" => modes,
-      "banner_grab" => banner_grab,
-      "settings" => settings
-    }
-
-    compiled =
-      if device_targets == [] do
-        compiled
-      else
-        Map.put(compiled, "device_targets", device_targets)
-      end
-
-    {compiled, query_memo}
+      {:ok, compiled, query_memo}
+    end
   end
+
+  defp maybe_put_device_targets(compiled, []), do: compiled
+
+  defp maybe_put_device_targets(compiled, device_targets),
+    do: Map.put(compiled, "device_targets", device_targets)
 
   defp compile_schedule(group) do
     case group.schedule_type do
@@ -325,13 +396,132 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # agent can preserve inventory context while scanning.
     case group.target_query do
       query when is_binary(query) and query != "" ->
-        query = normalize_target_query(query)
-        {result, query_memo} = target_query_rows(query, query_memo, query_page_fn)
-        {static_targets, device_targets_from_result(result, group, query, modes), query_memo}
+        normalized = normalize_target_query(query)
+
+        case device_targets_for_query(normalized, query, group, modes, query_memo, query_page_fn) do
+          {:ok, device_targets, query_memo} ->
+            {:ok, static_targets, device_targets, query_memo}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
 
       _ ->
-        {static_targets, [], query_memo}
+        {:ok, static_targets, [], query_memo}
     end
+  end
+
+  # A group's target query may fail in two ways that must not be confused.
+  # An unparseable query, or one that parses but cannot be translated or cast,
+  # is deterministic: failing the compile would freeze every group until the
+  # query is edited, so it warns and matches nothing. A read that fails
+  # (database outage, serving-path error, a later page that does not return)
+  # fails the whole compile. ConfigServer does not cache failed compiles, so
+  # the agent keeps its running config instead of receiving a group that
+  # quietly sweeps a partial or empty device list. Failed reads are not written
+  # to the shared query cache, so the next compile retries them.
+  defp device_targets_for_query(query, raw_query, group, modes, query_memo, query_page_fn) do
+    case classify_target_query(query) do
+      {:unparseable, reason} ->
+        warn_saved_query(group, raw_query, "cannot be parsed", reason)
+        {:ok, [], query_memo}
+
+      :ok ->
+        case target_query_rows(query, query_memo, query_page_fn) do
+          {{:ok, rows}, query_memo} ->
+            case build_device_targets(rows, group, query, modes) do
+              {:ok, device_targets} -> {:ok, device_targets, query_memo}
+              {:error, reason} -> {:error, reason}
+            end
+
+          {{:error, reason}, query_memo} ->
+            finish_target_query(reason, query_memo, group, raw_query, query)
+
+          {{:raised, error}, query_memo} ->
+            finish_target_query({:raised, error}, query_memo, group, raw_query, query)
+        end
+    end
+  end
+
+  defp finish_target_query({:raised, error}, query_memo, group, raw_query, query) do
+    if saved_query_rejection?(error) do
+      warn_saved_query(group, raw_query, "cannot be cast", error)
+      {:ok, [], query_memo}
+    else
+      message = exception_message(error)
+      log_target_query_raised(group, query, message)
+      {:error, {:target_query_failed, {:raised, message}}}
+    end
+  end
+
+  defp finish_target_query(reason, query_memo, group, raw_query, _query) do
+    if saved_query_rejection?(reason) do
+      warn_saved_query(group, raw_query, "cannot be cast", reason)
+      {:ok, [], query_memo}
+    else
+      Logger.error(
+        "SweepCompiler: SRQL query failed for group #{inspect(group.id)} - #{inspect(reason)}"
+      )
+
+      {:error, {:target_query_failed, reason}}
+    end
+  end
+
+  defp warn_saved_query(group, raw_query, problem, reason) do
+    Logger.warning(
+      "SweepCompiler: SRQL target query #{problem} for group #{inspect(group.id)} " <>
+        "(#{inspect(raw_query)}): #{inspect(reason)}; matching no devices"
+    )
+  end
+
+  @translator_rejection_atoms ~w(
+    invalid_srql_translation
+    invalid_srql_params
+    invalid_srql_param
+    invalid_int_array_param
+    invalid_text_array_param
+    invalid_timestamptz_param
+    invalid_date_param
+    invalid_uuid_param
+    invalid_inet_param
+  )a
+
+  @postgres_cast_codes ~w(
+    invalid_text_representation
+    invalid_binary_representation
+    invalid_datetime_format
+    datetime_field_overflow
+    numeric_value_out_of_range
+  )a
+
+  defp saved_query_rejection?(reason) when is_binary(reason), do: true
+  defp saved_query_rejection?(reason) when reason in @translator_rejection_atoms, do: true
+  defp saved_query_rejection?({:unexpected_srql_translate_result, _}), do: true
+  defp saved_query_rejection?(%Jason.DecodeError{}), do: true
+  defp saved_query_rejection?(%Ash.Error.Invalid{}), do: true
+
+  defp saved_query_rejection?(%Postgrex.Error{postgres: %{code: code}})
+       when code in @postgres_cast_codes, do: true
+
+  defp saved_query_rejection?(_reason), do: false
+
+  defp exception_message(error) when is_exception(error), do: Exception.message(error)
+  defp exception_message(error), do: inspect(error)
+
+  defp classify_target_query(query) do
+    case SRQLAst.parse(query) do
+      {:ok, _ast} -> :ok
+      {:error, reason} -> {:unparseable, reason}
+    end
+  rescue
+    exception ->
+      # A missing parser is not a saved query that can never parse. Run the
+      # read; if that fails too, the compile fails instead of matching nothing.
+      Logger.warning(
+        "SweepCompiler: SRQL parser unavailable (#{Exception.message(exception)}); running the target query"
+      )
+
+      :ok
   end
 
   # The normalized query string is both the memo key and the shared cache key:
@@ -392,7 +582,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp fetch_target_query_rows(query, query_page_fn) do
     fetch_target_query_pages(query, nil, [], query_page_fn)
   rescue
-    error -> {:raised, Exception.message(error)}
+    error -> {:raised, error}
   end
 
   defp fetch_target_query_pages(query, cursor, pages, query_page_fn) do
@@ -406,8 +596,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
           {:ok, concat_pages(pages)}
         end
 
+      # A later page that fails is a failed read. Keep none of the rows: a
+      # partial device list differs from what the data says, and it is not
+      # cached, so the next compile reads the query again.
       {:error, reason} ->
-        {:partial, concat_pages(pages), reason}
+        {:error, reason}
     end
   end
 
@@ -422,39 +615,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         do: %{"ip" => ip, "uid" => row["uid"]}
   end
 
-  defp device_targets_from_result({:ok, rows}, group, query, modes),
-    do: build_device_targets(rows, group, query, modes)
-
-  defp device_targets_from_result({:partial, rows, reason}, group, query, modes) do
-    Logger.warning(
-      "SweepCompiler: SRQL query failed for group #{inspect(group.id)} - #{inspect(reason)}"
-    )
-
-    build_device_targets(rows, group, query, modes)
-  end
-
-  defp device_targets_from_result({:raised, message}, group, query, _modes) do
-    log_target_query_raised(group, query, message)
-    []
-  end
-
   defp build_device_targets(rows, group, query, modes) do
-    rows
-    |> Enum.reduce(%{}, &put_device_target_from_row(&1, &2, group, modes))
-    |> Map.values()
-    |> Enum.sort_by(& &1["network"])
+    device_targets =
+      rows
+      |> Enum.reduce(%{}, &put_device_target_from_row(&1, &2, group, modes))
+      |> Map.values()
+      |> Enum.sort_by(& &1["network"])
+
+    {:ok, device_targets}
   rescue
     error ->
       log_target_query_raised(group, query, Exception.message(error))
-      []
+      {:error, {:target_query_failed, {:raised, Exception.message(error)}}}
   end
 
-  # A group whose target query cannot run still compiles with the targets that
-  # did resolve: letting the error reach `compile/3` would fail the whole
-  # config, and a failed compile pushes an empty config to every agent. But
-  # swallowing it silently means the group quietly sweeps nothing, which is
-  # how a driver encoding failure hid until 4471. Log the group and query so
-  # the failure is visible.
+  # A raised target query is a failed read. Log the group and query, then fail
+  # the compile: ConfigServer does not cache {:error, _}, so the agent keeps
+  # its running config instead of sweeping nothing until the next invalidation.
   defp log_target_query_raised(group, query, message) do
     Logger.error(
       "SweepCompiler: SRQL target query raised for group #{inspect(group.id)} " <>

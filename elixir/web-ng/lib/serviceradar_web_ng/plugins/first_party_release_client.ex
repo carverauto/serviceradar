@@ -12,12 +12,13 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   auth) stays here.
 
   Injection seams: `:first_party_plugin_import_http_client` (OCI + asset HTTP
-  client, default `Req`; also injected into `RepoClient` for GitHub API calls in
+  client, default `EgressClient`; also injected into `RepoClient` for GitHub API calls in
   tests), `:first_party_plugin_cosign_verifier` (default `CosignVerifier`),
   `:first_party_plugin_import_github_token` / `GITHUB_TOKEN`, and
   `:first_party_plugin_import` (`:repo_url`, `:registry_docker_config_json/file`).
   """
 
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Plugins.RepoUrl
   alias ServiceRadar.Policies.OutboundURLPolicy
   alias ServiceRadarWebNG.Packages.RepoClient
@@ -192,7 +193,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
       Application.get_env(
         :serviceradar_web_ng,
         :first_party_plugin_import_http_client,
-        ServiceRadar.HTTP.EgressClient
+        EgressClient
       )
 
     [
@@ -364,7 +365,23 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
       |> Keyword.put(:redirect, false)
       |> Keyword.merge(req_opts())
 
-    http_client().get(url, request_opts)
+    {fetch, request_opts} =
+      case http_client() do
+        EgressClient ->
+          {&EgressClient.fetch_body/2,
+           request_opts
+           |> Keyword.delete(:connect_options)
+           |> Keyword.put(:connect_timeout, 5_000)}
+
+        client ->
+          {&client.get/2, request_opts}
+      end
+
+    if Keyword.get(opts, :decode_body, false) do
+      EgressClient.fetch_json(url, Keyword.put(request_opts, :http_client, fetch))
+    else
+      fetch.(url, request_opts)
+    end
   end
 
   defp request_oci(url, ref, opts) do
@@ -586,7 +603,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   end
 
   defp http_client do
-    Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, Req)
+    Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, EgressClient)
   end
 
   defp req_opts do

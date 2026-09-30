@@ -85,35 +85,45 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   def resolve_default(actor, opts \\ []) do
     case resolve_rule_credential(opts, nil, actor) do
       {:ok, credential} ->
-        {:ok,
-         %{
-           credential: credential,
-           profile: get_default_profile(actor),
-           source: :credential_rule
-         }}
+        case get_default_profile(actor) do
+          {:error, reason} ->
+            {:error, reason}
+
+          profile ->
+            {:ok,
+             %{
+               credential: credential,
+               profile: profile,
+               source: :credential_rule
+             }}
+        end
 
       {:error, reason} ->
         {:error, reason}
 
       :none ->
-        profile = get_default_profile(actor)
-
-        credential =
-          build_credential(profile, actor,
-            consumer_id: profile && "snmp_profile:#{profile.id}",
-            target_kind: "snmp_profile",
-            target_id: profile && profile.id
-          )
-
-        case credential do
+        case get_default_profile(actor) do
           {:error, reason} ->
             {:error, reason}
 
-          credential ->
-            if credential_present?(credential) do
-              {:ok, %{credential: credential, profile: profile, source: :default_profile}}
-            else
-              {:ok, %{credential: nil, profile: profile, source: :none}}
+          profile ->
+            credential =
+              build_credential(profile, actor,
+                consumer_id: profile && "snmp_profile:#{profile.id}",
+                target_kind: "snmp_profile",
+                target_id: profile && profile.id
+              )
+
+            case credential do
+              {:error, reason} ->
+                {:error, reason}
+
+              credential ->
+                if credential_present?(credential) do
+                  {:ok, %{credential: credential, profile: profile, source: :default_profile}}
+                else
+                  {:ok, %{credential: nil, profile: profile, source: :none}}
+                end
             end
         end
     end
@@ -136,17 +146,25 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       {:ok, device_uid} ->
         resolve_for_device(device_uid, actor, opts)
 
-      {:error, _} ->
-        case resolve_rule_credential(opts, nil, actor) do
-          {:ok, credential} ->
-            {:ok, %{credential: credential, profile: nil, source: :credential_rule}}
-
-          {:error, reason} ->
-            {:error, reason}
-
-          :none ->
-            {:ok, %{credential: nil, profile: nil, source: :none}}
+      {:error, reason} ->
+        if credential_read_failure?(reason) do
+          {:error, reason}
+        else
+          resolve_unbound_host(actor, opts)
         end
+    end
+  end
+
+  defp resolve_unbound_host(actor, opts) do
+    case resolve_rule_credential(opts, nil, actor) do
+      {:ok, credential} ->
+        {:ok, %{credential: credential, profile: nil, source: :credential_rule}}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      :none ->
+        {:ok, %{credential: nil, profile: nil, source: :none}}
     end
   end
 
@@ -182,31 +200,35 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         {:error, reason}
 
       override ->
-        targeting = targeting_profile(device_uid, actor)
-        default = get_default_profile(actor)
-        profile = targeting || default
+        with {:ok, targeting} <- profile_result(targeting_profile(device_uid, actor)),
+             {:ok, default} <- profile_result(get_default_profile(actor)) do
+          profile = targeting || default
 
-        source =
-          cond do
-            not is_nil(override) -> :device_override
-            not is_nil(targeting) -> :profile
-            not is_nil(default) -> :default_profile
-            true -> :none
-          end
+          source =
+            cond do
+              not is_nil(override) -> :device_override
+              not is_nil(targeting) -> :profile
+              not is_nil(default) -> :default_profile
+              true -> :none
+            end
 
-        record = override || profile
+          record = override || profile
 
-        {:ok,
-         %{
-           source: source,
-           profile: profile,
-           override: override,
-           version: record && Map.get(record, :version),
-           credential_secret_id: record && Map.get(record, :credential_secret_id),
-           credential_configured?: record_has_credential?(record)
-         }}
+          {:ok,
+           %{
+             source: source,
+             profile: profile,
+             override: override,
+             version: record && Map.get(record, :version),
+             credential_secret_id: record && Map.get(record, :credential_secret_id),
+             credential_configured?: record_has_credential?(record)
+           }}
+        end
     end
   end
+
+  defp profile_result({:error, reason}), do: {:error, reason}
+  defp profile_result(profile), do: {:ok, profile}
 
   defp empty_description do
     %{
@@ -222,7 +244,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   defp targeting_profile(device_uid, actor) do
     case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
       {:ok, %SNMPProfile{} = profile} -> load_profile(profile.id, actor)
-      _ -> nil
+      {:ok, nil} -> nil
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -277,6 +300,15 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     })
   end
 
+  @doc false
+  @spec credential_read_failure?(term()) :: boolean()
+  def credential_read_failure?({:credential_resolution_failed, inner}),
+    do: credential_read_failure?(inner)
+
+  def credential_read_failure?(%Ash.Error.Invalid{}), do: false
+
+  def credential_read_failure?(reason), do: Ash.Error.ash_error?(reason)
+
   @doc """
   Builds a concrete SNMP credential from either a broker-backed secret reference
   or the legacy encrypted SNMP fields on the record.
@@ -311,8 +343,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         get_default_profile(actor)
 
       {:error, reason} ->
-        Logger.warning("SNMPCredentialResolver: SRQL targeting failed - #{inspect(reason)}")
-        get_default_profile(actor)
+        Logger.error("SNMPCredentialResolver: SRQL targeting failed - #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
@@ -321,8 +353,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
     case Ash.read_one(query, actor: actor) do
       {:ok, %SNMPProfile{} = profile} -> load_profile(profile.id, actor)
-      {:error, _} -> nil
-      _ -> nil
+      {:ok, nil} -> nil
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -337,7 +369,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
     case Ash.read_one(query, actor: actor) do
       {:ok, %SNMPProfile{} = profile} -> profile
-      _ -> nil
+      {:ok, nil} -> nil
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -657,37 +690,46 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   defp resolve_rule_or_profile(device_uid, actor, opts) do
     case resolve_rule_credential(opts, device_uid, actor) do
       {:ok, credential} ->
-        {:ok,
-         %{
-           credential: credential,
-           profile: resolve_profile(device_uid, actor),
-           source: :credential_rule
-         }}
+        with_resolved_profile(device_uid, actor, fn profile ->
+          {:ok,
+           %{
+             credential: credential,
+             profile: profile,
+             source: :credential_rule
+           }}
+        end)
 
       {:error, reason} ->
         {:error, reason}
 
       :none ->
-        profile = resolve_profile(device_uid, actor)
+        with_resolved_profile(device_uid, actor, fn profile ->
+          credential =
+            build_credential(profile, actor,
+              consumer_id: profile && "snmp_profile:#{profile.id}",
+              target_kind: "device",
+              target_id: device_uid
+            )
 
-        credential =
-          build_credential(profile, actor,
-            consumer_id: profile && "snmp_profile:#{profile.id}",
-            target_kind: "device",
-            target_id: device_uid
-          )
+          case credential do
+            {:error, reason} ->
+              {:error, reason}
 
-        case credential do
-          {:error, reason} ->
-            {:error, reason}
+            credential ->
+              if credential_present?(credential) do
+                {:ok, %{credential: credential, profile: profile, source: :profile}}
+              else
+                {:ok, %{credential: nil, profile: profile, source: :none}}
+              end
+          end
+        end)
+    end
+  end
 
-          credential ->
-            if credential_present?(credential) do
-              {:ok, %{credential: credential, profile: profile, source: :profile}}
-            else
-              {:ok, %{credential: nil, profile: profile, source: :none}}
-            end
-        end
+  defp with_resolved_profile(device_uid, actor, fun) do
+    case resolve_profile(device_uid, actor) do
+      {:error, reason} -> {:error, reason}
+      profile -> fun.(profile)
     end
   end
 
@@ -716,8 +758,11 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         rules ->
           rules
           |> Enum.filter(&snmp_monitoring_rule?/1)
-          |> Enum.find(&snmp_rule_matches?(&1, device_uid, actor))
+          |> first_matching_snmp_rule(device_uid, actor)
           |> case do
+            {:error, reason} ->
+              {:error, reason}
+
             nil ->
               :none
 
@@ -746,13 +791,23 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
-  defp snmp_rule_matches?(_rule, nil, _actor), do: true
+  defp first_matching_snmp_rule(rules, device_uid, actor) do
+    Enum.reduce_while(rules, nil, fn rule, _none ->
+      case snmp_rule_matches?(rule, device_uid, actor) do
+        {:ok, true} -> {:halt, rule}
+        {:ok, false} -> {:cont, nil}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp snmp_rule_matches?(_rule, nil, _actor), do: {:ok, true}
 
   defp snmp_rule_matches?(rule, device_uid, actor) when is_binary(device_uid) do
     query = rule.target_query |> to_string() |> String.trim()
 
     if query in ["", "in:devices"] do
-      true
+      {:ok, true}
     else
       case SRQLAst.parse(query) do
         {:ok, ast} ->
@@ -765,12 +820,18 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
           |> Ash.Query.limit(1)
           |> Ash.read_one(actor: actor)
           |> case do
-            {:ok, %Device{}} -> true
-            _ -> false
+            {:ok, %Device{}} ->
+              {:ok, true}
+
+            {:ok, nil} ->
+              {:ok, false}
+
+            {:error, reason} ->
+              if credential_read_failure?(reason), do: {:error, reason}, else: {:ok, false}
           end
 
         _ ->
-          false
+          {:ok, false}
       end
     end
   end

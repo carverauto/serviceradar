@@ -24,16 +24,17 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
 
       cond do
         String.ends_with?(url, "/repos/acme/demo") ->
-          {:ok, %Req.Response{status: 200, body: %{"default_branch" => "main"}, headers: %{}}}
+          {:ok, %Req.Response{status: 200, body: ~s({"default_branch":"main"}), headers: %{}}}
 
         String.contains?(url, "api.github.com/repos/acme/demo/commits/") ->
           {:ok,
            %Req.Response{
              status: 200,
-             body: %{
-               "sha" => String.duplicate("b", 40),
-               "commit" => %{"verification" => %{"verified" => false, "reason" => "unsigned"}}
-             },
+             body:
+               Jason.encode!(%{
+                 "sha" => String.duplicate("b", 40),
+                 "commit" => %{"verification" => %{"verified" => false, "reason" => "unsigned"}}
+               }),
              headers: %{}
            }}
 
@@ -44,12 +45,13 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
           {:ok,
            %Req.Response{
              status: 200,
-             body: %{"tag_name" => "v1.0.0", "assets" => []},
+             body: ~s({"tag_name":"v1.0.0","assets":[]}),
              headers: %{}
            }}
 
         String.contains?(url, "api.github.com/repos/acme/demo/releases") ->
-          {:ok, %Req.Response{status: 200, body: [], headers: %{}}}
+          body = Process.get(:release_list_body, ~s([{"tag_name":"v1.0.0","assets":[]}]))
+          {:ok, %Req.Response{status: 200, body: body, headers: %{}}}
 
         true ->
           {:ok, %Req.Response{status: 404, body: "", headers: %{}}}
@@ -88,12 +90,31 @@ defmodule ServiceRadarWebNG.Packages.RepoClientEgressTest do
     assert String.contains?(url, "/releases/tags/")
   end
 
-  test "fetch_recent_releases routes through the injected client, not Req", %{repo: repo, opts: opts} do
-    assert {:ok, releases} = RepoClient.fetch_recent_releases(repo, 5, opts)
-    assert is_list(releases)
+  test "fetch_recent_releases decodes raw JSON through the injected client", %{repo: repo, opts: opts} do
+    assert {:ok, [%{"tag_name" => "v1.0.0", "assets" => []}]} =
+             RepoClient.fetch_recent_releases(repo, 5, opts)
 
     assert_received {:fetch_body_called, url}
     assert String.contains?(url, "api.github.com")
     assert String.contains?(url, "/releases")
+  end
+
+  test "fetch_recent_releases accepts empty and decoded lists and rejects invalid payloads", %{
+    repo: repo,
+    opts: opts
+  } do
+    error = {:error, "Plugin release browser returned an unexpected payload"}
+
+    for {body, expected} <- [
+          {"[]", {:ok, []}},
+          {[%{"tag_name" => "v2.0.0"}], {:ok, [%{"tag_name" => "v2.0.0"}]}},
+          {"{}", error},
+          {"null", error},
+          {"invalid JSON", error},
+          {%{}, error}
+        ] do
+      Process.put(:release_list_body, body)
+      assert RepoClient.fetch_recent_releases(repo, 5, opts) == expected
+    end
   end
 end

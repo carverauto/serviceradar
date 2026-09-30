@@ -67,8 +67,7 @@ the third consumer, so it moves once rather than being copied a third time.
       Per that client's own documentation the shared Finch pool bypasses the egress
       allowlist and Mint cannot tunnel through the CONNECT proxy this deployment
       runs behind -- so GitHub import cannot work in a proxied deployment today,
-      and only there. Use `fetch_body/2` for API responses and
-      `download_to_file/3` for artifacts.
+      and only there. Follow that module's documentation for which helper to call.
 - [x] 4b.3 Repoint plugins and add-ons at the shared module with no behaviour
       change other than the egress fix, and keep their existing tests green as the
       evidence.
@@ -244,16 +243,45 @@ the third consumer, so it moves once rather than being copied a third time.
 ## 9. Validation
 
 - [ ] 9.1 `cargo check --workspace --lib --bins --tests`, `cargo fmt`, `cargo clippy` clean.
-- [ ] 9.2 `bazel build //rust/...` clean.
-- [ ] 9.3 `make test` green.
-- [ ] 9.4 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --lint-only` clean.
-- [ ] 9.5 `mix serviceradar.db.migrate` applies the migration on a database that
+      **Clean for the crate this change touches:** `srql` passes `cargo check`,
+      `cargo fmt --check` and `cargo clippy -- -D warnings`. Workspace-wide the
+      command is red for reasons outside this change and it is left unchecked
+      rather than claimed: `reqsign-azure-storage`/`reqsign-google` (vendored under
+      `third_party/rust_patches`) do not compile as test targets, `rperf` fails
+      clippy, and `cargo fmt --check` reports drift in about 55 files none of which
+      this change edits.
+- [x] 9.2 `bazel build //rust/...` clean. All 168 targets build (`--config=remote`, exit 0).
+- [x] 9.3 `make test` green. Run by the gate's test step on the heads of #4956 and
+      #4962, and BazelCI (including `//elixir/web-ng:networks_live_db_test`) passed on #4962.
+- [x] 9.4 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --lint-only` clean.
+- [x] 9.5 `mix serviceradar.db.migrate` applies the migration on a database that
       already carries hypertables, and the backfill completes.
+      Verified locally on synthetic data, not a deployment: a database built to
+      `20260921140000` with `mtr_hops`/`mtr_traces` hypertables holding 600 hops
+      over 9 chunks (7 compressed) plus 4 orphan hops, then upgraded through all 22
+      newer migrations. The backfill dry run reported 600 pending and 4
+      unrecoverable; `--execute --batch-size 50` attributed all 600 to their own
+      trace's `target_ip`/`device_id` (0 wrong), left the orphans NULL, and a second
+      pass updated 0 rows.
 - [ ] 9.6 Verify against real MTR data that a device-scoped panel returns only that
       device's hops, and that reach rate per target matches what
       `/diagnostics/mtr` reports for the same window.
+      **Needs a deployment.** On the synthetic database above, every shipped panel
+      query runs, a `target_ip` filter returns only that target's hops (counts equal
+      to SQL), scoped loss by hop position equals the SQL ratio of sums, and reach
+      rate per target equals SQL. The comparison against real traces and
+      `/diagnostics/mtr` has not been done.
 - [ ] 9.7 Verify every panel renders, and that a second startup neither duplicates
       the dashboard nor reverts an edit.
+      **Second startup: verified** on the upgraded database -- reseeding after an
+      operator edit keeps the edit and creates nothing. It found that concurrent
+      seeding by several replicas (the chart default is 3) failed every seeder but
+      one with an unmapped `Ecto.ConstraintError`: the table's unique indexes are
+      named `authored_dashboards_slug_idx`/`authored_dashboards_dashboard_ref_idx`,
+      not the identity defaults. Fixed by `identity_index_names`, creating a
+      dashboard with its panels in one transaction, and treating a lost slug race
+      as kept; covered by a concurrent-seeding test in `system_reports_db_test.exs`.
+      **Panels rendering in a browser against real data needs a deployment.**
 
 ## 10. Corrections carried by this change
 

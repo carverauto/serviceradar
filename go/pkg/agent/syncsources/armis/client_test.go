@@ -18,6 +18,7 @@ package armis
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -255,5 +256,48 @@ func TestSearchErrorIncludesBody(t *testing.T) {
 	if isUnauthorized(err) {
 		// 400 is not unauthorized; isUnauthorized must only match 401.
 		t.Fatal("isUnauthorized(400 error) = true, want false")
+	}
+}
+
+func TestSearchTotalDecodesNumericAndMarkerValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       string
+		wantCount int
+		wantExact bool
+		wantText  string
+	}{
+		{name: "number", raw: `42`, wantCount: 42, wantExact: true, wantText: "42"},
+		{name: "numeric string", raw: `"17"`, wantCount: 17, wantExact: true, wantText: "17"},
+		{name: "marker string", raw: `"Many"`, wantText: "Many"},
+		{name: "null", raw: `null`},
+		{name: "non-integer number", raw: `1.5`, wantText: "1.5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var total searchTotal
+			if err := json.Unmarshal([]byte(tt.raw), &total); err != nil {
+				t.Fatalf("Unmarshal(%s) returned error: %v", tt.raw, err)
+			}
+
+			count, exact := total.Exact()
+			if count != tt.wantCount || exact != tt.wantExact {
+				t.Fatalf("Exact() = (%d, %v), want (%d, %v)", count, exact, tt.wantCount, tt.wantExact)
+			}
+			if got := total.String(); got != tt.wantText {
+				t.Fatalf("String() = %q, want %q", got, tt.wantText)
+			}
+		})
+	}
+}
+
+func TestSearchTotalRejectsMalformedJSON(t *testing.T) {
+	var total searchTotal
+	if err := json.Unmarshal([]byte(`{"total":`), &total); err == nil {
+		t.Fatal("Unmarshal of malformed JSON returned nil error")
+	}
+	if err := total.UnmarshalJSON([]byte(`[1]`)); err == nil {
+		t.Fatal("UnmarshalJSON of an array returned nil error")
 	}
 }
