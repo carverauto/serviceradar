@@ -156,7 +156,7 @@ The server SHALL distinguish stable `layout_version`, immutable publication `gen
 ### Requirement: Quadtree tiles conserve membership within hard budgets
 The server SHALL expose quadtree tiles keyed by `(layout_version, z, x, y)` within a fixed world extent and declared maximum zoom. Every admitted device SHALL have exactly one owning tile and one visible representation at every zoom: an individual device or membership in one stable aggregate. Importance-based `min_zoom` SHALL prioritize individual display without overriding density or byte budgets. A singleton representation in the standard profile SHALL preserve the device identity, label and authoritative coordinates rather than displaying an aggregate count of one. The compact aggregate-only profile SHALL continue bounding identifier bytes.
 
-Each tile SHALL enforce node, relation, label, total-feature, and actual encoded-byte limits during construction. An oversized tile SHALL generalize further; it SHALL NOT silently truncate membership or transmit overflow. Boundary and context proxies SHALL count against feature budgets but contribute zero represented-device membership. Aggregate payloads SHALL contain bounded summaries and navigation references, not complete member lists.
+Each tile SHALL enforce a fixed maximum of 128 glyphs, 512 rendered edges and 262,144 encoded bytes, along with label and total-feature limits during construction. All five known topology classes and the unknown class SHALL remain separate. Encoding retries, cached routing plans, overlay edge summaries and bundle selectors SHALL retain this shared tile routing budget; bounded detail pages SHALL retain their separate 128-node and 256-relation limits. An oversized tile SHALL generalize further; it SHALL NOT silently truncate membership or transmit overflow. Boundary and context proxies SHALL count against feature budgets but contribute zero represented-device membership. Aggregate payloads SHALL contain bounded summaries and navigation references, not complete member lists.
 
 #### Scenario: Membership is conserved at every zoom
 - **GIVEN** the seeded 1,000,000-device canonical fixture
@@ -164,6 +164,13 @@ Each tile SHALL enforce node, relation, label, total-feature, and actual encoded
 - **THEN** the visible owned device count plus the sum of aggregate member counts SHALL equal the admitted canonical device count
 - **AND** shared tile boundaries SHALL neither omit nor duplicate a member
 - **AND** every tile SHALL remain within its feature and encoded-byte limits
+
+#### Scenario: Dense mixed-class corner and face routes remain conserved
+- **GIVEN** a tile carries every admitted topology class across directed face, corner and interior routes
+- **WHEN** it reaches the coarsest shared routing plan
+- **THEN** its one interior glyph and eight boundary glyphs SHALL fit all directed class-separated pairs within 512 rendered edges
+- **AND** exact corner and shared face positions SHALL NOT be folded together to reduce edge cardinality
+- **AND** neighboring tiles, encoding retries and paged selectors SHALL agree on routes and conserve every represented relation
 
 #### Scenario: Maximum-zoom density remains reachable
 - **GIVEN** one maximum-zoom tile contains more devices or relations than its budgets permit

@@ -14,8 +14,8 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
   # Compact identities bound bytes without changing the publication's shared
   # routing grade. Reducing per-tile portal budgets would break adjacency.
   @profiles [
-    %{profile: :standard, nodes: 128, edges: 256},
-    %{profile: :aggregate_only, nodes: 128, edges: 256}
+    %{profile: :standard, nodes: 128, edges: 512},
+    %{profile: :aggregate_only, nodes: 128, edges: 512}
   ]
 
   def build(world, %TileKey{} = key) do

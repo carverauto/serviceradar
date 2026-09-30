@@ -29,6 +29,13 @@ describe("world tile wire boundary", () => {
     const invalid = tile({edges: [{source: 0, target: 2, details: {id: "bundle:a", represented_count: 1, phase_start: 0, phase_end: 1}}]})
     expect(() => decodeWorldTile(invalid, key)).toThrow("endpoint")
     expect(() => decodeWorldTile(new Uint8Array(262145), key)).toThrow("byte budget")
+    const edges = Array.from({length: 512}, (_, index) => ({source: 0, target: 1,
+      details: {id: `bundle:${index}`, represented_count: 1, phase_start: 0, phase_end: 1}}))
+    const decoded = decodeWorldTile(tile({edges}), key)
+    expect(decoded.edges).toHaveLength(512)
+    expect(decoded.edges[511].id).toBe("bundle:511")
+    expect(() => decodeWorldTile(tile({edges, metadata: {max_edges: 256}}), key)).toThrow("edge budget")
+    expect(() => decodeWorldTile(tile({edges: [...edges, edges[0]]}), key)).toThrow("edge_count")
   })
 
   it("accepts a bounded empty batch and checks the requested revision", () => {

@@ -56,12 +56,17 @@ pub(crate) fn encode_scene_ipc(
     payload: EncodeSnapshotPayload,
     metadata: HashMap<String, String>,
 ) -> Result<Vec<u8>, &'static str> {
+    let edge_limit = if metadata.get("payload_kind").map(String::as_str) == Some("tile") {
+        512
+    } else {
+        256
+    };
     if payload.schema_version != 3
         || payload.nodes.len() > 128
-        || payload.edges.len() > 256
-        || payload.edge_meta.len() > 256
-        || payload.edge_directional.len() > 256
-        || payload.edge_details.len() > 256
+        || payload.edges.len() > edge_limit
+        || payload.edge_meta.len() > edge_limit
+        || payload.edge_directional.len() > edge_limit
+        || payload.edge_details.len() > edge_limit
         || metadata.len() > 32
         || metadata
             .iter()
@@ -1068,6 +1073,18 @@ mod tests {
             encode_scene_ipc(too_many, HashMap::new()),
             Err("scene_budget_exceeded")
         );
+        for (kind, limit) in [("tile", 512), ("detail", 256)] {
+            let metadata = HashMap::from([("payload_kind".into(), kind.into())]);
+            let mut bounded = scene();
+            bounded.edges = vec![bounded.edges[0].clone(); limit];
+            bounded.edge_details = vec![bounded.edge_details[0].clone(); limit];
+            let bytes = encode_scene_ipc(bounded, metadata.clone()).unwrap();
+            let mut reader = FileReader::try_new(std::io::Cursor::new(bytes), None).unwrap();
+            assert_eq!(reader.next().unwrap().unwrap().num_rows(), limit + 2);
+            let mut overflow = scene();
+            overflow.edges = vec![overflow.edges[0].clone(); limit + 1];
+            assert_eq!(encode_scene_ipc(overflow, metadata), Err("scene_budget_exceeded"));
+        }
         let mut invalid = scene();
         invalid.edges[0].1 = 2;
         assert_eq!(

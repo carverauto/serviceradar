@@ -9,7 +9,7 @@ defmodule ServiceRadar.TopologyAtlas do
   consumed once; worlds and candidates are immutable process-local resources.
 
   Canonical IDs remain intact. Labels are limited to 256 UTF-8 bytes by the
-  inventory projector. Tile budgets are at most 128 glyphs and 256 relations.
+  inventory projector. Tile budgets are at most 128 glyphs and 512 rendered relations.
   Cursors start at zero, and `next_cursor: nil` ends a publication stream.
   Resources must never be serialized into jobs or persisted as database values.
 
@@ -80,12 +80,12 @@ defmodule ServiceRadar.TopologyAtlas do
     with {:ok, url} <- Dgraph.url(), do: Native.read_graph(url, Utils.stale_cutoff_iso8601())
   end
 
-  def tile(world, z, x, y, budget \\ %{nodes: 128, edges: 256})
+  def tile(world, z, x, y, budget \\ %{nodes: 128, edges: 512})
 
   def tile(world, z, x, y, %{nodes: nodes, edges: edges} = budget)
       when is_integer(z) and z in 0..24 and is_integer(x) and x in 0..16_777_215 and is_integer(y) and
              y in 0..16_777_215 and
-             is_integer(nodes) and nodes in 9..128 and is_integer(edges) and edges in 72..256 do
+             is_integer(nodes) and nodes in 9..128 and is_integer(edges) and edges in 72..512 do
     case Map.get(budget, :profile, :standard) do
       profile when profile in [:standard, :aggregate_only] ->
         Native.tile(world, z, x, y, Map.put(budget, :profile, profile))

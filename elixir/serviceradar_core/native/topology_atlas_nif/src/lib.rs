@@ -442,7 +442,7 @@ fn tile(
     crate::admission::call(env, &crate::admission::TILE_READ, || {
         details::read_reply(env, || {
             // Callers may reduce a budget, but cannot request unbounded ABI output.
-            if budget.nodes > 128 || budget.edges > 256 {
+            if budget.nodes > 128 || budget.edges > Budget::default().edges {
                 return Err(details::engine_error(
                     serviceradar_topology_atlas::Error::InvalidBudget,
                 ));

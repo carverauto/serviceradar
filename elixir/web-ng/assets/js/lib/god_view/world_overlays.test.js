@@ -11,18 +11,23 @@ afterEach(() => {stores.splice(0).forEach(item => item.destroy()); vi.unstubAllG
 
 describe("world telemetry polling", () => {
   it("refreshes telemetry over overlay HTTP only and clears an unavailable sample", async () => {
-    const fetcher = vi.fn().mockResolvedValueOnce(Response.json(sample(1))).mockResolvedValueOnce(Response.json(sample(0)))
-      .mockResolvedValueOnce(new Response(null, {status: 503}))
+    const full = {...sample(1), flow: {edges: Array.from({length: 512}, (_, index) => ({id: `bundle:${index}`}))}}
+    const oversized = {...sample(0), flow: {edges: [...full.flow.edges, {id: "bundle:overflow"}]}}
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json(full)).mockResolvedValueOnce(Response.json(sample(0)))
+      .mockResolvedValueOnce(Response.json(oversized)).mockResolvedValueOnce(new Response(null, {status: 503}))
     vi.stubGlobal("fetch", fetcher)
     const overlays = store()
     overlays.setVisible([geometry])
     await overlays.poll()
     expect(overlays.entries.get("1/1/0").health.glyphs[0].counts.healthy).toBe(1)
+    expect(overlays.entries.get("1/1/0").flow.edges).toEqual(full.flow.edges)
     await overlays.poll()
     expect(overlays.entries.get("1/1/0").health.glyphs[0].counts.healthy).toBe(0)
     await overlays.poll()
     expect(overlays.entries.size).toBe(0)
-    expect(fetcher.mock.calls.map(call => call[0])).toEqual(Array(3).fill(
+    await overlays.poll()
+    expect(overlays.entries.size).toBe(0)
+    expect(fetcher.mock.calls.map(call => call[0])).toEqual(Array(4).fill(
       `/topology/overlays/${worldTileKey.layout_version}/1/1/0?revision=${worldTileRevision}`,
     ))
   })

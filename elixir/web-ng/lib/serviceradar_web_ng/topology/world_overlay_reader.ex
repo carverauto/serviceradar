@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
          {:ok, %{world: world, health: health, manifest: manifest, progress: progress}} <-
            WorldHealth.snapshot(health_owner),
          true <- TileControl.fence(manifest) == expected and tile.generation == expected.generation,
-         %{selection: selection, flow_edges: edges} when is_list(edges) and length(edges) <= 256 <- tile,
+         %{selection: selection, flow_edges: edges} when is_list(edges) and length(edges) <= 512 <- tile,
          {:ok, health} <- TopologyAtlas.tile_health(world, health, selection),
          cursor = if(continuation && continuation.revision == tile.revision, do: continuation.cursor),
          {:ok, page} <- TopologyAtlas.tile_relations(world, selection, cursor, 256),

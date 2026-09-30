@@ -640,7 +640,7 @@ fn mixed_class_corner_routes_fit_the_production_budget() {
     }
     assert_eq!(routes.len(), 52);
     let classes = [TopologyClass::Backbone, TopologyClass::Logical, TopologyClass::Hosted,
-        TopologyClass::Endpoints, TopologyClass::Inferred];
+        TopologyClass::Endpoints, TopologyClass::Inferred, TopologyClass::Unknown];
     let mut points = Vec::new();
     let mut identities = std::collections::BTreeMap::new();
     let mut relations = Vec::new();
@@ -666,9 +666,11 @@ fn mixed_class_corner_routes_fit_the_production_budget() {
         classes.into_iter().find(|class| relation.id.starts_with(class.as_str())).unwrap()
     }).unwrap();
     let tile = world.tile(cell, Budget::default()).unwrap();
-    assert!(tile.glyphs.len() <= 128 && tile.edges.len() <= 256);
+    assert!(tile.glyphs.len() <= 128 && tile.edges.len() <= 512);
     assert_eq!(tile.device_count, 1);
-    assert_eq!(tile.edges.iter().map(|edge| edge.count).sum::<u64>() + tile.internal_relations, 260);
+    // All 52 geometrically possible directed routes retain five known classes and unknown.
+    assert_eq!(tile.edges.len(), 312);
+    assert_eq!(tile.edges.iter().map(|edge| edge.count).sum::<u64>() + tile.internal_relations, 312);
     assert_eq!(tile.edges.iter().map(|edge| edge.topology_class).collect::<BTreeSet<_>>(),
         classes.into_iter().collect());
     let selected_routes = |tile: &serviceradar_topology_atlas::Tile| {
@@ -692,8 +694,15 @@ fn mixed_class_corner_routes_fit_the_production_budget() {
         selected
     };
     let selected = selected_routes(&tile);
-    assert_eq!(selected.len(), 260);
-    let compact = world.tile_with_routing_budget(cell, Budget { nodes: 9, edges: 256 },
+    assert_eq!(selected.len(), 312);
+    for (route, (a, b, _, _)) in routes.iter().enumerate() {
+        for class in classes {
+            let id = format!("{}/{route}", class.as_str());
+            let point = |p: &(i64, i64)| ((2 * half + p.0 * half) as f64, (2 * half + p.1 * half) as f64);
+            assert_eq!(selected[&id], (point(a), point(b)), "exact route for {id}");
+        }
+    }
+    let compact = world.tile_with_routing_budget(cell, Budget { nodes: 9, edges: 512 },
         TileProfile::AggregateOnly, Budget::default()).unwrap();
     let compact_routes = selected_routes(&compact);
     assert_eq!(selected.keys().collect::<Vec<_>>(), compact_routes.keys().collect::<Vec<_>>());
@@ -719,11 +728,7 @@ fn mixed_class_corner_routes_fit_the_production_budget() {
             let id = format!("{}/{route}", class.as_str());
             assert_eq!(selected[&id].0, adjacent[&id].1, "shared crossing for {id}");
             let canonical = ((2 * half + a.0 * half) as f64, (2 * half + a.1 * half) as f64);
-            if a.0 == 1 || a.1 == 1 {
-                assert_ne!(selected[&id].0, canonical, "must exercise corner fallback");
-            } else {
-                assert_eq!(selected[&id].0, canonical, "canonical corner stays fixed");
-            }
+            assert_eq!(selected[&id].0, canonical, "capacity must preserve exact shared crossings");
         }
     }
 }
@@ -754,7 +759,7 @@ fn dense_face_routes_are_bounded_and_shared_across_encoding_profiles() {
     let world = World::new("dense-faces-synthetic".into(), 16, points, relations).unwrap();
     let cell = Cell::new(2, 1, 1).unwrap();
     let tile = world.tile(cell, Budget::default()).unwrap();
-    assert!(tile.glyphs.len() <= 128 && tile.edges.len() <= 256);
+    assert!(tile.glyphs.len() <= 128 && tile.edges.len() <= 512);
     assert_eq!(
         tile.edges.iter().map(|e| e.count).sum::<u64>() + tile.internal_relations,
         512
