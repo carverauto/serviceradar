@@ -341,7 +341,7 @@ fn fresh_elk_component_keeps_unique_centers_in_a_crowded_world() {
 fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
     let root = device("sr:root.example.test", 0);
     let mut nodes = vec![root.clone()];
-    nodes.extend((0..16).map(|n| device(&format!("sr:leaf-{n:02}.example.test"), 2)));
+    nodes.extend((0..40).map(|n| device(&format!("sr:leaf-{n:02}.example.test"), 2)));
     let links: Vec<_> = nodes[1..]
         .iter()
         .map(|n| relation(&root.id, &n.id))
@@ -360,6 +360,14 @@ fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
         "ELK leaves occupy one radial level: {distances:?}"
     );
     let world = World::new("radial-synthetic".into(), 16, points.clone(), links).unwrap();
+    // Fit this component into one 512-pixel tile: adjacent ELK leaves are
+    // readable here, long before the legacy absolute endpoint zoom of eight.
+    let fitted = world.tile(center.component, Budget::default()).unwrap();
+    assert_eq!(
+        fitted.glyphs.iter().filter(|g| g.kind == GlyphKind::Device).count(),
+        points.len(),
+        "readable radial leaves must not remain count-of-a-few aggregates"
+    );
     let overview = world
         .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
         .unwrap();
