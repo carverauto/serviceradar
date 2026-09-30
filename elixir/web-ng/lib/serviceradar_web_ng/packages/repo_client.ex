@@ -228,7 +228,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
 
   @doc "Fetches release metadata for `tag` from the GitHub Releases API."
   @spec fetch_release(%{owner: String.t(), repo: String.t()}, String.t(), keyword()) ::
-          {:ok, map()} | {:error, String.t()}
+          {:ok, map()} | {:error, term()}
   def fetch_release(%{owner: owner, repo: repo} = parsed, tag, opts \\ []) do
     url = "https://#{@github_api_host}/repos/#{owner}/#{repo}/releases/tags/#{URI.encode(tag)}"
     headers = build_headers(opts, [{"accept", "application/vnd.github+json"}])
@@ -253,13 +253,13 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
         {:error, "Release import returned unexpected payload"}
 
       {:error, reason} ->
-        {:error, inspect(reason)}
+        {:error, reason}
     end
   end
 
   @doc "Fetches the `limit` most recent releases for a repository."
   @spec fetch_recent_releases(%{owner: String.t(), repo: String.t()}, pos_integer(), keyword()) ::
-          {:ok, list()} | {:error, String.t()}
+          {:ok, list()} | {:error, term()}
   def fetch_recent_releases(%{owner: owner, repo: repo} = parsed, limit, opts \\ []) do
     capped = normalize_limit(limit)
     url = "https://#{@github_api_host}/repos/#{owner}/#{repo}/releases?per_page=#{capped}"
@@ -285,7 +285,7 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
         {:error, "Plugin release browser returned an unexpected payload"}
 
       {:error, reason} ->
-        {:error, inspect(reason)}
+        {:error, reason}
     end
   end
 

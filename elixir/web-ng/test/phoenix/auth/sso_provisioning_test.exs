@@ -109,7 +109,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
     @tag :web_ng_shared_fixture_db
     test "denies JIT provisioning when sso_auto_provision is explicitly off" do
       actor = SystemActor.system(:test)
-      {:ok, _settings} = AuthSettings.create(%{sso_auto_provision: false}, actor: actor)
+      {:ok, _settings} = set_sso_auto_provision!(false, actor)
 
       assert {:error, :no_local_account} =
                SSOProvisioning.find_or_create_user(
@@ -125,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
     @tag :web_ng_shared_fixture_db
     test "creates a new account when sso_auto_provision is enabled" do
       actor = SystemActor.system(:test)
-      {:ok, _settings} = AuthSettings.create(%{sso_auto_provision: true}, actor: actor)
+      {:ok, _settings} = set_sso_auto_provision!(true, actor)
 
       assert {:ok, user} =
                SSOProvisioning.find_or_create_user(
@@ -244,6 +244,16 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert user.id == existing.id
       assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
       assert persisted.role == :helpdesk
+    end
+  end
+
+  defp set_sso_auto_provision!(enabled, actor) do
+    case AuthSettings.get_singleton(actor: actor) do
+      {:ok, %AuthSettings{} = settings} ->
+        AuthSettings.update(settings, %{sso_auto_provision: enabled}, actor: actor)
+
+      _missing ->
+        AuthSettings.create(%{sso_auto_provision: enabled}, actor: actor)
     end
   end
 

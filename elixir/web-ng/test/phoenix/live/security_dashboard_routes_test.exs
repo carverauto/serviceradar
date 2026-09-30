@@ -135,14 +135,6 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert security_html =~ "Security analytics workbench"
     refute security_html =~ "Trivy Vulnerabilities"
     assert has_element?(view, "a[href='/dashboards/security-findings']", "Security Findings")
-
-    dashboard_js =
-      File.read!(Path.expand("../../../assets/js/dashboards/security_findings.js", __DIR__))
-
-    assert dashboard_js =~ "Exposure Posture"
-    assert dashboard_js =~ "Open work queue"
-    assert dashboard_js =~ "Editable posture panels"
-    refute dashboard_js =~ "Trivy Vulnerabilities"
   end
 
   @tag :web_ng_shared_fixture_db

@@ -17,7 +17,12 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import ServiceRadarWebNG.AshTestHelpers,
-    only: [admin_user_fixture: 0, api_token_with_raw_fixture: 2, user_fixture: 0]
+    only: [
+      admin_user_fixture: 0,
+      api_token_with_raw_fixture: 2,
+      user_fixture: 0,
+      viewer_user_fixture: 0
+    ]
 
   alias ServiceRadarWebNG.Auth.Guardian
 
@@ -93,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
     end
 
     test "a user without plugins.stage is refused" do
-      viewer = user_fixture()
+      viewer = viewer_user_fixture()
 
       conn =
         build_conn()

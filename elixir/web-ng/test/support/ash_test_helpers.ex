@@ -588,7 +588,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     assert_control_partition(agent_uid, partition_id, 40)
   end
 
-  defp ensure_process_registry! do
+  def ensure_process_registry! do
     if is_nil(Process.whereis(ProcessRegistry.registry_name())) do
       Application.put_env(:serviceradar_core, :join_process_registry, true)
       {:ok, _apps} = Application.ensure_all_started(:horde)

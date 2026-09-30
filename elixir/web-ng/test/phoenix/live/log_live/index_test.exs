@@ -799,7 +799,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     # Errors / Error Rate cards pivot to the error trace list (the RED error
     # counts come from spans, which drill down via trace summaries).
     assert html =~ "q=in%3Aotel_trace_summaries+error_count%3A%3E0+sort%3Atimestamp%3Adesc"
-    assert html =~ "tab=traces"
+    assert html =~ "/observability/traces"
   end
 
   @tag :web_ng_shared_fixture_db

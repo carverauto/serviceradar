@@ -136,7 +136,7 @@ defmodule ServiceRadarWebNG.Auth.HooksTest do
           Default.on_auth_failed(:invalid_credentials, context)
         end)
 
-      assert log =~ "auth_event: auth_failed"
+      assert log =~ "Authentication failed reason=:invalid_credentials"
       assert log =~ "invalid_credentials"
     end
   end

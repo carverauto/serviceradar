@@ -1,7 +1,7 @@
 defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+  import ServiceRadarWebNG.AshTestHelpers, only: [register_control_session!: 2, system_actor: 0]
 
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
@@ -163,9 +163,11 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
 
   defp create_assignment!(agent_uid, package_id, opts) do
     source = Keyword.get(opts, :source, :manual)
+    agent_uid = "#{agent_uid}-#{System.unique_integer([:positive])}"
+    register_control_session!(agent_uid, "assignments-test")
 
     attrs = %{
-      agent_uid: "#{agent_uid}-#{System.unique_integer([:positive])}",
+      agent_uid: agent_uid,
       plugin_package_id: package_id,
       source: source,
       source_key: source_key(source),
