@@ -151,10 +151,10 @@ defmodule ServiceRadar.HTTP.EgressClient do
   @doc """
   GETs `url` and returns the whole body in the response, following redirects.
 
-  For API and dataset responses small enough to hold in memory; pass
-  `:max_bytes` to bound them. The response comes back whatever its status, as
-  with `Req.get/2`: judging a non-2xx is the caller's business. The body is the
-  raw binary; nothing is decoded.
+  For raw datasets and other responses small enough to hold in memory; pass
+  `:max_bytes` to bound them. JSON APIs use `fetch_json/2`. The response comes
+  back whatever its status, as with `Req.get/2`: judging a non-2xx is the
+  caller's business. The body is the raw binary; nothing is decoded.
 
   Takes the options of `get/2` except `:into`, plus `:max_redirects` (default
   #{@default_max_redirects}). Set `redirect: false` to inspect redirects manually.
