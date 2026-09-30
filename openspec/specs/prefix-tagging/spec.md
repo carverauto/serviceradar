@@ -1,7 +1,9 @@
 # prefix-tagging Specification
 
 ## Purpose
-TBD - created by archiving change build-prefix-tag-native-snapshots. Update Purpose after archive.
+Prefix-tag snapshots are built in a packed native trie and published as an
+opaque `:persistent_term` resource. Elixir owns the snapshot queries. Provider
+and threat-intel tries are materialized only on ingestion nodes.
 ## Requirements
 ### Requirement: Native prefix snapshot construction
 
