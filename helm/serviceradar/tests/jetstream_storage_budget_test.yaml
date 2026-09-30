@@ -21,7 +21,7 @@ release:
   namespace: serviceradar-test
 tests:
   # --- max_file_store in exact bytes (D2) ------------------------------------
-  - it: renders the small profile's 30G as 30000000000 bytes by default
+  - it: renders the small profile's 36G as 36000000000 bytes by default
     template: templates/nats.yaml
     documentSelector:
       path: kind
@@ -29,7 +29,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: "max_file_store: 30000000000\n"
+          pattern: "max_file_store: 36000000000\n"
 
   - it: reads an explicit Gi maxFileStore as 2^30 bytes
     set:
@@ -66,7 +66,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: "max_file_store: 30000000000\n"
+          pattern: "max_file_store: 36000000000\n"
 
   - it: rejects a unit NATS does not read
     set:
@@ -97,7 +97,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: "max_file_store: 30000000000\n"
+          pattern: "max_file_store: 36000000000\n"
 
   - it: small renders with every optional producer disabled
     set:
@@ -111,7 +111,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: "max_file_store: 30000000000\n"
+          pattern: "max_file_store: 36000000000\n"
 
   - it: medium renders on a 100Gi PVC with every optional producer enabled
     set:
@@ -214,7 +214,7 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'reserve 32659647147 bytes \(30\.42 GiB\), above the limit of 25500000000 bytes \(23\.75 GiB\): 85% of max_file_store 30000000000 bytes'
+          errorPattern: 'reserve 32659647147 bytes \(30\.42 GiB\), above the limit of 30600000000 bytes \(28\.50 GiB\): 85% of max_file_store 36000000000 bytes'
       - failedTemplate:
           errorPattern: 'OBJ_serviceradar-objects: 12884901888 bytes \(12\.00 GiB\) x R3, full \[datasvc\.objectStoreBytes\]'
       - failedTemplate:
@@ -241,7 +241,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: "max_file_store: 30000000000\n"
+          pattern: "max_file_store: 36000000000\n"
 
   - it: counts the BMP stream at its own size and replicas
     set:
@@ -305,6 +305,7 @@ tests:
   - it: fails an existing 30Gi install that selects medium, pointing at the runbook
     set:
       nats.jetstream.profile: medium
+      nats.persistence.size: 30Gi
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
@@ -319,7 +320,7 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'exceeds 94% of nats\.persistence\.size 30Gi .*nats\.jetstream\.allowOvercommit does not skip this check'
+          errorPattern: 'exceeds 94% of nats\.persistence\.size 36Gi .*nats\.jetstream\.allowOvercommit does not skip this check'
 
   # --- single-server and two-server NATS --------------------------------------
   # With nats.replicas below 3 every shipped profile uses its single-server
@@ -335,7 +336,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: "max_file_store: 30000000000\n"
+          pattern: "max_file_store: 36000000000\n"
 
   - it: medium renders on a single NATS server with a 100Gi PVC
     set:
@@ -365,8 +366,9 @@ tests:
           path: spec.template.spec.containers[0].args[0]
           pattern: "max_file_store: 500000000000\n"
 
-  # 22.25 GiB is the plain sum of the single-server table; 28G puts the limit
-  # (23.8e9 bytes) just below it, so the message shows the table in use.
+  # 22.25 GiB is the plain sum of the single-server table. 28G puts the limit
+  # (23.8e9 bytes) below it — confirming the budget walks the single-server
+  # table — whereas the default 36G passes (28.50 GiB limit > 22.25 GiB).
   - it: counts every stream in full on one server, from the single-server table
     set:
       nats.replicas: 1
@@ -379,8 +381,8 @@ tests:
           errorPattern: 'flows: 3221225472 bytes \(3\.00 GiB\) x R1 \(capped from R3 by nats\.replicas\), full \[nats\.jetstream\.profile=small single-server\]'
 
   # Two servers: R3 streams are full on both, the R1 streams spread over two.
-  # Only the single-server table fits: 12 + ceil(10.25 / 2) + 2 = 19.125 GiB,
-  # where the three-server table would need 24.125 GiB.
+  # Both tables fit (19.125 GiB and 24.125 GiB against the 28.50 GiB limit);
+  # the single-server table is selected for Compose compatibility.
   - it: small renders on two NATS servers
     set:
       nats.replicas: 2

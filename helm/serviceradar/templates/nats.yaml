@@ -552,7 +552,7 @@ spec:
       - ReadWriteOnce
       resources:
         requests:
-          storage: {{ default "30Gi" $persistence.size }}
+          storage: {{ default "36Gi" $persistence.size }}
       {{- if $natsStorageClass }}
       storageClassName: {{ $natsStorageClass | quote }}
       {{- end }}

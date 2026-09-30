@@ -16,8 +16,8 @@
 # - `singleServerSizes` (nats.replicas 1 or 2): the D8 Compose table, the same
 #   figures the Compose presets ship. On one server every stream counts in full,
 #   so the budget is the plain sum. On two servers the R3 streams still land on
-#   both servers, and only this table passes for `small` (need 19.125 GiB against
-#   23.75; the three-server table would need 24.125).
+#   both servers; both tables fit `small`'s budget, but only the single-server
+#   table gives Compose-compatible sizes (flows 3 GiB, not 8 GiB).
 #
 # A profile without `singleServerSizes` uses `sizes` for every server count.
 #
@@ -26,8 +26,8 @@
 # enabled; flows and ARANCINI_CAUSAL are always counted at the collector size.
 #
 #   profile  servers  need (GiB)                     limit (GiB)
-#   small    3        17 + 10.25/3 + 2 = 22.42       23.75
-#   small    1        22.25                          23.75
+#   small    3        17 + 10.25/3 + 2 = 22.42       28.50
+#   small    1        22.25                          28.50
 #   medium   3        53 + 27.5/3 + 12 = 74.17       79.16
 #   medium   1        72.5                           79.16
 #   large    3        266 + 124/3 + 64 = 371.33      395.81
@@ -35,8 +35,8 @@
 #   tenant-2g 3       0.91 + 0.24 + 0.25 = 1.40      1.58
 profiles:
   small:
-    maxFileStore: 30G
-    persistenceSize: 30Gi
+    maxFileStore: 36G
+    persistenceSize: 36Gi
     sizes:
       datasvcKV: 1Gi
       datasvcObjects: 4Gi
