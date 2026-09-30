@@ -415,8 +415,10 @@ The contract a production capability names comes from the installation's
 contract registry document, the same JSON the gateway admits records against,
 read through one shared parser, so core cannot sign against values the
 gateway would withhold. The sweep entry must be `active` on the durable bulk
-lane. Its per-record bounds are one projected row per host, at most 2,000 hosts
-per batch (`MaxSweepHostsPerBatch`), and a 2 KiB write budget per row. The
+lane. Its per-record bounds are one reachability row per host plus one row per
+open port and per port error, plus an MTR summary, at most 10,000 projected
+rows per batch (obsbatch `DefaultMaxSweepRows`), with a 2 KiB write budget per
+row. The
 effective grant digest is SHA-256 over a domain tag, the contract reference and
 the lease scope digest, so a record's grant names both the contract and what
 the lease may sweep.
