@@ -183,9 +183,9 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       argument :nats_credential_id, :uuid, allow_nil?: false
       argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
-      argument :tls_cert_pem, :string, allow_nil?: false, sensitive?: true
-      argument :tls_key_pem, :string, allow_nil?: false, sensitive?: true
-      argument :ca_chain_pem, :string, allow_nil?: false, sensitive?: true
+      argument :tls_cert_pem, :string, allow_nil?: true, sensitive?: true
+      argument :tls_key_pem, :string, allow_nil?: true, sensitive?: true
+      argument :ca_chain_pem, :string, allow_nil?: true, sensitive?: true
 
       change transition_state(:ready)
 
@@ -194,24 +194,32 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         creds_content = Ash.Changeset.get_argument(changeset, :nats_creds_content)
         tls_key_pem = Ash.Changeset.get_argument(changeset, :tls_key_pem)
 
-        changeset
-        |> Ash.Changeset.change_attribute(
-          :nats_credential_id,
-          Ash.Changeset.get_argument(changeset, :nats_credential_id)
-        )
-        # Store TLS certificate (public - not encrypted)
-        |> Ash.Changeset.change_attribute(
-          :tls_cert_pem,
-          Ash.Changeset.get_argument(changeset, :tls_cert_pem)
-        )
-        |> Ash.Changeset.change_attribute(
-          :ca_chain_pem,
-          Ash.Changeset.get_argument(changeset, :ca_chain_pem)
-        )
-        # Encrypt NATS credentials and TLS private key using AshCloak
-        |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
-        |> AshCloak.encrypt_and_set(:tls_key_pem_ciphertext, tls_key_pem)
-        |> AfterAction.after_action(fn package ->
+        changeset =
+          changeset
+          |> Ash.Changeset.change_attribute(
+            :nats_credential_id,
+            Ash.Changeset.get_argument(changeset, :nats_credential_id)
+          )
+          # Store TLS certificate (public - not encrypted)
+          |> Ash.Changeset.change_attribute(
+            :tls_cert_pem,
+            Ash.Changeset.get_argument(changeset, :tls_cert_pem)
+          )
+          |> Ash.Changeset.change_attribute(
+            :ca_chain_pem,
+            Ash.Changeset.get_argument(changeset, :ca_chain_pem)
+          )
+          # Encrypt NATS credentials and TLS private key using AshCloak
+          |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
+
+        changeset =
+          if is_binary(tls_key_pem) do
+            AshCloak.encrypt_and_set(changeset, :tls_key_pem_ciphertext, tls_key_pem)
+          else
+            changeset
+          end
+
+        AfterAction.after_action(changeset, fn package ->
           __MODULE__.broadcast_status_changed(package, old_status, :ready)
         end)
       end
