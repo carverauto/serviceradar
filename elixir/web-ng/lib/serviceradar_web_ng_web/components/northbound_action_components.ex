@@ -24,11 +24,17 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     properties = if action, do: ActionForm.schema_properties(action), else: []
     required = if action, do: ActionForm.schema_required(action), else: MapSet.new()
 
+    has_credential_rule_options_error =
+      Enum.any?(properties, fn {_name, schema} ->
+        ActionForm.schema_credential_rule_options_error?(schema)
+      end)
+
     assigns =
       assigns
       |> assign(:action, action)
       |> assign(:properties, properties)
       |> assign(:required, required)
+      |> assign(:has_credential_rule_options_error, has_credential_rule_options_error)
 
     ~H"""
     <.ui_modal id={@id} size="md" on_cancel={@close_event} show_close={true}>
@@ -127,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           </.ui_button>
           <.ui_button
             type="submit"
-            disabled={is_nil(@action)}
+            disabled={is_nil(@action) or @has_credential_rule_options_error}
             size="sm"
             variant="primary"
           >
@@ -293,11 +299,13 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   defp northbound_action_field(assigns) do
     type = ActionForm.schema_type(assigns.schema)
     enum_values = ActionForm.schema_enum(assigns.schema)
+    credential_rule_options_error = ActionForm.schema_credential_rule_options_error?(assigns.schema)
 
     assigns =
       assigns
       |> assign(:type, type)
       |> assign(:enum_values, enum_values)
+      |> assign(:credential_rule_options_error, credential_rule_options_error)
       |> assign(:value, ActionForm.form_value(assigns.form, assigns.name))
       |> assign(:label, ActionForm.schema_title(assigns.name, assigns.schema))
       |> assign(:description, ActionForm.schema_description(assigns.schema))
@@ -315,47 +323,57 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         </span>
       </label>
 
-      <select
-        :if={@enum_values != []}
-        name={@input_name}
-        class={ui_field_class(class: "w-full")}
-        required={@required}
+      <p
+        :if={@credential_rule_options_error}
+        role="alert"
+        class="text-sm text-error"
       >
-        <option value="">Select...</option>
-        <%= for option <- @enum_values do %>
-          <option value={option} selected={to_string(@value || "") == option}>
-            {ActionForm.schema_enum_label(@schema, option)}
-          </option>
-        <% end %>
-      </select>
+        Credential rule options are unavailable; try again later
+      </p>
 
-      <div :if={@enum_values == [] and @type == "boolean"} class="flex items-center gap-2">
-        <input type="hidden" name={@input_name} value="false" />
-        <input
-          type="checkbox"
+      <div :if={not @credential_rule_options_error}>
+        <select
+          :if={@enum_values != []}
           name={@input_name}
-          value="true"
-          checked={@value in [true, "true", "on", "1", 1]}
-          class={ui_toggle_class()}
+          class={ui_field_class(class: "w-full")}
+          required={@required}
+        >
+          <option value="">Select...</option>
+          <%= for option <- @enum_values do %>
+            <option value={option} selected={to_string(@value || "") == option}>
+              {ActionForm.schema_enum_label(@schema, option)}
+            </option>
+          <% end %>
+        </select>
+
+        <div :if={@enum_values == [] and @type == "boolean"} class="flex items-center gap-2">
+          <input type="hidden" name={@input_name} value="false" />
+          <input
+            type="checkbox"
+            name={@input_name}
+            value="true"
+            checked={@value in [true, "true", "on", "1", 1]}
+            class={ui_toggle_class()}
+          />
+        </div>
+
+        <textarea
+          :if={@enum_values == [] and @type in ["object", "array"]}
+          name={@input_name}
+          class={ui_field_class(mono: true, class: "min-h-28 w-full py-2.5 text-xs")}
+          required={@required}
+          placeholder={if @type == "array", do: "[]", else: "{}"}
+        >{ActionForm.json_textarea_value(@value, @type)}</textarea>
+
+        <input
+          :if={@enum_values == [] and @type not in ["boolean", "object", "array"]}
+          type={ActionForm.html_input_type(@type)}
+          name={@input_name}
+          value={@value}
+          class={ui_field_class(class: "w-full")}
+          required={@required}
         />
       </div>
-
-      <textarea
-        :if={@enum_values == [] and @type in ["object", "array"]}
-        name={@input_name}
-        class={ui_field_class(mono: true, class: "min-h-28 w-full py-2.5 text-xs")}
-        required={@required}
-        placeholder={if @type == "array", do: "[]", else: "{}"}
-      >{ActionForm.json_textarea_value(@value, @type)}</textarea>
-
-      <input
-        :if={@enum_values == [] and @type not in ["boolean", "object", "array"]}
-        type={ActionForm.html_input_type(@type)}
-        name={@input_name}
-        value={@value}
-        class={ui_field_class(class: "w-full")}
-        required={@required}
-      />
     </div>
     """
   end

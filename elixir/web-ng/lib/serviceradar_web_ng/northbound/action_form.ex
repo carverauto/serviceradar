@@ -77,6 +77,10 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     end
   end
 
+  def schema_credential_rule_options_error?(schema) do
+    schema_value(schema, "x-credential-rule-options-error") == true
+  end
+
   @doc """
   Display label for an enum value.
 
@@ -282,6 +286,9 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
 
   defp schema_value(schema, "x-enum-labels") when is_map(schema),
     do: Map.get(schema, "x-enum-labels") || Map.get(schema, :"x-enum-labels")
+
+  defp schema_value(schema, "x-credential-rule-options-error") when is_map(schema),
+    do: Map.get(schema, "x-credential-rule-options-error") || Map.get(schema, :"x-credential-rule-options-error")
 
   defp schema_value(schema, "title") when is_map(schema), do: Map.get(schema, "title") || Map.get(schema, :title)
 

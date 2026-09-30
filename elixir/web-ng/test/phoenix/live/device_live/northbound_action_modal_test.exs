@@ -100,4 +100,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionModalTest do
 
     assert html =~ "This action does not require additional input."
   end
+
+  test "x-credential-rule-options-error: shows error message, hides input control, disables submit" do
+    html =
+      render_modal(
+        action(%{
+          input_schema: %{
+            "type" => "object",
+            "properties" => %{
+              "destination_rule_id" => %{
+                "type" => "string",
+                "x-credential-rule-options-error" => true
+              }
+            }
+          }
+        })
+      )
+
+    assert html =~ "Credential rule options are unavailable; try again later"
+    refute html =~ ~s(name="action[input][destination_rule_id]")
+    assert Regex.match?(~r/disabled[^:]/, html)
+  end
 end
