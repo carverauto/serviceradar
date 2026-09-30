@@ -47,6 +47,22 @@ struct RoutingGrade {
     crossings: [usize; 4],
 }
 
+/// `bins[side] == 0` keeps that side's canonical intersections. A positive count
+/// is the equal-width cap both tiles that share the side apply.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Seam {
+    bins: [u16; 4],
+}
+
+type RoutingKey = (u8, u32, u32, usize, usize);
+
+#[derive(Clone, Copy)]
+struct RoutingGrade {
+    // None retains exact crossings. Dyadic caps only merge existing groups.
+    cap: Option<u16>,
+    crossings: [usize; 4],
+}
+
 /// AggregateOnly bounds identifiers independently of canonical identity length.
 /// The encoder still owns the final serialized byte budget.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -326,6 +342,7 @@ impl World {
                 if tile.selection.retained_bytes() > MAX_SELECTION_BYTES {
                     return Err(Error::SelectionBudgetExceeded);
                 }
+                return Ok(tile);
             }
             if limit == 1 {
                 break;

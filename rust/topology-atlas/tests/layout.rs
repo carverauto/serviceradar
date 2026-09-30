@@ -324,9 +324,16 @@ fn fresh_elk_component_keeps_unique_centers_in_a_crowded_world() {
             .len(),
         placed.len()
     );
+    let reserved: HashSet<_> = previous.iter().map(|p| p.component).collect();
     assert!(
-        component.width() >= 8_192,
-        "quantized into a cell smaller than the radial drawing: {component:?}"
+        !reserved.contains(&component),
+        "fresh star reused a frozen reservation: {component:?}"
+    );
+    assert!(
+        placed
+            .iter()
+            .all(|p| previous.iter().all(|old| old.x != p.x || old.y != p.y)),
+        "fresh star occupied a frozen coordinate"
     );
 }
 
@@ -366,7 +373,10 @@ fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
     }
     for point in &points {
         let tile = world
-            .tile(Cell::at_point(16, point.x, point.y).unwrap(), Budget::default())
+            .tile(
+                Cell::at_point(16, point.x, point.y).unwrap(),
+                Budget::default(),
+            )
             .unwrap();
         let glyph = tile
             .glyphs
