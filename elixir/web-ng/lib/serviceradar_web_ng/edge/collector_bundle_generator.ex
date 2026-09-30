@@ -552,12 +552,14 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     cp "$SCRIPT_DIR/creds/nats.creds" "$CREDS_DIR/"
     chmod 600 "$CREDS_DIR/nats.creds"
 
-    echo "Installing certificates..."
-    cp "$SCRIPT_DIR/certs/collector.pem" "$CERTS_DIR/"
-    cp "$SCRIPT_DIR/certs/collector-key.pem" "$CERTS_DIR/"
-    cp "$SCRIPT_DIR/certs/ca-chain.pem" "$CERTS_DIR/"
-    chmod 644 "$CERTS_DIR/collector.pem" "$CERTS_DIR/ca-chain.pem"
-    chmod 600 "$CERTS_DIR/collector-key.pem"
+    if [ -f "$SCRIPT_DIR/certs/collector.pem" ] && [ -f "$SCRIPT_DIR/certs/collector-key.pem" ] && [ -f "$SCRIPT_DIR/certs/ca-chain.pem" ]; then
+        echo "Installing certificates..."
+        cp "$SCRIPT_DIR/certs/collector.pem" "$CERTS_DIR/"
+        cp "$SCRIPT_DIR/certs/collector-key.pem" "$CERTS_DIR/"
+        cp "$SCRIPT_DIR/certs/ca-chain.pem" "$CERTS_DIR/"
+        chmod 644 "$CERTS_DIR/collector.pem" "$CERTS_DIR/ca-chain.pem"
+        chmod 600 "$CERTS_DIR/collector-key.pem"
+    fi
 
     echo "Installing configuration..."
     cp "$SCRIPT_DIR/config/#{config_file}" "$CONFIG_DIR/"
