@@ -4,8 +4,9 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   The `*_hourly` views come from `priv/starrocks/0017`, which replaces the
   unpartitioned ones of `0005` and `0016` with views partitioned by day; the
-  trace rollups `traces_stats_5m` and `spans_red_1h` from `0022` are built the
-  same way and gated the same way. They
+  trace rollups `traces_stats_5m` and `spans_red_1h` from `0022`, and the MTR
+  rollups `mtr_hops_hourly` and `mtr_destination_hourly` from `0025`, are built
+  the same way and gated the same way. They
   are `REFRESH ASYNC` with no schedule, so a reader must verify the view has
   caught up before trusting it: an unrefreshed view returns short counts with
   no error.
@@ -55,7 +56,12 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
     metrics: {"timeseries_metrics_hourly", "timeseries_metrics", "timestamp", 60},
     events: {"events_hourly", "events", "time", 60},
     traces_stats: {"traces_stats_5m", "otel_traces", "timestamp", 5},
-    traces_red: {"spans_red_1h", "otel_traces", "timestamp", 60}
+    traces_red: {"spans_red_1h", "otel_traces", "timestamp", 60},
+    mtr_hops: {"mtr_hops_hourly", "mtr_hops", "time", 60},
+    # The destination view is built over a join, but its buckets are the trace
+    # hours (a row exists for every hour with any trace), so its source mark is
+    # mtr_traces' newest row, not the join's.
+    mtr_destination: {"mtr_destination_hourly", "mtr_traces", "time", 60}
   }
 
   @spec dataset_for_sql(term()) :: atom() | nil

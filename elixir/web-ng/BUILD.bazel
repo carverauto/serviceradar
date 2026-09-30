@@ -593,6 +593,48 @@ elixir_quality(
     tool_deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
 )
 
+# Reader-level MTR parity: the same synthetic traces and hops seeded into a
+# scratch CNPG database and the warehouse, every `MtrData` reader run against
+# both with the backend flag set per call, the dashboard card and sparklines'
+# rollup reads compared against their raw fallbacks
+# (`test/integration/starrocks/mtr_reader_parity_test.exs`). The Elixir tier
+# the extend-starrocks issue asked for: `MtrWarehouse` renders SQL itself, so
+# the Rust parity harness cannot reach these readers.
+#
+# This target is manual because it needs the two live backends and the
+# credentials only the SrqlParity BuildBuddy action provides (the same
+# SRQL_PARITY_* environment the Rust harness gets); that action runs it
+# explicitly after `//integration_tests/srql_parity:parity_test`. It creates
+# its own `srql_parity_mtr_readers_*` databases and drops the CNPG one, so it
+# never touches the shared fixture -- `requires_shared_fixture()` here is
+# only the `--//build:enable_integration_tests` gate that keeps it out of
+# `bazel test //...`.
+ex_unit_test(
+    name = "mtr_reader_parity_test",
+    size = "enormous",
+    srcs = [
+        "test/integration/starrocks/mtr_reader_parity_test.exs",
+    ],
+    data = [
+        "//elixir/serviceradar_core:schema_template_baseline_sql",
+    ],
+    elixir_opts = [
+        "-r",
+        "test/db/mtr_reader_parity_test_helper.exs",
+    ],
+    tags = [
+        "external",
+        "integration_test",
+        "manual",
+        "no-remote-cache",
+        "requires-network",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [
+        ":erlang_app",
+    ],
+)
+
 # The topology control lane uses only the Repo, and runs after the other web-ng
 # database lane on its migrated, quiescent serial_0 scratch clone. Its helper
 # enforces the exact nine real authorization/inventory/health cases.

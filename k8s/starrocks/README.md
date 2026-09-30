@@ -654,6 +654,18 @@ EventWriter writes BMP routing events to this table only, and a failed load is
 redelivered from JetStream rather than written to CNPG. Their retention is
 `analytics.starrocks.retentionDays.bmp` (default 365), applied to this table.
 
+`0025` creates the day-partitioned async views `mtr_hops_hourly` and
+`mtr_destination_hourly`. `mtr_hops_hourly` stores, per hour, target, device,
+address and hop position, the probe totals and received-weighted sums that
+`in:mtr_hops` loss and latency stats re-aggregate. `asn` and `asn_org` are not
+carried, so an ASN-shaped query stays on `mtr_hops`. `mtr_destination_hourly`
+pre-evaluates the dashboard card and whole-hour sparklines, one row per trace
+hour. Readers use either view only while `RollupFreshness` says it has caught
+up with its source (`mtr_hops`, or `mtr_traces` for the destination view);
+otherwise they read the raw tables. A bucket shorter than an hour stays on
+the raw tables and keeps its cutoff. Retention of `mtr_traces` and `mtr_hops`
+stays `analytics.starrocks.retentionDays.mtr`, as `0019` describes.
+
 Metric, log and event panels stay on CNPG until explicitly cut over. For the
 flow-specific defaults and delivery contract, see
 [NetFlow: Flow cutover and delivery](../../docs/docs/netflow.md#flow-cutover-and-delivery).
