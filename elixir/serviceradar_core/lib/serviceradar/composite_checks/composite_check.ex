@@ -41,6 +41,7 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
     define :get_by_id, action: :by_id, args: [:id]
     define :get_by_slug, action: :by_slug, args: [:slug]
     define :list_enabled, action: :enabled
+    define :record_pass, action: :record_pass
   end
 
   actions do
@@ -81,6 +82,16 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
       validate attribute_does_not_equal(:state, :enabled)
     end
 
+    update :record_pass do
+      description """
+      Records the evaluation marks after a successful pass. System-only: the
+      marks gate which devices the next incremental pass reads, so an operator
+      moving them could hide input changes from evaluation.
+      """
+
+      accept [:last_incremental_at, :last_evaluated_at]
+    end
+
     update :enable do
       description "Enable a check after confirming it can produce meaningful verdicts"
 
@@ -98,6 +109,11 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
     read_viewer_plus()
     operator_action_type([:create, :update, :destroy])
     operator_action(:enable)
+
+    # Only the system actor, admitted by system_bypass above, may move the marks.
+    policy action(:record_pass) do
+      forbid_if always()
+    end
   end
 
   attributes do
@@ -155,6 +171,12 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
 
     attribute :last_evaluated_at, :utc_datetime_usec do
       public? true
+      description "Completion time of the last successful full pass (the full-pass clock)"
+    end
+
+    attribute :last_incremental_at, :utc_datetime_usec do
+      public? true
+      description "Database now() taken before the last successful pass's dirty read"
     end
 
     create_timestamp :inserted_at

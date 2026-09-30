@@ -44,6 +44,9 @@ defmodule ServiceRadar.Inventory.DeviceAgentAvailability do
 
       index [:device_uid, :checked_at],
         name: "device_agent_availability_device_checked_at_idx"
+
+      # Composite-check incremental dirty read (agent_id = ANY, updated_at >).
+      index [:agent_id, :updated_at], name: "device_agent_availability_agent_updated_idx"
     end
   end
 

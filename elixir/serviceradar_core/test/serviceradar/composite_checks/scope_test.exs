@@ -103,4 +103,77 @@ defmodule ServiceRadar.CompositeChecks.ScopeTest do
       assert message =~ "scope query failed"
     end
   end
+
+  describe "contains?/3" do
+    defmodule RecordingRunner do
+      @moduledoc false
+
+      # Answers with the uids the SRQL list filter names, minus one the scope
+      # does not select, and reports the request to the test process.
+      def query_page(query, opts) do
+        send(self(), {:srql_request, query, opts})
+
+        [_, list] = Regex.run(~r/uid:\((.*)\)$/, query)
+
+        uids =
+          list
+          |> String.split(",")
+          |> Enum.map(&(&1 |> String.trim_leading("\"") |> String.trim_trailing("\"")))
+          |> Enum.reject(&(&1 == "out-of-scope"))
+
+        {:ok, %{rows: Enum.map(uids, &%{"uid" => &1}), next_cursor: nil}}
+      end
+    end
+
+    test "restricts the scope to the page with one quoted SRQL uid list" do
+      assert {:ok, in_scope} =
+               Scope.contains?("in:devices", ["sr:a", "out-of-scope", "sr:b"],
+                 runner: RecordingRunner
+               )
+
+      assert in_scope == MapSet.new(["sr:a", "sr:b"])
+      assert_received {:srql_request, query, _opts}
+      assert query == ~s|in:devices uid:("sr:a","out-of-scope","sr:b")|
+    end
+
+    # SRQL applies a default limit of 100 when a request omits one, which would
+    # silently drop the rest of a full page.
+    test "always requests at least a full page" do
+      uids = for n <- 1..Scope.dirty_page_limit(), do: "device-#{n}"
+
+      assert {:ok, in_scope} = Scope.contains?("in:devices", uids, runner: RecordingRunner)
+      assert MapSet.size(in_scope) == Scope.dirty_page_limit()
+      assert_received {:srql_request, _query, opts}
+      assert opts[:limit] >= Scope.dirty_page_limit()
+
+      assert {:ok, _} = Scope.contains?("in:devices", ["device-1"], runner: RecordingRunner)
+      assert_received {:srql_request, _query, small_opts}
+      assert small_opts[:limit] >= Scope.dirty_page_limit()
+    end
+
+    test "escapes quotes and backslashes in uids" do
+      assert {:ok, _} = Scope.contains?("in:devices", [~S(a"b\c)], runner: RecordingRunner)
+      assert_received {:srql_request, query, _opts}
+      assert query == ~S|in:devices uid:("a\"b\\c")|
+    end
+
+    test "refuses a page larger than SRQL's list limit instead of truncating" do
+      uids = for n <- 0..Scope.dirty_page_limit(), do: "device-#{n}"
+
+      assert {:error, {:too_many_uids, _count, _limit}} =
+               Scope.contains?("in:devices", uids, runner: RecordingRunner)
+
+      refute_received {:srql_request, _query, _opts}
+    end
+
+    test "an empty page issues no query" do
+      assert {:ok, in_scope} = Scope.contains?("in:devices", [], runner: RecordingRunner)
+      assert MapSet.size(in_scope) == 0
+      refute_received {:srql_request, _query, _opts}
+    end
+
+    test "returns the runner error rather than an empty scope" do
+      assert {:error, :boom} = Scope.contains?("in:devices", ["device-1"], runner: FailingRunner)
+    end
+  end
 end

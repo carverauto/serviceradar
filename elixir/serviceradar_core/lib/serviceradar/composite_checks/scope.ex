@@ -12,6 +12,8 @@ defmodule ServiceRadar.CompositeChecks.Scope do
   alias ServiceRadar.SRQLQuery
 
   @default_page_limit 1_000
+  # SRQL rejects list filters with more than 200 values (MAX_FILTER_LIST_VALUES).
+  @dirty_page_limit 200
 
   @spec normalize(String.t()) :: {:ok, String.t()} | {:error, :scope_must_target_devices}
   def normalize(query) when is_binary(query) do
@@ -59,6 +61,47 @@ defmodule ServiceRadar.CompositeChecks.Scope do
     )
   end
 
+  @doc """
+  Returns the subset of `uids` the scope selects, with one SRQL query.
+
+  The scope is an SRQL query, so it cannot be joined in SQL; the incremental
+  pass instead restricts the scope to one page of candidate uids with an SRQL
+  list filter, `uid:(...)`. SRQL list filters accept at most
+  200 values, so a page must not exceed `dirty_page_limit/0`.
+
+  The request always passes an explicit `limit` of at least the page size:
+  SRQL applies a default limit of 100 when a request omits one, which would
+  silently drop in-scope devices from a full page.
+  """
+  @spec contains?(String.t(), [String.t()], keyword()) ::
+          {:ok, MapSet.t(String.t())} | {:error, term()}
+  def contains?(query, uids, opts \\ [])
+
+  def contains?(_query, [], _opts), do: {:ok, MapSet.new()}
+
+  def contains?(query, uids, opts) when length(uids) <= @dirty_page_limit do
+    runner = Keyword.get(opts, :runner, SRQLRunner)
+    list = Enum.map_join(uids, ",", &quote_srql_string/1)
+    limit = max(length(uids), @dirty_page_limit)
+
+    case runner.query_page("#{query} uid:(#{list})", limit: limit) do
+      {:ok, %{rows: rows}} -> {:ok, rows |> Enum.flat_map(&extract_uid/1) |> MapSet.new()}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def contains?(_query, uids, _opts),
+    do: {:error, {:too_many_uids, length(uids), @dirty_page_limit}}
+
+  defp quote_srql_string(value) do
+    escaped =
+      value
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+
+    "\"#{escaped}\""
+  end
+
   @spec count(String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
   def count(query, opts \\ []) do
     total =
@@ -89,4 +132,7 @@ defmodule ServiceRadar.CompositeChecks.Scope do
 
   @doc false
   def default_page_limit, do: @default_page_limit
+
+  @doc "Largest uid page `contains?/3` accepts."
+  def dirty_page_limit, do: @dirty_page_limit
 end

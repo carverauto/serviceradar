@@ -1076,7 +1076,11 @@ if config_env() == :prod do
       # Camera relay sessions whose edge pull stopped without reporting a close
       # (tracker restart, lost close) otherwise stay requested/opening/active/
       # closing forever. Their leases stop renewing, which is what the reaper keys on.
-      {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance}
+      {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance},
+      # Composite checks' only scheduler: one evaluation job per enabled check per
+      # minute; each job runs the full pass when it is due and the incremental
+      # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
+      {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring}
     ] ++
       object_store_retention_crontab ++
       capacity_forecasting_crontab ++

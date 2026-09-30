@@ -176,6 +176,81 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert %DateTime{} = reloaded_group.last_run_at
   end
 
+  # Composite checks find re-swept devices from the availability rows' updated_at,
+  # so ingestion itself does no composite-check work, and the timestamp must be
+  # the database clock of the INSERT (under the test sandbox, the test
+  # transaction's now(); an application clock read would be later).
+  test "ingestion enqueues no job and stamps availability updated_at inside the INSERT", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("no-composite-work-#{unique_id}")
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{uid: "device-#{unique_id}", ip: ip, hostname: "nocw-#{unique_id}", is_available: false},
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "No composite work #{unique_id}", partition: "default", agent_ids: []},
+        actor: actor
+      )
+      |> Ash.create()
+
+    Phoenix.PubSub.subscribe(
+      ServiceRadar.PubSub,
+      ServiceRadar.Inventory.DevicePubSub.invalidation_topic()
+    )
+
+    jobs_before = Repo.aggregate(Oban.Job, :count)
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               [
+                 %{
+                   "host_ip" => ip,
+                   "available" => true,
+                   "icmp_response_time_ns" => 1_000_000,
+                   "port_results" => [],
+                   "last_sweep_time" => DateTime.to_iso8601(DateTime.utc_now())
+                 }
+               ],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: "default"
+             )
+
+    assert Repo.aggregate(Oban.Job, :count) == jobs_before
+
+    %{rows: [[updated_at, database_now]]} =
+      Repo.query!(
+        """
+        SELECT updated_at, now() AT TIME ZONE 'utc'
+        FROM platform.device_agent_availability
+        WHERE device_uid = $1 AND agent_id = $2
+        """,
+        [device.uid, agent_id]
+      )
+
+    assert updated_at == database_now
+
+    # The availability transition is still published.
+    uid = device.uid
+    assert_receive {:devices_invalidated, invalidated}
+    assert uid in invalidated
+  end
+
   test "records banner grab audit summary on the sweep execution version", %{
     actor: actor,
     agent_id: agent_id

@@ -169,6 +169,11 @@ for one check never run concurrently. The next tick after completion inserts
 exactly one job. A check save while a job is available, scheduled, or
 executing inserts nothing further.
 
+Implementation note: the worker declares `states: :incomplete`. Oban warns
+that a partial state list can break uniqueness, and with `max_attempts: 1` a
+job never becomes `retryable` while nothing here suspends jobs, so
+`:incomplete` selects exactly available, scheduled and executing.
+
 An executing job orphaned by a node crash stays in `:executing` until
 `Oban.Plugins.Lifeline` rescues it. `rescue_after` is runtime-configured in
 `serviceradar_core/config/runtime.exs`. Lifeline discards that job, and the

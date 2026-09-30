@@ -1620,7 +1620,11 @@ if config_env() == :prod do
            {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
             ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
            # Kept in step with serviceradar_core_elx's runtime.exs, as above.
-           {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance}
+           {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
+           # Composite checks' only scheduler: one evaluation job per enabled
+           # check per minute (full or incremental pass). Kept in step with
+           # serviceradar_core_elx's runtime.exs, which the release loads.
+           {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++

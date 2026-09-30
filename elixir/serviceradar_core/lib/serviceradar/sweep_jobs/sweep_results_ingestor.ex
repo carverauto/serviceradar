@@ -1390,9 +1390,23 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         execution_id: valid_uuid_or_nil(execution_id),
         metadata: result_metadata(result, reporter_context),
         inserted_at: now,
-        updated_at: now
+        # Stamped by the database inside this INSERT (see statement_now/0), and
+        # carried onto a conflicting row through EXCLUDED.updated_at.
+        updated_at: statement_now()
       }
     end
+  end
+
+  # Composite checks select devices whose availability `updated_at` is later than
+  # a mark they take with the database `now()` before reading, less a fixed
+  # slack. That is only sound if `updated_at` is the database clock at the
+  # writing statement: `now()` is the transaction start, and this upsert is one
+  # autocommit statement, so a writer that began before a mark commits within
+  # the slack. An application-side timestamp could be arbitrarily earlier than
+  # the commit and fall behind the mark. Ecto evaluates a query value once per
+  # row inside the INSERT.
+  defp statement_now do
+    from(n in fragment("SELECT (now() AT TIME ZONE 'utc') AS ts"), select: n.ts)
   end
 
   defp bulk_upsert_agent_availability([]), do: []
@@ -1429,12 +1443,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       )
 
     Logger.debug("SweepResultsIngestor: Upserted #{count} per-agent availability rows")
-
-    # Fire-and-forget: always returns :ok, so ingestion never fails because a
-    # composite check refresh could not be scheduled.
-    ServiceRadar.CompositeChecks.Refresh.enqueue_many(
-      Enum.map(accepted_observations, & &1.device_uid)
-    )
 
     accepted_observations
   rescue
