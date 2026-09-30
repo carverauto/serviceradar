@@ -86,6 +86,22 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
   end
 
   describe "create_tarball/4 for flowgger" do
+    test "omits certificate files when TLS material was not provisioned" do
+      {:ok, tarball} =
+        CollectorBundleGenerator.create_tarball(
+          sample_flowgger_package(),
+          sample_nats_creds(),
+          nil,
+          nats_url: "nats://serviceradar-nats:4222"
+        )
+
+      file_names = tarball |> extract_files() |> Map.keys()
+
+      assert Enum.any?(file_names, &String.ends_with?(&1, "/creds/nats.creds"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "/config/flowgger.toml"))
+      refute Enum.any?(file_names, &String.contains?(&1, "/certs/"))
+    end
+
     test "defaults syslog input to auto detection and keeps timezone configuration" do
       {:ok, tarball} =
         CollectorBundleGenerator.create_tarball(

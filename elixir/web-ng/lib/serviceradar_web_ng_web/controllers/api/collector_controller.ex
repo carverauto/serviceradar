@@ -453,6 +453,8 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     end
   end
 
+  defp get_tls_key(%{tls_cert_pem: nil, ca_chain_pem: nil}), do: {:ok, nil}
+
   defp get_tls_key(package) do
     # Verify TLS certs are present
     if is_nil(package.tls_cert_pem) or is_nil(package.ca_chain_pem) do
