@@ -86,6 +86,7 @@ function trustRank(edge) {
   if (
     topologyClass === "backbone" ||
     evidenceClass === "direct" ||
+    evidenceClass === "direct-physical" ||
     topologyPlane === "physical" ||
     topologyPlane === "backbone"
   ) return 0
@@ -256,14 +257,12 @@ function aggregatePairs(graph, normalized) {
       const byId = left.relationId.localeCompare(right.relationId)
       return byId === 0 ? stableJson(left.evidence).localeCompare(stableJson(right.evidence)) : byId
     })
-    const usableEntries = entries.filter((entry) => !entry.attachment)
-    const rankEntries = usableEntries.length > 0 ? usableEntries : entries
     return {
       ...pair,
       entries,
       evidence: entries.map((entry) => entry.evidence),
       semanticRelationIds: sortedUnique(entries.map((entry) => entry.relationId)),
-      trustRank: Math.min(...rankEntries.map((entry) => entry.trustRank)),
+      trustRank: Math.min(...entries.map((entry) => entry.trustRank)),
     }
   })
 

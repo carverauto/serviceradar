@@ -302,6 +302,31 @@ describe("topology_overview_projection", () => {
     })).toEqual(retained)
   })
 
+  it.each([false, true])("prefers physical attachment parents on bounded pages (mixed evidence: %s)", (mixedEvidence) => {
+      const graph = {
+        _topologyBoundedPage: true,
+        nodes: [
+          {id: "anchor-a", details: {type: "switch"}},
+          {id: "anchor-z", details: {type: "switch"}},
+          {id: "client", details: {type: "server"}},
+        ],
+        edges: [
+          {id: "backbone", source: "anchor-a", target: "anchor-z", topologyClass: "backbone"},
+          {id: "physical", source: "anchor-z", target: "client", topologyClass: "endpoints",
+            evidenceClass: "direct-physical", metadata: {relation_type: "ATTACHED_TO", protocol: "lldp"}},
+          {id: "shortcut", source: "anchor-a", target: "client", topologyClass: "inferred"},
+          ...(mixedEvidence ? [{id: "same-pair-inferred", source: "anchor-z", target: "client",
+            topologyClass: "inferred"}] : []),
+        ],
+      }
+      const page = prepareTopologyOverviewInput(graph)
+      expect(page.treeRelations.find(relation => relation.targetId === "client"))
+        .toMatchObject({sourceId: "anchor-z", semanticRelationIds: mixedEvidence
+          ? ["physical", "same-pair-inferred"] : ["physical"]})
+      expect(page.crossLinks.flatMap(relation => relation.semanticRelationIds)).toEqual(["shortcut"])
+      expect(prepareTopologyOverviewInput({...graph, edges: [...graph.edges].reverse()})).toEqual(page)
+  })
+
   it("chooses a summary parent by canonical pair when multiple attachment candidates exist", () => {
     const graph = {
       nodes: [

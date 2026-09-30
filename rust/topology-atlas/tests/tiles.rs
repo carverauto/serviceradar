@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serviceradar_topology_atlas::{
     Budget, Cell, DetailScope, Error, GlyphKind, Position, Relation, RelationCursor, TileProfile,
-    WORLD_EXTENT, World,
+    TopologyClass, WORLD_EXTENT, World,
 };
 
 fn position(i: u32, x: u32, y: u32, min_zoom: u8) -> Position {
@@ -614,6 +614,118 @@ fn bundle_identity_survives_unrelated_row_insertions() {
     assert_eq!(original.edges[0].count, 2);
     assert_eq!(original.edges[0].id, inserted.edges[0].id);
     assert_ne!(original.edges[0].source, inserted.edges[0].source);
+}
+
+#[test]
+fn mixed_class_corner_routes_fit_the_production_budget() {
+    let cell = Cell::new(2, 1, 1).unwrap();
+    let half = i64::from(cell.width()) / 2;
+    let perimeter: [(i64, i64); 8] = [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1)];
+    let mut routes = Vec::new();
+    for &a in &perimeter {
+        for &b in &perimeter {
+            if a == b {
+                continue;
+            }
+            let same_side = (a.0 == b.0 && (a.0 == 0 || a.0 == 2))
+                || (a.1 == b.1 && (a.1 == 0 || a.1 == 2));
+            let owned_full_side = (a.0 == 0 && b.0 == 0 && (a.1 - b.1).abs() == 2)
+                || (a.1 == 0 && b.1 == 0 && (a.0 - b.0).abs() == 2);
+            if !same_side || owned_full_side {
+                routes.push((a, b, false, false));
+            }
+        }
+        routes.push(((1, 1), a, true, false));
+        routes.push((a, (1, 1), false, true));
+    }
+    assert_eq!(routes.len(), 52);
+    let classes = [TopologyClass::Backbone, TopologyClass::Logical, TopologyClass::Hosted,
+        TopologyClass::Endpoints, TopologyClass::Inferred];
+    let mut points = Vec::new();
+    let mut identities = std::collections::BTreeMap::new();
+    let mut relations = Vec::new();
+    for (route, (a, b, source_inside, target_inside)) in routes.iter().copied().enumerate() {
+        let mut endpoints = Vec::new();
+        for (p, q, inside) in [(a, b, source_inside), (b, a, target_inside)] {
+            let x = 2 * half + p.0 * half + if inside { 0 } else { (p.0 - q.0) * half / 2 };
+            let y = 2 * half + p.1 * half + if inside { 0 } else { (p.1 - q.1) * half / 2 };
+            let next = points.len();
+            let index = *identities.entry((x, y)).or_insert_with(|| {
+                points.push(position(next as u32, x as u32, y as u32, 24));
+                next
+            });
+            endpoints.push(index);
+        }
+        for class in classes {
+            let mut relation = edge(&points[endpoints[0]], &points[endpoints[1]]);
+            relation.id = format!("{}/{route}", class.as_str());
+            relations.push(relation);
+        }
+    }
+    let world = World::new_classified("mixed-corners".into(), 8, points, relations, |relation| {
+        classes.into_iter().find(|class| relation.id.starts_with(class.as_str())).unwrap()
+    }).unwrap();
+    let tile = world.tile(cell, Budget::default()).unwrap();
+    assert!(tile.glyphs.len() <= 128 && tile.edges.len() <= 256);
+    assert_eq!(tile.device_count, 1);
+    assert_eq!(tile.edges.iter().map(|edge| edge.count).sum::<u64>() + tile.internal_relations, 260);
+    assert_eq!(tile.edges.iter().map(|edge| edge.topology_class).collect::<BTreeSet<_>>(),
+        classes.into_iter().collect());
+    let selected_routes = |tile: &serviceradar_topology_atlas::Tile| {
+        let mut cursor = None;
+        let mut selected = std::collections::BTreeMap::new();
+        loop {
+            let page = world.tile_relations(&tile.selection, cursor.as_ref(), 64).unwrap();
+            for row in page.relations {
+                let rendered = tile.edges.iter().find(|edge| edge.id == row.rendered_edge_id).unwrap();
+                assert!(row.relation_id.starts_with(rendered.topology_class.as_str()));
+                let from = &tile.glyphs[rendered.source as usize];
+                let to = &tile.glyphs[rendered.target as usize];
+                assert!(selected.insert(row.relation_id, ((from.x, from.y), (to.x, to.y))).is_none());
+            }
+            match page.next {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!(selected.len() as u64, tile.edges.iter().map(|edge| edge.count).sum::<u64>());
+        selected
+    };
+    let selected = selected_routes(&tile);
+    assert_eq!(selected.len(), 260);
+    let compact = world.tile_with_routing_budget(cell, Budget { nodes: 9, edges: 256 },
+        TileProfile::AggregateOnly, Budget::default()).unwrap();
+    let compact_routes = selected_routes(&compact);
+    assert_eq!(selected.keys().collect::<Vec<_>>(), compact_routes.keys().collect::<Vec<_>>());
+    for (id, &(from, to)) in &selected {
+        for (point, compact_point) in [(from, compact_routes[id].0), (to, compact_routes[id].1)] {
+            if point.0 == (2 * half) as f64 || point.0 == (4 * half) as f64
+                || point.1 == (2 * half) as f64 || point.1 == (4 * half) as f64
+            {
+                assert_eq!(point, compact_point, "encoding retries retain shared portals");
+            }
+        }
+    }
+    for (a, b, x, y) in [
+        ((0, 1), (2, 1), 0, 1), ((2, 1), (0, 1), 2, 1),
+        ((1, 0), (1, 2), 1, 0), ((1, 2), (1, 0), 1, 2),
+        ((0, 0), (2, 2), 0, 0), ((2, 0), (0, 2), 2, 0),
+        ((0, 2), (2, 0), 0, 2), ((2, 2), (0, 0), 2, 2),
+    ] {
+        let route = routes.iter().position(|&(from, to, _, _)| from == a && to == b).unwrap();
+        let neighbor = world.tile(Cell::new(2, x, y).unwrap(), Budget::default()).unwrap();
+        let adjacent = selected_routes(&neighbor);
+        for class in classes {
+            let id = format!("{}/{route}", class.as_str());
+            assert_eq!(selected[&id].0, adjacent[&id].1, "shared crossing for {id}");
+            let canonical = ((2 * half + a.0 * half) as f64, (2 * half + a.1 * half) as f64);
+            if a.0 == 1 || a.1 == 1 {
+                assert_ne!(selected[&id].0, canonical, "must exercise corner fallback");
+            } else {
+                assert_eq!(selected[&id].0, canonical, "canonical corner stays fixed");
+            }
+        }
+    }
 }
 
 #[test]
