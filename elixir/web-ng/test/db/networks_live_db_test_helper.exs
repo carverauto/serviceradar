@@ -10,14 +10,24 @@ ExUnit.configure(
 )
 
 # A lane that selects nothing means the tag/filter wiring broke; fail rather than pass vacuously.
+# 8 GodView stream cases are tagged :skip as known-divergent (product decisions
+# tracked in https://github.com/carverauto/serviceradar/issues/4988); they load
+# but never select, so the lane expects 254 instead of 262.
+expected_selected_tests = 254
+
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
-  if total - excluded - skipped == 0 do
+  selected = total - excluded - skipped
+
+  if selected != expected_selected_tests do
     IO.puts(:stderr, """
 
-    FAILED: the web-ng shared-fixture DB target executed ZERO tests.
+    FAILED: the web-ng shared-fixture DB target executed #{selected} tests;
+    expected exactly #{expected_selected_tests}.
 
     Tag every case intentionally assigned to this lane with
-    `@tag :web_ng_shared_fixture_db` (or tag its module).
+    `@tag :web_ng_shared_fixture_db` (or tag its module), and update this
+    intentional count when the lane changes. Missing one case must not pass
+    silently.
     """)
 
     System.at_exit(fn _ -> System.halt(1) end)
