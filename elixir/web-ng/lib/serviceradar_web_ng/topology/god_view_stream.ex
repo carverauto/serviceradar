@@ -311,17 +311,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       |> MapSet.new()
 
     Enum.filter(nodes, fn
-      %{id: id} when is_binary(id) -> MapSet.member?(connected_ids, id)
-      _ -> false
+      %{id: id} = node when is_binary(id) ->
+        # Edgeless managed infrastructure renders as unplaced by design; the
+        # connectivity filter must not reap what the unplaced fetch planted.
+        MapSet.member?(connected_ids, id) or unplaced_topology_node?(node)
+
+      _ ->
+        false
     end)
   end
 
   defp materialize_projection_attachment_nodes(nodes, edges) when is_list(nodes) and is_list(edges) do
     nodes_by_id = Map.new(nodes, &{normalize_id(Map.get(&1, :id)), &1})
+    known_infrastructure_ips = known_infrastructure_ip_set(nodes_by_id)
 
     materialized_by_id =
       Enum.reduce(edges, %{}, fn edge, acc ->
-        materialize_projection_attachment_edge_nodes(edge, nodes_by_id, acc)
+        materialize_projection_attachment_edge_nodes(edge, nodes_by_id, known_infrastructure_ips, acc)
       end)
 
     materialized_nodes =
@@ -341,8 +347,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp materialize_projection_attachment_nodes(nodes, _edges) when is_list(nodes), do: nodes
 
-  defp materialize_projection_attachment_edge_nodes(edge, nodes_by_id, acc)
-       when is_map(edge) and is_map(nodes_by_id) and is_map(acc) do
+  defp materialize_projection_attachment_edge_nodes(edge, nodes_by_id, known_infrastructure_ips, acc)
+       when is_map(edge) and is_map(nodes_by_id) and is_struct(known_infrastructure_ips, MapSet) and
+              is_map(acc) do
     if materializable_projection_attachment_edge?(edge) do
       Enum.reduce(projection_attachment_endpoint_sides(edge, nodes_by_id), acc, fn
         {_side, endpoint_id, endpoint_node}, inner when is_binary(endpoint_id) ->
@@ -351,6 +358,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
             endpoint_id,
             endpoint_node,
             nodes_by_id,
+            known_infrastructure_ips,
             inner
           )
 
@@ -362,21 +370,47 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
-  defp materialize_projection_attachment_edge_nodes(_edge, _nodes_by_id, acc) when is_map(acc), do: acc
+  defp materialize_projection_attachment_edge_nodes(_edge, _nodes_by_id, _known_infrastructure_ips, acc)
+       when is_map(acc),
+       do: acc
 
-  defp materialize_projection_attachment_endpoint(edge, endpoint_id, endpoint_node, nodes_by_id, acc) do
+  defp materialize_projection_attachment_endpoint(
+         edge,
+         endpoint_id,
+         endpoint_node,
+         nodes_by_id,
+         known_infrastructure_ips,
+         acc
+       ) do
     if unresolved_materializable_projection_endpoint?(endpoint_id, endpoint_node) do
       identity =
         projection_attachment_node_identity(edge, endpoint_id, endpoint_node, nodes_by_id)
 
-      case materialize_projection_attachment_node(endpoint_id, endpoint_node, identity) do
-        %{} = node -> Map.put(acc, endpoint_id, node)
-        _ -> acc
+      # A shadow sighting that resolves to a known infrastructure IP is the
+      # infrastructure device under another id; materializing it would render a
+      # duplicate node beside the real one.
+      if shadow_infrastructure_identity?(identity, known_infrastructure_ips) do
+        acc
+      else
+        case materialize_projection_attachment_node(endpoint_id, endpoint_node, identity) do
+          %{} = node -> Map.put(acc, endpoint_id, node)
+          _ -> acc
+        end
       end
     else
       acc
     end
   end
+
+  defp shadow_infrastructure_identity?(identity, known_infrastructure_ips)
+       when is_map(identity) and is_struct(known_infrastructure_ips, MapSet) do
+    identity
+    |> Map.get(:ip)
+    |> normalize_ipv4()
+    |> known_infrastructure_ip?(known_infrastructure_ips)
+  end
+
+  defp shadow_infrastructure_identity?(_identity, _known_infrastructure_ips), do: false
 
   defp materializable_projection_attachment_edge?(edge) when is_map(edge) do
     endpoint_attachment_edge?(edge) and not weak_endpoint_cluster_membership_edge?(edge)
@@ -431,7 +465,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Map.put("ip", ip || Map.get(details, "ip"))
         |> Map.put("mac", mac || Map.get(details, "mac"))
         |> Map.put("type", Map.get(details, "type") || "unknown")
-        |> Map.put("identity_source", "endpoint_attachment_projection")
+        # Preserve a known device identity: stamping every materialized
+        # endpoint as a projection would blind downstream sighting-aware
+        # logic (e.g. the expanded-cluster sighting budget) to real
+        # mapper sightings. True identity-less shadows still get marked.
+        |> Map.put("identity_source", Map.get(details, "identity_source") || "endpoint_attachment_projection")
         |> maybe_put_projection_anchor_id(Map.get(identity, :anchor_id))
         |> normalize_details_json()
 
@@ -934,8 +972,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp connectivity_forest_segment_edge?(_edge, _device_by_id), do: false
 
   defp structural_endpoint_attachment_edge?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    # Only L2 attachment points (switch/AP/hub) make an inferred edge a
+    # structural attachment. L3 infrastructure (firewall/router) sees endpoints
+    # as segment evidence for the connectivity forest; routing those edges
+    # into collapse would fold transit paths into endpoint clusters.
     attachment_endpoint_side_count(edge, device_by_id) == 1 and
-      attachment_anchor?(edge, device_by_id) and
+      non_router_access_attachment_anchor?(
+        Map.get(device_by_id, attachment_anchor_id(edge, device_by_id))
+      ) and
       attachment_identity_hint?(edge, device_by_id)
   end
 
@@ -951,6 +995,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp collapse_endpoint_attachments(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
     {attachment_edges, other_edges} =
       Enum.split_with(edges, &attachment_candidate_edge?(&1, device_by_id))
+
+    direct_pairs =
+      edges
+      |> Enum.filter(&(evidence_class(&1) in ["direct", "direct-physical"]))
+      |> Enum.map(&unordered_edge_pair/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    attachment_edges = Enum.reject(attachment_edges, &shadowed_by_direct_edge?(&1, direct_pairs))
 
     incident_profiles = attachment_incident_profiles(edges, device_by_id)
 
@@ -978,6 +1031,42 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
     other_edges ++ collapsed
   end
+
+  # A weak attachment claim (low confidence, no interface telemetry, no observed
+  # flows) that shadows a directly-observed link on the same device pair is
+  # redundant evidence about one physical adjacency, not a second link. The
+  # direct edge carries the pair, so the stray stays out of the collapsed view.
+  # The bar is deliberately narrow: only attachment-evidence edges are
+  # eligible (a direct-evidence edge that is itself an attachment candidate,
+  # e.g. a UniFi uplink row, must survive to carry the pair), and any flow,
+  # any interface telemetry, or a higher tier keeps the edge (a quiet second
+  # leg must stay visible).
+  defp shadowed_by_direct_edge?(edge, direct_pairs)
+       when is_map(edge) and is_struct(direct_pairs, MapSet) do
+    with "endpoint-attachment" <- evidence_class(edge),
+         pair when not is_nil(pair) <- unordered_edge_pair(edge),
+         true <- MapSet.member?(direct_pairs, pair),
+         "low" <- normalize_id(Map.get(edge, :confidence_tier)),
+         "none" <- normalize_id(Map.get(edge, :telemetry_source)),
+         true <- Map.get(edge, :flow_pps, 0) == 0 do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp shadowed_by_direct_edge?(_edge, _direct_pairs), do: false
+
+  defp unordered_edge_pair(edge) when is_map(edge) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+
+    if is_binary(source) and is_binary(target) and source != target do
+      if source <= target, do: {source, target}, else: {target, source}
+    end
+  end
+
+  defp unordered_edge_pair(_edge), do: nil
 
   defp attachment_group_key(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
     anchor_id = attachment_anchor_id(edge, device_by_id)
@@ -2760,6 +2849,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         not is_binary(endpoint_id) ->
           acc
 
+        uid_labeled_placeholder_node?(Map.get(acc, endpoint_id), endpoint_id) ->
+          Map.put(acc, endpoint_id, build_expanded_endpoint_placeholder_node(endpoint_id, group))
+
         Map.has_key?(acc, endpoint_id) ->
           acc
 
@@ -2770,6 +2862,17 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp ensure_expanded_cluster_group_member_nodes(nodes_by_id, _group) when is_map(nodes_by_id), do: nodes_by_id
+
+  # A member node whose label is its own bare uid carries no human identity:
+  # it was projected from an edge id, not from a device row. Rebuild it as a
+  # proper expanded placeholder so identity-less members read "Unidentified
+  # endpoint" (or their edge-carried IP/MAC) instead of a raw sr: id. Nodes
+  # with real labels (device IPs/hostnames) are left untouched.
+  defp uid_labeled_placeholder_node?(node, endpoint_id) when is_map(node) and is_binary(endpoint_id) do
+    Map.get(node, :label) == endpoint_id
+  end
+
+  defp uid_labeled_placeholder_node?(_node, _endpoint_id), do: false
 
   defp build_expanded_endpoint_placeholder_node(endpoint_id, group) when is_binary(endpoint_id) and is_map(group) do
     supporting_edge = expanded_endpoint_member_supporting_edge(group, endpoint_id)
@@ -3891,21 +3994,32 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp endpoint_cluster_leaf_for_edge?(node_id, node, incident_flags, edge, role, peer_counts, known_infrastructure_ips)
        when is_binary(node_id) and is_map(incident_flags) and is_map(edge) and role in [:source, :target] and
               is_map(peer_counts) and is_struct(known_infrastructure_ips, MapSet) do
-    endpoint_cluster_member_node?(
-      node_id,
-      node,
-      Map.get(incident_flags, node_id, %{}),
-      peer_counts,
-      known_infrastructure_ips
-    ) or
-      endpoint_cluster_edge_member_with_ip?(
-        node_id,
-        node,
-        edge,
-        role,
-        peer_counts,
-        known_infrastructure_ips
-      )
+    # A sighting that carries a known infrastructure IP on its own side is the
+    # infrastructure device wearing another id, not a member endpoint. The
+    # node-registry check below misses it when the shadow has no device row,
+    # so the edge-carried IP is checked here for both admission paths.
+    #
+    # An unresolved sighting with only IP identity (no device row, no MAC on
+    # the edge side, single-identifier inference) is likewise too weak for
+    # cluster membership: without a stable identifier the cluster would merge
+    # DHCP churn into phantom members. Such sightings still render as raw
+    # nodes and edges.
+    not edge_member_known_infrastructure_ip?(edge, role, known_infrastructure_ips) and
+      (endpoint_cluster_member_node?(
+         node_id,
+         node,
+         Map.get(incident_flags, node_id, %{}),
+         peer_counts,
+         known_infrastructure_ips
+       ) or
+         endpoint_cluster_edge_member_with_ip?(
+           node_id,
+           node,
+           edge,
+           role,
+           peer_counts,
+           known_infrastructure_ips
+         ))
   end
 
   defp endpoint_cluster_leaf_for_edge?(
@@ -3917,6 +4031,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
          _peer_counts,
          _known_infrastructure_ips
        ), do: false
+
+  defp edge_member_known_infrastructure_ip?(edge, role, known_infrastructure_ips)
+       when is_map(edge) and role in [:source, :target] and is_struct(known_infrastructure_ips, MapSet) do
+    edge
+    |> endpoint_cluster_edge_member_ip(role)
+    |> normalize_ipv4()
+    |> known_infrastructure_ip?(known_infrastructure_ips)
+  end
+
+  defp edge_member_known_infrastructure_ip?(_edge, _role, _known_infrastructure_ips), do: false
 
   defp endpoint_cluster_anchor_direction_counts(edges, nodes_by_id, peer_counts, known_infrastructure_ips)
        when endpoint_cluster_anchor_direction_inputs(edges, nodes_by_id, peer_counts, known_infrastructure_ips) do
@@ -4098,7 +4222,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp maybe_put_known_infrastructure_ip(acc, node_id, node) do
     if known_infrastructure_node?(node_id, node) do
-      case node |> node_ip(node_id) |> normalize_ipv4() do
+      case node |> node_details_ip(node_id) |> normalize_ipv4() do
         ip when is_binary(ip) -> MapSet.put(acc, ip)
         _ -> acc
       end
@@ -4107,10 +4231,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end
   end
 
+  # Snapshot node maps carry the device IP inside details_json rather than as a
+  # top-level field, so the plain registry lookup misses them and the known
+  # infrastructure set comes back empty.
+  defp node_details_ip(node, node_id) when is_map(node) and is_binary(node_id) do
+    details =
+      node
+      |> Map.get(:details_json)
+      |> decode_details_json()
+
+    normalize_ipv4(Map.get(details, "ip")) || node_ip(node, node_id)
+  end
+
+  defp node_details_ip(node, node_id), do: node_ip(node, node_id)
+
   defp known_infrastructure_identity?(node_id, node, known_infrastructure_ips)
        when is_binary(node_id) and is_struct(known_infrastructure_ips, MapSet) do
     node
-    |> node_ip(node_id)
+    |> node_details_ip(node_id)
     |> normalize_ipv4()
     |> known_infrastructure_ip?(known_infrastructure_ips)
   end
@@ -4606,11 +4744,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp stable_expanded_cluster_member?(endpoint_id, nodes_by_id) when is_binary(endpoint_id) and is_map(nodes_by_id) do
     case Map.get(nodes_by_id, endpoint_id) do
       nil -> false
-      node -> not topology_sighting_device?(node)
+      # Nodes carry identity in details_json, not in a device metadata map,
+      # so the device-shaped topology_sighting_device?/1 never matches them
+      # here; read the projected identity instead.
+      node -> not expanded_member_topology_sighting?(node)
     end
   end
 
   defp stable_expanded_cluster_member?(_endpoint_id, _nodes_by_id), do: false
+
+  defp expanded_member_topology_sighting?(node) when is_map(node) do
+    node
+    |> Map.get(:details_json)
+    |> decode_details_json()
+    |> Map.get("identity_source")
+    |> normalize_id() == "mapper_topology_sighting"
+  end
+
+  defp expanded_member_topology_sighting?(_node), do: false
 
   defp expanded_group_visible_endpoint_ids(group) when is_map(group) do
     case Map.get(group, :visible_endpoint_ids) do
