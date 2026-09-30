@@ -18,7 +18,7 @@
 - [x] 3.2 Stream provider rows pinned to their snapshot ID and retain unchanged-token skips.
 - [x] 3.3 Stream threat-intel rows with complete prefix groups across batch boundaries.
 - [x] 3.4 Stream snapshot-backed sources, including manual, and retain the old snapshot on failure.
-- [ ] 3.5 Test unchanged snapshots, rollback, empty snapshots, and concurrent publication.
+- [x] 3.5 Test unchanged snapshots, rollback, empty snapshots, and concurrent publication.
 
 ## 4. Node placement and preview
 
@@ -31,8 +31,8 @@
 
 - [x] 5.1 Enable the native engine by default with explicit Elixir test overrides.
 - [x] 5.2 Measure a synthetic provider-scale build and concurrent swaps; verify bounded BEAM memory and a resident resource handle.
-- [ ] 5.3 Run formatting, lint, focused integration checks, and the full `make test` gate.
-- [ ] 5.4 Submit committed work through no-mistakes for review, push, PR creation, and CI; do not push directly.
+- [x] 5.3 Run formatting, lint, focused integration checks, and the full `make test` gate.
+- [x] 5.4 Submit committed work through no-mistakes for review, push, PR creation, and CI; do not push directly.
 
 ## Progress evidence
 
@@ -56,11 +56,25 @@ Completed checks:
   Formatting and strict Credo are included and passed.
 - Strict OpenSpec validation for this change and the overlapping pending change.
 
-Database cursor-boundary, rollback, and DB-backed UI scenarios await the
-BuildBuddy integration/PR checks. A local scratch attempt was stopped during a
-cold rebuild of unrelated NIF dependencies before any SQL tests ran; the empty
-scratch database and temporary credentials were removed. No deployment, push,
-or PR has been made.
+Database cursor-boundary, rollback, and DB-backed UI scenarios were delivered with
+the change and verified after the merge: PR #4904 (https://github.com/carverauto/serviceradar/pull/4904)
+landed with 19/19 checks green, including BazelCI's integration lanes over the
+new external-sources integration test. A follow-up workstation run against a
+fresh srql-fixtures scratch database re-ran the integration suite directly:
+external-source reload with cursor-boundary groups, immutable-token skip,
+mid-stream rollback retention, empty active snapshots, the 262,144-prefix
+bounded-heap build, panic containment, concurrent publication, the complete
+prefix-tags suite (97 tests), FlowEnrichment (24 tests), and the web-ng preview
+LiveViews (36 tests) all passed.
+
+That follow-up run also fixed a local-build defect the Bazel path had masked:
+the crate declared `crate-type = ["rlib", "cdylib"]`, and Rustler copies the
+first cargo artifact, so every mix-built `prefix_tags_nif.so` was the rlib
+(an `ar` archive, not loadable mach-o), breaking any non-Bazel compile of
+serviceradar_core. The crate now declares `cdylib` only, matching every other
+NIF in native/; the Bazel rust_library/rust_shared_library targets compile from
+sources and are unaffected. Cargo tests, formatting, and Clippy with warnings
+denied pass on the fixed crate.
 
 The ripwire delta reports heuristic findings for generic result adapters,
 constructors, field copies, and address parsing across unrelated subsystems;
