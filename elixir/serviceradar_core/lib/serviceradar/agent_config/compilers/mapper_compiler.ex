@@ -57,35 +57,35 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     device_uid = opts[:device_uid]
 
     jobs = load_jobs(partition, agent_id, actor)
-    mikrotik_controllers = load_mikrotik_controllers(jobs, actor)
-    unifi_controllers = load_unifi_controllers(jobs, actor)
-    credentials = resolve_credentials(device_uid, actor, agent_id: agent_id, partition: partition)
 
-    credentials =
-      Map.put(
-        credentials,
-        "target_specific",
-        if snmp_discovery_jobs?(jobs) do
-          target_credentials(jobs, partition, agent_id, actor)
-        else
-          %{}
-        end
-      )
+    # A failed credential read fails the compile: falling back to the default
+    # credential would deliver a config that differs from what the data says
+    # (the mapper host may have its own scoped credential), and ConfigServer
+    # would cache it.
+    with {:ok, base_credentials} <-
+           resolve_credentials(device_uid, actor, agent_id: agent_id, partition: partition),
+         {:ok, target_specific} <-
+           target_specific_credentials(jobs, partition, agent_id, actor),
+         {:ok, mikrotik_controllers} <- load_mikrotik_controllers(jobs, actor),
+         {:ok, unifi_controllers} <- load_unifi_controllers(jobs, actor),
+         {:ok, proxmox_candidate_probe?} <-
+           proxmox_candidate_probe_enabled?(partition, agent_id, actor) do
+      credentials = Map.put(base_credentials, "target_specific", target_specific)
 
-    proxmox_candidate_probe? = proxmox_candidate_probe_enabled?(partition, agent_id, actor)
+      config = %{
+        "workers" => @default_workers,
+        "timeout" => @default_timeout,
+        "retries" => @default_retries,
+        "max_active_jobs" => @default_max_active_jobs,
+        "result_retention" => @default_result_retention,
+        "scheduled_jobs" =>
+          Enum.map(jobs, &compile_job(&1, credentials, proxmox_candidate_probe?)),
+        "mikrotik_apis" => mikrotik_controllers,
+        "unifi_apis" => unifi_controllers
+      }
 
-    config = %{
-      "workers" => @default_workers,
-      "timeout" => @default_timeout,
-      "retries" => @default_retries,
-      "max_active_jobs" => @default_max_active_jobs,
-      "result_retention" => @default_result_retention,
-      "scheduled_jobs" => Enum.map(jobs, &compile_job(&1, credentials, proxmox_candidate_probe?)),
-      "mikrotik_apis" => mikrotik_controllers,
-      "unifi_apis" => unifi_controllers
-    }
-
-    {:ok, config}
+      {:ok, config}
+    end
   rescue
     e ->
       Logger.error("MapperCompiler: error compiling config - #{inspect(e)}")
@@ -106,18 +106,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     |> Enum.flat_map(fn job ->
       job.mikrotik_controllers || []
     end)
-    |> Enum.map(&compile_mikrotik_controller(&1, actor))
+    |> reduce_compiled(&compile_mikrotik_controller(&1, actor))
   end
 
   defp compile_mikrotik_controller(controller, actor) do
-    %{
-      "base_url" => controller.base_url,
-      "username" => controller.username,
-      "password" =>
-        mapper_controller_secret(controller, :password, actor, ["password", "value", "secret"]),
-      "name" => controller.name,
-      "insecure_skip_verify" => controller.insecure_skip_verify
-    }
+    with {:ok, password} <-
+           mapper_controller_secret(controller, :password, actor, ["password", "value", "secret"]) do
+      {:ok,
+       %{
+         "base_url" => controller.base_url,
+         "username" => controller.username,
+         "password" => password,
+         "name" => controller.name,
+         "insecure_skip_verify" => controller.insecure_skip_verify
+       }}
+    end
   end
 
   defp load_unifi_controllers(jobs, actor) do
@@ -125,22 +128,39 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     |> Enum.flat_map(fn job ->
       job.unifi_controllers || []
     end)
-    |> Enum.map(&compile_unifi_controller(&1, actor))
+    |> reduce_compiled(&compile_unifi_controller(&1, actor))
   end
 
   defp compile_unifi_controller(controller, actor) do
-    %{
-      "base_url" => controller.base_url,
-      "api_key" =>
-        mapper_controller_secret(controller, :api_key, actor, [
-          "api_key",
-          "token",
-          "value",
-          "secret"
-        ]),
-      "name" => controller.name,
-      "insecure_skip_verify" => controller.insecure_skip_verify
-    }
+    with {:ok, api_key} <-
+           mapper_controller_secret(controller, :api_key, actor, [
+             "api_key",
+             "token",
+             "value",
+             "secret"
+           ]) do
+      {:ok,
+       %{
+         "base_url" => controller.base_url,
+         "api_key" => api_key,
+         "name" => controller.name,
+         "insecure_skip_verify" => controller.insecure_skip_verify
+       }}
+    end
+  end
+
+  defp reduce_compiled(records, fun) do
+    records
+    |> Enum.reduce_while({:ok, []}, fn record, {:ok, acc} ->
+      case fun.(record) do
+        {:ok, compiled} -> {:cont, {:ok, [compiled | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, compiled} -> {:ok, Enum.reverse(compiled)}
+      error -> error
+    end
   end
 
   defp mapper_controller_secret(controller, legacy_field, actor, payload_keys) do
@@ -149,7 +169,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
         resolve_mapper_controller_secret(controller, secret_id, actor, payload_keys)
 
       _ ->
-        string_or_empty(Map.get(controller, legacy_field))
+        {:ok, string_or_empty(Map.get(controller, legacy_field))}
     end
   end
 
@@ -168,14 +188,22 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
     case SecretBroker.resolve_network_credential_secret(secret_id, broker_opts) do
       {:ok, %{value: payload}} ->
-        payload_secret_value(payload, payload_keys)
+        {:ok, payload_secret_value(payload, payload_keys)}
 
       {:error, reason} ->
-        Logger.warning(
-          "MapperCompiler: failed to resolve mapper controller broker credential #{secret_id} - #{inspect(reason)}"
-        )
+        if CredentialResolver.credential_read_failure?(reason) do
+          Logger.error(
+            "MapperCompiler: mapper controller credential read failed for #{secret_id} - #{inspect(reason)}"
+          )
 
-        ""
+          {:error, {:credential_resolution_failed, reason}}
+        else
+          Logger.warning(
+            "MapperCompiler: failed to resolve mapper controller broker credential #{secret_id} - #{inspect(reason)}"
+          )
+
+          {:ok, ""}
+        end
     end
   end
 
@@ -285,17 +313,34 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp string_or_empty(value) when is_binary(value), do: value
   defp string_or_empty(value), do: to_string(value)
 
+  # A failed credential read fails the compile: falling back to the default
+  # credential would deliver a config that differs from what the data says
+  # (the mapper host may have its own scoped credential), and ConfigServer
+  # would cache it. A deterministic SecretBroker refusal keeps the documented
+  # default-credential fallback so a misconfigured credential cannot freeze
+  # the mapper config.
   defp resolve_credentials(device_uid, actor, opts) do
     case CredentialResolver.resolve_for_device(device_uid, actor, opts) do
       {:ok, %{credential: nil}} ->
         resolve_default_credentials(actor, opts)
 
       {:ok, %{credential: credential}} ->
-        CredentialResolver.to_mapper_credentials(credential)
+        {:ok, CredentialResolver.to_mapper_credentials(credential)}
 
-      {:error, _} ->
-        Logger.warning("MapperCompiler: failed to resolve SNMP credentials for discovery jobs")
-        resolve_default_credentials(actor, opts)
+      {:error, reason} ->
+        if CredentialResolver.credential_read_failure?(reason) do
+          Logger.error(
+            "MapperCompiler: SNMP credential read failed for discovery jobs - #{inspect(reason)}"
+          )
+
+          {:error, {:credential_resolution_failed, reason}}
+        else
+          Logger.warning(
+            "MapperCompiler: SNMP credential resolution refused for discovery jobs - #{inspect(reason)}; using default credentials"
+          )
+
+          resolve_default_credentials(actor, opts)
+        end
     end
   end
 
@@ -303,10 +348,33 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     case CredentialResolver.resolve_default(actor, opts) do
       {:ok, %{credential: nil}} ->
         Logger.warning("MapperCompiler: no default SNMP credentials resolved for discovery jobs")
-        %{"version" => "v2c"}
+        {:ok, %{"version" => "v2c"}}
 
       {:ok, %{credential: credential}} ->
-        CredentialResolver.to_mapper_credentials(credential)
+        {:ok, CredentialResolver.to_mapper_credentials(credential)}
+
+      {:error, reason} ->
+        if CredentialResolver.credential_read_failure?(reason) do
+          Logger.error(
+            "MapperCompiler: default SNMP credential read failed for discovery jobs - #{inspect(reason)}"
+          )
+
+          {:error, {:credential_resolution_failed, reason}}
+        else
+          Logger.warning(
+            "MapperCompiler: default SNMP credential resolution refused for discovery jobs - #{inspect(reason)}"
+          )
+
+          {:ok, %{"version" => "v2c"}}
+        end
+    end
+  end
+
+  defp target_specific_credentials(jobs, partition, agent_id, actor) do
+    if snmp_discovery_jobs?(jobs) do
+      target_credentials(jobs, partition, agent_id, actor)
+    else
+      {:ok, %{}}
     end
   end
 
@@ -335,30 +403,45 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     (seed_devices ++ rule_devices)
     |> Enum.uniq_by(& &1.uid)
     |> Enum.reject(&(is_nil(&1.ip) or &1.ip == "" or not is_nil(&1.deleted_at)))
-    |> Enum.reduce(%{}, fn device, targets ->
+    |> Enum.reduce_while({:ok, %{}}, fn device, {:ok, targets} ->
       case CredentialResolver.resolve_for_device(device.uid, actor,
              agent_id: agent_id,
              partition: partition
            ) do
         {:ok, %{credential: nil}} ->
-          targets
+          {:cont, {:ok, targets}}
 
         {:ok, %{credential: credential}} ->
           encoded = CredentialResolver.to_mapper_credentials(credential)
-          put_target_credential(targets, device.ip, {:ok, encoded})
+          {:cont, {:ok, put_target_credential(targets, device.ip, {:ok, encoded})}}
 
         {:error, reason} ->
-          Logger.warning(
-            "MapperCompiler: failed to resolve SNMP credentials for mapper target #{device.ip} - #{inspect(reason)}; suppressing SNMP for this address"
-          )
+          if CredentialResolver.credential_read_failure?(reason) do
+            Logger.error(
+              "MapperCompiler: SNMP credential read failed for mapper target #{device.ip} - #{inspect(reason)}"
+            )
 
-          put_target_credential(targets, device.ip, :suppressed)
+            {:halt, {:error, {:credential_resolution_failed, reason}}}
+          else
+            Logger.warning(
+              "MapperCompiler: failed to resolve SNMP credentials for mapper target #{device.ip} - #{inspect(reason)}; suppressing SNMP for this address"
+            )
+
+            {:cont, {:ok, put_target_credential(targets, device.ip, :suppressed)}}
+          end
       end
     end)
-    |> Map.new(fn
-      {ip, :suppressed} -> {ip, %{}}
-      {ip, {:ok, encoded}} -> {ip, encoded}
-    end)
+    |> case do
+      {:ok, targets} ->
+        {:ok,
+         Map.new(targets, fn
+           {ip, :suppressed} -> {ip, %{}}
+           {ip, {:ok, encoded}} -> {ip, encoded}
+         end)}
+
+      error ->
+        error
+    end
   end
 
   # A rule whose target query cannot be read contributes no target credentials,
@@ -407,7 +490,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp proxmox_candidate_probe_enabled?(partition, agent_id, actor) do
     partition
     |> credential_rule_scopes(agent_id)
-    |> Enum.any?(fn {scope_type, scope_value} ->
+    |> Enum.reduce_while({:ok, false}, fn {scope_type, scope_value}, {:ok, enabled?} ->
       case NetworkCredentialRule.list_enabled_for_scope(
              @proxmox_provider,
              scope_type,
@@ -415,14 +498,22 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
              actor: actor
            ) do
         {:ok, rules} ->
-          Enum.any?(rules, &proxmox_auto_discovery_rule?/1)
+          {:cont, {:ok, enabled? or Enum.any?(rules, &proxmox_auto_discovery_rule?/1)}}
 
         {:error, reason} ->
-          Logger.warning(
-            "MapperCompiler: failed to check Proxmox auto-discovery credential rules for #{scope_type}:#{scope_value} - #{inspect(reason)}"
-          )
+          if CredentialResolver.credential_read_failure?(reason) do
+            Logger.error(
+              "MapperCompiler: failed to read Proxmox auto-discovery credential rules for #{scope_type}:#{scope_value} - #{inspect(reason)}"
+            )
 
-          false
+            {:halt, {:error, reason}}
+          else
+            Logger.warning(
+              "MapperCompiler: failed to check Proxmox auto-discovery credential rules for #{scope_type}:#{scope_value} - #{inspect(reason)}"
+            )
+
+            {:cont, {:ok, enabled?}}
+          end
       end
     end)
   end

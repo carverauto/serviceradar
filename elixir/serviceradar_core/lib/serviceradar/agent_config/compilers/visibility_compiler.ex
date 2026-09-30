@@ -36,7 +36,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
         {:ok, disabled_config(opts)}
 
       {:ok, profile} ->
-        compile_resolved_profile(profile, resolve_device_ip(device_uid, actor, opts), opts)
+        case resolve_device_ip(device_uid, actor, opts) do
+          {:ok, device_ip} ->
+            compile_resolved_profile(profile, device_ip, opts)
+
+          # A failed device read is not "no IP": the disabled config returned
+          # here would be cached by ConfigServer as this agent's config.
+          {:error, reason} ->
+            {:error, {:device_ip_resolution_failed, reason}}
+        end
 
       # A failed profile read is not "no profile": returning the disabled
       # config here would be cached by ConfigServer as this agent's config.
@@ -132,24 +140,20 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
     }
   end
 
-  defp resolve_device_ip(nil, _actor, _opts), do: nil
+  defp resolve_device_ip(nil, _actor, _opts), do: {:ok, nil}
 
   defp resolve_device_ip(device_uid, actor, opts) when is_binary(device_uid) do
     resolver = Keyword.get(opts, :device_ip_resolver, &fetch_device_ip/2)
 
     case resolver.(device_uid, actor) do
       {:ok, ip} when is_binary(ip) ->
-        String.trim(ip)
+        {:ok, String.trim(ip)}
 
       {:ok, _} ->
-        nil
+        {:ok, nil}
 
       {:error, reason} ->
-        Logger.debug(
-          "VisibilityCompiler: device IP lookup failed for #{device_uid}: #{inspect(reason)}"
-        )
-
-        nil
+        {:error, reason}
     end
   end
 

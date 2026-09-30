@@ -209,7 +209,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       assert query_executions() == [@edge_query]
     end
 
-    test "a failed target query declares the static targets and no device rows" do
+    test "a failed target query read returns the error and declares nothing" do
       query_page_fn = fn _query, _opts -> raise "driver encoding failure" end
 
       group =
@@ -222,15 +222,35 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
       log =
         capture_log(fn ->
+          assert {:error, {:target_query_failed, {:raised, "driver encoding failure"}}} =
+                   SweepCompiler.declared_targets(group, query_page_fn: query_page_fn)
+        end)
+
+      assert log =~
+               "SRQL target query raised for group \"sg-failed-declared\" " <>
+                 "(#{inspect(@lab_query)}): driver encoding failure"
+    end
+
+    test "an uncastable target query declares the static targets and no device rows" do
+      query_page_fn = fn _query, _opts -> {:error, "type_id must be an integer"} end
+
+      group =
+        group(%{
+          id: "sg-uncastable-declared",
+          name: "uncastable-declared",
+          target_query: @lab_query,
+          static_targets: ["192.0.2.9"]
+        })
+
+      log =
+        capture_log(fn ->
           assert SweepCompiler.declared_targets(group, query_page_fn: query_page_fn) == %{
                    static: ["192.0.2.9"],
                    device: []
                  }
         end)
 
-      assert log =~
-               "SRQL target query raised for group \"sg-failed-declared\" " <>
-                 "(#{inspect(@lab_query)}): driver encoding failure"
+      assert log =~ "cannot be cast for group \"sg-uncastable-declared\""
     end
   end
 
@@ -427,8 +447,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
   end
 
   describe "failing target queries" do
-    test "an erroring query leaves only its groups without device targets and is retried later" do
-      query_page_fn = failing_for(@lab_query, fn _opts -> {:error, :srql_unavailable} end, self())
+    test "a translator rejection matches nothing and still compiles the other groups" do
+      query_page_fn =
+        failing_for(@lab_query, fn _opts -> {:error, "type_id must be an integer"} end, self())
 
       log =
         capture_log(fn ->
@@ -439,18 +460,82 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
           assert networks(compiled[@edge_id]) == ["203.0.113.5"]
         end)
 
-      assert log =~ "SRQL query failed for group #{inspect(@lab_icmp_id)}"
-      assert log =~ "SRQL query failed for group #{inspect(@lab_tcp_id)}"
+      assert log =~ "cannot be cast for group #{inspect(@lab_icmp_id)}"
+      assert log =~ "cannot be cast for group #{inspect(@lab_tcp_id)}"
       assert Enum.sort(query_executions()) == [@edge_query, @lab_query]
+    end
+
+    test "a postgres cast error matches nothing and still compiles the other groups" do
+      query_page_fn =
+        failing_for(
+          @lab_query,
+          fn _opts ->
+            {:error, %Postgrex.Error{postgres: %{code: :invalid_text_representation}}}
+          end,
+          self()
+        )
+
+      compiled =
+        capture_log(fn ->
+          compiled = compile_by_id(pinned_groups(), query_page_fn: query_page_fn)
+          send(self(), {:compiled, compiled})
+        end)
+
+      assert compiled =~ "cannot be cast"
+      assert_received {:compiled, groups}
+      refute Map.has_key?(groups[@lab_icmp_id], "device_targets")
+      assert networks(groups[@edge_id]) == ["203.0.113.5"]
+    end
+
+    test "a raised cast error matches nothing and still compiles the other groups" do
+      query_page_fn =
+        failing_for(
+          @lab_query,
+          fn _opts ->
+            raise %Postgrex.Error{
+              postgres: %{
+                code: :invalid_text_representation,
+                message: "invalid input syntax for type integer"
+              }
+            }
+          end,
+          self()
+        )
+
+      log =
+        capture_log(fn ->
+          compiled = compile_by_id(pinned_groups(), query_page_fn: query_page_fn)
+          refute Map.has_key?(compiled[@lab_icmp_id], "device_targets")
+          assert networks(compiled[@edge_id]) == ["203.0.113.5"]
+        end)
+
+      assert log =~ "cannot be cast"
+    end
+
+    test "an unavailable query fails the compile and is retried later" do
+      query_page_fn = failing_for(@lab_query, fn _opts -> {:error, :srql_unavailable} end, self())
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:target_query_failed, :srql_unavailable}} =
+                   SweepCompiler.compile_groups(pinned_groups(), %{},
+                     query_page_fn: query_page_fn
+                   )
+        end)
+
+      assert log =~ "SRQL query failed for group #{inspect(@lab_icmp_id)}"
+      refute log =~ "SRQL query failed for group #{inspect(@lab_tcp_id)}"
+      assert query_executions() == [@lab_query]
 
       capture_log(fn ->
-        SweepCompiler.compile_groups(pinned_groups(), %{}, query_page_fn: query_page_fn)
+        assert {:error, {:target_query_failed, :srql_unavailable}} =
+                 SweepCompiler.compile_groups(pinned_groups(), %{}, query_page_fn: query_page_fn)
       end)
 
       assert query_executions() == [@lab_query]
     end
 
-    test "a query that fails on a later page keeps the rows already read, uncached" do
+    test "a query that fails on a later page fails the compile and is retried" do
       inventory = fake_inventory(self())
 
       query_page_fn = fn query, opts ->
@@ -465,40 +550,56 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
       log =
         capture_log(fn ->
-          [compiled] = SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
-          assert networks(compiled) == ["198.51.100.10", "198.51.100.11"]
+          assert {:error, {:target_query_failed, :timeout}} =
+                   SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
         end)
 
       assert log =~ "SRQL query failed for group \"sg-partial\""
       assert query_executions() == [@lab_query]
 
       capture_log(fn ->
-        SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
+        assert {:error, {:target_query_failed, :timeout}} =
+                 SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
       end)
 
       assert query_executions() == [@lab_query]
     end
 
-    test "a raising query is logged per group and does not fail the compile" do
+    test "a raised read error fails the compile" do
       query_page_fn =
         failing_for(@lab_query, fn _opts -> raise "driver encoding failure" end, self())
 
       log =
         capture_log(fn ->
-          compiled = compile_by_id(pinned_groups(), query_page_fn: query_page_fn)
-
-          refute Map.has_key?(compiled[@lab_icmp_id], "device_targets")
-          refute Map.has_key?(compiled[@lab_tcp_id], "device_targets")
-          assert networks(compiled[@edge_id]) == ["203.0.113.5"]
+          assert {:error, {:target_query_failed, {:raised, "driver encoding failure"}}} =
+                   SweepCompiler.compile_groups(pinned_groups(), %{},
+                     query_page_fn: query_page_fn
+                   )
         end)
 
-      for group_id <- [@lab_icmp_id, @lab_tcp_id] do
-        assert log =~
-                 "SRQL target query raised for group #{inspect(group_id)} " <>
-                   "(#{inspect(@lab_query)}): driver encoding failure"
-      end
+      assert log =~
+               "SRQL target query raised for group #{inspect(@lab_icmp_id)} " <>
+                 "(#{inspect(@lab_query)}): driver encoding failure"
 
-      assert Enum.sort(query_executions()) == [@edge_query, @lab_query]
+      refute log =~ "SRQL target query raised for group #{inspect(@lab_tcp_id)}"
+      assert query_executions() == [@lab_query]
+    end
+
+    test "a missing table still fails the compile" do
+      query_page_fn =
+        failing_for(
+          @lab_query,
+          fn _opts ->
+            {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}}
+          end,
+          self()
+        )
+
+      capture_log(fn ->
+        assert {:error,
+                {:target_query_failed, %Postgrex.Error{postgres: %{code: :undefined_table}}}} =
+                 SweepCompiler.compile_groups(pinned_groups(), %{}, query_page_fn: query_page_fn)
+      end)
     end
   end
 end
