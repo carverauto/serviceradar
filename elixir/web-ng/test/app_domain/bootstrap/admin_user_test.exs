@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
              User.admin_set_password(user, %{password: operator_password}, actor: SystemActor.system(:admin_user_test))
 
     # A deployment upgrading from the old bootstrap has no rotation history.
-    ServiceRadar.Repo.query!("DELETE FROM platform.admin_secret_markers")
+    Repo.query!("DELETE FROM platform.admin_secret_markers")
     System.put_env("SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC", "true")
     on_exit(fn -> System.delete_env("SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC") end)
 
@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
     %{rows: [[blocked?]]} =
       Repo.query!("SELECT $1::int = ANY(pg_blocking_pids($2::int))", [rotation_backend, delayed_backend])
 
-    unless blocked? do
+    if !blocked? do
       assert System.monotonic_time(:millisecond) < deadline,
              "delayed bootstrap did not wait for the pending rotation"
 
