@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   @moduledoc false
 
+  alias ServiceRadar.Security.SecurityEvent
+
   @wifi_site_filter_fields [
     "source_id",
     "site_code",
@@ -117,8 +119,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "id"
       ],
       known_values: %{
-        "kind" => Enum.map(ServiceRadar.Security.SecurityEvent.kinds(), &to_string/1),
-        "severity" => Enum.map(ServiceRadar.Security.SecurityEvent.severities(), &to_string/1)
+        "kind" => Enum.map(SecurityEvent.kinds(), &to_string/1),
+        "severity" => Enum.map(SecurityEvent.severities(), &to_string/1)
       },
       downsample: false
     },

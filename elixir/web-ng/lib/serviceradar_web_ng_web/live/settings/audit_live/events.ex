@@ -219,8 +219,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
     query = if end_at, do: Ash.Query.filter(query, occurred_at <= ^end_at), else: query
 
     query =
-      Enum.reduce([:kind, :severity, :actor_id, :ip, :route, :correlation_id], query, fn field,
-                                                                                         query ->
+      Enum.reduce([:kind, :severity, :actor_id, :ip, :route, :correlation_id], query, fn field, query ->
         case String.trim(socket.assigns.filters[to_string(field)]) do
           "" -> query
           value -> Ash.Query.filter_input(query, %{field => %{eq: value}})
@@ -236,10 +235,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
         Ash.Query.filter(
           query,
           expr(
-            contains(string_downcase(if(is_nil(actor_id), "", actor_id)), ^search) or
-              contains(string_downcase(if(is_nil(ip), "", ip)), ^search) or
-              contains(string_downcase(if(is_nil(route), "", route)), ^search) or
-              contains(string_downcase(if(is_nil(correlation_id), "", correlation_id)), ^search)
+            contains(string_downcase(if is_nil(actor_id), "", actor_id), ^search) or
+              contains(string_downcase(if is_nil(ip), "", ip), ^search) or
+              contains(string_downcase(if is_nil(route), "", route), ^search) or
+              contains(
+                string_downcase(if is_nil(correlation_id), "", correlation_id),
+                ^search
+              )
           )
         )
       end
@@ -305,7 +307,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
               field={@form[:time]}
               type="select"
               label="Time range"
-              options={[{"Last hour", "last_1h"}, {"Last 24 hours", "last_24h"}, {"Last 7 days", "last_7d"}, {"Custom (UTC)", "custom"}]}
+              options={[
+                {"Last hour", "last_1h"},
+                {"Last 24 hours", "last_24h"},
+                {"Last 7 days", "last_7d"},
+                {"Custom (UTC)", "custom"}
+              ]}
             />
             <.input
               field={@form[:kind]}
@@ -363,16 +370,42 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
               type="datetime-local"
               label="To (UTC)"
             />
-            <.ui_button id="audit-events-clear" type="button" phx-click="clear-filters" size="sm" variant="neutral">Clear all</.ui_button>
+            <.ui_button
+              id="audit-events-clear"
+              type="button"
+              phx-click="clear-filters"
+              size="sm"
+              variant="neutral"
+            >Clear all</.ui_button>
           </.form>
-          <p :if={@query_error} id="audit-events-error" role="alert" class="text-sm text-error">{@query_error}</p>
+          <p :if={@query_error} id="audit-events-error" role="alert" class="text-sm text-error">
+            {@query_error}
+          </p>
           <div id="audit-events-pagination" class="flex flex-wrap items-center justify-between gap-3">
             <p id="audit-events-page" class="text-sm text-base-content/70">
-              Page {length(@cursors) + 1} · {length(@events)} events · {if @cursors == [], do: "Live updates on", else: "Live updates paused"}
+              Page {length(@cursors) + 1} · {length(@events)} events · {if @cursors == [],
+                do: "Live updates on",
+                else: "Live updates paused"}
             </p>
             <div class="join">
-              <.ui_button id="audit-events-previous" class="join-item" type="button" phx-click="previous-page" disabled={@cursors == []} size="sm" variant="neutral">Previous</.ui_button>
-              <.ui_button id="audit-events-next" class="join-item" type="button" phx-click="next-page" disabled={!@has_next?} size="sm" variant="neutral">Next</.ui_button>
+              <.ui_button
+                id="audit-events-previous"
+                class="join-item"
+                type="button"
+                phx-click="previous-page"
+                disabled={@cursors == []}
+                size="sm"
+                variant="neutral"
+              >Previous</.ui_button>
+              <.ui_button
+                id="audit-events-next"
+                class="join-item"
+                type="button"
+                phx-click="next-page"
+                disabled={!@has_next?}
+                size="sm"
+                variant="neutral"
+              >Next</.ui_button>
             </div>
           </div>
 
