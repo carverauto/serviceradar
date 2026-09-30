@@ -2244,17 +2244,17 @@ fn security_events_text_operators_preserve_polarity_and_values() {
             (
                 "invented",
                 format!("{column} = $3"),
-                format!("{column} <> $3"),
+                format!("({column} IS NULL OR {column} <> $3)"),
             ),
             (
                 "%invented%",
                 format!("{column} ILIKE $3"),
-                format!("{column} NOT ILIKE $3"),
+                format!("({column} IS NULL OR {column} NOT ILIKE $3)"),
             ),
             (
                 "(first,second)",
                 format!("{column} = ANY($3)"),
-                format!("NOT ({column} = ANY($3))"),
+                format!("({column} IS NULL OR NOT ({column} = ANY($3)))"),
             ),
         ] {
             for (prefix, predicate) in [("", &positive), ("!", &negative)] {

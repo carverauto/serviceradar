@@ -161,6 +161,36 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
              SRQL.query("in:security_events actor_id:#{marker} search:absent-invented-text", %{
                scope: auditor
              })
+
+    missing = record(DateTime.utc_now(), nil, %{ip: nil, route: nil, correlation_id: nil})
+
+    [first, second, retained] =
+      for index <- 1..3 do
+        record(DateTime.utc_now(), "invented-exclusion-#{index}", %{
+          ip: "192.0.2.#{index}",
+          route: "/invented/exclusion/#{index}",
+          correlation_id: "invented-exclusion-trace-#{index}"
+        })
+      end
+
+    ids = Enum.map_join([missing, first, second, retained], ",", & &1.id)
+
+    for field <- [:actor_id, :ip, :route, :correlation_id] do
+      first_value = Map.fetch!(first, field)
+      second_value = Map.fetch!(second, field)
+
+      for {filter, expected} <- [
+            {"!#{field}:#{first_value}", [missing.id, second.id, retained.id]},
+            {"!#{field}:(#{first_value})", [missing.id, second.id, retained.id]},
+            {"!#{field}:#{first_value} !#{field}:#{second_value}", [missing.id, retained.id]},
+            {"!#{field}:(#{first_value},#{second_value})", [missing.id, retained.id]},
+            {"#{field}:(#{first_value},#{second_value})", [first.id, second.id]}
+          ] do
+        query = "in:security_events id:(#{ids}) #{filter} limit:10"
+        assert {:ok, %{"results" => rows}} = SRQL.query(query, %{scope: auditor})
+        assert Enum.sort(Enum.map(rows, & &1["id"])) == Enum.sort(expected), query
+      end
+    end
   end
 
   defp filter(view, values) do

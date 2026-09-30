@@ -174,7 +174,9 @@ pub(in crate::query) fn text_condition(
         let owned: Vec<String> = values.iter().map(ToString::to_string).collect();
         binds.push(BindParam::TextArray(owned));
         return Ok(match filter.op {
-            FilterOp::NotEq | FilterOp::NotIn => format!("NOT ({column} = ANY(?))"),
+            FilterOp::NotEq | FilterOp::NotIn => {
+                format!("({column} IS NULL OR NOT ({column} = ANY(?)))")
+            }
             _ => format!("{column} = ANY(?)"),
         });
     }
