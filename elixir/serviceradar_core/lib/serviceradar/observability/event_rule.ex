@@ -10,7 +10,8 @@ defmodule ServiceRadar.Observability.EventRule do
   use Ash.Resource,
     domain: ServiceRadar.Observability,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshJsonApi.Resource]
 
   @event_rule_fields [:name, :enabled, :priority, :source_type, :source, :match, :event]
 
@@ -23,6 +24,7 @@ defmodule ServiceRadar.Observability.EventRule do
   code_interface do
     define :list, action: :read
     define :list_active, action: :active
+    define :get_by_id, action: :by_id, args: [:id]
     define :create, action: :create
     define :update, action: :update
     define :destroy, action: :destroy
@@ -30,6 +32,12 @@ defmodule ServiceRadar.Observability.EventRule do
 
   actions do
     defaults [:read]
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
 
     read :active do
       filter expr(enabled == true)
@@ -106,6 +114,20 @@ defmodule ServiceRadar.Observability.EventRule do
 
   identities do
     identity :unique_name, [:name]
+  end
+
+  json_api do
+    type "event-rule"
+
+    routes do
+      base "/event-rules"
+      get :by_id
+      index :read
+      index :active, route: "/active"
+      post :create
+      patch :update
+      delete :destroy
+    end
   end
 
   defmodule InvalidateLogPromotionRulesCache do

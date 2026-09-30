@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
 
   require Ash.Query
@@ -413,6 +414,26 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     StatefulAlertRule
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
+    |> Ash.create!()
+  end
+
+  @doc """
+  Creates an event rule fixture.
+  """
+  def event_rule_fixture(attrs \\ %{}) do
+    unique = System.unique_integer([:positive])
+
+    defaults = %{
+      name: "Event Rule #{unique}",
+      source_type: :log,
+      match: %{},
+      event: %{}
+    }
+
+    attrs = Map.merge(defaults, Map.new(attrs))
+
+    EventRule
     |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
