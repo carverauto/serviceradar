@@ -103,16 +103,15 @@ reason, composite checks can subscribe then.
 ### 3. Scope intersection
 
 The scope is an SRQL query and cannot be joined in SQL. The incremental pass
-therefore streams the dirty uids in pages (the same `page_limit` as the full
-pass) and filters each page through `Scope.contains?/2`, a new function that
-runs the scope query with an added `uid in (...)` restriction for one page.
-One SRQL call per page, the same bound the full pass has.
+streams the dirty uids in pages of `@dirty_page_limit` (200) and filters each
+page through `Scope.contains?/2`, which adds an SRQL list restriction
+`uid:(...)` for that page. SRQL list filters reject more than 200 values
+(`MAX_FILTER_LIST_VALUES`), and the list form is `uid:(...)`, not
+`uid in (...)`. `@dirty_page_limit` is not the full pass `page_limit` of
+1,000. One SRQL call per dirty page.
 
-The dirty set on a steady fleet is small (devices whose observation was
-accepted since the last pass, which for a five-minute sweep and a thirty-second
-incremental interval is roughly one tenth of the fleet, and only those whose
-row actually changed if the ingestor's `checked_at >=` guard rejected the
-rest). Where a whole sweep lands inside one interval the dirty set approaches
+A 2,000-device dirty set is ten pages, about ten SRQL calls per minute per
+check. Where a whole sweep lands inside one minute the dirty set approaches
 the scope and the incremental pass costs what one full pass costs, which is
 the ceiling, not a regression.
 
@@ -138,9 +137,12 @@ does not write fact provenance.
 
 ### 5. One scheduler
 
-`EvaluationWorker` wakes every `incremental_interval` (a module attribute,
-default thirty seconds, not operator-facing). The full pass is due when
-`evaluation_interval_seconds` has elapsed since
+`CompositeChecks.TickWorker` runs from the existing `Oban.Plugins.Cron`
+crontab every minute (`* * * * *` in `serviceradar_core/config/runtime.exs`,
+and the same entry in `serviceradar_core_elx/config/runtime.exs`, whose
+crontab the release loads). Each run inserts one `EvaluationWorker` job per
+enabled check. The incremental interval is that minute. The full pass is due
+when `evaluation_interval_seconds` has elapsed since
 `composite_checks.last_evaluated_at`, when `last_evaluated_at` is nil, or when
 `last_incremental_at` is nil. `last_evaluated_at` already exists and is never
 written today; it is the full-pass clock. A due tick runs the full pass and
@@ -149,29 +151,29 @@ A successful full pass advances both clocks to its start clock. Every other
 tick runs only the incremental pass, which advances `last_incremental_at` and
 does not advance `last_evaluated_at`.
 
-A periodic job does not need Oban retries. The next tick is the retry, and
-that is safe because a failed pass advances neither mark. `EvaluationWorker`
-uses `max_attempts: 1`. `perform` inserts the successor on every outcome
-(success, error, and raise) with `schedule_in` equal to the incremental
-interval, so a raise does not end the chain. Uniqueness stays on `check_id`
-with `states: [:available, :scheduled]` (not `:executing`, not `:retryable`)
-and `period: 10`, shorter than the 30-second gap. The executing job is not a
-unique state, so it does not discard the successor. With one attempt there is
-no retryable state and no second chain.
+`EvaluationWorker` never inserts a successor. It has `max_attempts: 1`. The
+next cron tick is the retry, which is safe because a failed pass advances
+neither mark. Disable and destroy still cancel pending jobs through
+`ScheduleNotifier` and do not schedule another. `ensure_scheduled` on enable
+inserts the same job for an immediate first run. Both inserters use
+`unique: [keys: [:check_id], states: :incomplete, period: 55]`. A check save
+while a job inserted in that window is still incomplete is a no-op, so no
+second chain can form.
 
-A pass that fails does not advance either mark, so the successor picks the
-same dirty set up again. The full pass's mark-and-sweep of out-of-scope rows
-is untouched and still runs only after a complete full pass.
+The full pass's mark-and-sweep of out-of-scope rows is untouched and still
+runs only after a complete full pass.
 
-### 6. Canonical uid at evaluation time
+### 6. Live at write time
 
-The incremental pass follows the canonical uid at evaluation time. For each
-page it batch-resolves `Resolver.follow_canonical_device_id` in one query,
-skips a uid that does not resolve to a live device, and never writes a result
-for a merged-away uid. The follow sits on the shared page path both passes
-use (`evaluate_devices/5` before the write), so a full pass has the same rule.
-A merge between the dirty read and the write therefore cannot restore a result
-row for the losing uid. No enqueue-time pin and no per-device job.
+The page write keeps devices that are live at write time and skips the rest.
+The filter is the device load `load_metadata` already issues, made
+unconditional for every page. That query selects `deleted_at` nil. A merge
+sets `deleted_at` and `deleted_reason` to `"merged"` on the losing device;
+`:mark_merged` records `merged_into` on the deduplication task, not on
+`ocsf_devices`, so the load does not filter a `merged_into` column. A uid
+missing from the load is skipped: no result row and no verdict transition.
+`Reassignments.reassign_composite_results` remains the owner of moving
+existing rows when devices merge. There is no canonical-uid follow.
 
 ## Verification
 
@@ -187,10 +189,12 @@ row for the losing uid. No enqueue-time pin and no per-device job.
 - Nil `last_incremental_at` runs the full pass. A successful full pass over an
   empty scope advances both clocks. A successful incremental pass that selects
   nothing still advances `last_incremental_at`. A failing pass advances neither
-  and leaves exactly one scheduled successor.
+  mark and inserts no further job. The next minute tick runs it again.
+- A save of an enabled check while an evaluation job is incomplete leaves
+  exactly one incomplete job for that check.
 - Merge test: a device selected by the dirty read is merged away before the
-  write. The pass writes no result for the merged-away uid, and skips the uid
-  when the canonical follow does not resolve to a live device.
+  write. The pass writes no result and emits no transition for that uid,
+  because it is absent from the live device load.
 - Set-based write test: a page of N results produces one insert statement,
   asserted with a query counter or `Repo` telemetry, and identical rows to the
   previous per-device path.

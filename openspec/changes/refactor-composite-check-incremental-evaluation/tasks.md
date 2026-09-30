@@ -9,40 +9,42 @@
 
 ## 2. Incremental pass
 
-- [ ] 2.1 `Scope.contains?/3`: run the scope query restricted to one page of uids;
-  same `page_limit` bound as `stream_uids/2`.
+- [ ] 2.1 `Scope.contains?/2`: run the scope query with an SRQL `uid:(...)` list
+  for one page. `@dirty_page_limit` is 200, distinct from the full pass
+  `page_limit` of 1,000. Do not send `uid in (...)` or more than 200 uids.
 - [ ] 2.2 `Evaluation.dirty_uids/3`: take the mark with `SELECT now()` before the
   read. `@watermark_slack` is a module attribute, default two minutes, longer
-  than the availability upsert transaction. Stream in pages the uids whose
-  `device_agent_availability` (for the check's vantage-point agents) has
+  than the availability upsert transaction. Stream pages of at most 200 uids
+  whose `device_agent_availability` (for the check's vantage-point agents) has
   `updated_at > mark - @watermark_slack`, or, when a metadata input exists,
   whose configured path has
   `metadata['__fact_provenance'][path]['updated_at']` later than that same
   lagged mark. Never read `ocsf_devices.modified_time`. Filter each page
-  through `Scope.contains?/3`.
+  through `Scope.contains?/2`.
 - [ ] 2.3 `Evaluation.run_incremental/2`: evaluate the dirty pages with
   `evaluate_devices/5` and `persist_page/4`. On success, always advance
   `last_incremental_at` to the start-of-pass database clock, including when
   nothing was selected. On failure, advance nothing. Never sweep out-of-scope
   rows. Never advance `last_evaluated_at`. Do not run this pass when
   `last_incremental_at` is nil.
-- [ ] 2.4 `EvaluationWorker`: reschedule with `schedule_in` equal to the
-  incremental interval (30s). When `last_evaluated_at` is nil,
-  `last_incremental_at` is nil, or `evaluation_interval_seconds` has elapsed
-  since `last_evaluated_at`, run only the full pass. Otherwise run only the
-  incremental pass. A successful full pass always advances both clocks to its
-  start clock, including when the scope selected no devices. An incremental
-  pass advances only `last_incremental_at`.
-- [ ] 2.5 `EvaluationWorker` `max_attempts: 1`. Oban `unique`: `period: 10`
-  (strictly shorter than the 30s reschedule gap), `keys: [:check_id]`,
-  `states: [:available, :scheduled]` (not `:executing`, not `:retryable`).
-  `perform` inserts the successor on success, error, and raise. A failed pass
-  advances no mark; the successor is the retry. One attempt means no second
-  chain.
-- [ ] 2.6 On the shared page path, before the write, batch
-  `Resolver.follow_canonical_device_id` for the page in one query. Skip a uid
-  that does not resolve to a live device. Never write a result for a
-  merged-away uid. Both passes use this path.
+- [ ] 2.4 `CompositeChecks.TickWorker` from `Oban.Plugins.Cron` every minute
+  (`* * * * *` in `serviceradar_core/config/runtime.exs` and
+  `serviceradar_core_elx/config/runtime.exs`). It inserts one
+  `EvaluationWorker` job per enabled check.
+  `unique: [keys: [:check_id], states: :incomplete, period: 55]`.
+  `EvaluationWorker` has `max_attempts: 1` and never inserts a successor.
+  When `last_evaluated_at` is nil, `last_incremental_at` is nil, or
+  `evaluation_interval_seconds` has elapsed since `last_evaluated_at`, that
+  job runs only the full pass. Otherwise it runs only the incremental pass.
+  A successful full pass always advances both clocks to its start clock,
+  including when the scope selected no devices. An incremental pass advances
+  only `last_incremental_at`. A failed pass advances neither.
+- [ ] 2.5 `ScheduleNotifier.ensure_scheduled` on enable inserts that same unique
+  job for an immediate first run. `cancel` on disable or destroy is unchanged.
+  A save while a job for that check is incomplete inserts nothing further.
+- [ ] 2.6 Make the page device load unconditional (`deleted_at` is nil). Skip a
+  uid missing from that load: no result row and no verdict transition. Both
+  passes use this load. Do not call `Resolver.follow_canonical_device_id`.
 
 ## 3. Set-based persistence
 
@@ -74,10 +76,11 @@
   `set_availability` does not select it. A row that commits after the read
   with `updated_at` just before the stored mark is selected by the next pass,
   and `changed_at` does not move when the verdict is unchanged.
-- [ ] 5.2 Failed pass leaves both marks unchanged. A nil `last_incremental_at`
-  runs the full pass, and a successful full pass over an empty scope advances
-  both clocks. A successful incremental pass that selects nothing still
-  advances `last_incremental_at`.
+- [ ] 5.2 Failed pass leaves both marks unchanged and inserts no evaluation job.
+  The next minute tick runs the pass. A nil `last_incremental_at` runs the
+  full pass, and a successful full pass over an empty scope advances both
+  clocks. A successful incremental pass that selects nothing still advances
+  `last_incremental_at`.
 - [ ] 5.3 Full pass over a page issues a bounded statement count (assert with
   Ecto telemetry); rows identical to the per-device path. `last_evaluated_at`
   advances only on that success, and incremental ticks do not advance it.
@@ -87,13 +90,14 @@
 - [ ] 5.5 Register any new DB-lane tests in `INTEGRATION_SOURCE_DISPOSITIONS.tsv`
   and the Bazel count dictionaries.
 - [ ] 5.6 A device merged away between the dirty read and the write gets no
-  result row for the merged-away uid. A uid that does not resolve to a live
-  device is skipped.
-- [ ] 5.7 A failing `EvaluationWorker` pass, including a raise, leaves exactly
-  one scheduled successor for that check and does not advance either mark.
+  result row and no verdict transition. The page device load, restricted to
+  `deleted_at` nil, is what skips it.
+- [ ] 5.7 Saving an enabled check while an incomplete evaluation job for it was
+  inserted within the last 55 seconds leaves exactly one incomplete job for
+  that check.
 
 ## 6. Docs
 
-- [ ] 6.1 Update the `EvaluationWorker` and `Evaluation` moduledocs; the
-  "do not delete the periodic pass" rationale stays.
+- [ ] 6.1 Update the `EvaluationWorker`, `TickWorker`, and `Evaluation`
+  moduledocs; the "do not delete the periodic pass" rationale stays.
 - [ ] 6.2 CHANGELOG entry under Unreleased.

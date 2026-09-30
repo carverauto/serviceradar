@@ -20,12 +20,15 @@ the start of that pass (`SELECT now()` before the read), including when the
 scope selected no devices. An incremental pass SHALL NOT advance
 `last_evaluated_at`.
 
-The evaluation job SHALL have one attempt. On every outcome, including
-success, error, and raise, it SHALL insert exactly one successor. It SHALL
-NOT retry the same job.
+A minute tick SHALL insert at most one evaluation job per enabled check. That
+job SHALL have one attempt and SHALL NOT insert another job. A failed job
+SHALL leave the marks unchanged, and the next tick SHALL run the pass. Disable
+and destroy SHALL cancel pending evaluation jobs and SHALL NOT schedule
+another.
 
-The shared page evaluation SHALL follow each uid to its canonical device
-before writing, and SHALL NOT write a result for a merged-away uid.
+The page write SHALL include only devices that are live at write time
+(`deleted_at` nil on the page's device load). A uid missing from that load
+SHALL get no result row and no verdict transition.
 
 #### Scenario: Scheduled pass evaluates the scope
 
@@ -74,19 +77,27 @@ before writing, and SHALL NOT write a result for a merged-away uid.
 - **AND** a successful full pass SHALL advance `last_incremental_at` and
   `last_evaluated_at`, including when the scope selected no devices
 
-#### Scenario: A failing pass leaves one successor
+#### Scenario: A failing pass does not schedule another job
 
 - **GIVEN** an enabled check whose evaluation job fails or raises
 - **WHEN** that job ends
-- **THEN** exactly one successor SHALL be scheduled for that check
+- **THEN** it SHALL NOT insert another evaluation job
 - **AND** neither `last_evaluated_at` nor `last_incremental_at` SHALL advance
+- **AND** the next minute tick SHALL run the pass again
+
+#### Scenario: A check save does not fork the schedule
+
+- **GIVEN** an enabled check with an incomplete evaluation job inserted within
+  the last 55 seconds
+- **WHEN** the check is saved
+- **THEN** exactly one incomplete evaluation job SHALL exist for that check
 
 ### Requirement: Event-Driven Refresh
 
-The system SHALL re-evaluate, on a short fixed interval, only the in-scope
-devices whose input timestamps are later than `last_incremental_at` minus
-`@watermark_slack`, selecting that dirty set with a bounded number of queries
-and evaluating it through the same paged evaluation the periodic pass uses.
+The system SHALL re-evaluate, once a minute, only the in-scope devices whose
+input timestamps are later than `last_incremental_at` minus
+`@watermark_slack`, selecting that dirty set in pages of at most 200 uids and
+evaluating it through the same paged evaluation the periodic pass uses.
 
 `last_incremental_at` SHALL gate only the dirty read. The mark SHALL be the
 database clock (`SELECT now()`) taken at the start of the pass, before the
@@ -115,10 +126,10 @@ Re-evaluating a device in the overlap
 SHALL be idempotent: the same inputs SHALL yield the same verdict, and
 `changed_at` SHALL NOT move when the verdict is unchanged.
 
-Before writing a page, the pass SHALL batch
-`Resolver.follow_canonical_device_id` for that page in one query, SHALL skip a
-uid that does not resolve to a live device, and SHALL NOT write a result for
-a merged-away uid.
+Before writing a page, the pass SHALL load that page's devices with
+`deleted_at` nil and SHALL skip any uid missing from that load. A skipped uid
+SHALL get no result row and no verdict transition. The scope filter for a
+dirty page SHALL be an SRQL `uid:(...)` list of at most 200 uids.
 
 No producer of an input signal SHALL enqueue a composite-check job or write a
 composite-check marker.
@@ -159,9 +170,8 @@ composite-check marker.
 
 - **GIVEN** an in-scope device the dirty read selected
 - **WHEN** that device is merged away before the pass writes its result
-- **THEN** the pass SHALL NOT write a result row for the merged-away uid
-- **AND** the pass SHALL skip the uid when the canonical follow does not
-  resolve to a live device
+- **THEN** the pass SHALL NOT write a result row for that uid
+- **AND** the pass SHALL emit no verdict transition for that uid
 
 #### Scenario: Repeated changes collapse into one evaluation
 

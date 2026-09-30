@@ -51,10 +51,11 @@ read. It is never recomputed one job per input change.
   vantage-point agents, and for metadata inputs the provenance timestamp
   `:device_metadata` resolves
   (`metadata['__fact_provenance'][path]['updated_at']` on each configured
-  path). It never reads `ocsf_devices.modified_time`. It evaluates only those
-  devices through the existing paged `Evaluation.evaluate_devices/5`, following
-  the canonical uid for the page in one query and skipping a uid that does not
-  resolve to a live device. It runs on a short interval (tens of seconds) so
+  path). It never reads `ocsf_devices.modified_time`. Dirty pages hold at most
+  200 uids, and each page is scope-filtered with one SRQL `uid:(...)` list.
+  It evaluates those devices through the existing paged
+  `Evaluation.evaluate_devices/5`, writing only devices that are live at write
+  time (`deleted_at` nil on the page's device load). It runs once a minute, so
   verdicts stay as fresh as the reactive path made them.
 - Keep the periodic full pass on `evaluation_interval_seconds`, scheduled from
   the existing `composite_checks.last_evaluated_at` (advanced only by a
@@ -65,15 +66,18 @@ read. It is never recomputed one job per input change.
   and a device entering or leaving scope. It also covers metadata keys that
   have no provenance timestamp. This pass remains required.
 - Make the write side set-based. `persist_page` writes each page's results with
-  one multi-row upsert and never writes a result for a merged-away uid.
+  one multi-row upsert. A uid that is not live at write time gets no result
+  row and no verdict transition. Moving rows when devices merge stays with
+  `Reassignments.reassign_composite_results`.
   Canonical availability is a bulk form of `Device.set_availability`
   (`is_available` only: one update for healthy uids, one for down uids,
   skipping `:degraded` and `:unknown`). Transitions are still computed in
   memory against `load_existing`, so verdict events are unchanged.
-- Oban keeps exactly one job kind for composite checks: the per-check
-  scheduler (`EvaluationWorker`), which now runs both the incremental and the
-  full pass. The job has one attempt and inserts one successor on every
-  outcome, including a failure. The next tick is the retry.
+- Oban keeps one evaluation job per enabled check. `CompositeChecks.TickWorker`
+  runs from the existing Cron crontab every minute and inserts that job.
+  `EvaluationWorker` has one attempt and never inserts a successor. The next
+  tick is the retry. Enabling a check inserts the same unique job for an
+  immediate first run; disabling or deleting it cancels pending jobs.
 
 ## Value and Tradeoff
 
@@ -81,8 +85,7 @@ read. It is never recomputed one job per input change.
   processes, no cluster-wide dispatcher and no message queue; the `oban_jobs`
   table stops churning tens of thousands of rows per sweep cycle; a full
   composite pass becomes cheap enough to run more often than it does today.
-- Freshness: a verdict follows an input change within one incremental interval
-  instead of within the Oban debounce window. Both are tens of seconds.
+- Freshness: a verdict follows an input change within the one-minute tick.
 - Risk: the availability dirty query must be indexed.
   `device_agent_availability.updated_at` is stamped with `now()` inside the
   ingestor's INSERT. `now()` is `transaction_timestamp()`, so a transaction
@@ -95,10 +98,10 @@ read. It is never recomputed one job per input change.
   Sweep status writes and `set_availability` do not write that provenance, so
   they do not dirty a device; a metadata key with no provenance is covered by
   the full pass only.
-- Decision point: the pass follows the canonical uid at evaluation time (one
-  batched `Resolver.follow_canonical_device_id` query per page), skips a uid
-  that does not resolve to a live device, and writes no result for a
-  merged-away uid. That needs no per-device job and no per-page fallback job.
+- Decision point: the page write skips a uid that is not live at write time.
+  The device load already issued for metadata (`deleted_at` nil) is that
+  filter, and it runs for every page. A merged-away device is absent from it.
+  No canonical-uid follow and no per-device job.
 
 ## Relationship to other changes
 
@@ -122,12 +125,15 @@ read. It is never recomputed one job per input change.
 - Affected specs: `composite-checks`, `sweep-jobs`.
 - Affected code: `elixir/serviceradar_core/lib/serviceradar/composite_checks/`
   (`refresh.ex`, `refresh_worker.ex`, `evaluation.ex`, `evaluation_worker.ex`,
-  `scope.ex`, `composite_check.ex`),
+  `tick_worker.ex`, `schedule_notifier.ex`, `scope.ex`, `composite_check.ex`),
+  the Oban Cron entry in `serviceradar_core/config/runtime.exs` and
+  `serviceradar_core_elx/config/runtime.exs`,
   `elixir/serviceradar_core/lib/serviceradar/sweep_jobs/sweep_results_ingestor.ex`,
   a migration adding `last_incremental_at` (the full-pass clock
   `last_evaluated_at` already exists) and the
   `device_agent_availability(agent_id, updated_at)` index, the ingestor
   stamping that `updated_at` with `now()` inside the INSERT, and the tests under
   `elixir/serviceradar_core/test/serviceradar/composite_checks/`.
-- Operational: no configuration change. Oban `monitoring` queue load drops from
-  one job per swept device to one job per enabled check per interval.
+- Operational: no operator-facing setting. The schedule is the existing Oban
+  Cron. `monitoring` queue load drops from one job per swept device to one
+  evaluation job per enabled check per minute.
