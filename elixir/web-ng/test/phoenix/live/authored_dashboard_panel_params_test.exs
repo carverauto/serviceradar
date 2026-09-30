@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParamsTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams
 
   test "stores capacity forecast mode in display config" do

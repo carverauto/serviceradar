@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheckTest do
   use ExUnit.Case, async: false
 
+  @moduletag :db_free
+
   import Plug.Conn
 
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck

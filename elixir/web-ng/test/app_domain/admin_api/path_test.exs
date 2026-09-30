@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.AdminApi.PathTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNG.AdminApi.Path
 
   test "encodes attacker-controlled path segments as a single segment" do

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.FieldSurveyReviewPreferencesTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.FieldSurveyReviewPreferences
 

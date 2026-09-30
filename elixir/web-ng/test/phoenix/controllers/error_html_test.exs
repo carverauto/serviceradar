@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.ErrorHTMLTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   # Bring render_to_string/4 for testing custom views
   import Phoenix.Template, only: [render_to_string: 4]
 

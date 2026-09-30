@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
 
   describe "panel_attrs_from_output/4 trend queries" do

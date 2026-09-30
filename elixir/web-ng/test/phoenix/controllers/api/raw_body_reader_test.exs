@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.Api.RawBodyReaderTest do
 
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.Api.RawBodyReader
 
   @northbound_prefix "/api/northbound/action-callbacks/"

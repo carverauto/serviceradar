@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Mcp.OAuth.IdPSessionTest do
   use ExUnit.Case, async: false
 
+  @moduletag :db_free
+
   alias ServiceRadar.Identity.McpOAuthGrant
   alias ServiceRadarWebNG.Mcp.OAuth.IdPSession
 

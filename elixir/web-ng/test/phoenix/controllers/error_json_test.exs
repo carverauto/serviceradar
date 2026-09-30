@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.ErrorJSONTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "renders 404" do
     assert ServiceRadarWebNGWeb.ErrorJSON.render("404.json", %{}) == %{
              errors: %{detail: "Not Found"}

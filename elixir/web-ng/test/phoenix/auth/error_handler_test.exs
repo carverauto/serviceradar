@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Auth.ErrorHandlerTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ExUnit.CaptureLog
 
   alias ServiceRadarWebNGWeb.Auth.ErrorHandler

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.FieldSurveyFloorplanTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNG.FieldSurveyFloorplan
 
   test "rectify_segments snaps near-orthogonal RoomPlan walls without changing diagonal geometry" do

@@ -213,6 +213,8 @@ defmodule ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub do
         Map.drop(attrs, [
           :active_assignment_count,
           :active_assignments,
+          # Derived at render time from `headers`; the struct no longer stores it.
+          :header_keys,
           :notification_audit_active,
           :notification_audit_alert_id,
           :notification_audit_alert_status,

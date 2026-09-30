@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictDataTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.CompositeCheckInput
   alias ServiceRadar.CompositeChecks.CompositeCheckRule

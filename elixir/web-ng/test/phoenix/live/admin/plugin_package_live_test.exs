@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
 
   import ServiceRadarWebNG.AshTestHelpers,
@@ -59,6 +61,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     @moduledoc false
 
     alias ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest
+
+    # Production fetches through ServiceRadar.HTTP.EgressClient (`fetch_body/2`);
+    # translate that call onto the Req-style `get/2` clauses below. Qualified so
+    # the outer ConnCase's imported `Phoenix.ConnTest.get/2` cannot win.
+    def fetch_body(url, opts), do: __MODULE__.get(url, opts)
 
     def get(url, _opts) do
       cond do
@@ -263,14 +270,37 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     conn: conn,
     actor: actor
   } do
+    # The catalog picker selects a registered repository by id; the row must
+    # carry this suite's "live-test" signing key or the import below fails
+    # trust verification.
+    %{"live-test" => public_key} =
+      :serviceradar_web_ng
+      |> Application.fetch_env!(:plugin_verification)
+      |> Keyword.fetch!(:trusted_upload_signing_keys)
+
+    repository =
+      ServiceRadar.Plugins.PluginRepository
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "external",
+          repo_url: @external_repo_url,
+          index_asset_name: "serviceradar-wasm-plugin-index.json",
+          signing_key_id: "live-test",
+          signing_public_key: public_key,
+          enabled: true
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
     {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
 
-    html =
-      lv
-      |> form("#select-first-party-repository-form", %{
-        "catalog_repository" => %{"repo_url" => @external_repo_url}
-      })
-      |> render_submit()
+    lv
+    |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
+    |> render_change()
+
+    html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ @external_repo_url
     assert html =~ "Live First-party Plugin"
@@ -682,7 +712,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       |> render_change()
 
     assert html =~ "Authenticated partition: unavailable"
-    assert html =~ "No live authenticated control session"
+    assert html =~ "The live control session did not provide a trustworthy partition."
     assert html =~ ~s(disabled)
   end
 

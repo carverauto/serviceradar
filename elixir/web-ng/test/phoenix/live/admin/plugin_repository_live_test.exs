@@ -12,12 +12,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginRepositoryLiveTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0, user_fixture: 0]
 
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Plugins.PluginRepository
-  alias ServiceRadarWebNG.RBAC
+  alias ServiceRadar.Repo
+  alias ServiceRadar.Identity.RBAC
 
   require Ash.Query
 
@@ -81,9 +84,44 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginRepositoryLiveTest do
     |> Ash.read_one!(actor: system_actor())
   end
 
+  # The builtin row is seeded by migration, but schema baselines carry DDL
+  # without seed data, so a baseline-built database has no builtin row. Own
+  # the row per test (sandbox-rolled-back); on a fully-replayed database the
+  # migration seed is reused instead.
+  defp ensure_builtin do
+    case PluginRepository
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(builtin == true)
+         |> Ash.read_one(actor: system_actor()) do
+      {:ok, nil} -> insert_builtin_row!()
+      {:ok, row} -> row
+    end
+  end
+
+  defp insert_builtin_row! do
+    row = %{
+      id: Ecto.UUID.dump!(Ecto.UUID.generate()),
+      name: "ServiceRadar Test Builtin",
+      repo_url: "https://github.com/test-only/builtin-#{System.unique_integer([:positive])}",
+      artifact_kind: "wasm_plugin",
+      index_asset_name: "serviceradar-wasm-plugin-index.json",
+      signing_key_id: "test-builtin-v1",
+      signing_public_key: Base.encode64(:crypto.strong_rand_bytes(32)),
+      enabled: true,
+      builtin: true,
+      is_default: true,
+      inserted_at: DateTime.utc_now(),
+      updated_at: DateTime.utc_now()
+    }
+
+    {1, _} = Repo.insert_all("plugin_repositories", [row], prefix: "platform")
+    builtin()
+  end
+
   describe "the catalog source picker" do
     test "renders a dropdown of repositories with the built-in preselected", %{conn: conn} do
       {conn, _user} = log_in(conn, ["plugins.view", "plugins.repositories.manage"])
+      _seeded = ensure_builtin()
       other = create_repository(%{name: "Acme Plugins"})
 
       {:ok, _live, html} = live(conn, @plugins_path)
@@ -225,6 +263,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginRepositoryLiveTest do
   describe "the built-in repository" do
     test "can be disabled but offers no edit or remove control", %{conn: conn} do
       {conn, _user} = log_in(conn, ["plugins.view", "plugins.repositories.manage"])
+      _seeded = ensure_builtin()
 
       {:ok, live, html} = live(conn, @plugins_path)
 

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Repo
   alias ServiceRadar.Spatial.SurveyPoseSample
   alias ServiceRadar.Spatial.SurveyRfObservation

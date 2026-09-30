@@ -2,6 +2,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
@@ -17,7 +19,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent"), metadata: %{"partition" => "edge"}})
     package = approved_package_fixture("serviceradar.plugin_result.v1")
-    assignment = assignment_fixture(agent.uid, package.id)
+    assignment = assignment_fixture(agent.uid, package.id, "edge")
 
     assert :ok = ServiceStateRegistry.upsert_for_assignment(assignment)
 
@@ -469,7 +471,12 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
              get_in(Jason.decode!(state.details), ["labels", "plugin_id"]) == package.plugin_id
            end)
 
-    assert :ok = Ash.destroy!(assignment, actor: system_actor(), domain: ServiceRadar.Plugins)
+    assert :ok =
+             Ash.destroy!(assignment,
+               action: :destroy,
+               actor: system_actor(),
+               domain: ServiceRadar.Plugins
+             )
     assert :ok = ServiceStateRegistry.deactivate_for_package(package)
     assert [] = active_logical_states_for(agent, runtime_service_name)
     assert Enum.all?(states, &(reloaded_state(&1).state == "inactive"))
@@ -611,7 +618,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     |> Ash.update!()
   end
 
-  defp assignment_fixture(agent_uid, package_id) do
+  # Assignments bind the partition from the agent's live control session, so
+  # the fixture registers a session first (unregistered on test exit).
+  defp assignment_fixture(agent_uid, package_id, partition \\ "default") do
+    register_control_session!(agent_uid, partition)
+
     PluginAssignment
     |> Ash.Changeset.for_create(
       :create,

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias Ecto.Adapters.SQL
   alias ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker
 

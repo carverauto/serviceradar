@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
   """
   use ExUnit.Case, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Repo

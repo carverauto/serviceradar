@@ -29,6 +29,13 @@ db_required? = require_db_tests? or ci? or not allow_db_free_tests?
 if allow_db_free_tests? and not db_required? do
   ExUnit.configure(exclude: [:test], include: [:db_free])
 
+  # The lane-coverage guard: every test this allow-list tier excludes must carry
+  # one of the OTHER lane tags, or no CI lane selects it at all (issue #4797).
+  # Registered here -- not at ExUnit.start/1 -- so only the database-free
+  # configuration ever enforces it. A `--include test` override runs everything,
+  # nothing is excluded, and the guard stays silent by construction.
+  ExUnit.configure(formatters: [ExUnit.CLIFormatter, ServiceRadarWebNG.Test.LaneCoverageGuard])
+
   # A target that runs zero tests must not report success.
   #
   # The filter above is an ALLOW-LIST: every test is excluded and only `:db_free`

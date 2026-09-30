@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
@@ -1415,7 +1417,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   end
 
   defp put_test_permissions(user, permissions) do
-    Process.put({:rbac_permissions, user.id}, MapSet.new(permissions))
+    # The legacy process-dict injection this replaced is dead: permissions
+    # resolve through the shared ETS cache, so narrow them there.
+    ServiceRadar.Identity.RBAC.Cache.put(user.id, MapSet.new(permissions))
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

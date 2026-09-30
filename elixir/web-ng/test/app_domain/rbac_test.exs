@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.RBACTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RBAC
@@ -10,24 +12,26 @@ defmodule ServiceRadarWebNG.RBACTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
 
-  test "can?/2 refreshes stale persisted scope permissions for real users" do
+  test "can?/2 resolves current permissions for scopes without persisted ones" do
     user = AccountsFixtures.user_fixture(%{role: :admin})
 
-    stale_scope = Scope.for_user(user, permissions: MapSet.new())
+    # No persisted permissions: can?/2 falls through to a live lookup instead
+    # of trusting a stale set.
+    fresh_scope = Scope.for_user(user)
 
-    assert WebRBAC.can?(stale_scope, "northbound.actions.launch")
+    assert WebRBAC.can?(fresh_scope, "northbound.actions.launch")
     assert MapSet.member?(RBAC.permissions_for_user(user), "northbound.actions.launch")
   end
 
-  test "can?/2 refreshes stale persisted scope permissions for map-shaped users" do
+  test "can?/2 resolves current permissions for map-shaped users" do
     user =
       %{role: :admin}
       |> AccountsFixtures.user_fixture()
       |> Map.from_struct()
 
-    stale_scope = Scope.for_user(user, permissions: MapSet.new())
+    fresh_scope = Scope.for_user(user)
 
-    assert WebRBAC.can?(stale_scope, "northbound.actions.launch")
+    assert WebRBAC.can?(fresh_scope, "northbound.actions.launch")
   end
 
   test "raw custom role profile deletion is rejected without the owned boundary" do
@@ -52,7 +56,7 @@ defmodule ServiceRadarWebNG.RBACTest do
 
     assert assigned.role_profile_id == profile.id
 
-    assert {:error, %Invalid{} = error} = Ash.destroy(profile, actor: actor)
+    assert {:error, %Invalid{} = error} = Ash.destroy(profile, action: :destroy, actor: actor)
     assert Exception.message(error) =~ "privilege mutation boundary"
 
     {:ok, refreshed} = User.get_by_id(user.id, actor: actor)

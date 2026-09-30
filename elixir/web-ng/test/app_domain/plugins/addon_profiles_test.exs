@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Plugins.AddonProfilesTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Plugins.AddonAssignment

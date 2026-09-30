@@ -10,6 +10,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Monitoring.Alert

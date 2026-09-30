@@ -102,6 +102,20 @@ py_test(
     data = [":web_ng_db_target_query"],
 )
 
+# Static half of web-ng lane routing (issue #4797); the runtime half is
+# ServiceRadarWebNG.Test.LaneCoverageGuard, registered by test/test_helper.exs in
+# the database-free lane. Needs the BUILD file and the test tree as data so a
+# run from any sandbox sees the same sources CI sees.
+py_test(
+    name = "web_ng_test_lane_routing_contract_test",
+    size = "small",
+    srcs = ["web_ng_test_lane_routing_contract_test.py"],
+    data = [
+        "//elixir/web-ng:BUILD.bazel",
+        "//elixir/web-ng:srcs",
+    ],
+)
+
 py_test(
     name = "publish_oci_workflow_contract_test",
     size = "small",

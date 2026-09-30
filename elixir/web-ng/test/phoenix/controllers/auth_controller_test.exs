@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.AuthControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Swoosh.TestAssertions
 
   alias ServiceRadar.Actors.SystemActor

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub

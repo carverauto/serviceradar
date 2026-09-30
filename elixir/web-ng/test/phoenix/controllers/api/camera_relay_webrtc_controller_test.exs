@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0]
 
@@ -159,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
     assert body["data"]["signaling_state"] == "candidate_buffered"
 
     assert_receive {:webrtc_add_candidate, ^relay_session_id, ^viewer_session_id,
-                    "candidate:1 1 UDP 1234 10.0.0.1 4000 typ host", opts}
+                    %{"candidate" => "candidate:1 1 UDP 1234 10.0.0.1 4000 typ host"}, opts}
 
     assert opts[:scope]
   end

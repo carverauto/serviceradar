@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadarWebNG.Accounts.Scope

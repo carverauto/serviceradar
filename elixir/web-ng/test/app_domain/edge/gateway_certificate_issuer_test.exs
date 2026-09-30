@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
 
   defmodule IssueProbe do

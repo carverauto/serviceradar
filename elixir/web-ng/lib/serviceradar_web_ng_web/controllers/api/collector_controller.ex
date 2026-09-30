@@ -377,11 +377,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     end
   end
 
+  # The cloak-encrypted bundle secrets are `decrypt_by_default([])`, so they
+  # must be explicitly loaded here; otherwise every download fails with
+  # `:nats_creds_invalid` even for a fully provisioned package.
   defp get_package(package_id) do
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
-         |> Ash.Query.load(:edge_site)
+         |> Ash.Query.load([:edge_site, :nats_creds_ciphertext, :tls_key_pem_ciphertext])
          |> Ash.read_one(actor: nil, authorize?: false) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
@@ -433,22 +436,17 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   end
 
   defp get_nats_creds(package) do
-    # Decrypt the NATS credentials from the encrypted storage
+    # AshCloak decrypts cloak fields when explicitly loaded (see get_package/1),
+    # so the value here is already plaintext.
     case package.nats_creds_ciphertext do
       nil ->
         {:error, :nats_creds_not_found}
 
-      encrypted_creds when is_binary(encrypted_creds) ->
-        case ServiceRadar.Vault.decrypt(encrypted_creds) do
-          {:ok, creds_content} when is_binary(creds_content) and creds_content != "" ->
-            {:ok, creds_content}
+      "" ->
+        {:error, :nats_creds_empty}
 
-          {:ok, _} ->
-            {:error, :nats_creds_empty}
-
-          {:error, reason} ->
-            {:error, {:decrypt_failed, reason}}
-        end
+      creds_content when is_binary(creds_content) ->
+        {:ok, creds_content}
 
       _ ->
         {:error, :nats_creds_invalid}
@@ -464,19 +462,14 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     end
   end
 
+  # AshCloak decrypts cloak fields when explicitly loaded (see get_package/1),
+  # so the value here is already plaintext.
   defp decrypt_tls_key(nil), do: {:error, :tls_key_not_found}
 
-  defp decrypt_tls_key(encrypted_key) when is_binary(encrypted_key) do
-    case ServiceRadar.Vault.decrypt(encrypted_key) do
-      {:ok, key_pem} when is_binary(key_pem) and key_pem != "" ->
-        {:ok, key_pem}
+  defp decrypt_tls_key(""), do: {:error, :tls_key_empty}
 
-      {:ok, _} ->
-        {:error, :tls_key_empty}
-
-      {:error, reason} ->
-        {:error, {:decrypt_failed, reason}}
-    end
+  defp decrypt_tls_key(key_pem) when is_binary(key_pem) do
+    {:ok, key_pem}
   end
 
   defp decrypt_tls_key(_), do: {:error, :tls_key_invalid}

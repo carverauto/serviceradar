@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
@@ -90,6 +92,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
            status: :opening,
            viewer_count: 0,
            lease_expires_at: DateTime.from_unix!(1_800_000_000),
+           media_ingest_id: nil,
+           close_reason: nil,
+           failure_reason: nil,
            inserted_at: DateTime.from_unix!(1_800_000_000),
            updated_at: DateTime.from_unix!(1_800_000_000)
          }}
@@ -111,9 +116,10 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["viewer_count"] == 0
       assert body["data"]["agent_id"] == "agent-1"
       assert body["data"]["termination_kind"] == nil
-      assert body["data"]["preferred_playback_transport"] == "websocket_h264_annexb_webcodecs"
+      assert body["data"]["preferred_playback_transport"] == "membrane_webrtc"
 
       assert body["data"]["available_playback_transports"] == [
+               "membrane_webrtc",
                "websocket_h264_annexb_webcodecs",
                "websocket_h264_annexb_jmuxer_mse"
              ]
@@ -176,7 +182,14 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
            stream_profile_id: stream_profile_id,
            agent_id: "agent-1",
            gateway_id: "gateway-1",
-           status: :opening
+           status: :opening,
+           viewer_count: 0,
+           lease_expires_at: DateTime.from_unix!(1_800_000_000),
+           media_ingest_id: nil,
+           close_reason: nil,
+           failure_reason: nil,
+           inserted_at: DateTime.from_unix!(1_800_000_000),
+           updated_at: DateTime.from_unix!(1_800_000_000)
          }}
       )
 
@@ -211,7 +224,11 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
            status: :closing,
            termination_kind: "manual_stop",
            viewer_count: 0,
+           lease_expires_at: DateTime.from_unix!(1_800_000_100),
+           media_ingest_id: nil,
            close_reason: "viewer disconnected",
+           failure_reason: nil,
+           inserted_at: DateTime.from_unix!(1_800_000_100),
            updated_at: DateTime.from_unix!(1_800_000_100)
          }}
       )
@@ -229,7 +246,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["viewer_count"] == 0
       assert body["data"]["close_reason"] == "viewer disconnected"
       assert body["data"]["termination_kind"] == "manual_stop"
-      assert body["data"]["preferred_playback_transport"] == "websocket_h264_annexb_webcodecs"
+      assert body["data"]["preferred_playback_transport"] == "membrane_webrtc"
 
       assert body["data"]["viewer_stream_path"] ==
                "/v1/camera-relay-sessions/#{relay_session_id}/stream"
@@ -275,7 +292,11 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
              gateway_id: "gateway-3",
              status: :active,
              viewer_count: 2,
+             lease_expires_at: DateTime.from_unix!(1_800_000_200),
              media_ingest_id: "core-media-1",
+             close_reason: nil,
+             failure_reason: nil,
+             inserted_at: DateTime.from_unix!(1_800_000_200),
              updated_at: DateTime.from_unix!(1_800_000_200)
            }}
         end
@@ -294,9 +315,10 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       assert body["data"]["viewer_count"] == 2
       assert body["data"]["agent_id"] == "agent-3"
       assert body["data"]["termination_kind"] == nil
-      assert body["data"]["preferred_playback_transport"] == "websocket_h264_annexb_webcodecs"
+      assert body["data"]["preferred_playback_transport"] == "membrane_webrtc"
 
       assert body["data"]["available_playback_transports"] == [
+               "membrane_webrtc",
                "websocket_h264_annexb_webcodecs",
                "websocket_h264_annexb_jmuxer_mse"
              ]

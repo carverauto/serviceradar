@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
 
   alias Ash.Page.Keyset

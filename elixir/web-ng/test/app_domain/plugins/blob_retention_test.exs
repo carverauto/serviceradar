@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Plugins.BlobRetentionTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.BlobRetention
 

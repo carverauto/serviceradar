@@ -239,12 +239,12 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         metadata: %{
           site: package.site,
           hostname: package.hostname
-        }
+        },
+        user_public_key: user_creds.user_public_key,
+        onboarding_package_id: nil
       },
       actor: actor
     )
-    |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
-    |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
     |> Ash.create()
   end
 
@@ -254,9 +254,11 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     actor = SystemActor.system(:provision_collector)
 
     package
-    |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
-    |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
-    |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
+    |> Ash.Changeset.for_update(
+      :ready,
+      %{nats_credential_id: credential_id, nats_creds_content: nats_creds_content},
+      actor: actor
+    )
     |> Ash.update()
   end
 

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.MetricSeriesTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.MetricSeries
 
   defp point(overrides) do

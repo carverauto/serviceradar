@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   setup %{conn: conn} do

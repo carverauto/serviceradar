@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     :ok
   end
 
+  @tag :web_ng_shared_fixture_db
   test "security page is reachable and links to the packaged security dashboard", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/security")
     html = render_async(view, 5_000) <> html
@@ -47,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert has_element?(view, "a[href='/settings/security/vulnerability-feeds']", "Advisory Feeds")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "security page renders normalized Trivy finding detail deep links", %{conn: conn} do
     event_uuid = Ecto.UUID.generate()
     finding_uuid = Ecto.UUID.generate()
@@ -71,6 +73,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert detail_html =~ "Raw report"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "security cards expose scoped drill-down destinations", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/security")
     html = render_async(view, 5_000)
@@ -97,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     refute html =~ "No active OCSF findings found"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "security page renders Falco runtime evidence without using raw event details first", %{conn: conn} do
     event_uuid = insert_falco_detection!()
 
@@ -111,6 +115,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert has_element?(view, "a[href='/events/#{event_uuid}']", "Raw event")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "dashboard hub lists bundled security and endpoint inventory dashboards", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dashboards")
     html = render_async(view, 5_000)
@@ -122,6 +127,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert has_element?(view, "a[href='/dashboards/endpoint-inventory']")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "security package dashboard is differentiated from the tactical work queue", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/security")
     security_html = render_async(view, 5_000)
@@ -163,6 +169,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     end
   end
 
+  @tag :web_ng_shared_fixture_db
   test "security dashboard defers but activates source coverage probes", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dashboards/security-findings")
     _ = render_async(view, 5_000)

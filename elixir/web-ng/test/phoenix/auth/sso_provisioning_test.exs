@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
 
   describe "record_successful_authentication/3" do
+    @tag :web_ng_shared_fixture_db
     test "persists the trusted OIDC and SAML authentication method" do
       actor = SystemActor.system(:test)
 
@@ -29,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       end
     end
 
+    @tag :web_ng_shared_fixture_db
     test "does not make local password authentication SSO-eligible" do
       actor = SystemActor.system(:test)
       user = user_fixture(%{email: "local-login@example.com"})
@@ -42,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   end
 
   describe "find_or_create_user/4" do
+    @tag :web_ng_shared_fixture_db
     test "rejects implicit linking to an existing local account by email" do
       user = user_fixture(%{email: "existing@example.com"})
       actor = SystemActor.system(:test)
@@ -55,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
                )
     end
 
+    @tag :web_ng_shared_fixture_db
     test "finds an existing SSO user by external_id" do
       actor = SystemActor.system(:test)
 
@@ -85,6 +89,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert found.external_id == "saml|existing"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "denies JIT provisioning by default when no local account exists" do
       actor = SystemActor.system(:test)
 
@@ -101,6 +106,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert {:error, _} = User.get_by_email("newcomer@example.com", actor: actor)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "denies JIT provisioning when sso_auto_provision is explicitly off" do
       actor = SystemActor.system(:test)
       {:ok, _settings} = AuthSettings.create(%{sso_auto_provision: false}, actor: actor)
@@ -116,6 +122,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert {:error, _} = User.get_by_email("newcomer2@example.com", actor: actor)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "creates a new account when sso_auto_provision is enabled" do
       actor = SystemActor.system(:test)
       {:ok, _settings} = AuthSettings.create(%{sso_auto_provision: true}, actor: actor)
@@ -143,6 +150,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       %{actor: SystemActor.system(:idp_mapping_test)}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "applies a role profile a group mapping grants", %{actor: actor} do
       profile = role_profile!(actor)
       settings!([mapping("plugin-authors", %{"role_profile_id" => profile.id})], actor)
@@ -154,6 +162,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert persisted.role_profile_source == :idp
     end
 
+    @tag :web_ng_shared_fixture_db
     test "revokes the profile once the user leaves the group", %{actor: actor} do
       # The behaviour the whole change is for: access granted by group membership
       # has to go away when the membership does, without an operator noticing.
@@ -171,6 +180,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert revoked.role_profile_source == :manual
     end
 
+    @tag :web_ng_shared_fixture_db
     test "leaves a profile an operator assigned by hand alone", %{actor: actor} do
       # Clearing every unmatched profile would silently strip access from users
       # who have no mapping at all -- which is most of them.
@@ -193,6 +203,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert persisted.role_profile_source == :manual
     end
 
+    @tag :web_ng_shared_fixture_db
     test "the highest role among several matching groups wins", %{actor: actor} do
       settings!(
         [
@@ -208,6 +219,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert persisted.role == :operator
     end
 
+    @tag :web_ng_shared_fixture_db
     test "upgrades an existing viewer's role when a group mapping grants a higher one", %{
       actor: actor
     } do

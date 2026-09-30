@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.AuthLive.SignInTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AccountsFixtures
 

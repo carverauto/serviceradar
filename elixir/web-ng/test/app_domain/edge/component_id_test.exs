@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Edge.ComponentIDTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNG.Edge.ComponentID
 
   test "prefixes labels that do not already include the component type" do

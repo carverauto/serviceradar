@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.AdminApi.LocalParamsTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNG.AdminApi.LocalParams
 
   test "accepts integer limits directly" do

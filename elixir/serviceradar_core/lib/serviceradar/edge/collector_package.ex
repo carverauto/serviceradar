@@ -172,6 +172,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :provision do
       description "Mark package as provisioning"
       accept []
+      change transition_state(:provisioning)
     end
 
     update :ready do
@@ -185,6 +186,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       argument :tls_cert_pem, :string, allow_nil?: false, sensitive?: true
       argument :tls_key_pem, :string, allow_nil?: false, sensitive?: true
       argument :ca_chain_pem, :string, allow_nil?: false, sensitive?: true
+
+      change transition_state(:ready)
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
@@ -222,6 +225,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       argument :error_message, :string
 
+      change transition_state(:failed)
+
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
 
@@ -244,6 +249,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       argument :downloaded_by_ip, :string
 
+      change transition_state(:downloaded)
+
       change fn changeset, _context ->
         changeset
         |> Ash.Changeset.change_attribute(:downloaded_at, DateTime.utc_now())
@@ -258,6 +265,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       description "Mark package as installed"
       accept []
 
+      change transition_state(:installed)
       change set_attribute(:installed_at, &DateTime.utc_now/0)
     end
 
@@ -268,6 +276,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       accept []
 
       argument :reason, :string
+
+      change transition_state(:revoked)
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)

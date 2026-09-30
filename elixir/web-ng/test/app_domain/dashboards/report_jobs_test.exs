@@ -80,6 +80,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     {:ok, scope: scope, dashboard: dashboard}
   end
 
+  @tag :web_ng_shared_fixture_db
   test "scanner enqueues one delivery for each due enabled schedule", %{scope: scope, dashboard: dashboard} do
     due_at = DateTime.add(DateTime.utc_now(), -60, :second)
     schedule = schedule_fixture(scope, dashboard, next_due_at: due_at)
@@ -97,6 +98,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     assert DateTime.after?(schedule.next_due_at, due_at)
   end
 
+  @tag :web_ng_shared_fixture_db
   test "scanner ignores disabled due schedules", %{scope: scope, dashboard: dashboard} do
     schedule =
       schedule_fixture(scope, dashboard,
@@ -109,6 +111,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     assert deliveries_for_schedule(schedule.id) == []
   end
 
+  @tag :web_ng_shared_fixture_db
   test "delivery creation is idempotent for a schedule due time", %{scope: scope, dashboard: dashboard} do
     due_at = DateTime.add(DateTime.utc_now(), -120, :second)
     schedule = schedule_fixture(scope, dashboard, next_due_at: due_at)
@@ -166,6 +169,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     assert schedule.last_error == nil
   end
 
+  @tag :web_ng_shared_fixture_db
   test "delivery worker sanitizes email subject and caps rendered panels", %{scope: scope, dashboard: dashboard} do
     {:ok, dashboard} =
       Dashboards.update_authored_dashboard(scope, dashboard, %{
@@ -199,6 +203,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     assert delivery.rendered_metadata["total_panel_count"] == 25
   end
 
+  @tag :web_ng_shared_fixture_db
   test "delivery worker records failures on delivery errors", %{scope: scope, dashboard: dashboard} do
     schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.add(DateTime.utc_now(), 3600, :second))
     delivery = delivery_fixture(schedule, dashboard, recipients: [])
