@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
+
+  @moduletag :web_ng_shared_fixture_db
   use ExUnitProperties
 
   import Phoenix.LiveViewTest

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, actor_for_user: 1]
 

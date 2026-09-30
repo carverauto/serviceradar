@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Edge.ComponentTemplatesTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNG.Edge.ComponentTemplates
 
   describe "list/3" do

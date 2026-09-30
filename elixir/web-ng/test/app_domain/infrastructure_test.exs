@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.InfrastructureTest do
   use ServiceRadarWebNG.DataCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Infrastructure.Gateway

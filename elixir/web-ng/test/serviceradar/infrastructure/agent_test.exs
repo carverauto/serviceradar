@@ -12,6 +12,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Infrastructure.Agent
 
   require Ash.Query

@@ -10,6 +10,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLiveTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Actors.SystemActor

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Edge.CollectorPackage
@@ -26,7 +28,8 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
   defmodule BrokenCollectorBundleGenerator do
     @moduledoc false
-    def create_tarball(_package, _creds, _tls_key, _opts), do: {:error, %{secret: "collector-bundle-secret"}}
+    def create_tarball(_package, _creds, _tls_key, _opts \\ []),
+      do: {:error, %{secret: "collector-bundle-secret"}}
   end
 
   describe "POST /api/admin/collectors" do

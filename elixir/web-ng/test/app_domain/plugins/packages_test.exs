@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Ecto.Query, only: [from: 2]
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, system_actor: 0]
 
@@ -22,6 +24,10 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   require Ash.Query
 
   @repo_url "https://github.com/carverauto/serviceradar"
+  # Synthetic registry URL for the periodic-sync worker tests: the worker only
+  # syncs registered repositories, and the built-in row's production key cannot
+  # sign test bundles, so these tests register this invented source instead.
+  @worker_repo_url "https://github.com/carverauto/serviceradar-worker-test-registry"
   @manifest %{
     "id" => "unifi-protect-camera",
     "name" => "UniFi Protect Camera",
@@ -65,6 +71,10 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     alias ServiceRadarWebNG.Plugins.PackagesTest
 
+    # Production fetches through ServiceRadar.HTTP.EgressClient (`fetch_body/2`);
+    # translate that call onto the Req-style `get/2` clauses below.
+    def fetch_body(url, opts), do: get(url, opts)
+
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
@@ -94,6 +104,28 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.0.2") ->
           {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_release("v1.0.2")}}
+
+        # Worker-registry mirror of the two branches above: the periodic-sync
+        # worker tests run against a test-owned repository row (the built-in
+        # row's production key cannot sign test bundles), so discovery for
+        # that URL must resolve here too. Download URLs come from the release
+        # payloads and are served by the shared suffix branches below.
+        String.contains?(
+          url,
+          "api.github.com/repos/carverauto/serviceradar-worker-test-registry/releases?per_page="
+        ) ->
+          Process.put(
+            :first_party_recent_release_requests,
+            Process.get(:first_party_recent_release_requests, 0) + 1
+          )
+
+          {:ok, %Req.Response{status: 200, body: [PackagesTest.first_party_release()]}}
+
+        String.contains?(
+          url,
+          "api.github.com/repos/carverauto/serviceradar-worker-test-registry/releases/tags/v1.0.1"
+        ) ->
+          {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_release("v1.0.1")}}
 
         String.contains?(url, "/download/v1.0.2/serviceradar-wasm-plugin-index.json") ->
           {:ok,
@@ -410,6 +442,12 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   end
 
   test "periodic first-party sync anchors discovery to the deployed release" do
+    # The worker resolves signing keys from the registered repository row, and
+    # the built-in row's production key cannot sign test bundles, so these
+    # worker tests register their own test-owned row carrying this suite's
+    # generated key. Signature verification itself still runs end to end.
+    create_worker_registry!()
+
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.1")
 
@@ -417,7 +455,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     assert :ok =
              FirstPartySyncWorker.perform(%Job{
-               args: %{"force" => true, "repo_url" => @repo_url, "limit" => 10}
+               args: %{"force" => true, "repo_url" => @worker_repo_url, "limit" => 10}
              })
 
     assert Process.get(:first_party_recent_release_requests) == 0
@@ -429,6 +467,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   end
 
   test "periodic first-party sync falls back to recent releases when the deployed tag is unpublished" do
+    # Test-owned registry row: see the anchoring test above.
+    create_worker_registry!()
+
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.51")
 
@@ -436,7 +477,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     assert :ok =
              FirstPartySyncWorker.perform(%Job{
-               args: %{"force" => true, "repo_url" => @repo_url, "limit" => 10}
+               args: %{"force" => true, "repo_url" => @worker_repo_url, "limit" => 10}
              })
 
     assert Process.get(:first_party_recent_release_requests) >= 1
@@ -921,4 +962,29 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
   defp restore_system_env(key, nil), do: System.delete_env(key)
   defp restore_system_env(key, value), do: System.put_env(key, value)
+
+  # Registers the worker-test repository row carrying this suite's generated
+  # signing key. Sandbox-rolled-back with the test; the built-in row keeps its
+  # production key untouched.
+  defp create_worker_registry! do
+    %{"packages-test" => public_key} =
+      :serviceradar_web_ng
+      |> Application.fetch_env!(:plugin_verification)
+      |> Keyword.fetch!(:trusted_upload_signing_keys)
+
+    ServiceRadar.Plugins.PluginRepository
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "worker-test",
+        repo_url: @worker_repo_url,
+        index_asset_name: "serviceradar-wasm-plugin-index.json",
+        signing_key_id: "packages-test",
+        signing_public_key: public_key,
+        enabled: true
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
 end

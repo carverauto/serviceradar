@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.CameraMultiviewTest do
   use ExUnit.Case, async: false
 
+  @moduletag :db_free
+
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.CameraMultiview

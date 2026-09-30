@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.TenantUsageTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TenantUsage
 

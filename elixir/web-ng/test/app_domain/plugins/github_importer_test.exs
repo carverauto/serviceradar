@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   use ExUnit.Case, async: false
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporterTest
   alias ServiceRadarWebNG.Plugins.Storage

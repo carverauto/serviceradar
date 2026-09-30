@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.CompositeChecks.CatalogTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.CompositeChecks.Catalog
 
   describe "filter_query/2" do

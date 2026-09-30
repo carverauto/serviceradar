@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.SRQL.ScopeBuilderTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.SRQL.ScopeBuilder
 
   defp filters(builder), do: Map.fetch!(builder, "filters")

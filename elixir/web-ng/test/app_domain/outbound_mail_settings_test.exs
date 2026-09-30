@@ -2,11 +2,19 @@ defmodule ServiceRadarWebNG.OutboundMailSettingsTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Integrations.OutboundMailSettings
   alias ServiceRadar.OutboundMail
 
   test "stores local mail credentials encrypted and reloads them for delivery config" do
-    {:ok, settings} = OutboundMailSettings.get_settings(actor: system_actor())
+    # A missing settings row is "no operator override", not a failure, so the
+    # test owns its row before exercising the update path.
+    {:ok, settings} =
+      case OutboundMailSettings.get_settings(actor: system_actor()) do
+        {:ok, settings} -> {:ok, settings}
+        {:error, _} -> OutboundMailSettings.create(%{}, actor: system_actor())
+      end
 
     assert {:ok, updated} =
              settings

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FiltersTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Filters
 
   test "upsert_query_filter adds multi-colon tag values" do

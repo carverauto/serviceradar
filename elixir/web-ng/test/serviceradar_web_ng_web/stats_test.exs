@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.StatsTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.Stats
   alias ServiceRadarWebNGWeb.Stats.Extract
   alias ServiceRadarWebNGWeb.Stats.Query

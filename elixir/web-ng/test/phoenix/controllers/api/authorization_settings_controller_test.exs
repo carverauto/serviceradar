@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.AuthorizationSettingsControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadarWebNG.AshTestHelpers
 
   describe "GET /api/admin/authorization-settings" do

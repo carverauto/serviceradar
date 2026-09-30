@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
   use ExUnit.Case, async: false
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNG.Plugins.CosignVerifier
 
   setup do

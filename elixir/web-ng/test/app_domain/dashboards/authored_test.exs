@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData

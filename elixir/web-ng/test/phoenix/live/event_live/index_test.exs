@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.EventLive.IndexTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AccountsFixtures

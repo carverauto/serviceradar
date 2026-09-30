@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
   end
 
   describe "access" do
+    @tag :web_ng_shared_fixture_db
     test "a scope with no notification permissions is redirected away", %{conn: conn} do
       {conn, _user} = log_in_role(conn, :viewer)
 
@@ -42,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       assert to == ~p"/settings/profile"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "an operator reaches the surface and lands on Channels", %{conn: conn} do
       {conn, _user} = log_in_role(conn, :operator)
 
@@ -51,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       assert html =~ "Channels"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "the bare path renders the first permitted tab", %{conn: conn} do
       {conn, _user} = log_in_role(conn, :operator)
 
@@ -59,6 +62,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       assert html =~ "Channels"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a deep link to a tab renders that tab", %{conn: conn} do
       {conn, _user} = log_in_role(conn, :admin)
 
@@ -68,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       assert html =~ "why was I not paged"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "an unknown tab segment falls back to a permitted tab", %{conn: conn} do
       {conn, _user} = log_in_role(conn, :operator)
       crafted = "not-a-tab-#{System.unique_integer([:positive])}"
@@ -132,6 +137,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       %{conn: conn, user: user}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "mutation controls are not rendered", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/settings/notifications/channels")
 
@@ -140,6 +146,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       refute html =~ "Send test"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a forged save_channel event changes nothing", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/channels")
 
@@ -160,6 +167,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       assert channel_count() == before
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a forged test_channel event performs no egress", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/channels")
 
@@ -168,6 +176,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       assert html =~ "not authorized"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a forged disable_provider event is refused", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/providers")
 
@@ -183,6 +192,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       %{conn: conn, user: user}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "every tab is offered", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/settings/notifications/channels")
 
@@ -191,12 +201,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       end
     end
 
+    @tag :web_ng_shared_fixture_db
     test "channel mutation controls are rendered", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/settings/notifications/channels")
 
       assert html =~ "New channel"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "the delivery log filters are reflected in the URL", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/deliveries")
 
@@ -215,6 +227,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       assert path =~ "suppression_reason=no_matching_route"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "clearing the filters returns to the unfiltered log", %{conn: conn} do
       {:ok, lv, _html} =
         live(conn, ~p"/settings/notifications/deliveries?#{%{"state" => "failed"}}")

@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.ValidationRun
   alias ServiceRadar.Inventory.DeviceIdentifier

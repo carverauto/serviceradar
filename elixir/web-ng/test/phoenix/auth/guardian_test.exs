@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Auth.GuardianTest do
 
   use ServiceRadarWebNG.DataCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadarWebNG.Auth.Guardian

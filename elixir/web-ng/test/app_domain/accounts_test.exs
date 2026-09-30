@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.AccountsTest do
   use ServiceRadarWebNG.DataCase
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AccountsFixtures
 
   alias Ash.Error.Forbidden
@@ -54,10 +56,16 @@ defmodule ServiceRadarWebNG.AccountsTest do
   end
 
   describe "sudo_mode?/2" do
-    test "returns true for authenticated users (has id)" do
-      # With Ash JWT tokens, sudo mode is always true for authenticated users
-      assert Accounts.sudo_mode?(%{id: "some-user-id"})
-      assert Accounts.sudo_mode?(%{id: Ecto.UUID.generate()})
+    test "returns true for a recent sudo timestamp" do
+      assert Accounts.sudo_mode?(%{id: "some-user-id"}, DateTime.utc_now())
+      assert Accounts.sudo_mode?(%{id: Ecto.UUID.generate()}, DateTime.utc_now())
+    end
+
+    test "returns false for a stale sudo timestamp" do
+      refute Accounts.sudo_mode?(
+               %{id: "some-user-id"},
+               DateTime.add(DateTime.utc_now(), -30, :minute)
+             )
     end
 
     test "returns false for unauthenticated context" do
@@ -132,11 +140,11 @@ defmodule ServiceRadarWebNG.AccountsTest do
       assert Accounts.get_user_by_email_and_password(updated_user.email, "new valid password")
     end
 
-    test "forbids viewers from changing their own password" do
+    test "allows viewers to change their own password" do
       user = set_password(user_fixture(%{role: :viewer}))
       scope = Scope.for_user(user, permissions: RBAC.permissions_for_user(user))
 
-      assert {:error, %Forbidden{}} =
+      assert {:ok, updated_user} =
                Accounts.update_user_password(
                  user,
                  %{
@@ -146,6 +154,28 @@ defmodule ServiceRadarWebNG.AccountsTest do
                  },
                  scope: scope
                )
+
+      assert Accounts.get_user_by_email_and_password(updated_user.email, "new valid password")
+    end
+
+    test "forbids viewers from changing another user's password" do
+      user = set_password(user_fixture(%{role: :viewer}))
+      other = set_password(user_fixture(%{role: :viewer}))
+      scope = Scope.for_user(user, permissions: RBAC.permissions_for_user(user))
+
+      # The actor must be explicit: without one the call defaults to acting as
+      # the target user, which trivially satisfies the self-service policy.
+      assert {:error, %Forbidden{}} =
+               Accounts.update_user_password(
+                 other,
+                 %{
+                   current_password: valid_user_password(),
+                   password: "new valid password",
+                   password_confirmation: "new valid password"
+                 },
+                 scope: scope,
+                 actor: user
+               )
     end
   end
 
@@ -154,6 +184,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
     Enum.any?(errors, fn
       %Ash.Error.Changes.InvalidAttribute{field: ^field} -> true
       %Ash.Error.Changes.Required{field: ^field} -> true
+      %Ash.Error.Changes.InvalidArgument{field: ^field} -> true
       _ -> false
     end)
   end

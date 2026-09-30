@@ -2,6 +2,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryConsistencyTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatus
@@ -310,6 +312,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryConsistencyTest do
   end
 
   defp assignment_fixture(agent_uid, package_id) do
+    register_control_session!(agent_uid, "default")
+
     PluginAssignment
     |> Ash.Changeset.for_create(
       :create,

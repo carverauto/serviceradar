@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Inventory.BumblebeeDevicePosture
   alias ServiceRadar.Inventory.BumblebeeFinding
   alias ServiceRadar.Inventory.DeviceRiskReducer

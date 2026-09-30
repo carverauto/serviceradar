@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian

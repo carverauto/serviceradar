@@ -12,6 +12,8 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias Ash.Error.Forbidden
   alias ServiceRadar.Infrastructure.Partition
 

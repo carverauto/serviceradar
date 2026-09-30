@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
   use ServiceRadarWebNG.DataCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Ecto.Query
   import ExUnit.CaptureLog
 

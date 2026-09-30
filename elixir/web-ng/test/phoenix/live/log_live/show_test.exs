@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       {:ok, conn: conn}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "operator can see Create Event Rule button", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -33,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
                String.contains?(html, "Create Event Rule")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "admin can see Create Event Rule button", %{conn: conn} do
       user = admin_user_fixture()
       conn = log_in_user(conn, user)
@@ -46,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
                String.contains?(html, "Create Event Rule")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "viewer cannot see Create Event Rule button", %{conn: conn} do
       user = viewer_user_fixture()
       conn = log_in_user(conn, user)
@@ -61,6 +64,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   end
 
   describe "rule builder modal from log details" do
+    @tag :web_ng_shared_fixture_db
     test "opens rule builder modal when clicking Create Event Rule", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -78,6 +82,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "h3", "Create Event Rule")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "pre-populates rule builder from log data", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -96,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert html =~ "test-service"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "creates promotion rule from log entry", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -137,6 +143,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert rule.match["service_name"] == "test-service"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "closes modal when clicking cancel", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -293,6 +300,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ "2026-08-30T12:45:56Z"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders resource attributes section when present", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -307,6 +315,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "span", "service.version")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "shows collector target and error from log attributes", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -323,6 +332,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "span", "Resource Attributes")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders the collector-observed source IP", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -336,6 +346,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "#log-source-ip", "192.0.2.10")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "derives resource and scope fields from nested attributes", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -350,6 +361,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "span", "db-writer-service")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders source as a device link when the source IP is in inventory", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -369,6 +381,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "a[href='/devices/#{device.uid}']", "192.168.10.154:161")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders Erlang logger charlists as readable metadata", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -383,6 +396,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ "[108,105,98"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders logs with blank resource attributes", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -396,6 +410,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ "FunctionClauseError"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "redacts sensitive NATS credentials in message body and attributes", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -412,6 +427,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ "SENSITIVE_ATTR_TOKEN"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "normalizes the OTel SeverityNumber enum name into a colored badge", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -430,6 +446,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ ">SEVERITY NUMBER INFO<"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "normalizes a numbered OTel SeverityNumber variant into a WARN badge", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -445,6 +462,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ "SEVERITY_NUMBER_WARN3"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders ingest identity fields when present", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -460,6 +478,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "#log-ingest-partition", "tenant-a")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "omits ingest identity fields when blank", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -479,22 +498,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   end
 
   describe "can_create_rules? helper" do
+    @tag :web_ng_shared_fixture_db
     test "returns true for operator role" do
       assert can_create_rules?(%{user: %{role: :operator}})
     end
 
+    @tag :web_ng_shared_fixture_db
     test "returns true for admin role" do
       assert can_create_rules?(%{user: %{role: :admin}})
     end
 
+    @tag :web_ng_shared_fixture_db
     test "returns false for viewer role" do
       refute can_create_rules?(%{user: %{role: :viewer}})
     end
 
+    @tag :web_ng_shared_fixture_db
     test "returns false for nil user" do
       refute can_create_rules?(nil)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "returns false for missing role" do
       refute can_create_rules?(%{user: %{}})
     end

@@ -242,7 +242,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         metadata: %{
           site: package.site,
           hostname: package.hostname
-        }
+        },
+        user_public_key: user_creds.user_public_key,
+        onboarding_package_id: nil
       },
       actor: actor
     )

@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
   alias ServiceRadarWebNG.Accounts
 
   describe "Settings page" do
+    @tag :web_ng_shared_fixture_db
     test "renders password controls for users with a local password", %{conn: conn} do
       {:ok, _lv, html} =
         conn
@@ -19,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert html =~ "Save Password"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "lets viewers with a local password change their own password", %{conn: conn} do
       # settings.password.manage is granted to all roles; the change_password
       # policy scopes the action to the signed-in user (self-service), so a
@@ -32,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert html =~ "Save Password"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "hides password controls for SSO-only users without a local password", %{conn: conn} do
       actor = SystemActor.system(:test)
 
@@ -56,6 +59,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert html =~ "managed by your identity provider"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "SSO-linked accounts with a local password still cannot change email or password", %{
       conn: conn
     } do
@@ -87,6 +91,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert html =~ "managed by your identity provider"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "topbar exposes a Profile / API docs / Logout menu", %{conn: conn} do
       {:ok, lv, _html} =
         conn
@@ -102,6 +107,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#ops-profile-menu a[href='/users/log-out'][data-method='delete']")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "the users status strip links the API-keys card to API Credentials", %{conn: conn} do
       {:ok, _lv, html} =
         conn
@@ -114,6 +120,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert html =~ ~s(href="/settings/auth/users")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "redirects if user is not logged in", %{conn: conn} do
       assert {:error, redirect} = live(conn, ~p"/settings/profile")
 
@@ -129,6 +136,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       %{conn: conn |> log_in_user(user) |> put_sudo_mode(), user: user}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "updates the user email", %{conn: conn, user: user} do
       new_email = unique_user_email()
 
@@ -150,6 +158,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       refute Accounts.get_user_by_email(user.email)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders errors with invalid data (phx-change)", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
@@ -166,6 +175,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert result =~ "must match the pattern"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders errors with invalid data (phx-submit)", %{conn: conn, user: _user} do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
@@ -189,6 +199,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       %{conn: conn |> log_in_user(user) |> put_sudo_mode(), user: user}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders errors with invalid data (phx-change)", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
@@ -208,6 +219,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert result =~ "does not match password"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders errors with invalid data (phx-submit)", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 

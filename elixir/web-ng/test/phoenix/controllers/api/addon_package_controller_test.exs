@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.AddonPackageControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Plugins.AddonPackage

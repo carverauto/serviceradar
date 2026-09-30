@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.Api.ApiDocsConsoleTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadarWebNG.AshTestHelpers
 
   @service_check_params %{

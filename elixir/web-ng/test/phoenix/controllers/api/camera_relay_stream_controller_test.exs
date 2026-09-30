@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.CameraRelayStreamControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.CameraRelayStreamController
 

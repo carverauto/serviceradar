@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
@@ -181,7 +183,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
             id: "12345678-abcd-efgh-ijkl-1234567890ab",
             collector_type: :flowgger
           },
-          "synthetic-download-secret",
+          "sentinel-token-value",
           base_url: "https://demo.serviceradar.cloud"
         )
 
@@ -190,7 +192,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
       assert command =~ "-X POST"
       assert command =~ "x-serviceradar-download-token: ${SR_TOKEN}"
-      refute command =~ "synthetic-download-secret"
+      # The header name contains "download-token"; the SECRET passed to
+      # update_command/3 is the sentinel and must never be embedded verbatim.
+      refute command =~ "sentinel-token-value"
       assert command =~ "sudo ./update.sh"
       refute command =~ "/api/edge/collectors/"
     end
@@ -199,7 +203,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       command =
         CollectorBundleGenerator.update_command(
           sample_falcosidekick_package(),
-          "synthetic-download-secret",
+          "sentinel-token-value",
           base_url: "https://demo.serviceradar.cloud"
         )
 
@@ -208,7 +212,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
       assert command =~ "-X POST"
       assert command =~ "x-serviceradar-download-token: ${SR_TOKEN}"
-      refute command =~ "synthetic-download-secret"
+      refute command =~ "sentinel-token-value"
       assert command =~ "./deploy.sh"
       refute command =~ "sudo ./update.sh"
     end

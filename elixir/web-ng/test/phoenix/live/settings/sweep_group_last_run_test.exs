@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.SweepGroupLastRunTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents
 
   test "prefers persisted last_run_at" do

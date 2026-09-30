@@ -192,6 +192,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       change transition_state(:ready)
 
+      change transition_state(:ready)
+
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
         creds_content = Ash.Changeset.get_argument(changeset, :nats_creds_content)

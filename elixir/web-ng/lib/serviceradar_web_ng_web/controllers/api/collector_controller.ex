@@ -375,6 +375,9 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     end
   end
 
+  # The cloak-encrypted bundle secrets are `decrypt_by_default([])`, so they
+  # must be explicitly loaded here; otherwise every download fails with
+  # `:nats_creds_invalid` even for a fully provisioned package.
   defp get_package(package_id) do
     case CollectorPackage
          |> Ash.Query.for_read(:read)

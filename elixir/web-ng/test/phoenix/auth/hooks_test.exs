@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Auth.HooksTest do
 
   use ServiceRadarWebNG.DataCase, async: true
 
+  @moduletag :web_ng_shared_fixture_db
+
   import ExUnit.CaptureLog
   import ServiceRadarWebNG.AccountsFixtures
 

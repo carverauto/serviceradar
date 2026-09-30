@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   import Phoenix.LiveViewTest
 
   setup :register_and_log_in_user

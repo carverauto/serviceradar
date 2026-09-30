@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents
-  alias ServiceRadarWebNGWeb.DeviceLive.Show
+  alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
@@ -53,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     }
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders devices from ocsf_devices", %{conn: conn} do
     uid = "test-device-live-#{System.unique_integer([:positive])}"
 
@@ -73,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device list and details render device tags", %{conn: conn} do
     uid = "test-device-tags-#{System.unique_integer([:positive])}"
 
@@ -99,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert summary_html =~ "team=ops"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device list reset control restores the first-visit query and keeps Run working", %{
     conn: conn
   } do
@@ -138,6 +141,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert params["q"] =~ "include_inactive:true"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device list SRQL submit routes catalog entity changes and drops stale filters", %{
     conn: conn
   } do
@@ -154,6 +158,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     )
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device list SRQL submit routes WiFi catalog entities to WiFi inventory", %{conn: conn} do
     {:ok, view, _html} =
       live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
@@ -165,6 +170,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert_redirect(view, ~p"/devices/wifi?#{%{q: "in:wifi_sites site_code:ZZC", limit: 20}}")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders WiFi inventory view", %{conn: conn} do
     {:ok, _view, html} =
       live(conn, ~p"/devices/wifi?#{%{q: "in:wifi_sites limit:10", limit: 10}}")
@@ -174,6 +180,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:wifi_sites"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device list status uses per-agent availability fallback", %{conn: conn} do
     unique = System.unique_integer([:positive])
     uid = "test-device-agent-availability-#{unique}"
@@ -223,6 +230,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "agent-live-#{unique}"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device list marks only registered agent devices with bolt", %{conn: conn} do
     unique = System.unique_integer([:positive])
     uid = "test-device-source-agent-#{unique}"
@@ -289,6 +297,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert agent_row =~ "hero-bolt"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device details header shows the Agent pill only for registered agent devices", %{
     conn: conn
   } do
@@ -355,6 +364,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute plain_html =~ ~s(data-testid="device-agent-pill")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "navigates to the device details page after adding a device", %{conn: conn} do
     unique = System.unique_integer([:positive])
     ip = "203.0.113.#{rem(unique, 250) + 1}"
@@ -380,6 +390,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert_redirect(view, ~p"/devices/#{expected_uid}")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders out of service state in device list and details", %{conn: conn} do
     uid = "test-device-inactive-#{System.unique_integer([:positive])}"
 
@@ -409,6 +420,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert details_html =~ "No"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "disables Run Action when no provider-neutral integrations are configured", %{conn: conn} do
     uid = "test-device-run-task-disabled-#{System.unique_integer([:positive])}"
 
@@ -435,6 +447,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "disabled"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "launches selected devices through the provider-neutral action modal", %{conn: conn} do
     action = northbound_action(:device)
     with_northbound_stubs(device_actions: [action])
@@ -490,6 +503,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert opts[:actor].email
   end
 
+  @tag :web_ng_shared_fixture_db
   test "provider-neutral action targets every selected device", %{conn: conn} do
     action = northbound_action(:device)
     with_northbound_stubs(device_actions: [action])
@@ -558,6 +572,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
              ])
   end
 
+  @tag :web_ng_shared_fixture_db
   test "bulk Ansible launch navigates to the canonical reviewed launch route", %{conn: conn} do
     uid = "test-canonical-ansible-launch-#{System.unique_integer([:positive])}"
 
@@ -588,6 +603,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert_redirect(view, ~p"/ansible/launch?#{%{devices: uid}}")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "northbound action modal renders schema-driven input controls" do
     action =
       northbound_action(:device,
@@ -639,6 +655,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ ~s(name="action[input][extra_vars]")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "northbound action history hides nil-like summaries and explains empty state" do
     html =
       render_component(&NorthboundActionComponents.northbound_action_history/1,
@@ -723,6 +740,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert LazyHTML.attribute(next_poll_time, "data-user-time-zone") == ["America/Chicago"]
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device details SRQL bar submits explicit device searches", %{conn: conn} do
     uid = "test-device-srql-submit-#{System.unique_integer([:positive])}"
 
@@ -752,6 +770,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     )
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device details SRQL bar submits shortcut device searches", %{conn: conn} do
     uid = "test-device-srql-shortcut-#{System.unique_integer([:positive])}"
 
@@ -778,6 +797,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert_redirect(view, ~p"/devices?#{%{q: ~s(in:devices ip:"192.168.2.10"), limit: 50}}")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows query-wide matching count in the device results header", %{conn: conn} do
     previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid)
@@ -800,6 +820,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert render(view) =~ "42 total"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows active fingerprint tab when active banner evidence exists", %{conn: conn} do
     uid = insert_active_fingerprint_device!()
 
@@ -820,6 +841,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "NTP"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "hides and rejects active fingerprint tab without banner-grab permission", %{conn: _conn} do
     uid = insert_active_fingerprint_device!()
     viewer = AshTestHelpers.viewer_user_fixture()
@@ -840,6 +862,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "Banner-grab matches"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows advisory when managed-device count exceeds configured limit", %{conn: conn} do
     previous_limit = Application.get_env(:serviceradar_web_ng, :managed_device_limit)
     Application.put_env(:serviceradar_web_ng, :managed_device_limit, 1)
@@ -876,6 +899,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "using 2 managed devices"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "does not show advisory when managed-device count stays within configured limit", %{
     conn: conn
   } do
@@ -903,6 +927,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "Managed device advisory limit exceeded"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders fallback sysmon label when profile data is missing", %{conn: conn} do
     uid = "test-device-sysmon-missing-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
@@ -938,6 +963,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute has_element?(view, "[data-testid='sysmon-profile-label']")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "auto-refreshes devices list when a device is created", %{conn: conn, scope: scope} do
     uid = "test-device-pubsub-#{System.unique_integer([:positive])}"
     hostname = "pubsub-host-#{System.unique_integer([:positive])}"
@@ -953,6 +979,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert render(view) =~ hostname
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows deleted badge and restore action for deleted devices", %{conn: conn, user: user} do
     promote_user!(user, :admin)
     uid = "test-device-deleted-#{System.unique_integer([:positive])}"
@@ -1049,6 +1076,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ uid
   end
 
+  @tag :web_ng_shared_fixture_db
   test "hides SSH action when remote access SSH is disabled", %{conn: conn} do
     with_remote_access_ssh_enabled(false)
 
@@ -1071,6 +1099,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "/devices/#{uid}/remote-access/ssh"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "hides SSH action for Windows-family devices", %{conn: conn} do
     with_remote_access_ssh_enabled(true)
 
@@ -1093,6 +1122,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "/devices/#{uid}/remote-access/ssh"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows SSH action for SSH-capable devices when enabled", %{conn: conn} do
     with_remote_access_ssh_enabled(true)
 
@@ -1115,6 +1145,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "/devices/#{uid}/remote-access/ssh"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "hides Enable RDP action for non-Windows devices", %{conn: conn} do
     with_remote_access_rdp_enabled(true)
 
@@ -1138,6 +1169,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "/settings/networks/desktop-targets/new"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows Enable RDP action for Windows devices", %{conn: conn} do
     with_remote_access_rdp_enabled(true)
 
@@ -1161,6 +1193,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "/settings/networks/desktop-targets/new"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows RDP action instead of Enable RDP for an authorized exact device target", %{conn: conn} do
     with_remote_access_rdp_enabled(true)
 
@@ -1200,6 +1233,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute has_element?(view, "#device-rdp-enable-action")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "auto-refreshes device details when the viewed device is updated", %{
     conn: conn,
     scope: scope
@@ -1233,6 +1267,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert render(view) =~ updated_hostname
   end
 
+  @tag :web_ng_shared_fixture_db
   test "include_deleted query surfaces deleted devices in the list", %{conn: conn, user: user} do
     promote_user!(user, :admin)
     uid = "test-device-deleted-list-#{System.unique_integer([:positive])}"
@@ -1259,6 +1294,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices include_deleted:true"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders SNMP credential override form in edit mode", %{conn: conn} do
     uid = "test-device-snmp-#{System.unique_integer([:positive])}"
 
@@ -1284,6 +1320,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Save SNMP Credentials"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders SNMP system metadata on device details", %{conn: conn} do
     uid = "test-device-snmp-system-#{System.unique_integer([:positive])}"
 
@@ -1320,6 +1357,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "min-w-0 flex-1 break-words whitespace-normal"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "prefers snmp_* metadata aliases for SNMP panel fields", %{conn: conn} do
     uid = "test-device-snmp-aliases-#{System.unique_integer([:positive])}"
 
@@ -1352,6 +1390,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "farm01-sys"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders SNMP panel labels even when SNMP metadata values are missing", %{conn: conn} do
     uid = "test-device-snmp-empty-#{System.unique_integer([:positive])}"
 
@@ -1377,6 +1416,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "SNMP Description"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders curated device metadata without dumping internal keys", %{conn: conn} do
     uid = "test-device-curated-metadata-#{System.unique_integer([:positive])}"
 
@@ -1486,6 +1526,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute curated_html =~ "raw-integration-id"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "device details lists every discovery source a merged device was seen through", %{
     conn: conn
   } do
@@ -1535,6 +1576,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "proxmox"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "discovery sources section renders a compact chip per source with curated metadata on hover" do
     html =
       render_component(
@@ -1571,6 +1613,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "nb-9"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "discovery sources section is empty when no sources are present" do
     html =
       render_component(
@@ -1581,9 +1624,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "Discovery Sources"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "metadata summary renders Proxmox only for device-level candidate evidence" do
     generic_html =
-      render_component(&Show.metadata_summary_section/1,
+      render_component(&VisibilityComponents.metadata_summary_section/1,
         device_row: %{
           "metadata" => %{
             "source" => "snmp",
@@ -1597,7 +1641,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute generic_html =~ "Candidate probe"
 
     candidate_html =
-      render_component(&Show.metadata_summary_section/1,
+      render_component(&VisibilityComponents.metadata_summary_section/1,
         device_row: %{
           "metadata" => %{
             "source" => "proxmox-candidate",
@@ -1618,6 +1662,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert candidate_html =~ "pve01"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "process listeners tab renders agent-host local process snapshots" do
     html =
       render_component(&VisibilityComponents.process_listeners_tab_content/1,
@@ -1661,6 +1706,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "--config=redacted"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "keeps SNMP fallback-derived classification out of noisy list badges", %{conn: conn} do
     uid = "test-device-snmp-fallback-#{System.unique_integer([:positive])}"
 
@@ -1693,6 +1739,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert details_html =~ "SNMP fallback-derived"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders sysmon cpu header gauge and process/memory/disk sections", %{conn: conn} do
     uid = "test-device-sysmon-metrics-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
@@ -1735,6 +1782,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "nginx"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders sysmon sections using host_id fallback when device_id is skewed", %{conn: conn} do
     unique = System.unique_integer([:positive])
     uid = "sr:test-device-sysmon-host-fallback-#{unique}"
@@ -1794,6 +1842,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "beam.smp"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders device anomaly and capacity section using identity fallback", %{conn: conn} do
     unique = System.unique_integer([:positive])
     uid = "sr:test-device-anomaly-fallback-#{unique}"
@@ -1922,6 +1971,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute Enum.any?(queries, &String.contains?(&1, "resource_key:"))
   end
 
+  @tag :web_ng_shared_fixture_db
   test "keeps device anomaly and capacity section visible when no rows exist", %{conn: conn} do
     unique = System.unique_integer([:positive])
     uid = "sr:test-device-anomaly-empty-#{unique}"
@@ -1962,6 +2012,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "normal"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "sysmon metric sections carry section-level anomaly annotations and selected finding marker" do
     peak_dt = ~U[2026-06-19 12:03:00Z]
 
@@ -2012,6 +2063,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert DateTime.compare(row_dt, peak_dt) == :eq
   end
 
+  @tag :web_ng_shared_fixture_db
   test "sysmon anomaly annotations remain visible when panel has no matching series and fall back to finding time" do
     section = %{
       key: "cpu",
@@ -2045,6 +2097,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
            ] = assigns.annotations
   end
 
+  @tag :web_ng_shared_fixture_db
   test "sysmon percent metric sections carry saturation gate reference lines" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
 
@@ -2110,6 +2163,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute Map.has_key?(process_assigns, :reference_lines)
   end
 
+  @tag :web_ng_shared_fixture_db
   test "logs sysmon process metric SRQL failures" do
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
       assert query =~ "in:timeseries_metrics"
@@ -2135,6 +2189,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert log =~ ":boom"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "logs sysmon presence probe SRQL failures" do
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
       assert query =~ "time:last_24h"
@@ -2159,6 +2214,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert log =~ ":boom"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders endpoint software inventory on device details", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     uid = "sr:test-device-endpoint-inventory-#{unique}"
@@ -2465,6 +2521,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert no_match_html =~ "No package rows match the current filters."
   end
 
+  @tag :web_ng_shared_fixture_db
   test "groups NVD and KEV rows for the same CVE into one Software-tab card", %{
     conn: conn,
     scope: scope
@@ -2695,6 +2752,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert length(Regex.scan(~r/data-testid="cve-finding"/, modal_html)) == 2
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders endpoint software empty and unhealthy scan states on device details", %{
     conn: conn,
     scope: scope
@@ -2851,6 +2909,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders Proxmox virtualization inventory on device details", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     uid = "test-device-proxmox-#{unique}"
@@ -3002,6 +3061,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "console_mode="
   end
 
+  @tag :web_ng_shared_fixture_db
   test "guest device links back to its parent hypervisor node", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     host_uid = "test-device-pve-node-#{unique}"
@@ -3078,6 +3138,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
            )
   end
 
+  @tag :web_ng_shared_fixture_db
   test "PVE node Guests tab reliably renders the node's guests", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     host_uid = "test-device-pve-guests-tab-#{unique}"
@@ -3136,6 +3197,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "running"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders provider-neutral virtualization inventory on device details", %{
     conn: conn,
     scope: scope
@@ -3219,6 +3281,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "proxmox-console"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders guest network identity on virtualized device details", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     host_uid = "test-device-guest-host-#{unique}"
@@ -3332,6 +3395,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       {:ok, conn: conn, device_uid: device_uid}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "shows interfaces tab empty state for devices targeted by discovery", %{
       conn: conn,
       device_uid: device_uid,
@@ -3371,6 +3435,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ job.name
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders interfaces table on interfaces tab", %{conn: conn, device_uid: device_uid} do
       insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
@@ -3385,6 +3450,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Primary Ethernet"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "shows human-readable interface types", %{conn: conn, device_uid: device_uid} do
       insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
@@ -3400,6 +3466,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Loopback"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "shows status badges for interfaces", %{conn: conn, device_uid: device_uid} do
       insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
@@ -3412,6 +3479,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert has_element?(view, ".badge")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "can select interfaces with checkboxes", %{conn: conn, device_uid: device_uid} do
       insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
@@ -3424,6 +3492,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert has_element?(view, "input[type=checkbox]")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "launches selected interfaces through northbound action modal", %{
       conn: conn,
       device_uid: device_uid
@@ -3486,6 +3555,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert opts[:actor].email
     end
 
+    @tag :web_ng_shared_fixture_db
     test "can toggle interface favorite", %{conn: conn, device_uid: device_uid} do
       insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
@@ -3504,6 +3574,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "hero-star"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "shows flows tab when device-scoped flows exist", %{conn: conn, device_uid: device_uid} do
       insert_test_flow!(device_uid, "192.168.1.55")
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
@@ -3520,11 +3591,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "bidirectional"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "hides flows tab when no scoped flows exist", %{conn: conn, device_uid: device_uid} do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
       refute has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='flows']")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "device flows and /flows details show consistent persisted enrichment", %{
       conn: conn,
       device_uid: device_uid
@@ -3554,6 +3627,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert flows_html =~ "DNS"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "logs tab shows immediate empty state while device logs load asynchronously", %{
       conn: conn
     } do
@@ -3585,9 +3659,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
   end
 
+  @tag :web_ng_shared_fixture_db
   test "agent availability falls back to recent sweep history when canonical rows are absent" do
     html =
-      render_component(&Show.agent_availability_section/1,
+      render_component(&AvailabilityComponents.agent_availability_section/1,
         rows: [],
         device_row: %{},
         sweep_results: %{
@@ -3611,9 +3686,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "No per-agent sweep availability has been recorded"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "agent availability marks canonical profile-derived source" do
     html =
-      render_component(&Show.agent_availability_section/1,
+      render_component(&AvailabilityComponents.agent_availability_section/1,
         rows: [
           %{
             agent_id: "agent-canonical-segment",
@@ -3680,6 +3756,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       {:ok, conn: conn, device_uid: device_uid}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "same-device refresh keeps interfaces rendered while the batch is in flight", %{
       conn: conn,
       device_uid: device_uid
@@ -3712,6 +3789,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Primary Ethernet"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "broadcasts inside the cooldown window coalesce into one trailing refresh", %{
       conn: conn,
       device_uid: device_uid
@@ -3743,6 +3821,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert current_hostname(view) == "refresh-host-before"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a trailing refresh runs at cooldown expiry so the page converges", %{
       conn: conn,
       device_uid: device_uid
@@ -3762,6 +3841,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert current_hostname(view) == "refresh-host-after"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "broadcasts are ignored while a refresh is in flight", %{
       conn: conn,
       device_uid: device_uid
@@ -3830,6 +3910,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       {:ok, conn: conn, device_uid: device_uid}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "shows bulk edit button when interfaces are selected", %{
       conn: conn,
       device_uid: device_uid
@@ -3849,6 +3930,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Bulk Edit" or html =~ "bulk"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "bulk edit modal has all action options", %{conn: conn, device_uid: device_uid} do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
@@ -3957,6 +4039,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders relay-capable camera streams for viewers", %{
       conn: conn,
       device_uid: device_uid,
@@ -3971,6 +4054,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Open Relay"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders unavailable camera sources without an open relay action", %{
       conn: conn,
       device_uid: device_uid
@@ -3994,6 +4078,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                "button phx-click=\"open_camera_relay\" phx-value-camera_source_id=\"#{source.id}\" phx-value-stream_profile_id=\"#{profile.id}\""
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders camera streams when inventory is still keyed by raw camera MAC", %{
       conn: conn
     } do
@@ -4023,6 +4108,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Open Relay"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "opens and closes a camera relay session from device details", %{
       conn: conn,
       device_uid: device_uid,
@@ -4087,6 +4173,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert render(view) =~ "Closing"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "passes insecure skip verify when opening a relay from device details", %{
       conn: conn,
       device_uid: device_uid,
@@ -4130,6 +4217,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert opts[:insecure_skip_verify] == true
     end
 
+    @tag :web_ng_shared_fixture_db
     test "refreshes relay session state from persisted relay session records", %{
       conn: conn,
       device_uid: device_uid,
@@ -4202,6 +4290,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert html =~ "Open Relay"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "does not regress a closing relay back to active from a stale refresh", %{
       conn: conn,
       device_uid: device_uid,
@@ -4636,6 +4725,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders MTR dashboard visuals on the device diagnostics tab", %{conn: conn} do
     uid = "test-device-mtr-dashboard-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
@@ -4724,6 +4814,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "0.0%"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "keeps device MTR summary pinned to the newest 50 traces while table shows page two", %{
     conn: conn
   } do
@@ -4822,6 +4913,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Unreachable"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows MTR tab on default device details when diagnostics exist", %{conn: conn} do
     uid = "test-device-mtr-tab-visible-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
@@ -4868,6 +4960,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Reached"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "loads MTR data when patching the same device to the mtr tab", %{conn: conn} do
     uid = "test-device-mtr-patch-#{System.unique_integer([:positive])}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
