@@ -228,6 +228,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
 
     search = socket.assigns.filters["search"] |> String.trim() |> String.downcase()
 
+    actor_id_missing? = is_nil(actor_id)
+    ip_missing? = is_nil(ip)
+    route_missing? = is_nil(route)
+    correlation_id_missing? = is_nil(correlation_id)
+
     query =
       if search == "" do
         query
@@ -235,11 +240,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
         Ash.Query.filter(
           query,
           expr(
-            contains(string_downcase(if is_nil(actor_id), "", actor_id), ^search) or
-              contains(string_downcase(if is_nil(ip), "", ip), ^search) or
-              contains(string_downcase(if is_nil(route), "", route), ^search) or
+            contains(
+              string_downcase(if actor_id_missing?, do: "", else: actor_id),
+              ^search
+            ) or
               contains(
-                string_downcase(if is_nil(correlation_id), "", correlation_id),
+                string_downcase(if ip_missing?, do: "", else: ip),
+                ^search
+              ) or
+              contains(
+                string_downcase(if route_missing?, do: "", else: route),
+                ^search
+              ) or
+              contains(
+                string_downcase(if correlation_id_missing?, do: "", else: correlation_id),
                 ^search
               )
           )
