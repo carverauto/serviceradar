@@ -1211,6 +1211,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     list_online_sessions()
     |> Enum.filter(fn session -> capability == nil or capability in session.capabilities end)
+    |> Enum.reject(&foreign_test_session?/1)
     |> Enum.each(fn %{agent_id: agent_id} ->
       case push_config(agent_id) do
         :ok ->
@@ -1225,6 +1226,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     :ok
   end
+
+  # Concurrent async tests share this registry and the app-wide ConfigCache but
+  # each own an isolated SQL sandbox. A test-support-registered control session
+  # carries its owning test's pid in `test_owner`; a broadcast config push from
+  # another test would compile this session's agent config inside the pushing
+  # test's sandbox and cache those fragments app-wide under this agent's key,
+  # which the owning test then reads back. Only the owning test — or its task
+  # children, via the `$callers` chain — may push to a test-owned session.
+  # Production sessions carry no test owner and are never filtered.
+  defp foreign_test_session?(%{metadata: %{test_owner: owner}}) when is_pid(owner) do
+    owner != self() and owner not in Process.get(:"$callers", [])
+  end
+
+  defp foreign_test_session?(_session), do: false
 
   defp maybe_put(map, _key, []), do: map
   defp maybe_put(map, _key, nil), do: map

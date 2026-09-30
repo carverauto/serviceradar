@@ -7,6 +7,7 @@ defmodule ServiceRadar.TestSupport do
   """
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.ProcessRegistry
 
   @sandbox_teardown_margin_ms 60_000
@@ -395,6 +396,59 @@ defmodule ServiceRadar.TestSupport do
       else
         reraise exception, __STACKTRACE__
       end
+  end
+
+  @doc """
+  Registers an agent control session in the app-wide ProcessRegistry scoped to
+  the calling test's sandbox.
+
+  Async integration tests share the ProcessRegistry and the app-wide
+  `ConfigCache` while each owning an isolated SQL sandbox. Registering through
+  this helper stamps the owning test process into the session metadata
+  (`test_owner`), so `AgentCommandBus.push_config_for_type/1` skips the session
+  when another concurrent test broadcasts a config push: such a push would
+  compile this session's agent config inside the pushing test's sandbox and
+  cache those fragments app-wide under this agent's key (issue #4816). The
+  calling process owns the registry entry, so it unregisters automatically
+  when that process exits.
+
+  Returns once the registration is visible through
+  `AgentCommandBus.resolve_control_session_evidence/3`.
+  """
+  def register_agent_control_session!(agent_uid, partition_id, opts \\ []) do
+    metadata = %{
+      agent_id: agent_uid,
+      partition_id: partition_id,
+      gateway_node: node(),
+      capabilities: Keyword.get(opts, :capabilities, ["wasm"]),
+      test_owner: self()
+    }
+
+    case ProcessRegistry.register(
+           {:agent_control, partition_id, agent_uid, node()},
+           metadata
+         ) do
+      {:ok, _pid} ->
+        await_agent_control_session!(agent_uid, partition_id, 40)
+
+      {:error, reason} ->
+        raise "failed to register test control session for #{agent_uid}: #{inspect(reason)}"
+    end
+  end
+
+  defp await_agent_control_session!(_agent_uid, _partition_id, 0) do
+    raise "test control-session partition did not converge"
+  end
+
+  defp await_agent_control_session!(agent_uid, partition_id, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
+      {:ok, %{agent_id: ^agent_uid, partition_id: ^partition_id}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        await_agent_control_session!(agent_uid, partition_id, attempts - 1)
+    end
   end
 
   @doc false

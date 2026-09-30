@@ -28,6 +28,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/credentials/plugin_integration_provisioner_store_db_test.exs",
     "test/serviceradar/credentials/secret_broker_external_resolution_db_test.exs",
     "test/serviceradar/edge/addon_config_contract_fixtures_test.exs",
+    "test/serviceradar/edge/agent_control_session_push_isolation_test.exs",
     "test/serviceradar/edge/agent_gateway_sync_config_ack_test.exs",
     "test/serviceradar/edge/remote_access_file_transfers_test.exs",
     "test/serviceradar/edge/remote_access_host_keys_test.exs",
