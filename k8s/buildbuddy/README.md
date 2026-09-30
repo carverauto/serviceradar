@@ -404,7 +404,7 @@ live there and are shared by every Bazel server on the pod; the third deliberate
 |---|---|---|---|
 | `--repository_cache` | `/bazel-cache/repo` | yes -- content-addressed, write-once | no -- bind mount, not the workspace |
 | `--repo_contents_cache` | `/bazel-cache/repo-contents` | yes -- file-locked (`gc_lock`) | no -- same mount |
-| `--disk_cache` | `/bazel-disk-cache` on each runner's rootfs | no -- one overlay per container | no -- outside the workspace bind |
+| `--disk_cache` | `/home/buildbuddy/bazel-disk-cache` on each runner's rootfs | no -- one overlay per container | no -- outside the workspace bind |
 
 The disk cache cannot be shared because one executor pod hosts several Bazel servers at
 once. Two concurrent 36GB runs fit its memory limits (the whole point of the 80Gi sizing),
@@ -419,19 +419,24 @@ PR with `(Exit 34): [unix_jni.cc:444] /bazel-cache/disk/ac/b4/<hash> (Permission
 `f525cc80-510b-49ab-80e0-fbc2579e7796` on `buildbuddy-workflows-...-25f5v`, 2026-09-27;
 executor logs showed a parked runner's server idle on the same cache for the entire run).
 
-`build:ci --disk_cache=/bazel-disk-cache` (`.bazelrc`) is an absolute path, a sibling of the
-`/bazel-cache` mount point, and not a bind of `/bazel-caches`. `~` does not do this. The
-workflow OCI spec sets no `HOME` (env is `PATH` and `HOSTNAME`; `DockerUser` is empty), so
-`ci_runner` `ensureHomeDir()` sets `HOME` to `/buildbuddy-execroot/.home` before Bazel, and
-Bazel expands `~` from `user.home`. That directory is inside the workspace bind.
-`Workspace.DiskUsageBytes` walks only that bind when deciding
-`max_runner_disk_size_bytes` (100GB in `values-workflows.yaml`), so a cache there is added to the checkout and the
-output base. GC does not trim it until the server has been idle for 5 minutes, and a recycled
-runner holding all three can be rejected with `max_disk_usage_exceeded`.
+`build:ci --disk_cache=/home/buildbuddy/bazel-disk-cache` (`.bazelrc`) is an absolute path on
+the runner rootfs, inside the home `useradd --create-home` already gave uid 1001, and not a
+bind of `/bazel-caches`. The runner is that user
+(`docker/images/Dockerfile.workflow-runner`). `/` is root:root 0755, so a directory created
+directly under `/` fails with the same Permission denied the init container exists to prevent
+on the shared mount. `~` does not work either. The workflow OCI spec sets no `HOME` (env is
+`PATH` and `HOSTNAME`), so `ci_runner` `ensureHomeDir()` sets `HOME` to
+`/buildbuddy-execroot/.home` before Bazel, and Bazel expands `~` from `user.home`. That
+directory is inside the workspace bind. `Workspace.DiskUsageBytes` walks only that bind when
+deciding `max_runner_disk_size_bytes` (100GB in `values-workflows.yaml`), so a cache there is
+added to the checkout and the output base. GC does not trim it until the server has been idle
+for 5 minutes, and a recycled runner holding all three can be rejected with
+`max_disk_usage_exceeded`.
 
-`/bazel-disk-cache` is on the runner rootfs. Each container's writable layer is its own overlay
-upperdir, `/cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper`, on the cache-workflows
-xfs (`/mnt/buildbuddy/cache-workflows`), the same disk as the workspace and the filecache, not
+`/home/buildbuddy/bazel-disk-cache` is on the runner rootfs. Each container's writable layer
+is its own overlay upperdir,
+`/cache/remotebuilds/executor/oci/run/<cid>/tmp/rootfs.upper`, on the cache-workflows xfs
+(`/mnt/buildbuddy/cache-workflows`), the same disk as the workspace and the filecache, not
 tmpfs. The filecache startup scan does not walk `remotebuilds` (it only scans group
 directories). The upperdir is outside `/buildbuddy-execroot`, so the 100GB recycle limit does
 not include the disk cache. The cache counts against that xfs disk instead, bounded per runner
@@ -439,7 +444,7 @@ by `--experimental_disk_cache_gc_max_size=50G`: two concurrent runners can hold 
 cache there, on top of workspaces that are measured separately. A recycled runner keeps the
 same container, so its cache stays warm; removing the runner deletes the bundle, and the cache
 with it. A fresh runner's missing action outputs come from the remote cache. Do not add an
-`oci.mounts` entry for `/bazel-disk-cache`: one shared directory is the Exit 34 race.
+`oci.mounts` entry for this path: one shared directory is the Exit 34 race.
 
 **No helm redeploy is required for the fix to take effect.** The runner reads `.bazelrc` from
 its per-run checkout, so the per-runner disk cache begins with the first run of the merged

@@ -150,8 +150,9 @@ extraVolumes:
   # (two concurrent runs plus every parked recycled runner's resident server), and Bazel's
   # per-server disk-cache GC races readers on a shared directory (Exit 34). It is also not
   # inside the runner workspace. `~` expands to /buildbuddy-execroot/.home, and that bind is
-  # what max_runner_disk_size_bytes measures. build:ci --disk_cache is the sibling path
-  # /bazel-disk-cache on each runner's own rootfs (overlay upperdir), outside that measurement.
+  # what max_runner_disk_size_bytes measures. build:ci --disk_cache is
+  # /home/buildbuddy/bazel-disk-cache on each runner's own rootfs (the home useradd
+  # --create-home already gave uid 1001), outside that measurement.
   # https://github.com/carverauto/serviceradar/issues/4863
   - name: bazel-cache-volume
     hostPath:
@@ -208,9 +209,9 @@ extraInitContainers:
         chown 1001:1001 /bazel-caches /bazel-caches/repo /bazel-caches/repo-contents
     # The two names are //.bazelrc `build:ci --{repository,repo_contents}_cache`. Nothing
     # checks the pairing: a rename there just makes Bazel create an unowned directory and
-    # fail. The disk cache is not created here. It is /bazel-disk-cache on each runner's
-    # rootfs, a sibling of the /bazel-cache mount and outside the workspace bind this volume
-    # is not part of (see the bazel-cache-volume note above).
+    # fail. The disk cache is not created here. It is /home/buildbuddy/bazel-disk-cache
+    # on each runner's rootfs, a directory uid 1001 already owns, outside the workspace
+    # bind this volume is not part of (see the bazel-cache-volume note above).
     volumeMounts:
       - name: bazel-cache-volume
         mountPath: /bazel-caches
@@ -295,8 +296,9 @@ config:
       # Default 16 GB. Workspace.DiskUsageBytes walks only the runner workspace bind. Inside the
       # container that bind is /buildbuddy-execroot: the repo checkout, the sibling output-base,
       # and .home. A single real build clears the old 16GB default on checkout + output-base
-      # alone. /bazel-disk-cache is not under that bind (it is on the runner rootfs, beside the
-      # /bazel-cache mount), so this 100GB does not include the disk cache. The cache's own bound
+      # alone. /home/buildbuddy/bazel-disk-cache is not under that bind (it is on the runner
+      # rootfs, in the home directory uid 1001 already owns), so this 100GB does not include
+      # the disk cache. The cache's own bound
       # is build:ci --experimental_disk_cache_gc_max_size=50G per runner, on the cache-workflows
       # xfs via the overlay. Capped rather than -1 because the workspace itself lands on the
       # node's /mnt/buildbuddy volume; DiskPressure on that disk is what originally cost a node,
@@ -326,9 +328,10 @@ config:
       # See ./values.yaml for why this is an explicit address rather than "".
       dns: "10.43.0.10"
 
-      # Shared repo caches only. The per-runner disk cache is /bazel-disk-cache, a sibling of
-      # this mount on the runner rootfs, not a second bind: one shared directory is the Exit 34
-      # GC race, and a path under the workspace bind is counted by max_runner_disk_size_bytes.
+      # Shared repo caches only. The per-runner disk cache is /home/buildbuddy/bazel-disk-cache
+      # on the runner rootfs, not a second bind: one shared directory is the Exit 34 GC race,
+      # and a path under the workspace bind is counted by max_runner_disk_size_bytes. uid 1001
+      # already owns that home; a directory directly under / is not creatable by the runner.
       mounts:
         # A dedicated path, NOT /root: mounting over the runner's home broke `git init`.
         - source: /bazel-caches
