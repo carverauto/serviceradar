@@ -7,7 +7,7 @@ use std::sync::Arc;
 use dgraph_topology::{CanonicalEdge, TopologyView};
 use rustler::NifMap;
 use serviceradar_topology_atlas::{
-    ALGORITHM, Cell, Device, Position, Relation, TopologyClass, WORLD_EXTENT, World, reconcile,
+    reconcile, Cell, Device, Position, Relation, TopologyClass, World, ALGORITHM, WORLD_EXTENT,
 };
 use sha2::{Digest, Sha256};
 

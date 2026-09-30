@@ -1083,7 +1083,10 @@ mod tests {
             assert_eq!(reader.next().unwrap().unwrap().num_rows(), limit + 2);
             let mut overflow = scene();
             overflow.edges = vec![overflow.edges[0].clone(); limit + 1];
-            assert_eq!(encode_scene_ipc(overflow, metadata), Err("scene_budget_exceeded"));
+            assert_eq!(
+                encode_scene_ipc(overflow, metadata),
+                Err("scene_budget_exceeded")
+            );
         }
         let mut invalid = scene();
         invalid.edges[0].1 = 2;

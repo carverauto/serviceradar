@@ -174,7 +174,11 @@ fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
     // readable here, long before the legacy absolute endpoint zoom of eight.
     let fitted = world.tile(center.component, Budget::default()).unwrap();
     assert_eq!(
-        fitted.glyphs.iter().filter(|g| g.kind == GlyphKind::Device).count(),
+        fitted
+            .glyphs
+            .iter()
+            .filter(|g| g.kind == GlyphKind::Device)
+            .count(),
         points.len(),
         "readable radial leaves must not remain count-of-a-few aggregates"
     );
@@ -319,9 +323,7 @@ fn invented_million_device_hierarchy_and_one_percent_growth() {
     );
     let started = Instant::now();
     let budget = Budget::default();
-    let overview = indexed
-        .tile(Cell::new(0, 0, 0).unwrap(), budget)
-        .unwrap();
+    let overview = indexed.tile(Cell::new(0, 0, 0).unwrap(), budget).unwrap();
     assert_eq!(overview.device_count, COUNT as u64);
     assert!(overview.glyphs.len() <= budget.nodes && overview.edges.len() <= budget.edges);
     eprintln!(

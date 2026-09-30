@@ -608,7 +608,10 @@ impl TopologyClient {
     /// # Errors
     ///
     /// As [`Self::query_canonical_edges`].
-    pub async fn query_topology_view(&self, stale_cutoff: &str) -> Result<TopologyView, TopologyError> {
+    pub async fn query_topology_view(
+        &self,
+        stale_cutoff: &str,
+    ) -> Result<TopologyView, TopologyError> {
         crate::canonical_read::view(&self.client, stale_cutoff).await
     }
 

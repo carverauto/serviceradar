@@ -630,11 +630,10 @@ fn physical_forest_wins_over_an_inferred_shortcut() {
             .tile_relations(&tile.selection, None, 256)
             .unwrap();
         assert!(page.next.is_none());
-        assert!(
-            page.relations
-                .iter()
-                .all(|row| row.relation_id.starts_with("physical-"))
-        );
+        assert!(page
+            .relations
+            .iter()
+            .all(|row| row.relation_id.starts_with("physical-")));
     }
     let edges: Vec<_> = ids
         .iter()
@@ -670,9 +669,7 @@ fn physical_forest_wins_over_an_inferred_shortcut() {
     assert!(edges.iter().any(|edge| edge.id == "physical-ra"
         && edge.topology_class == TopologyClass::Backbone
         && edge.count == 1));
-    assert!(
-        edges
-            .iter()
-            .all(|edge| edge.topology_class == TopologyClass::Backbone)
-    );
+    assert!(edges
+        .iter()
+        .all(|edge| edge.topology_class == TopologyClass::Backbone));
 }

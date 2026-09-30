@@ -14,7 +14,7 @@ describe("world telemetry polling", () => {
     const full = {...sample(1), flow: {edges: Array.from({length: 512}, (_, index) => ({id: `bundle:${index}`}))}}
     const oversized = {...sample(0), flow: {edges: [...full.flow.edges, {id: "bundle:overflow"}]}}
     const fetcher = vi.fn().mockResolvedValueOnce(Response.json(full)).mockResolvedValueOnce(Response.json(sample(0)))
-      .mockResolvedValueOnce(Response.json(oversized)).mockResolvedValueOnce(new Response(null, {status: 503}))
+      .mockResolvedValueOnce(globalThis.Response.json(oversized)).mockResolvedValueOnce(new Response(null, {status: 503}))
     vi.stubGlobal("fetch", fetcher)
     const overlays = store()
     overlays.setVisible([geometry])

@@ -620,15 +620,24 @@ fn bundle_identity_survives_unrelated_row_insertions() {
 fn mixed_class_corner_routes_fit_the_production_budget() {
     let cell = Cell::new(2, 1, 1).unwrap();
     let half = i64::from(cell.width()) / 2;
-    let perimeter: [(i64, i64); 8] = [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1)];
+    let perimeter: [(i64, i64); 8] = [
+        (0, 0),
+        (1, 0),
+        (2, 0),
+        (2, 1),
+        (2, 2),
+        (1, 2),
+        (0, 2),
+        (0, 1),
+    ];
     let mut routes = Vec::new();
     for &a in &perimeter {
         for &b in &perimeter {
             if a == b {
                 continue;
             }
-            let same_side = (a.0 == b.0 && (a.0 == 0 || a.0 == 2))
-                || (a.1 == b.1 && (a.1 == 0 || a.1 == 2));
+            let same_side =
+                (a.0 == b.0 && (a.0 == 0 || a.0 == 2)) || (a.1 == b.1 && (a.1 == 0 || a.1 == 2));
             let owned_full_side = (a.0 == 0 && b.0 == 0 && (a.1 - b.1).abs() == 2)
                 || (a.1 == 0 && b.1 == 0 && (a.0 - b.0).abs() == 2);
             if !same_side || owned_full_side {
@@ -639,8 +648,14 @@ fn mixed_class_corner_routes_fit_the_production_budget() {
         routes.push((a, (1, 1), false, true));
     }
     assert_eq!(routes.len(), 52);
-    let classes = [TopologyClass::Backbone, TopologyClass::Logical, TopologyClass::Hosted,
-        TopologyClass::Endpoints, TopologyClass::Inferred, TopologyClass::Unknown];
+    let classes = [
+        TopologyClass::Backbone,
+        TopologyClass::Logical,
+        TopologyClass::Hosted,
+        TopologyClass::Endpoints,
+        TopologyClass::Inferred,
+        TopologyClass::Unknown,
+    ];
     let mut points = Vec::new();
     let mut identities = std::collections::BTreeMap::new();
     let mut relations = Vec::new();
@@ -663,34 +678,62 @@ fn mixed_class_corner_routes_fit_the_production_budget() {
         }
     }
     let world = World::new_classified("mixed-corners".into(), 8, points, relations, |relation| {
-        classes.into_iter().find(|class| relation.id.starts_with(class.as_str())).unwrap()
-    }).unwrap();
+        classes
+            .into_iter()
+            .find(|class| relation.id.starts_with(class.as_str()))
+            .unwrap()
+    })
+    .unwrap();
     let tile = world.tile(cell, Budget::default()).unwrap();
     assert!(tile.glyphs.len() <= 128 && tile.edges.len() <= 512);
     assert_eq!(tile.device_count, 1);
     // All 52 geometrically possible directed routes retain five known classes and unknown.
     assert_eq!(tile.edges.len(), 312);
-    assert_eq!(tile.edges.iter().map(|edge| edge.count).sum::<u64>() + tile.internal_relations, 312);
-    assert_eq!(tile.edges.iter().map(|edge| edge.topology_class).collect::<BTreeSet<_>>(),
-        classes.into_iter().collect());
+    assert_eq!(
+        tile.edges.iter().map(|edge| edge.count).sum::<u64>() + tile.internal_relations,
+        312
+    );
+    assert_eq!(
+        tile.edges
+            .iter()
+            .map(|edge| edge.topology_class)
+            .collect::<BTreeSet<_>>(),
+        classes.into_iter().collect()
+    );
     let selected_routes = |tile: &serviceradar_topology_atlas::Tile| {
         let mut cursor = None;
         let mut selected = std::collections::BTreeMap::new();
         loop {
-            let page = world.tile_relations(&tile.selection, cursor.as_ref(), 64).unwrap();
+            let page = world
+                .tile_relations(&tile.selection, cursor.as_ref(), 64)
+                .unwrap();
             for row in page.relations {
-                let rendered = tile.edges.iter().find(|edge| edge.id == row.rendered_edge_id).unwrap();
-                assert!(row.relation_id.starts_with(rendered.topology_class.as_str()));
+                let rendered = tile
+                    .edges
+                    .iter()
+                    .find(|edge| edge.id == row.rendered_edge_id)
+                    .unwrap();
+                assert!(
+                    row.relation_id
+                        .starts_with(rendered.topology_class.as_str())
+                );
                 let from = &tile.glyphs[rendered.source as usize];
                 let to = &tile.glyphs[rendered.target as usize];
-                assert!(selected.insert(row.relation_id, ((from.x, from.y), (to.x, to.y))).is_none());
+                assert!(
+                    selected
+                        .insert(row.relation_id, ((from.x, from.y), (to.x, to.y)))
+                        .is_none()
+                );
             }
             match page.next {
                 Some(next) => cursor = Some(next),
                 None => break,
             }
         }
-        assert_eq!(selected.len() as u64, tile.edges.iter().map(|edge| edge.count).sum::<u64>());
+        assert_eq!(
+            selected.len() as u64,
+            tile.edges.iter().map(|edge| edge.count).sum::<u64>()
+        );
         selected
     };
     let selected = selected_routes(&tile);
@@ -698,37 +741,74 @@ fn mixed_class_corner_routes_fit_the_production_budget() {
     for (route, (a, b, _, _)) in routes.iter().enumerate() {
         for class in classes {
             let id = format!("{}/{route}", class.as_str());
-            let point = |p: &(i64, i64)| ((2 * half + p.0 * half) as f64, (2 * half + p.1 * half) as f64);
+            let point = |p: &(i64, i64)| {
+                (
+                    (2 * half + p.0 * half) as f64,
+                    (2 * half + p.1 * half) as f64,
+                )
+            };
             assert_eq!(selected[&id], (point(a), point(b)), "exact route for {id}");
         }
     }
-    let compact = world.tile_with_routing_budget(cell, Budget { nodes: 9, edges: 512 },
-        TileProfile::AggregateOnly, Budget::default()).unwrap();
+    let compact = world
+        .tile_with_routing_budget(
+            cell,
+            Budget {
+                nodes: 9,
+                edges: 512,
+            },
+            TileProfile::AggregateOnly,
+            Budget::default(),
+        )
+        .unwrap();
     let compact_routes = selected_routes(&compact);
-    assert_eq!(selected.keys().collect::<Vec<_>>(), compact_routes.keys().collect::<Vec<_>>());
+    assert_eq!(
+        selected.keys().collect::<Vec<_>>(),
+        compact_routes.keys().collect::<Vec<_>>()
+    );
     for (id, &(from, to)) in &selected {
         for (point, compact_point) in [(from, compact_routes[id].0), (to, compact_routes[id].1)] {
-            if point.0 == (2 * half) as f64 || point.0 == (4 * half) as f64
-                || point.1 == (2 * half) as f64 || point.1 == (4 * half) as f64
+            if point.0 == (2 * half) as f64
+                || point.0 == (4 * half) as f64
+                || point.1 == (2 * half) as f64
+                || point.1 == (4 * half) as f64
             {
-                assert_eq!(point, compact_point, "encoding retries retain shared portals");
+                assert_eq!(
+                    point, compact_point,
+                    "encoding retries retain shared portals"
+                );
             }
         }
     }
     for (a, b, x, y) in [
-        ((0, 1), (2, 1), 0, 1), ((2, 1), (0, 1), 2, 1),
-        ((1, 0), (1, 2), 1, 0), ((1, 2), (1, 0), 1, 2),
-        ((0, 0), (2, 2), 0, 0), ((2, 0), (0, 2), 2, 0),
-        ((0, 2), (2, 0), 0, 2), ((2, 2), (0, 0), 2, 2),
+        ((0, 1), (2, 1), 0, 1),
+        ((2, 1), (0, 1), 2, 1),
+        ((1, 0), (1, 2), 1, 0),
+        ((1, 2), (1, 0), 1, 2),
+        ((0, 0), (2, 2), 0, 0),
+        ((2, 0), (0, 2), 2, 0),
+        ((0, 2), (2, 0), 0, 2),
+        ((2, 2), (0, 0), 2, 2),
     ] {
-        let route = routes.iter().position(|&(from, to, _, _)| from == a && to == b).unwrap();
-        let neighbor = world.tile(Cell::new(2, x, y).unwrap(), Budget::default()).unwrap();
+        let route = routes
+            .iter()
+            .position(|&(from, to, _, _)| from == a && to == b)
+            .unwrap();
+        let neighbor = world
+            .tile(Cell::new(2, x, y).unwrap(), Budget::default())
+            .unwrap();
         let adjacent = selected_routes(&neighbor);
         for class in classes {
             let id = format!("{}/{route}", class.as_str());
             assert_eq!(selected[&id].0, adjacent[&id].1, "shared crossing for {id}");
-            let canonical = ((2 * half + a.0 * half) as f64, (2 * half + a.1 * half) as f64);
-            assert_eq!(selected[&id].0, canonical, "capacity must preserve exact shared crossings");
+            let canonical = (
+                (2 * half + a.0 * half) as f64,
+                (2 * half + a.1 * half) as f64,
+            );
+            assert_eq!(
+                selected[&id].0, canonical,
+                "capacity must preserve exact shared crossings"
+            );
         }
     }
 }
