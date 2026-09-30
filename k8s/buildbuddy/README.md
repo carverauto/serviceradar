@@ -394,6 +394,58 @@ steps failing.
 
 Full reachability matrix and the fixture-credential design: `../../openspec/notes/archive/bazel-bb-ci.md`.
 
+### The runner's Bazel caches: what is shared, and what must not be
+
+Every workflow runner bind-mounts the executor's `/bazel-caches` volume as `/bazel-cache`
+(the `oci.mounts` entry in `values-workflows.yaml`). Two of the Bazel client's three caches
+live there and are shared by every Bazel server on the pod; the third deliberately does not:
+
+| cache | location | shared across runners? |
+|---|---|---|
+| `--repository_cache` | `/bazel-cache/repo` | yes -- content-addressed, write-once |
+| `--repo_contents_cache` | `/bazel-cache/repo-contents` | yes -- file-locked (`gc_lock`) |
+| `--disk_cache` | `~/.cache/...` inside each runner container | no -- one per Bazel server |
+
+The disk cache cannot be shared because one executor pod hosts several Bazel servers at
+once. Two concurrent 36GB runs fit its memory limits (the whole point of the 80Gi sizing),
+and every parked recycled runner keeps a resident Bazel server (`startup --max_idle_secs=0`),
+idle but alive until its next task or eviction. With `--experimental_disk_cache_gc_max_size`
+set, **each** of those servers runs its own disk-cache GC as an idle task after
+`--experimental_disk_cache_gc_idle_delay` (5m default). The GC serializes only against other
+GC passes (`<cache>/gc/lock`); readers take no lock -- so one server's background deletions
+raced another server's reads on the shared directory and failed BazelCI on a Markdown-only
+PR with `(Exit 34): [unix_jni.cc:444] /bazel-cache/disk/ac/b4/<hash> (Permission denied)`
+(https://github.com/carverauto/serviceradar/issues/4863, invocation
+`f525cc80-510b-49ab-80e0-fbc2579e7796` on `buildbuddy-workflows-...-25f5v`, 2026-09-27;
+executor logs showed a parked runner's server idle on the same cache for the entire run).
+
+The per-runner `~` path (`.bazelrc` `build:ci`) puts each server's disk cache inside its own
+runner container's filesystem -- an overlay upperdir under
+`/cache/remotebuilds/executor/oci/run/<id>/` on the same xfs disk as the shared caches, not
+tmpfs, and reclaimed with the runner when it is evicted (measured: exactly one live runner
+bundle on the executor, so dead runners do not leak cache space). A recycled runner keeps
+its cache warm across its own runs; a fresh runner's missing action outputs come from the
+remote cache. `--experimental_disk_cache_gc_max_size=50G` is per runner: the two concurrent
+runners an executor hosts match the 100G pod ceiling the old shared cap enforced.
+
+**No helm redeploy is required for the fix to take effect.** The runner reads `.bazelrc` from
+its per-run checkout, so the per-runner disk cache begins with the first run of the merged
+commit. The `values-workflows.yaml` change (the init container stops creating
+`/bazel-caches/disk`) is hygiene and lands with the next executor rollout; until then the
+extra directory is harmless -- the init container chowns the `/bazel-caches` parent, so a
+pre-fix checkout that still asks for `/bazel-cache/disk` can create it.
+
+**farm01 is unaffected.** Its three workflow replicas (56Gi limits, ~46Gi assignable) each
+fit only one 36GB run, so the two-active-runs case never occurs there -- but they park
+recycled runners exactly the same way, so the idle-GC race was latent on farm01 too and the
+same per-runner cache closes it. No farm01 values change is needed.
+
+**Reclaiming the old shared disk cache.** The stale host directories
+`/mnt/buildbuddy/bazel-caches-workflows/disk` (~22G when retired; plus
+`bazel-caches-workflows-2/disk` on the second release's node, and the matching dirs on
+farm01's nodes) can be removed by hand on each node once the change has rolled out. Nothing
+reads them anymore.
+
 ## Cache proxy
 
 Three `bb-cache-proxy-buildbuddy-enterprise-cache-proxy-{0,1,2}` pods run the

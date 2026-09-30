@@ -144,8 +144,13 @@ extraVolumes:
       # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
       path: /mnt/buildbuddy/cache-workflows
       type: DirectoryOrCreate
-  # Bazel client caches (disk, repository, repo contents). Its own volume so a fresh runner
-  # starts warm, and so the 100 GB of small files are not walked by the filecache startup scan.
+  # Bazel client REPO caches (repository, repo contents). Its own volume so a fresh runner
+  # starts warm, and so the small files are not walked by the filecache startup scan. The
+  # client DISK cache is deliberately NOT here: several Bazel servers share one executor pod
+  # (two concurrent runs plus every parked recycled runner's resident server), and Bazel's
+  # per-server disk-cache GC races readers on a shared directory (Exit 34). The disk cache
+  # therefore lives inside each runner container's own filesystem -- see //.bazelrc
+  # `build:ci --disk_cache`. https://github.com/carverauto/serviceradar/issues/4863
   - name: bazel-cache-volume
     hostPath:
       path: /mnt/buildbuddy/bazel-caches-workflows
@@ -175,11 +180,14 @@ extraVolumeMounts:
 #   ERROR: [unix_jni.cc:471] /bazel-cache/disk (Permission denied)
 #   ERROR: could not acquire lock on repo contents cache
 #
-# This is also what broke `git init` when the same volume was mounted at /root. The destination
-# path was never the problem; the ownership was, and moving the mount only moved the symptom.
+# That first error is from before the disk cache moved off this volume (issue 4863 above); it
+# is kept as the recorded symptom of the ownership problem, which is unchanged for the two
+# directories that remain. This ownership is also what broke `git init` when this volume was
+# mounted at /root: the destination path was never the problem, and moving the mount only
+# moved the symptom.
 #
-# Non-recursive on purpose: everything under these three directories is written by uid 1001
-# already, so a `chown -R` would walk a 100 GB cache on every pod start for nothing.
+# Non-recursive on purpose: everything under these directories is written by uid 1001
+# already, so a `chown -R` would walk a multi-gigabyte cache on every pod start for nothing.
 extraInitContainers:
   - name: bazel-cache-perms
     # The executor's own image: already on the node under imagePullPolicy IfNotPresent, so this
@@ -194,10 +202,12 @@ extraInitContainers:
       - -c
       - |
         set -eu
-        mkdir -p /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
-        chown 1001:1001 /bazel-caches /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
-    # The three names are //.bazelrc `build:ci --{disk,repository,repo_contents}_cache`. Nothing
-    # checks the pairing: a rename there just makes Bazel create an unowned directory and fail.
+        mkdir -p /bazel-caches/repo /bazel-caches/repo-contents
+        chown 1001:1001 /bazel-caches /bazel-caches/repo /bazel-caches/repo-contents
+    # The two names are //.bazelrc `build:ci --{repository,repo_contents}_cache`. Nothing
+    # checks the pairing: a rename there just makes Bazel create an unowned directory and
+    # fail. The disk cache is no longer created here -- it lives in each runner container's
+    # own filesystem (see the bazel-cache-volume note above).
     volumeMounts:
       - name: bazel-cache-volume
         mountPath: /bazel-caches
