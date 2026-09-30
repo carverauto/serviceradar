@@ -17,9 +17,12 @@ dashboard consumer:
 srql_module.query(query, %{scope: scope, limit: limit})
 ```
 
-`limit` is clamped (`frame_runner.ex` `@max_frame_limit`). `cursor` is not
-passed. `pagination` from the SRQL response is copied onto the frame and
-ignored by every renderer, including the SDK.
+`limit` is no longer clamped; `@max_frame_limit` was removed by
+`fix/dashboard-frame-runner-pagination`, which replaced the cap with
+transparent server-side auto-pagination (`collect_json_pages`, `@max_page_size
+2_000`). `cursor` is not passed for auto-pagination frames; an explicit cursor
+in the frame map triggers single-page mode. `pagination` from the SRQL response
+is copied onto the frame and ignored by every renderer, including the SDK.
 
 `plan.stats` is populated by the parser for
 `in:composite_results stats:count() as n by verdict`. `build_query/1` never
@@ -235,7 +238,8 @@ Stats queries do not mint a `next_cursor` unless the group count hits
   may want a later expression index; do not add one speculatively.
 - **Channel still refreshes every 15s.** Stats frames are cheap; a 200-row
   page is cheap. Leave the interval alone in this change. A package that
-  still declares a 2_000-row unfiltered frame is unchanged.
+  still declares a 2_000-row unfiltered frame will now auto-paginate through
+  all matching rows (server-side, transparent) rather than stopping at 2_000.
 - **SDK version.** `page` is additive. Publish a minor of
   `@carverauto/serviceradar-dashboard-sdk`. Old packages keep working;
   they just cannot page.
@@ -251,8 +255,8 @@ Stats queries do not mint a `next_cursor` unless the group count hits
    the SDK (`typeof api.srql.page === "function"`).
 3. Publish SDK minor.
 4. Customer packages (Armis dashboard) switch frames in their own
-   repo. Until they do, they keep seeing the ceiling banner on hosts that
-   still clamp at 2_000.
+   repo. The server-side row cap is already removed; unupdated packages now
+   auto-paginate rather than see a ceiling banner.
 
 Rollback: revert the SRQL stats commit and stats queries start failing
 (better than silently dumping rows). Revert the page API and packages
