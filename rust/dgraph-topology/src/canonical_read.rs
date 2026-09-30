@@ -48,8 +48,8 @@ const EDGES: QueryBlock = QueryBlock {
 const VIEW_EDGES: QueryBlock = QueryBlock {
     name: "edges",
     kind: "TopologyEdge",
-    filter: r#"(eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "ATTACHED_TO") OR eq(topo.kind, "INFERRED_TO") OR eq(topo.kind, "HOSTED_ON")) AND NOT eq(topo.stale, true)"#,
-    fields: "topo.kind topo.last_seen topo.link_key topo.protocol topo.evidence_class topo.confidence_tier
+    filter: r#"(eq(topo.kind, "CANONICAL_TOPOLOGY") AND NOT eq(topo.stale, true)) OR eq(topo.kind, "ATTACHED_TO") OR eq(topo.kind, "INFERRED_TO") OR eq(topo.kind, "HOSTED_ON")"#,
+    fields: "topo.kind topo.stale topo.last_seen topo.link_key topo.protocol topo.evidence_class topo.confidence_tier
       topo.flow_pps_ab topo.flow_pps_ba topo.flow_bps_ab topo.flow_bps_ba
       topo.capacity_bps topo.telemetry_eligible topo.if_index_ab topo.if_index_ba
       topo.if_name_ab topo.if_name_ba topo.mutation_id topo.pair_support_rank

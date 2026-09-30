@@ -395,21 +395,38 @@ impl TopologyClient {
         self.upsert_edge(edge).await
     }
 
-    /// Delete edges of the given `kinds` whose `topo.last_seen` is older than
-    /// `cutoff` (RFC3339). The caller owns both the cutoff and the kind set,
-    /// because each AGE prune statement deletes a different set of relationship
-    /// types on its own schedule.
+    /// Age edges of the given `kinds` whose `topo.last_seen` is older than
+    /// `cutoff` (RFC3339). The caller owns both the cutoff and the kind set.
+    ///
+    /// `ATTACHED_TO`, `HOSTED_ON`, and `INFERRED_TO` stay on their existing
+    /// `topo.link_key` with `topo.stale` set. Every other kind, including
+    /// `CANONICAL_TOPOLOGY` and `MTR_PATH`, is deleted. A later upsert of the
+    /// same key clears `topo.stale`. An explicit delete removes the row, so
+    /// absence is not turned back into evidence.
     ///
     /// # Errors
     ///
-    /// Returns [`TopologyError`] if the query or delete fails.
+    /// Returns [`TopologyError`] if the query or mutation fails.
     pub async fn prune_stale(
         &self,
         cutoff: &str,
         kinds: &[String],
     ) -> Result<usize, TopologyError> {
+        let (retain, remove): (Vec<&String>, Vec<&String>) = kinds
+            .iter()
+            .partition(|kind| matches!(kind.as_str(), "ATTACHED_TO" | "HOSTED_ON" | "INFERRED_TO"));
+        let marked = self.mark_aged_edges(cutoff, &retain).await?;
+        let deleted = self.delete_aged_edges(cutoff, &remove).await?;
+        Ok(marked + deleted)
+    }
+
+    async fn aged_edges(
+        &self,
+        cutoff: &str,
+        kinds: &[&String],
+    ) -> Result<Vec<UidRow>, TopologyError> {
         if kinds.is_empty() {
-            return Ok(0);
+            return Ok(Vec::new());
         }
         let cutoff_q = dql_string(cutoff)?;
         let mut kind_filters = Vec::with_capacity(kinds.len());
@@ -426,14 +443,45 @@ impl TopologyClient {
 }}"
         );
         let parsed: StaleQuery = self.query(&query).await?;
-        if parsed.stale.is_empty() {
+        Ok(parsed.stale)
+    }
+
+    async fn mark_aged_edges(
+        &self,
+        cutoff: &str,
+        kinds: &[&String],
+    ) -> Result<usize, TopologyError> {
+        let rows = self.aged_edges(cutoff, kinds).await?;
+        if rows.is_empty() {
             return Ok(0);
         }
-        let delete: Vec<Value> = parsed
-            .stale
+        let set: Vec<Value> = rows
             .iter()
-            .map(|row| json!({ "uid": row.uid }))
+            .map(|row| json!({ "uid": row.uid, "topo.stale": true }))
             .collect();
+        let mut txn = self.client.new_txn();
+        let mutation = Mutation::new().set_json(
+            serde_json::to_vec(&set).map_err(|err| TopologyError::Serde(err.to_string()))?,
+        );
+        txn.mutate(mutation)
+            .await
+            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
+        txn.commit()
+            .await
+            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
+        Ok(rows.len())
+    }
+
+    async fn delete_aged_edges(
+        &self,
+        cutoff: &str,
+        kinds: &[&String],
+    ) -> Result<usize, TopologyError> {
+        let rows = self.aged_edges(cutoff, kinds).await?;
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let delete: Vec<Value> = rows.iter().map(|row| json!({ "uid": row.uid })).collect();
         let mut txn = self.client.new_txn();
         let mutation = Mutation::new().delete_json(
             serde_json::to_vec(&delete).map_err(|err| TopologyError::Serde(err.to_string()))?,
@@ -444,7 +492,7 @@ impl TopologyClient {
         txn.commit()
             .await
             .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
-        Ok(parsed.stale.len())
+        Ok(rows.len())
     }
 
     /// Upsert the provided canonical edges, then delete canonical edges whose
@@ -601,9 +649,10 @@ impl TopologyClient {
 
     /// Read devices and admitted topology-view edges from one read-only snapshot.
     ///
-    /// The view is the canonical backbone plus fresh `ATTACHED_TO`, `INFERRED_TO`,
-    /// and `HOSTED_ON` edges. Observations and other kinds stay out. Traversal
-    /// consumers keep [`Self::query_canonical_graph`].
+    /// The view is the current canonical backbone plus `ATTACHED_TO`,
+    /// `INFERRED_TO`, and `HOSTED_ON` edges, including last-known stale rows.
+    /// Observations and other kinds stay out. Traversal consumers keep
+    /// [`Self::query_canonical_graph`], which remains current backbone only.
     ///
     /// # Errors
     ///
@@ -719,6 +768,8 @@ impl EndpointId {
 pub(crate) struct CanonicalEdgeRow {
     #[serde(default, rename = "topo.last_seen")]
     last_seen: String,
+    #[serde(default, rename = "topo.stale")]
+    stale: bool,
     #[serde(default, rename = "topo.link_key")]
     link_key: String,
     #[serde(default, rename = "topo.kind")]
@@ -797,17 +848,17 @@ impl CanonicalEdgeRow {
         ) {
             return None;
         }
-        if self.kind != "CANONICAL_TOPOLOGY"
-            && !chrono::DateTime::parse_from_rfc3339(&self.last_seen)
-                .is_ok_and(|last_seen| last_seen >= stale_cutoff)
-        {
+        let canonical = self.kind == "CANONICAL_TOPOLOGY";
+        if canonical && self.stale {
             return None;
         }
+        let current = chrono::DateTime::parse_from_rfc3339(&self.last_seen)
+            .is_ok_and(|last_seen| last_seen >= stale_cutoff);
+        // Canonical rows ignore the cutoff. Attachment rows past the cutoff, or
+        // already marked, stay in the view as last-known evidence.
+        let stale = !canonical && (self.stale || !current);
         let kind = self.kind.clone();
-        Some(crate::types::NeighbourhoodEdge::new(
-            kind,
-            self.into_edge()?,
-        ))
+        Some(crate::types::NeighbourhoodEdge::new(kind, self.into_edge()?).with_stale(stale))
     }
 
     fn into_neighbourhood(self) -> Option<crate::types::NeighbourhoodEdge> {

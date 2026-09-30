@@ -8,6 +8,7 @@ import {WorldTileCache} from "./world_tile_cache"
 import {WorldOverlays} from "./world_overlays"
 import WorldTileLayer from "./world_tile_layer"
 import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode"
+import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
 import {readBoundedBody, worldJson} from "./world_http"
 import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
 
@@ -18,6 +19,11 @@ function element(tag, className, text) {
   node.className = className
   if (text) node.textContent = text
   return node
+}
+
+function selectionTitle(object) {
+  const title = object.label || `${object.count.toLocaleString()} relations`
+  return object.stale ? `${title} · last known` : title
 }
 
 /** The persistent world camera owns bounded ELK scenes and returns to its retained tiles. */
@@ -107,7 +113,7 @@ export default class WorldMapRenderer {
         this.setView(viewState)
       },
       onClick: info => {if (info.object) void this.pick(info); else this.dismissPanel()},
-      getTooltip: info => info.object ? {text: info.object.label || `${info.object.count.toLocaleString()} relations`} : null,
+      getTooltip: info => info.object ? {text: selectionTitle(info.object)} : null,
     })
     this.resize = new ResizeObserver(() => {
       const width = this.el.clientWidth
@@ -147,10 +153,16 @@ export default class WorldMapRenderer {
     this.handleEvent("god_view:set_zoom_mode", ({mode}) => {
       if (this.detailRenderer) return this.detailHandlers.get("god_view:set_zoom_mode")?.({mode})
       const zoom = {global: 0, regional: 4, local: 10, auto: this.overviewView().zoom}[mode]
-      if (zoom !== undefined) this.setView({...this.viewState, zoom: Math.min(this.cache.manifest?.zmax ?? 16, zoom)})
+      if (zoom === undefined) return
+      this.setZoomMode(mode)
+      this.setView({...this.viewState, zoom: Math.min(this.cache.manifest?.zmax ?? 16, zoom)})
     })
     this.timer = setInterval(() => void this.poll(), 5000)
     await this.poll()
+  }
+
+  setZoomMode(mode) {
+    this.zoomMode = mode
   }
 
   setSceneControl(name, payload) {
@@ -380,13 +392,23 @@ export default class WorldMapRenderer {
     }
     const manifest = this.cache.manifest
     this.status(`${manifest.node_count.toLocaleString()} devices · ${tiles.length} visible tiles`)
-    this.pushEvent("god_view_stream_stats", {
+    const payload = {
       schema_version: 3, revision: manifest.generation, node_count: manifest.node_count, edge_count: manifest.relation_count,
       rendered_node_count: geometries.reduce((sum, tile) => sum + tile.nodes.length, 0),
       rendered_edge_count: geometries.reduce((sum, tile) => sum + tile.edges.length, 0),
       bytes: geometries.reduce((sum, tile) => sum + tile.byteLength, 0), renderer_mode: this.deviceType,
-      generated_at: new Date().toISOString(), zoom_mode: "auto", zoom_tier: "local",
-    })
+    }
+    if (typeof manifest.generated_at === "string") payload.generated_at = manifest.generated_at
+    const stats = {}
+    if (manifest.pipeline_stats && typeof manifest.pipeline_stats === "object") {
+      for (const [key, value] of Object.entries(manifest.pipeline_stats)) {
+        if (Number.isInteger(value)) stats[key] = value
+      }
+    }
+    if (Object.keys(stats).length > 0) payload.pipeline_stats = stats
+    if (typeof this.viewState?.zoom === "number") payload.zoom_tier = godViewLayoutClusterMethods.resolveZoomTier(this.viewState.zoom)
+    if (this.zoomMode) payload.zoom_mode = this.zoomMode
+    this.pushEvent("god_view_stream_stats", payload)
   }
 
   render() {
@@ -454,7 +476,7 @@ export default class WorldMapRenderer {
     this.selection?.abort()
     const selection = new globalThis.AbortController()
     this.selection = selection
-    this.openPanel(element("div", "font-semibold", object.label || `${object.count.toLocaleString()} relations`))
+    this.openPanel(element("div", "font-semibold", selectionTitle(object)))
     try {
       const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
       if (selection.signal.aborted || this.destroyed) return

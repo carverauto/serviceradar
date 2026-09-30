@@ -1,6 +1,6 @@
 ## ADDED Requirements
 ### Requirement: Canonical atlas acquisition uses bounded consistent source pages
-The topology read model SHALL acquire Dgraph Device vertices and admitted topology-view relations through bounded pages in one read-only transaction. The view SHALL include the canonical backbone plus fresh, non-stale `ATTACHED_TO`, `INFERRED_TO` and `HOSTED_ON` evidence already admitted by projection, preserving relation kind and evidence class. Canonical telemetry eligibility SHALL survive persistence; non-canonical view relations and old rows without eligibility SHALL remain telemetry-ineligible. The canonical graph API used by traversal consumers SHALL remain backbone-only. Source acquisition SHALL enforce transport limits independently of the tile and bounded-detail budgets used for inventory enrichment and client delivery.
+The topology read model SHALL acquire Dgraph Device vertices and admitted topology-view relations through bounded pages in one read-only transaction. The view SHALL include the current canonical backbone plus `ATTACHED_TO`, `INFERRED_TO`, and `HOSTED_ON` evidence whether that evidence is fresh or last-known stale, preserving relation kind and evidence class. Freshness is independent of topology class. Stale evidence is not current packet traffic. Canonical telemetry eligibility SHALL survive for current canonical rows; stale rows, non-canonical view relations, and old rows without eligibility SHALL remain telemetry-ineligible. The canonical graph API used by traversal consumers SHALL remain backbone-only and current-only. Source acquisition SHALL enforce transport limits independently of the tile and bounded-detail budgets used for inventory enrichment and client delivery.
 
 #### Scenario: Canonical source exceeds one transport response
 - **GIVEN** the complete canonical vertex or relation set exceeds one permitted gRPC response
@@ -8,6 +8,15 @@ The topology read model SHALL acquire Dgraph Device vertices and admitted topolo
 - **THEN** it SHALL retrieve UID-ordered pages with a validated advancing cursor
 - **AND** all vertex and relation pages SHALL use the same Dgraph read timestamp
 - **AND** the complete source SHALL be assembled before a replacement atlas index is published
+
+#### Scenario: Aged attachment evidence stays marked stale
+- **GIVEN** an attachment, hosted, or inferred relation is older than the freshness cutoff or already marked stale, and a current relation of that same class is also present
+- **WHEN** the atlas reads the topology view and publishes the world
+- **THEN** the latest aged evidence SHALL remain, marked stale, without retaining an unbounded history of earlier sightings
+- **AND** the current same-class relation SHALL be preferred for the layout forest
+- **AND** packet animation SHALL NOT use the stale evidence
+- **AND** an explicitly deleted edge SHALL NOT reappear
+- **AND** the canonical backbone API and causal readers SHALL remain current-only
 
 #### Scenario: A later source page cannot be accepted
 - **GIVEN** earlier pages were read successfully

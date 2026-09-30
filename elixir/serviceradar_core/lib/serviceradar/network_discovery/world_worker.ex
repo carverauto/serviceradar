@@ -145,21 +145,26 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
     with :ok <- TopologyAtlas.add_relations(state.builder, rows), do: {:ok, state}
   end
 
-  defp publish(%{mode: :incremental, manifest: previous} = state, candidate, info) do
-    if Map.take(previous, [:source_digest, :node_count, :relation_count]) ==
-         Map.take(info, [:source_digest, :node_count, :relation_count]) do
+  defp publish(state, candidate, info) do
+    publish_candidate(state, candidate, normalize_publication(info))
+  end
+
+  defp publish_candidate(%{mode: :incremental, manifest: previous} = state, candidate, info) do
+    if publication_identity(previous) == publication_identity(info) do
       :ok
     else
       delta =
         @delta_operations
         |> Map.new(&{&1, pages(candidate, &1)})
-        |> Map.merge(Map.take(info, [:source_digest, :node_count, :relation_count]))
+        |> Map.merge(
+          Map.take(info, [:source_digest, :node_count, :relation_count, :pipeline_stats])
+        )
 
       World.publish_delta(state.generation, delta)
     end
   end
 
-  defp publish(state, candidate, info) do
+  defp publish_candidate(state, candidate, info) do
     with :ok <-
            World.stage_candidate(
              state.layout_version,
@@ -172,6 +177,22 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
       World.activate_relayout(state.generation, state.layout_version)
     end
   end
+
+  defp normalize_publication(info) do
+    Map.put(info, :pipeline_stats, string_stats(Map.get(info, :pipeline_stats)))
+  end
+
+  defp publication_identity(info) do
+    info
+    |> Map.take([:source_digest, :node_count, :relation_count])
+    |> Map.put(:pipeline_stats, string_stats(Map.get(info, :pipeline_stats)))
+  end
+
+  defp string_stats(stats) when is_map(stats) do
+    Map.new(for {key, value} <- stats, is_integer(value), do: {to_string(key), value})
+  end
+
+  defp string_stats(_), do: %{}
 
   defp pages(candidate, operation) do
     Stream.resource(

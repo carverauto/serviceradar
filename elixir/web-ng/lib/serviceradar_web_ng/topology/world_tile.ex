@@ -55,7 +55,10 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
          revision: revision,
          selection: tile.selection,
          selection_bytes: tile.selection_bytes,
-         flow_edges: Enum.map(tile.edges, &Map.take(&1, [:id, :count]))
+         flow_edges:
+           tile.edges
+           |> Enum.reject(&(&1.stale == true))
+           |> Enum.map(&Map.take(&1, [:id, :count]))
        }}
     end
   end
@@ -91,7 +94,8 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
       id: edge.id,
       represented_count: edge.count,
       phase_start: edge.start,
-      phase_end: edge.end
+      phase_end: edge.end,
+      stale: edge.stale == true
     })
   end
 

@@ -124,6 +124,8 @@ pub struct TileEdge {
     pub target: u32,
     pub count: u64,
     pub topology_class: TopologyClass,
+    /// Last-known evidence. A stale bundle never shares geometry with a current one.
+    pub stale: bool,
     /// Fractions of the canonical segment for continuous procedural flow.
     /// Bundles represent aggregate flow and use their own full segment.
     pub start: f64,
@@ -153,6 +155,7 @@ pub struct World {
     importance: BTreeMap<u8, Vec<u32>>,
     pub(crate) relations: Vec<Relation>,
     pub(crate) relation_classes: Vec<TopologyClass>,
+    pub(crate) relation_stale: Vec<bool>,
     pub(crate) endpoints: Vec<Line>,
     pub(crate) segments: SegmentIndex,
     pub(crate) details: DetailIndex,
@@ -191,6 +194,20 @@ impl World {
         }
         world.detail_revision = digest_hex(hash);
         Ok(world)
+    }
+
+    /// Record last-known evidence in canonical relation order. Freshness splits
+    /// bundle identity from the graph class so a current member cannot animate
+    /// a stale sibling.
+    pub fn with_relation_stale(mut self, stale: impl Fn(&Relation) -> bool) -> Self {
+        self.relation_stale = self.relations.iter().map(stale).collect();
+        let mut hash = Sha256::new();
+        digest_string(&mut hash, &self.detail_revision);
+        for bit in &self.relation_stale {
+            hash.update([u8::from(*bit)]);
+        }
+        self.detail_revision = digest_hex(hash);
+        self
     }
 
     pub fn new(
@@ -258,6 +275,7 @@ impl World {
             identities,
             importance,
             relation_classes: vec![TopologyClass::Unknown; relations.len()],
+            relation_stale: vec![false; relations.len()],
             relations,
             endpoints,
             segments,
@@ -506,11 +524,12 @@ impl World {
         seam: Seam,
     ) -> (Option<Tile>, usize) {
         let mut proxies = BTreeMap::new();
-        let mut bundles = BTreeMap::<(u32, u32, TopologyClass), TileEdge>::new();
+        let mut bundles = BTreeMap::<(u32, u32, TopologyClass, bool), TileEdge>::new();
         let mut internal = 0;
         let (candidates, complete) = self.segments.visit(cell, |i, clipped| {
             let edge = self.endpoints[i as usize];
             let class = self.relation_classes[i as usize];
+            let stale = self.relation_stale[i as usize];
             let source_point = published_portal(cell, clipped.source, seam);
             let target_point = published_portal(cell, clipped.target, seam);
             let quantized = source_point != clipped.source || target_point != clipped.target;
@@ -534,10 +553,10 @@ impl World {
                 internal += 1;
             } else if from.x != to.x || from.y != to.y {
                 bundles
-                    .entry((source, target, class))
+                    .entry((source, target, class, stale))
                     .and_modify(|edge| {
                         if edge.count == 1 {
-                            edge.id = self.bundle_id(&from.id, &to.id, class);
+                            edge.id = self.bundle_id(&from.id, &to.id, class, stale);
                         }
                         edge.count += 1;
                         edge.start = 0.0;
@@ -545,7 +564,7 @@ impl World {
                     })
                     .or_insert_with(|| TileEdge {
                         id: if quantized || profile == TileProfile::AggregateOnly {
-                            self.bundle_id(&from.id, &to.id, class)
+                            self.bundle_id(&from.id, &to.id, class, stale)
                         } else {
                             self.relations[i as usize].id.clone()
                         },
@@ -553,6 +572,7 @@ impl World {
                         target,
                         count: 1,
                         topology_class: class,
+                        stale,
                         start: if quantized { 0.0 } else { clipped.start },
                         end: if quantized { 1.0 } else { clipped.end },
                     });
@@ -617,18 +637,20 @@ impl World {
             hash.update(edge.target.to_le_bytes());
             hash.update(edge.count.to_le_bytes());
             hash.update([edge.topology_class as u8]);
+            hash.update([u8::from(edge.stale)]);
             hash.update(edge.start.to_le_bytes());
             hash.update(edge.end.to_le_bytes());
         }
         digest_hex(hash)
     }
 
-    fn bundle_id(&self, source: &str, target: &str, class: TopologyClass) -> String {
+    fn bundle_id(&self, source: &str, target: &str, class: TopologyClass, stale: bool) -> String {
         let mut hash = Sha256::new();
         digest_string(&mut hash, &self.layout_version);
         digest_string(&mut hash, source);
         digest_string(&mut hash, target);
         hash.update([class as u8]);
+        hash.update([u8::from(stale)]);
         format!("bundle:{}", digest_hex(hash))
     }
 }

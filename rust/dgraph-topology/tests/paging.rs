@@ -504,6 +504,7 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
         })
         .collect();
     let mut expected_keys: BTreeSet<_> = (0..4).map(|i| format!("invented-view-{i}")).collect();
+    let mut stale_keys = BTreeSet::new();
     for kind in &kinds[..4] {
         for (name, seen, fresh) in [
             ("expired", Some("2030-01-01T11:59:59Z"), false),
@@ -513,8 +514,9 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
             ("invalid", Some("invalid-timestamp"), false),
         ] {
             let key = format!("{kind}-{name}");
-            if *kind == "CANONICAL_TOPOLOGY" || fresh {
-                expected_keys.insert(key.clone());
+            expected_keys.insert(key.clone());
+            if *kind != "CANONICAL_TOPOLOGY" && !fresh {
+                stale_keys.insert(key.clone());
             }
             let mut row = edges[0].clone();
             row["uid"] = json!(format!("{:#x}", 4096 + edges.len() + 1));
@@ -530,14 +532,37 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
     }
     let expired: Vec<_> = (1..=256)
         .map(|index| {
+            let key = format!("expired-prefix-{index}");
+            expected_keys.insert(key.clone());
+            stale_keys.insert(key.clone());
             let mut row = edges[1].clone();
             row["uid"] = json!(format!("{index:#x}"));
-            row["topo.link_key"] = json!(format!("expired-prefix-{index}"));
+            row["topo.link_key"] = json!(key);
             row["topo.last_seen"] = json!("2000-01-01T00:00:00Z");
             row
         })
         .collect();
     edges.splice(0..0, expired);
+    edges.push(json!({
+        "uid": "0xff01",
+        "topo.link_key": "flagged-attachment",
+        "topo.kind": "ATTACHED_TO",
+        "topo.stale": true,
+        "topo.last_seen": "2030-01-02T00:00:00Z",
+        "topo.src": [{"device.id": "sr:ap-1.example.test"}],
+        "topo.dst": [{"device.id": "sr:flagged-attachment.example.test"}]
+    }));
+    edges.push(json!({
+        "uid": "0xff02",
+        "topo.link_key": "flagged-canonical",
+        "topo.kind": "CANONICAL_TOPOLOGY",
+        "topo.stale": true,
+        "topo.last_seen": "2030-01-02T00:00:00Z",
+        "topo.src": [{"device.id": "sr:ap-1.example.test"}],
+        "topo.dst": [{"device.id": "sr:flagged-canonical.example.test"}]
+    }));
+    expected_keys.insert("flagged-attachment".to_owned());
+    stale_keys.insert("flagged-attachment".to_owned());
     let server = RunningServer::start(Fixture {
         nodes: vec![json!({
             "uid": "0x1",
@@ -564,6 +589,20 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
             .map(|edge| edge.edge().link_key().to_owned())
             .collect::<BTreeSet<_>>(),
         expected_keys
+    );
+    assert_eq!(
+        view.edges()
+            .iter()
+            .filter(|edge| edge.stale())
+            .map(|edge| edge.edge().link_key().to_owned())
+            .collect::<BTreeSet<_>>(),
+        stale_keys
+    );
+    assert!(
+        view.edges()
+            .iter()
+            .filter(|edge| edge.kind() == "CANONICAL_TOPOLOGY")
+            .all(|edge| !edge.stale())
     );
     let admitted: BTreeSet<_> = view
         .edges()
@@ -607,6 +646,12 @@ async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
     }
     assert!(!edge_query.contains("OBSERVED_TO"));
     assert!(!edge_query.contains("MTR_PATH"));
+    assert!(
+        edge_query
+            .contains(r#"(eq(topo.kind, "CANONICAL_TOPOLOGY") AND NOT eq(topo.stale, true))"#),
+        "{edge_query}"
+    );
+    assert!(edge_query.contains("topo.stale"), "{edge_query}");
 }
 
 #[derive(Clone)]

@@ -21,8 +21,8 @@ use serviceradar_topology_atlas::{Budget, Cell, Glyph, GlyphKind, Tile, TileProf
 use tokio::runtime::Runtime;
 
 use model::{
-    Builder, Candidate, Info, InventoryRow, PositionRow, RelationRow, Result, SourceGraph,
-    WorldState, PAGE_LIMIT,
+    Builder, Candidate, Info, InventoryRow, PipelineStats, PositionRow, RelationRow, Result,
+    SourceGraph, WorldState, PAGE_LIMIT,
 };
 
 mod atoms {
@@ -297,6 +297,7 @@ struct CandidateInfo {
     extent: u32,
     node_count: u64,
     relation_count: u64,
+    pipeline_stats: PipelineStats,
 }
 
 #[rustler::nif]
@@ -314,6 +315,7 @@ fn candidate_info(env: Env<'_>, candidate: ResourceArc<CandidateResource>) -> Te
                 extent: info.extent,
                 node_count: info.node_count,
                 relation_count: info.relation_count,
+                pipeline_stats: candidate.0.pipeline_stats.clone(),
             }),
         )
     })
@@ -376,6 +378,7 @@ struct WireEdge {
     target: u32,
     count: u64,
     topology_class: String,
+    stale: bool,
     start: f64,
     end: f64,
 }
@@ -419,6 +422,7 @@ impl From<Tile> for WireTile {
                     target: e.target,
                     count: e.count,
                     topology_class: e.topology_class.as_str().into(),
+                    stale: e.stale,
                     start: e.start,
                     end: e.end,
                 })

@@ -413,6 +413,63 @@ describe("world tile rendering contract", () => {
     expect(layers(geometry, {...firstOverlay, generation: 2}).some(layer => layer.id.endsWith("-packets"))).toBe(false)
   })
 
+  it("draws a last-known link without packet flow", () => {
+    const geometry = tile()
+    geometry.edges[0].stale = true
+    const drawn = layers(geometry, overlay(geometry))
+    expect(drawn.some(layer => layer.id.endsWith("-packets"))).toBe(false)
+    const color = drawn.find(layer => layer.id.endsWith("-edges")).props.getColor(null, {index: 0})
+    expect(color.slice(0, 3)).toEqual([148, 163, 184])
+    expect(color[3]).toBeGreaterThan(0)
+    geometry.edges[0].topologyClass = "inferred"
+    const hidden = layers(geometry, overlay(geometry)).filter(item => /-edges$|-edge-mantle$/.test(item.id))
+    for (const layer of hidden) expect(layer.props.getColor(null, {index: 0})[3]).toBe(0)
+  })
+
+  it("forwards publication time, camera tier, and source counts", async () => {
+    const pushEvent = vi.fn()
+    const renderer = new WorldMapRenderer({clientWidth: 800, clientHeight: 600}, pushEvent, vi.fn())
+    renderer.cache = {
+      manifest: {
+        layout_version: worldTileKey.layout_version, generation: 4, zmax: 16, node_count: 12, relation_count: 9,
+        generated_at: "2026-03-01T00:00:00Z",
+        pipeline_stats: {raw_links: 4, edge_class_observed: 0, note: "unmeasured"},
+      },
+      setVisible() {}, prefetch() {},
+    }
+    renderer.overlays = {setVisible() {}, poll() {}}
+    renderer.scheduleWatch = () => {}
+    renderer.status = () => {}
+    renderer.render = () => {}
+    renderer.viewState = {zoom: 0}
+    renderer.deviceType = "webgpu"
+    const visible = [{index: {z: 1, x: 0, y: 0}, content: {nodes: [{}, {}], edges: [{}], byteLength: 32}}]
+    renderer.viewportLoaded(visible)
+    const payload = pushEvent.mock.calls.at(-1)[1]
+    expect(payload.generated_at).toBe("2026-03-01T00:00:00Z")
+    expect(payload.zoom_tier).toBe("regional")
+    expect(payload.zoom_mode).toBeUndefined()
+    expect(payload.pipeline_stats).toEqual({raw_links: 4, edge_class_observed: 0})
+    expect(payload.rendered_node_count).toBe(2)
+    expect(payload.pipeline_stats.rendered_node_count).toBeUndefined()
+    renderer.setZoomMode("global")
+    renderer.viewportLoaded(visible)
+    const selected = pushEvent.mock.calls.at(-1)[1]
+    expect(selected.zoom_mode).toBe("global")
+    expect(selected.zoom_tier).toBe("regional")
+    const titles = []
+    vi.stubGlobal("document", {createElement: () => ({className: "", textContent: "", style: {}, append() {}, setAttribute() {}})})
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("stopped")))
+    renderer.openPanel = node => {
+      titles.push(node.textContent)
+      renderer.panel = {append() {}}
+    }
+    await renderer.showSelection({kind: "edge", count: 3, stale: true}, {layout_version: "layout", generation: "1", kind: "edge", id: "stale-ac"})
+    expect(titles).toEqual(["3 relations · last known"])
+    await renderer.showSelection({kind: "device", label: "access", id: "sr:access"}, {layout_version: "layout", generation: "1", kind: "device", id: "sr:access"})
+    expect(titles.at(-1)).toBe("access")
+  })
+
   it("keeps graph classification stable when telemetry pages change or disappear", () => {
     const geometry = tile()
     const telemetry = overlay(geometry)

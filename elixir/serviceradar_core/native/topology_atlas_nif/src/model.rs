@@ -97,6 +97,7 @@ pub struct RelationRow {
     pub telemetry_eligible: bool,
     pub kind: String,
     pub active: bool,
+    pub stale: bool,
 }
 
 impl RelationRow {
@@ -140,6 +141,7 @@ impl RelationRow {
             telemetry_eligible: edge.telemetry_eligible(),
             kind: "CANONICAL_TOPOLOGY".into(),
             active: true,
+            stale: false,
         }
     }
 
@@ -280,7 +282,9 @@ impl Builder {
             }
         }
         drop(inventory);
+        let raw_links = graph.raw_links;
         let relations: Arc<[RelationRow]> = normalize(graph.relations.into_values()).into();
+        let pipeline_stats = publication_stats(raw_links, &relations);
         let digest = source_digest(&devices, &relations);
         let geometry = layout_forest(&relations);
         let prior: Vec<_> = old_positions.values().map(PositionRow::position).collect();
@@ -311,6 +315,7 @@ impl Builder {
             positions,
             relations,
             deltas,
+            pipeline_stats,
         })
     }
 }
@@ -368,7 +373,13 @@ fn build_world<'a>(
                 .unwrap_or_default()
         },
     )
-    .map_err(|_| "invalid persisted world")?;
+    .map_err(|_| "invalid persisted world")?
+    .with_relation_stale(|edge| {
+        relations[relations
+            .binary_search_by(|row| row.relation_id.cmp(&edge.id))
+            .unwrap()]
+        .stale
+    });
     let overview: BTreeSet<_> = layout_forest(&relations)
         .iter()
         .map(|edge| {
@@ -447,23 +458,32 @@ fn physical_binding(row: &RelationRow) -> bool {
 pub struct SourceGraph {
     pub devices: BTreeMap<String, Device>,
     pub relations: BTreeMap<String, RelationRow>,
+    /// Admitted view edges before duplicate evidence is collapsed.
+    pub raw_links: u64,
 }
 
 impl SourceGraph {
     pub fn from_view(view: TopologyView) -> Result<Self> {
         let (nodes, edges) = view.into_parts();
+        let raw_links = edges.len() as u64;
         let mut devices = admit_devices(nodes)?;
         let mut relations = BTreeMap::new();
         for edge in edges {
+            let stale = edge.stale();
             let kind = edge.kind().to_owned();
             let mut row = RelationRow::canonical(edge.into_edge());
             row.kind = kind;
-            if row.kind != "CANONICAL_TOPOLOGY" {
+            row.stale = stale;
+            if row.kind != "CANONICAL_TOPOLOGY" || stale {
                 row.telemetry_eligible = false;
             }
             insert_relation(&mut devices, &mut relations, row)?;
         }
-        Ok(Self { devices, relations })
+        Ok(Self {
+            devices,
+            relations,
+            raw_links,
+        })
     }
 }
 
@@ -616,11 +636,13 @@ fn layout_forest(rows: &[RelationRow]) -> Vec<Relation> {
     candidates.sort_unstable_by(|left, right| {
         (
             trust_rank(left),
+            u8::from(left.stale),
             device_pair(&left.source_id, &left.target_id),
             &left.relation_id,
         )
             .cmp(&(
                 trust_rank(right),
+                u8::from(right.stale),
                 device_pair(&right.source_id, &right.target_id),
                 &right.relation_id,
             ))
@@ -705,13 +727,17 @@ fn ports_compatible(left: (Option<i32>, Option<&str>), right: (Option<i32>, Opti
 }
 
 fn prefer(candidate: &RelationRow, keeper: &RelationRow) -> bool {
-    match (candidate.telemetry_eligible, keeper.telemetry_eligible) {
-        (true, false) => true,
-        (false, true) => false,
-        _ => match (physical_class(candidate), physical_class(keeper)) {
+    match (candidate.stale, keeper.stale) {
+        (false, true) => true,
+        (true, false) => false,
+        _ => match (candidate.telemetry_eligible, keeper.telemetry_eligible) {
             (true, false) => true,
             (false, true) => false,
-            _ => candidate.relation_id < keeper.relation_id,
+            _ => match (physical_class(candidate), physical_class(keeper)) {
+                (true, false) => true,
+                (false, true) => false,
+                _ => candidate.relation_id < keeper.relation_id,
+            },
         },
     }
 }
@@ -799,6 +825,7 @@ fn source_digest(devices: &BTreeMap<String, Device>, relations: &[RelationRow]) 
             hash.update(index.unwrap_or(0).to_be_bytes());
         }
         hash.update([u8::from(r.telemetry_eligible)]);
+        hash.update([u8::from(r.stale)]);
         field(&mut hash, &r.kind);
     }
     hash.finalize()
@@ -818,6 +845,60 @@ pub struct Candidate {
     pub positions: Vec<PositionRow>,
     pub relations: Arc<[RelationRow]>,
     pub deltas: Deltas,
+    pub pipeline_stats: PipelineStats,
+}
+
+/// Counts taken from the relations already admitted for this publication.
+#[derive(Clone, Debug, NifMap)]
+pub struct PipelineStats {
+    pub raw_links: u64,
+    pub unique_pairs: u64,
+    pub final_edges: u64,
+    pub final_direct: u64,
+    pub final_inferred: u64,
+    pub final_attachment: u64,
+    pub edge_class_backbone: u64,
+    pub edge_class_attachment: u64,
+    pub edge_class_inferred: u64,
+    pub edge_class_hosted: u64,
+    pub edge_class_observed: u64,
+    pub backbone_edge_count: u64,
+}
+
+fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats {
+    let mut pairs = BTreeSet::new();
+    let mut direct = 0u64;
+    let mut inferred = 0u64;
+    let mut attachment = 0u64;
+    let mut backbone = 0u64;
+    let mut hosted = 0u64;
+    for row in relations {
+        pairs.insert(device_pair(&row.source_id, &row.target_id));
+        match row.topology_class() {
+            TopologyClass::Backbone => {
+                direct += 1;
+                backbone += 1;
+            }
+            TopologyClass::Logical | TopologyClass::Unknown => backbone += 1,
+            TopologyClass::Hosted => hosted += 1,
+            TopologyClass::Endpoints => attachment += 1,
+            TopologyClass::Inferred => inferred += 1,
+        }
+    }
+    PipelineStats {
+        raw_links,
+        unique_pairs: pairs.len() as u64,
+        final_edges: relations.len() as u64,
+        final_direct: direct,
+        final_inferred: inferred,
+        final_attachment: attachment,
+        edge_class_backbone: backbone,
+        edge_class_attachment: attachment,
+        edge_class_inferred: inferred,
+        edge_class_hosted: hosted,
+        edge_class_observed: 0,
+        backbone_edge_count: backbone,
+    }
 }
 
 #[derive(Clone, NifMap)]

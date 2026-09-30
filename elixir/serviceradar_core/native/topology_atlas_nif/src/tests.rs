@@ -43,7 +43,11 @@ fn graph(ids: &[&str], interface: i32, rate: i64) -> SourceGraph {
     } else {
         BTreeMap::new()
     };
-    SourceGraph { devices, relations }
+    SourceGraph {
+        devices,
+        relations,
+        raw_links: u64::from(ids.len() >= 2),
+    }
 }
 
 fn imported(candidate: &crate::model::Candidate) -> Builder {
@@ -466,8 +470,13 @@ fn duplicate_physical_evidence_collapses_without_merging_parallel_ports() {
         .into_iter()
         .map(|id| (id.to_owned(), device(id)))
         .collect();
+    let raw_links = relations.len() as u64;
     let candidate = persisted
-        .reconcile(SourceGraph { devices, relations })
+        .reconcile(SourceGraph {
+            devices,
+            relations,
+            raw_links,
+        })
         .unwrap();
     assert_eq!(candidate.relations.len(), 1);
     assert!(candidate.relations[0].telemetry_eligible);
@@ -640,4 +649,114 @@ fn physical_forest_wins_over_an_inferred_shortcut() {
     assert!(edges
         .iter()
         .all(|edge| edge.topology_class == TopologyClass::Backbone));
+}
+
+#[test]
+fn stale_backbone_shortcut_stays_out_of_the_overview_and_the_packet_path() {
+    let router = "sr:router.example.test";
+    let access = "sr:access.example.test";
+    let leaf = "sr:leaf.example.test";
+    let ids = [router, access, leaf];
+    let edges = vec![
+        view_edge(
+            "CANONICAL_TOPOLOGY",
+            "physical-ra",
+            (router, 1, "p1"),
+            (access, 1, "p1"),
+            "direct-physical",
+            true,
+        ),
+        view_edge(
+            "CANONICAL_TOPOLOGY",
+            "physical-al",
+            (access, 2, "p2"),
+            (leaf, 1, "p1"),
+            "direct-physical",
+            true,
+        ),
+        view_edge(
+            "CANONICAL_TOPOLOGY",
+            "stale-ac",
+            (router, 3, "p3"),
+            (leaf, 2, "p2"),
+            "direct-physical",
+            true,
+        )
+        .with_stale(true),
+    ];
+    let view = TopologyView::new(
+        ids.iter().map(|id| canonical_device(id, id)).collect(),
+        edges,
+    );
+    let mut builder = Builder::new("synthetic-stale-forest".into(), 16).unwrap();
+    builder
+        .add_inventory(
+            ids.iter()
+                .enumerate()
+                .map(|(index, id)| InventoryRow {
+                    id: (*id).into(),
+                    label: (*id).into(),
+                    importance: if index == 0 { 0 } else { 1 },
+                })
+                .collect(),
+        )
+        .unwrap();
+    let candidate = builder
+        .reconcile(SourceGraph::from_view(view).unwrap())
+        .unwrap();
+    let placed = candidate
+        .positions
+        .iter()
+        .find(|row| row.device_id == leaf)
+        .unwrap();
+    assert_eq!(placed.parent_id.as_deref(), Some(access));
+    let stale = candidate
+        .relations
+        .iter()
+        .find(|row| row.relation_id == "stale-ac")
+        .unwrap();
+    assert!(stale.stale);
+    assert!(!stale.telemetry_eligible);
+    assert!(candidate
+        .relations
+        .iter()
+        .any(|row| row.relation_id == "physical-ra" && !row.stale && row.telemetry_eligible));
+    let stats = &candidate.pipeline_stats;
+    assert_eq!(stats.raw_links, 3);
+    assert_eq!(stats.final_edges, 3);
+    assert_eq!(stats.final_direct, 3);
+    assert_eq!(stats.final_inferred, 0);
+    assert_eq!(stats.edge_class_observed, 0);
+    let restored = {
+        let mut cold = Builder::new("synthetic-stale-forest".into(), 16).unwrap();
+        cold.add_positions(candidate.positions).unwrap();
+        cold.add_relations(candidate.relations.to_vec()).unwrap();
+        cold.finish().unwrap()
+    };
+    let detail = restored
+        .geometry
+        .detail(&DetailScope::Neighborhood(router.into()), None)
+        .unwrap();
+    assert!(detail.relations.iter().any(|row| row.id == "stale-ac"));
+    for id in ids {
+        for z in [0, 8, 16] {
+            let point = restored.geometry.search(id).unwrap();
+            let tile = restored
+                .geometry
+                .tile(
+                    Cell::at_point(z, point.x, point.y).unwrap(),
+                    Budget::default(),
+                )
+                .unwrap();
+            let page = restored
+                .geometry
+                .tile_relations(&tile.selection, None, 256)
+                .unwrap();
+            assert!(page
+                .relations
+                .iter()
+                .all(|row| row.relation_id != "stale-ac"));
+            assert!(tile.edges.iter().all(|edge| !edge.stale));
+        }
+    }
 }

@@ -82,6 +82,7 @@ function flowFrame(geometry, overlay) {
   if (frames.has(overlay)) return frames.get(overlay)
   const byId = new Map((overlay.flow?.edges || []).map(edge => [edge.id, edge]))
   const edges = geometry.edges.flatMap(edge => {
+    if (edge.stale) return []
     const flow = byId.get(edge.id)
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
     const ab = packetRate(flow.forward)
@@ -226,22 +227,25 @@ export default class WorldTileLayer extends TileLayer {
       return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
     }
     const flow = overlay && this.props.packetFlow !== false ? flowFrame(geometry, overlay) : null
+    const edgeColor = (index, color) => geometry.edges[index].stale
+      ? [148, 163, 184, Math.max(1, Math.round(color[3] * 0.45))]
+      : color
     return [
       frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edge-mantle`, data: frame.lines, pickable: false,
         visible: this.props.links !== false,
-        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeClass(index) === "unknown"
+        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeColor(index, edgeClass(index) === "unknown"
           ? [120, 132, 151, 30]
-          : [55, 175, 124, Math.round(70 * edgeStyle(index).mantleAlphaScale)],
+          : [55, 175, 124, Math.round(70 * edgeStyle(index).mantleAlphaScale)]),
         getWidth: (_, {index}) => shownEdge(index) ? 6 * edgeStyle(index).mantleWidthScale : 0,
         widthUnits: "pixels", updateTriggers: {getWidth: this.props.inferred, getColor: this.props.inferred},
       }),
       frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edges`, data: frame.lines, pickable: true,
         visible: this.props.links !== false,
-        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeClass(index) === "unknown"
+        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeColor(index, edgeClass(index) === "unknown"
           ? [120, 132, 151, 100]
-          : [55, 175, 124, Math.round(135 * edgeStyle(index).crustAlphaScale)],
+          : [55, 175, 124, Math.round(135 * edgeStyle(index).crustAlphaScale)]),
         getWidth: (_, {index}) => shownEdge(index) ? 1.5 * edgeStyle(index).crustWidthScale : 0, widthUnits: "pixels",
         updateTriggers: {getWidth: this.props.inferred, getColor: this.props.inferred},
       }),

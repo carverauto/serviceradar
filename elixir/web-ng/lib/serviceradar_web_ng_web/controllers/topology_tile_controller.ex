@@ -31,6 +31,8 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
           :zmax,
           :node_count,
           :relation_count,
+          :pipeline_stats,
+          :generated_at,
           :observed_generation,
           :catching_up
         ])

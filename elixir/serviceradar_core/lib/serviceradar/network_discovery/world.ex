@@ -43,7 +43,8 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     :zmax,
     :source_digest,
     :node_count,
-    :relation_count
+    :relation_count,
+    :pipeline_stats
   ]
 
   @doc "Stages a new coordinate system without changing the active world."
@@ -70,7 +71,14 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   def stage_candidate(layout_version, metadata, positions, relations) do
     attrs =
       metadata
-      |> Map.take([:algorithm_version, :zmax, :source_digest, :node_count, :relation_count])
+      |> Map.take([
+        :algorithm_version,
+        :zmax,
+        :source_digest,
+        :node_count,
+        :relation_count,
+        :pipeline_stats
+      ])
       |> Map.put(:layout_version, layout_version)
 
     @resources
@@ -101,7 +109,8 @@ defmodule ServiceRadar.NetworkDiscovery.World do
                    :zmax,
                    :source_digest,
                    :node_count,
-                   :relation_count
+                   :relation_count,
+                   :pipeline_stats
                  ])
                ) do
           :ok
@@ -201,7 +210,12 @@ defmodule ServiceRadar.NetworkDiscovery.World do
                update(
                  layout,
                  :publish,
-                 Map.take(delta, [:source_digest, :node_count, :relation_count])
+                 Map.take(delta, [
+                   :source_digest,
+                   :node_count,
+                   :relation_count,
+                   :pipeline_stats
+                 ])
                ),
              {:ok, head} <- publish_head(head, layout.layout_version) do
           {:ok, manifest(head, layout)}
@@ -529,8 +543,14 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   defp bulk_result(%Ash.BulkResult{status: :success}), do: :ok
   defp bulk_result(%Ash.BulkResult{errors: errors}), do: {:error, errors}
 
-  defp manifest(head, layout),
-    do: layout |> Map.take(@manifest_fields) |> Map.put(:generation, head.generation)
+  defp manifest(head, layout) do
+    published = layout |> Map.take(@manifest_fields) |> Map.put(:generation, head.generation)
+
+    case Map.get(layout, :updated_at) do
+      %DateTime{} = updated_at -> Map.put(published, :generated_at, DateTime.to_iso8601(updated_at))
+      _ -> published
+    end
+  end
 
   defp notify_publication({:ok, manifest} = result) do
     if Process.whereis(ServiceRadar.PubSub) do
