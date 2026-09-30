@@ -11,6 +11,7 @@ load(
     "SHIPPED_ERTS_ROOT_MARKER",
     "elixir_release",
 )
+load(":lane_scope.bzl", "web_ng_lane_scope")
 load(":world_fixture.bzl", "world_browser_fixture")
 
 # REMOVED FOR NOW: :precommit / :precommit_check, and the two mix_deps cache layers
@@ -393,9 +394,11 @@ ex_unit_tests(
     #
     # Excluding them states the truth -- these are not database-free tests --
     # instead of tagging them :db_free, which would make them run without the
-    # database they need. They also need the SRQL NIF or a live AGE graph, so
-    # they stay off //elixir/web-ng:networks_live_db_test. Each file is listed
-    # with a reason in UNROUTED_TEST_SOURCES in
+    # database they need. They also need the SRQL NIF, a live AGE graph, or
+    # some other backend, so they stay off this glob and off the shared-fixture
+    # lane. A file another //elixir/web-ng ex_unit_test loads is routed; the
+    # contract reads that from the evaluated query. A file no target loads is
+    # listed with a reason in UNROUTED_TEST_SOURCES in
     # build/contracts/web_ng_test_lane_routing_contract_test.py.
     srcs = glob(
         ["test/**/*_test.exs"],
@@ -884,3 +887,7 @@ ex_unit_test(
         "//config/manager_secret/elixir:secret",
     ],
 )
+
+# Last, so existing_rules() sees every ex_unit_test above. manual: bazel test
+# //... must not execute the suite.
+web_ng_lane_scope(name = "web_ng_lane_scope")

@@ -363,7 +363,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
     """
   end
 
-  defp mode(path), do: File.stat!(path).mode &&& 0o777
+  defp mode(path), do: Bitwise.band(File.stat!(path).mode, 0o777)
 
   defp extract_files(tarball) do
     {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])

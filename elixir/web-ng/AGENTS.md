@@ -750,9 +750,10 @@ excluded or skipped test has none of them.
 | `:topology_atlas_db` | `//elixir/web-ng:topology_atlas_db_test` | add the file to that target's `srcs` |
 
 `test/integration` and `test/property` are outside the unit glob. A file there
-that no database lane's `srcs` loads must be listed, with a reason, in
-`UNROUTED_TEST_SOURCES` in
-`build/contracts/web_ng_test_lane_routing_contract_test.py`.
+that no `//elixir/web-ng` `ex_unit_test` target's evaluated `srcs` loads must
+be listed, with a reason, in `UNROUTED_TEST_SOURCES` in
+`build/contracts/web_ng_test_lane_routing_contract_test.py`. A manual target a
+workflow runs by name counts: its `srcs` entry is routing, not an exemption.
 
 The `after_suite` hook in `test_helper.exs` fails a target that executes zero
 tests. It does not see one untagged test inside a shard that still ran
