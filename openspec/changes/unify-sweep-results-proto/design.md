@@ -412,20 +412,27 @@ by SHA-256 exactly like pushed config chunks, and only to agents advertising
 `installed_through_unix_nano` is how far it can run without core.
 
 Core records what it delivered per assignment (`sweep_lease_deliveries`: the
-lease, its issuance time, how far the delivered window reaches, and the
-agent's last ack) and the lease pass pushes from that. A full window goes out
-for a new lease id, after core dropped a delivered slot that has not started,
-after the agent refused the last push, and when the last push went
-unacknowledged for ten minutes; otherwise only the slots minted since the
-delivered window ended. A window ends just after its last slot rather than at
-the horizon, because the pass mints a bounded number of slots per run and a
-later slot must land in a later window. Every push of a lease signs the same
-issuance time, the lease's first push, and its production capability runs to
-the end of the last slot pushed, so the newest capability covers every slot the
-agent holds. A group that stops leasing to an agent sends that agent a
-revocation, and core forgets the delivery once the agent's session accepted
-it. Nothing is pushed until core has both an issuer key and an active sweep
-contract; without them leases are still planned.
+lease, its issuance time, the cursor just after the last slot pushed, and the
+agent's ack of that push) and the lease pass pushes from that. The table has
+no foreign keys, so the row outlives the assignment and the group. A full
+window goes out for a new lease id, after core dropped a delivered slot that
+has not started, after the agent refused the last push, and when the last push
+went unacknowledged for ten minutes; otherwise only the slots minted since the
+cursor. The recorded cursor is always just after the last slot the push
+carried, because the pass mints a bounded number of slots per run and a later
+slot must land in a later window. A same-lease full push still tells the agent
+a window that reaches the previous cursor when that is later, so the agent
+drops slots that are no longer carried; that further end is not the cursor.
+Every push of a lease signs the same issuance time, the lease's first push,
+and its production capability runs to the end of the last slot pushed, so the
+newest capability covers every slot the agent holds. An ack is stored only
+when its payload digest is the one last pushed; an older ack changes nothing.
+A group that stops leasing to an agent, or a delivery whose assignment is gone
+or revoked or whose group is gone, sends that agent a revocation, and core
+forgets the delivery once the agent's session accepted it. The pass still runs
+when the only thing left is such a row. Nothing is pushed until core has both
+an issuer key and an active sweep contract; without them leases are still
+planned.
 
 The contract a production capability names comes from the installation's
 contract registry document, the same JSON the gateway admits records against,
