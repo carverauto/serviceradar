@@ -89,8 +89,7 @@ SHALL get no result row and no verdict transition.
   `evaluation_interval_seconds`
 - **WHEN** that pass completes successfully
 - **THEN** `last_evaluated_at` SHALL be `now()` taken at completion
-- **AND** the next tick SHALL NOT run another full pass because the pass
-  started before the interval
+- **AND** the next tick SHALL NOT run another full pass
 
 #### Scenario: A failing pass does not schedule another job
 
