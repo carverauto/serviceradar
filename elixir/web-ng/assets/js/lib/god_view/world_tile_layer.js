@@ -174,7 +174,14 @@ export default class WorldTileLayer extends TileLayer {
       measureText: this.props.measureText,
     })
     const texts = new Map(candidates.map(candidate => [candidate.nodeId, candidate.text]))
-    const labels = admitted.map(placement => ({...nodes.get(placement.nodeId), ...placement, text: texts.get(placement.nodeId)}))
+    const labels = admitted.map(placement => {
+      const node = nodes.get(placement.nodeId)
+      return {...node, ...placement, text: texts.get(placement.nodeId),
+        position: viewport.unproject([
+          node.point[0] + placement.pixelOffset[0], node.point[1] + placement.pixelOffset[1],
+        ]),
+      }
+    })
     // An empty automatic character set cannot initialize a WebGPU font atlas.
     if (labels.length === 0) return layers
     return [layers, new TextLayer(this.getSubLayerProps({id: "labels"}), {
@@ -182,7 +189,9 @@ export default class WorldTileLayer extends TileLayer {
       data: labels, pickable: false, getPosition: item => item.position,
       getText: item => item.text,
       getSize: 11, sizeUnits: "pixels", getColor: [220, 232, 242, 240],
-      getPixelOffset: item => item.pixelOffset, getTextAnchor: item => item.textAnchor,
+      // Placement is already projected above. A constant offset avoids the
+      // resizable character-offset GPU buffer during zoom admission changes.
+      getTextAnchor: item => item.textAnchor,
       getAlignmentBaseline: item => item.alignmentBaseline,
       fontFamily: "Inter, system-ui, sans-serif", fontWeight: 600, characterSet: "auto",
     })]

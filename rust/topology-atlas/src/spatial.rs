@@ -84,6 +84,14 @@ impl SegmentIndex {
         index
     }
 
+    pub(crate) fn retain(&mut self, mut include: impl FnMut(u32) -> bool) {
+        self.ordered.retain(|&i| include(i));
+        self.branches.clear();
+        if !self.ordered.is_empty() {
+            self.partition(0..self.ordered.len());
+        }
+    }
+
     fn partition(&mut self, range: std::ops::Range<usize>) -> usize {
         let mut bounds = Bounds {
             left: u32::MAX,

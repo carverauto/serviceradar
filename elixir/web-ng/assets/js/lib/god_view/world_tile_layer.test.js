@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from "vitest"
-import {OrthographicViewport} from "@deck.gl/core"
+import {AttributeManager, OrthographicViewport} from "@deck.gl/core"
 import WorldTileLayer from "./world_tile_layer"
 import WorldMapRenderer from "./WorldMapRenderer"
 import {decodeWorldTile} from "./world_tile_decode"
@@ -54,6 +54,23 @@ describe("world tile rendering contract", () => {
         const labels = layer.renderLayers().flat(Infinity).filter(item => item?.id.endsWith("-labels") && layer.filterSubLayer({layer: item}))
         const boxes = []
         for (const label of labels) {
+          // Consume the label offset through deck's actual attribute allocator.
+          // Zoom must retain a single broadcast row, not resize this buffer.
+          const device = {type: "webgpu", createBuffer: vi.fn(props => ({...props, delete: vi.fn(), destroy: vi.fn(), write: vi.fn()}))}
+          const attributes = new AttributeManager(device, {id: "label-offset"})
+          attributes.addInstanced({instancePixelOffset: {size: 2, accessor: "getPixelOffset"}})
+          try {
+            attributes.update({data: label.props.data, numInstances: label.props.data.length, props: label.props})
+            expect(attributes.getAttributes().instancePixelOffset.isConstant).toBe(true)
+            for (const numInstances of [128, 1]) {
+              attributes.invalidateAll()
+              attributes.update({data: label.props.data, numInstances, props: label.props})
+            }
+            expect(device.createBuffer).toHaveBeenCalledTimes(1)
+            expect(device.createBuffer.mock.calls[0][0].byteLength).toBe(8)
+          } finally {
+            attributes.finalize()
+          }
           const value = (key, row) => typeof label.props[key] === "function" ? label.props[key](row) : label.props[key]
           for (const row of label.props.data) {
             const text = value("getText", row)
@@ -82,6 +99,7 @@ describe("world tile rendering contract", () => {
       hidden.context = layer.context
       expect(hidden.renderLayers().flat(Infinity).filter(item => item?.id.endsWith("-labels"))).toHaveLength(0)
       expect(await rendered(6)).toBe(6)
+      expect(await rendered(1)).toBe(dense)
     } finally {
       tileset.finalize()
     }

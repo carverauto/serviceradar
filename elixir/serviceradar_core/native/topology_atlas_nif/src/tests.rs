@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use dgraph_topology::{CanonicalDevice, CanonicalEdge, NeighbourhoodEdge, TopologyView};
-use serviceradar_topology_atlas::{Budget, Cell, Device, TopologyClass};
+use serviceradar_topology_atlas::{Budget, Cell, DetailScope, Device, TopologyClass};
 
 use crate::model::{Builder, InventoryRow, PositionRow, RelationRow, SourceGraph};
 
@@ -438,6 +438,18 @@ fn duplicate_physical_evidence_collapses_without_merging_parallel_ports() {
     assert_eq!(degree("link-shared"), [3, 1]);
     assert_eq!(degree("link-shared-parallel"), [3, 1]);
     assert_eq!(degree("link-unrelated"), [0, 0]);
+    let p = world.geometry.search(a).unwrap();
+    let tile = world
+        .geometry
+        .tile(Cell::at_point(16, p.x, p.y).unwrap(), Budget::default())
+        .unwrap();
+    let selected = world
+        .geometry
+        .tile_relations(&tile.selection, None, 256)
+        .unwrap();
+    for id in ["link-ab", "link-parallel", "link-shared-parallel"] {
+        assert!(selected.relations.iter().any(|row| row.relation_id == id));
+    }
     assert_eq!(
         world
             .relations
@@ -602,6 +614,28 @@ fn physical_forest_wins_over_an_inferred_shortcut() {
     cold.add_relations(candidate.relations.to_vec()).unwrap();
     let restored = cold.finish().unwrap();
     assert_eq!(restored.relations.len(), 4);
+    let detail = restored
+        .geometry
+        .detail(&DetailScope::Neighborhood(ids[0].into()), None)
+        .unwrap();
+    assert_eq!(detail.relations.len(), 4);
+    for z in [0, 8, 16] {
+        let p = restored.geometry.search(ids[0]).unwrap();
+        let tile = restored
+            .geometry
+            .tile(Cell::at_point(z, p.x, p.y).unwrap(), Budget::default())
+            .unwrap();
+        let page = restored
+            .geometry
+            .tile_relations(&tile.selection, None, 256)
+            .unwrap();
+        assert!(page.next.is_none());
+        assert!(
+            page.relations
+                .iter()
+                .all(|row| row.relation_id.starts_with("physical-"))
+        );
+    }
     let edges: Vec<_> = ids
         .iter()
         .flat_map(|id| {
@@ -636,7 +670,9 @@ fn physical_forest_wins_over_an_inferred_shortcut() {
     assert!(edges.iter().any(|edge| edge.id == "physical-ra"
         && edge.topology_class == TopologyClass::Backbone
         && edge.count == 1));
-    assert!(edges.iter().any(|edge| edge.id == "inferred-ra"
-        && edge.topology_class == TopologyClass::Inferred
-        && edge.count == 1));
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.topology_class == TopologyClass::Backbone)
+    );
 }

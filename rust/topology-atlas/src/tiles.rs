@@ -257,6 +257,21 @@ impl World {
             .map(|&i| &self.positions[i as usize])
     }
 
+    /// Restrict tiled overview routes while retaining all canonical evidence
+    /// in the bounded detail index. Selectors share this same segment index.
+    pub fn with_overview_relations(mut self, include: impl Fn(&Relation) -> bool) -> Self {
+        let mut hash = Sha256::new();
+        digest_string(&mut hash, &self.detail_revision);
+        let visible: Vec<_> = self.relations.iter().map(include).collect();
+        for &included in &visible {
+            hash.update([u8::from(included)]);
+        }
+        self.segments.retain(|i| visible[i as usize]);
+        self.detail_revision = digest_hex(hash);
+        self.routing.get_mut().unwrap().clear();
+        self
+    }
+
     pub fn device_count(&self) -> usize {
         self.positions.len()
     }

@@ -1,7 +1,7 @@
 //! Native ownership of imported rows, immutable worlds, and bounded publication pages.
 //! Rates and health never enter this model. Interface bindings survive cold reloads.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use dgraph_topology::{CanonicalEdge, TopologyView};
@@ -282,7 +282,7 @@ impl Builder {
         drop(inventory);
         let relations: Arc<[RelationRow]> = normalize(graph.relations.into_values()).into();
         let digest = source_digest(&devices, &relations);
-        let geometry = layout_forest(&devices, &relations);
+        let geometry = layout_forest(&relations);
         let prior: Vec<_> = old_positions.values().map(PositionRow::position).collect();
         let next = reconcile(devices.into_values().collect(), &geometry, &prior)
             .map_err(|_| "cannot reconcile persisted world")?;
@@ -369,6 +369,29 @@ fn build_world<'a>(
         },
     )
     .map_err(|_| "invalid persisted world")?;
+    let overview: BTreeSet<_> = layout_forest(&relations)
+        .iter()
+        .map(|edge| {
+            let row = &relations[relations
+                .binary_search_by(|row| row.relation_id.cmp(&edge.id))
+                .unwrap()];
+            (
+                device_pair(&row.source_id, &row.target_id),
+                row.topology_class(),
+            )
+        })
+        .collect();
+    let geometry = geometry.with_overview_relations(|edge| {
+        let row = &relations[relations
+            .binary_search_by(|row| row.relation_id.cmp(&edge.id))
+            .unwrap()];
+        // Parallel physical bindings on the selected pair remain measurable;
+        // a weaker class on that same pair remains separate detail evidence.
+        overview.contains(&(
+            device_pair(&row.source_id, &row.target_id),
+            row.topology_class(),
+        ))
+    });
     let interface_degrees = interface_degrees(&relations);
     Ok(Arc::new(WorldState {
         geometry,
@@ -580,11 +603,14 @@ fn normalize(rows: impl IntoIterator<Item = RelationRow>) -> Vec<RelationRow> {
 // (topology_overview_projection.js, prepareTopologyOverviewInput). Apply that
 // same ordering at publication scale. Cross-links stay in WorldState; only the
 // parent forest is reduced, so tile zoom never authors new network bindings.
-fn layout_forest(devices: &BTreeMap<String, Device>, rows: &[RelationRow]) -> Vec<Relation> {
-    let index: HashMap<_, _> = devices
-        .keys()
+fn layout_forest(rows: &[RelationRow]) -> Vec<Relation> {
+    let index: HashMap<_, _> = rows
+        .iter()
+        .flat_map(|row| [row.source_id.as_str(), row.target_id.as_str()])
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .enumerate()
-        .map(|(i, id)| (id.as_str(), i))
+        .map(|(i, id)| (id, i))
         .collect();
     let mut candidates: Vec<_> = rows.iter().collect();
     candidates.sort_unstable_by(|left, right| {
@@ -599,9 +625,9 @@ fn layout_forest(devices: &BTreeMap<String, Device>, rows: &[RelationRow]) -> Ve
                 &right.relation_id,
             ))
     });
-    let mut parent: Vec<_> = (0..devices.len()).collect();
-    let mut rank = vec![0; devices.len()];
-    let mut forest = Vec::with_capacity(devices.len());
+    let mut parent: Vec<_> = (0..index.len()).collect();
+    let mut rank = vec![0; index.len()];
+    let mut forest = Vec::with_capacity(index.len());
     for row in candidates {
         let left = index[row.source_id.as_str()];
         let right = index[row.target_id.as_str()];
