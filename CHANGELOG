@@ -63,6 +63,10 @@ failed config read leaves the agent on its running config.
 - Armis: a search total that comes back as a marker string no
   longer fails the sync before it emits devices. The integration
   details page reads the stored sync result (PR #4967).
+- Armis northbound: run-target inserts are now chunked so large
+  sources no longer fail with "postgresql protocol can not handle N
+  parameters". Each chunk stays below Postgres's 65,535
+  bound-parameter limit; the bind remains atomic.
 
 **1.4.77**
 - Sweep config: compiled sweep configs are smaller and cheaper to build.

@@ -3,8 +3,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
   use ServiceRadar.DataCase, async: true
 
+  import Ecto.Query, only: [where: 3]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.ArmisNorthboundLedger
   alias ServiceRadar.Integrations.ArmisNorthboundRetention
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.IntegrationSource
@@ -15,6 +18,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -99,7 +103,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
             %{source | northbound_availability_source_agent_id: "agent-scoped"}
           ] do
         candidates =
-          ServiceRadar.Repo.all(ArmisNorthboundRunner.candidates_query(candidate_source))
+          Repo.all(ArmisNorthboundRunner.candidates_query(candidate_source))
 
         assert Enum.any?(candidates, &(&1.armis_device_id == "301")) == eligible?
       end
@@ -318,6 +322,69 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
              IntegrationUpdateRunTarget.list_by_run(run.id, actor: actor)
 
     assert Enum.map(retained_targets, & &1.outcome) == [:unattempted]
+  end
+
+  # One target row per distinct Armis source ID, 11 bound parameters each: a
+  # collection of a few thousand IDs crosses Postgres's 65535-parameter
+  # statement limit, which failed the whole bind with "postgresql protocol can
+  # not handle N parameters".
+  test "binds a collection larger than one statement's parameter limit", %{actor: actor} do
+    source = create_source!(actor, "armis-large-collection")
+    count = div(65_535, 11) + 50
+
+    withheld =
+      for index <- 1..count do
+        %{
+          disposition: :withheld,
+          reason: "unresolved_canonical_identity",
+          source_object_id: "armis-large-#{index}",
+          canonical_device_uid: nil,
+          is_available: nil,
+          metadata: %{}
+        }
+      end
+
+    population = %{
+      accounted?: true,
+      snapshot: %{activated_at: DateTime.utc_now()},
+      eligible: [],
+      withheld: withheld,
+      distinct_source_ids: count,
+      eligible_count: 0,
+      withheld_count: count,
+      reason_counts: %{"unresolved_canonical_identity" => count},
+      accounting: %{
+        collection_id: "collection-large",
+        collection_content_hash: String.duplicate("c", 64),
+        collection_observed_at: ~U[2026-09-01 08:00:00.000000Z],
+        raw_rows: count,
+        excluded_rows: 0,
+        invalid_rows: 0,
+        valid_occurrences: count,
+        distinct_source_ids: count,
+        duplicate_occurrences: 0,
+        conflicting_duplicate_ids: 0
+      }
+    }
+
+    run =
+      IntegrationUpdateRun
+      |> Ash.Changeset.for_create(:start_run, %{
+        integration_source_id: source.id,
+        run_type: :armis_northbound,
+        metadata: %{}
+      })
+      |> Ash.create!(actor: actor)
+
+    assert {:ok, bound} = ArmisNorthboundLedger.bind(run, population, actor)
+    assert bound.distinct_source_ids == count
+
+    targets =
+      IntegrationUpdateRunTarget
+      |> where([target], target.integration_update_run_id == ^run.id)
+      |> Repo.aggregate(:count)
+
+    assert targets == count
   end
 
   defp create_source!(actor, name, attrs \\ []) do
