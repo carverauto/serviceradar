@@ -315,9 +315,9 @@ signed. The production capability's `scope_id` is the sweep group, and its
 `scope_sha256` is SHA-256 over a domain tag, the group id, the check set digest
 and the range CIDRs in plan order, each length-framed. Its window runs from
 issuance to the end of the lease's last slot. Sweep runs inside the agent, so
-the package is the fixed identity `serviceradar.agent.sweep`, and the contract
-fields are inputs that must equal the gateway's contract registry entry for
-the sweep observation contract. A source authorization's signed window equals
+the package is the fixed identity `serviceradar.agent.sweep`. The contract
+reference a production capability names, and its effective grant digest, follow
+Carrier below. A source authorization's signed window equals
 its collection window, the slot.
 
 **Delivery and execution.** The lease travels core -> gateway -> agent over the
@@ -409,7 +409,7 @@ group's lease and carries no capability. A lease can reach megabytes (about
 it travels as `SweepLeaseChunk`s on the control stream, reassembled and checked
 by SHA-256 exactly like pushed config chunks, and only to agents advertising
 `sweep_lease_v1`; the agent answers every push with `SweepLeaseAck`, whose
-`installed_through` is how far it can run without core.
+`installed_through_unix_nano` is how far it can run without core.
 
 The contract a production capability names comes from the installation's
 contract registry document, the same JSON the gateway admits records against,
