@@ -102,6 +102,58 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       refute Enum.any?(file_names, &String.contains?(&1, "/certs/"))
     end
 
+    test "restarts the collector when the bundle has no certificates" do
+      {:ok, tarball} =
+        CollectorBundleGenerator.create_tarball(
+          sample_flowgger_package(),
+          sample_nats_creds(),
+          nil,
+          nats_url: "nats://serviceradar-nats:4222"
+        )
+
+      assert {:ok, installed} = install_bundle(tarball)
+
+      assert File.read!(Path.join(installed, "creds/nats.creds")) =~ "BEGIN NATS USER JWT"
+      assert File.exists?(Path.join(installed, "flowgger.toml"))
+      refute File.exists?(Path.join(installed, "certs/collector.pem"))
+      refute File.exists?(Path.join(installed, "certs/collector-key.pem"))
+      refute File.exists?(Path.join(installed, "certs/ca-chain.pem"))
+
+      log = File.read!(Path.join(installed, "systemctl.log"))
+      assert log =~ "stop serviceradar-flowgger"
+      assert log =~ "start serviceradar-flowgger"
+    end
+
+    test "installs certificate files when the bundle includes them" do
+      package = %{
+        sample_flowgger_package()
+        | tls_cert_pem: "cert-pem\n",
+          ca_chain_pem: "ca-pem\n"
+      }
+
+      {:ok, tarball} =
+        CollectorBundleGenerator.create_tarball(
+          package,
+          sample_nats_creds(),
+          sample_tls_key(),
+          nats_url: "nats://serviceradar-nats:4222"
+        )
+
+      assert {:ok, installed} = install_bundle(tarball)
+
+      assert File.read!(Path.join(installed, "certs/collector.pem")) == "cert-pem\n"
+      assert File.read!(Path.join(installed, "certs/collector-key.pem")) == sample_tls_key()
+      assert File.read!(Path.join(installed, "certs/ca-chain.pem")) == "ca-pem\n"
+      assert mode(Path.join(installed, "certs/collector.pem")) == 0o644
+      assert mode(Path.join(installed, "certs/ca-chain.pem")) == 0o644
+      assert mode(Path.join(installed, "certs/collector-key.pem")) == 0o600
+      assert mode(Path.join(installed, "creds/nats.creds")) == 0o600
+
+      log = File.read!(Path.join(installed, "systemctl.log"))
+      assert log =~ "stop serviceradar-flowgger"
+      assert log =~ "start serviceradar-flowgger"
+    end
+
     test "defaults syslog input to auto detection and keeps timezone configuration" do
       {:ok, tarball} =
         CollectorBundleGenerator.create_tarball(
@@ -178,6 +230,69 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
                "\"https://demo.serviceradar.cloud/$(touch /tmp/pwned)/api/collectors/12345678-abcd-efgh-ijkl-1234567890ab/bundle\""
     end
   end
+
+  defp install_bundle(tarball) do
+    root = Path.join(System.tmp_dir!(), "collector-update-#{System.unique_integer([:positive])}")
+    bundle = Path.join(root, "bundle")
+    config = Path.join(root, "etc")
+    bin = Path.join(root, "bin")
+    log = Path.join(config, "systemctl.log")
+
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.mkdir_p!(bundle)
+    File.mkdir_p!(bin)
+    File.mkdir_p!(config)
+    File.write!(log, "")
+
+    Enum.each(extract_files(tarball), fn {name, content} ->
+      relative = name |> String.split("/", parts: 2) |> List.last()
+      dest = Path.join(bundle, relative)
+      File.mkdir_p!(Path.dirname(dest))
+      File.write!(dest, content)
+    end)
+
+    script_path = Path.join(bundle, "update.sh")
+
+    script =
+      script_path
+      |> File.read!()
+      |> String.replace(~s([ "$EUID" -ne 0 ]), ~s([ "${SR_TEST_EUID:-$EUID}" -ne 0 ]))
+      |> String.replace(~s(CONFIG_DIR="/etc/serviceradar"), ~s(CONFIG_DIR="#{config}"))
+
+    File.write!(script_path, script)
+    File.write!(Path.join(bin, "systemctl"), stub_systemctl(log))
+    File.write!(Path.join(bin, "id"), "#!/bin/bash\nexit 1\n")
+    File.chmod!(Path.join(bin, "systemctl"), 0o755)
+    File.chmod!(Path.join(bin, "id"), 0o755)
+
+    env =
+      System.get_env()
+      |> Map.put("PATH", bin <> ":" <> System.get_env("PATH", ""))
+      |> Map.put("SR_TEST_EUID", "0")
+      |> Map.to_list()
+
+    {output, status} = System.cmd("bash", [script_path], env: env, stderr_to_stdout: true)
+
+    if status == 0 do
+      {:ok, config}
+    else
+      {:error, {status, output}}
+    end
+  end
+
+  defp stub_systemctl(log) do
+    """
+    #!/bin/bash
+    printf '%s\\n' "$*" >> "#{log}"
+    if [ "$1" = "list-unit-files" ]; then
+      echo "serviceradar-flowgger.service enabled"
+    fi
+    exit 0
+    """
+  end
+
+  defp mode(path), do: File.stat!(path).mode &&& 0o777
 
   defp extract_files(tarball) do
     {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
