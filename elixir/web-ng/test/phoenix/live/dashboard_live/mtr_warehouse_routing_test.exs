@@ -113,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
     # omits the zero fraction, so the bound is accepted with or without it.
     assert length(Regex.scan(~r/`time` >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?'/, sql)) ==
              2
+
     assert sql =~ "AND h.`time` >= st.`time`"
     assert sql =~ "COUNT(CASE WHEN dh.sent > 0 THEN dh.trace_id END) AS loss_sample_count"
 
