@@ -89,12 +89,11 @@ export default class WorldMapRenderer {
         })
       },
       onError: error => this.failRenderer(error),
-      initialViewState: this.viewState, parameters: GOD_VIEW_ALPHA_BLEND,
+      viewState: this.viewState, parameters: GOD_VIEW_ALPHA_BLEND,
       controller: {dragPan: true, scrollZoom: {smooth: true}, touchZoom: true, dragRotate: false, touchRotate: false, doubleClickZoom: false},
       pickingRadius: 6, _animate: true,
       onViewStateChange: ({viewState}) => {
-        this.viewState = viewState
-        this.scheduleLocationUpdate()
+        this.setView(viewState)
       },
       onClick: info => {if (info.object) void this.pick(info)},
       getTooltip: info => info.object ? {text: info.object.label || `${info.object.count.toLocaleString()} relations`} : null,
@@ -184,7 +183,7 @@ export default class WorldMapRenderer {
 
   setView(viewState) {
     this.viewState = viewState
-    this.deck?.setProps({initialViewState: viewState})
+    this.deck?.setProps({viewState})
     this.scheduleLocationUpdate()
   }
 

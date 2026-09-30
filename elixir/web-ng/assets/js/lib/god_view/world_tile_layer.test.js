@@ -1,5 +1,6 @@
 import {describe, expect, it, vi} from "vitest"
-import {AttributeManager, OrthographicViewport} from "@deck.gl/core"
+import {AttributeManager, Deck, OrthographicViewport} from "@deck.gl/core"
+import ViewManager from "../../../node_modules/@deck.gl/core/dist/lib/view-manager.js"
 import WorldTileLayer from "./world_tile_layer"
 import WorldMapRenderer from "./WorldMapRenderer"
 import {decodeWorldTile} from "./world_tile_decode"
@@ -27,6 +28,53 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it("resets the displayed map camera repeatedly after interactive pan and zoom", async () => {
+    vi.useFakeTimers()
+    const handlers = new Map()
+    const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})
+    vi.stubGlobal("document", {createElement: domNode})
+    vi.stubGlobal("window", {location: {pathname: "/topology"}, addEventListener() {}, removeEventListener() {}})
+    vi.stubGlobal("ResizeObserver", class {observe() {} disconnect() {}})
+    // Keep Deck's real camera lifecycle; only GPU startup and drawing are absent.
+    vi.spyOn(Deck.prototype, "_createDevice").mockReturnValue(new Promise(() => {}))
+    vi.spyOn(Deck.prototype, "_createAnimationLoop").mockReturnValue({start() {}, stop() {}, destroy() {}, setProps() {}})
+    const renderer = new WorldMapRenderer({...domNode(), clientWidth: 800, clientHeight: 600}, vi.fn(),
+      (name, handler) => handlers.set(name, handler))
+    vi.spyOn(renderer, "poll").mockResolvedValue()
+    try {
+      await renderer.mount()
+      const deck = renderer.deck
+      Object.assign(deck, {width: 800, height: 600})
+      deck.viewManager = new ViewManager({
+        views: deck._getViews(), width: 800, height: 600,
+        viewState: deck._getViewState(), eventManager: null,
+        onViewStateChange: params => deck._onViewStateChange(params),
+      })
+      deck.layerManager = {activateViewport() {}, setProps() {}, finalize() {}}
+      deck.effectManager = {setProps() {}, finalize() {}}
+      deck.deckRenderer = {setProps() {}, finalize() {}}
+      deck.deckPicker = {setProps() {}, finalize() {}}
+      deck.widgetManager = {setProps() {}, finalize() {}}
+      // An invented occupied world fits to target [128, 128].
+      renderer.cache.manifest = {bounds: [[0, 0], [8388608, 8388608]], zmax: 16}
+      handlers.get("god_view:reset_view")()
+      for (const zoom of [4, 6]) {
+        deck._onViewStateChange({viewId: "god-view-world", viewState: {target: [300, 200, 0], zoom}})
+        expect(deck.getViewports()[0].zoom).toBe(zoom)
+        expect(deck.getViewports()[0].target).toEqual([300, 200, 0])
+        handlers.get("god_view:reset_view")()
+        const viewport = deck.getViewports()[0]
+        expect(viewport.target).toEqual([128, 128, 0])
+        expect(viewport.zoom).toBeCloseTo(Math.log2(460 / 256))
+      }
+    } finally {
+      renderer.destroy()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+
   it("admits nonoverlapping labels across tile seams and readmits them on zoom", async () => {
     const layer = new WorldTileLayer({id: "label-seams", maxZoom: 1})
     const viewport = zoom => new OrthographicViewport({width: 1024, height: 512, target: [256, 100, 0], zoom})
