@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Starlink Cloud plugin configuration",
+  "description": "Scheduled collection settings arrive through the producer schedules; the service-account credential is brokered by the agent host and must never appear here.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "instance_label": { "type": "string", "description": "Optional label for the account, shown in results." },
+    "timeout_ms": { "type": "integer", "minimum": 5000, "maximum": 60000, "default": 20000 },
+    "max_requests_per_run": { "type": "integer", "minimum": 1, "maximum": 240, "default": 120 }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "com.carverauto.starlink.alert.display",
+  "version": "1.0.0",
+  "schema_id": "com.carverauto.starlink.alert",
+  "schema_version": "1.0.0",
+  "widgets": [
+    {
+      "type": "summary",
+      "title": "message",
+      "message": "unmapped.alert",
+      "source": "log_provider",
+      "severity": "severity"
+    },
+    {
+      "type": "badges",
+      "fields": [
+        { "label": "Device kind", "path": "unmapped.starlink_kind" },
+        { "label": "Alert", "path": "unmapped.alert" },
+        { "label": "Level", "path": "unmapped.level" },
+        { "label": "Severity", "path": "severity", "tone": "severity" }
+      ]
+    },
+    {
+      "type": "facts",
+      "fields": [
+        { "label": "Time", "path": "time", "format": "timestamp" },
+        { "label": "Device", "path": "device.uid" },
+        { "label": "Condition", "path": "unmapped.condition_key" },
+        { "label": "Message", "path": "message" }
+      ]
+    },
+    {
+      "type": "json_section",
+      "title": "Starlink alert",
+      "paths": ["device", "unmapped"]
+    }
+  ]
+}
