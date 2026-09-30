@@ -1,0 +1,52 @@
+id: starlink-local
+name: Starlink Local Diagnostics
+version: 0.1.0
+description: >
+  Reads vendor-documented diagnostics from Starlink terminals and routers on
+  the agent's LAN: the device gRPC service's get_diagnostics request and, when
+  a router HTTPS diagnostics domain is configured, its JSON diagnostics. Alerts
+  are emitted as OCSF condition events in one condition scope per assignment,
+  keyed to the vendor device ID the device reports about itself. The local
+  API is unauthenticated, so this package needs no credential.
+entrypoint: local_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - emit_telemetry
+  - http_request
+  - grpc_request
+permissions:
+  # The router HTTPS diagnostics endpoint is served under an
+  # operator-configured domain with a publicly trusted certificate.
+  allowed_domains:
+    - "*"
+  # Device-local APIs are only ever reached on private or link-local
+  # addresses; plaintext gRPC (h2c) is refused outside these ranges.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "169.254.0.0/16"
+  allowed_ports:
+    - 443
+    - 9000
+    - 9200
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 10000
+  max_open_connections: 2
+signal_schemas:
+  - id: com.carverauto.starlink.alert
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/ocsf_alert_event.schema.json
+    display_contract: display/alert_event.display.json
+    display_contract_id: com.carverauto.starlink.alert.display
+    display_contract_version: 1.0.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 1008
+    type_uid: 100801

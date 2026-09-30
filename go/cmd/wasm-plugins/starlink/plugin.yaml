@@ -1,0 +1,260 @@
+id: starlink-cloud
+name: Starlink Cloud
+version: 0.1.0
+description: >
+  Collects Starlink user terminal and router inventory, link telemetry and
+  vendor alerts from the Starlink Management API V2 and Telemetry API through
+  one service account per credential rule. Inventory is emitted as
+  DeviceDiscovery complete snapshots keyed by vendor device ID; telemetry is
+  emitted as serviceradar.metric.v1 records; active vendor alerts are emitted
+  as OCSF condition events in one condition scope per account, so the agent
+  synthesizes clears when an alert stops being reported.
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - emit_telemetry
+  - http_request
+  - producer-schedule:v1
+  - action-result-ingest:v1
+  - action-only:v1
+permissions:
+  allowed_domains:
+    - starlink.com
+  allowed_ports:
+    - 443
+resources:
+  requested_memory_mb: 128
+  requested_cpu_ms: 60000
+  max_open_connections: 2
+signal_schemas:
+  - id: com.carverauto.starlink.alert
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/ocsf_alert_event.schema.json
+    display_contract: display/alert_event.display.json
+    display_contract_id: com.carverauto.starlink.alert.display
+    display_contract_version: 1.0.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 1008
+    type_uid: 100801
+# Both schedules run in action mode: the agent injects the brokered
+# service-account token only into action-mode runs. The token exchange happens
+# on the agent host; the plugin never receives the client secret.
+producer_schedules:
+  - schedule_id: starlink.inventory.refresh
+    label: Refresh Starlink inventory
+    description: Collects one complete inventory snapshot of the account's user terminals, routers and service lines.
+    action_id: starlink.inventory.refresh
+    command_type: plugin.run_action
+    schedule_type: interval
+    default_cadence_seconds: 900
+    min_cadence_seconds: 300
+    max_cadence_seconds: 86400
+    jitter_seconds: 60
+    timeout_seconds: 300
+    dispatch_scope: assignment
+    settings_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        instance_label:
+          type: string
+        timeout_ms:
+          type: integer
+          default: 20000
+        max_requests_per_run:
+          type: integer
+          default: 120
+    credential_requirements:
+      starlink_service_account:
+        required: true
+        resolution_location: agent
+        grants:
+          - name: management_read
+            grant_type: oauth2_client_credentials
+            purpose: inventory_telemetry
+            allow:
+              methods:
+                - GET
+              hosts:
+                - starlink.com
+              ports:
+                - 443
+              paths:
+                - /api/public/v2/account
+                - /api/public/v2/user-terminals
+                - /api/public/v2/service-lines
+            inject:
+              type: oauth2_client_credentials
+              token_method: POST
+              token_host: starlink.com
+              token_port: "443"
+              token_path: /api/auth/connect/token
+              field_client_id: client_id
+              field_client_secret: client_secret
+              fixed_grant_type: client_credentials
+    payload_template:
+      mode: complete_snapshot
+    redaction:
+      fields:
+        - credential_brokers
+        - authorization
+        - access_token
+  - schedule_id: starlink.telemetry.collect
+    label: Collect Starlink telemetry and alerts
+    description: Drains the account telemetry stream into metrics and reads current alert state for every terminal and router.
+    action_id: starlink.telemetry.collect
+    command_type: plugin.run_action
+    schedule_type: interval
+    default_cadence_seconds: 60
+    min_cadence_seconds: 30
+    max_cadence_seconds: 900
+    jitter_seconds: 10
+    timeout_seconds: 240
+    dispatch_scope: assignment
+    settings_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        instance_label:
+          type: string
+        timeout_ms:
+          type: integer
+          default: 20000
+        max_requests_per_run:
+          type: integer
+          default: 120
+        telemetry_batch_size:
+          type: integer
+          default: 1000
+        telemetry_max_linger_ms:
+          type: integer
+          default: 5000
+        telemetry_max_iterations:
+          type: integer
+          default: 8
+    credential_requirements:
+      starlink_service_account:
+        required: true
+        resolution_location: agent
+        grants:
+          - name: telemetry_read
+            grant_type: oauth2_client_credentials
+            purpose: inventory_telemetry
+            allow:
+              methods:
+                - GET
+                - POST
+              hosts:
+                - starlink.com
+              ports:
+                - 443
+              paths:
+                - /api/public/v2/account
+                - /api/public/v2/user-terminals
+                - /api/public/v2/telemetry/stream
+                - /api/public/v2/telemetry/query
+            inject:
+              type: oauth2_client_credentials
+              token_method: POST
+              token_host: starlink.com
+              token_port: "443"
+              token_path: /api/auth/connect/token
+              field_client_id: client_id
+              field_client_secret: client_secret
+              fixed_grant_type: client_credentials
+    payload_template:
+      mode: telemetry
+    redaction:
+      fields:
+        - credential_brokers
+        - authorization
+        - access_token
+integrations:
+  credential_profiles:
+    - provider: starlink
+      label: Starlink
+      description: Starlink Management API V2 service account (client ID and secret) for one account.
+      auth_methods:
+        - id: starlink_service_account
+          label: Service account
+          credential_kind: api_token
+          fields:
+            - id: client_id
+              label: Client ID
+              control: text
+              required: true
+              secret: false
+              public: true
+            - id: client_secret
+              label: Client secret
+              control: password
+              required: true
+              secret: true
+      purposes:
+        - inventory_telemetry
+      # Agent only: one service account must have exactly one reader of its
+      # telemetry stream, because the vendor keeps one read position per
+      # client and splits rows between concurrent readers.
+      scope_types:
+        - agent
+      provisioning:
+        mode: producer_schedule
+        schedule_ids:
+          - starlink.inventory.refresh
+          - starlink.telemetry.collect
+        credential_requirement: starlink_service_account
+  inventory_sources:
+    - source: starlink
+      label: Starlink
+      description: User terminals and routers collected from the Starlink Management API.
+      metadata_fields:
+        - key: starlink_kind
+          label: Kind
+        - key: service_line_number
+          label: Service line
+        - key: service_line_active
+          label: Service line active
+          format: boolean
+        - key: product_reference_id
+          label: Product
+        - key: kit_serial
+          label: Kit serial
+        - key: dish_serial
+          label: Dish serial
+        - key: hardware_version
+          label: Hardware version
+        - key: attached_terminal_device_id
+          label: Attached terminal
+alert_rules:
+  # Created disabled on package approval; an operator enables and tunes it.
+  - name: starlink_terminal_critical_alert
+    description: A Starlink terminal or router reports a critical vendor alert, such as thermal shutdown, a stuck actuator, or service disabled.
+    signal: event
+    match:
+      subject_prefix: starlink.alert
+      attribute_equals:
+        level: critical
+      recovery:
+        subject_prefix: starlink.alert
+        attribute_equals:
+          level: ok
+    group_by:
+      - device.uid
+      - alert
+    threshold: 1
+    window_seconds: 300
+    bucket_seconds: 60
+    cooldown_seconds: 900
+    renotify_seconds: 21600
+    event:
+      log_name: alert.starlink.critical
+      message: "Starlink device {device.uid} reports {alert}"
+    alert:
+      title: Starlink critical alert
+      severity: critical

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "com.carverauto.starlink.alert",
+  "title": "Starlink Alert OCSF Event Log Activity",
+  "type": "object",
+  "required": ["id", "time", "class_uid", "category_uid", "type_uid", "activity_id", "severity_id", "message"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "time": { "type": "string" },
+    "class_uid": { "const": 1008 },
+    "category_uid": { "const": 1 },
+    "type_uid": { "const": 100801 },
+    "activity_id": { "const": 1 },
+    "activity_name": { "type": "string" },
+    "severity_id": { "type": "integer" },
+    "severity": { "type": "string" },
+    "message": { "type": "string" },
+    "metadata": { "type": "object" },
+    "device": {
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "unmapped": {
+      "type": "object",
+      "properties": {
+        "condition_key": { "type": "string" },
+        "condition_scope": { "type": "string" },
+        "condition_scope_complete": { "type": "string" },
+        "active_condition_keys": { "type": "array", "items": { "type": "string" } },
+        "level": { "enum": ["ok", "warning", "critical"] },
+        "alert": { "type": "string" },
+        "starlink_kind": { "type": "string" },
+        "source_instance": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "raw_data": { "type": "string" },
+    "log_name": { "type": "string" },
+    "log_provider": { "type": "string" }
+  },
+  "additionalProperties": true
+}

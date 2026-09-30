@@ -62,6 +62,12 @@ WASM_BUILD_TARGETS = [
         "main_go": "//go/cmd/wasm-plugins/opentext-nom:main_tinygo.go",
         "tags": ["tinygo"],
     },
+    {
+        "name": "starlink_cloud",
+        "srcs": ["//go/cmd/wasm-plugins/starlink:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/starlink:main_tinygo.go",
+        "tags": ["tinygo"],
+    },
 ]
 
 WASM_PLUGIN_BUNDLES = [
@@ -224,6 +230,34 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.wasm", ":opentext_nom_inventory_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/opentext-nom:config.schema.json"),
             ("docs/configuration.md", "//go/cmd/wasm-plugins/opentext-nom:docs/configuration.md"),
+        ],
+    },
+    {
+        "name": "starlink_cloud_bundle",
+        "plugin_id": "starlink-cloud",
+        "repository_name": "wasm-plugin-starlink-cloud",
+        "wasm_target": ":starlink_cloud_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/starlink:plugin.yaml"),
+            ("plugin.wasm", ":starlink_cloud_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/starlink:config.schema.json"),
+            ("schemas/ocsf_alert_event.schema.json", "//go/cmd/wasm-plugins/starlink:schemas/ocsf_alert_event.schema.json"),
+            ("display/alert_event.display.json", "//go/cmd/wasm-plugins/starlink:display/alert_event.display.json"),
+        ],
+    },
+    {
+        # Same wasm module as starlink-cloud; the manifest selects the
+        # local_check entrypoint.
+        "name": "starlink_local_bundle",
+        "plugin_id": "starlink-local",
+        "repository_name": "wasm-plugin-starlink-local",
+        "wasm_target": ":starlink_cloud_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/starlink:plugin.local.yaml"),
+            ("plugin.wasm", ":starlink_cloud_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/starlink:config.local.schema.json"),
+            ("schemas/ocsf_alert_event.schema.json", "//go/cmd/wasm-plugins/starlink:schemas/ocsf_alert_event.schema.json"),
+            ("display/alert_event.display.json", "//go/cmd/wasm-plugins/starlink:display/alert_event.display.json"),
         ],
     },
 ]
