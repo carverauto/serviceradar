@@ -27,6 +27,37 @@ fn relation(source: &str, target: &str) -> Relation {
 }
 
 #[test]
+fn elk_reconciliation_does_not_depend_on_the_callers_stack_size() {
+    // Native callers include BEAM dirty schedulers, whose stacks are smaller
+    // than ordinary Rust test threads. Exercise the real ELK runtime there.
+    std::thread::Builder::new()
+        .stack_size(128 * 1024)
+        .spawn(|| {
+            let nodes: Vec<_> = (0..384)
+                .map(|n| device(&format!("sr:chain-{n:03}.example.test"), 1))
+                .collect();
+            let links: Vec<_> = nodes
+                .windows(2)
+                .map(|pair| relation(&pair[0].id, &pair[1].id))
+                .collect();
+            let placed = reconcile(nodes.clone(), &links, &[]).unwrap();
+            assert_eq!(placed.len(), nodes.len());
+            assert_eq!(
+                placed
+                    .iter()
+                    .map(|p| (p.x, p.y))
+                    .collect::<HashSet<_>>()
+                    .len(),
+                nodes.len()
+            );
+            assert_eq!(reconcile(nodes, &links, &placed).unwrap(), placed);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
 fn deterministic_world_preserves_positions_parents_and_tombstones() {
     let nodes = vec![
         device("sr:core.example.test", 0),

@@ -38,8 +38,19 @@ pub fn reconcile(
     let fresh = if fresh_tree.is_empty() {
         None
     } else {
-        let elk = crate::elk::Elk::new()?;
-        let drawing = crate::elk_hierarchy::compose(&fresh_tree, &elk)?;
+        // QuickJS permits 8 MiB of stack; BEAM dirty schedulers provide much
+        // less. Keep the runtime's entire lifetime on a stack with headroom.
+        let drawing = std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn_scoped(scope, || {
+                    let elk = crate::elk::Elk::new()?;
+                    crate::elk_hierarchy::compose(&fresh_tree, &elk)
+                })
+                .map_err(|_| Error::LayoutUnavailable)?
+                .join()
+                .map_err(|_| Error::LayoutUnavailable)?
+        })?;
         let finest = crate::elk_hierarchy::finest_cell(&drawing, fresh_tree.len())?;
         let component = cells.reserve(&devices[fresh_tree[0].0].id, component_depth, finest)?;
         let geometry = crate::elk_hierarchy::project(&drawing, component, fresh_tree.len())?;
