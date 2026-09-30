@@ -75,7 +75,7 @@ defmodule ServiceRadar.TopologyAtlas do
   defdelegate world_info(world), to: Native
   defdelegate candidate_info(candidate), to: Native
 
-  @doc "Read the canonical graph directly into a native resource from one paged Dgraph snapshot."
+  @doc "Read the topology view directly into a native resource from one paged Dgraph snapshot."
   def read_graph do
     with {:ok, url} <- Dgraph.url(), do: Native.read_graph(url, Utils.stale_cutoff_iso8601())
   end

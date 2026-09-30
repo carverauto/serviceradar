@@ -1,6 +1,6 @@
 ## ADDED Requirements
 ### Requirement: Canonical atlas acquisition uses bounded consistent source pages
-The topology read model SHALL acquire canonical Dgraph Device vertices and relations through bounded pages in one read-only transaction. Source acquisition SHALL enforce transport limits independently of the tile and bounded-detail budgets used for inventory enrichment and client delivery.
+The topology read model SHALL acquire Dgraph Device vertices and admitted topology-view relations through bounded pages in one read-only transaction. The view SHALL include the canonical backbone plus fresh, non-stale `ATTACHED_TO`, `INFERRED_TO` and `HOSTED_ON` evidence already admitted by projection, preserving relation kind and evidence class. Canonical telemetry eligibility SHALL survive persistence; non-canonical view relations and old rows without eligibility SHALL remain telemetry-ineligible. The canonical graph API used by traversal consumers SHALL remain backbone-only. Source acquisition SHALL enforce transport limits independently of the tile and bounded-detail budgets used for inventory enrichment and client delivery.
 
 #### Scenario: Canonical source exceeds one transport response
 - **GIVEN** the complete canonical vertex or relation set exceeds one permitted gRPC response

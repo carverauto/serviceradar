@@ -187,7 +187,7 @@ Each tile SHALL enforce a fixed maximum of 128 glyphs, 512 rendered edges and 26
 - **AND** zooming in SHALL reveal nearby individual devices subject to density and encoded-byte budgets
 
 ### Requirement: Tile relations preserve identity across bundles and clipping
-The tile engine SHALL bundle low-zoom relations by their visible endpoint or aggregate pair while retaining stable bundle identity and represented-relation counts. Long relations SHALL become visible when their endpoint representations are eligible and SHALL be clipped deterministically across tiles. The spatial index SHALL find a crossing segment even when both endpoints lie outside the requested tile, without scanning all canonical relations for every tile request. Every returned edge endpoint SHALL be local to its batch.
+The tile engine SHALL bundle low-zoom relations by their visible endpoint or aggregate pair while retaining stable bundle identity and represented-relation counts. Overview routes SHALL use the preferred physical-first forest, retaining parallel bindings of the selected pair and class; other cross-links SHALL remain in bounded detail evidence rather than being added to overview routes as zoom changes. Long overview relations SHALL become visible when their endpoint representations are eligible and SHALL be clipped deterministically across tiles. The spatial index SHALL find a crossing segment even when both endpoints lie outside the requested tile, without scanning all canonical relations for every tile request. Every returned edge endpoint SHALL be local to its batch.
 
 #### Scenario: Adjacent tiles share a continuous relation
 - **GIVEN** one admitted relation crosses multiple tiles
