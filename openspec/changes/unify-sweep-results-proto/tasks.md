@@ -188,6 +188,10 @@
     - [ ] M2.0d2 Core delivery. Core builds, signs and pushes each connected
       agent's lease (the newly minted tail, or the whole window after a drop
       or a new lease), and records each ack.
+      Migration `20260930091700` adds `sweep_lease_deliveries`;
+      `LeaseDelivery` decides and builds each push as Carrier in `design.md`
+      says, `AgentCommandBus.push_sweep_lease/3` and the gateway session send
+      it as chunks, and the gateway forwards `SweepLeaseAck` to core.
     - [ ] M2.0d3 Agent install. The agent reassembles, checks and stores the
       lease per sweep group across restarts, and acknowledges it.
     - [ ] M2.0d4 Remaining horizon. Core shows each agent's acknowledged

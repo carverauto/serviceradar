@@ -66,6 +66,22 @@ defmodule ServiceRadarAgentGateway.ConfigSyncForwarder do
     ])
   end
 
+  @doc "Persists an agent's answer to a sweep lease push on core."
+  @spec record_sweep_lease_ack(String.t(), Monitoring.SweepLeaseAck.t()) :: :ok | {:error, term()}
+  def record_sweep_lease_ack(agent_id, %Monitoring.SweepLeaseAck{} = ack) do
+    core_call(:record_sweep_lease_ack, [
+      agent_id,
+      %{
+        sweep_group_id: ack.sweep_group_id,
+        payload_sha256: ack.payload_sha256,
+        installed: ack.installed,
+        error: ack.error,
+        installed_through_unix_nano: ack.installed_through_unix_nano,
+        installed_slot_count: ack.installed_slot_count
+      }
+    ])
+  end
+
   defp section_statuses(%Monitoring.ConfigAck{section_statuses: [_ | _] = statuses}) do
     Enum.map(statuses, fn status ->
       %{

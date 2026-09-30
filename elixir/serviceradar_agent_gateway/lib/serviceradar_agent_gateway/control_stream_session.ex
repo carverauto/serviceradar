@@ -28,6 +28,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   @config_push_retry_initial_ms 100
   @config_push_retry_max_ms 5_000
   @config_push_chunks_capability "config_push_chunks"
+  @sweep_lease_capability "sweep_lease_v1"
   # grpc-go's default client receive limit, which agents keep.
   @legacy_config_push_max_bytes 4 * 1024 * 1024
 
@@ -71,6 +72,11 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   def push_config(pid, %Monitoring.AgentConfigResponse{} = config) do
     GenServer.call(pid, {:push_config, config})
+  end
+
+  @doc "Sends one encoded `SweepLeaseV1` to the agent as `SweepLeaseChunk`s."
+  def push_sweep_lease(pid, sweep_group_id, payload) when is_binary(sweep_group_id) and is_binary(payload) do
+    GenServer.call(pid, {:push_sweep_lease, sweep_group_id, payload})
   end
 
   def send_console_frame(pid, frame) when is_map(frame) do
@@ -185,6 +191,23 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     else
       {:error, reason} ->
         {:reply, {:error, reason}, state}
+    end
+  end
+
+  # A sweep lease travels as SweepLeaseChunks, only to agents that advertise they reassemble
+  # them. Core decides what to push (ServiceRadar.SweepJobs.LeaseDelivery).
+  def handle_call({:push_sweep_lease, sweep_group_id, payload}, _from, state) do
+    with :ok <- require_sweep_lease_capability(state),
+         {:ok, chunks} <- ConfigChunks.sweep_lease_chunks(sweep_group_id, payload) do
+      responses =
+        Enum.map(chunks, &%Monitoring.ControlStreamResponse{payload: {:sweep_lease_chunk, &1}})
+
+      case send_stream_replies(state.stream, responses) do
+        {:ok, stream} -> {:reply, :ok, %{state | stream: stream}}
+        {:error, reason} -> {:reply, {:error, reason}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
@@ -367,6 +390,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       {:console_frame, frame} ->
         broadcast_console_frame(frame, state)
         {:noreply, state}
+
+      {:sweep_lease_ack, ack} ->
+        {:noreply, forward_sweep_lease_ack(state, ack)}
 
       {:hello, hello} ->
         state =
@@ -793,6 +819,26 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       RemoteAccessPubSub.broadcast_frame(session_id, frame_payload)
       _ = RemoteAccessFileTransfers.handle_agent_frame(frame_payload)
     end
+  end
+
+  defp require_sweep_lease_capability(state) do
+    if @sweep_lease_capability in state.capabilities,
+      do: :ok,
+      else: {:error, :sweep_lease_unsupported}
+  end
+
+  # Record the agent's answer to a lease push on core. Fire-and-forget, like a config ack: a
+  # core outage must not stall the control stream, and an unrecorded ack only makes core resend
+  # the whole lease window later.
+  defp forward_sweep_lease_ack(state, ack) do
+    if registered_agent?(state) do
+      agent_id = state.agent_id
+
+      {:ok, _pid} =
+        Task.start(fn -> ConfigSyncForwarder.record_sweep_lease_ack(agent_id, ack) end)
+    end
+
+    state
   end
 
   # Persist the acked version + per-section statuses on core (wedge detection).

@@ -22,7 +22,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassWorker do
         :ok
 
       {:ok, summary} ->
-        if summary.scheduled + summary.dropped + summary.revoked + summary.errors > 0 do
+        if summary.scheduled + summary.dropped + summary.revoked + summary.pushed +
+             summary.withdrawn + summary.errors > 0 do
           Logger.info("Sweep lease pass: #{inspect(summary)}")
         end
 

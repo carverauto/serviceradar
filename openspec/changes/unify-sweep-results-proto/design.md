@@ -411,6 +411,22 @@ by SHA-256 exactly like pushed config chunks, and only to agents advertising
 `sweep_lease_v1`; the agent answers every push with `SweepLeaseAck`, whose
 `installed_through` is how far it can run without core.
 
+Core records what it delivered per assignment (`sweep_lease_deliveries`: the
+lease, its issuance time, how far the delivered window reaches, and the
+agent's last ack) and the lease pass pushes from that. A full window goes out
+for a new lease id, after core dropped a delivered slot that has not started,
+after the agent refused the last push, and when the last push went
+unacknowledged for ten minutes; otherwise only the slots minted since the
+delivered window ended. A window ends just after its last slot rather than at
+the horizon, because the pass mints a bounded number of slots per run and a
+later slot must land in a later window. Every push of a lease signs the same
+issuance time, the lease's first push, and its production capability runs to
+the end of the last slot pushed, so the newest capability covers every slot the
+agent holds. A group that stops leasing to an agent sends that agent a
+revocation, and core forgets the delivery once the agent's session accepted
+it. Nothing is pushed until core has both an issuer key and an active sweep
+contract; without them leases are still planned.
+
 The contract a production capability names comes from the installation's
 contract registry document, the same JSON the gateway admits records against,
 read through one shared parser, so core cannot sign against values the
