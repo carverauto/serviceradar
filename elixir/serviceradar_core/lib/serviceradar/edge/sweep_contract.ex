@@ -9,15 +9,18 @@ defmodule ServiceRadar.Edge.SweepContract do
   bulk lane sweep records travel on; anything else means core issues no lease authority, because
   the gateway would withhold every record signed against it.
 
-  The per-record bounds are the sweep contract's own: one projected row per host, at most
-  `MaxSweepHostsPerBatch` (2000) hosts per batch, and a 2 KiB write budget per row.
+  The per-record bounds are the sweep contract's own. A batch projects one reachability row
+  per host plus one row per open port and per port error, plus an MTR summary
+  (`projection.SweepProjectionRows`, `obsbatch.hostCost`). The ceiling is
+  `obsbatch.DefaultMaxSweepRows` (10000) projected rows per batch, with a 2 KiB write budget
+  per projected row.
   """
 
   alias ServiceRadar.Edge.ContractRegistryDocument
 
   @contract_id "serviceradar.sweep.observation"
   @contract_version 1
-  @max_hosts_per_batch 2_000
+  @max_projected_rows 10_000
   @write_bytes_per_row 2_048
 
   @type t :: %{
@@ -50,8 +53,8 @@ defmodule ServiceRadar.Edge.SweepContract do
          registry_epoch: snapshot.registry_epoch,
          registry_snapshot_sha256: snapshot.registry_snapshot_sha256,
          cost_model_version: entry.cost_model_version,
-         max_projected_row_count: @max_hosts_per_batch,
-         max_projected_write_bytes: @max_hosts_per_batch * @write_bytes_per_row
+         max_projected_row_count: @max_projected_rows,
+         max_projected_write_bytes: @max_projected_rows * @write_bytes_per_row
        }}
     end
   end

@@ -37,8 +37,8 @@ defmodule ServiceRadar.Edge.SweepContractTest do
     assert contract.registry_epoch == 7
     assert contract.registry_snapshot_sha256 == Base.decode16!(@snapshot, case: :lower)
     assert contract.cost_model_version == 3
-    assert contract.max_projected_row_count == 2_000
-    assert contract.max_projected_write_bytes == 2_000 * 2_048
+    assert contract.max_projected_row_count == 10_000
+    assert contract.max_projected_write_bytes == 10_000 * 2_048
   end
 
   test "a sweep entry that is not active, or not registered, gives no contract" do
