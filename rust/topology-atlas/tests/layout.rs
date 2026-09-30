@@ -397,6 +397,42 @@ fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
 }
 
 #[test]
+fn disconnected_devices_do_not_shrink_the_connected_radial_overview() {
+    let hub = device("sr:overview-hub.example.test", 0);
+    let mut nodes = vec![hub.clone()];
+    nodes.extend((0..40).map(|n| device(&format!("sr:overview-leaf-{n:02}.example.test"), 2)));
+    let links: Vec<_> = nodes[1..]
+        .iter()
+        .map(|node| relation(&hub.id, &node.id))
+        .collect();
+    nodes.extend((0..24).map(|n| device(&format!("sr:isolated-{n:02}.example.test"), 2)));
+    let points = reconcile(nodes.clone(), &links, &[]).unwrap();
+    let span = |xs: Vec<u32>| xs.iter().max().unwrap() - xs.iter().min().unwrap();
+    let occupied = span(points.iter().map(|p| p.x).collect());
+    let connected = span(
+        points
+            .iter()
+            .filter(|p| p.component_id == hub.id)
+            .map(|p| p.x)
+            .collect(),
+    );
+    assert!(
+        connected * 3 > occupied,
+        "a connected radial fan must retain useful Fit scale: connected={connected}, world={occupied}"
+    );
+    assert_eq!(points.iter().filter(|p| p.parent_id.is_none()).count(), 25);
+    assert_eq!(
+        points
+            .iter()
+            .map(|p| &p.component_id)
+            .collect::<HashSet<_>>()
+            .len(),
+        25
+    );
+    assert_eq!(reconcile(nodes, &links, &points).unwrap(), points);
+}
+
+#[test]
 fn invented_million_device_hierarchy_and_one_percent_growth() {
     let (mut nodes, mut links) = hierarchy::hierarchy();
     let started = Instant::now();
