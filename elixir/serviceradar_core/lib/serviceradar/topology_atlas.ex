@@ -4,7 +4,7 @@ defmodule ServiceRadar.TopologyAtlas do
 
   Import persisted positions (including inactive reservations), active relations,
   and projected inventory in batches of at most 500. Finish a cold world or
-  reconcile with a canonical Dgraph snapshot, then publish bounded candidate
+  reconcile with one topology-view snapshot, then publish bounded candidate
   pages through `NetworkDiscovery.World`. Builders and graph snapshots are
   consumed once; worlds and candidates are immutable process-local resources.
 
@@ -28,6 +28,8 @@ defmodule ServiceRadar.TopologyAtlas do
     source_if_name: nil,
     target_if_index: nil,
     target_if_name: nil,
+    telemetry_eligible: false,
+    kind: "CANONICAL_TOPOLOGY",
     active: true
   }
   @operations [
@@ -134,9 +136,11 @@ defmodule ServiceRadar.TopologyAtlas do
   def bundle_detail(_world, _selection, _id, _cursor), do: {:error, :invalid_identity}
 
   @doc """
-  Reads at most 256 canonical bindings with explicit total rendered coverage.
-  Interface degrees count distinct active world relations across all pages and
-  evidence classes; missing interface indices have degree zero.
+  Reads at most 256 bindings with explicit total rendered coverage.
+  Interface degrees count normalized canonical physical bindings of each
+  interface across the whole world, including bindings without telemetry.
+  Attachments, inferred edges, and relation roles do not add a binding.
+  A missing interface index has degree zero.
   """
   def tile_relations(world, selection, cursor \\ nil, limit \\ 256)
 

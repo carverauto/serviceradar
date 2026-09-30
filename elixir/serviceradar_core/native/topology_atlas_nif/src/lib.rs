@@ -8,21 +8,21 @@ mod model;
 #[cfg(test)]
 mod tests;
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use dgraph_topology::{CanonicalGraph, TopologyClient};
+use dgraph_topology::{TopologyClient, TopologyView};
 use rustler::{
-    Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource, ResourceArc, Term,
-    types::list::ListIterator,
+    types::list::ListIterator, Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource,
+    ResourceArc, Term,
 };
 use serviceradar_topology_atlas::{Budget, Cell, Glyph, GlyphKind, Tile, TileProfile};
 use tokio::runtime::Runtime;
 
 use model::{
-    Builder, Candidate, Info, InventoryRow, PAGE_LIMIT, PositionRow, RelationRow, Result,
-    SourceGraph, WorldState,
+    Builder, Candidate, Info, InventoryRow, PositionRow, RelationRow, Result, SourceGraph,
+    WorldState, PAGE_LIMIT,
 };
 
 mod atoms {
@@ -32,7 +32,7 @@ mod atoms {
 }
 
 struct BuilderResource(Mutex<Option<Builder>>);
-struct GraphResource(Mutex<Option<CanonicalGraph>>);
+struct GraphResource(Mutex<Option<TopologyView>>);
 struct WorldResource(Arc<WorldState>);
 struct CandidateResource(Candidate);
 
@@ -258,9 +258,9 @@ fn read_graph(env: Env<'_>, url: String) -> Term<'_> {
                 let graph = runtime()?
                     .block_on(async {
                         let client = TopologyClient::connect(&url).await?;
-                        client.query_canonical_graph().await
+                        client.query_topology_view().await
                     })
-                    .map_err(|_| "canonical graph read failed")?;
+                    .map_err(|_| "topology view read failed")?;
                 Ok(ResourceArc::new(GraphResource(Mutex::new(Some(graph)))))
             }),
         )
@@ -278,7 +278,7 @@ fn reconcile(
             env,
             isolate(|| {
                 let builder = take(&builder.0)?;
-                let source = SourceGraph::from_canonical(take(&graph.0)?)?;
+                let source = SourceGraph::from_view(take(&graph.0)?)?;
                 Ok(ResourceArc::new(CandidateResource(
                     builder.reconcile(source)?,
                 )))
@@ -375,6 +375,7 @@ struct WireEdge {
     source: u32,
     target: u32,
     count: u64,
+    topology_class: String,
     start: f64,
     end: f64,
 }
@@ -417,6 +418,7 @@ impl From<Tile> for WireTile {
                     source: e.source,
                     target: e.target,
                     count: e.count,
+                    topology_class: e.topology_class.as_str().into(),
                     start: e.start,
                     end: e.end,
                 })
@@ -453,13 +455,14 @@ fn tile(
             let tile = world
                 .0
                 .geometry
-                .tile_with_profile(
+                .tile_with_routing_budget(
                     cell,
                     Budget {
                         nodes: budget.nodes,
                         edges: budget.edges,
                     },
                     profile,
+                    Budget::default(),
                 )
                 .map_err(details::engine_error)?;
             Ok(WireTile::from(tile))

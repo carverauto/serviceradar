@@ -6,9 +6,9 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   With `analytics.starrocks.enabled` off, the read delegates to the resource's
   CNPG data layer query unchanged. With it on, a dataset whose writes have
   moved to the warehouse is served from its warehouse table: OTel metric
-  samples and points, and OTel traces and summaries, follow the enabled flag,
-  while logs and raw and hourly timeseries metrics follow the per-dataset
-  cutover list, so a row still written to CNPG is still read from CNPG and a
+  samples and points, OTel traces and summaries, and raw and hourly
+  timeseries metrics follow the enabled flag, while logs follow the
+  per-dataset cutover list, so a row still written to CNPG is still read from CNPG and a
   `/api/v2` telemetry route never serves history frozen at the switch. A
   dataset with no warehouse table (the interface/disk hourly aggregates and
   the legacy sysmon tables retired under #4861) stays CNPG-backed, because

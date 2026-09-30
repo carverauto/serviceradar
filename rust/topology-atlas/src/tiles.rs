@@ -1,8 +1,9 @@
 //! Immutable geometry shared by tile requests. Telemetry is deliberately absent:
 //! changing health or traffic must not invalidate cached geometry.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Range;
+use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
 
@@ -28,6 +29,22 @@ impl Default for Budget {
 
 const CLUSTER_DEPTH: u8 = 3;
 
+/// `bins[side] == 0` keeps that side's canonical intersections. A positive count
+/// is the equal-width cap both tiles that share the side apply.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Seam {
+    bins: [u16; 4],
+}
+
+type RoutingKey = (u8, u32, u32, usize, usize);
+
+#[derive(Clone, Copy)]
+struct RoutingGrade {
+    // None retains exact crossings. Dyadic caps only merge existing groups.
+    cap: Option<u16>,
+    crossings: [usize; 4],
+}
+
 /// AggregateOnly bounds identifiers independently of canonical identity length.
 /// The encoder still owns the final serialized byte budget.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -43,6 +60,32 @@ pub enum GlyphKind {
     Device,
     Aggregate,
     Boundary,
+}
+
+/// Graph semantics belong to immutable geometry, not a rotating telemetry page.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum TopologyClass {
+    Backbone,
+    Logical,
+    Hosted,
+    Endpoints,
+    #[default]
+    Unknown,
+    Inferred,
+}
+
+impl TopologyClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Backbone => "backbone",
+            Self::Logical => "logical",
+            Self::Hosted => "hosted",
+            Self::Endpoints => "endpoints",
+            Self::Unknown => "unknown",
+            Self::Inferred => "inferred",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -62,6 +105,7 @@ pub struct TileEdge {
     pub source: u32,
     pub target: u32,
     pub count: u64,
+    pub topology_class: TopologyClass,
     /// Fractions of the canonical segment for continuous procedural flow.
     /// Bundles represent aggregate flow and use their own full segment.
     pub start: f64,
@@ -90,10 +134,12 @@ pub struct World {
     pub(crate) identities: HashMap<String, u32>,
     importance: BTreeMap<u8, Vec<u32>>,
     pub(crate) relations: Vec<Relation>,
+    pub(crate) relation_classes: Vec<TopologyClass>,
     pub(crate) endpoints: Vec<Line>,
     pub(crate) segments: SegmentIndex,
     pub(crate) details: DetailIndex,
     pub(crate) detail_revision: String,
+    routing: Mutex<BTreeMap<RoutingKey, RoutingGrade>>,
 }
 
 #[derive(Clone)]
@@ -110,6 +156,25 @@ struct Plan {
 }
 
 impl World {
+    /// Captures graph classification once, in the canonical relation order.
+    pub fn new_classified(
+        layout_version: String,
+        z_max: u8,
+        positions: Vec<Position>,
+        relations: Vec<Relation>,
+        classify: impl Fn(&Relation) -> TopologyClass,
+    ) -> Result<Self, Error> {
+        let mut world = Self::new(layout_version, z_max, positions, relations)?;
+        world.relation_classes = world.relations.iter().map(classify).collect();
+        let mut hash = Sha256::new();
+        digest_string(&mut hash, &world.detail_revision);
+        for class in &world.relation_classes {
+            hash.update([*class as u8]);
+        }
+        world.detail_revision = digest_hex(hash);
+        Ok(world)
+    }
+
     pub fn new(
         layout_version: String,
         z_max: u8,
@@ -174,11 +239,13 @@ impl World {
             codes,
             identities,
             importance,
+            relation_classes: vec![TopologyClass::Unknown; relations.len()],
             relations,
             endpoints,
             segments,
             details,
             detail_revision,
+            routing: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -202,37 +269,52 @@ impl World {
         budget: Budget,
         profile: TileProfile,
     ) -> Result<Tile, Error> {
+        self.tile_with_routing_budget(cell, budget, profile, budget)
+    }
+
+    /// Encoding may reduce interior detail without changing a publication's
+    /// shared boundary routing budget.
+    pub fn tile_with_routing_budget(
+        &self,
+        cell: Cell,
+        budget: Budget,
+        profile: TileProfile,
+        routing_budget: Budget,
+    ) -> Result<Tile, Error> {
         Cell::new(cell.z, cell.x, cell.y)?;
         if cell.z > self.z_max {
             return Err(Error::InvalidCell);
         }
         // One generalized interior glyph and eight shared boundary glyphs can carry
         // every directed pair without ever dropping members or relations.
-        if budget.nodes < 9 || budget.edges < 72 {
+        if budget.nodes < 9
+            || budget.edges < 72
+            || routing_budget.nodes < 9
+            || routing_budget.edges < 72
+        {
             return Err(Error::InvalidBudget);
         }
+        let (seam, mut candidates) = self.shared_seam(cell, routing_budget);
         let mut limit = budget.nodes;
-        let mut candidates = 0;
         loop {
-            for coalesce in [false, true] {
-                let plan = self.plan(cell, limit, profile);
-                let (result, examined) = self.edges(cell, plan, budget, profile, coalesce);
-                candidates += examined;
-                if let Some(mut tile) = result {
-                    tile.candidate_relations = candidates;
-                    tile.revision = self.revision(&tile);
-                    tile.selection.tile_revision = tile.revision.clone();
-                    if tile.selection.retained_bytes() > MAX_SELECTION_BYTES {
-                        return Err(Error::SelectionBudgetExceeded);
-                    }
-                    return Ok(tile);
+            let plan = self.plan(cell, limit, profile);
+            let (result, examined) = self.edges(cell, plan, budget, profile, seam);
+            candidates += examined;
+            if let Some(mut tile) = result {
+                tile.candidate_relations = candidates;
+                tile.revision = self.revision(&tile);
+                tile.selection.tile_revision = tile.revision.clone();
+                if tile.selection.retained_bytes() > MAX_SELECTION_BYTES {
+                    return Err(Error::SelectionBudgetExceeded);
                 }
+                return Ok(tile);
             }
             if limit == 1 {
-                return Err(Error::ExhaustedWorld);
+                break;
             }
             limit /= 2;
         }
+        Err(Error::ExhaustedWorld)
     }
 
     fn range(&self, cell: Cell) -> Range<usize> {
@@ -252,7 +334,13 @@ impl World {
                     if i as usize >= range.end || selected.len() == limit {
                         break;
                     }
-                    selected.push(i);
+                    let depth = cell.z.saturating_add(CLUSTER_DEPTH).min(24);
+                    let position = &self.positions[i as usize];
+                    let alone = Cell::at_point(depth, position.x, position.y)
+                        .is_ok_and(|cluster| self.range(cluster).len() == 1);
+                    if alone {
+                        selected.push(i);
+                    }
                 }
                 if selected.len() == limit {
                     break;
@@ -380,23 +468,17 @@ impl World {
         mut plan: Plan,
         budget: Budget,
         profile: TileProfile,
-        coalesce: bool,
+        seam: Seam,
     ) -> (Option<Tile>, usize) {
         let mut proxies = BTreeMap::new();
-        let mut bundles = BTreeMap::<(u32, u32), TileEdge>::new();
+        let mut bundles = BTreeMap::<(u32, u32, TopologyClass), TileEdge>::new();
         let mut internal = 0;
         let (candidates, complete) = self.segments.visit(cell, |i, clipped| {
             let edge = self.endpoints[i as usize];
-            let source_point = if coalesce {
-                side_anchor(cell, clipped.source)
-            } else {
-                clipped.source
-            };
-            let target_point = if coalesce {
-                side_anchor(cell, clipped.target)
-            } else {
-                clipped.target
-            };
+            let class = self.relation_classes[i as usize];
+            let source_point = published_portal(cell, clipped.source, seam);
+            let target_point = published_portal(cell, clipped.target, seam);
+            let quantized = source_point != clipped.source || target_point != clipped.target;
             let source = plan.endpoint(
                 edge.source,
                 source_point,
@@ -417,26 +499,27 @@ impl World {
                 internal += 1;
             } else if from.x != to.x || from.y != to.y {
                 bundles
-                    .entry((source, target))
+                    .entry((source, target, class))
                     .and_modify(|edge| {
                         if edge.count == 1 {
-                            edge.id = self.bundle_id(&from.id, &to.id);
+                            edge.id = self.bundle_id(&from.id, &to.id, class);
                         }
                         edge.count += 1;
                         edge.start = 0.0;
                         edge.end = 1.0;
                     })
                     .or_insert_with(|| TileEdge {
-                        id: if profile == TileProfile::AggregateOnly {
-                            self.bundle_id(&from.id, &to.id)
+                        id: if quantized || profile == TileProfile::AggregateOnly {
+                            self.bundle_id(&from.id, &to.id, class)
                         } else {
                             self.relations[i as usize].id.clone()
                         },
                         source,
                         target,
                         count: 1,
-                        start: clipped.start,
-                        end: clipped.end,
+                        topology_class: class,
+                        start: if quantized { 0.0 } else { clipped.start },
+                        end: if quantized { 1.0 } else { clipped.end },
                     });
             }
             plan.glyphs.len() <= budget.nodes && bundles.len() <= budget.edges
@@ -457,6 +540,7 @@ impl World {
             edges: edges.clone(),
             promoted,
             groups: plan.groups,
+            seam,
         };
         (
             Some(Tile {
@@ -497,17 +581,19 @@ impl World {
             hash.update(edge.source.to_le_bytes());
             hash.update(edge.target.to_le_bytes());
             hash.update(edge.count.to_le_bytes());
+            hash.update([edge.topology_class as u8]);
             hash.update(edge.start.to_le_bytes());
             hash.update(edge.end.to_le_bytes());
         }
         digest_hex(hash)
     }
 
-    fn bundle_id(&self, source: &str, target: &str) -> String {
+    fn bundle_id(&self, source: &str, target: &str, class: TopologyClass) -> String {
         let mut hash = Sha256::new();
         digest_string(&mut hash, &self.layout_version);
         digest_string(&mut hash, source);
         digest_string(&mut hash, target);
+        hash.update([class as u8]);
         format!("bundle:{}", digest_hex(hash))
     }
 }
@@ -554,7 +640,7 @@ impl Plan {
     }
 }
 
-fn side_anchor(cell: Cell, point: (f64, f64)) -> (f64, f64) {
+fn side_of(cell: Cell, point: (f64, f64)) -> Option<usize> {
     let (left_i, top_i) = cell.origin();
     let width = f64::from(cell.width());
     let left = f64::from(left_i);
@@ -562,12 +648,152 @@ fn side_anchor(cell: Cell, point: (f64, f64)) -> (f64, f64) {
     let right = left + width;
     let bottom = top + width;
     let (x, y) = point;
-    let vertical = x == left || x == right;
-    let horizontal = y == top || y == bottom;
+    let vertical = if x == left {
+        Some(0)
+    } else if x == right {
+        Some(1)
+    } else {
+        None
+    };
+    let horizontal = if y == top {
+        Some(2)
+    } else if y == bottom {
+        Some(3)
+    } else {
+        None
+    };
     match (vertical, horizontal) {
-        (true, false) => (x, top + width / 2.0),
-        (false, true) => (left + width / 2.0, y),
-        _ => point,
+        (Some(_), Some(_)) | (None, None) => None,
+        (Some(side), None) | (None, Some(side)) => Some(side),
+    }
+}
+
+pub(crate) fn published_portal(cell: Cell, point: (f64, f64), seam: Seam) -> (f64, f64) {
+    let Some(side) = side_of(cell, point) else {
+        return point;
+    };
+    let bins = seam.bins[side];
+    if bins == 0 {
+        return point;
+    }
+    let (left_i, top_i) = cell.origin();
+    let width = f64::from(cell.width());
+    let (origin, coord, horizontal) = if side < 2 {
+        (f64::from(top_i), point.1, false)
+    } else {
+        (f64::from(left_i), point.0, true)
+    };
+    let local = (coord - origin).clamp(0.0, width);
+    let mut bin = ((local / width) * f64::from(bins)).floor() as u16;
+    if bin >= bins {
+        bin = bins - 1;
+    }
+    let center = origin + (f64::from(bin) + 0.5) * (width / f64::from(bins));
+    if horizontal {
+        (center, point.1)
+    } else {
+        (point.0, center)
+    }
+}
+
+impl World {
+    // A face uses the stricter of its two cells' grades. Grades are computed
+    // before interior detail selection; neighbors and byte-budget retries must
+    // not invent different portal positions for the same canonical crossing.
+    fn shared_seam(&self, cell: Cell, budget: Budget) -> (Seam, usize) {
+        let (own, mut examined) = self.routing_grade(cell, budget);
+        let mut bins = [0; 4];
+        let span = 1u32 << cell.z;
+        let neighbors = [
+            cell.x.checked_sub(1).map(|x| Cell { x, ..cell }),
+            (cell.x + 1 < span).then_some(Cell {
+                x: cell.x + 1,
+                ..cell
+            }),
+            cell.y.checked_sub(1).map(|y| Cell { y, ..cell }),
+            (cell.y + 1 < span).then_some(Cell {
+                y: cell.y + 1,
+                ..cell
+            }),
+        ];
+        for (side, neighbor) in neighbors.into_iter().enumerate() {
+            let (other, visits) =
+                neighbor.map_or((own, 0), |cell| self.routing_grade(cell, budget));
+            examined += visits;
+            let cap = match (own.cap, other.cap) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            let crossings = own.crossings[side].max(other.crossings[side ^ 1]);
+            if let Some(cap) = cap.filter(|cap| crossings > usize::from(*cap)) {
+                bins[side] = cap;
+            }
+        }
+        (Seam { bins }, examined)
+    }
+
+    fn routing_grade(&self, cell: Cell, budget: Budget) -> (RoutingGrade, usize) {
+        let key = (cell.z, cell.x, cell.y, budget.nodes, budget.edges);
+        if let Some(grade) = self.routing.lock().unwrap().get(&key).copied() {
+            return (grade, 0);
+        }
+        let mut seen: [BTreeSet<u64>; 4] = std::array::from_fn(|_| BTreeSet::new());
+        let (mut examined, _) = self.segments.visit(cell, |_i, clipped| {
+            for point in [clipped.source, clipped.target] {
+                if let Some(side) = side_of(cell, point)
+                    && seen[side].len() <= budget.nodes
+                {
+                    let free = if side < 2 { point.1 } else { point.0 };
+                    seen[side].insert(free.to_bits());
+                }
+            }
+            true
+        });
+        let crossings = std::array::from_fn(|side| seen[side].len());
+        let fits = |seam| {
+            self.edges(
+                cell,
+                self.plan(cell, 1, TileProfile::AggregateOnly),
+                budget,
+                TileProfile::AggregateOnly,
+                seam,
+            )
+        };
+        let (exact, visits) = fits(Seam::default());
+        examined += visits;
+        let cap = if exact.is_some() {
+            None
+        } else {
+            // Powers of two produce nested partitions: adopting a neighbor's
+            // smaller cap can only merge routes, never increase cardinality.
+            let mut cap = 1u16;
+            while usize::from(cap) * 2 <= budget.nodes.min(u16::MAX as usize) {
+                cap *= 2;
+            }
+            loop {
+                let bins = std::array::from_fn(|side| {
+                    if crossings[side] > usize::from(cap) {
+                        cap
+                    } else {
+                        0
+                    }
+                });
+                let (tile, visits) = fits(Seam { bins });
+                examined += visits;
+                if tile.is_some() || cap == 1 {
+                    break;
+                }
+                cap /= 2;
+            }
+            Some(cap)
+        };
+        let grade = RoutingGrade { cap, crossings };
+        let mut cache = self.routing.lock().unwrap();
+        if cache.len() >= 1024 {
+            cache.pop_first();
+        }
+        cache.insert(key, grade);
+        (grade, examined)
     }
 }
 

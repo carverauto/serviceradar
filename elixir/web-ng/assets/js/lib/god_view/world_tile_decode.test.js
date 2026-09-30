@@ -8,7 +8,7 @@ describe("world tile wire boundary", () => {
     const decoded = decodeWorldTile(tile(), {...key, revision})
     expect([...decoded.positions]).toEqual([256, 0, 512, 256])
     expect(decoded.nodes.map(node => [node.kind, node.count])).toEqual([["aggregate", 70000], ["boundary", 0]])
-    expect(decoded.edges).toEqual([{id: "bundle:a", index: 0, source: 0, target: 1, count: 90000, start: 0.25, end: 0.75}])
+    expect(decoded.edges).toEqual([{id: "bundle:a", index: 0, source: 0, target: 1, count: 90000, start: 0.25, end: 0.75, topologyClass: "backbone"}])
     expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
   })
 

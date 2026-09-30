@@ -20,11 +20,11 @@ pub use health::{
     HealthIndex, HealthInfo, HealthObservation, HealthSnapshot, HealthState, TileHealth,
 };
 pub use layout::reconcile;
-pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, TileProfile, World};
+pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, TileProfile, TopologyClass, World};
 
 /// Integers in this extent are exactly representable by Float32.
 pub const WORLD_EXTENT: u32 = 1 << 24;
-pub const ALGORITHM: &str = "hierarchical-elk-radial-v2";
+pub const ALGORITHM: &str = "hierarchical-elk-radial-v3";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device {

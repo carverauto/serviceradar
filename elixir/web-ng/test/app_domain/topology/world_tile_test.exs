@@ -129,7 +129,12 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
 
   defp world do
     {:ok, builder} = TopologyAtlas.new_builder(@version, 16)
-    :ok = TopologyAtlas.add_positions(builder, [position("invented-device-a", 100), position("invented-device-b", 200)])
+
+    :ok =
+      TopologyAtlas.add_positions(builder, [
+        position("invented-device-a", 300_000),
+        position("invented-device-b", 600_000)
+      ])
 
     :ok =
       TopologyAtlas.add_relations(builder, [

@@ -17,11 +17,16 @@ function decoder() {
 }
 
 describe("lifecycle_stream_decode_methods", () => {
-  it("routes a bounded server detail page to the ELK detail coordinate space", () => {
+  it.each([
+    {profile: undefined, semanticLevel: "detail"},
+    {profile: "radial-overview", semanticLevel: "overview"},
+  ])("routes a bounded server page to its selected ELK profile: $profile", ({profile, semanticLevel}) => {
     const metadataEntries = [["payload_kind", "detail"], ["layout_algorithm", "elk"]]
+    if (profile) metadataEntries.push(["layout_profile", profile])
     const nodes = [{label: "Synthetic switch", details: {id: "invented-detail-switch"}}]
     const graph = decoder().decodeArrowGraph(snapshotIpcBytes({nodes, edges: [], metadataEntries}))
-    expect(graph._topologySemanticLevel).toBe("detail")
+    expect(graph._topologySemanticLevel).toBe(semanticLevel)
+    expect(graph._topologyBoundedPage).toBe(true)
     expect(graph.nodes[0].id).toBe("invented-detail-switch")
     expect(() => decoder().decodeArrowGraph(snapshotIpcBytes({nodes: Array(129).fill(nodes[0]), edges: [], metadataEntries}))).toThrow("Topology detail exceeds budget")
   })

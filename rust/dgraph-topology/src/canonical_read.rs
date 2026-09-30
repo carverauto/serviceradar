@@ -26,7 +26,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::client::CanonicalEdgeRow;
-use crate::{CanonicalEdge, CanonicalGraph, TopologyError};
+use crate::{CanonicalEdge, CanonicalGraph, TopologyError, TopologyView};
 
 const PAGE_SIZE: usize = 256;
 const DEVICES: QueryBlock = QueryBlock {
@@ -45,12 +45,29 @@ const EDGES: QueryBlock = QueryBlock {
       topo.if_name_ab topo.if_name_ba topo.mutation_id topo.pair_support_rank
       topo.src { device.id } topo.dst { device.id }",
 };
+const VIEW_EDGES: QueryBlock = QueryBlock {
+    name: "edges",
+    kind: "TopologyEdge",
+    filter: r#"(eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "ATTACHED_TO") OR eq(topo.kind, "INFERRED_TO") OR eq(topo.kind, "HOSTED_ON")) AND NOT eq(topo.stale, true)"#,
+    fields: "topo.kind topo.link_key topo.protocol topo.evidence_class topo.confidence_tier
+      topo.flow_pps_ab topo.flow_pps_ba topo.flow_bps_ab topo.flow_bps_ba
+      topo.capacity_bps topo.telemetry_eligible topo.if_index_ab topo.if_index_ba
+      topo.if_name_ab topo.if_name_ba topo.mutation_id topo.pair_support_rank
+      topo.src { device.id } topo.dst { device.id }",
+};
 
 pub(crate) async fn graph(client: &DgraphClient) -> Result<CanonicalGraph, TopologyError> {
     let mut txn = client.new_read_only_txn();
     let nodes = scan(&mut txn, &DEVICES, Some).await?;
     let edges = scan(&mut txn, &EDGES, CanonicalEdgeRow::into_edge).await?;
     Ok(CanonicalGraph::new(nodes, edges))
+}
+
+pub(crate) async fn view(client: &DgraphClient) -> Result<TopologyView, TopologyError> {
+    let mut txn = client.new_read_only_txn();
+    let nodes = scan(&mut txn, &DEVICES, Some).await?;
+    let edges = scan(&mut txn, &VIEW_EDGES, CanonicalEdgeRow::into_view_edge).await?;
+    Ok(TopologyView::new(nodes, edges))
 }
 
 pub(crate) async fn edges(client: &DgraphClient) -> Result<Vec<CanonicalEdge>, TopologyError> {

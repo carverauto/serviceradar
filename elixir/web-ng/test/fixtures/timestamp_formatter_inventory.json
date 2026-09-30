@@ -187,7 +187,7 @@
     "path": "assets/js/lib/god_view/world_tile_layer.js",
     "matcher": "js_to_locale_time",
     "occurrence": 1,
-    "fingerprint": "02ad58c65165a7369a03f5cc6e8e4405aa0ca80686f959d812c6bdc8a9a91a54",
+    "fingerprint": "3cff18cf52a0f0bff7a9920db876b37ee7e693e432c543ff79dd3fe4df80d75f",
     "classification": "infrastructure",
     "reason": "Numeric device, aggregate, and relation counts; not timestamps."
   },

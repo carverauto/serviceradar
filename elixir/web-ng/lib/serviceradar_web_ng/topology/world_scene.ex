@@ -50,6 +50,7 @@ defmodule ServiceRadarWebNG.Topology.WorldScene do
           next_cursor: level.next_cursor,
           detail_kind: level.kind,
           layout_algorithm: "elk",
+          layout_profile: "radial-overview",
           deferred_details: if(detail == :identity, do: "inventory,camera", else: "camera"),
           max_nodes: 128,
           max_edges: 256,
@@ -62,7 +63,7 @@ defmodule ServiceRadarWebNG.Topology.WorldScene do
   end
 
   defp edge_meta(edge) do
-    {GodViewStream.edge_topology_class(edge), "", to_string(edge.evidence_class)}
+    {Map.get(edge, :topology_class) || GodViewStream.edge_topology_class(edge), "", to_string(edge.evidence_class)}
   end
 
   defp node(node, detail) do

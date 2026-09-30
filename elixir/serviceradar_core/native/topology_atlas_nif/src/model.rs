@@ -4,10 +4,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use dgraph_topology::{CanonicalEdge, CanonicalGraph};
+use dgraph_topology::{CanonicalEdge, TopologyView};
 use rustler::NifMap;
 use serviceradar_topology_atlas::{
-    reconcile, Cell, Device, Position, Relation, World, ALGORITHM, WORLD_EXTENT,
+    ALGORITHM, Cell, Device, Position, Relation, TopologyClass, WORLD_EXTENT, World, reconcile,
 };
 use sha2::{Digest, Sha256};
 
@@ -94,10 +94,28 @@ pub struct RelationRow {
     pub source_if_name: Option<String>,
     pub target_if_index: Option<i32>,
     pub target_if_name: Option<String>,
+    pub telemetry_eligible: bool,
+    pub kind: String,
     pub active: bool,
 }
 
 impl RelationRow {
+    pub(crate) fn topology_class(&self) -> TopologyClass {
+        match (self.kind.as_str(), self.evidence_class.as_deref()) {
+            // Dgraph retains raw evidence names. An inferred segment may be
+            // stored as ATTACHED_TO; that does not establish a physical link.
+            (_, Some("inferred" | "inferred-segment")) => TopologyClass::Inferred,
+            ("ATTACHED_TO", _) => TopologyClass::Endpoints,
+            ("HOSTED_ON", _) => TopologyClass::Hosted,
+            ("INFERRED_TO", _) => TopologyClass::Inferred,
+            (_, Some("direct" | "direct-physical")) => TopologyClass::Backbone,
+            (_, Some("logical" | "direct-logical")) => TopologyClass::Logical,
+            (_, Some("endpoint-attachment")) => TopologyClass::Endpoints,
+            (_, Some("hosted" | "hosted-virtual")) => TopologyClass::Hosted,
+            _ => TopologyClass::Unknown,
+        }
+    }
+
     pub fn geometry(&self) -> Relation {
         Relation {
             id: self.relation_id.clone(),
@@ -119,6 +137,8 @@ impl RelationRow {
             source_if_name: nonempty(edge.local_if_name_ab()),
             target_if_index: positive(edge.local_if_index_ba()),
             target_if_name: nonempty(edge.local_if_name_ba()),
+            telemetry_eligible: edge.telemetry_eligible(),
+            kind: "CANONICAL_TOPOLOGY".into(),
             active: true,
         }
     }
@@ -235,15 +255,12 @@ impl Builder {
     }
 
     pub fn finish(self) -> Result<Arc<WorldState>> {
+        let relations = normalize(self.relations.into_values().filter(|row| row.active));
         build_world(
             self.layout_version,
             self.zmax,
             self.positions.values(),
-            self.relations
-                .into_values()
-                .filter(|r| r.active)
-                .collect::<Vec<_>>()
-                .into(),
+            relations.into(),
         )
     }
 
@@ -263,10 +280,9 @@ impl Builder {
             }
         }
         drop(inventory);
-        let relations: Arc<[RelationRow]> =
-            graph.relations.into_values().collect::<Vec<_>>().into();
+        let relations: Arc<[RelationRow]> = normalize(graph.relations.into_values()).into();
         let digest = source_digest(&devices, &relations);
-        let geometry: Vec<_> = relations.iter().map(RelationRow::geometry).collect();
+        let geometry = layout_forest(&devices, &relations);
         let prior: Vec<_> = old_positions.values().map(PositionRow::position).collect();
         let next = reconcile(devices.into_values().collect(), &geometry, &prior)
             .map_err(|_| "cannot reconcile persisted world")?;
@@ -340,11 +356,17 @@ fn build_world<'a>(
         node_count: active.len() as u64,
         relation_count: relations.len() as u64,
     };
-    let geometry = World::new(
+    let geometry = World::new_classified(
         layout_version,
         zmax,
         active,
         relations.iter().map(RelationRow::geometry).collect(),
+        |edge| {
+            relations
+                .binary_search_by(|row| row.relation_id.cmp(&edge.id))
+                .map(|index| relations[index].topology_class())
+                .unwrap_or_default()
+        },
     )
     .map_err(|_| "invalid persisted world")?;
     let interface_degrees = interface_degrees(&relations);
@@ -357,21 +379,25 @@ fn build_world<'a>(
 }
 
 fn interface_degrees(relations: &[RelationRow]) -> Vec<[u32; 2]> {
-    let mut counts = HashMap::<(&str, i32), u32>::new();
-    for row in relations {
-        let source = row
-            .source_if_index
-            .map(|index| (row.source_id.as_str(), index));
-        let target = row
-            .target_if_index
-            .map(|index| (row.target_id.as_str(), index));
-        if let Some(binding) = source {
-            *counts.entry(binding).or_default() += 1;
+    let mut bindings = HashMap::<(&str, i32), HashSet<&str>>::new();
+    for row in relations.iter().filter(|row| physical_binding(row)) {
+        if let Some(index) = row.source_if_index {
+            bindings
+                .entry((row.source_id.as_str(), index))
+                .or_default()
+                .insert(row.relation_id.as_str());
         }
-        // One canonical relation cannot make its own identical endpoint binding
-        // ambiguous. All evidence classes count; no traffic policy lives here.
-        if let Some(binding) = target.filter(|binding| source != Some(*binding)) {
-            *counts.entry(binding).or_default() += 1;
+        if let Some(index) = row.target_if_index {
+            let binding = (row.target_id.as_str(), index);
+            let source = row
+                .source_if_index
+                .map(|index| (row.source_id.as_str(), index));
+            if source != Some(binding) {
+                bindings
+                    .entry(binding)
+                    .or_default()
+                    .insert(row.relation_id.as_str());
+            }
         }
     }
     relations
@@ -381,11 +407,17 @@ fn interface_degrees(relations: &[RelationRow]) -> Vec<[u32; 2]> {
             let interfaces = [row.source_if_index, row.target_if_index];
             std::array::from_fn(|side| {
                 interfaces[side]
-                    .and_then(|index| counts.get(&(ids[side], index)).copied())
-                    .unwrap_or(0)
+                    .and_then(|index| bindings.get(&(ids[side], index)).map(HashSet::len))
+                    .unwrap_or(0) as u32
             })
         })
         .collect()
+}
+
+fn physical_binding(row: &RelationRow) -> bool {
+    row.kind == "CANONICAL_TOPOLOGY"
+        && physical_class(row)
+        && row.role.as_ref().is_none_or(|role| role.is_empty())
 }
 
 /// Typed graph conversion is a production boundary shared by the reader and reconciler.
@@ -395,48 +427,285 @@ pub struct SourceGraph {
 }
 
 impl SourceGraph {
-    pub fn from_canonical(graph: CanonicalGraph) -> Result<Self> {
-        let (nodes, edges) = graph.into_parts();
-        let mut devices = BTreeMap::new();
-        for node in nodes {
-            let label = node
-                .hostname()
-                .filter(|s| !s.trim().is_empty())
-                .or_else(|| node.ip().filter(|s| !s.trim().is_empty()))
-                .unwrap_or(node.id());
-            let device = Device {
-                id: node.id().to_owned(),
-                label: bounded_label(label),
-                importance: 2,
-            };
-            if device.id.is_empty() {
-                return Err("empty canonical device identity".into());
-            }
-            devices
-                .entry(device.id.clone())
-                .and_modify(|old: &mut Device| {
-                    if device.label < old.label {
-                        old.label.clone_from(&device.label);
-                    }
-                })
-                .or_insert(device);
-        }
+    pub fn from_view(view: TopologyView) -> Result<Self> {
+        let (nodes, edges) = view.into_parts();
+        let mut devices = admit_devices(nodes)?;
         let mut relations = BTreeMap::new();
         for edge in edges {
-            let row = RelationRow::canonical(edge);
-            row.validate()?;
-            for id in [&row.source_id, &row.target_id] {
-                devices.entry(id.clone()).or_insert_with(|| Device {
-                    id: id.clone(),
-                    label: bounded_label(id),
-                    importance: 2,
-                });
+            let kind = edge.kind().to_owned();
+            let mut row = RelationRow::canonical(edge.into_edge());
+            row.kind = kind;
+            if row.kind != "CANONICAL_TOPOLOGY" {
+                row.telemetry_eligible = false;
             }
-            if relations.insert(row.relation_id.clone(), row).is_some() {
-                return Err("duplicate canonical relation".into());
-            }
+            insert_relation(&mut devices, &mut relations, row)?;
         }
         Ok(Self { devices, relations })
+    }
+}
+
+fn admit_devices(nodes: Vec<dgraph_topology::CanonicalDevice>) -> Result<BTreeMap<String, Device>> {
+    let mut devices = BTreeMap::new();
+    for node in nodes {
+        let label = node
+            .hostname()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| node.ip().filter(|value| !value.trim().is_empty()))
+            .unwrap_or(node.id());
+        let device = Device {
+            id: node.id().to_owned(),
+            label: bounded_label(label),
+            importance: 2,
+        };
+        if device.id.is_empty() {
+            return Err("empty canonical device identity".into());
+        }
+        devices
+            .entry(device.id.clone())
+            .and_modify(|old: &mut Device| {
+                if device.label < old.label {
+                    old.label.clone_from(&device.label);
+                }
+            })
+            .or_insert(device);
+    }
+    Ok(devices)
+}
+
+fn insert_relation(
+    devices: &mut BTreeMap<String, Device>,
+    relations: &mut BTreeMap<String, RelationRow>,
+    row: RelationRow,
+) -> Result<()> {
+    row.validate()?;
+    for id in [&row.source_id, &row.target_id] {
+        devices.entry(id.clone()).or_insert_with(|| Device {
+            id: id.clone(),
+            label: bounded_label(id),
+            importance: 2,
+        });
+    }
+    if relations.insert(row.relation_id.clone(), row).is_some() {
+        return Err("duplicate canonical relation".into());
+    }
+    Ok(())
+}
+
+fn physical_class(row: &RelationRow) -> bool {
+    matches!(
+        row.evidence_class.as_deref(),
+        Some("direct-physical") | Some("direct")
+    )
+}
+
+fn normalize(rows: impl IntoIterator<Item = RelationRow>) -> Vec<RelationRow> {
+    let rows: Vec<RelationRow> = rows.into_iter().collect();
+    if rows.len() < 2 {
+        return rows;
+    }
+    let mut groups: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
+    for (index, row) in rows.iter().enumerate() {
+        groups
+            .entry(device_pair(&row.source_id, &row.target_id))
+            .or_default()
+            .push(index);
+    }
+    let mut kept = Vec::new();
+    for mut members in groups.into_values() {
+        // Resolve complete bindings before aliases. An alias compatible with
+        // two distinct port pairs is ambiguous; it must not join those cables.
+        members.sort_by_key(|&i| {
+            let row = &rows[i];
+            (
+                std::cmp::Reverse(
+                    usize::from(row.source_if_index.is_some())
+                        + usize::from(row.target_if_index.is_some()),
+                ),
+                &row.relation_id,
+            )
+        });
+        let mut links: Vec<RelationRow> = Vec::new();
+        for index in members {
+            let row = &rows[index];
+            let matches: Vec<_> = links
+                .iter()
+                .enumerate()
+                .filter(|(_, link)| compatible_link(link, row))
+                .map(|(i, _)| i)
+                .collect();
+            if let [index] = matches.as_slice() {
+                let keeper = &mut links[*index];
+                if prefer(row, keeper) {
+                    let old = std::mem::replace(keeper, row.clone());
+                    merge_ports(keeper, &old);
+                } else {
+                    merge_ports(keeper, row);
+                }
+            } else {
+                links.push(row.clone());
+            }
+        }
+        kept.extend(links);
+    }
+    kept.sort_by(|left, right| left.relation_id.cmp(&right.relation_id));
+    kept
+}
+
+// The overview projection selects a trusted spanning forest before ELK
+// (topology_overview_projection.js, prepareTopologyOverviewInput). Apply that
+// same ordering at publication scale. Cross-links stay in WorldState; only the
+// parent forest is reduced, so tile zoom never authors new network bindings.
+fn layout_forest(devices: &BTreeMap<String, Device>, rows: &[RelationRow]) -> Vec<Relation> {
+    let index: HashMap<_, _> = devices
+        .keys()
+        .enumerate()
+        .map(|(i, id)| (id.as_str(), i))
+        .collect();
+    let mut candidates: Vec<_> = rows.iter().collect();
+    candidates.sort_unstable_by(|left, right| {
+        (
+            trust_rank(left),
+            device_pair(&left.source_id, &left.target_id),
+            &left.relation_id,
+        )
+            .cmp(&(
+                trust_rank(right),
+                device_pair(&right.source_id, &right.target_id),
+                &right.relation_id,
+            ))
+    });
+    let mut parent: Vec<_> = (0..devices.len()).collect();
+    let mut rank = vec![0; devices.len()];
+    let mut forest = Vec::with_capacity(devices.len());
+    for row in candidates {
+        let left = index[row.source_id.as_str()];
+        let right = index[row.target_id.as_str()];
+        if find(&mut parent, left) != find(&mut parent, right) {
+            union(&mut parent, &mut rank, left, right);
+            forest.push(row.geometry());
+        }
+    }
+    forest
+}
+
+fn trust_rank(row: &RelationRow) -> u8 {
+    match row.topology_class() {
+        TopologyClass::Backbone => 0,
+        TopologyClass::Logical => 1,
+        TopologyClass::Hosted => 2,
+        TopologyClass::Endpoints => 3,
+        TopologyClass::Inferred => 4,
+        _ => 5,
+    }
+}
+
+fn device_pair<'a>(source: &'a str, target: &'a str) -> (&'a str, &'a str) {
+    if source <= target {
+        (source, target)
+    } else {
+        (target, source)
+    }
+}
+
+fn compatible_link(left: &RelationRow, right: &RelationRow) -> bool {
+    if left.kind != right.kind
+        || left.evidence_class != right.evidence_class
+        || left.role != right.role
+    {
+        return false;
+    }
+    let aligned = left.source_id == right.source_id && left.target_id == right.target_id;
+    let swapped = left.source_id == right.target_id && left.target_id == right.source_id;
+    (aligned && same_ports(left, right, false)) || (swapped && same_ports(left, right, true))
+}
+
+fn same_ports(left: &RelationRow, right: &RelationRow, swapped: bool) -> bool {
+    ports_compatible(endpoint(left, true), endpoint(right, !swapped))
+        && ports_compatible(endpoint(left, false), endpoint(right, swapped))
+}
+
+fn endpoint(row: &RelationRow, source: bool) -> (Option<i32>, Option<&str>) {
+    if source {
+        (row.source_if_index, row.source_if_name.as_deref())
+    } else {
+        (row.target_if_index, row.target_if_name.as_deref())
+    }
+}
+
+fn port<'a>(row: &'a RelationRow, device: &str) -> (Option<i32>, Option<&'a str>) {
+    if device == row.source_id {
+        (row.source_if_index, row.source_if_name.as_deref())
+    } else {
+        (row.target_if_index, row.target_if_name.as_deref())
+    }
+}
+
+fn ports_compatible(left: (Option<i32>, Option<&str>), right: (Option<i32>, Option<&str>)) -> bool {
+    // Indexes identify interfaces; names may differ between discovery sources.
+    // Names resolve an alias only when at least one side lacks an index.
+    if let (Some(left), Some(right)) = (left.0, right.0) {
+        return left == right;
+    }
+    let index_conflict = matches!((left.0, right.0), (Some(a), Some(b)) if a != b);
+    let name_conflict = matches!((left.1, right.1), (Some(a), Some(b)) if a != b);
+    let shared = matches!((left.0, right.0), (Some(a), Some(b)) if a == b)
+        || matches!((left.1, right.1), (Some(a), Some(b)) if a == b);
+    !index_conflict && !name_conflict && shared
+}
+
+fn prefer(candidate: &RelationRow, keeper: &RelationRow) -> bool {
+    match (candidate.telemetry_eligible, keeper.telemetry_eligible) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => match (physical_class(candidate), physical_class(keeper)) {
+            (true, false) => true,
+            (false, true) => false,
+            _ => candidate.relation_id < keeper.relation_id,
+        },
+    }
+}
+
+fn merge_ports(keeper: &mut RelationRow, other: &RelationRow) {
+    let source = keeper.source_id.clone();
+    let target = keeper.target_id.clone();
+    absorb(keeper, true, port(other, &source));
+    absorb(keeper, false, port(other, &target));
+}
+
+fn absorb(row: &mut RelationRow, source_side: bool, observed: (Option<i32>, Option<&str>)) {
+    let (index, name) = if source_side {
+        (&mut row.source_if_index, &mut row.source_if_name)
+    } else {
+        (&mut row.target_if_index, &mut row.target_if_name)
+    };
+    if index.is_none() {
+        *index = observed.0;
+    }
+    if name.is_none() {
+        *name = observed.1.map(str::to_owned);
+    }
+}
+
+fn find(parent: &mut [usize], mut index: usize) -> usize {
+    while parent[index] != index {
+        parent[index] = parent[parent[index]];
+        index = parent[index];
+    }
+    index
+}
+
+fn union(parent: &mut [usize], rank: &mut [u8], left: usize, right: usize) {
+    let mut left = find(parent, left);
+    let mut right = find(parent, right);
+    if left == right {
+        return;
+    }
+    if rank[left] < rank[right] {
+        std::mem::swap(&mut left, &mut right);
+    }
+    parent[right] = left;
+    if rank[left] == rank[right] {
+        rank[left] = rank[left].saturating_add(1);
     }
 }
 
@@ -478,6 +747,8 @@ fn source_digest(devices: &BTreeMap<String, Device>, relations: &[RelationRow]) 
         for index in [r.source_if_index, r.target_if_index] {
             hash.update(index.unwrap_or(0).to_be_bytes());
         }
+        hash.update([u8::from(r.telemetry_eligible)]);
+        field(&mut hash, &r.kind);
     }
     hash.finalize()
         .iter()

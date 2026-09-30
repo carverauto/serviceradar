@@ -118,6 +118,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # the warehouse only when it is enabled (`store_routing_events/1`).
   def mode_for(:bmp), do: if(enabled?(), do: "starrocks")
 
+  # Interface counters and the other sysmon series use the same switch. A stale
+  # `cutover_datasets` entry does not select StarRocks while the warehouse is off,
+  # and an empty cutover list does not keep them on CNPG while it is on.
+  def mode_for(:metrics), do: if(enabled?(), do: "starrocks")
+
   def mode_for(dataset) when is_atom(dataset) do
     cond do
       dataset in cutover_datasets() -> "starrocks"

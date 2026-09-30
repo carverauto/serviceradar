@@ -8235,6 +8235,7 @@ version = "0.1.0"
 dependencies = [
  "dgraph-topology",
  "rustler",
+ "serde_json",
  "serviceradar-topology-atlas",
  "sha2 0.11.0",
  "tokio",

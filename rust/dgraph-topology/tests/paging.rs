@@ -1,6 +1,7 @@
 //! Invented protocol fixtures, built without deployment captures. This server
 //! speaks the real gRPC protocol so tonic's receive limit remains in the path.
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -52,6 +53,7 @@ struct Fixture {
     edges: Vec<Value>,
     fault: Option<Fault>,
     calls: Vec<PageCall>,
+    queries: Vec<String>,
     snapshot_established: bool,
     faults_delivered: usize,
     violations: Vec<String>,
@@ -72,6 +74,7 @@ impl Fixture {
             return self.violation("the reader changed its transaction between source pages");
         }
 
+        self.queries.push(request.query.clone());
         let query: String = request.query.split_whitespace().collect();
         let block = if query.contains("type(Device)") {
             Block::Nodes
@@ -469,6 +472,86 @@ async fn later_page_protocol_or_source_failures_never_return_a_partial_graph() {
             assert_eq!(fixture.calls.last().expect("last page attempt").first, 1);
         }
     }
+}
+
+#[tokio::test]
+async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
+    let kinds = [
+        "CANONICAL_TOPOLOGY",
+        "ATTACHED_TO",
+        "INFERRED_TO",
+        "HOSTED_ON",
+        "OBSERVED_TO",
+        "MTR_PATH",
+        "",
+    ];
+    let edges = kinds
+        .iter()
+        .enumerate()
+        .map(|(index, kind)| {
+            json!({
+                "uid": format!("{:#x}", 4096 + index + 1),
+                "topo.link_key": format!("invented-view-{index}"),
+                "topo.kind": kind,
+                "topo.protocol": "lldp",
+                "topo.evidence_class": "direct-physical",
+                "topo.confidence_tier": "high",
+                "topo.telemetry_eligible": true,
+                "topo.src": [{"device.id": "sr:ap-1.example.test"}],
+                "topo.dst": [{"device.id": format!("sr:endpoint-{index}.example.test")}]
+            })
+        })
+        .collect();
+    let server = RunningServer::start(Fixture {
+        nodes: vec![json!({
+            "uid": "0x1",
+            "device.id": "sr:ap-1.example.test",
+            "device.hostname": "ap-1.example.test"
+        })],
+        edges,
+        ..Default::default()
+    })
+    .await;
+    let view = tokio::time::timeout(Duration::from_secs(10), server.client.query_topology_view())
+        .await
+        .expect("finite view traversal")
+        .expect("complete topology view");
+    assert_eq!(view.nodes().len(), 1);
+    assert_eq!(view.nodes()[0].id(), "sr:ap-1.example.test");
+    assert_eq!(view.nodes()[0].hostname(), Some("ap-1.example.test"));
+    let admitted: BTreeSet<_> = view
+        .edges()
+        .iter()
+        .map(|edge| edge.kind().to_owned())
+        .collect();
+    assert_eq!(
+        admitted,
+        BTreeSet::from([
+            "CANONICAL_TOPOLOGY".to_owned(),
+            "ATTACHED_TO".to_owned(),
+            "INFERRED_TO".to_owned(),
+            "HOSTED_ON".to_owned(),
+        ])
+    );
+    let fixture = server.fixture.lock().expect("fixture lock");
+    let edge_query = fixture
+        .queries
+        .iter()
+        .find(|query| query.contains("type(TopologyEdge)"))
+        .expect("edge page");
+    for kind in [
+        "CANONICAL_TOPOLOGY",
+        "ATTACHED_TO",
+        "INFERRED_TO",
+        "HOSTED_ON",
+    ] {
+        assert!(
+            edge_query.contains(&format!("eq(topo.kind, \"{kind}\")")),
+            "{edge_query}"
+        );
+    }
+    assert!(!edge_query.contains("OBSERVED_TO"));
+    assert!(!edge_query.contains("MTR_PATH"));
 }
 
 #[derive(Clone)]

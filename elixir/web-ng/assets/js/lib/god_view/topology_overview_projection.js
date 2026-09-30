@@ -292,7 +292,7 @@ function promotableEndpointNode(node) {
   return !NON_PROMOTABLE_IDENTITY_SOURCES.has(identitySource)
 }
 
-function attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds) {
+function attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds, maximumEndpoints) {
   const promotableIds = new Set(
     normalized.nodes.filter(promotableEndpointNode).map((node) => node.id),
   )
@@ -317,14 +317,14 @@ function attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds
 
   const attachedIds = new Set()
   for (const endpointIds of byAnchor.values()) {
-    if (endpointIds.size > MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR) continue
+    if (endpointIds.size > maximumEndpoints) continue
     for (const endpointId of endpointIds) attachedIds.add(endpointId)
   }
 
   return normalized.nodes.filter((node) => attachedIds.has(node.id))
 }
 
-function overviewNodes(normalized, pairs) {
+function overviewNodes(normalized, pairs, maximumEndpoints) {
   const infrastructure = normalized.nodes.filter(isTransportInfrastructureNode)
   const infrastructureIds = new Set(infrastructure.map((node) => node.id))
   const summaries = normalized.nodes.filter(
@@ -345,7 +345,7 @@ function overviewNodes(normalized, pairs) {
     ...normalized.nodes.filter((node) => node.type === "endpoint-summary").map((node) => node.id),
     ...members.map((node) => node.id),
   ])
-  const attached = attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds)
+  const attached = attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds, maximumEndpoints)
   const leaves = [...members, ...attached]
   const visibleIds = new Set([...infrastructure, ...summaries, ...leaves].map((node) => node.id))
   const roleFor = (node) => {
@@ -563,9 +563,13 @@ function graphKeyFor({semanticNodes, roots, semanticTreeRelations, crossLinks, s
 
 export function prepareTopologyOverviewInput(graph) {
   const normalized = normalizeNodes(graph)
+  // Requested native pages already have a fixed membership budget. Reuse the
+  // same real attachment projection without the unbounded overview fan cap.
+  const maximumEndpoints = graph?._topologyBoundedPage === true && normalized.nodes.length <= 128
+    ? 128 : MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR
   const {pairs, transportDegree, omittedMalformedEdges} = aggregatePairs(graph, normalized)
   const {attached, infrastructureIds, leaves, members, semanticNodes, summaries, visibleIds} =
-    overviewNodes(normalized, pairs)
+    overviewNodes(normalized, pairs, maximumEndpoints)
   const infrastructure = normalized.nodes.filter((node) => infrastructureIds.has(node.id))
   const candidatePairs = pairs
     .filter((pair) => pair.hasTransport && pair.nodeIds.every((id) => infrastructureIds.has(id)))

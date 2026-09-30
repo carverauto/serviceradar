@@ -222,6 +222,11 @@ impl NeighbourhoodEdge {
     pub fn edge(&self) -> &CanonicalEdge {
         &self.edge
     }
+
+    #[must_use]
+    pub fn into_edge(self) -> CanonicalEdge {
+        self.edge
+    }
 }
 
 /// Idempotency key for a projected link: edge kind, source, target, and both

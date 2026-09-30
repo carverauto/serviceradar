@@ -20,7 +20,11 @@ globalThis.__srLayout = input => {
   globalThis.__srResult = null
   globalThis.__srFailure = null
   const graph = radialGraph(input.nodes, input.edges, {radius: input.radius})
-  graph.layoutOptions["org.eclipse.elk.radial.wedgeCriteria"] = "NODE_SIZE"
+  // Partition envelopes need area-weighted wedges. Ordinary scenes retain
+  // the existing leaf-count radial policy.
+  if (input.nodes.some(node => node.width !== 112 || node.height !== 112)) {
+    graph.layoutOptions["org.eclipse.elk.radial.wedgeCriteria"] = "NODE_SIZE"
+  }
   elk.layout(graph).then(graph => {
     globalThis.__srResult = JSON.stringify(graph.children.map(node => ({id: node.id, x: node.x + node.width / 2, y: node.y + node.height / 2})))
   }).catch(error => {globalThis.__srFailure = String(error?.message || error)})

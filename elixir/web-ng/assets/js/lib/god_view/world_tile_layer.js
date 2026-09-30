@@ -5,6 +5,7 @@ import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 import {GOD_VIEW_ALPHA_BLEND, GOD_VIEW_ADDITIVE_BLEND} from "./gpu_parameters"
 import {nodeGlyphLayerData} from "./rendering_node_frame"
 import {godViewRenderingStyleEdgeParticleMethods} from "./rendering_style_edge_particle_methods"
+import {edgeTopologyClassValue, edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 import {WORLD_TILE_SIZE} from "./world_tile_decode"
 
 // Coarsen the complete viewport instead of dropping tiles when a large display
@@ -76,8 +77,8 @@ function flowFrame(geometry, overlay) {
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
     const ab = packetRate(flow.forward)
     const ba = packetRate(flow.reverse)
-    const bpsAb = measured(flow.forward, "octets_per_second") * 8
-    const bpsBa = measured(flow.reverse, "octets_per_second") * 8
+    const bpsAb = (measured(flow.forward, "observed_octets_per_second") || measured(flow.forward, "octets_per_second")) * 8
+    const bpsBa = (measured(flow.reverse, "observed_octets_per_second") || measured(flow.reverse, "octets_per_second")) * 8
     if (ab + ba + bpsAb + bpsBa === 0) return []
     return [{
       sourcePosition: Array.from(geometry.positions.subarray(edge.source * 2, edge.source * 2 + 2)),
@@ -110,6 +111,9 @@ export default class WorldTileLayer extends TileLayer {
     const candidate = this.props.overlays?.get(`${geometry.key.z}/${geometry.key.x}/${geometry.key.y}`)
     const overlay = candidate?.layout_version === geometry.key.layout_version &&
       candidate?.generation === geometry.generation && candidate?.revision === geometry.revision ? candidate : null
+    const edgeClass = index => edgeTopologyClassValue(geometry.edges[index])
+    const edgeStyle = index => edgeTopologyVisualStyleValue({topologyClass: edgeClass(index)})
+    const shownEdge = index => edgeClass(index) !== "inferred" || this.props.inferred === true
     const health = new Map((overlay?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
     const filters = this.props.filters || {}
     const shown = item => {
@@ -120,12 +124,30 @@ export default class WorldTileLayer extends TileLayer {
     }
     const common = {coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND}
     const node = ({index}) => frame.nodes[index]
+    const healthColor = item => {
+      const counts = health.get(item.id)
+      if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
+      return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
+    }
     const flow = overlay && this.props.packetFlow !== false ? flowFrame(geometry, overlay) : null
     return [
       frame.lines.length > 0 && new LineLayer(props, common, {
+        id: `${props.id}-edge-mantle`, data: frame.lines, pickable: false,
+        visible: this.props.links !== false,
+        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeClass(index) === "unknown"
+          ? [120, 132, 151, 30]
+          : [55, 175, 124, Math.round(70 * edgeStyle(index).mantleAlphaScale)],
+        getWidth: (_, {index}) => shownEdge(index) ? 6 * edgeStyle(index).mantleWidthScale : 0,
+        widthUnits: "pixels", updateTriggers: {getWidth: this.props.inferred, getColor: this.props.inferred},
+      }),
+      frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edges`, data: frame.lines, pickable: true,
         visible: this.props.links !== false,
-        getColor: [55, 175, 124, 135], getWidth: 1.5, widthUnits: "pixels",
+        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeClass(index) === "unknown"
+          ? [120, 132, 151, 100]
+          : [55, 175, 124, Math.round(135 * edgeStyle(index).crustAlphaScale)],
+        getWidth: (_, {index}) => shownEdge(index) ? 1.5 * edgeStyle(index).crustWidthScale : 0, widthUnits: "pixels",
+        updateTriggers: {getWidth: this.props.inferred, getColor: this.props.inferred},
       }),
       flow && flow.length > 0 && new PacketFlowLayer(props, common, {
         id: `${props.id}-packets`, data: flow, animate: true, pickable: false,
@@ -134,20 +156,23 @@ export default class WorldTileLayer extends TileLayer {
         zoomDensity: 1 / Math.max(1, Math.min(64, this.props.visibleTileCount)),
       }),
       frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
+        id: `${props.id}-node-glow`, data: frame.glyphs, pickable: false,
+        radiusUnits: "pixels",
+        getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 13 : 9) : 0,
+        getFillColor: (_, info) => [...healthColor(node(info)).slice(0, 3), 35],
+        updateTriggers: {getFillColor: overlay, getRadius: [overlay, filters]},
+      }),
+      frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
         radiusUnits: "pixels", stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.5,
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 9 : 4) : 0,
         getFillColor: (_, info) => {
           if (node(info).kind === "device") return [232, 242, 237, 255]
-          const counts = health.get(node(info).id)
-          if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
-          return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
+          return healthColor(node(info))
         },
         getLineColor: (_, info) => {
           if (node(info).kind !== "device") return [210, 226, 240, 230]
-          const counts = health.get(node(info).id)
-          if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
-          return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
+          return healthColor(node(info))
         },
         updateTriggers: {getFillColor: overlay, getLineColor: overlay, getRadius: [overlay, filters]},
       }),
@@ -178,5 +203,6 @@ WorldTileLayer.defaultProps = {
   visibleTileCount: 64,
   packetFlow: true,
   links: true,
+  inferred: false,
   filters: {type: "object", value: null, compare: false},
 }

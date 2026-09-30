@@ -15,6 +15,7 @@ const requiredColumns = {
   node_detail_cluster_member_count: "Float64",
   edge_source: "Uint32",
   edge_target: "Uint32",
+  edge_topology_class: "Utf8",
   edge_detail_id: "Utf8",
   edge_detail_represented_count: "Float64",
   edge_detail_phase_start: "Float64",
@@ -97,6 +98,7 @@ export function decodeWorldTile(bytes, expected) {
   requireValue(represented === integer(metadata, "device_count"), "device conservation")
   const edges = new Array(edgeCount)
   const edgeIds = new Set()
+  const edgeClass = columns.edgeStrings("edge_topology_class")
   for (let index = 0; index < edgeCount; index += 1) {
     const source = columns.edgeSource[index]
     const target = columns.edgeTarget[index]
@@ -105,12 +107,14 @@ export function decodeWorldTile(bytes, expected) {
     const count = details.represented_count
     const start = details.phase_start
     const end = details.phase_end
+    const topologyClass = edgeClass(index)
+    requireValue(["backbone", "logical", "hosted", "endpoints", "inferred", "unknown"].includes(topologyClass), "edge class")
     requireValue(source < nodeCount && target < nodeCount, "endpoint")
     requireValue(typeof id === "string" && id.length > 0 && !edgeIds.has(id), "edge identity")
     requireValue(Number.isSafeInteger(count) && count > 0, "relation count")
     requireValue(Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end <= 1 && start < end, "flow phase")
     edgeIds.add(id)
-    edges[index] = {id, index, source, target, count, start, end}
+    edges[index] = {id, index, source, target, count, start, end, topologyClass}
   }
   return {key: {...expected}, revision, columns, positions, nodes, edges, byteLength: bytes.byteLength}
 }

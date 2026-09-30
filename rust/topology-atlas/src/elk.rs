@@ -92,9 +92,17 @@ impl Elk {
                 Ok(width.hypot(height))
             })
             .collect::<Result<_, Error>>()?;
-        let radius = 224.0_f64
-            .max(diagonals.iter().sum::<f64>() / std::f64::consts::TAU * 1.2)
-            .max(diagonals.into_iter().fold(0.0, f64::max));
+        let ordinary = nodes
+            .iter()
+            .all(|node| node["width"] == 112.0 && node["height"] == 112.0);
+        let radius = if ordinary {
+            // Existing radial overview policy: one semantic envelope plus spacing.
+            224.0_f64.max((nodes.len() as f64 * (112.0 + 96.0) / std::f64::consts::TAU).ceil())
+        } else {
+            224.0_f64
+                .max(diagonals.iter().sum::<f64>() / std::f64::consts::TAU * 1.2)
+                .max(diagonals.into_iter().fold(0.0, f64::max))
+        };
         let mut input = json!({"nodes": children, "edges": edges, "radius": radius});
         let key: [u8; 32] = Sha256::digest(input.to_string().as_bytes()).into();
         let translate = |points: &Points| points.iter().map(|&(n, x, y)| (ids[n], x, y)).collect();

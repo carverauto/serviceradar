@@ -39,7 +39,10 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     positions =
       for index <- 1..67 do
         "sr:detail#{index}.example.com"
-        |> position(index * 100, true)
+        |> position(
+          if(index <= 2, do: 1_000_000 + (index - 1) * 3_000_000, else: 8_000_000 + index * 100),
+          true
+        )
         |> Map.put(:min_zoom, if(index <= 2, do: 0, else: 8))
       end
 
@@ -98,8 +101,16 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert count == aggregate.count
     assert count > 1
 
-    assert {:ok, %{nodes: members, next_cursor: nil}} =
+    assert {:ok, %{nodes: first_members, next_cursor: member_cursor}} =
              TopologyAtlas.detail(world, {:aggregate_members, selection})
+
+    assert length(first_members) == 64
+    assert is_map(member_cursor)
+
+    assert {:ok, %{nodes: last_members, next_cursor: nil}} =
+             TopologyAtlas.detail(world, {:aggregate_members, selection}, member_cursor)
+
+    members = first_members ++ last_members
 
     assert length(members) == count
 
@@ -147,15 +158,15 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
                TopologyAtlas.tile_relations(world, tile.selection, tail, 1)
     end
 
-    # Degrees include the other page and the non-rendered self-relation. The
-    # latter contributes once even though both ends name the same interface.
+    # Role-bound and nonphysical relations remain inspectable but do not enter
+    # the physical-interface attribution index.
     selected = [first_binding, second_binding]
 
     selected_by_id = Map.new(selected, &{&1.relation_id, &1})
-    assert selected_by_id["synthetic-link-b"].source_interface_degree == 1
-    assert selected_by_id["synthetic-link-b"].target_interface_degree == 2
-    assert selected_by_id["synthetic-link-a"].source_interface_degree == 2
-    assert selected_by_id["synthetic-link-a"].target_interface_degree == 2
+    assert selected_by_id["synthetic-link-b"].source_interface_degree == 0
+    assert selected_by_id["synthetic-link-b"].target_interface_degree == 0
+    assert selected_by_id["synthetic-link-a"].source_interface_degree == 0
+    assert selected_by_id["synthetic-link-a"].target_interface_degree == 0
 
     for binding <- bindings do
       assert {:ok, %{relation: picked, nodes: [source, target]}} =
@@ -260,9 +271,9 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
   end
 
   test "packaged health updates are atomic, revision-bound, and separate from tile geometry" do
-    a = position("sr:health-a.example.com", 100, true)
-    b = position("sr:health-b.example.com", 200, true)
-    c = position("sr:health-c.example.com", 300, true)
+    a = position("sr:health-a.example.com", 1_000_000, true)
+    b = position("sr:health-b.example.com", 7_000_000, true)
+    c = position("sr:health-c.example.com", 6_000_000, true)
     world = cold_world([a, b])
     epoch = 0xFEDCBA9876543210
     assert {:ok, health} = TopologyAtlas.new_health(world, epoch)

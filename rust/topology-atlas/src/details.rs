@@ -9,7 +9,7 @@ use std::ops::Range;
 use sha2::{Digest, Sha256};
 
 use crate::spatial::{Clip, Line};
-use crate::tiles::{digest_hex, digest_string};
+use crate::tiles::{Seam, digest_hex, digest_string, published_portal};
 use crate::{Cell, Error, Glyph, GlyphKind, Position, Relation, TileEdge, TileProfile, World};
 
 pub const DETAIL_NODE_LIMIT: usize = 128;
@@ -29,6 +29,7 @@ pub struct TileSelection {
     pub(crate) edges: Vec<TileEdge>,
     pub(crate) promoted: Vec<(u32, u32)>,
     pub(crate) groups: Vec<(Range<usize>, u32)>,
+    pub(crate) seam: Seam,
 }
 
 impl TileSelection {
@@ -76,12 +77,23 @@ impl TileSelection {
             .map(|i| i as u32)
     }
 
-    fn rendered_edge(&self, line: Line, clip: Clip) -> Option<&TileEdge> {
-        let source = self.endpoint(line.source, clip.source)?;
-        let target = self.endpoint(line.target, clip.target)?;
-        self.edges
-            .iter()
-            .find(|edge| edge.source == source && edge.target == target)
+    fn rendered_edge(
+        &self,
+        line: Line,
+        clip: Clip,
+        class: crate::TopologyClass,
+    ) -> Option<&TileEdge> {
+        let source = self.endpoint(
+            line.source,
+            published_portal(self.cell, clip.source, self.seam),
+        )?;
+        let target = self.endpoint(
+            line.target,
+            published_portal(self.cell, clip.target, self.seam),
+        )?;
+        self.edges.iter().find(|edge| {
+            edge.source == source && edge.target == target && edge.topology_class == class
+        })
     }
 }
 
@@ -528,7 +540,9 @@ impl World {
             RELATION_CANDIDATE_LIMIT,
             |i, clip| {
                 let line = self.endpoints[i as usize];
-                if let Some(edge) = selection.rendered_edge(line, clip) {
+                if let Some(edge) =
+                    selection.rendered_edge(line, clip, self.relation_classes[i as usize])
+                {
                     rows.push(SelectedRelation {
                         relation_index: i,
                         relation_id: self.relations[i as usize].id.clone(),
@@ -599,7 +613,7 @@ impl World {
             |i, clip| {
                 let line = self.endpoints[i as usize];
                 if selection
-                    .rendered_edge(line, clip)
+                    .rendered_edge(line, clip, self.relation_classes[i as usize])
                     .is_some_and(|rendered| rendered.id == edge.id)
                 {
                     let endpoints = [line.source, line.target].map(|node| {

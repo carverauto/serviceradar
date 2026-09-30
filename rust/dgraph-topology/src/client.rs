@@ -25,7 +25,7 @@ use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical}
 use crate::errors::TopologyError;
 use crate::types::{
     CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeWrite, HopWrite, InterfaceWrite,
-    PrefixWrite,
+    PrefixWrite, TopologyView,
 };
 
 /// Topology operations against one Dgraph client.
@@ -599,6 +599,19 @@ impl TopologyClient {
         crate::canonical_read::graph(&self.client).await
     }
 
+    /// Read devices and admitted topology-view edges from one read-only snapshot.
+    ///
+    /// The view is the canonical backbone plus fresh `ATTACHED_TO`, `INFERRED_TO`,
+    /// and `HOSTED_ON` edges. Observations and other kinds stay out. Traversal
+    /// consumers keep [`Self::query_canonical_graph`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_canonical_edges`].
+    pub async fn query_topology_view(&self) -> Result<TopologyView, TopologyError> {
+        crate::canonical_read::view(&self.client).await
+    }
+
     async fn delete_edge_by_link_key(&self, key: &str) -> Result<(), TopologyError> {
         let key_q = dql_string(key)?;
         let query = format!("{{ edge(func: eq(topo.link_key, {key_q})) {{ e as uid }} }}");
@@ -767,6 +780,20 @@ impl CanonicalEdgeRow {
             )
             .with_pair_support_rank(self.pair_support_rank),
         )
+    }
+
+    pub(crate) fn into_view_edge(self) -> Option<crate::types::NeighbourhoodEdge> {
+        if !matches!(
+            self.kind.as_str(),
+            "CANONICAL_TOPOLOGY" | "ATTACHED_TO" | "INFERRED_TO" | "HOSTED_ON"
+        ) {
+            return None;
+        }
+        let kind = self.kind.clone();
+        Some(crate::types::NeighbourhoodEdge::new(
+            kind,
+            self.into_edge()?,
+        ))
     }
 
     fn into_neighbourhood(self) -> Option<crate::types::NeighbourhoodEdge> {

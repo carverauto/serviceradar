@@ -69,7 +69,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
                 generation: 1,
                 node_count: 503,
                 relation_count: 503,
-                algorithm_version: "hierarchical-elk-radial-v2"
+                algorithm_version: "hierarchical-elk-radial-v3"
               }} =
                World.active_manifest(scope())
 

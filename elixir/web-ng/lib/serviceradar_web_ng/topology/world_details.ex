@@ -336,7 +336,7 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
     edges =
       Enum.map(page.relations, fn edge ->
         edge
-        |> Map.take([:id, :evidence_class, :role])
+        |> Map.take([:id, :topology_class, :evidence_class, :role])
         |> Map.merge(%{source: elem(identities, edge.source), target: elem(identities, edge.target)})
       end)
 

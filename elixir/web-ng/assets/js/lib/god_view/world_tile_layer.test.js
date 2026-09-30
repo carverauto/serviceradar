@@ -64,6 +64,26 @@ describe("world tile rendering contract", () => {
     expect(layers(geometry, {...firstOverlay, generation: 2}).some(layer => layer.id.endsWith("-packets"))).toBe(false)
   })
 
+  it("keeps graph classification stable when telemetry pages change or disappear", () => {
+    const geometry = tile()
+    const telemetry = overlay(geometry)
+    telemetry.flow.edges[0].topology_class_counts = {backbone: 90000}
+    const edgeLayer = () => layers(geometry, telemetry).find(layer => layer.id.endsWith("-edges"))
+    expect(edgeLayer().props.getWidth(null, {index: 0})).toBe(1.5)
+    geometry.edges[0].topologyClass = "endpoints"
+    expect(edgeLayer().props.getWidth(null, {index: 0})).toBe(1.5 * 0.74)
+    geometry.edges[0].topologyClass = "inferred"
+    expect(edgeLayer().props.getWidth(null, {index: 0})).toBe(0)
+    for (const layer of layers(geometry, telemetry).filter(item => /-edges$|-edge-mantle$/.test(item.id))) {
+      expect(layer.props.getColor(null, {index: 0})[3]).toBe(0)
+    }
+    telemetry.flow.edges[0].selected_relations = 1
+    telemetry.flow.edges[0].topology_class_counts = {backbone: 1}
+    expect(edgeLayer().props.getWidth(null, {index: 0})).toBe(0)
+    const unavailable = layers(geometry, null).find(layer => layer.id.endsWith("-edges"))
+    expect(unavailable.props.getWidth(null, {index: 0})).toBe(0)
+  })
+
   it("keeps canonical packet seeds across tile segments despite local row reordering", () => {
     const geometry = tile()
     const first = layers(geometry, overlay(geometry)).find(layer => layer.id.endsWith("-packets")).props.data
@@ -78,6 +98,7 @@ describe("world tile rendering contract", () => {
   it.each([
     {status: "partial", animate: true, observed_packets_per_second: 17, packets_per_second: null},
     {status: "unknown", animate: true, packets_per_second: null, octets_per_second: 250},
+    {status: "partial", animate: true, observed_octets_per_second: 250, octets_per_second: null},
   ])("renders directional measured traffic without requiring a complete packet total: %j", direction => {
     const geometry = tile()
     const telemetry = overlay(geometry)

@@ -306,35 +306,176 @@ fn diagonal_crossings_stay_on_their_canonical_segments() {
 }
 
 #[test]
-fn nearby_devices_cluster_at_overview_and_resolve_at_detail() {
+fn forced_boundary_budget_conserves_relation_membership() {
+    let budget = Budget {
+        nodes: 9,
+        edges: 72,
+    };
+    let mut points = Vec::new();
+    let mut relations = Vec::new();
+    for i in 0..200 {
+        let y = 1_000 + i * 10_000;
+        let source = position(i, 1_000, y, 0);
+        let target = position(1_000 + i, 9_000_000, y, 0);
+        relations.push(edge(&source, &target));
+        points.push(source);
+        points.push(target);
+    }
+    let world = World::new("budget-synthetic".into(), 8, points, relations).unwrap();
+    let tile = world.tile(Cell::new(2, 1, 0).unwrap(), budget).unwrap();
+    assert_eq!(tile.edges.iter().map(|edge| edge.count).sum::<u64>(), 200);
+    assert!(tile.edges.iter().all(|edge| edge.id.starts_with("bundle:")));
+    let mut members = BTreeSet::new();
+    let mut cursor = None;
+    loop {
+        let page = world
+            .tile_relations(&tile.selection, cursor.as_ref(), 256)
+            .unwrap();
+        assert!(!page.relations.is_empty());
+        for relation in page.relations {
+            assert!(members.insert(relation.relation_id));
+            assert!(relation.rendered_edge_id.starts_with("bundle:"));
+        }
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(members.len(), 200);
+}
+
+#[test]
+fn unequal_density_seams_share_exact_crossings() {
+    let budget = Budget {
+        nodes: 9,
+        edges: 72,
+    };
+    let shared_x = 8_388_608.0;
+    let midpoint = 4_194_304.0 / 2.0;
+    let mut points = Vec::new();
+    let mut relations = Vec::new();
+    for i in 0..150 {
+        let y = 1_000 + i * 10_000;
+        let source = position(i, 1_000, y, 0);
+        let target = position(1_000 + i, 6_000_000, y, 0);
+        relations.push(edge(&source, &target));
+        points.push(source);
+        points.push(target);
+    }
+    let shared_y = [1_000_000u32, 3_000_000];
+    for (n, y) in shared_y.into_iter().enumerate() {
+        let source = position(2_000 + n as u32, 5_000_000, y, 0);
+        let target = position(3_000 + n as u32, 9_000_000, y, 0);
+        relations.push(edge(&source, &target));
+        points.push(source);
+        points.push(target);
+    }
+    let world = World::new("seam-synthetic".into(), 8, points, relations).unwrap();
+    let left = world.tile(Cell::new(2, 1, 0).unwrap(), budget).unwrap();
+    let right = world.tile(Cell::new(2, 2, 0).unwrap(), budget).unwrap();
+    assert!(left.edges.iter().any(|edge| edge.id.starts_with("bundle:")));
+    let seam_y = |tile: &serviceradar_topology_atlas::Tile| {
+        let mut ys: Vec<_> = tile
+            .glyphs
+            .iter()
+            .filter(|glyph| glyph.kind == GlyphKind::Boundary && glyph.x == shared_x)
+            .map(|glyph| glyph.y)
+            .collect();
+        ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        ys
+    };
+    assert_eq!(seam_y(&left), seam_y(&right));
+    assert_eq!(seam_y(&left), vec![1_000_000.0, 3_000_000.0]);
+    assert!(seam_y(&left).iter().all(|y| *y != midpoint));
+    assert!(
+        right
+            .edges
+            .iter()
+            .all(|edge| !edge.id.starts_with("bundle:"))
+    );
+    let mut members = BTreeSet::new();
+    let mut cursor = None;
+    loop {
+        let page = world
+            .tile_relations(&left.selection, cursor.as_ref(), 256)
+            .unwrap();
+        assert!(!page.relations.is_empty());
+        for relation in page.relations {
+            members.insert(relation.relation_id);
+        }
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(members.len(), 152);
+}
+
+#[test]
+fn infrastructure_hubs_cluster_at_overview_and_resolve_at_detail() {
     let origin = Cell::new(3, 1, 1).unwrap().origin().0;
-    let points = vec![
-        position(1, origin + 64, origin + 64, 8),
-        position(2, origin + 64 + 512, origin + 64, 8),
-        position(3, origin + 64, origin + 64 + 512, 8),
-    ];
-    let relations = vec![edge(&points[0], &points[1]), edge(&points[1], &points[2])];
-    let world = World::new("cluster-synthetic".into(), 16, points.clone(), relations).unwrap();
+    let points: Vec<_> = (0..32)
+        .map(|i| position(i, origin + 64 + i * 4_000, origin + 64, 0))
+        .collect();
+    let relations: Vec<_> = points
+        .windows(2)
+        .map(|pair| edge(&pair[0], &pair[1]))
+        .collect();
+    let world = World::new("hubs-synthetic".into(), 16, points.clone(), relations).unwrap();
     let overview = world
         .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
         .unwrap();
-    assert_eq!(overview.device_count, 3);
-    assert_eq!(overview.glyphs.len(), 1);
-    assert_eq!(overview.glyphs[0].kind, GlyphKind::Aggregate);
-    assert_eq!(overview.glyphs[0].count, 3);
-    assert_eq!(overview.internal_relations, 2);
-
+    assert_eq!(overview.device_count, 32);
+    assert!(
+        overview
+            .glyphs
+            .iter()
+            .all(|glyph| glyph.kind != GlyphKind::Device)
+    );
+    assert!(
+        overview
+            .glyphs
+            .iter()
+            .any(|glyph| glyph.kind == GlyphKind::Aggregate)
+    );
+    let mut members = BTreeSet::new();
+    for glyph in &overview.glyphs {
+        if glyph.kind != GlyphKind::Aggregate {
+            continue;
+        }
+        let selection = world
+            .aggregate_selection(&overview.selection, &glyph.id)
+            .unwrap();
+        let mut cursor = None;
+        loop {
+            let page = world
+                .detail(
+                    &DetailScope::AggregateMembers(selection.clone()),
+                    cursor.as_ref(),
+                )
+                .unwrap();
+            for node in page.nodes {
+                members.insert(node.id);
+            }
+            match page.next {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+    }
+    assert_eq!(members.len(), points.len());
     for point in &points {
-        let cell = Cell::at_point(16, point.x, point.y).unwrap();
-        let tile = world.tile(cell, Budget::default()).unwrap();
-        assert_eq!(tile.device_count, 1);
+        let tile = world
+            .tile(
+                Cell::at_point(16, point.x, point.y).unwrap(),
+                Budget::default(),
+            )
+            .unwrap();
         let device = tile
             .glyphs
             .iter()
-            .find(|glyph| glyph.kind == GlyphKind::Device)
+            .find(|glyph| glyph.kind == GlyphKind::Device && glyph.id == point.id)
             .unwrap();
-        assert_eq!(device.id, point.id);
-        assert_eq!(device.label, point.label);
         assert_eq!(
             (device.x, device.y),
             (f64::from(point.x), f64::from(point.y))
@@ -447,8 +588,8 @@ fn corners_and_owned_boundary_contacts_preserve_adjacency_and_flow_phase() {
 
 #[test]
 fn bundle_identity_survives_unrelated_row_insertions() {
-    let a = position(1, 500, 500, 0);
-    let b = position(2, 900, 900, 0);
+    let a = position(1, 3_000_000, 3_000_000, 0);
+    let b = position(2, 5_000_000, 5_000_000, 0);
     let first = edge(&a, &b);
     let mut second = first.clone();
     second.id.push_str("/redundant");
@@ -473,4 +614,71 @@ fn bundle_identity_survives_unrelated_row_insertions() {
     assert_eq!(original.edges[0].count, 2);
     assert_eq!(original.edges[0].id, inserted.edges[0].id);
     assert_ne!(original.edges[0].source, inserted.edges[0].source);
+}
+
+#[test]
+fn dense_face_routes_are_bounded_and_shared_across_encoding_profiles() {
+    let mut points = Vec::new();
+    for side in 0..4 {
+        for n in 0..16 {
+            let free = 4_300_000 + n * 250_000;
+            let (x, y) = match side {
+                0 => (3_000_000, free),
+                1 => (9_000_000, free),
+                2 => (free, 3_000_000),
+                _ => (free, 9_000_000),
+            };
+            points.push(position(side * 16 + n, x, y, 0));
+        }
+    }
+    let mut relations = Vec::new();
+    for (a, b) in [(0, 16), (32, 48)] {
+        for i in a..a + 16 {
+            for j in b..b + 16 {
+                relations.push(edge(&points[i], &points[j]));
+            }
+        }
+    }
+    let world = World::new("dense-faces-synthetic".into(), 16, points, relations).unwrap();
+    let cell = Cell::new(2, 1, 1).unwrap();
+    let tile = world.tile(cell, Budget::default()).unwrap();
+    assert!(tile.glyphs.len() <= 128 && tile.edges.len() <= 256);
+    assert_eq!(
+        tile.edges.iter().map(|e| e.count).sum::<u64>() + tile.internal_relations,
+        512
+    );
+    let neighbor = world
+        .tile(Cell::new(2, 2, 1).unwrap(), Budget::default())
+        .unwrap();
+    let compact = world
+        .tile_with_routing_budget(
+            cell,
+            Budget::default(),
+            TileProfile::AggregateOnly,
+            Budget::default(),
+        )
+        .unwrap();
+    let seam = |tile: &serviceradar_topology_atlas::Tile| {
+        tile.glyphs
+            .iter()
+            .filter(|g| g.kind == GlyphKind::Boundary && g.x == 8_388_608.0)
+            .map(|g| (g.x.to_bits(), g.y.to_bits()))
+            .collect::<BTreeSet<_>>()
+    };
+    assert!(!seam(&tile).is_empty());
+    assert_eq!(seam(&tile), seam(&neighbor));
+    assert_eq!(seam(&tile), seam(&compact));
+    let mut members = BTreeSet::new();
+    let mut cursor = None;
+    loop {
+        let page = world
+            .tile_relations(&tile.selection, cursor.as_ref(), 256)
+            .unwrap();
+        members.extend(page.relations.into_iter().map(|row| row.relation_id));
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(members.len(), 512);
 }

@@ -258,6 +258,16 @@ describe("topology_overview_projection", () => {
       .filter((relation) => ["small-1", "small-2"].includes(relation.targetId))
       .map((relation) => relation.sourceId)
     expect(parents).toEqual(["small-anchor", "small-anchor"])
+
+    // An explicitly requested, bounded page elaborates the original radial fan.
+    // Its real attachment bindings remain available to the route renderer.
+    const page = prepareTopologyOverviewInput({nodes, edges, _topologyBoundedPage: true})
+    expect(page.manifest).toMatchObject({attachedEndpoints: 7, omittedAttachmentNodes: 0})
+    for (let index = 0; index < 5; index += 1) {
+      expect(page.treeRelations.find(relation => relation.targetId === `big-${index}`)).toMatchObject({
+        sourceId: "big-anchor", semanticRelationIds: [`att:big-${index}`],
+      })
+    }
   })
 
   it("chooses a summary parent by canonical pair when multiple attachment candidates exist", () => {

@@ -34,6 +34,7 @@ rust_test(
     edition = "2021",
     rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
     deps = all_crate_deps(cargo_only = True, normal = True, normal_dev = True) + [
+        "@crates//:serde_json",
         "//rust/dgraph-topology:dgraph_topology",
         "//rust/topology-atlas:topology_atlas",
     ],

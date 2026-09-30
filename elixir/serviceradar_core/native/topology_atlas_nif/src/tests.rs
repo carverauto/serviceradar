@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use dgraph_topology::CanonicalEdge;
-use serviceradar_topology_atlas::{Budget, Cell, Device};
+use dgraph_topology::{CanonicalDevice, CanonicalEdge, NeighbourhoodEdge, TopologyView};
+use serviceradar_topology_atlas::{Budget, Cell, Device, TopologyClass};
 
 use crate::model::{Builder, InventoryRow, PositionRow, RelationRow, SourceGraph};
 
@@ -22,7 +22,7 @@ fn edge(source: &str, target: &str, interface: i32, rate: i64) -> CanonicalEdge 
         rate,
         rate,
         10_000_000,
-        rate > 0,
+        true,
         "LLDP".into(),
         "direct-physical".into(),
         "high".into(),
@@ -245,4 +245,393 @@ fn rejected_import_is_atomic_and_inactive_points_remain_reserved() {
     for (cursor, limit) in [(502, 500), (0, 0), (0, 501)] {
         assert!(crate::model::page_range(501, cursor, limit).is_err());
     }
+}
+
+fn canonical_device(id: &str, hostname: &str) -> CanonicalDevice {
+    serde_json::from_value(serde_json::json!({"device.id": id, "device.hostname": hostname}))
+        .unwrap()
+}
+
+fn view_edge(
+    kind: &str,
+    id: &str,
+    source: &str,
+    target: &str,
+    source_index: i32,
+    source_name: &str,
+    target_index: i32,
+    target_name: &str,
+    class: &str,
+    eligible: bool,
+) -> NeighbourhoodEdge {
+    NeighbourhoodEdge::new(
+        kind,
+        CanonicalEdge::new(
+            source.into(),
+            target.into(),
+            0,
+            0,
+            0,
+            0,
+            10_000_000,
+            eligible,
+            "lldp".into(),
+            class.into(),
+            "high".into(),
+            source_index,
+            source_name.into(),
+            target_index,
+            target_name.into(),
+            id.into(),
+            "synthetic-mutation".into(),
+        ),
+    )
+}
+
+#[test]
+fn attachment_fan_joins_the_world_tile_without_inflating_degree() {
+    let ap = "sr:ap-1.example.test";
+    let peer = "sr:peer-1.example.test";
+    let endpoint_a = "sr:endpoint-a.example.test";
+    let endpoint_b = "sr:endpoint-b.example.test";
+    let view = TopologyView::new(
+        vec![
+            canonical_device(ap, "ap-1"),
+            canonical_device(peer, "peer-1"),
+            canonical_device(endpoint_a, "endpoint-a"),
+            canonical_device(endpoint_b, "endpoint-b"),
+        ],
+        vec![
+            view_edge(
+                "CANONICAL_TOPOLOGY",
+                "backbone",
+                ap,
+                peer,
+                5,
+                "ge-0/0/1",
+                9,
+                "ge-0/0/9",
+                "direct-physical",
+                true,
+            ),
+            view_edge(
+                "ATTACHED_TO",
+                "attach-a",
+                ap,
+                endpoint_a,
+                5,
+                "ge-0/0/1",
+                1,
+                "eth0",
+                "direct-physical",
+                true,
+            ),
+            view_edge(
+                "INFERRED_TO",
+                "attach-b",
+                ap,
+                endpoint_b,
+                5,
+                "ge-0/0/1",
+                2,
+                "eth1",
+                "direct-physical",
+                true,
+            ),
+        ],
+    );
+    let candidate = Builder::new("synthetic-layout".into(), 16)
+        .unwrap()
+        .reconcile(SourceGraph::from_view(view).unwrap())
+        .unwrap();
+    let tile = candidate
+        .world
+        .geometry
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    assert_eq!(tile.device_count, 4);
+    let drawn = tile.edges.iter().map(|edge| edge.count).sum::<u64>() + tile.internal_relations;
+    assert_eq!(drawn, 3);
+    for id in [ap, peer, endpoint_a, endpoint_b] {
+        assert!(candidate.world.geometry.search(id).is_some(), "{id}");
+    }
+    assert!(candidate
+        .relations
+        .iter()
+        .any(|row| row.relation_id == "attach-a"
+            && row.kind == "ATTACHED_TO"
+            && !row.telemetry_eligible));
+    assert!(candidate
+        .relations
+        .iter()
+        .any(|row| row.relation_id == "attach-b" && !row.telemetry_eligible));
+    let backbone = candidate
+        .relations
+        .iter()
+        .position(|row| row.relation_id == "backbone")
+        .unwrap();
+    assert!(candidate.relations[backbone].telemetry_eligible);
+    assert_eq!(candidate.world.interface_degrees[backbone], [1, 1]);
+}
+
+#[test]
+fn duplicate_physical_evidence_collapses_without_merging_parallel_ports() {
+    let a = "sr:a.example.test";
+    let b = "sr:b.example.test";
+    let c = "sr:c.example.test";
+    let positions = Builder::new("synthetic-layout".into(), 16)
+        .unwrap()
+        .reconcile(graph(&[a, b, c], 3, 1))
+        .unwrap()
+        .positions;
+    let rows = vec![
+        physical("link-ba", b, a, 9, "ge-0/0/2", 5, "ge-0/0/1"),
+        physical("link-names", a, b, 0, "ge-0/0/1", 0, "ge-0/0/2"),
+        physical("link-ab", a, b, 5, "ge-0/0/1", 9, "ge-0/0/2"),
+        physical("link-index-alias", a, b, 5, "uplink-a", 9, "uplink-b"),
+        physical("link-parallel", a, b, 6, "ge-0/0/3", 10, "ge-0/0/4"),
+        physical("link-shared-parallel", a, b, 5, "ge-0/0/1", 20, "ge-0/0/9"),
+        physical("alias-a", a, b, 7, "port-a", 11, "port-b"),
+        physical("alias-b", a, b, 8, "port-a", 12, "port-b"),
+        physical("alias-unresolved", a, b, 0, "port-a", 0, "port-b"),
+        physical("link-unrelated", a, b, 0, "ge-0/0/7", 0, "ge-0/0/8"),
+        {
+            let mut row = physical("link-shared", a, c, 5, "ge-0/0/1", 1, "eth0");
+            row.telemetry_eligible = false;
+            row
+        },
+    ];
+    let mut cold = Builder::new("synthetic-layout".into(), 16).unwrap();
+    cold.add_positions(positions.clone()).unwrap();
+    cold.add_relations(rows.clone()).unwrap();
+    let world = cold.finish().unwrap();
+    let ids: Vec<_> = world
+        .relations
+        .iter()
+        .map(|row| row.relation_id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            "alias-a",
+            "alias-b",
+            "alias-unresolved",
+            "link-ab",
+            "link-parallel",
+            "link-shared",
+            "link-shared-parallel",
+            "link-unrelated"
+        ]
+    );
+    let degree = |id: &str| {
+        let index = world
+            .relations
+            .iter()
+            .position(|row| row.relation_id == id)
+            .unwrap();
+        world.interface_degrees[index]
+    };
+    assert_eq!(degree("link-ab"), [3, 1]);
+    assert_eq!(degree("link-parallel"), [1, 1]);
+    assert_eq!(degree("link-shared"), [3, 1]);
+    assert_eq!(degree("link-shared-parallel"), [3, 1]);
+    assert_eq!(degree("link-unrelated"), [0, 0]);
+    assert_eq!(
+        world
+            .relations
+            .iter()
+            .find(|row| row.relation_id == "link-ab")
+            .unwrap()
+            .source_if_index,
+        Some(5)
+    );
+
+    let mut persisted = Builder::new("synthetic-layout".into(), 16).unwrap();
+    persisted.add_positions(positions).unwrap();
+    persisted
+        .add_relations(vec![
+            physical("link-ba", b, a, 9, "ge-0/0/2", 5, "ge-0/0/1"),
+            physical("link-ab", a, b, 5, "ge-0/0/1", 9, "ge-0/0/2"),
+        ])
+        .unwrap();
+    let mut relations = BTreeMap::new();
+    for row in [
+        physical("link-ba", b, a, 9, "ge-0/0/2", 5, "ge-0/0/1"),
+        physical("link-ab", a, b, 5, "ge-0/0/1", 9, "ge-0/0/2"),
+    ] {
+        relations.insert(row.relation_id.clone(), row);
+    }
+    let devices = [a, b, c]
+        .into_iter()
+        .map(|id| (id.to_owned(), device(id)))
+        .collect();
+    let candidate = persisted
+        .reconcile(SourceGraph { devices, relations })
+        .unwrap();
+    assert_eq!(candidate.relations.len(), 1);
+    assert!(candidate.relations[0].telemetry_eligible);
+    assert_eq!(
+        candidate.deltas.deactivate_relation_ids,
+        vec!["link-ba".to_owned()]
+    );
+    assert_eq!(candidate.world.interface_degrees, vec![[1, 1]]);
+}
+
+fn physical(
+    id: &str,
+    source: &str,
+    target: &str,
+    source_index: i32,
+    source_name: &str,
+    target_index: i32,
+    target_name: &str,
+) -> RelationRow {
+    RelationRow::canonical(CanonicalEdge::new(
+        source.into(),
+        target.into(),
+        0,
+        0,
+        0,
+        0,
+        10_000_000,
+        true,
+        "lldp".into(),
+        "direct-physical".into(),
+        "high".into(),
+        source_index,
+        source_name.into(),
+        target_index,
+        target_name.into(),
+        id.into(),
+        "synthetic-mutation".into(),
+    ))
+}
+
+#[test]
+fn physical_forest_wins_over_an_inferred_shortcut() {
+    let ids = [
+        "sr:router.example.test",
+        "sr:access.example.test",
+        "sr:leaf.example.test",
+    ];
+    let edges = vec![
+        view_edge(
+            "CANONICAL_TOPOLOGY",
+            "physical-ra",
+            ids[0],
+            ids[1],
+            1,
+            "p1",
+            1,
+            "p1",
+            "direct-physical",
+            true,
+        ),
+        view_edge(
+            "CANONICAL_TOPOLOGY",
+            "physical-al",
+            ids[1],
+            ids[2],
+            2,
+            "p2",
+            1,
+            "p1",
+            "direct-physical",
+            true,
+        ),
+        view_edge(
+            "INFERRED_TO",
+            "inferred-rl",
+            ids[0],
+            ids[2],
+            0,
+            "",
+            0,
+            "",
+            "inferred",
+            false,
+        ),
+        view_edge(
+            "ATTACHED_TO",
+            "inferred-ra",
+            ids[0],
+            ids[1],
+            0,
+            "",
+            0,
+            "",
+            "inferred-segment",
+            false,
+        ),
+    ];
+    let view = TopologyView::new(
+        ids.iter().map(|id| canonical_device(*id, *id)).collect(),
+        edges,
+    );
+    let mut builder = Builder::new("synthetic-forest".into(), 16).unwrap();
+    builder
+        .add_inventory(
+            ids.iter()
+                .enumerate()
+                .map(|(i, id)| InventoryRow {
+                    id: (*id).into(),
+                    label: (*id).into(),
+                    importance: if i == 0 { 0 } else { 1 },
+                })
+                .collect(),
+        )
+        .unwrap();
+    let candidate = builder
+        .reconcile(SourceGraph::from_view(view).unwrap())
+        .unwrap();
+    let leaf = candidate
+        .positions
+        .iter()
+        .find(|row| row.device_id == ids[2])
+        .unwrap();
+    assert_eq!(leaf.parent_id.as_deref(), Some(ids[1]));
+    assert_eq!(candidate.world.relations.len(), 4);
+    // Reload keeps every cross-link while preserving the already authored tree.
+    let mut cold = Builder::new("synthetic-forest".into(), 16).unwrap();
+    cold.add_positions(candidate.positions).unwrap();
+    cold.add_relations(candidate.relations.to_vec()).unwrap();
+    let restored = cold.finish().unwrap();
+    assert_eq!(restored.relations.len(), 4);
+    let edges: Vec<_> = ids
+        .iter()
+        .flat_map(|id| {
+            let p = restored.geometry.search(id).unwrap();
+            let tile = restored
+                .geometry
+                .tile(Cell::at_point(16, p.x, p.y).unwrap(), Budget::default())
+                .unwrap();
+            let page = restored
+                .geometry
+                .tile_relations(&tile.selection, None, 256)
+                .unwrap();
+            for row in page.relations {
+                let edge = tile
+                    .edges
+                    .iter()
+                    .find(|edge| edge.id == row.rendered_edge_id)
+                    .unwrap();
+                let expected = if row.relation_id.starts_with("inferred-") {
+                    TopologyClass::Inferred
+                } else {
+                    TopologyClass::Backbone
+                };
+                assert_eq!(
+                    edge.topology_class, expected,
+                    "selector crossed graph classes"
+                );
+            }
+            tile.edges.into_iter()
+        })
+        .collect();
+    assert!(edges.iter().any(|edge| edge.id == "physical-ra"
+        && edge.topology_class == TopologyClass::Backbone
+        && edge.count == 1));
+    assert!(edges.iter().any(|edge| edge.id == "inferred-ra"
+        && edge.topology_class == TopologyClass::Inferred
+        && edge.count == 1));
 }

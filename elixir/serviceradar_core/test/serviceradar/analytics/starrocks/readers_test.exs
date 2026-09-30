@@ -34,7 +34,7 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      Keyword.put(prev, :cutover_datasets, [:flows])
+      prev |> Keyword.put(:enabled, false) |> Keyword.put(:cutover_datasets, [:flows])
     )
 
     try do
@@ -58,11 +58,14 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 
     try do
-      for {cutover, expected} <- [{[], :cnpg}, {[:metrics], :starrocks}] do
+      for {enabled, cutover, expected} <- [
+            {true, [], :starrocks},
+            {false, [:metrics], :cnpg}
+          ] do
         Application.put_env(
           :serviceradar_core,
           StarRocks,
-          Keyword.put(prev, :cutover_datasets, cutover)
+          prev |> Keyword.put(:enabled, enabled) |> Keyword.put(:cutover_datasets, cutover)
         )
 
         for entity <-
@@ -236,21 +239,31 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
-  test "cutover_datasets selects starrocks for metrics entities" do
+  test "metrics read StarRocks whenever the warehouse is enabled" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      Keyword.put(prev, :cutover_datasets, [:metrics])
-    )
-
     try do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
+
       assert Readers.mode_for("timeseries_metrics") == "starrocks"
       assert Readers.mode_for("snmp") == "starrocks"
       assert Readers.mode_for("rperf_metrics") == "starrocks"
       assert Readers.backend(:metrics) == :starrocks
       assert Readers.mode_for("flows") == {:error, :starrocks_required}
+
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, false) |> Keyword.put(:cutover_datasets, [:metrics])
+      )
+
+      assert Readers.mode_for("timeseries_metrics") == nil
+      assert Readers.mode_for("snmp") == nil
+      assert Readers.backend(:metrics) == :cnpg
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end
