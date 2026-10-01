@@ -48,6 +48,7 @@ defmodule ServiceRadar.Plugins.Manifest do
       and the capability with no notifier grants nothing.
   """
 
+  alias ServiceRadar.Plugins.ActionCredentialRequirements
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.IntegrationDescriptor
   alias ServiceRadar.Plugins.NotificationCredentialRequirement
@@ -422,7 +423,13 @@ defmodule ServiceRadar.Plugins.Manifest do
     {integrations, errors} =
       case IntegrationDescriptor.validate(fetch(map, :integrations), producer_schedules) do
         {:ok, integrations} ->
-          {integrations, errors}
+          # Declared action credential sources resolve through the package's
+          # own credential profiles, so they are checked against them here.
+          {integrations,
+           ActionCredentialRequirements.validate_against_profiles(
+             actions,
+             integrations["credential_profiles"]
+           ) ++ errors}
 
         {:error, integration_errors} ->
           {IntegrationDescriptor.empty(), integration_errors ++ errors}
@@ -2117,6 +2124,13 @@ defmodule ServiceRadar.Plugins.Manifest do
 
     {credential_requirements, errors} =
       optional_action_map(action, :credential_requirements, index, errors)
+
+    errors =
+      ActionCredentialRequirements.validate(
+        credential_requirements,
+        input_schema,
+        "actions[#{index}]"
+      ) ++ errors
 
     if errors == [] do
       {:ok,
