@@ -7,12 +7,6 @@ type hostInterface struct {
 	addresses []net.Addr
 }
 
-// hostInventoryProvider resolves the full annotated host interface list.
-// Replaced in tests to supply a deterministic fake inventory (including
-// pre-resolved addresses) without skipping on CI executors that lack an
-// active Ethernet interface.
-var hostInventoryProvider func() []hostInterface = defaultHostInventory //nolint:gochecknoglobals // replaced in tests to inject a deterministic fake inventory
-
 func defaultHostInventory() []hostInterface {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -29,8 +23,8 @@ func defaultHostInventory() []hostInterface {
 
 // Only report the interface that owns the announced IP. Enumerating every MAC
 // would also claim bridges, guest veths and unrelated network namespaces.
-func hostInterfaceMACs(hostIP string) []string {
-	return selectHostInterfaceMACs(net.ParseIP(hostIP), hostInventoryProvider())
+func hostInterfaceMACs(hostIP string, inventory func() []hostInterface) []string {
+	return selectHostInterfaceMACs(net.ParseIP(hostIP), inventory())
 }
 
 func selectHostInterfaceMACs(hostIP net.IP, interfaces []hostInterface) []string {

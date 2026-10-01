@@ -48,7 +48,7 @@ func TestHostIdentityUsesOnlyUnambiguousAnnouncedInterface(t *testing.T) {
 // TestHelloRequestsCarryAnnouncedInterfaceMAC verifies that both the
 // control-stream hello and the unary enrollment hello populate HostMacs with
 // the MAC of the interface that owns the announced host IP. The interface
-// inventory is injected via hostInventoryProvider so the assertion always runs,
+// inventory is injected via PushLoop.hostInventory so the assertion always runs,
 // including on CI executors without an active Ethernet interface.
 //
 // The fake inventory includes interfaces that must be filtered out (loopback,
@@ -74,8 +74,7 @@ func TestHelloRequestsCarryAnnouncedInterfaceMAC(t *testing.T) {
 	ownerAddr := &net.IPNet{IP: net.ParseIP(hostIP), Mask: net.CIDRMask(24, 32)}
 	otherAddr := &net.IPNet{IP: net.ParseIP("198.51.100.7"), Mask: net.CIDRMask(24, 32)}
 
-	saved := hostInventoryProvider
-	hostInventoryProvider = func() []hostInterface {
+	fakeInventory := func() []hostInterface {
 		return []hostInterface{
 			// loopback — must be filtered
 			{Interface: net.Interface{Name: "lo", Flags: net.FlagUp | net.FlagLoopback,
@@ -101,9 +100,9 @@ func TestHelloRequestsCarryAnnouncedInterfaceMAC(t *testing.T) {
 				addresses: []net.Addr{ownerAddr}},
 		}
 	}
-	defer func() { hostInventoryProvider = saved }()
 
 	loop := NewPushLoop(&Server{config: &ServerConfig{HostIP: hostIP}}, nil, 0, logger.NewTestLogger())
+	loop.hostInventory = fakeInventory
 
 	// Control-stream hello
 	stream := &fakeControlStreamClient{}
