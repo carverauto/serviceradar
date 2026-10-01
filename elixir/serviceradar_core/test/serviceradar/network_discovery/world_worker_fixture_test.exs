@@ -754,10 +754,10 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       ]
     )
 
+    # An unbound host is a valid inventory record but not a valid topology
+    # owner; a nonexistent device UID would violate the foreign key first.
     host
-    |> Ash.Changeset.for_update(:update, %{device_uid: "sr:synthetic-missing-endpoint"},
-      actor: actor()
-    )
+    |> Ash.Changeset.for_update(:update, %{device_uid: nil}, actor: actor())
     |> Ash.update!(actor: actor())
 
     assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
