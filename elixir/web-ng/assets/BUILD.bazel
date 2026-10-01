@@ -303,6 +303,21 @@ vitest_bin.vitest_test(
 )
 
 vitest_bin.vitest_test(
+    name = "theme_init_test",
+    args = [
+        "run",
+        "js/utils/theme_init.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        "js/theme_init.js",
+        "js/utils/theme_init.test.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
     name = "details_state_test",
     args = [
         "run",
