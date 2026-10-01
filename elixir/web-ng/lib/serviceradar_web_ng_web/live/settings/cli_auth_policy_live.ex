@@ -57,7 +57,13 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
       cli_allowed_scopes: parse_scopes(params["cli_allowed_scopes"])
     }
 
-    case AuthorizationSettings.update_settings(socket.assigns.settings, attrs, actor: actor) do
+    result =
+      case socket.assigns.settings do
+        nil -> AuthorizationSettings.create_settings(attrs, actor: actor)
+        settings -> AuthorizationSettings.update_settings(settings, attrs, actor: actor)
+      end
+
+    case result do
       {:ok, updated} ->
         {:noreply,
          socket
