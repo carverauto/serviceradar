@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
 
     user = Users.get_by_email("root@localhost", authorize?: false)
 
-    operator_password = "operator-chosen-passphrase-7f31a9"
+    operator_password = "operator-passphrase"
 
     assert {:ok, _user} =
              User.admin_set_password(user, %{password: operator_password}, actor: SystemActor.system(:admin_user_test))
@@ -116,7 +116,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
 
     user = Users.get_by_email("root@localhost", authorize?: false)
 
-    operator_password = "operator-interim-passphrase-2c48e0"
+    operator_password = "operator-password"
 
     assert {:ok, _user} =
              User.admin_set_password(user, %{password: operator_password}, actor: SystemActor.system(:admin_user_test))
@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
   test "preserves an existing operator password on the first upgrade with rotation tracking" do
     assert :ok = AdminUser.ensure_admin_user()
     user = Users.get_by_email("root@localhost", authorize?: false)
-    operator_password = "upgrade-operator-passphrase-42!"
+    operator_password = "operator-password"
 
     assert {:ok, _} =
              User.admin_set_password(user, %{password: operator_password}, actor: SystemActor.system(:admin_user_test))
@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUserTest do
     email = "bootstrap-race-#{System.unique_integer([:positive])}@example.com"
     initial_secret = "initial-bootstrap-secret-57!"
     rotated_secret = "rotated-bootstrap-secret-82!"
-    operator_password = "operator-after-rotation-93!"
+    operator_password = "operator-password"
     actor = SystemActor.system(:admin_user_test)
 
     on_exit(fn ->
