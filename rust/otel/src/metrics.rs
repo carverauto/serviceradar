@@ -30,6 +30,18 @@ fn bounded_labels<'a, const N: usize>(
         return [OVERFLOW_LABEL; N];
     }
 
+    let prometheus_key = |values: [&str; N]| {
+        values
+            .iter()
+            .flat_map(|value| value.as_bytes())
+            .fold(0xcbf29ce484222325_u64, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+            })
+    };
+    if prometheus_key(labels) == prometheus_key([OVERFLOW_LABEL; N]) {
+        return [OVERFLOW_LABEL; N];
+    }
+
     let tuple = labels.map(str::to_owned);
     let mut admitted = admitted.lock().unwrap();
     if admitted.contains(&tuple) {
@@ -278,6 +290,81 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn span_metric_labels_and_series_remain_bounded_under_concurrent_recording() {
+        for label_count in 2..=4 {
+            let joined = OVERFLOW_LABEL.repeat(label_count);
+            let width = OVERFLOW_LABEL.len() - 1;
+            let labels: Vec<_> = (0..label_count)
+                .map(|index| {
+                    let end = if index + 1 == label_count {
+                        joined.len()
+                    } else {
+                        (index + 1) * width
+                    };
+                    &joined[index * width..end]
+                })
+                .collect();
+            let attributes = if label_count == 4 {
+                HashMap::from([
+                    ("http.method", labels[1]),
+                    ("http.route", labels[2]),
+                    ("http.status_code", labels[3]),
+                    ("rpc.service", labels[1]),
+                    ("rpc.method", labels[2]),
+                    ("rpc.grpc.status_code", labels[3]),
+                ])
+            } else {
+                HashMap::new()
+            };
+            record_span_metrics(
+                labels[0],
+                if label_count == 4 {
+                    "health"
+                } else {
+                    labels[1]
+                },
+                if label_count == 3 {
+                    labels[2]
+                } else {
+                    "server"
+                },
+                0.25,
+                &attributes,
+            );
+            let family_names: &[&str] = match label_count {
+                2 => &["serviceradar_slow_spans_total"],
+                3 => &[
+                    "serviceradar_span_duration_seconds",
+                    "serviceradar_spans_total",
+                ],
+                4 => &[
+                    "serviceradar_http_request_duration_seconds",
+                    "serviceradar_grpc_request_duration_seconds",
+                ],
+                _ => unreachable!(),
+            };
+            for family in span_metric_families() {
+                if !family_names.contains(&family.name()) {
+                    continue;
+                }
+                let overflow = family
+                    .get_metric()
+                    .iter()
+                    .find(|metric| {
+                        metric
+                            .get_label()
+                            .iter()
+                            .all(|label| label.value() == OVERFLOW_LABEL)
+                    })
+                    .expect("overflow identity must be reserved before any allocation");
+                if family.name().ends_with("_total") {
+                    assert_eq!(overflow.get_counter().as_ref().unwrap().value(), 1.0);
+                } else {
+                    assert_eq!(overflow.get_histogram().get_sample_count(), 1);
+                    assert_eq!(overflow.get_histogram().get_sample_sum(), 0.25);
+                }
+            }
+        }
+
         let attributes = HashMap::from([
             ("http.method", "GET"),
             ("http.route", "/health"),
