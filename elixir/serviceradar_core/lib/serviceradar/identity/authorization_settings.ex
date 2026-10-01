@@ -19,6 +19,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
   @auth_manage_permission Constants.auth_manage_permission()
   @auth_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                       permission: @auth_manage_permission}
+  @cli_settings_fields [:cli_auth_enabled, :cli_session_ttl_days, :cli_allowed_scopes]
   @settings_fields [
     :default_role,
     :role_mappings,
@@ -37,6 +38,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
     define :get_settings, action: :get_singleton
     define :create_settings, action: :create
     define :update_settings, action: :update
+    define :save_cli_policy, action: :save_cli_policy
   end
 
   actions do
@@ -60,6 +62,13 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       accept @settings_fields
       validate RoleMappings
     end
+
+    create :save_cli_policy do
+      accept @cli_settings_fields
+      change set_attribute(:key, "default")
+      upsert? true
+      upsert_fields @cli_settings_fields ++ [:updated_at]
+    end
   end
 
   policies do
@@ -69,7 +78,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
 
     read_with_permission(@auth_manage_check)
 
-    action_with_permission([:create, :update], @auth_manage_check)
+    action_with_permission([:create, :update, :save_cli_policy], @auth_manage_check)
   end
 
   attributes do

@@ -57,11 +57,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
       cli_allowed_scopes: parse_scopes(params["cli_allowed_scopes"])
     }
 
-    case AuthorizationSettings.update_settings(socket.assigns.settings, attrs, actor: actor) do
+    case AuthorizationSettings.save_cli_policy(attrs, actor: actor) do
       {:ok, updated} ->
         {:noreply,
          socket
-         |> assign(:settings, updated)
          |> assign(:form_values, settings_to_form(updated))
          |> put_flash(:info, "CLI authentication settings saved.")}
 
@@ -172,9 +171,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
 
     case AuthorizationSettings.get_settings(actor: actor) do
       {:ok, settings} ->
-        socket
-        |> assign(:settings, settings)
-        |> assign(:form_values, settings_to_form(settings))
+        assign(socket, :form_values, settings_to_form(settings))
 
       _ ->
         fallback = %{
@@ -183,9 +180,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
           cli_allowed_scopes: ["dashboard.publish", "plugin.publish", "plugins.manage"]
         }
 
-        socket
-        |> assign(:settings, nil)
-        |> assign(:form_values, fallback_form(fallback))
+        assign(socket, :form_values, fallback_form(fallback))
     end
   end
 
