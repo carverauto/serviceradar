@@ -3,6 +3,7 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 # regression test, used only as input to admin_set_password and password assertions.
 # Replaced at the tip; this exact finding remains in the immutable public history.
 44037629caf42a5ed99c069b1fdf0bef35440252:elixir/web-ng/test/app_domain/bootstrap/admin_user_test.exs:generic-api-key:117
+53e8dc6ce98e734f9d5a6c4ad7eec90cab959fa0:elixir/web-ng/test/app_domain/bootstrap/admin_user_test.exs:generic-api-key:117
 # Synthetic credential IDs used to prove controller provenance checks fail closed.
 993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/secure_child_launcher_test.exs:generic-api-key:146
 993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/secure_child_launcher_test.exs:generic-api-key:147
