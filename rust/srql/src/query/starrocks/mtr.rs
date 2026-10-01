@@ -313,6 +313,7 @@ pub(super) fn translate(
     };
 
     Ok(TranslateResponse {
+        read_model: None,
         sql,
         params,
         pagination: PaginationMeta {

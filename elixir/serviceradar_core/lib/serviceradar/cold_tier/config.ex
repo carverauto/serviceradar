@@ -4,10 +4,52 @@ defmodule ServiceRadar.ColdTier.Config do
   (`config :serviceradar_core, ServiceRadar.ColdTier` — populated from
   SERVICERADAR_COLD_* environment variables in runtime.exs).
 
-  Absent or incomplete configuration means the cold tier is disabled;
-  callers must treat `head_opts/0` / `s3/0` returning `:disabled` as the
-  signal to do nothing.
+  Archive work requires `enabled?/0`; absent intent and incomplete intended
+  configuration have distinct states for operational reporting. Connection
+  helpers alone do not establish activation. See `state/0`.
   """
+
+  @doc "Deployment environment shared by the application and shipped core release."
+  @spec from_env() :: keyword()
+  def from_env do
+    [
+      enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
+      bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
+      s3_endpoint: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT"),
+      s3_endpoint_runtime: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT_RUNTIME"),
+      s3_region: System.get_env("SERVICERADAR_COLD_TIER_S3_REGION"),
+      s3_url_style: System.get_env("SERVICERADAR_COLD_TIER_S3_URL_STYLE"),
+      s3_use_ssl: System.get_env("SERVICERADAR_COLD_TIER_S3_USE_SSL", "true") in ["true", "1"],
+      s3_access_key_id: secret_env("SERVICERADAR_COLD_TIER_S3_ACCESS_KEY_ID"),
+      s3_secret_access_key: secret_env("SERVICERADAR_COLD_TIER_S3_SECRET_ACCESS_KEY"),
+      head_host: System.get_env("SERVICERADAR_COLD_TIER_HEAD_HOST"),
+      head_port: parse_int_env("SERVICERADAR_COLD_TIER_HEAD_PORT", 5432),
+      head_database: System.get_env("SERVICERADAR_COLD_TIER_HEAD_DATABASE"),
+      head_username: System.get_env("SERVICERADAR_COLD_TIER_HEAD_USERNAME"),
+      head_password: secret_env("SERVICERADAR_COLD_TIER_HEAD_PASSWORD"),
+      primary_host: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_HOST"),
+      primary_port: parse_int_env("SERVICERADAR_COLD_TIER_PRIMARY_PORT", 5432),
+      primary_database: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_DATABASE"),
+      primary_fdw_username: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_FDW_USERNAME"),
+      primary_fdw_password: secret_env("SERVICERADAR_COLD_TIER_PRIMARY_FDW_PASSWORD"),
+      export_lag_hours: max(parse_int_env("SERVICERADAR_COLD_EXPORT_LAG_HOURS", 48), 1),
+      quarantine_attempts: max(parse_int_env("SERVICERADAR_COLD_QUARANTINE_ATTEMPTS", 5), 1),
+      run_chunk_budget: max(parse_int_env("SERVICERADAR_COLD_RUN_CHUNK_BUDGET", 24), 1),
+      cold_windows:
+        Enum.reject(
+          [
+            logs: cold_window("SERVICERADAR_COLD_WINDOW_LOGS_DAYS"),
+            traces: cold_window("SERVICERADAR_COLD_WINDOW_TRACES_DAYS"),
+            otel_metrics: cold_window("SERVICERADAR_COLD_WINDOW_OTEL_METRICS_DAYS"),
+            otel_metric_points: cold_window("SERVICERADAR_COLD_WINDOW_OTEL_METRIC_POINTS_DAYS"),
+            timeseries: cold_window("SERVICERADAR_COLD_WINDOW_TIMESERIES_DAYS"),
+            events: cold_window("SERVICERADAR_COLD_WINDOW_EVENTS_DAYS"),
+            flows: cold_window("SERVICERADAR_COLD_WINDOW_FLOWS_DAYS")
+          ],
+          fn {_class, days} -> is_nil(days) end
+        )
+    ]
+  end
 
   @type s3 :: %{
           bucket_url: String.t(),
@@ -25,29 +67,38 @@ defmodule ServiceRadar.ColdTier.Config do
   can never disagree:
 
     * `:disabled` — no cold-tier intent (enable flag off or bucket absent).
-      The OSS default: nothing fences retention, nothing runs.
-    * `:enabled` — fully configured (intent + analytics head + primary FDW +
-      object store). Everything runs.
+      The OSS default: archive work is disabled; existing boundary residue
+      still fences retention (see `ServiceRadar.ColdTier.RetentionFence.fenced?/1`).
+    * `:enabled` — fully configured, with CNPG as the telemetry backend.
+    * `:cnpg_backfill` — fully configured, with StarRocks as the telemetry
+      backend. Existing CNPG chunks still export and remain retention-fenced;
+      warehouse data is NOT archived by this pipeline.
     * `:misconfigured` — cold tier is INTENDED but the config is incomplete.
       This is the dangerous middle the reviewer caught: fencing retention here
       while the exporter cannot run would hold data hot forever and fill the
-      primary. So a misconfigured deployment does NOT fence — normal retention
-      proceeds (identical to no cold tier) — and the retention worker alerts.
+      primary. So incomplete configuration does not establish a new fence;
+      existing boundary residue remains protected by `RetentionFence.fenced?/1`,
+      and the retention worker alerts.
   """
-  @type state :: :disabled | :enabled | :misconfigured
+  @type state :: :disabled | :enabled | :cnpg_backfill | :misconfigured
 
   @doc "The single activation state all cold consumers key off (review F09)."
   @spec state() :: state()
   def state do
     cond do
       not ServiceRadar.ColdTier.Registry.enabled?() -> :disabled
-      fully_configured?() -> :enabled
-      true -> :misconfigured
+      not fully_configured?() -> :misconfigured
+      warehouse_backend?() -> :cnpg_backfill
+      true -> :enabled
     end
   end
 
   @spec enabled?() :: boolean()
-  def enabled?, do: state() == :enabled
+  def enabled?, do: state() in [:enabled, :cnpg_backfill]
+
+  @doc "Whether incoming telemetry is served by the warehouse, independent of cold intent."
+  @spec warehouse_backend?() :: boolean()
+  def warehouse_backend?, do: ServiceRadar.Analytics.StarRocks.Readers.enabled?()
 
   @doc "True when the cold tier is intended (enable flag + bucket), regardless of completeness."
   @spec intended?() :: boolean()
@@ -165,4 +216,37 @@ defmodule ServiceRadar.ColdTier.Config do
 
   defp positive(value, _default) when is_integer(value) and value > 0, do: value
   defp positive(_value, default), do: default
+
+  defp parse_int_env(name, default) do
+    case System.get_env(name) do
+      value when value in [nil, ""] ->
+        default
+
+      value ->
+        case Integer.parse(value) do
+          {int, ""} -> int
+          _ -> default
+        end
+    end
+  end
+
+  defp secret_env(name) do
+    case System.get_env(name <> "_FILE") do
+      nil -> System.get_env(name)
+      path -> path |> File.read!() |> String.trim()
+    end
+  end
+
+  defp cold_window(name) do
+    case System.get_env(name) do
+      value when value in [nil, ""] ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {days, _} -> max(days, 1)
+          :error -> nil
+        end
+    end
+  end
 end

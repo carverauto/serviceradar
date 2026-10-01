@@ -1001,6 +1001,156 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     end
   end
 
+  describe "declared action credential sources" do
+    defp source_action(requirements) do
+      %{
+        "action_id" => "example-inventory.move_device",
+        "label" => "Move device between accounts",
+        "scopes" => ["device"],
+        "safety_classification" => "destructive",
+        "requires_confirmation" => true,
+        "input_schema" => %{
+          "type" => "object",
+          "properties" => %{"destination_rule_id" => %{"type" => "string"}}
+        },
+        "credential_requirements" => requirements
+      }
+    end
+
+    defp with_source_action(requirements) do
+      Map.put(integration_manifest(), "actions", [source_action(requirements)])
+    end
+
+    test "accepts assignment_schedule and package_rule requirements" do
+      requirements = %{
+        "source_account" => %{
+          "credential_source" => "assignment_schedule",
+          "requirement" => "inventory_account",
+          "required" => true,
+          "allow" => %{"methods" => ["POST"], "hosts" => ["api.example.com"]}
+        },
+        "destination_account" => %{
+          "credential_source" => "package_rule",
+          "rule_input" => "destination_rule_id",
+          "required" => true
+        }
+      }
+
+      assert {:ok, parsed} = Manifest.from_map(with_source_action(requirements))
+      assert [%{credential_requirements: ^requirements}] = parsed.actions
+    end
+
+    test "rejects an unknown credential_source" do
+      assert {:error, errors} =
+               Manifest.from_map(
+                 with_source_action(%{"api" => %{"credential_source" => "operator_input"}})
+               )
+
+      assert "actions[1].credential_requirements.api.credential_source must be one of: assignment_schedule, package_rule" in errors
+    end
+
+    test "rejects source keys without a credential_source" do
+      assert {:error, errors} =
+               Manifest.from_map(
+                 with_source_action(%{
+                   "credentials" => [
+                     %{"name" => "api", "secret_input" => "api_secret", "requirement" => "x"}
+                   ]
+                 })
+               )
+
+      assert "actions[1].credential_requirements.api.requirement is only allowed with credential_source" in errors
+    end
+
+    test "rejects a declared source combined with a secret or secret input" do
+      assert {:error, errors} =
+               Manifest.from_map(
+                 with_source_action(%{
+                   "api" => %{
+                     "credential_source" => "package_rule",
+                     "rule_input" => "destination_rule_id",
+                     "credential_secret_input" => "destination_rule_id"
+                   }
+                 })
+               )
+
+      assert "actions[1].credential_requirements.api.credential_secret_input is not allowed with credential_source; the source supplies the secret" in errors
+    end
+
+    test "requires a schedule requirement the package provisions" do
+      assert {:error, errors} =
+               Manifest.from_map(
+                 with_source_action(%{
+                   "api" => %{
+                     "credential_source" => "assignment_schedule",
+                     "requirement" => "other_account"
+                   }
+                 })
+               )
+
+      assert "actions[1].credential_requirements.api.requirement must name the credential_requirement of a producer_schedule credential profile in integrations.credential_profiles" in errors
+
+      assert {:error, errors} =
+               Manifest.from_map(
+                 with_source_action(%{
+                   "api" => %{"credential_source" => "assignment_schedule"}
+                 })
+               )
+
+      assert "actions[1].credential_requirements.api.requirement must be a non-empty string" in errors
+    end
+
+    test "requires a rule_input declared in the input schema" do
+      assert {:error, errors} =
+               Manifest.from_map(
+                 with_source_action(%{
+                   "api" => %{
+                     "credential_source" => "package_rule",
+                     "rule_input" => "undeclared_rule_id"
+                   }
+                 })
+               )
+
+      assert "actions[1].credential_requirements.api.rule_input must name a string property declared in input_schema.properties" in errors
+    end
+
+    test "requires package rule inputs to use string properties" do
+      manifest =
+        %{
+          "api" => %{
+            "credential_source" => "package_rule",
+            "rule_input" => "destination_rule_id"
+          }
+        }
+        |> with_source_action()
+        |> Map.update!("actions", fn [action] ->
+          action
+          |> put_in(["input_schema", "properties", "destination_rule_id", "type"], "integer")
+          |> then(&[&1])
+        end)
+
+      assert {:error, errors} = Manifest.from_map(manifest)
+
+      assert "actions[1].credential_requirements.api.rule_input must name a string property declared in input_schema.properties" in errors
+    end
+
+    test "package_rule needs a producer_schedule credential profile" do
+      manifest =
+        Map.put(@valid_manifest, "actions", [
+          source_action(%{
+            "api" => %{
+              "credential_source" => "package_rule",
+              "rule_input" => "destination_rule_id"
+            }
+          })
+        ])
+
+      assert {:error, errors} = Manifest.from_map(manifest)
+
+      assert "actions[1].credential_requirements.api.credential_source package_rule requires a producer_schedule credential profile in integrations.credential_profiles" in errors
+    end
+  end
+
   describe "producer schedule target_input" do
     defp schedule_manifest(target_input) do
       @valid_manifest

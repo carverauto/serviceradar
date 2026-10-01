@@ -4,9 +4,9 @@ defmodule ServiceRadar.ColdTier do
 
   Owns the export manifest and tier-boundary state for the offload pipeline.
   The pipeline itself (exporter, retention fence, pruning) lives alongside in
-  `ServiceRadar.ColdTier.*` modules; all behavior is inert unless
-  deployment-supplied cold-tier configuration is present
-  (see `ServiceRadar.ColdTier.Registry.enabled?/0`).
+  `ServiceRadar.ColdTier.*` modules. Archive activation and backend reporting
+  follow `ServiceRadar.ColdTier.Config.state/0`; retention also preserves
+  existing boundary residue while archival is disabled.
   """
 
   use Ash.Domain

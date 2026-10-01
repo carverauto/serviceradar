@@ -1,12 +1,12 @@
 use super::{
-    PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses,
-    advisory_coordinates, agents, alerts, bmp_events, build_query_plan, camera_sources,
-    capacity_forecasts, composite_results, dashboard_service_views, dashboards, device_graph,
-    device_sweep_overlap, devices, downsample, endpoint_inventory_scans, endpoint_package_catalog,
-    endpoint_packages, endpoint_vulnerability_matches, events, field_survey, flows, gateways,
-    graph_cypher, graph_dql, identity, interfaces, is_exhaustive_profile_query, logs, mtr_hops,
-    mtr_traces, otel_metric_points, otel_metrics, otel_services, public_endpoints, security_events,
-    services, source_fact_disagreements, starrocks, sweep_coverage, sweep_executions, sweep_groups,
+    PaginationMeta, QueryRequest, TranslateResponse, addon_statuses, advisory_coordinates, agents,
+    alerts, bmp_events, build_query_plan, camera_sources, capacity_forecasts, composite_results,
+    dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices, downsample,
+    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
+    endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
+    identity, interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces,
+    otel_metric_points, otel_metrics, otel_services, public_endpoints, security_events, services,
+    source_fact_disagreements, starrocks, sweep_coverage, sweep_executions, sweep_groups,
     sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries,
     traces, virtualization, viz, vulnerability_advisories, wifi_map,
 };
@@ -21,6 +21,9 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     let ast = parser::parse(&request.query)?;
     let plan = build_query_plan(config, &request, ast)?;
     let viz = viz::meta_for_plan(&plan);
+    let read_model = super::fleet::is_entity(&plan.entity)
+        .then(|| super::fleet::read_plan(&plan))
+        .transpose()?;
 
     // Without this guard a profile query dispatches to the downsample builder
     // (which rejects the `timezone` filter the profile route needs), so it never
@@ -28,7 +31,9 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     // seasonal-disposition profile query failed here.)
     let is_profile_stats = starrocks::is_profile_stats(&plan);
 
-    let (sql, params) = if request.mode.as_deref() == Some("starrocks") {
+    let (sql, params) = if read_model.is_some() {
+        (String::new(), Vec::new())
+    } else if request.mode.as_deref() == Some("starrocks") {
         let compiled = starrocks::translate(&plan, &config.starrocks_database)?;
         (compiled.sql, compiled.params)
     } else if request.mode.as_deref() == Some("starrocks_raw") {
@@ -50,7 +55,9 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     } else {
         match plan.entity {
             Entity::Agents => agents::to_sql_and_params(&plan)?,
-            Entity::AddonFleet => addon_fleet::to_sql_and_params(&plan)?,
+            Entity::AddonFleet | Entity::PluginFleet => {
+                unreachable!("fleet plans dispatch before SQL")
+            }
             Entity::AddonStatuses => addon_statuses::to_sql_and_params(&plan)?,
             Entity::PublicEndpoints => public_endpoints::to_sql_and_params(&plan)?,
             Entity::CameraSources => camera_sources::to_sql_and_params(&plan)?,
@@ -160,6 +167,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     };
 
     Ok(TranslateResponse {
+        read_model,
         sql,
         params,
         pagination: PaginationMeta {

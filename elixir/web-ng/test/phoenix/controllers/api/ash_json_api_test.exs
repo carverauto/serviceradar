@@ -9,8 +9,10 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   - Observability Domain: /api/v2/stateful-alert-rules
   """
 
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
+
+  alias ServiceRadar.Observability.LogPromotion
 
   # Use API bearer token authentication
   setup :register_and_log_in_api_user
@@ -604,6 +606,258 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert Map.has_key?(response, "info")
       assert Map.has_key?(response, "paths")
       assert Map.has_key?(response["paths"], "/api/v2/stateful-alert-rules")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Observability Domain — EventRule (log-to-event promotion rules)
+  # ---------------------------------------------------------------------------
+
+  describe "GET /api/v2/event-rules" do
+    setup do
+      rule = event_rule_fixture()
+      %{rule: rule}
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "viewer can list event rules", %{rule: rule} do
+      conn = log_in_api_user(build_conn(), viewer_user_fixture())
+      conn = get(conn, "/api/v2/event-rules")
+      response = json_response(conn, 200)
+
+      assert Enum.any?(response["data"], &(&1["id"] == rule.id))
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "unauthenticated request returns empty list" do
+      conn = build_conn()
+      conn = get(conn, "/api/v2/event-rules")
+
+      response = json_response(conn, 200)
+      assert response["data"] == []
+    end
+  end
+
+  describe "GET /api/v2/event-rules/active" do
+    setup do
+      enabled = event_rule_fixture(%{enabled: true, name: "Active Rule #{System.unique_integer([:positive])}"})
+      disabled = event_rule_fixture(%{enabled: false, name: "Disabled Rule #{System.unique_integer([:positive])}"})
+      %{enabled: enabled, disabled: disabled}
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "returns only enabled rules", %{enabled: enabled, disabled: disabled} do
+      conn = log_in_api_user(build_conn(), viewer_user_fixture())
+      response = conn |> get("/api/v2/event-rules/active") |> json_response(200)
+      assert Enum.any?(response["data"], &(&1["id"] == enabled.id))
+      refute Enum.any?(response["data"], &(&1["id"] == disabled.id))
+      assert Enum.all?(response["data"], fn r -> r["attributes"]["enabled"] == true end)
+    end
+  end
+
+  describe "POST /api/v2/event-rules" do
+    @tag :web_ng_shared_fixture_db
+    test "operator can create, update, and delete an event rule" do
+      conn = log_in_api_user(build_conn(), operator_user_fixture())
+
+      rule_name = "example-app DatabaseError #{System.unique_integer([:positive])}"
+
+      params = %{
+        "data" => %{
+          "type" => "event-rule",
+          "attributes" => %{
+            "name" => rule_name,
+            "source_type" => "log",
+            "match" => %{"body" => "DatabaseError"},
+            "event" => %{"severity" => "high"}
+          }
+        }
+      }
+
+      created_conn =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v2/event-rules", params)
+
+      created = json_response(created_conn, 201)["data"]
+      assert created["type"] == "event-rule"
+      assert created["attributes"]["name"] == rule_name
+      id = created["id"]
+      assert is_binary(id) and byte_size(id) > 0
+
+      fetched = conn |> get("/api/v2/event-rules/#{id}") |> json_response(200)
+      assert fetched["data"]["id"] == id
+
+      active = conn |> get("/api/v2/event-rules/active") |> json_response(200)
+      assert Enum.any?(active["data"], &(&1["id"] == id))
+
+      updated =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v2/event-rules/#{id}", %{
+          "data" => %{
+            "type" => "event-rule",
+            "id" => id,
+            "attributes" => %{"enabled" => false, "priority" => 50}
+          }
+        })
+        |> json_response(200)
+
+      assert updated["data"]["attributes"]["enabled"] == false
+
+      fetched2 = conn |> get("/api/v2/event-rules/#{id}") |> json_response(200)
+      assert fetched2["data"]["attributes"]["priority"] == 50
+      assert fetched2["data"]["attributes"]["enabled"] == false
+
+      active2 = conn |> get("/api/v2/event-rules/active") |> json_response(200)
+      refute Enum.any?(active2["data"], &(&1["id"] == id))
+
+      deleted = delete(conn, "/api/v2/event-rules/#{id}")
+      assert deleted.status == 200
+
+      remaining = conn |> get("/api/v2/event-rules") |> json_response(200)
+      refute Enum.any?(remaining["data"], &(&1["id"] == id))
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "viewer is denied write access" do
+      conn = log_in_api_user(build_conn(), viewer_user_fixture())
+
+      params = %{
+        "data" => %{
+          "type" => "event-rule",
+          "attributes" => %{"name" => "Viewer Rule", "source_type" => "log"}
+        }
+      }
+
+      conn =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v2/event-rules", params)
+
+      assert conn.status in [400, 403]
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "unauthenticated create is denied" do
+      conn = build_conn()
+
+      params = %{
+        "data" => %{
+          "type" => "event-rule",
+          "attributes" => %{"name" => "Anon Rule", "source_type" => "log"}
+        }
+      }
+
+      conn =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v2/event-rules", params)
+
+      assert conn.status in [400, 403]
+    end
+  end
+
+  describe "PATCH /api/v2/event-rules/:id" do
+    @tag :web_ng_shared_fixture_db
+    test "returns not found for an operator updating a non-existent rule" do
+      conn = log_in_api_user(build_conn(), operator_user_fixture())
+      fake_id = "00000000-0000-0000-0000-000000000000"
+
+      conn =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v2/event-rules/#{fake_id}", %{
+          "data" => %{"type" => "event-rule", "id" => fake_id, "attributes" => %{"priority" => 5}}
+        })
+
+      assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
+    end
+  end
+
+  describe "DELETE /api/v2/event-rules/:id" do
+    setup %{conn: conn} do
+      rule = event_rule_fixture()
+      %{conn: conn, rule: rule}
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "returns not found for an operator deleting a non-existent rule" do
+      conn = log_in_api_user(build_conn(), operator_user_fixture())
+      fake_id = "00000000-0000-0000-0000-000000000000"
+      conn = delete(conn, "/api/v2/event-rules/#{fake_id}")
+      assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "operator can destroy an event rule", %{rule: rule} do
+      operator = operator_user_fixture()
+      conn = log_in_api_user(build_conn(), operator)
+      conn = delete(conn, "/api/v2/event-rules/#{rule.id}")
+      assert conn.status == 200
+    end
+  end
+
+  describe "event rule API → log promotion integration" do
+    @tag :web_ng_shared_fixture_db
+    test "API mutations immediately refresh log promotion rules" do
+      operator = operator_user_fixture()
+      conn = log_in_api_user(build_conn(), operator)
+
+      LogPromotion.invalidate_rules_cache()
+      on_exit(&LogPromotion.invalidate_rules_cache/0)
+      assert {:ok, cached_rules} = LogPromotion.active_log_rules()
+
+      rule_name = "example-app-#{System.unique_integer([:positive])}"
+      refute Enum.any?(cached_rules, &(&1.name == rule_name))
+
+      params = %{
+        "data" => %{
+          "type" => "event-rule",
+          "attributes" => %{
+            "name" => rule_name,
+            "source_type" => "log",
+            "enabled" => true,
+            "match" => %{"body" => "DatabaseError"},
+            "event" => %{}
+          }
+        }
+      }
+
+      created =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v2/event-rules", params)
+        |> json_response(201)
+
+      assert created["data"]["type"] == "event-rule"
+      id = created["data"]["id"]
+
+      assert {:ok, rules} = LogPromotion.active_log_rules()
+      assert Enum.any?(rules, &(&1.id == id))
+
+      for enabled <- [false, true] do
+        updated =
+          conn
+          |> put_req_header("content-type", "application/vnd.api+json")
+          |> patch("/api/v2/event-rules/#{id}", %{
+            "data" => %{
+              "type" => "event-rule",
+              "id" => id,
+              "attributes" => %{"enabled" => enabled}
+            }
+          })
+          |> json_response(200)
+
+        assert updated["data"]["attributes"]["enabled"] == enabled
+        assert {:ok, rules} = LogPromotion.active_log_rules()
+        assert Enum.any?(rules, &(&1.id == id)) == enabled
+      end
+
+      deleted = delete(conn, "/api/v2/event-rules/#{id}")
+      assert deleted.status == 200
+      assert {:ok, rules} = LogPromotion.active_log_rules()
+      refute Enum.any?(rules, &(&1.id == id))
     end
   end
 

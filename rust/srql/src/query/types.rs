@@ -127,6 +127,9 @@ pub struct QueryResponse {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TranslateResponse {
+    /// Executed through scoped Ash reads, never as SQL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_model: Option<Value>,
     pub sql: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub params: Vec<BindParam>,

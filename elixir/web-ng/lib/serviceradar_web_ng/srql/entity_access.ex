@@ -7,6 +7,12 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   Dashboards pass through to the existing Ash/scope search.
   """
 
+  use Boundary,
+    top_level?: true,
+    check: [apps: [:serviceradar_core]],
+    deps: [ServiceRadar],
+    exports: :all
+
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
 
@@ -16,6 +22,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
 
   # Parser aliases from rust/srql/src/parser/entity.rs plus catalog ids.
   @permission_entities %{
+    "plugins.view" => ~w(plugin_fleet plugin_fleets),
     "settings.audit.view" => ~w(security_events),
     "devices.view" => ~w(
       devices device device_inventory

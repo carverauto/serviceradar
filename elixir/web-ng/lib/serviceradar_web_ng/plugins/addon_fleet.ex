@@ -87,6 +87,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           active?: boolean(),
           degradation_reason: String.t() | nil,
           reported_at: DateTime.t() | nil,
+          last_health_at: DateTime.t() | nil,
           last_scan_at: DateTime.t() | nil,
           collector?: boolean(),
           version_status: version_status(),
@@ -124,15 +125,22 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   @spec overview(keyword()) :: %{rows: [row()], catalog_only: [catalog_entry()]}
   def overview(opts \\ []) do
     scope = Keyword.get(opts, :scope)
+    limit = Keyword.get(opts, :max_rows, @max_rows)
 
-    packages = list_packages(scope)
-    assignments = scope |> list_assignments() |> reject_retired_addon_ids()
-    statuses = scope |> list_statuses() |> reject_retired_addon_ids()
-    scans_by_agent = list_collector_scans(scope)
-    agents_by_uid = agents_by_uid(scope)
+    packages = list_packages(scope, limit)
+    assignments = scope |> list_assignments(limit) |> reject_retired_addon_ids()
+    statuses = scope |> list_statuses(limit) |> reject_retired_addon_ids()
+
+    statuses_by_key =
+      Enum.reduce(statuses, %{}, fn status, index ->
+        Map.put_new(index, {status.agent_uid, status.addon_id}, status)
+      end)
+
+    scans_by_agent = list_collector_scans(scope, limit)
+    agents_by_uid = agents_by_uid(scope, limit)
     agent_labels = Map.new(agents_by_uid, fn {uid, agent} -> {uid, agent_label(agent)} end)
     package_index = index_packages(packages)
-    rollout_index = rollout_index(scope)
+    rollout_index = rollout_index(scope, limit)
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
     row_context = %{
@@ -159,7 +167,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         history = Map.fetch!(assignment_groups, {agent_uid, addon_id}) -- [assignment]
         package_id = assignment.rollout_package_id || assignment.addon_package_id
         package = package_id && Map.get(package_index.by_id, package_id)
-        status = find_status(statuses, agent_uid, addon_id)
+        status = Map.get(statuses_by_key, {agent_uid, addon_id})
 
         build_row(
           agent_uid,
@@ -400,6 +408,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       degradation_reason: status && present(status.degradation_reason),
       reported_at: status && status.reported_at,
       last_scan_at: last_scan_at,
+      last_health_at: status && status.last_health_at,
       collector?: collector?,
       stale_assignments: stale_assignments
     }
@@ -648,35 +657,35 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   # --- data loading ---------------------------------------------------------
 
-  defp list_packages(scope) do
+  defp list_packages(scope, limit) do
     AddonPackage
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.limit(@max_rows)
+    |> maybe_limit(limit)
     |> read(scope)
     |> reject_retired_addon_ids()
   end
 
-  defp list_assignments(scope) do
+  defp list_assignments(scope, limit) do
     AddonAssignment
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.limit(@max_rows)
+    |> maybe_limit(limit)
     |> read(scope)
   end
 
-  defp list_statuses(scope) do
+  defp list_statuses(scope, limit) do
     AddonStatus
     |> Ash.Query.for_read(:read)
     |> Ash.Query.sort(reported_at: :desc)
-    |> Ash.Query.limit(@max_rows)
+    |> maybe_limit(limit)
     |> read(scope)
   end
 
-  defp rollout_index(scope) do
+  defp rollout_index(scope, limit) do
     rollouts =
       AddonRollout
       |> Ash.Query.for_read(:read)
       |> Ash.Query.sort(updated_at: :desc)
-      |> Ash.Query.limit(@max_rows)
+      |> maybe_limit(limit)
       |> Ash.Query.load([:previous_package, :candidate_package])
       |> read(scope)
       |> Map.new(&{&1.id, &1})
@@ -685,7 +694,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       AddonRolloutTarget
       |> Ash.Query.for_read(:read)
       |> Ash.Query.sort(updated_at: :desc)
-      |> Ash.Query.limit(@max_rows)
+      |> maybe_limit(limit)
       |> read(scope)
 
     targets
@@ -714,11 +723,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   defp rollout_for(assignment, rollout_index), do: Map.get(rollout_index, assignment.id)
 
-  defp list_collector_scans(scope) do
+  defp list_collector_scans(scope, limit) do
     EndpointInventoryScan
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(current == true)
-    |> Ash.Query.limit(@max_rows)
+    |> maybe_limit(limit)
     |> read(scope)
     |> Enum.reduce(%{}, fn scan, acc ->
       agent_id = scan.agent_id
@@ -733,15 +742,18 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     end)
   end
 
-  defp agents_by_uid(scope) do
+  defp agents_by_uid(scope, limit) do
     Agent
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.limit(@max_rows)
+    |> maybe_limit(limit)
     |> read(scope)
     |> Map.new(fn agent -> {agent.uid, agent} end)
   rescue
     _ -> %{}
   end
+
+  defp maybe_limit(query, nil), do: query
+  defp maybe_limit(query, limit), do: Ash.Query.limit(query, limit)
 
   defp read(query, nil), do: Ash.read!(query)
   defp read(query, scope), do: Ash.read!(query, scope: scope)
@@ -779,10 +791,6 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   defp package_sort_key(%AddonPackage{imported_at: nil, inserted_at: inserted_at}), do: inserted_at
   defp package_sort_key(%AddonPackage{imported_at: imported_at}), do: imported_at
-
-  defp find_status(statuses, agent_uid, addon_id) do
-    Enum.find(statuses, &(&1.agent_uid == agent_uid and &1.addon_id == addon_id))
-  end
 
   defp package_approved?(%AddonPackage{status: :approved}), do: true
   defp package_approved?(_package), do: false

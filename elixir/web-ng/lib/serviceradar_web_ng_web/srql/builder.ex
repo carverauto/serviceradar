@@ -581,12 +581,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp build_filter_by_op(field, "contains", values, _array_fields) do
     value = values |> List.first() |> safe_to_string() |> String.trim()
-    if value == "", do: nil, else: "#{field}:%#{escape_value(value)}%"
+    if value == "", do: nil, else: "#{field}:#{escape_value("%#{value}%")}"
   end
 
   defp build_filter_by_op(field, "not_contains", values, _array_fields) do
     value = values |> List.first() |> safe_to_string() |> String.trim()
-    if value == "", do: nil, else: "!#{field}:%#{escape_value(value)}%"
+    if value == "", do: nil, else: "!#{field}:#{escape_value("%#{value}%")}"
   end
 
   defp build_filter_by_op(field, "gt", values, _array_fields) do
@@ -653,7 +653,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     "!#{field}:(#{Enum.join(escaped, ",")})"
   end
 
-  defp escape_value(value), do: String.replace(value, " ", "\\ ")
+  defp escape_value(value) do
+    if String.match?(value, ~r/\s/) do
+      escaped = value |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
+      "\"#{escaped}\""
+    else
+      value
+    end
+  end
 
   defp stringify_map(%{} = map) do
     Map.new(map, fn

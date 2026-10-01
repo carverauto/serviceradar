@@ -70,6 +70,7 @@ pub enum Entity {
     AttributedFlows,
     Alerts,
     AddonFleet,
+    PluginFleet,
     AddonStatuses,
     EndpointPackageCatalog,
     EndpointPackages,

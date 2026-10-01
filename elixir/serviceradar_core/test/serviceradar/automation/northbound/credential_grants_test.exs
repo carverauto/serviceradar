@@ -10,6 +10,11 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
   alias ServiceRadar.Plugins.PluginAssignment
 
   @secret_id "018f3f56-1111-7222-8333-123456789abc"
+  @credential_manager %{
+    id: "credential-manager",
+    role: :viewer,
+    permissions: MapSet.new(["settings.credentials.manage"])
+  }
 
   defmodule FakeGrantIssuer do
     @moduledoc false
@@ -23,6 +28,159 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
         |> Map.put(:id, "grant-#{attrs.purpose}")
 
       {:ok, CredentialBrokerGrant.to_payload(attrs)}
+    end
+  end
+
+  defmodule FakePackageContext do
+    @moduledoc false
+
+    @bound_ref "credentialref:network-credential-secret:018f3f56-2222-7222-8333-123456789abc"
+
+    def bound_ref, do: @bound_ref
+
+    def schedule_credential(%{id: "assignment-1"}, "example_account", _opts),
+      do: {:ok, %{secret_ref: @bound_ref, credential_rule_id: "rule-bound"}}
+
+    def schedule_credential(_assignment, _ref_name, _opts), do: {:error, :no_bound_schedule}
+  end
+
+  describe "declared credential sources" do
+    test "assignment_schedule takes the bound schedule ref and ignores secret inputs" do
+      invocation =
+        invocation(%{
+          descriptor:
+            descriptor(%{
+              credential_requirements: %{
+                "source_account" => %{
+                  "credential_source" => "assignment_schedule",
+                  "requirement" => "example_account",
+                  "credential_secret_input" => "api_secret_id",
+                  "purpose" => "management",
+                  "allow" => %{"methods" => ["POST"], "hosts" => ["api.example.com"]},
+                  "ttl_seconds" => 90
+                }
+              }
+            }),
+          input_values: %{"api_secret_id" => @secret_id}
+        })
+
+      assert {:ok, _prepared} =
+               CredentialGrants.prepare_launch(invocation, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 test_pid: self()
+               )
+
+      assert_receive {:grant_attrs, attrs}
+      assert attrs.secret_ref == FakePackageContext.bound_ref()
+      assert attrs.secret_id == nil
+      assert attrs.credential_rule_id == "rule-bound"
+      assert attrs.allowed_methods == ["POST"]
+      assert attrs.allowed_hosts == ["api.example.com"]
+      assert attrs.ttl_seconds == 90
+      assert attrs.metadata["requirement_name"] == "source_account"
+      assert attrs.metadata["credential_source"] == "assignment_schedule"
+    end
+
+    test "assignment_schedule with no bound schedule fails closed" do
+      invocation =
+        invocation(%{
+          descriptor:
+            descriptor(%{
+              credential_requirements: %{
+                "source_account" => %{
+                  "credential_source" => "assignment_schedule",
+                  "requirement" => "other_account"
+                }
+              }
+            })
+        })
+
+      assert {:error, {:no_bound_schedule_credential, "source_account", "other_account"}} =
+               CredentialGrants.prepare_launch(invocation, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 test_pid: self()
+               )
+
+      refute_receive {:grant_attrs, _}
+    end
+
+    test "launch-only actors cannot select package credential rules" do
+      invocation =
+        invocation(%{
+          descriptor:
+            descriptor(%{
+              credential_requirements: %{
+                "destination_account" => %{
+                  "credential_source" => "package_rule",
+                  "rule_input" => "destination_rule_id",
+                  "required" => true
+                }
+              }
+            }),
+          input_values: %{"destination_rule_id" => "rule-eligible"}
+        })
+
+      assert {:error, :credential_rule_permission_required} =
+               CredentialGrants.prepare_launch(invocation, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 actor: %{
+                   id: "launcher",
+                   role: :viewer,
+                   permissions: MapSet.new(["northbound.actions.launch"])
+                 },
+                 test_pid: self()
+               )
+
+      refute_receive {:grant_attrs, _}
+    end
+
+    test "declared sources require the provider's own plugin package" do
+      requirement = %{
+        "credential_source" => "assignment_schedule",
+        "requirement" => "example_account"
+      }
+
+      for provider <- [
+            provider(%{provider_type: :native, plugin_package_id: nil}),
+            provider(%{plugin_package_id: "package-2"})
+          ] do
+        invocation =
+          invocation(%{
+            provider: provider,
+            descriptor: descriptor(%{credential_requirements: requirement})
+          })
+
+        assert {:error, {:credential_source_requires_plugin_package, nil, "assignment_schedule"}} =
+                 CredentialGrants.prepare_launch(invocation, assignment(),
+                   grant_issuer: {FakeGrantIssuer, :issue},
+                   plugin_package_context: FakePackageContext,
+                   test_pid: self()
+                 )
+      end
+    end
+
+    test "an unknown credential source fails closed" do
+      invocation =
+        invocation(%{
+          descriptor:
+            descriptor(%{
+              credential_requirements: %{
+                "api" => %{"credential_source" => "operator_input", "secret_id" => @secret_id}
+              }
+            })
+        })
+
+      assert {:error, {:unsupported_credential_source, "api", "operator_input"}} =
+               CredentialGrants.prepare_launch(invocation, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 test_pid: self()
+               )
+
+      refute_receive {:grant_attrs, _}
     end
   end
 
@@ -159,7 +317,9 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
       requested_by_actor_id: "user-1",
       provider: provider(),
       descriptor: descriptor(),
-      target_snapshots: [%{"device_uid" => "device-1"}],
+      target_snapshots: [
+        %{"kind" => "device", "device_uid" => "device-1", "agent_id" => "agent-a"}
+      ],
       input_values: %{},
       redacted_input_values: %{},
       metadata: %{}
