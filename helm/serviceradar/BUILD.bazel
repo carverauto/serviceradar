@@ -45,10 +45,14 @@ py_test(
     name = "migrations_expected_version_test",
     srcs = ["migrations_expected_version_test.py"],
     data = [
-        "templates/web.yaml",
-        "values.yaml",
+        ":chart_files",
+        ":helm_unittest_binary",
         "//elixir/serviceradar_core:migrations",
     ],
+    env = {
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
+    },
+    deps = ["@pyyaml//:yaml"],
 )
 
 # CNPG WAL/checkpoint defaults. PostgreSQL's stock max_wal_size=1GB forced a
