@@ -105,7 +105,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
     end)
   end
 
-  def upsert_hosted_link(_payload), do: :ok
+  def upsert_hosted_link(_payload), do: {:error, :invalid_hosted_link}
 
   defp persist(fun) when is_function(fun, 0) do
     if Backend.write_dgraph?() do

@@ -6,6 +6,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dgraph
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.VirtualizationGuest
+  alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.NetworkDiscovery.World
   alias ServiceRadar.NetworkDiscovery.WorldLayout
   alias ServiceRadar.NetworkDiscovery.WorldWorker
@@ -49,6 +51,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
     edges = [parallel | edges]
     assert :ok = Dgraph.rebuild_canonical(edges)
+    saved_hosted_inventory!(hd(ids), Enum.at(ids, 1))
     job = reconcile_job!()
     version = job.args["layout_version"]
 
@@ -68,7 +71,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
               %{
                 generation: 1,
                 node_count: 503,
-                relation_count: 503,
+                relation_count: 504,
                 algorithm_version: "hierarchical-elk-radial-v3"
               }} =
                World.active_manifest(scope())
@@ -87,20 +90,25 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert_drain_success()
 
       assert {:ok,
-              %{generation: 2, layout_version: ^version, node_count: 504, relation_count: 503} =
+              %{generation: 2, layout_version: ^version, node_count: 504, relation_count: 504} =
                 manifest} =
                World.active_manifest(scope())
 
       after_positions = placements()
       assert Map.take(after_positions, Map.keys(before)) == before
 
-      {world, relations} = reload_world([500, 4], [500, 3])
-      assert {:ok, %{node_count: 504, relation_count: 503}} = TopologyAtlas.world_info(world)
+      {world, relations} = reload_world([500, 4], [500, 4])
+      assert {:ok, %{node_count: 504, relation_count: 504}} = TopologyAtlas.world_info(world)
       assert {:ok, %{device_id: isolated}} = TopologyAtlas.search(world, Enum.at(ids, 502))
       assert isolated == Enum.at(ids, 502)
 
       assert Enum.count(relations, &(&1.source_id == hd(ids) and &1.target_id == Enum.at(ids, 1))) ==
-               2
+               3
+
+      assert Enum.any?(relations, fn relation ->
+               relation.source_id == hd(ids) and relation.target_id == Enum.at(ids, 1) and
+                 relation.evidence_class == "hosted-virtual"
+             end)
 
       assert %{source_if_index: 7, target_if_index: 9} =
                Enum.find(relations, &(&1.source_if_name == "eth7"))
@@ -506,6 +514,43 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     }
   end
 
+  defp saved_hosted_inventory!(guest_uid, host_uid) do
+    observed_at = ~U[2030-02-03 04:05:06Z]
+    suffix = Ash.UUID.generate()
+    provider = "topology-world-fixture"
+    host_ref = "synthetic-host-#{suffix}"
+
+    host =
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: provider,
+          provider_ref: host_ref,
+          device_uid: host_uid,
+          name: "synthetic-host",
+          observed_at: observed_at
+        },
+        actor: actor()
+      )
+      |> Ash.create!(actor: actor())
+
+    VirtualizationGuest
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        provider: provider,
+        provider_ref: "synthetic-guest-#{suffix}",
+        host_id: host.id,
+        device_uid: guest_uid,
+        name: "synthetic-guest",
+        guest_type: "vm"
+      },
+      actor: actor()
+    )
+    |> Ash.create!(actor: actor())
+  end
+
   defp cleanup(version, ids, first_job_id) do
     Repo.query!(
       "DELETE FROM platform.topology_world_head WHERE active_layout_version = $1::uuid",
@@ -532,6 +577,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       ),
       prefix: "platform"
     )
+
+    Repo.query!("DELETE FROM platform.virtualization_guests WHERE device_uid = ANY($1::text[])", [ids])
+    Repo.query!("DELETE FROM platform.virtualization_hosts WHERE device_uid = ANY($1::text[])", [ids])
 
     Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [ids])
 

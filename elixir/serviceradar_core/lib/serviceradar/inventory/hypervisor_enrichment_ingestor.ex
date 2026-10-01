@@ -8,8 +8,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   envelope directly.
   """
 
-  import Ash.Expr
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.Device
@@ -332,8 +330,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationNetworkInterface, nics, actor),
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor),
          :ok <- VirtualizationIdentityAliases.reconcile(records),
-         :ok <- project_hosted_topology(host_rows, guests, actor),
-         :ok <- ServiceRadar.NetworkDiscovery.WorldWorker.enqueue_reconcile() do
+         :ok <- enqueue_world_reconcile() do
       :ok
     end
   end
@@ -349,12 +346,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     query =
       VirtualizationGuest
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(expr(not is_nil(host_id) and identity_state != :quarantined))
+      |> Ash.Query.filter(not is_nil(host_id) and identity_state != :quarantined)
       |> Ash.Query.sort(:id)
       |> Ash.Query.limit(@hosted_page_size)
       |> Ash.Query.load(:host)
 
-    query = if cursor, do: Ash.Query.filter(query, expr(id > ^cursor)), else: query
+    query = if cursor, do: Ash.Query.filter(query, id > ^cursor), else: query
 
     with {:ok, page} <- Ash.read(query, actor: actor),
          {:ok, guests} <- ServiceRadar.Ash.Page.unwrap(page),
@@ -370,10 +367,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp reconcile_saved_guest(guest, :ok, actor) do
     with %{host: host} when is_map(host) <- guest,
          false <- guest.identity_state == :quarantined or host.identity_state == :quarantined,
+         guest_uid when is_binary(guest_uid) <- guest.device_uid,
+         host_uid when is_binary(host_uid) <- host.device_uid,
          observed_at when not is_nil(observed_at) <-
            observed_at_string(guest.observed_at || host.observed_at),
-         {:ok, guest_uid} <- live_canonical_device_uid(guest.device_uid, actor),
-         {:ok, host_uid} <- live_canonical_device_uid(host.device_uid, actor),
+         {:ok, guest_uid} <- live_canonical_device_uid(guest_uid, actor),
+         {:ok, host_uid} <- live_canonical_device_uid(host_uid, actor),
          false <- guest_uid == host_uid,
          :ok <-
            DgraphPersist.upsert_hosted_link(%{
@@ -393,39 +392,21 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp reconcile_saved_guest(_guest, {:error, _} = error, _actor), do: {:halt, error}
 
-  defp project_hosted_topology(hosts, guests, actor) do
-    host_uids = Map.new(hosts, &{{&1.provider, &1.provider_ref}, Map.get(&1, :device_uid)})
-
-    guests
-    |> Enum.reduce_while(:ok, fn guest, :ok ->
-      host_uid = Map.get(host_uids, {guest.provider, guest.host_provider_ref})
-
-      with guest_uid when is_binary(guest_uid) <- Map.get(guest, :device_uid),
-           host_uid when is_binary(host_uid) <- host_uid,
-           {:ok, guest_uid} <- live_canonical_device_uid(guest_uid, actor),
-           {:ok, host_uid} <- live_canonical_device_uid(host_uid, actor),
-           result <-
-             DgraphPersist.upsert_hosted_link(%{
-               guest_device_id: guest_uid,
-               host_device_id: host_uid,
-               observed_at: observed_at_string(guest[:observed_at])
-             }),
-           :ok <- result do
-        {:cont, :ok}
-      else
-        nil -> {:cont, :ok}
-        {:skip, _reason} -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
+  defp enqueue_world_reconcile do
+    case ServiceRadar.NetworkDiscovery.WorldWorker.enqueue_reconcile() do
+      {:ok, _job} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   defp live_canonical_device_uid(uid, actor) do
     canonical_uid = IdentityReconciler.follow_canonical_device_id(uid, actor)
 
-    case Device.get_by_uid(canonical_uid, true, actor: actor) do
+    case Device.get_by_uid(canonical_uid, false, actor: actor) do
       {:ok, %Device{deleted_at: nil}} -> {:ok, canonical_uid}
+      {:ok, nil} -> {:skip, {:missing_or_inactive_virtualization_endpoint, canonical_uid}}
       {:ok, _deleted_or_missing} -> {:skip, {:inactive_virtualization_endpoint, canonical_uid}}
+      {:error, %Ash.Error.Query.NotFound{}} -> {:skip, {:missing_virtualization_endpoint, canonical_uid}}
       {:error, reason} -> {:error, reason}
     end
   end
