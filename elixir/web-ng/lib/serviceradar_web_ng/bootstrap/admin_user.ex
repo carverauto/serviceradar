@@ -5,13 +5,9 @@ defmodule ServiceRadarWebNG.Bootstrap.AdminUser do
   Reads admin credentials from environment or a mounted file and creates
   the admin user once if no admin exists.
 
-  When the operator opts in via `SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC`,
-  the secret stays authoritative for ROTATION only: bootstrap compares the
-  stored password against the secret and the secret against the fingerprint it
-  last applied (`ServiceRadar.Identity.AdminSecretMarker`). The stored
-  hash is reset only when the secret itself rotated since the last apply;
-  a password the operator set through the UI or a reset flow survives
-  restarts and upgrades instead of silently reverting on every boot.
+  Operator configuration is documented in `docs/docs/auth-configuration.md`
+  under Bootstrap Admin Access. `ServiceRadar.Identity.AdminSecretMarker`
+  documents the fingerprint safety contract used for rotation tracking.
   """
 
   alias ServiceRadar.Actors.SystemActor

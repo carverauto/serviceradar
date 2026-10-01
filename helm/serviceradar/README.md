@@ -160,7 +160,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
 | `spire.enabled` | Enable SPIRE identity plane | `false` |
 | `webNg.adminEmail` | Bootstrap admin email | `root@localhost` |
-| `webNg.adminPasswordForceSync` | Re-apply the admin-password secret only when it rotates while the database persists. Passwords changed in the UI persist across restarts either way. | `false` |
+| `webNg.adminPasswordForceSync` | Enable bootstrap secret rotation handling; see [Bootstrap Admin Access](../../docs/docs/auth-configuration.md#bootstrap-admin-access-self-hosted). | `false` |
 | `webNg.auth.forceLocalLogin` | Break-glass switch that permits local password login regardless of SSO enforcement. Leave false for normal installs; use the per-user Local password login toggle instead. | `false` |
 | `webNg.auth.disableSso` | Hide the SSO button on the sign-in page | `false` |
 | `webNg.cameraRelay.webRTC.enabled` | Enable WebRTC playback for camera relay viewers (LiveView and dashboard camera API); viewers otherwise use the websocket transports | `false` |

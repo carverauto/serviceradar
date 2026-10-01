@@ -2,12 +2,12 @@ defmodule ServiceRadar.Identity.AdminSecretMarker do
   @moduledoc """
   Durable fingerprints of the admin bootstrap secret.
 
-  Bootstrap records a salted password fingerprint of the admin secret it applied (or
-  verified) so a later restart can tell the two drift cases apart:
+  Bootstrap records a salted password fingerprint of the configured admin secret
+  so a later restart can tell the two drift cases apart:
 
   - the stored password no longer matches the secret AND the digest is
     unchanged: an operator changed the password through the UI or a reset
-    flow after bootstrap applied this secret, so the operator's password
+    flow, while the configured secret stayed unchanged, so the operator's password
     wins and bootstrap must not touch it;
   - the stored password no longer matches the secret AND the digest moved:
     the secret rotated while the database persisted, so bootstrap resets
@@ -15,6 +15,9 @@ defmodule ServiceRadar.Identity.AdminSecretMarker do
 
   Without the marker, "force sync" cannot distinguish the two and resets on
   every restart, silently reverting operator password changes.
+
+  For an existing user without a marker, bootstrap seeds the fingerprint without
+  changing the user's password; an unknown secret history cannot justify a reset.
 
   Only `ServiceRadarWebNG.Bootstrap.AdminUser` writes these rows. The
   fingerprint uses bcrypt over a SHA-256 prehash, so it does not expose a cheap

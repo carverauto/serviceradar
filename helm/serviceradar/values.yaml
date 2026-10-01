@@ -1333,13 +1333,7 @@ webNg:
   # Bootstrap admin identity. The generated admin password is stored in
   # secrets.existingSecretName under admin-password.
   adminEmail: "root@localhost"
-  # When true, the bootstrap step treats the admin-password secret as
-  # authoritative for ROTATION only: when the secret changes while the
-  # database persists (e.g. the generated secret is regenerated), the next
-  # restart resets the stored hash so the rotated secret re-grants login.
-  # A password changed through the UI or a reset flow persists across
-  # restarts and upgrades regardless of this setting; force-sync no longer
-  # reverts it on every boot.
+  # Rotation policy: docs/docs/auth-configuration.md, Bootstrap Admin Access.
   adminPasswordForceSync: false
   # Local-login break-glass + SSO toggle (server-side LoginPolicy).
   # forceLocalLogin permits local password login regardless of SSO enforcement —
