@@ -133,6 +133,7 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	if err != nil {
 		hostname = ""
 	}
+	hostIP := p.getSourceIP()
 	helloReq := &proto.AgentHelloRequest{
 		AgentId:       agentID,
 		Version:       Version, // Agent version from version.go
@@ -145,7 +146,8 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 		// Report the agent's own host IP so the gateway links it to the
 		// correct device even when the TCP peer IP is NAT'd (external agents).
 		// Mirrors getSourceIP() used for PushStatus so the two agree.
-		HostIp: p.getSourceIP(),
+		HostIp:   hostIP,
+		HostMacs: hostInterfaceMACs(hostIP),
 	}
 
 	// Send Hello

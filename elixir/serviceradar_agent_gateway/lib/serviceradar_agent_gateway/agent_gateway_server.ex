@@ -1233,6 +1233,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       arch: if(request, do: request.arch),
       partition: partition_id,
       source_ip: device_ip,
+      host_macs: request_value(request, :host_macs) || [],
       capabilities: capabilities
     }
   end

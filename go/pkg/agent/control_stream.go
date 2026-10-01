@@ -341,6 +341,7 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 		hostname = ""
 	}
 
+	hostIP := p.getSourceIP()
 	return &proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_Hello{
 			Hello: &proto.ControlStreamHello{
@@ -358,7 +359,8 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 				// Report the agent's own host IP so the gateway links it to the
 				// correct device even when the TCP peer IP is NAT'd (external agents).
 				// Mirrors getSourceIP() used for PushStatus so the two agree.
-				HostIp: p.getSourceIP(),
+				HostIp:   hostIP,
+				HostMacs: hostInterfaceMACs(hostIP),
 			},
 		},
 	}

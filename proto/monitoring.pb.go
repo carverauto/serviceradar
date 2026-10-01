@@ -2105,6 +2105,7 @@ type AgentHelloRequest struct {
 	Labels        map[string]string      `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Optional labels/tags for grouping
 	ConfigSource  string                 `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"`                                          // Source of sysmon config: "remote", "local", "cached", "default"
 	HostIp        string                 `protobuf:"bytes,11,opt,name=host_ip,json=hostIp,proto3" json:"host_ip,omitempty"`                                                            // Agent's own host IP (for device correlation behind NAT)
+	HostMacs      []string               `protobuf:"bytes,12,rep,name=host_macs,json=hostMacs,proto3" json:"host_macs,omitempty"`                                                      // MAC of the local interface owning host_ip; never neighbour observations
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2214,6 +2215,13 @@ func (x *AgentHelloRequest) GetHostIp() string {
 		return x.HostIp
 	}
 	return ""
+}
+
+func (x *AgentHelloRequest) GetHostMacs() []string {
+	if x != nil {
+		return x.HostMacs
+	}
+	return nil
 }
 
 // AgentHelloResponse is returned by the gateway after validating the agent.
@@ -2924,6 +2932,7 @@ type ControlStreamHello struct {
 	ConfigSource             string                       `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"`                                          // Source of sysmon config: "remote", "local", "cached", "default"
 	HostIp                   string                       `protobuf:"bytes,11,opt,name=host_ip,json=hostIp,proto3" json:"host_ip,omitempty"`                                                            // Agent's own host IP (for device correlation behind NAT)
 	AppliedPluginAssignments []*PluginAssignmentPolicyAck `protobuf:"bytes,12,rep,name=applied_plugin_assignments,json=appliedPluginAssignments,proto3" json:"applied_plugin_assignments,omitempty"`    // Host-parsed Proxmox assignment bindings in config_version
+	HostMacs                 []string                     `protobuf:"bytes,13,rep,name=host_macs,json=hostMacs,proto3" json:"host_macs,omitempty"`                                                      // MAC of the local interface owning host_ip; never neighbour observations
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -3038,6 +3047,13 @@ func (x *ControlStreamHello) GetHostIp() string {
 func (x *ControlStreamHello) GetAppliedPluginAssignments() []*PluginAssignmentPolicyAck {
 	if x != nil {
 		return x.AppliedPluginAssignments
+	}
+	return nil
+}
+
+func (x *ControlStreamHello) GetHostMacs() []string {
+	if x != nil {
+		return x.HostMacs
 	}
 	return nil
 }
@@ -8033,7 +8049,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tpartition\x18\b \x01(\tR\tpartition\x12\x16\n" +
 	"\x06source\x18\t \x01(\tR\x06source\x12\x1e\n" +
 	"\vkv_store_id\x18\n" +
-	" \x01(\tR\tkvStoreIdJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xad\x03\n" +
+	" \x01(\tR\tkvStoreIdJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xca\x03\n" +
 	"\x11AgentHelloRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\"\n" +
@@ -8046,7 +8062,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x06labels\x18\t \x03(\v2).monitoring.AgentHelloRequest.LabelsEntryR\x06labels\x12#\n" +
 	"\rconfig_source\x18\n" +
 	" \x01(\tR\fconfigSource\x12\x17\n" +
-	"\ahost_ip\x18\v \x01(\tR\x06hostIp\x1a9\n" +
+	"\ahost_ip\x18\v \x01(\tR\x06hostIp\x12\x1b\n" +
+	"\thost_macs\x18\f \x03(\tR\bhostMacs\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x90\x02\n" +
@@ -8121,7 +8138,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vchunk_index\x18\a \x01(\x05R\n" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\b \x01(\x05R\vtotalChunks\x12%\n" +
-	"\x0epayload_sha256\x18\t \x01(\tR\rpayloadSha256\"\x94\x04\n" +
+	"\x0epayload_sha256\x18\t \x01(\tR\rpayloadSha256\"\xb1\x04\n" +
 	"\x12ControlStreamHello\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1c\n" +
 	"\tpartition\x18\x02 \x01(\tR\tpartition\x12\"\n" +
@@ -8135,7 +8152,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rconfig_source\x18\n" +
 	" \x01(\tR\fconfigSource\x12\x17\n" +
 	"\ahost_ip\x18\v \x01(\tR\x06hostIp\x12c\n" +
-	"\x1aapplied_plugin_assignments\x18\f \x03(\v2%.monitoring.PluginAssignmentPolicyAckR\x18appliedPluginAssignments\x1a9\n" +
+	"\x1aapplied_plugin_assignments\x18\f \x03(\v2%.monitoring.PluginAssignmentPolicyAckR\x18appliedPluginAssignments\x12\x1b\n" +
+	"\thost_macs\x18\r \x03(\tR\bhostMacs\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb5\x01\n" +
