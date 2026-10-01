@@ -271,7 +271,10 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       assert source.secret_ref == secret_ref(second_rule.secret_id)
       assert to_string(source.credential_rule_id) == to_string(second_rule.id)
 
-      wrong_edge = %{invocation | input_values: %{"destination_rule_id" => to_string(first_rule.id)}}
+      wrong_edge = %{
+        invocation
+        | input_values: %{"destination_rule_id" => to_string(first_rule.id)}
+      }
 
       assert {:error,
               {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
@@ -288,7 +291,8 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       target_hostname = "host-#{unique}.example.com"
       target_device!(target_uid, target_hostname, bound.agent_uid, true)
 
-      rule_with_target = update_target_query!(second_rule, "in:devices hostname:#{target_hostname}")
+      rule_with_target =
+        update_target_query!(second_rule, "in:devices hostname:#{target_hostname}")
 
       invocation =
         in_memory_invocation(
@@ -360,6 +364,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       assert to_string(attrs.secret_id) == to_string(implicit_device_query_rule.secret_id)
 
       inactive_uid = "sr:example-inactive-query-target-#{unique}"
+
       target_device!(
         inactive_uid,
         "inactive-#{unique}.example.com",
@@ -454,6 +459,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       unique = System.unique_integer([:positive])
       target_uid = "sr:example-sat-poll-target-#{unique}"
       target_device!(target_uid, "poll-#{unique}.example.com", bound.agent_uid, true)
+
       {:ok, descriptor} =
         plugin_descriptor(package, %{"destination_account" => @destination_requirement},
           scopes: ["device"]
@@ -470,6 +476,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
                )
 
       assert invocation.source == :user
+
       assert {:ok, running} =
                ActionInvocation.record_running(invocation, %{}, actor: @system_actor)
 
@@ -677,6 +684,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       )
 
     unique = System.unique_integer([:positive])
+
     device =
       target_device!(
         "sr:example-sat-contract-#{unique}",

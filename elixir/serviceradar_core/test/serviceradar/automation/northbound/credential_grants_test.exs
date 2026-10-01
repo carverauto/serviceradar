@@ -126,7 +126,11 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
                CredentialGrants.prepare_launch(invocation, assignment(),
                  grant_issuer: {FakeGrantIssuer, :issue},
                  plugin_package_context: FakePackageContext,
-                 actor: %{id: "launcher", role: :viewer, permissions: MapSet.new(["northbound.actions.launch"])},
+                 actor: %{
+                   id: "launcher",
+                   role: :viewer,
+                   permissions: MapSet.new(["northbound.actions.launch"])
+                 },
                  test_pid: self()
                )
 
@@ -313,7 +317,9 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
       requested_by_actor_id: "user-1",
       provider: provider(),
       descriptor: descriptor(),
-      target_snapshots: [%{"kind" => "device", "device_uid" => "device-1", "agent_id" => "agent-a"}],
+      target_snapshots: [
+        %{"kind" => "device", "device_uid" => "device-1", "agent_id" => "agent-a"}
+      ],
       input_values: %{},
       redacted_input_values: %{},
       metadata: %{}

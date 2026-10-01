@@ -1116,14 +1116,16 @@ defmodule ServiceRadar.Plugins.ManifestTest do
 
     test "requires package rule inputs to use string properties" do
       manifest =
-        with_source_action(%{
+        %{
           "api" => %{
             "credential_source" => "package_rule",
             "rule_input" => "destination_rule_id"
           }
-        })
+        }
+        |> with_source_action()
         |> Map.update!("actions", fn [action] ->
-          put_in(action, ["input_schema", "properties", "destination_rule_id", "type"], "integer")
+          action
+          |> put_in(["input_schema", "properties", "destination_rule_id", "type"], "integer")
           |> then(&[&1])
         end)
 

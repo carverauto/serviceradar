@@ -89,7 +89,8 @@ defmodule ServiceRadar.Automation.Northbound.CatalogTest do
       )
 
     [action] =
-      Catalog.eligible_device_actions(%{actor: actor}, plugin_package_context: EmptyRulesContext)
+      %{actor: actor}
+      |> Catalog.eligible_device_actions(plugin_package_context: EmptyRulesContext)
       |> Enum.filter(&(&1.descriptor_id == descriptor.id))
 
     property = action.input_schema["properties"]["destination_rule_id"]
