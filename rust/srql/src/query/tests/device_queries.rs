@@ -1429,3 +1429,39 @@ fn a_mixed_case_composite_field_is_normalized_rather_than_rejected() {
         "expected the slug to be lowercased, got: {params:?}"
     );
 }
+
+#[test]
+fn devices_sort_hostname_asc_orders_by_hostname_then_uid() {
+    let plan = plan_for("in:devices type:\"IP Camera\" sort:hostname:asc");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("order by \"ocsf_devices\".\"hostname\" asc"),
+        "expected ORDER BY hostname ASC, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"ocsf_devices\".\"uid\" asc"),
+        "expected uid ASC tie-breaker after hostname sort, got: {sql}"
+    );
+    assert!(
+        !lower.contains("coalesce(is_available"),
+        "hostname sort should not add the default availability fallback, got: {sql}"
+    );
+}
+
+#[test]
+fn devices_sort_hostname_desc_orders_by_hostname_desc_then_uid() {
+    let plan = plan_for("in:devices type:\"Router\" sort:hostname:desc");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("order by \"ocsf_devices\".\"hostname\" desc"),
+        "expected ORDER BY hostname DESC, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"ocsf_devices\".\"uid\" asc"),
+        "expected uid ASC tie-breaker after hostname desc sort, got: {sql}"
+    );
+}

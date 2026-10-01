@@ -8,7 +8,7 @@ describe("world tile wire boundary", () => {
     const decoded = decodeWorldTile(tile(), {...key, revision})
     expect([...decoded.positions]).toEqual([256, 0, 512, 256])
     expect(decoded.nodes.map(node => [node.kind, node.count])).toEqual([["aggregate", 70000], ["boundary", 0]])
-    expect(decoded.edges).toEqual([{id: "bundle:a", index: 0, source: 0, target: 1, count: 90000, start: 0.25, end: 0.75}])
+    expect(decoded.edges).toEqual([{id: "bundle:a", index: 0, source: 0, target: 1, count: 90000, start: 0.25, end: 0.75, topologyClass: "backbone", stale: false}])
     expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
   })
 
@@ -29,6 +29,27 @@ describe("world tile wire boundary", () => {
     const invalid = tile({edges: [{source: 0, target: 2, details: {id: "bundle:a", represented_count: 1, phase_start: 0, phase_end: 1}}]})
     expect(() => decodeWorldTile(invalid, key)).toThrow("endpoint")
     expect(() => decodeWorldTile(new Uint8Array(262145), key)).toThrow("byte budget")
+    const edges = Array.from({length: 512}, (_, index) => ({source: 0, target: 1,
+      details: {id: `bundle:${index}`, represented_count: 1, phase_start: 0, phase_end: 1}}))
+    const decoded = decodeWorldTile(tile({edges}), key)
+    expect(decoded.edges).toHaveLength(512)
+    expect(decoded.edges[511].id).toBe("bundle:511")
+    expect(() => decodeWorldTile(tile({edges, metadata: {max_edges: 256}}), key)).toThrow("edge budget")
+    expect(() => decodeWorldTile(tile({edges: [...edges, edges[0]]}), key)).toThrow("edge_count")
+  })
+
+  it("accepts a schema v3 tile that has no stale column", () => {
+    const decoded = decodeWorldTile(tile({omitColumns: ["edge_detail_stale"]}), key)
+    expect(decoded.edges[0].stale).toBe(false)
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+  })
+
+  it("reads a last-known edge from its flag column", () => {
+    const decoded = decodeWorldTile(tile({edges: [{source: 0, target: 1, details: {
+      id: "bundle:a", represented_count: 90000, phase_start: 0.25, phase_end: 0.75, stale: true,
+    }}]}), {...key, revision})
+    expect(decoded.edges[0].stale).toBe(true)
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
   })
 
   it("accepts a bounded empty batch and checks the requested revision", () => {

@@ -91,7 +91,13 @@ fn giant_neighborhood_and_parallel_links_remain_reachable_in_bounded_pages() {
 #[test]
 fn aggregate_pages_exclude_promoted_devices_and_conserve_clicked_counts() {
     let nodes: Vec<_> = (0..1025)
-        .map(|i| point(i, i + 1, 1, if i == 300 { 0 } else { 8 }))
+        .map(|i| {
+            if i == 300 {
+                point(i, 5_000_000, 5_000_000, 0)
+            } else {
+                point(i, i + 1, 1, 8)
+            }
+        })
         .collect();
     let world = World::new("invented-aggregate".into(), 16, nodes.clone(), vec![]).unwrap();
     let tile = world
@@ -378,7 +384,7 @@ fn clipped_bundle_selection_preserves_ids_direction_and_exact_coverage() {
 
 #[test]
 fn filtered_candidate_pages_advance_without_scanning_the_whole_world() {
-    let nodes = vec![point(0, 1, 1, 0), point(1, 900, 900, 0)];
+    let nodes = vec![point(0, 1, 1, 0), point(1, 9_000_000, 9_000_000, 0)];
     let mut relations: Vec<_> = (0..RELATION_CANDIDATE_LIMIT * 2 + 1)
         .map(|i| relation(format!("internal-{i:05}"), &nodes[0], &nodes[0]))
         .collect();

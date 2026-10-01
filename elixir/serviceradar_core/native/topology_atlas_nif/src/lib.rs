@@ -8,21 +8,21 @@ mod model;
 #[cfg(test)]
 mod tests;
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use dgraph_topology::{CanonicalGraph, TopologyClient};
+use dgraph_topology::{TopologyClient, TopologyView};
 use rustler::{
-    Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource, ResourceArc, Term,
-    types::list::ListIterator,
+    types::list::ListIterator, Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource,
+    ResourceArc, Term,
 };
 use serviceradar_topology_atlas::{Budget, Cell, Glyph, GlyphKind, Tile, TileProfile};
 use tokio::runtime::Runtime;
 
 use model::{
-    Builder, Candidate, Info, InventoryRow, PAGE_LIMIT, PositionRow, RelationRow, Result,
-    SourceGraph, WorldState,
+    Builder, Candidate, Info, InventoryRow, PipelineStats, PositionRow, RelationRow, Result,
+    SourceGraph, WorldState, PAGE_LIMIT,
 };
 
 mod atoms {
@@ -32,7 +32,7 @@ mod atoms {
 }
 
 struct BuilderResource(Mutex<Option<Builder>>);
-struct GraphResource(Mutex<Option<CanonicalGraph>>);
+struct GraphResource(Mutex<Option<TopologyView>>);
 struct WorldResource(Arc<WorldState>);
 struct CandidateResource(Candidate);
 
@@ -126,6 +126,11 @@ fn take<T>(resource: &Mutex<Option<T>>) -> Result<T> {
         .map_err(|_| "resource unavailable")?
         .take()
         .ok_or_else(|| "resource already consumed".into())
+}
+
+#[rustler::nif]
+fn algorithm_version() -> String {
+    serviceradar_topology_atlas::ALGORITHM.into()
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
@@ -242,7 +247,7 @@ fn runtime() -> Result<&'static Runtime> {
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
-fn read_graph(env: Env<'_>, url: String) -> Term<'_> {
+fn read_graph(env: Env<'_>, url: String, stale_cutoff: String) -> Term<'_> {
     crate::admission::call(env, &crate::admission::GRAPH_READ, || {
         reply(
             env,
@@ -253,9 +258,9 @@ fn read_graph(env: Env<'_>, url: String) -> Term<'_> {
                 let graph = runtime()?
                     .block_on(async {
                         let client = TopologyClient::connect(&url).await?;
-                        client.query_canonical_graph().await
+                        client.query_topology_view(&stale_cutoff).await
                     })
-                    .map_err(|_| "canonical graph read failed")?;
+                    .map_err(|_| "topology view read failed")?;
                 Ok(ResourceArc::new(GraphResource(Mutex::new(Some(graph)))))
             }),
         )
@@ -273,7 +278,7 @@ fn reconcile(
             env,
             isolate(|| {
                 let builder = take(&builder.0)?;
-                let source = SourceGraph::from_canonical(take(&graph.0)?)?;
+                let source = SourceGraph::from_view(take(&graph.0)?)?;
                 Ok(ResourceArc::new(CandidateResource(
                     builder.reconcile(source)?,
                 )))
@@ -292,6 +297,7 @@ struct CandidateInfo {
     extent: u32,
     node_count: u64,
     relation_count: u64,
+    pipeline_stats: PipelineStats,
 }
 
 #[rustler::nif]
@@ -309,6 +315,7 @@ fn candidate_info(env: Env<'_>, candidate: ResourceArc<CandidateResource>) -> Te
                 extent: info.extent,
                 node_count: info.node_count,
                 relation_count: info.relation_count,
+                pipeline_stats: candidate.0.pipeline_stats.clone(),
             }),
         )
     })
@@ -370,6 +377,8 @@ struct WireEdge {
     source: u32,
     target: u32,
     count: u64,
+    topology_class: String,
+    stale: bool,
     start: f64,
     end: f64,
 }
@@ -412,6 +421,8 @@ impl From<Tile> for WireTile {
                     source: e.source,
                     target: e.target,
                     count: e.count,
+                    topology_class: e.topology_class.as_str().into(),
+                    stale: e.stale,
                     start: e.start,
                     end: e.end,
                 })
@@ -435,7 +446,7 @@ fn tile(
     crate::admission::call(env, &crate::admission::TILE_READ, || {
         details::read_reply(env, || {
             // Callers may reduce a budget, but cannot request unbounded ABI output.
-            if budget.nodes > 128 || budget.edges > 256 {
+            if budget.nodes > 128 || budget.edges > Budget::default().edges {
                 return Err(details::engine_error(
                     serviceradar_topology_atlas::Error::InvalidBudget,
                 ));
@@ -448,13 +459,14 @@ fn tile(
             let tile = world
                 .0
                 .geometry
-                .tile_with_profile(
+                .tile_with_routing_budget(
                     cell,
                     Budget {
                         nodes: budget.nodes,
                         edges: budget.edges,
                     },
                     profile,
+                    Budget::default(),
                 )
                 .map_err(details::engine_error)?;
             Ok(WireTile::from(tile))

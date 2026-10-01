@@ -101,12 +101,23 @@ async function main() {
     })
     await page.goto(`http://127.0.0.1:${server.address().port}/?transport=1`)
     await page.waitForFunction(() => window.__SR_WORLD_TRANSPORT__?.measurements.firstFrame != null)
+    await page.waitForFunction(() => {
+      const cache = window.__SR_WORLD_TRANSPORT__.renderer.cache
+      return cache.visible.size > 0 && cache.pending.size === 0 && [...cache.visible.keys()].every(id => cache.entries.has(id))
+    })
     const first = await page.evaluate(() => {
       const {renderer, measurements} = window.__SR_WORLD_TRANSPORT__
-      return {milliseconds: measurements.firstFrame, count: renderer.cache.entries.get("0/0/0").geometry.nodes.reduce((sum, node) => sum + node.count, 0), zoom: renderer.deck.getViewports()[0].zoom}
+      const viewport = renderer.deck.getViewports()[0]
+      const count = [...renderer.cache.visible.keys()].reduce((sum, id) => sum + renderer.cache.entries.get(id).geometry.nodes.reduce((total, node) => total + node.count, 0), 0)
+      return {milliseconds: measurements.firstFrame, count, target: [...viewport.target], zoom: viewport.zoom,
+        screenBounds: renderer.cache.manifest.bounds.map(point => viewport.project([...point.map(value => value / 32768), 0]))}
     })
     assert.equal(first.count, 1_000_000)
-    assert.equal(first.zoom, 0)
+    assert(first.zoom > 0, "Home must frame the occupied ELK world")
+    assert.deepEqual(first.target, [0, 1].map(axis => (manifest.bounds[0][axis] + manifest.bounds[1][axis]) / 65536).concat(0))
+    for (const [x, y] of first.screenBounds) assert(x >= 0 && x <= viewport.width && y >= 0 && y <= viewport.height)
+    assert(Math.max(Math.abs(first.screenBounds[1][0] - first.screenBounds[0][0]) / viewport.width,
+      Math.abs(first.screenBounds[1][1] - first.screenBounds[0][1]) / viewport.height) > 0.5)
     const adapter = await page.evaluate(async () => {
       const adapter = await navigator.gpu.requestAdapter()
       return {info: {...adapter.info.toJSON?.(), vendor: adapter.info.vendor, architecture: adapter.info.architecture, isFallbackAdapter: adapter.info.isFallbackAdapter}, limits: {maxBufferSize: adapter.limits.maxBufferSize, maxVertexBuffers: adapter.limits.maxVertexBuffers}}
@@ -297,7 +308,7 @@ async function main() {
         const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
         return {target: [...viewport.target], zoom: viewport.zoom}
       })
-      assert.deepEqual(home, {target: [256, 256, 0], zoom: 0})
+      assert.deepEqual(home, {target: first.target, zoom: first.zoom})
     }
 
     const deviceUrl = new URL(sharedUrl)

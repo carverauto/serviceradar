@@ -46,6 +46,7 @@ const EDGE_DETAIL_FIELDS = [
   ["observed_at", "text"],
   ["source_if_index", "number"],
   ["target_if_index", "number"],
+  ["stale", "flag"],
 ]
 const EDGE_METADATA_FIELDS = [
   ["relation_type", "text"],

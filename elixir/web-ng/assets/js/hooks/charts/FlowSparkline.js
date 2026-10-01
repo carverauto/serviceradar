@@ -119,6 +119,6 @@ function resolveColor(raw, el, fallback = "#3ecf87") {
   if (!match) return value
 
   const [, token, inlineFallback] = match
-  const resolved = getComputedStyle(el).getPropertyValue(token).trim()
+  const resolved = globalThis.getComputedStyle(el).getPropertyValue(token).trim()
   return resolved || (inlineFallback || "").trim() || fallback
 }

@@ -11,8 +11,8 @@ fn point(i: u32) -> Position {
     Position {
         id: format!("sr:health-{i:04}.example.com"),
         label: format!("health-{i:04}.example.com"),
-        x: i + 1,
-        y: 1,
+        x: if i == 300 { 5_000_000 } else { i + 1 },
+        y: if i == 300 { 5_000_000 } else { 1 },
         min_zoom: if i == 300 { 0 } else { 24 },
         parent_id: None,
         component_id: "SITE01".into(),
@@ -145,8 +145,17 @@ fn bounded_seed_pages_conserve_counts_and_exclude_promoted_devices() {
     }
     // Independent coordinate intervals exercise partial prefix sums, including
     // an interval containing the promoted device and several without it.
-    for x in [0, 7, 18, 19, 31, 63, 64] {
-        let cell = Cell::new(20, x, 0).unwrap();
+    for (x, y) in [
+        (0, 0),
+        (7, 0),
+        (18, 0),
+        (19, 0),
+        (31, 0),
+        (63, 0),
+        (64, 0),
+        (312_500, 312_500),
+    ] {
+        let cell = Cell::new(20, x, y).unwrap();
         let tile = world
             .tile(
                 cell,
@@ -159,7 +168,8 @@ fn bounded_seed_pages_conserve_counts_and_exclude_promoted_devices() {
         let actual = summary(&health.tile_health(&world, &tile.selection).unwrap());
         let mut expected = HealthCounts::default();
         for i in 0..1025 {
-            if i + 1 >= x * 16 && i + 1 < (x + 1) * 16 {
+            let p = point(i);
+            if p.x >= x * 16 && p.x < (x + 1) * 16 && p.y >= y * 16 && p.y < (y + 1) * 16 {
                 expected.total += 1;
                 expected.observed += 1;
                 match expected_state(i) {

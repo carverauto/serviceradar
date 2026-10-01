@@ -1,10 +1,11 @@
 //! Invented protocol fixtures, built without deployment captures. This server
 //! speaks the real gRPC protocol so tonic's receive limit remains in the path.
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dgraph_topology::TopologyClient;
+use dgraph_topology::{EdgeKind, EdgeWrite, TopologyClient};
 use proto_dgraph::api;
 use proto_dgraph::api::dgraph_server::{Dgraph, DgraphServer};
 use serde_json::{Value, json};
@@ -52,13 +53,50 @@ struct Fixture {
     edges: Vec<Value>,
     fault: Option<Fault>,
     calls: Vec<PageCall>,
+    queries: Vec<String>,
+    mutations: Vec<Value>,
+    mutation_contracts: Vec<(String, String, Value)>,
+    mutation_response: Value,
     snapshot_established: bool,
     faults_delivered: usize,
     violations: Vec<String>,
 }
 
 impl Fixture {
+    fn mutation_response(&self) -> Value {
+        if self.mutation_response.is_null() {
+            json!({"src":[{"uid":"0x1"}],"dst":[{"uid":"0x2"}]})
+        } else {
+            self.mutation_response.clone()
+        }
+    }
+
     fn query(&mut self, request: api::Request) -> Result<api::Response, Status> {
+        if !request.mutations.is_empty() {
+            if request.read_only || request.mutations.len() != 1 {
+                return self.violation("edge upsert must use one write mutation");
+            }
+            let mutation = &request.mutations[0];
+            self.mutations.push(
+                serde_json::from_slice(&mutation.set_json)
+                    .map_err(|err| Status::invalid_argument(err.to_string()))?,
+            );
+            self.mutation_contracts.push((
+                request.query,
+                mutation.cond.clone(),
+                if mutation.delete_json.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_slice(&mutation.delete_json)
+                        .map_err(|err| Status::invalid_argument(err.to_string()))?
+                },
+            ));
+            return Ok(api::Response {
+                json: serde_json::to_vec(&self.mutation_response()).expect("mutation response"),
+                txn: Some(api::TxnContext::default()),
+                ..Default::default()
+            });
+        }
         if !request.read_only || request.best_effort || !request.mutations.is_empty() {
             return self.violation("canonical reads must be read-only snapshot queries");
         }
@@ -72,6 +110,7 @@ impl Fixture {
             return self.violation("the reader changed its transaction between source pages");
         }
 
+        self.queries.push(request.query.clone());
         let query: String = request.query.split_whitespace().collect();
         let block = if query.contains("type(Device)") {
             Block::Nodes
@@ -194,6 +233,94 @@ impl Fixture {
                 .iter()
                 .all(|call| call.first > 0 && call.first <= 256)
         );
+    }
+}
+
+#[tokio::test]
+async fn hosted_replacement_scopes_retirement_and_rejects_older_observations() {
+    let server = RunningServer::start(Fixture {
+        mutation_response: json!({"source":[{"uid":"0x1"}],"target":[{"uid":"0x2"}]}),
+        ..Fixture::default()
+    })
+    .await;
+    let edge = EdgeWrite::new(
+        "sr:guest.example.test",
+        "sr:host.example.test",
+        EdgeKind::HostedOn,
+        "virtualization_inventory",
+        "hosted-virtual",
+        "hypervisor_enrichment_v1",
+    )
+    .with_last_seen("2030-02-03T04:05:06Z");
+
+    server
+        .client
+        .replace_hosted_edge(&edge)
+        .await
+        .expect("valid hosted projection mutation");
+
+    let fixture = server.fixture.lock().expect("fixture lock");
+    let (query, condition, delete) = fixture
+        .mutation_contracts
+        .first()
+        .expect("one atomic replacement mutation");
+    assert!(query.contains("~topo.src"), "{query}");
+    assert!(
+        query.contains("eq(topo.ingestor, \"hypervisor_enrichment_v1\")"),
+        "{query}"
+    );
+    assert!(query.contains("eq(topo.kind, \"HOSTED_ON\")"), "{query}");
+    assert!(
+        query.contains("gt(topo.last_seen, \"2030-02-03T04:05:06Z\")"),
+        "{query}"
+    );
+    assert!(!query.contains("type(TopologyEdge)"), "{query}");
+    assert_eq!(
+        condition,
+        "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0) AND eq(len(identical), 0))"
+    );
+    assert_eq!(
+        delete,
+        &json!([
+            {"uid": "uid(e)"},
+            {"uid": "uid(c)", "topo.dst": null}
+        ])
+    );
+    assert_eq!(
+        fixture.mutations[0]["topo.ingestor"],
+        "hypervisor_enrichment_v1"
+    );
+    assert!(
+        fixture.mutations[0]["topo.link_key"]
+            .as_str()
+            .expect("projection link key")
+            .contains("projection=hypervisor_enrichment_v1")
+    );
+    assert_eq!(fixture.mutations[0]["topo.kind"], "HOSTED_ON");
+    assert_eq!(fixture.mutations[0]["topo.telemetry_eligible"], false);
+}
+
+#[tokio::test]
+async fn hosted_replacement_rejects_missing_or_ambiguous_endpoint_identities() {
+    for response in [
+        json!({"source":[],"target":[{"uid":"0x2"}]}),
+        json!({"source":[{"uid":"0x1"},{"uid":"0x3"}],"target":[{"uid":"0x2"}]}),
+    ] {
+        let server = RunningServer::start(Fixture {
+            mutation_response: response,
+            ..Fixture::default()
+        })
+        .await;
+        let edge = EdgeWrite::new(
+            "sr:guest.example.test",
+            "sr:host.example.test",
+            EdgeKind::HostedOn,
+            "virtualization_inventory",
+            "hosted-virtual",
+            "hypervisor_enrichment_v1",
+        )
+        .with_last_seen("2030-02-03T04:05:06Z");
+        assert!(server.client.replace_hosted_edge(&edge).await.is_err());
     }
 }
 
@@ -375,6 +502,49 @@ async fn canonical_edges_page_past_the_grpc_limit_and_an_unadmitted_page() {
 }
 
 #[tokio::test]
+async fn edge_upsert_preserves_only_supplied_observation_time() {
+    use dgraph_topology::{EdgeKind, EdgeWrite};
+
+    let server = RunningServer::start(Fixture::default()).await;
+    server
+        .client
+        .upsert_edge(&EdgeWrite::new(
+            "synthetic-source",
+            "synthetic-target",
+            EdgeKind::AttachedTo,
+            "fixture",
+            "physical",
+            "synthetic-test",
+        ))
+        .await
+        .expect("upsert edge without observation time");
+    server
+        .client
+        .upsert_edge(
+            &EdgeWrite::new(
+                "synthetic-source",
+                "synthetic-target",
+                EdgeKind::AttachedTo,
+                "fixture",
+                "physical",
+                "synthetic-test",
+            )
+            .with_last_seen("2030-01-02T03:04:05Z"),
+        )
+        .await
+        .expect("upsert edge with observation time");
+
+    let fixture = server.fixture.lock().expect("fixture lock");
+    assert_eq!(fixture.mutations.len(), 2);
+    assert_eq!(fixture.mutations[0]["topo.stale"], false);
+    assert!(fixture.mutations[0].get("topo.last_seen").is_none());
+    assert_eq!(
+        fixture.mutations[1]["topo.last_seen"],
+        "2030-01-02T03:04:05Z"
+    );
+}
+
+#[tokio::test]
 async fn canonical_graph_keeps_isolated_vertices_and_one_snapshot_across_both_scans() {
     let server = RunningServer::start(Fixture {
         nodes: (1..=258).map(device).collect(),
@@ -469,6 +639,200 @@ async fn later_page_protocol_or_source_failures_never_return_a_partial_graph() {
             assert_eq!(fixture.calls.last().expect("last page attempt").first, 1);
         }
     }
+}
+
+#[tokio::test]
+async fn topology_view_keeps_admitted_attachments_and_drops_observations() {
+    let kinds = [
+        "CANONICAL_TOPOLOGY",
+        "ATTACHED_TO",
+        "INFERRED_TO",
+        "HOSTED_ON",
+        "OBSERVED_TO",
+        "MTR_PATH",
+        "",
+    ];
+    let mut edges: Vec<_> = kinds
+        .iter()
+        .enumerate()
+        .map(|(index, kind)| {
+            json!({
+                "uid": format!("{:#x}", 4096 + index + 1),
+                "topo.link_key": format!("invented-view-{index}"),
+                "topo.kind": kind,
+                "topo.last_seen": "2030-01-02T00:00:00Z",
+                "topo.protocol": "lldp",
+                "topo.evidence_class": "direct-physical",
+                "topo.confidence_tier": "high",
+                "topo.telemetry_eligible": true,
+                "topo.src": [{"device.id": "sr:ap-1.example.test"}],
+                "topo.dst": [{"device.id": format!("sr:endpoint-{index}.example.test")}]
+            })
+        })
+        .collect();
+    let mut expected_keys: BTreeSet<_> = (0..4).map(|i| format!("invented-view-{i}")).collect();
+    let mut stale_keys = BTreeSet::new();
+    for kind in &kinds[..4] {
+        for (name, seen, fresh) in [
+            ("expired", Some("2030-01-01T11:59:59Z"), false),
+            ("boundary", Some("2030-01-01T12:00:00Z"), true),
+            ("offset", Some("2030-01-01T13:00:00+02:00"), false),
+            ("missing", None, false),
+            ("invalid", Some("invalid-timestamp"), false),
+        ] {
+            let key = format!("{kind}-{name}");
+            expected_keys.insert(key.clone());
+            if *kind != "CANONICAL_TOPOLOGY" && !fresh {
+                stale_keys.insert(key.clone());
+            }
+            let mut row = edges[0].clone();
+            row["uid"] = json!(format!("{:#x}", 4096 + edges.len() + 1));
+            row["topo.link_key"] = json!(key);
+            row["topo.kind"] = json!(kind);
+            if let Some(seen) = seen {
+                row["topo.last_seen"] = json!(seen);
+            } else {
+                row.as_object_mut().unwrap().remove("topo.last_seen");
+            }
+            edges.push(row);
+        }
+    }
+    let expired: Vec<_> = (1..=256)
+        .map(|index| {
+            let key = format!("expired-prefix-{index}");
+            expected_keys.insert(key.clone());
+            stale_keys.insert(key.clone());
+            let mut row = edges[1].clone();
+            row["uid"] = json!(format!("{index:#x}"));
+            row["topo.link_key"] = json!(key);
+            row["topo.last_seen"] = json!("2000-01-01T00:00:00Z");
+            row
+        })
+        .collect();
+    edges.splice(0..0, expired);
+    edges.push(json!({
+        "uid": "0xff01",
+        "topo.link_key": "flagged-attachment",
+        "topo.kind": "ATTACHED_TO",
+        "topo.stale": true,
+        "topo.last_seen": "2030-01-02T00:00:00Z",
+        "topo.src": [{"device.id": "sr:ap-1.example.test"}],
+        "topo.dst": [{"device.id": "sr:flagged-attachment.example.test"}]
+    }));
+    edges.push(json!({
+        "uid": "0xff02",
+        "topo.link_key": "flagged-canonical",
+        "topo.kind": "CANONICAL_TOPOLOGY",
+        "topo.stale": true,
+        "topo.last_seen": "2030-01-02T00:00:00Z",
+        "topo.src": [{"device.id": "sr:ap-1.example.test"}],
+        "topo.dst": [{"device.id": "sr:flagged-canonical.example.test"}]
+    }));
+    expected_keys.insert("flagged-attachment".to_owned());
+    stale_keys.insert("flagged-attachment".to_owned());
+    let server = RunningServer::start(Fixture {
+        nodes: vec![json!({
+            "uid": "0x1",
+            "device.id": "sr:ap-1.example.test",
+            "device.hostname": "ap-1.example.test"
+        })],
+        edges,
+        ..Default::default()
+    })
+    .await;
+    let view = tokio::time::timeout(
+        Duration::from_secs(10),
+        server.client.query_topology_view("2030-01-01T12:00:00Z"),
+    )
+    .await
+    .expect("finite view traversal")
+    .expect("complete topology view");
+    assert_eq!(view.nodes().len(), 1);
+    assert_eq!(view.nodes()[0].id(), "sr:ap-1.example.test");
+    assert_eq!(view.nodes()[0].hostname(), Some("ap-1.example.test"));
+    assert_eq!(
+        view.edges()
+            .iter()
+            .map(|edge| edge.edge().link_key().to_owned())
+            .collect::<BTreeSet<_>>(),
+        expected_keys
+    );
+    assert_eq!(
+        view.edges()
+            .iter()
+            .filter(|edge| edge.stale())
+            .map(|edge| edge.edge().link_key().to_owned())
+            .collect::<BTreeSet<_>>(),
+        stale_keys
+    );
+    assert_eq!(
+        view.edges()
+            .iter()
+            .find(|edge| edge.edge().link_key() == "invented-view-1")
+            .and_then(|edge| edge.last_seen()),
+        Some("2030-01-02T00:00:00Z")
+    );
+    assert_eq!(
+        view.edges()
+            .iter()
+            .find(|edge| edge.edge().link_key() == "ATTACHED_TO-missing")
+            .and_then(|edge| edge.last_seen()),
+        None
+    );
+    assert!(
+        view.edges()
+            .iter()
+            .filter(|edge| edge.kind() == "CANONICAL_TOPOLOGY")
+            .all(|edge| !edge.stale())
+    );
+    let admitted: BTreeSet<_> = view
+        .edges()
+        .iter()
+        .map(|edge| edge.kind().to_owned())
+        .collect();
+    assert_eq!(
+        admitted,
+        BTreeSet::from([
+            "CANONICAL_TOPOLOGY".to_owned(),
+            "ATTACHED_TO".to_owned(),
+            "INFERRED_TO".to_owned(),
+            "HOSTED_ON".to_owned(),
+        ])
+    );
+    let fixture = server.fixture.lock().expect("fixture lock");
+    fixture.assert_protocol();
+    assert_eq!(
+        fixture
+            .calls
+            .iter()
+            .filter(|call| call.block == Block::Edges)
+            .count(),
+        2
+    );
+    let edge_query = fixture
+        .queries
+        .iter()
+        .find(|query| query.contains("type(TopologyEdge)"))
+        .expect("edge page");
+    for kind in [
+        "CANONICAL_TOPOLOGY",
+        "ATTACHED_TO",
+        "INFERRED_TO",
+        "HOSTED_ON",
+    ] {
+        assert!(
+            edge_query.contains(&format!("eq(topo.kind, \"{kind}\")")),
+            "{edge_query}"
+        );
+    }
+    assert!(!edge_query.contains("OBSERVED_TO"));
+    assert!(!edge_query.contains("MTR_PATH"));
+    assert!(
+        edge_query
+            .contains(r#"(eq(topo.kind, "CANONICAL_TOPOLOGY") AND NOT eq(topo.stale, true))"#),
+        "{edge_query}"
+    );
+    assert!(edge_query.contains("topo.stale"), "{edge_query}");
 }
 
 #[derive(Clone)]

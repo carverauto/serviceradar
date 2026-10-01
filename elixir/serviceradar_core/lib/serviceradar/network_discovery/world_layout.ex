@@ -27,11 +27,26 @@ defmodule ServiceRadar.NetworkDiscovery.WorldLayout do
     defaults [:read]
 
     create :stage do
-      accept [:algorithm_version, :zmax, :source_digest, :node_count, :relation_count]
+      accept [
+        :algorithm_version,
+        :zmax,
+        :source_digest,
+        :node_count,
+        :relation_count,
+        :pipeline_stats
+      ]
     end
 
     create :initialize_stage do
-      accept [:algorithm_version, :zmax, :source_digest, :node_count, :relation_count]
+      accept [
+        :algorithm_version,
+        :zmax,
+        :source_digest,
+        :node_count,
+        :relation_count,
+        :pipeline_stats
+      ]
+
       argument :layout_version, :uuid, allow_nil?: false
       change set_attribute(:layout_version, arg(:layout_version))
       upsert? true
@@ -39,7 +54,15 @@ defmodule ServiceRadar.NetworkDiscovery.WorldLayout do
     end
 
     update :publish do
-      accept [:status, :source_digest, :node_count, :relation_count]
+      accept [
+        :status,
+        :algorithm_version,
+        :zmax,
+        :source_digest,
+        :node_count,
+        :relation_count,
+        :pipeline_stats
+      ]
     end
 
     destroy :discard
@@ -82,6 +105,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldLayout do
     attribute :source_digest, :string, allow_nil?: false, public?: true
     attribute :node_count, :integer, allow_nil?: false, public?: true, constraints: [min: 0]
     attribute :relation_count, :integer, allow_nil?: false, public?: true, constraints: [min: 0]
+    attribute :pipeline_stats, :map, allow_nil?: false, default: %{}, public?: true
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

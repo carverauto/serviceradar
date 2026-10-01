@@ -113,7 +113,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         emit_merge_guard_telemetry(merge_guard_blocked, reason, from_device_id, to_device_id)
         record_guard_block(merge_guard_blocked, reason, from_device_id, to_device_id, details)
 
-        Logger.warning(
+        Logger.info(
           "Blocked merge #{from_device_id} -> #{to_device_id} " <>
             "(reason: #{reason}, guard: #{merge_guard_blocked})"
         )

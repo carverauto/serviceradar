@@ -80,7 +80,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
            ) == {:starrocks, "timeseries_metrics_hourly"}
   end
 
-  test "keeps logs and metrics on CNPG when enabled but not cut over" do
+  test "routes metrics by warehouse enablement independently of log cutover" do
     with_starrocks(true)
 
     assert TelemetryIndexRead.mode(Log, table: "logs") == :cnpg
@@ -88,7 +88,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     assert TelemetryIndexRead.mode(
              TimeseriesMetric,
              table: "timeseries_metrics"
-           ) == :cnpg
+           ) == {:starrocks, "timeseries_metrics"}
   end
 
   test "routes traces and summaries to the warehouse when enabled, before any cutover" do

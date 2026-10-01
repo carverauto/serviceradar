@@ -63,7 +63,7 @@ registerGlobalWindowEvents()
 
 document.addEventListener("submit", event => {
   const form = event.target
-  if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-disable-on-submit")) return
+  if (!(form instanceof globalThis.HTMLFormElement) || !form.hasAttribute("data-disable-on-submit")) return
   if (form.dataset.submitting === "true") {
     event.preventDefault()
     return
@@ -71,10 +71,10 @@ document.addEventListener("submit", event => {
 
   form.dataset.submitting = "true"
   const submitter = event.submitter || form.querySelector("button[type='submit'], input[type='submit']")
-  if (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) {
+  if (submitter instanceof globalThis.HTMLButtonElement || submitter instanceof globalThis.HTMLInputElement) {
     const label = submitter.dataset.submitLabel
     if (label) {
-      if (submitter instanceof HTMLInputElement) submitter.value = label
+      if (submitter instanceof globalThis.HTMLInputElement) submitter.value = label
       else submitter.textContent = label
     }
     submitter.disabled = true

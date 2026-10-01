@@ -60,20 +60,48 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
     ]
 
     assert GodViewStream.edge_topology_class_counts(edges) == %{
-             # direct, direct-physical, logical, unknown(nil)
-             backbone: 4,
+             # direct and direct-physical are physical backbone; logical and
+             # unknown(nil) remain separate.
+             backbone: 2,
+             logical: 1,
              attachment: 2,
              inferred: 2,
              hosted: 2,
-             observed: 1
+             observed: 1,
+             unknown: 1
            }
   end
 
   test "edge_topology_class_counts/1 returns zeroed counts for empty or invalid input" do
-    empty = %{backbone: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0}
+    empty = %{
+      backbone: 0,
+      logical: 0,
+      attachment: 0,
+      inferred: 0,
+      hosted: 0,
+      observed: 0,
+      unknown: 0
+    }
 
     assert GodViewStream.edge_topology_class_counts([]) == empty
     assert GodViewStream.edge_topology_class_counts(nil) == empty
+  end
+
+  test "rendered class accounting replaces inherited counts and classifies unsupported evidence as unknown" do
+    edges = [
+      %{source: "a", target: "b", evidence_class: "hosted"},
+      %{source: "b", target: "c", evidence_class: nil},
+      %{source: "c", target: "d", evidence_class: "observed"}
+    ]
+
+    stats = %{"edge_class_observed" => 43, "edge_class_unknown" => 99, "edge_class_hosted" => 98, edge_class_observed: 42}
+    rendered = GodViewStream.rendered_pipeline_stats(stats, [], edges)
+    assert rendered.edge_class_hosted == 1
+    assert rendered.edge_class_unknown == 2
+    refute Map.has_key?(rendered, :edge_class_observed)
+    refute Map.has_key?(rendered, "edge_class_observed")
+    refute Map.has_key?(rendered, "edge_class_unknown")
+    refute Map.has_key?(rendered, "edge_class_hosted")
   end
 
   test "inferred-segment filtering preserves the only bridge between direct components" do

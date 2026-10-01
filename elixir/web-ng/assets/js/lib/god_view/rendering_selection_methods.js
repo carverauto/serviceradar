@@ -1,5 +1,26 @@
 import {dashboardUserTimeHtml} from "../../utils/dashboard_user_time"
 
+function storedDetailTime(details) {
+  if (!details || typeof details !== "object") return ""
+  const seen = details.last_seen
+  return typeof seen === "string" && seen !== "" ? seen : ""
+}
+
+function sharedStoredTime(edge) {
+  const members = edge?.memberDetails
+  if (Array.isArray(members)) {
+    if (members.length === 0) return ""
+    const first = storedDetailTime(members[0])
+    if (first === "") return ""
+    for (let index = 1; index < members.length; index += 1) {
+      if (storedDetailTime(members[index]) !== first) return ""
+    }
+    return first
+  }
+  const direct = typeof edge?.lastSeen === "string" && edge.lastSeen !== "" ? edge.lastSeen : ""
+  return direct || storedDetailTime(edge?.details)
+}
+
 export const godViewRenderingSelectionMethods = {
   forceDeckRedraw() {
     if (typeof this.state?.deck?.redraw === "function") {
@@ -416,7 +437,17 @@ export const godViewRenderingSelectionMethods = {
       if (edge.interactionKey !== selected && edge.interactionKey !== hovered) continue
       if (seen.has(edge.interactionKey)) continue
       seen.add(edge.interactionKey)
-      picked.push(edge)
+      const observed = sharedStoredTime(edge)
+      if (!observed) {
+        picked.push(edge)
+        continue
+      }
+      const label = typeof edge.connectionLabel === "string" ? edge.connectionLabel : ""
+      picked.push({
+        ...edge,
+        lastSeen: observed,
+        connectionLabel: label ? `${label} · ${observed}` : observed,
+      })
     }
     return picked
   },

@@ -73,7 +73,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
       | source_if_index: 13,
         source_if_name: "eth13",
         target_if_index: 17,
-        target_if_name: "eth17"
+        target_if_name: "eth17",
+        stale: true,
+        last_seen: "2020-01-01T00:00:00Z"
     }
 
     relations = [relation("link-red", 1, 2), blue]
@@ -140,11 +142,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
              source_if_index: 21,
              source_if_name: "eth21",
              target_if_index: 17,
-             target_if_name: "eth17"
+             target_if_name: "eth17",
+             stale: true,
+             last_seen: "2020-01-01T00:00:00Z"
            } =
              Enum.find(after_relations, &(&1.relation_id == "link-blue"))
 
-    assert %{source_if_index: 7, target_if_index: 9} =
+    assert %{source_if_index: 7, target_if_index: 9, stale: false, last_seen: nil} =
              Enum.find(after_relations, &(&1.relation_id == "link-red"))
 
     assert {:ok, %{label: "host01-renamed.example.com", min_zoom: 4, x: 100, y: 200}} =
@@ -181,9 +185,19 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert {:ok, %{layout_version: active, generation: 1}} = World.active_manifest(scope())
     assert active == layout.layout_version
 
-    metadata = %{source_digest: "synthetic-retry", node_count: 1, relation_count: 0}
+    metadata = %{
+      algorithm_version: "invented-replacement-v2",
+      zmax: 12,
+      source_digest: "synthetic-retry",
+      node_count: 1,
+      relation_count: 0
+    }
+
     assert :ok = World.stage_candidate(staged.layout_version, metadata, [position(4)], [])
-    assert {:ok, %{generation: 2}} = World.activate_relayout(1, staged.layout_version)
+
+    assert {:ok, %{generation: 2, algorithm_version: "invented-replacement-v2", zmax: 12}} =
+             World.activate_relayout(1, staged.layout_version)
+
     assert {:ok, nil} = World.lookup_device(scope(), staged.layout_version, "sr:host03")
     assert {:ok, %{x: 400}} = World.lookup_device(scope(), staged.layout_version, "sr:host04")
 
@@ -494,6 +508,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
       source_if_name: "eth7",
       target_if_index: 9,
       target_if_name: "eth9",
+      stale: false,
+      last_seen: nil,
       active: true
     }
   end

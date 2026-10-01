@@ -759,6 +759,10 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       :ok ->
         :ok
 
+      {:error, {:merge_blocked, _guard}} = error ->
+        # Guard-block already logged at info by the engine; no duplicate line here.
+        error
+
       {:error, reason} ->
         Logger.warning(
           "Failed to merge device #{from_id} into #{canonical_id}: #{inspect(reason)}"

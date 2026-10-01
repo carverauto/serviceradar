@@ -336,9 +336,9 @@ describe("rendering_graph_view_methods", () => {
     )
 
     ctx.autoFitViewState(graph)
-    const first = structuredClone(state.viewState)
+    const first = globalThis.structuredClone(state.viewState)
     ctx.autoFitViewState(graph, {force: true})
-    const second = structuredClone(state.viewState)
+    const second = globalThis.structuredClone(state.viewState)
 
     expect(2 ** first.zoom).toBeCloseTo(containmentScale, 6)
     expect(first.zoom).toBeLessThan(Math.log2(0.089285))

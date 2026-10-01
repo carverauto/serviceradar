@@ -39,7 +39,10 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     positions =
       for index <- 1..67 do
         "sr:detail#{index}.example.com"
-        |> position(index * 100, true)
+        |> position(
+          if(index <= 2, do: 1_000_000 + (index - 1) * 3_000_000, else: 8_000_000 + index * 100),
+          true
+        )
         |> Map.put(:min_zoom, if(index <= 2, do: 0, else: 8))
       end
 
@@ -83,7 +86,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert :ok = TopologyAtlas.add_positions(builder, positions)
     assert :ok = TopologyAtlas.add_relations(builder, bindings ++ [loop_binding])
     assert {:ok, world} = TopologyAtlas.finish_world(builder)
-    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
+    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0, %{nodes: 9, edges: 256})
     assert is_reference(tile.selection)
     assert tile.selection_bytes > 0
     aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
@@ -91,16 +94,31 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, selection} =
              TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
 
-    assert {:ok, %{member_count: 1, retained_bytes: bytes}} =
+    assert {:ok, %{member_count: count, retained_bytes: bytes}} =
              TopologyAtlas.aggregate_info(selection)
 
     assert bytes > 0
+    assert count == aggregate.count
+    assert count > 1
 
-    assert {:ok, %{nodes: [member], next_cursor: nil}} =
+    assert {:ok, %{nodes: first_members, next_cursor: member_cursor}} =
              TopologyAtlas.detail(world, {:aggregate_members, selection})
 
-    refute member.device_id in [a.device_id, b.device_id]
-    assert member.device_id in Enum.map(positions, & &1.device_id)
+    assert length(first_members) == 64
+    assert is_map(member_cursor)
+
+    assert {:ok, %{nodes: last_members, next_cursor: nil}} =
+             TopologyAtlas.detail(world, {:aggregate_members, selection}, member_cursor)
+
+    members = first_members ++ last_members
+
+    assert length(members) == count
+
+    assert MapSet.subset?(
+             MapSet.new(members, & &1.device_id),
+             MapSet.new(Enum.drop(positions, 2), & &1.device_id)
+           )
+
     scope = {:component_members, "synthetic-component"}
     assert {:ok, first} = TopologyAtlas.detail(world, scope)
     assert length(first.nodes) == 64
@@ -140,15 +158,15 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
                TopologyAtlas.tile_relations(world, tile.selection, tail, 1)
     end
 
-    # Degrees include the other page and the non-rendered self-relation. The
-    # latter contributes once even though both ends name the same interface.
+    # Role-bound and nonphysical relations remain inspectable but do not enter
+    # the physical-interface attribution index.
     selected = [first_binding, second_binding]
 
     selected_by_id = Map.new(selected, &{&1.relation_id, &1})
-    assert selected_by_id["synthetic-link-b"].source_interface_degree == 1
-    assert selected_by_id["synthetic-link-b"].target_interface_degree == 2
-    assert selected_by_id["synthetic-link-a"].source_interface_degree == 2
-    assert selected_by_id["synthetic-link-a"].target_interface_degree == 2
+    assert selected_by_id["synthetic-link-b"].source_interface_degree == 0
+    assert selected_by_id["synthetic-link-b"].target_interface_degree == 0
+    assert selected_by_id["synthetic-link-a"].source_interface_degree == 0
+    assert selected_by_id["synthetic-link-a"].target_interface_degree == 0
 
     for binding <- bindings do
       assert {:ok, %{relation: picked, nodes: [source, target]}} =
@@ -210,6 +228,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert info.target == Enum.at(glyphs, edge.target)
     assert info.source.kind == :boundary
     assert info.target.kind == :boundary
+    assert info.last_seen == nil
 
     assert {:ok, first} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id)
     assert first.total_relations == 257
@@ -252,10 +271,49 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:error, :invalid_identity} = TopologyAtlas.bundle_detail(world, tile.selection, nil)
   end
 
+  test "bundle info reports a stored observation time only when every member shares it" do
+    a = corner("sr:seen-a.example.com", 100, 100)
+    b = corner("sr:seen-b.example.com", 8_000_000, 100)
+    c = corner("sr:seen-c.example.com", 100, 8_000_000)
+    d = corner("sr:seen-d.example.com", 8_000_000, 8_000_000)
+    e = corner("sr:seen-e.example.com", 4_000_000, 4_000_000)
+
+    relations = [
+      observed("invented-shared-1", a, b, 1, "2020-01-01T00:00:00Z"),
+      observed("invented-shared-2", a, b, 2, "2020-01-01T00:00:00Z"),
+      observed("invented-mixed-1", b, c, 1, "2020-01-01T00:00:00Z"),
+      observed("invented-mixed-2", b, c, 2, "2024-02-01T00:00:00Z"),
+      observed("invented-single", c, d, 1, "2024-06-01T00:00:00Z"),
+      observed("invented-blank-1", d, e, 1, ""),
+      observed("invented-blank-2", d, e, 2, nil)
+    ]
+
+    assert {:ok, builder} = TopologyAtlas.new_builder("invented-observation-layout", 16)
+    assert :ok = TopologyAtlas.add_positions(builder, [a, b, c, d, e])
+    assert :ok = TopologyAtlas.add_relations(builder, relations)
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    assert {:ok, %{edges: edges} = tile} = TopologyAtlas.tile(world, 0, 0, 0)
+
+    observed_times =
+      Map.new(edges, fn edge ->
+        assert {:ok, info} = TopologyAtlas.bundle_info(world, tile.selection, edge.id)
+        assert {:ok, page} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id)
+        assert page.total_relations == length(page.relations)
+        {MapSet.new(Enum.map(page.relations, & &1.id)), info.last_seen}
+      end)
+
+    assert observed_times[MapSet.new(["invented-shared-1", "invented-shared-2"])] ==
+             "2020-01-01T00:00:00Z"
+
+    assert observed_times[MapSet.new(["invented-mixed-1", "invented-mixed-2"])] == nil
+    assert observed_times[MapSet.new(["invented-single"])] == "2024-06-01T00:00:00Z"
+    assert observed_times[MapSet.new(["invented-blank-1", "invented-blank-2"])] == nil
+  end
+
   test "packaged health updates are atomic, revision-bound, and separate from tile geometry" do
-    a = position("sr:health-a.example.com", 100, true)
-    b = position("sr:health-b.example.com", 200, true)
-    c = position("sr:health-c.example.com", 300, true)
+    a = position("sr:health-a.example.com", 1_000_000, true)
+    b = position("sr:health-b.example.com", 7_000_000, true)
+    c = position("sr:health-c.example.com", 6_000_000, true)
     world = cold_world([a, b])
     epoch = 0xFEDCBA9876543210
     assert {:ok, health} = TopologyAtlas.new_health(world, epoch)
@@ -341,6 +399,27 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert :ok = TopologyAtlas.add_positions(builder, positions)
     assert {:ok, world} = TopologyAtlas.finish_world(builder)
     world
+  end
+
+  defp corner(id, x, y) do
+    id
+    |> position(x, true)
+    |> Map.merge(%{y: y, component_z: 0, component_x: 0, component_y: 0})
+  end
+
+  defp observed(id, source, target, port, last_seen) do
+    %{
+      relation_id: id,
+      source_id: source.device_id,
+      target_id: target.device_id,
+      evidence_class: "endpoint-attachment",
+      kind: "ATTACHED_TO",
+      source_if_index: port,
+      source_if_name: "p#{port}",
+      target_if_index: port,
+      target_if_name: "p#{port}",
+      last_seen: last_seen
+    }
   end
 
   defp position(id, coordinate, active) do

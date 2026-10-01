@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Topology.WorldSceneTest do
     assert byte_size(encoded.payload) <= 262_144
     assert :binary.match(encoded.payload, level.level_id) != :nomatch
     assert :binary.match(encoded.payload, level.next_cursor) != :nomatch
+    assert :binary.match(encoded.payload, "radial-overview") != :nomatch
     assert {:ok, ^encoded} = WorldScene.encode(level)
 
     next = %{level | next_cursor: "invented-next-page-b"}
@@ -43,8 +44,14 @@ defmodule ServiceRadarWebNG.Topology.WorldSceneTest do
   test "detail Arrow carries endpoint topology classification separately from evidence" do
     level = level()
     [edge] = level.edges
-    assert {:ok, encoded} = WorldScene.encode(%{level | edges: [%{edge | evidence_class: "endpoint-attachment"}]})
-    assert :binary.match(encoded.payload, "endpoint-attachment") != :nomatch
+
+    assert {:ok, encoded} =
+             WorldScene.encode(%{
+               level
+               | edges: [Map.merge(edge, %{topology_class: "endpoints", evidence_class: "direct"})]
+             })
+
+    assert :binary.match(encoded.payload, "direct") != :nomatch
     assert :binary.match(encoded.payload, "endpoints") != :nomatch
     assert :binary.match(encoded.payload, "backbone") == :nomatch
   end

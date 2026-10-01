@@ -70,6 +70,37 @@ function denseLowTrustFanoutGraph(endpointCount = 160) {
 }
 
 describe("topology_overview_projection", () => {
+  it("prefers current topology over stale high-trust links and retains multihoming", () => {
+    const nodes = [
+      {id: "core", details: {type: "Router", topology_plane: "backbone"}},
+      {id: "access-a", details: {type: "Switch", topology_plane: "backbone"}},
+      {id: "access-b", details: {type: "Switch", topology_plane: "backbone"}},
+      {id: "leaf", details: {type: "Switch", topology_plane: "backbone"}},
+    ]
+    const index = new Map(nodes.map((node, i) => [node.id, i]))
+    const overview = prepareTopologyOverviewInput({
+      nodes,
+      edges: [
+        {id: "core-access-a", source: index.get("core"), target: index.get("access-a"), topologyClass: "backbone", evidenceClass: "direct"},
+        {id: "access-a-leaf", source: index.get("access-a"), target: index.get("leaf"), topologyClass: "inferred", evidenceClass: "inferred"},
+        {id: "access-b-leaf", source: index.get("access-b"), target: index.get("leaf"), topologyClass: "inferred", evidenceClass: "inferred"},
+        {id: "stale-core-leaf", source: index.get("core"), target: index.get("leaf"), topologyClass: "backbone", evidenceClass: "direct", stale: true},
+      ],
+    })
+
+    expect(overview.treeRelations.map((relation) => relation.pairId).sort()).toEqual([
+      "overview:pair:access-a|core",
+      "overview:pair:access-a|leaf",
+      "overview:pair:access-b|leaf",
+    ])
+    expect(overview.crossLinks).toContainEqual(expect.objectContaining({
+      pairId: "overview:pair:core|leaf",
+      semanticRelationIds: ["stale-core-leaf"],
+      trustRank: 0,
+      evidence: [expect.objectContaining({stale: true})],
+    }))
+  })
+
   it("keeps a physically connected hypervisor visible without expanding its guests", () => {
     const overview = prepareTopologyOverviewInput({
       nodes: [
@@ -258,6 +289,73 @@ describe("topology_overview_projection", () => {
       .filter((relation) => ["small-1", "small-2"].includes(relation.targetId))
       .map((relation) => relation.sourceId)
     expect(parents).toEqual(["small-anchor", "small-anchor"])
+
+    // An explicitly requested, bounded page elaborates the original radial fan.
+    // Its real attachment bindings remain available to the route renderer.
+    const page = prepareTopologyOverviewInput({nodes, edges, _topologyBoundedPage: true})
+    expect(page.manifest).toMatchObject({attachedEndpoints: 7, omittedAttachmentNodes: 0})
+    for (let index = 0; index < 5; index += 1) {
+      expect(page.treeRelations.find(relation => relation.targetId === `big-${index}`)).toMatchObject({
+        sourceId: "big-anchor", semanticRelationIds: [`att:big-${index}`],
+      })
+    }
+    const isolated = {id: "server-isolated", label: "Isolated server", details: {type: "server"}}
+    expect(prepareTopologyOverviewInput({nodes: [isolated], edges: [], _topologyBoundedPage: true}))
+      .toMatchObject({roots: [isolated.id], nodes: [{id: isolated.id, label: isolated.label}]})
+    const expanded = {
+      _topologyBoundedPage: true,
+      nodes: [...nodes, isolated,
+        {id: "server-physical", details: {type: "server"}},
+        {id: "guest-hosted", details: {type: "virtual"}},
+        {id: "synthetic-sighting", details: {type: "server", identity_source: "mapper_topology_sighting"}},
+        {id: "synthetic-attachment", details: {type: "server", identity_source: "endpoint_attachment_projection"}},
+      ],
+      edges: [...edges,
+        {id: "physical-server", source: "small-anchor", target: "server-physical", topologyClass: "backbone"},
+        {id: "hosted-guest", source: "server-physical", target: "guest-hosted", topologyClass: "hosted"},
+        {id: "guest-cross-link", source: "big-anchor", target: "guest-hosted", topologyClass: "inferred"},
+        {id: "synthetic-link", source: "small-anchor", target: "synthetic-sighting", topologyClass: "inferred"},
+      ],
+    }
+    const retained = prepareTopologyOverviewInput(expanded)
+    expect(retained.manifest.nodeIds).toEqual(expanded.nodes.slice(0, -2).map(node => node.id).sort())
+    expect([...retained.treeRelations, ...retained.crossLinks].flatMap(relation => relation.semanticRelationIds).sort())
+      .toEqual(expanded.edges.slice(0, -1).map(edge => edge.id).sort())
+    expect(retained.crossLinks.flatMap(relation => relation.semanticRelationIds)).toContain("guest-cross-link")
+    expect(prepareTopologyOverviewInput({
+      ...expanded,
+      nodes: [...expanded.nodes].reverse(),
+      edges: [...expanded.edges].reverse().map(edge => ({
+        ...edge,
+        source: expanded.nodes[edge.source]?.id ?? edge.source,
+        target: expanded.nodes[edge.target]?.id ?? edge.target,
+      })),
+    })).toEqual(retained)
+  })
+
+  it.each([false, true])("prefers physical attachment parents on bounded pages (mixed evidence: %s)", (mixedEvidence) => {
+      const graph = {
+        _topologyBoundedPage: true,
+        nodes: [
+          {id: "anchor-a", details: {type: "switch"}},
+          {id: "anchor-z", details: {type: "switch"}},
+          {id: "client", details: {type: "server"}},
+        ],
+        edges: [
+          {id: "backbone", source: "anchor-a", target: "anchor-z", topologyClass: "backbone"},
+          {id: "physical", source: "anchor-z", target: "client", topologyClass: "endpoints",
+            evidenceClass: "direct-physical", metadata: {relation_type: "ATTACHED_TO", protocol: "lldp"}},
+          {id: "shortcut", source: "anchor-a", target: "client", topologyClass: "inferred"},
+          ...(mixedEvidence ? [{id: "same-pair-inferred", source: "anchor-z", target: "client",
+            topologyClass: "inferred"}] : []),
+        ],
+      }
+      const page = prepareTopologyOverviewInput(graph)
+      expect(page.treeRelations.find(relation => relation.targetId === "client"))
+        .toMatchObject({sourceId: "anchor-z", semanticRelationIds: mixedEvidence
+          ? ["physical", "same-pair-inferred"] : ["physical"]})
+      expect(page.crossLinks.flatMap(relation => relation.semanticRelationIds)).toEqual(["shortcut"])
+      expect(prepareTopologyOverviewInput({...graph, edges: [...graph.edges].reverse()})).toEqual(page)
   })
 
   it("chooses a summary parent by canonical pair when multiple attachment candidates exist", () => {

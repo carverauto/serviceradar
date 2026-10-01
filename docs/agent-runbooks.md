@@ -694,6 +694,11 @@ fails closed -- an absent or empty marker is a refusal -- so adding the flag to 
 does not declare `//build:template_authority_file` changes nothing. The run-base targets that
 fed from it (`//rust/integration-db:provision_base`, `//elixir/serviceradar_core:migrate_run`,
 `//rust/integration-db:provision_db*`) also remain in the tree, but no workflow invokes them.
+The accepted retirement plan deletes the writers, the flag, and the run-base targets, and adds
+per-lane `provision_generation_<lane>` clone targets for the one-lane loop; those labels are
+forthcoming, not yet callable. After the retirement lands, rolling back to the singleton
+lifecycle means reverting the retirement code first to restore the targets and their guards,
+then restoring the callers -- the frozen database alone restores nothing.
 
 Every lifecycle invocation passes `-c opt --config=ci --//build:enable_integration_tests`;
 database tests add `--strategy=TestRunner=local --nocache_test_results`. Mint ONE run id for

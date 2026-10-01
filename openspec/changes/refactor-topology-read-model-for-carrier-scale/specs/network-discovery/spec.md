@@ -1,6 +1,6 @@
 ## ADDED Requirements
 ### Requirement: Canonical atlas acquisition uses bounded consistent source pages
-The topology read model SHALL acquire canonical Dgraph Device vertices and relations through bounded pages in one read-only transaction. Source acquisition SHALL enforce transport limits independently of the tile and bounded-detail budgets used for inventory enrichment and client delivery.
+The topology read model SHALL acquire Dgraph Device vertices and admitted topology-view relations through bounded pages in one read-only transaction. The view SHALL include the current canonical backbone plus `ATTACHED_TO`, `INFERRED_TO`, and `HOSTED_ON` evidence whether that evidence is fresh or last-known stale, preserving relation kind and evidence class. Freshness is independent of topology class. Stale evidence is not current packet traffic. Canonical telemetry eligibility SHALL survive for current canonical rows; stale rows, non-canonical view relations, and old rows without eligibility SHALL remain telemetry-ineligible. The canonical graph API used by traversal consumers SHALL remain backbone-only and current-only. Source acquisition SHALL enforce transport limits independently of the tile and bounded-detail budgets used for inventory enrichment and client delivery.
 
 #### Scenario: Canonical source exceeds one transport response
 - **GIVEN** the complete canonical vertex or relation set exceeds one permitted gRPC response
@@ -8,6 +8,24 @@ The topology read model SHALL acquire canonical Dgraph Device vertices and relat
 - **THEN** it SHALL retrieve UID-ordered pages with a validated advancing cursor
 - **AND** all vertex and relation pages SHALL use the same Dgraph read timestamp
 - **AND** the complete source SHALL be assembled before a replacement atlas index is published
+
+#### Scenario: Aged attachment evidence stays marked stale
+- **GIVEN** an attachment, hosted, or inferred relation is older than the freshness cutoff or already marked stale, and a current relation of that same class is also present
+- **WHEN** the atlas reads the topology view and publishes the world
+- **THEN** the latest aged evidence SHALL remain, marked stale, without retaining an unbounded history of earlier sightings
+- **AND** the current same-class relation SHALL be preferred for the layout forest
+- **AND** the observation time SHALL be the stored timestamp and SHALL NOT be manufactured
+- **AND** aging SHALL mark or delete a row only when its stored last_seen is still older than the cutoff in the same mutation
+- **AND** packet animation SHALL NOT use the stale evidence
+- **AND** an explicitly deleted edge SHALL NOT reappear
+- **AND** the canonical backbone API and causal readers SHALL remain current-only
+
+#### Scenario: Hosted repair preserves ownership observation time
+- **GIVEN** saved guest ownership is valid and its host receives a newer heartbeat
+- **WHEN** hosted topology repair replays the saved owner
+- **THEN** the guest's own observation time SHALL determine ownership freshness; the host heartbeat SHALL NOT refresh it
+- **AND** a guest with unknown observation time SHALL NOT create or refresh a hosted edge
+- **AND** valid last-known hosted evidence for that guest SHALL remain retained rather than being retired solely because the observation time is unknown
 
 #### Scenario: A later source page cannot be accepted
 - **GIVEN** earlier pages were read successfully

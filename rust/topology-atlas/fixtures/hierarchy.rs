@@ -4,7 +4,8 @@ pub const COUNT: usize = 1_000_000;
 
 pub fn hierarchy() -> (Vec<Device>, Vec<Relation>) {
     // Generated independently: 1,000 invented sites, each with a core, ten
-    // infrastructure devices and invented endpoint members. A second relation
+    // infrastructure devices and invented endpoint members. Invented cores form
+    // one connected eight-way hierarchy. A second relation
     // per member represents redundant access. No live topology is an input.
     let mut nodes = Vec::with_capacity(COUNT + COUNT / 100);
     let mut links = Vec::with_capacity(COUNT * 2 + COUNT / 100);
@@ -23,7 +24,9 @@ pub fn hierarchy() -> (Vec<Device>, Vec<Relation>) {
     }
     for i in 0..COUNT {
         let base = i / 1000 * 1000;
-        let first = if i % 1000 == 0 {
+        let first = if i % 1000 == 0 && base > 0 {
+            ((i / 1000 - 1) / 8) * 1000
+        } else if i % 1000 == 0 {
             base + 1
         } else if i % 1000 <= 10 {
             base

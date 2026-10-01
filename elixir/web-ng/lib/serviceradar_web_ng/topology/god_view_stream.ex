@@ -1602,15 +1602,18 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @doc false
   @spec edge_topology_class_counts([map()]) :: %{
           backbone: non_neg_integer(),
+          logical: non_neg_integer(),
           attachment: non_neg_integer(),
           inferred: non_neg_integer(),
           hosted: non_neg_integer(),
-          observed: non_neg_integer()
+          observed: non_neg_integer(),
+          unknown: non_neg_integer()
         }
   def edge_topology_class_counts(edges) when is_list(edges) do
     Enum.reduce(edges, empty_edge_topology_class_counts(), fn
       edge, acc when is_map(edge) ->
-        Map.update!(acc, edge_topology_class_count_key(edge), &(&1 + 1))
+        key = edge_topology_class_count_key(edge)
+        Map.update!(acc, key, &(&1 + 1))
 
       _edge, acc ->
         acc
@@ -1620,18 +1623,19 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   def edge_topology_class_counts(_edges), do: empty_edge_topology_class_counts()
 
   defp empty_edge_topology_class_counts do
-    %{backbone: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0}
+    %{backbone: 0, logical: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0, unknown: 0}
   end
 
   defp edge_topology_class_count_key(edge) do
     case edge_topology_class(edge) do
       "endpoints" -> :attachment
+      "logical" -> :logical
       "inferred" -> :inferred
       "hosted" -> :hosted
       "observed" -> :observed
-      # "backbone" and "logical" both render under the backbone layer and
-      # drive the client backbone layout (see edgeDrivesBackboneLayout).
-      _ -> :backbone
+      "backbone" -> :backbone
+      "unknown" -> :unknown
+      _ -> :unknown
     end
   end
 
@@ -2438,12 +2442,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @spec edge_topology_class(map()) :: String.t()
   def edge_topology_class(edge) do
     case evidence_class(edge) do
+      "direct" -> "backbone"
       "endpoint-attachment" -> "endpoints"
       "inferred" -> "inferred"
       "logical" -> "logical"
       "hosted" -> "hosted"
       "observed" -> "observed"
-      _ -> "backbone"
+      _ -> "unknown"
     end
   end
 
@@ -5088,10 +5093,21 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> Map.put(:final_inferred, count_by_evidence(edges, "inferred"))
     |> Map.put(:final_attachment, count_by_evidence(edges, "endpoint-attachment"))
     |> Map.put(:edge_class_backbone, class_counts.backbone)
+    |> Map.put(:edge_class_logical, class_counts.logical)
     |> Map.put(:edge_class_attachment, class_counts.attachment)
     |> Map.put(:edge_class_inferred, class_counts.inferred)
     |> Map.put(:edge_class_hosted, class_counts.hosted)
-    |> Map.put(:edge_class_observed, class_counts.observed)
+    |> Map.drop([
+      :edge_class_observed,
+      "edge_class_observed",
+      "edge_class_backbone",
+      "edge_class_logical",
+      "edge_class_attachment",
+      "edge_class_inferred",
+      "edge_class_hosted",
+      "edge_class_unknown"
+    ])
+    |> Map.put(:edge_class_unknown, class_counts.unknown + class_counts.observed)
     |> Map.put(:backbone_edge_count, class_counts.backbone)
     |> Map.merge(component_stats(nodes, edges))
   end

@@ -50,6 +50,7 @@ describe("rendering_style_edge_particle_methods", () => {
     const {block} = flowFor([
       {...trafficEdge, path: [[0, 0, 0], [100, 0, 0], [100, 100, 0]]},
       {...trafficEdge, telemetryEligible: false},
+      {...trafficEdge, stale: true},
       {...trafficEdge, flowPps: 0, flowBps: 0, flowPpsAb: 0, flowPpsBa: 0, flowBpsAb: 0, flowBpsBa: 0},
     ])
 

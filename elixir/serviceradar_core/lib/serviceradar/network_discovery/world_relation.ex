@@ -59,7 +59,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
         :source_if_name,
         :target_if_index,
         :target_if_name,
-        :active
+        :telemetry_eligible,
+        :kind,
+        :active,
+        :stale,
+        :last_seen
       ]
 
       upsert? true
@@ -73,7 +77,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
         :source_if_name,
         :target_if_index,
         :target_if_name,
+        :telemetry_eligible,
+        :kind,
         :active,
+        :stale,
+        :last_seen,
         :updated_at
       ]
     end
@@ -107,6 +115,10 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
     attribute :target_if_index, :integer, public?: true, constraints: [min: 1]
     attribute :target_if_name, :string, public?: true
     attribute :active, :boolean, allow_nil?: false, default: true, public?: true
+    attribute :telemetry_eligible, :boolean, allow_nil?: false, default: false, public?: true
+    attribute :kind, :string, allow_nil?: false, default: "CANONICAL_TOPOLOGY", public?: true
+    attribute :stale, :boolean, allow_nil?: false, default: false, public?: true
+    attribute :last_seen, :string, allow_nil?: true, public?: true
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

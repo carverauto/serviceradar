@@ -66,7 +66,7 @@ export class WorldOverlays {
       const overlay = await worldJson(`/topology/overlays/${geometry.key.layout_version}/${id}?revision=${geometry.revision}`, controller.signal)
       if (controller.signal.aborted || this.visible.get(id) !== geometry) return
       if (!matches(overlay, geometry) || !Array.isArray(overlay.health?.glyphs) || overlay.health.glyphs.length > 128 ||
-          !Array.isArray(overlay.flow?.edges) || overlay.flow.edges.length > 256) throw new Error("Invalid topology overlay")
+          !Array.isArray(overlay.flow?.edges) || overlay.flow.edges.length > 512) throw new Error("Invalid topology overlay")
       this.entries.set(id, overlay)
       this.onChange()
     } catch (_error) {
