@@ -481,6 +481,16 @@ WHERE t.service_name = 'checkout'
   (liveness). The dev `otel.toml` binds it on `0.0.0.0:9464` via `[server.metrics]`; if
   the section is omitted (as in the packaged config) the metrics server is not started,
   and the built-in default port is 9090 when the section is present without a port.
+- Span-derived Prometheus metrics admit at most 1,024 distinct label tuples per
+  group for the collector process lifetime: span duration/count share one group;
+  HTTP duration, gRPC duration, and slow-span count each have their own. Each label
+  value is limited to 128 UTF-8 bytes. Oversized values, new tuples after a group
+  fills, and reserved overflow identities are recorded in one additional tuple
+  with every label set to `cardinality_overflow`. Counts and duration observations
+  are retained there, but their original label breakdown is lost. Previously
+  admitted tuples remain usable at capacity; restarting the collector resets
+  admission. These fixed limits apply to Prometheus exposition only; telemetry
+  published to JetStream retains its original fields.
 
 ## Troubleshooting
 
