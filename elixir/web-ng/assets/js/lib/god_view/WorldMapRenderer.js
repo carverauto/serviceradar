@@ -136,6 +136,7 @@ export default class WorldMapRenderer {
     this.resize = new ResizeObserver(() => {
       const width = this.el.clientWidth
       const height = this.el.clientHeight
+      this.flushPendingCommands()
       this.deck?.setProps({width, height})
       adoptDeckViewportSize(this.deck, width, height)
     })
@@ -224,8 +225,13 @@ export default class WorldMapRenderer {
 
   setView(viewState) {
     this.viewState = viewState
+    this.flushPendingCommands()
     this.deck?.setProps({viewState})
     this.scheduleLocationUpdate()
+  }
+
+  flushPendingCommands() {
+    this.deck?.device?.submit?.()
   }
 
   locationFrame() {
@@ -431,6 +437,7 @@ export default class WorldMapRenderer {
 
   render() {
     if (!this.deck || !this.cache.manifest || this.destroyed || this.rendererFailed) return
+    this.flushPendingCommands()
     this.deck.setProps({layers: [new WorldTileLayer({
       id: `god-view-world-${this.cache.manifest.layout_version}`, visible: !this.detailRenderer,
       maxZoom: this.cache.manifest.zmax, getTileData: this.getTileData,
@@ -617,6 +624,7 @@ export default class WorldMapRenderer {
   failRenderer(error) {
     if (this.rendererFailed) return
     this.rendererFailed = true
+    this.flushPendingCommands()
     this.deck?.setProps({_animate: false, layers: []})
     this.status(`Topology renderer stopped: ${error.message}. Reload to try again.`)
   }

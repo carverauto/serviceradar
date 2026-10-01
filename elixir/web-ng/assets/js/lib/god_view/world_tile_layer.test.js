@@ -30,6 +30,50 @@ function layers(geometry, telemetry) {
 }
 
 describe("world tile rendering contract", () => {
+  it("submits queued GPU work before replacing the visible tile layers", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    const pending = {destroyed: false}
+    const device = {
+      submit: vi.fn(() => {
+        if (pending.destroyed) throw new Error("queued draw used a retired tile buffer")
+      }),
+    }
+    renderer.cache.manifest = {layout_version: "synthetic-layout", zmax: 16}
+    renderer.deck = {
+      device,
+      setProps: vi.fn(() => {
+        pending.destroyed = true
+      }),
+    }
+
+    renderer.render()
+
+    expect(device.submit).toHaveBeenCalledTimes(1)
+    expect(renderer.deck.setProps).toHaveBeenCalledTimes(1)
+  })
+
+  it("submits queued GPU work before applying a camera zoom", () => {
+    const renderer = new WorldMapRenderer({}, vi.fn(), vi.fn())
+    const pending = {destroyed: false}
+    const device = {
+      submit: vi.fn(() => {
+        if (pending.destroyed) throw new Error("queued draw used a retired tile buffer")
+      }),
+    }
+    renderer.deck = {
+      device,
+      setProps: vi.fn(() => {
+        pending.destroyed = true
+      }),
+    }
+    renderer.scheduleLocationUpdate = vi.fn()
+
+    renderer.setView({zoom: 4})
+
+    expect(device.submit).toHaveBeenCalledTimes(1)
+    expect(renderer.deck.setProps).toHaveBeenCalledWith({viewState: {zoom: 4}})
+  })
+
   it.each(["world", "detail"])("submits %s draws before camera updates retire attribute buffers", async mode => {
     vi.useFakeTimers()
     const domNode = () => ({style: {}, append() {}, replaceChildren() {}, setAttribute() {}, addEventListener() {}})

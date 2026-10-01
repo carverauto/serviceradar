@@ -8,6 +8,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
 
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dgraph
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.NetworkDiscovery.World
