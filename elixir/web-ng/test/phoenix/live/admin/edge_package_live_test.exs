@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, actor_for_user: 1, ensure_process_registry!: 0]
 
