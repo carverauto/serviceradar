@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   """
   use ServiceRadarWebNGWeb, :controller
 
+  alias Ash.Error.Forbidden
   alias ServiceRadar.Inventory.BumblebeeDevicePosture
   alias ServiceRadar.Inventory.BumblebeeFinding
   alias ServiceRadar.Inventory.Device
@@ -244,6 +245,55 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   end
 
   @doc """
+  Removes a single fact key from a device's metadata and its provenance entry.
+
+  The caller may only remove a fact it wrote itself (matching provenance
+  source). Removing a key not present in provenance is a no-op.
+  """
+  def delete_metadata(conn, %{"uid" => uid, "key" => key} = _params) do
+    scope = get_scope(conn)
+
+    with {:ok, parsed_uid} <- parse_uid(uid),
+         :ok <- validate_fact_key(key),
+         {:ok, device} <- fetch_device(parsed_uid, scope) do
+      apply_remove_facts(conn, device, [key], scope)
+    else
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{"error" => "device not found"})
+
+      {:error, reason} when is_binary(reason) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{"error" => reason})
+    end
+  end
+
+  defp validate_fact_key(key) when is_binary(key) and byte_size(key) > 0, do: :ok
+  defp validate_fact_key(_), do: {:error, "key must be a non-empty string"}
+
+  defp apply_remove_facts(conn, device, keys, scope) do
+    device
+    |> Ash.Changeset.for_update(:remove_facts, %{keys: keys}, scope: scope)
+    |> Ash.update()
+    |> case do
+      {:ok, updated} ->
+        json(conn, %{"data" => %{"uid" => updated.uid, "facts" => rendered_facts(updated)}})
+
+      {:error, %Ash.Error.Forbidden{}} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{"error" => "not authorized to remove device facts"})
+
+      {:error, error} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{"error" => Exception.message(error)})
+    end
+  end
+
+  @doc """
   Sets bounded scalar facts on a device's metadata.
 
   Phase-1 ingress for external validation tools such as OpenText Network
@@ -289,7 +339,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
       {:ok, updated} ->
         json(conn, %{"data" => %{"uid" => updated.uid, "facts" => rendered_facts(updated)}})
 
-      {:error, %Ash.Error.Forbidden{}} ->
+      {:error, %Forbidden{}} ->
         conn
         |> put_status(:forbidden)
         |> json(%{"error" => "not authorized to write device facts"})
