@@ -2,6 +2,7 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.ColdTier.Boundary
   alias ServiceRadar.ColdTier.Exporter
   alias ServiceRadar.ColdTier.Health
@@ -13,7 +14,7 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
   @moduletag :integration
 
   setup do
-    keys = [ServiceRadar.ColdTier, ServiceRadar.Analytics.StarRocks, :repo_enabled]
+    keys = [ServiceRadar.ColdTier, StarRocks, :repo_enabled]
     original = Map.new(keys, &{&1, Application.get_env(:serviceradar_core, &1)})
 
     on_exit(fn ->
@@ -30,7 +31,7 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
       primary_host: "primary.example.com"
     )
 
-    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: false)
+    Application.put_env(:serviceradar_core, StarRocks, enabled: false)
     Application.put_env(:serviceradar_core, :repo_enabled, true)
     :ok
   end
@@ -79,11 +80,13 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
           |> Map.put("SERVICERADAR_STARROCKS_ENABLED", to_string(warehouse?))
           |> ColdTierRuntimeConfig.read!()
 
-        Application.put_env(:serviceradar_core, ServiceRadar.ColdTier, runtime[ServiceRadar.ColdTier])
-
-        Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks,
-          runtime[ServiceRadar.Analytics.StarRocks]
+        Application.put_env(
+          :serviceradar_core,
+          ServiceRadar.ColdTier,
+          runtime[ServiceRadar.ColdTier]
         )
+
+        Application.put_env(:serviceradar_core, StarRocks, runtime[StarRocks])
 
         record_backend = fn ->
           if export_enabled?, do: Health.record_backend(), else: reporter.perform(%Oban.Job{})
@@ -95,7 +98,10 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
         assert event.new_state == state
         assert event.old_state == previous.new_state
         assert event.metadata["mode"] == mode
-        assert event.metadata["telemetry_backend"] == if(warehouse?, do: "starrocks", else: "cnpg")
+
+        assert event.metadata["telemetry_backend"] ==
+                 if(warehouse?, do: "starrocks", else: "cnpg")
+
         assert event.metadata["cnpg_export_enabled"] == export_enabled?
         assert event.metadata["export_source"] == "cnpg"
         assert event.metadata["warehouse_export_enabled"] == false
@@ -131,7 +137,7 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
     assert RetentionFence.fenced?("logs")
     assert RetentionFence.safe_drop_point("logs", 30) == :hold
 
-    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: true)
+    Application.put_env(:serviceradar_core, StarRocks, enabled: true)
 
     assert RetentionFence.fenced?("logs")
     assert RetentionFence.safe_drop_point("logs", 30) == :hold

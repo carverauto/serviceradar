@@ -6,6 +6,7 @@ defmodule ServiceRadar.ColdTier.StateTest do
   """
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.ColdTier.Config
   alias ServiceRadar.ColdTier.Exporter
   alias ServiceRadar.ColdTier.Pruner
@@ -38,16 +39,16 @@ defmodule ServiceRadar.ColdTier.StateTest do
 
   setup do
     original = Application.get_env(:serviceradar_core, ServiceRadar.ColdTier)
-    starrocks = Application.get_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks)
-    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: false)
+    starrocks = Application.get_env(:serviceradar_core, StarRocks)
+    Application.put_env(:serviceradar_core, StarRocks, enabled: false)
 
     on_exit(fn ->
       restore(original)
 
       if is_nil(starrocks) do
-        Application.delete_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks)
+        Application.delete_env(:serviceradar_core, StarRocks)
       else
-        Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, starrocks)
+        Application.put_env(:serviceradar_core, StarRocks, starrocks)
       end
     end)
 
@@ -71,8 +72,8 @@ defmodule ServiceRadar.ColdTier.StateTest do
 
       Application.put_env(
         :serviceradar_core,
-        ServiceRadar.Analytics.StarRocks,
-        runtime[ServiceRadar.Analytics.StarRocks]
+        StarRocks,
+        runtime[StarRocks]
       )
 
       assert Config.state() == state
@@ -149,12 +150,12 @@ defmodule ServiceRadar.ColdTier.StateTest do
       assert s3.access_key_id == "synthetic-key"
       assert s3.secret_access_key == "synthetic-secret"
       assert {:ok, head} = Config.head_opts()
-      assert head[:port] == 15432
+      assert head[:port] == 15_432
       assert head[:database] == "archive"
       assert head[:username] == "archive_reader"
       assert head[:password] == "synthetic-head-password"
       assert {:ok, primary} = Config.primary_fdw()
-      assert primary.port == 15433
+      assert primary.port == 15_433
       assert primary.dbname == "telemetry"
       assert primary.username == "telemetry_reader"
       assert primary.password == "synthetic-primary-password"
@@ -197,7 +198,7 @@ defmodule ServiceRadar.ColdTier.StateTest do
 
   test "StarRocks preserves configured CNPG backfill and its retention fence" do
     put(@full)
-    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: true)
+    Application.put_env(:serviceradar_core, StarRocks, enabled: true)
 
     assert Config.state() == :cnpg_backfill
     assert Config.enabled?()

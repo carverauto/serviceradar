@@ -17,6 +17,7 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.ColdTier.RetentionFence
 
   @enabled [
@@ -38,8 +39,8 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
 
   setup do
     original = Application.get_env(:serviceradar_core, ServiceRadar.ColdTier)
-    starrocks = Application.get_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks)
-    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: false)
+    starrocks = Application.get_env(:serviceradar_core, StarRocks)
+    Application.put_env(:serviceradar_core, StarRocks, enabled: false)
 
     on_exit(fn ->
       case original do
@@ -48,9 +49,9 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
       end
 
       if is_nil(starrocks) do
-        Application.delete_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks)
+        Application.delete_env(:serviceradar_core, StarRocks)
       else
-        Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, starrocks)
+        Application.put_env(:serviceradar_core, StarRocks, starrocks)
       end
     end)
 
@@ -86,7 +87,7 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
     put(@enabled)
 
     for warehouse? <- [false, true] do
-      Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: warehouse?)
+      Application.put_env(:serviceradar_core, StarRocks, enabled: warehouse?)
 
       assert_raise RuntimeError, ~r/could not lookup Ecto repo/, fn ->
         RetentionFence.reconcile_cagg_windows(repo: NotARepo)
