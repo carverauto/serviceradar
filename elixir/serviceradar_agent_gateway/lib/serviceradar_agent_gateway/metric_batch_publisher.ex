@@ -5,12 +5,17 @@ defmodule ServiceRadarAgentGateway.MetricBatchPublisher do
 
   An oversized publish is rejected by the broker with "Maximum Payload
   Violation" and the server closes the gateway's shared NATS connection, so
-  every metric publisher routes through here: batches whose encoded size
-  exceeds the limit are split into several under-limit messages (see
+  the publishers using `ServiceRadarAgentGateway.MetricsPublisher` route
+  through here: batches whose encoded size exceeds the limit are split into
+  several under-limit messages (see
   `ServiceRadarAgentGateway.MetricBatchSplit`), preserving the batch
   envelope and attestation on each part and keeping the subject derived from
   the original batch's first metric so routing is identical to an unsplit
   publish.
+
+  Each split part gets a deterministic `Nats-Msg-Id` suffix based on its
+  one-based index, while the payload's ingress id remains shared. JetStream
+  must deduplicate retries of a part without discarding the other parts.
   """
 
   alias Serviceradar.Metric.V1.MetricBatch
