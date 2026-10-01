@@ -10,9 +10,12 @@ failed config read leaves the agent on its running config.
 - Migrations add `platform.sweep_group_declared_targets`,
   `composite_checks.last_incremental_at`, and a concurrent index
   `device_agent_availability_agent_updated_idx` on
-  `(agent_id, updated_at)`. Helm `core.migrations.expectedVersion`
-  is `20261002100100`. The index builds outside a transaction and
-  does not take the migration lock.
+  `(agent_id, updated_at)`, plus a partial concurrent index
+  `ocsf_devices_type_active_hostname_idx` on
+  `(COALESCE(NULLIF(trim(type), ''), 'Unknown'), hostname, uid)` for
+  active, non-deleted devices (partial index). Helm
+  `core.migrations.expectedVersion` is `20261002100200`. Both indexes
+  build outside a transaction and do not take the migration lock.
 - Composite checks no longer run inside sweep ingestion. A minute
   cron re-evaluates devices whose availability changed since the
   last mark. A nil `last_incremental_at` runs one full pass first.
