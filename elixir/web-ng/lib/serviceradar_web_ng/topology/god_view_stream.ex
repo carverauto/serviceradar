@@ -5097,7 +5097,17 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> Map.put(:edge_class_attachment, class_counts.attachment)
     |> Map.put(:edge_class_inferred, class_counts.inferred)
     |> Map.put(:edge_class_hosted, class_counts.hosted)
-    |> Map.put(:edge_class_observed, class_counts.observed)
+    |> Map.drop([
+      :edge_class_observed,
+      "edge_class_observed",
+      "edge_class_backbone",
+      "edge_class_logical",
+      "edge_class_attachment",
+      "edge_class_inferred",
+      "edge_class_hosted",
+      "edge_class_unknown"
+    ])
+    |> Map.put(:edge_class_unknown, class_counts.unknown + class_counts.observed)
     |> Map.put(:backbone_edge_count, class_counts.backbone)
     |> Map.merge(component_stats(nodes, edges))
   end

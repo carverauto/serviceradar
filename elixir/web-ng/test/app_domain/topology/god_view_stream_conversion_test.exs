@@ -87,6 +87,23 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
     assert GodViewStream.edge_topology_class_counts(nil) == empty
   end
 
+  test "rendered class accounting replaces inherited counts and classifies unsupported evidence as unknown" do
+    edges = [
+      %{source: "a", target: "b", evidence_class: "hosted"},
+      %{source: "b", target: "c", evidence_class: nil},
+      %{source: "c", target: "d", evidence_class: "observed"}
+    ]
+
+    stats = %{"edge_class_observed" => 43, "edge_class_unknown" => 99, "edge_class_hosted" => 98, edge_class_observed: 42}
+    rendered = GodViewStream.rendered_pipeline_stats(stats, [], edges)
+    assert rendered.edge_class_hosted == 1
+    assert rendered.edge_class_unknown == 2
+    refute Map.has_key?(rendered, :edge_class_observed)
+    refute Map.has_key?(rendered, "edge_class_observed")
+    refute Map.has_key?(rendered, "edge_class_unknown")
+    refute Map.has_key?(rendered, "edge_class_hosted")
+  end
+
   test "inferred-segment filtering preserves the only bridge between direct components" do
     edges = [
       converted_edge("a", "b", "direct"),

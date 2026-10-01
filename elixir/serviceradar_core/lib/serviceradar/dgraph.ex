@@ -91,6 +91,12 @@ defmodule ServiceRadar.Dgraph do
     end
   end
 
+  def retire_hosted_edge(source, target, observed_at) do
+    with {:ok, url} <- url() do
+      Native.retire_hosted_edge(url, source, target, observed_at)
+    end
+  end
+
   @spec replace_hosted_edge(map()) :: write_result()
   def replace_hosted_edge(edge) when is_map(edge) do
     with {:ok, url} <- url() do

@@ -32,19 +32,21 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   def ensure_scheduled do
     with {:ok, _url} <- Dgraph.url() do
       if ObanSupport.available?() do
-        case incomplete_reconcile() do
-          nil ->
-            enqueue_reconcile(schedule_in: next_reconcile_delay())
+        with {:ok, _repair} <- enqueue_hosted_repair() do
+          case incomplete_reconcile() do
+            nil ->
+              enqueue_reconcile(schedule_in: next_reconcile_delay())
 
-          %{state: "scheduled"} ->
-            if pending_request?(last_completed_reconcile()) do
-              enqueue_reconcile()
-            else
+            %{state: "scheduled"} ->
+              if pending_request?(last_completed()) do
+                enqueue_reconcile()
+              else
+                {:ok, :already_scheduled}
+              end
+
+            _job ->
               {:ok, :already_scheduled}
-            end
-
-          _job ->
-            {:ok, :already_scheduled}
+          end
         end
       else
         {:error, :oban_unavailable}
@@ -64,8 +66,40 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
     |> ObanSupport.safe_insert()
   end
 
+  defp enqueue_hosted_repair do
+    previous = last_completed("hosted_repair")
+
+    if previous &&
+         DateTime.diff(DateTime.utc_now(), previous.completed_at, :second) < @reconcile_seconds do
+      {:ok, :already_repaired}
+    else
+      %{"mode" => "hosted_repair"}
+      |> new()
+      |> ObanSupport.safe_insert()
+    end
+  end
+
   @impl Oban.Worker
   def timeout(_job), do: to_timeout(minute: 15)
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"mode" => "hosted_repair"}} = job) do
+    with {:ok, checkpoint} <-
+           HypervisorEnrichmentIngestor.reconcile_hosted_topology(
+             Map.get(job.args, "checkpoint", %{})
+           ),
+         {:ok, _job} <-
+           Oban.update_job(job.id, %{args: Map.put(job.args, "checkpoint", checkpoint)}) do
+      if checkpoint["guests_done"] and checkpoint["edges_done"] do
+        case enqueue_reconcile() do
+          {:ok, _job} -> :ok
+          {:error, _reason} = error -> error
+        end
+      else
+        {:snooze, 1}
+      end
+    end
+  end
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"mode" => mode, "layout_version" => version}} = job)
@@ -73,7 +107,6 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
     with_result =
       with {:ok, _job} <- record_request(job),
            {:ok, state} <- prepare(mode, version),
-           :ok <- HypervisorEnrichmentIngestor.reconcile_hosted_topology(),
            {:ok, graph} <- TopologyAtlas.read_graph(),
            {:ok, builder} <-
              WorldInventory.stream(state.builder, fn rows, builder ->
@@ -241,7 +274,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   end
 
   defp next_reconcile_delay do
-    case last_completed_reconcile() do
+    case last_completed() do
       nil ->
         0
 
@@ -257,11 +290,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
     end
   end
 
-  defp last_completed_reconcile do
+  defp last_completed(mode \\ "reconcile") do
     query =
       from(job in Oban.Job,
         where: job.worker == ^Oban.Worker.to_string(__MODULE__),
-        where: fragment("? ->> 'mode'", job.args) == "reconcile",
+        where: fragment("? ->> 'mode'", job.args) == ^mode,
         where: job.state == "completed",
         order_by: [desc: job.completed_at, desc: job.id],
         limit: 1

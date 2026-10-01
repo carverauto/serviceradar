@@ -277,7 +277,7 @@ async fn hosted_replacement_scopes_retirement_and_rejects_older_observations() {
     assert!(!query.contains("type(TopologyEdge)"), "{query}");
     assert_eq!(
         condition,
-        "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0))"
+        "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0) AND eq(len(identical), 0))"
     );
     assert_eq!(
         delete,

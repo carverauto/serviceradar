@@ -342,7 +342,7 @@ impl TopologyClient {
         let key = dql_string(&projection_key)?;
         let observed_at = dql_string(edge.last_seen())?;
         let query = format!(
-            "{{\n  source(func: eq(device.id, {source})) {{ s as uid ~topo.src @filter(eq(topo.kind, \"HOSTED_ON\") AND eq(topo.ingestor, {owner})) {{ owned as uid }} }}\n  target(func: eq(device.id, {target})) {{ d as uid }}\n  current(func: eq(topo.link_key, {key})) {{ c as uid }}\n  superseded(func: uid(owned)) @filter(NOT uid(c)) {{ e as uid }}\n  newer(func: uid(owned)) @filter(gt(topo.last_seen, {observed_at})) {{ n as uid }}\n}}"
+            "{{\n  source(func: eq(device.id, {source})) {{ s as uid ~topo.src @filter(eq(topo.kind, \"HOSTED_ON\") AND eq(topo.ingestor, {owner})) {{ owned as uid }} }}\n  target(func: eq(device.id, {target})) {{ d as uid }}\n  current(func: eq(topo.link_key, {key})) {{ c as uid }}\n  same(func: uid(c)) @filter(eq(topo.last_seen, {observed_at}) AND uid_in(topo.dst, uid(d))) {{ identical as uid }}\n  superseded(func: uid(owned)) @filter(NOT uid(c)) {{ e as uid }}\n  newer(func: uid(owned)) @filter(gt(topo.last_seen, {observed_at})) {{ n as uid }}\n}}"
         );
         let set = json!({
             "uid": "uid(c)",
@@ -363,7 +363,8 @@ impl TopologyClient {
             {"uid": "uid(e)"},
             {"uid": "uid(c)", "topo.dst": null}
         ]);
-        let condition = "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0))";
+        let condition =
+            "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0) AND eq(len(identical), 0))";
         let response: Value = self.upsert(&query, condition, &set, Some(&delete)).await?;
         if response
             .get("source")
@@ -381,6 +382,26 @@ impl TopologyClient {
                 "source or target identity is missing or ambiguous".to_owned(),
             ));
         }
+        Ok(())
+    }
+
+    /// Retire only the saved projection that was actually inspected. A concurrent
+    /// refresh or reparent changes the timestamp/destination and wins this race.
+    pub async fn retire_hosted_edge(
+        &self,
+        source: &str,
+        target: &str,
+        observed_at: &str,
+    ) -> Result<(), TopologyError> {
+        let source = dql_string(source)?;
+        let target = dql_string(target)?;
+        let observed_at = dql_string(observed_at)?;
+        let query = format!(
+            "{{ target(func: eq(device.id, {target})) {{ d as uid }} source(func: eq(device.id, {source})) {{ ~topo.src @filter(eq(topo.kind, \"HOSTED_ON\") AND eq(topo.ingestor, \"hypervisor_enrichment_v1\") AND eq(topo.last_seen, {observed_at}) AND uid_in(topo.dst, uid(d))) {{ e as uid }} }} }}"
+        );
+        let _: Value = self
+            .upsert(&query, "", &json!({}), Some(&json!({"uid": "uid(e)"})))
+            .await?;
         Ok(())
     }
 

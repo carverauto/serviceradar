@@ -9,10 +9,13 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Dgraph
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Inventory.VirtualizationCluster
   alias ServiceRadar.Inventory.VirtualizationDatastore
@@ -329,41 +332,104 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationHostDisk, disks, actor),
          {:ok, _} <- upsert_group(VirtualizationNetworkInterface, nics, actor),
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor),
-         :ok <- VirtualizationIdentityAliases.reconcile(records) do
+         :ok <- VirtualizationIdentityAliases.reconcile(records),
+         :ok <- reconcile_saved_guest_ids(Map.values(guest_ids), actor) do
       enqueue_world_reconcile()
     end
   end
 
-  @doc "Projects saved virtualization guest ownership before a topology snapshot."
-  @spec reconcile_hosted_topology() :: :ok | {:error, term()}
-  def reconcile_hosted_topology do
+  @doc "Repairs one bounded page of saved owners and existing projections."
+  def reconcile_hosted_topology(checkpoint \\ %{}) do
     actor = SystemActor.system(:topology_world)
-    reconcile_hosted_topology_page(nil, actor)
+
+    with {:ok, guests} <- hosted_guest_page(checkpoint, actor),
+         {:ok, edges} <- hosted_projection_page(checkpoint),
+         :ok <- Enum.reduce_while(guests, :ok, &reconcile_saved_guest(&1, &2, actor)),
+         :ok <- Enum.reduce_while(edges, :ok, &reconcile_saved_projection(&1, &2, actor)) do
+      checkpoint =
+        checkpoint
+        |> advance_hosted_page("guests", guests, fn guest -> guest.id end)
+        |> advance_hosted_page("edges", edges, fn edge -> edge["uid"] end)
+
+      {:ok, checkpoint}
+    end
   end
 
-  defp reconcile_hosted_topology_page(cursor, actor) do
-    query =
-      VirtualizationGuest
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(not is_nil(host_id) and identity_state != :quarantined)
-      |> Ash.Query.sort(:id)
-      |> Ash.Query.limit(@hosted_page_size)
-      |> Ash.Query.load(:host)
+  defp hosted_guest_page(checkpoint, actor) do
+    if checkpoint["guests_done"] do
+      {:ok, []}
+    else
+      query = hosted_guest_query() |> Ash.Query.sort(:id) |> Ash.Query.limit(@hosted_page_size)
+      cursor = checkpoint["guests_cursor"]
+      query = if cursor, do: Ash.Query.filter(query, id > ^cursor), else: query
+      with {:ok, page} <- Ash.read(query, actor: actor), do: Page.unwrap(page)
+    end
+  end
 
-    query = if cursor, do: Ash.Query.filter(query, id > ^cursor), else: query
+  defp hosted_guest_query do
+    VirtualizationGuest |> Ash.Query.for_read(:read) |> Ash.Query.load(:host)
+  end
 
-    with {:ok, page} <- Ash.read(query, actor: actor),
-         {:ok, guests} <- ServiceRadar.Ash.Page.unwrap(page),
-         :ok <- Enum.reduce_while(guests, :ok, &reconcile_saved_guest(&1, &2, actor)) do
-      if length(guests) == @hosted_page_size do
-        reconcile_hosted_topology_page(List.last(guests).id, actor)
+  defp hosted_projection_page(checkpoint) do
+    if checkpoint["edges_done"] do
+      {:ok, []}
+    else
+      cursor = checkpoint["edges_cursor"] || "0x0"
+
+      if Regex.match?(~r/^0x[0-9a-f]+$/, cursor) do
+        query =
+          "{ edges(func: eq(topo.ingestor, \"hypervisor_enrichment_v1\"), first: #{@hosted_page_size}, after: #{cursor}) @filter(eq(topo.kind, \"HOSTED_ON\")) { uid observed_at: topo.last_seen source: topo.src { id: device.id } target: topo.dst { id: device.id } } }"
+
+        case Dgraph.query(query) do
+          {:ok, %{"edges" => edges}} when is_list(edges) ->
+            if Enum.all?(edges, &valid_hosted_projection?/1),
+              do: {:ok, edges},
+              else: {:error, :incomplete_hosted_projection_page}
+
+          {:error, _reason} = error ->
+            error
+
+          _ ->
+            {:error, :incomplete_hosted_projection_page}
+        end
       else
-        :ok
+        {:error, :invalid_hosted_projection_cursor}
       end
     end
   end
 
-  defp reconcile_saved_guest(guest, :ok, actor) do
+  defp valid_hosted_projection?(%{
+         "uid" => uid,
+         "source" => [%{"id" => source}],
+         "target" => [%{"id" => target}],
+         "observed_at" => observed_at
+       }) do
+    is_binary(uid) and is_binary(source) and is_binary(target) and is_binary(observed_at)
+  end
+
+  defp valid_hosted_projection?(_), do: false
+
+  defp advance_hosted_page(checkpoint, name, rows, cursor) do
+    checkpoint
+    |> Map.put(name <> "_done", length(rows) < @hosted_page_size)
+    |> Map.put(
+      name <> "_cursor",
+      if(rows == [], do: checkpoint[name <> "_cursor"], else: cursor.(List.last(rows)))
+    )
+  end
+
+  defp reconcile_saved_guest_ids([], _actor), do: :ok
+
+  defp reconcile_saved_guest_ids(ids, actor) do
+    query = Ash.Query.filter(hosted_guest_query(), id in ^ids)
+
+    with {:ok, page} <- Ash.read(query, actor: actor),
+         {:ok, guests} <- Page.unwrap(page) do
+      Enum.reduce_while(guests, :ok, &reconcile_saved_guest(&1, &2, actor))
+    end
+  end
+
+  defp saved_hosted_link(guest, actor) do
     with %{host: host} when is_map(host) <- guest,
          false <- guest.identity_state == :quarantined or host.identity_state == :quarantined,
          guest_uid when is_binary(guest_uid) <- guest.device_uid,
@@ -372,24 +438,100 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
            observed_at_string(guest.observed_at || host.observed_at),
          {:ok, guest_uid} <- live_canonical_device_uid(guest_uid, actor),
          {:ok, host_uid} <- live_canonical_device_uid(host_uid, actor),
-         false <- guest_uid == host_uid,
-         :ok <-
-           DgraphPersist.upsert_hosted_link(%{
-             guest_device_id: guest_uid,
-             host_device_id: host_uid,
-             observed_at: observed_at
-           }) do
-      {:cont, :ok}
+         false <- guest_uid == host_uid do
+      {:ok, %{guest_device_id: guest_uid, host_device_id: host_uid, observed_at: observed_at}}
     else
-      false -> {:cont, :ok}
-      nil -> {:cont, :ok}
-      {:skip, _reason} -> {:cont, :ok}
-      {:error, _reason} = error -> {:halt, error}
-      _ -> {:cont, :ok}
+      {:error, _reason} = error -> error
+      _ -> {:skip, :invalid_saved_owner}
     end
   end
 
-  defp reconcile_saved_guest(_guest, {:error, _} = error, _actor), do: {:halt, error}
+  defp reconcile_saved_guest(guest, :ok, actor) do
+    case saved_hosted_link(guest, actor) do
+      {:ok, link} -> reduce_hosted_result(DgraphPersist.upsert_hosted_link(link))
+      {:skip, _reason} -> {:cont, :ok}
+      {:error, _reason} = error -> {:halt, error}
+    end
+  end
+
+  defp reconcile_saved_projection(
+         %{
+           "source" => [%{"id" => source}],
+           "target" => [%{"id" => target}],
+           "observed_at" => observed_at
+         },
+         :ok,
+         actor
+       ) do
+    with {:ok, owner_ids} <- hosted_owner_ids([source], [source], 5, actor),
+         query = Ash.Query.filter(hosted_guest_query(), device_uid in ^owner_ids),
+         {:ok, guests} <- complete_hosted_read(query, actor),
+         {:ok, links} <- saved_hosted_links(guests, actor),
+         {:ok, live?} <- live_hosted_projection(source, target, actor) do
+      if live? and Enum.any?(links, &(&1.guest_device_id == source)) do
+        {:cont, :ok}
+      else
+        reduce_hosted_result(DgraphPersist.retire_hosted_link(source, target, observed_at))
+      end
+    else
+      {:error, _reason} = error -> {:halt, error}
+    end
+  end
+
+  defp live_hosted_projection(source, target, actor) do
+    with {:ok, ^source} <- live_canonical_device_uid(source, actor),
+         {:ok, ^target} <- live_canonical_device_uid(target, actor) do
+      {:ok, true}
+    else
+      {:error, _reason} = error -> error
+      _ -> {:ok, false}
+    end
+  end
+
+  # Inventory may retain the original UID after a canonical merge. Read its
+  # bounded ancestry before concluding that the saved owner no longer exists.
+  defp hosted_owner_ids(_ids, _frontier, 0, _actor),
+    do: {:error, :incomplete_hosted_owner_ancestry}
+
+  defp hosted_owner_ids(ids, frontier, depth, actor) do
+    query = MergeAudit |> Ash.Query.for_read(:read) |> Ash.Query.filter(to_device_id in ^frontier)
+
+    with {:ok, merges} <- complete_hosted_read(query, actor) do
+      ancestors = Enum.map(merges, & &1.from_device_id) -- ids
+
+      cond do
+        ancestors == [] ->
+          {:ok, ids}
+
+        length(ids) + length(ancestors) > @hosted_page_size ->
+          {:error, :incomplete_hosted_owner_ancestry}
+
+        true ->
+          hosted_owner_ids(Enum.uniq(ids ++ ancestors), ancestors, depth - 1, actor)
+      end
+    end
+  end
+
+  defp complete_hosted_read(query, actor) do
+    case Ash.read(query, actor: actor) do
+      {:ok, %{more?: true}} -> {:error, :incomplete_hosted_inventory_read}
+      {:ok, page} -> Page.unwrap(page)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp saved_hosted_links(guests, actor) do
+    Enum.reduce_while(guests, {:ok, []}, fn guest, {:ok, links} ->
+      case saved_hosted_link(guest, actor) do
+        {:ok, link} -> {:cont, {:ok, [link | links]}}
+        {:skip, _reason} -> {:cont, {:ok, links}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp reduce_hosted_result(:ok), do: {:cont, :ok}
+  defp reduce_hosted_result({:error, _reason} = error), do: {:halt, error}
 
   defp enqueue_world_reconcile do
     case ServiceRadar.NetworkDiscovery.WorldWorker.enqueue_reconcile() do

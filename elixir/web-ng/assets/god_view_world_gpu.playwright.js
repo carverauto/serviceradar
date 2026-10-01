@@ -1,5 +1,6 @@
 import {expect, test} from "@playwright/test"
 import {resolve} from "node:path"
+import {transportTile, transportDetail} from "./js/lib/god_view/fixtures/world_transport.js"
 
 const html = resolve(process.env.TEST_SRCDIR, process.env.TEST_WORKSPACE, process.env.GOD_VIEW_WORLD_GPU_PAGE)
 
@@ -49,7 +50,7 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
       const conditional = route.request().headers()["if-none-match"]
       tileRequests.push({id: `${z}/${x}/${y}`, conditional})
       if (conditional === etag) return route.fulfill({status: 304, headers: {...headers, etag}})
-      const bytes = await page.evaluate(index => window.__SR_WORLD_TRANSPORT__.tile(index), {z, x, y})
+      const bytes = transportTile({z, x, y})
       return route.fulfill({body: Buffer.from(bytes), contentType: "application/vnd.apache.arrow.file", headers: {...headers, etag}})
     }
     if (url.pathname.startsWith("/topology/overlays/")) {
@@ -65,7 +66,7 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
     }
     if (url.pathname === "/topology/snapshot/latest") {
       detailRequests += 1
-      const bytes = await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.detail())
+      const bytes = transportDetail()
       return route.fulfill({body: Buffer.from(bytes), contentType: "application/vnd.apache.arrow.file", headers: {...headers,
         "x-sr-god-view-schema": "3", "x-sr-god-view-revision": "1", "x-sr-god-view-generated-at": "2026-01-01T00:00:00Z"}})
     }
@@ -175,6 +176,8 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
     const renderer = window.__SR_WORLD_TRANSPORT__.renderer
     return [...renderer.cache.entries.values()].some(entry => entry.geometry.key.z === 2 && entry.geometry.nodes.filter(node => node.kind === "device").length === 2)
   })).toBe(true)
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.renderer.destroy())
+  await page.unrouteAll({behavior: "wait"})
   expect(errors).toEqual([])
 })
 

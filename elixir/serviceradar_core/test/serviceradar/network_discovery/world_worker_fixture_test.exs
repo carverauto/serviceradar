@@ -6,6 +6,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dgraph
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.NetworkDiscovery.World
@@ -13,6 +14,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
   alias ServiceRadar.NetworkDiscovery.WorldWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TopologyAtlas
+
+  require Ash.Query
 
   @moduletag :external
   @moduletag :world_worker_fixture
@@ -51,7 +54,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
     edges = [parallel | edges]
     assert :ok = Dgraph.rebuild_canonical(edges)
-    saved_hosted_inventory!(hd(ids), Enum.at(ids, 1))
+    guest = saved_hosted_inventory!(hd(ids), Enum.at(ids, 1))
+
+    assert {:ok, %{"guests_done" => true, "edges_done" => true}} =
+             HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
     job = reconcile_job!()
     version = job.args["layout_version"]
 
@@ -87,7 +94,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert {:ok, followup} = WorldWorker.ensure_scheduled()
       assert followup.id != job.id
       assert DateTime.diff(followup.scheduled_at, DateTime.utc_now(), :second) <= 1
-      assert_drain_success()
+      assert_drain_success(2)
 
       assert {:ok,
               %{generation: 2, layout_version: ^version, node_count: 504, relation_count: 504} =
@@ -128,6 +135,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
       assert {:ok, updated_tile} = TopologyAtlas.tile(updated_world, 0, 0, 0)
       assert updated_tile.revision == tile.revision
+      verify_hosted_owner_lifecycle(guest, ids)
     after
       cleanup(version, ids, job.id)
     end
@@ -417,11 +425,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     end
   end
 
-  defp assert_drain_success do
-    assert %{success: 1, failure: 0, snoozed: 0, discard: 0, cancelled: 0} =
+  defp assert_drain_success(expected \\ 1) do
+    assert %{success: ^expected, failure: 0, snoozed: 0, discard: 0, cancelled: 0} =
              Oban.drain_queue(
                queue: :topology_world,
-               with_limit: 1,
+               with_limit: expected,
                with_scheduled: DateTime.utc_now()
              )
   end
@@ -431,6 +439,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       from(job in Oban.Job,
         where:
           job.worker == ^Oban.Worker.to_string(WorldWorker) and
+            fragment("? ->> 'mode'", job.args) == "reconcile" and
             job.state in ["available", "scheduled", "executing", "retryable"]
       ),
       prefix: "platform"
@@ -512,6 +521,270 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       if_index_ab: 1,
       if_index_ba: 2
     }
+  end
+
+  defp verify_hosted_owner_lifecycle(guest, ids) do
+    source = hd(ids)
+    original_host = Enum.at(ids, 1)
+    assert [%{"observed_at" => "2030-02-03T04:05:06Z"}] = hosted_projection(source)
+
+    # Aging is retained by an unchanged owner; repair must not manufacture a
+    # fresh observation. This is the production NIF/Dgraph boundary.
+    assert {:ok, _} = Dgraph.prune_stale("2031-01-01T00:00:00Z", ["HOSTED_ON"])
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+    assert [%{"stale" => true, "observed_at" => "2030-02-03T04:05:06Z"}] =
+             hosted_projection(source)
+
+    # A sibling ingestor's relationship survives every inventory retirement.
+    assert :ok =
+             Dgraph.upsert_edge(%{
+               source: source,
+               target: original_host,
+               kind: :hosted_on,
+               protocol: "virtualization_inventory",
+               evidence_class: "hosted-virtual",
+               ingestor: "synthetic-independent-owner",
+               last_seen: "2030-02-03T04:05:06Z"
+             })
+
+    guest =
+      guest
+      |> Ash.Changeset.for_update(:update, %{host_id: nil}, actor: actor())
+      |> Ash.update!(actor: actor())
+
+    # Failed projection reads do not infer deletion, even after owner removal.
+    dgraph_url = System.fetch_env!("DGRAPH_URL")
+
+    try do
+      System.put_env("DGRAPH_URL", "invalid://synthetic-unavailable")
+      assert {:error, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    after
+      System.put_env("DGRAPH_URL", dgraph_url)
+    end
+
+    assert [_] = hosted_projection(source)
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [] = hosted_projection(source)
+
+    assert {:ok, %{"edges" => [_]}} =
+             Dgraph.query(
+               "{ edges(func: eq(topo.ingestor, \"synthetic-independent-owner\")) { uid } }"
+             )
+
+    guest =
+      guest
+      |> Ash.Changeset.for_update(:update, %{host_id: guest_host!(original_host).id},
+        actor: actor()
+      )
+      |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [_] = hosted_projection(source)
+
+    Repo.query!(
+      "UPDATE platform.virtualization_guests SET identity_state = 'quarantined' WHERE id = $1::uuid",
+      [
+        Ecto.UUID.dump!(guest.id)
+      ]
+    )
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [] = hosted_projection(source)
+
+    Repo.query!(
+      "UPDATE platform.virtualization_guests SET identity_state = 'legacy' WHERE id = $1::uuid",
+      [
+        Ecto.UUID.dump!(guest.id)
+      ]
+    )
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [_] = hosted_projection(source)
+    other_guest = saved_hosted_inventory!(Enum.at(ids, 2), Enum.at(ids, 3))
+
+    guest =
+      guest
+      |> Ash.Changeset.for_update(
+        :update,
+        %{host_id: other_guest.host_id, observed_at: ~U[2032-02-03 04:05:06Z]},
+        actor: actor()
+      )
+      |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+    assert [%{"target" => [%{"id" => new_host}], "observed_at" => "2032-02-03T04:05:06Z"}] =
+             hosted_projection(source)
+
+    assert new_host == Enum.at(ids, 3)
+
+    guest =
+      guest
+      |> Ash.Changeset.for_update(
+        :update,
+        %{host_id: guest_host!(original_host).id, observed_at: ~U[2030-02-03 04:05:06Z]},
+        actor: actor()
+      )
+      |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+    assert [%{"target" => [%{"id" => ^new_host}], "observed_at" => "2032-02-03T04:05:06Z"}] =
+             hosted_projection(source)
+
+    guest =
+      guest
+      |> Ash.Changeset.for_update(
+        :update,
+        %{host_id: other_guest.host_id, observed_at: ~U[2032-02-03 04:05:06Z]},
+        actor: actor()
+      )
+      |> Ash.update!(actor: actor())
+
+    # Retirement from an older scan cannot delete the newly reparented row.
+    assert :ok = Dgraph.retire_hosted_edge(source, original_host, "2030-02-03T04:05:06Z")
+    assert [_] = hosted_projection(source)
+
+    device =
+      Device
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(uid == ^new_host)
+      |> Ash.read_one!(actor: actor())
+
+    device
+    |> Ash.Changeset.for_update(:soft_delete, %{deleted_reason: "synthetic-fixture"},
+      actor: actor()
+    )
+    |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [] = hosted_projection(source)
+
+    device =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^new_host)
+      |> Ash.read_one!(actor: actor())
+
+    device
+    |> Ash.Changeset.for_update(:restore, %{}, actor: actor())
+    |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [_] = hosted_projection(source)
+    host = guest_host!(new_host)
+
+    Repo.query!(
+      "UPDATE platform.virtualization_hosts SET identity_state = 'quarantined' WHERE id = $1::uuid",
+      [
+        Ecto.UUID.dump!(host.id)
+      ]
+    )
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [] = hosted_projection(source)
+
+    Repo.query!(
+      "UPDATE platform.virtualization_hosts SET identity_state = 'legacy' WHERE id = $1::uuid",
+      [
+        Ecto.UUID.dump!(host.id)
+      ]
+    )
+
+    host
+    |> Ash.Changeset.for_update(:update, %{device_uid: "sr:synthetic-missing-endpoint"},
+      actor: actor()
+    )
+    |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [] = hosted_projection(source)
+    host = Ash.get!(VirtualizationHost, host.id, actor: actor())
+
+    host
+    |> Ash.Changeset.for_update(:update, %{device_uid: new_host}, actor: actor())
+    |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [_] = hosted_projection(source)
+    Ash.destroy!(Ash.get!(VirtualizationGuest, guest.id, actor: actor()), actor: actor())
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [] = hosted_projection(source)
+
+    Ash.destroy!(other_guest, actor: actor())
+
+    # A full page resumes at its checkpoint, without recursively reading the
+    # second page. Retry of the first page is idempotent at the graph boundary.
+    host = guest_host!(original_host)
+
+    rows =
+      ids
+      |> Enum.reject(&(&1 == original_host))
+      |> Enum.take(501)
+      |> Enum.map(
+        &%{
+          provider: "topology-world-fixture",
+          provider_ref: "synthetic-bounded-#{&1}",
+          host_id: host.id,
+          device_uid: &1,
+          guest_type: "vm"
+        }
+      )
+
+    assert %Ash.BulkResult{status: :success} =
+             Ash.bulk_create(rows, VirtualizationGuest, :create,
+               actor: actor(),
+               batch_size: 500,
+               return_errors?: true
+             )
+
+    omitted_guest =
+      VirtualizationGuest
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.sort(id: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read_one!(actor: actor())
+
+    assert :ok =
+             Dgraph.replace_hosted_edge(%{
+               source: omitted_guest.device_uid,
+               target: original_host,
+               kind: :hosted_on,
+               protocol: "virtualization_inventory",
+               evidence_class: "hosted-virtual",
+               ingestor: "hypervisor_enrichment_v1",
+               last_seen: "2030-02-03T04:05:06Z"
+             })
+
+    repair = %{"mode" => "hosted_repair"} |> WorldWorker.new() |> Oban.insert!()
+    assert {:snooze, 1} = WorldWorker.perform(repair)
+    assert [_] = hosted_projection(omitted_guest.device_uid)
+    persisted = Repo.get!(Oban.Job, repair.id, prefix: "platform")
+    assert %{"guests_done" => false} = checkpoint = persisted.args["checkpoint"]
+    assert {:snooze, 1} = WorldWorker.perform(repair)
+    retry_job = Repo.get!(Oban.Job, repair.id, prefix: "platform")
+    assert retry_job.args["checkpoint"]["guests_cursor"] == checkpoint["guests_cursor"]
+    assert :ok = WorldWorker.perform(persisted)
+    resumed = Repo.get!(Oban.Job, repair.id, prefix: "platform")
+    assert resumed.args["checkpoint"]["guests_done"]
+    assert resumed.args["checkpoint"]["edges_done"]
+  end
+
+  defp guest_host!(uid) do
+    VirtualizationHost
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(device_uid == ^uid)
+    |> Ash.read_one!(actor: actor())
+  end
+
+  defp hosted_projection(source) do
+    assert {:ok, %{"edges" => edges}} =
+             Dgraph.query(
+               "{ source(func: eq(device.id, #{Jason.encode!(source)})) { s as uid } edges(func: eq(topo.ingestor, \"hypervisor_enrichment_v1\")) @filter(uid_in(topo.src, uid(s))) { uid stale: topo.stale observed_at: topo.last_seen target: topo.dst { id: device.id } } }"
+             )
+
+    edges
   end
 
   defp saved_hosted_inventory!(guest_uid, host_uid) do

@@ -1,4 +1,4 @@
-import {snapshotIpcBytes} from "./snapshot_ipc"
+import {snapshotIpcBytes} from "./snapshot_ipc.js"
 
 export const worldTileKey = {layout_version: "00000000-0000-4000-8000-000000000478", z: 1, x: 1, y: 0}
 export const worldTileRevision = "a".repeat(64)
