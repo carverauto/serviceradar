@@ -30,6 +30,8 @@ fn bounded_labels<'a, const N: usize>(
         return [OVERFLOW_LABEL; N];
     }
 
+    // Reserve the overflow child's identity using prometheus 0.14's vector
+    // key semantics. Revisit this guard when changing that dependency.
     let prometheus_key = |values: [&str; N]| {
         values
             .iter()
