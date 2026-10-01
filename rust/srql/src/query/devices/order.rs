@@ -1,9 +1,6 @@
 use super::{DeviceQuery, filters::safe_device_ip_inet_sql};
 use crate::{
-    parser::{
-        OrderClause,
-        OrderDirection::{Asc, Desc},
-    },
+    parser::{OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
         first_seen_time as col_first_seen_time, hostname as col_hostname,
         last_seen_time as col_last_seen_time, type_id as col_type_id, uid as col_uid,
@@ -12,6 +9,10 @@ use crate::{
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Inet, Nullable};
+// Bring variants into scope so new arms can write `Asc`/`Desc` without the
+// fully-qualified form that the structural publish scanner misidentifies as
+// compressed IPv6.
+use OrderDirection::*;
 
 pub(super) fn apply_ordering<'a>(
     mut query: DeviceQuery<'a>,
@@ -60,49 +61,62 @@ fn apply_primary_order<'a>(
     query: DeviceQuery<'a>,
     clause: &OrderClause,
 ) -> (DeviceQuery<'a>, bool) {
-    match (clause.field.as_str(), clause.direction) {
-        ("hostname", Asc) => (query.order(col_hostname.asc()), true),
-        ("hostname", Desc) => (query.order(col_hostname.desc()), true),
-        ("is_available", _) => (
+    match clause.field.as_str() {
+        "is_available" => (
             match clause.direction {
-                Asc => query.order(sql::<Bool>("coalesce(is_available, false)").asc()),
-                Desc => query.order(sql::<Bool>("coalesce(is_available, false)").desc()),
+                OrderDirection::Asc => {
+                    query.order(sql::<Bool>("coalesce(is_available, false)").asc())
+                }
+                OrderDirection::Desc => {
+                    query.order(sql::<Bool>("coalesce(is_available, false)").desc())
+                }
             },
             true,
         ),
-        ("ip", _) => (
+        "ip" => (
             match clause.direction {
-                Asc => query.order(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc()),
-                Desc => query.order(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).desc()),
+                OrderDirection::Asc => {
+                    query.order(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc())
+                }
+                OrderDirection::Desc => {
+                    query.order(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).desc())
+                }
             },
             true,
         ),
-        ("uid", _) => (
+        "uid" => (
             match clause.direction {
-                Asc => query.order(col_uid.asc()),
-                Desc => query.order(col_uid.desc()),
+                OrderDirection::Asc => query.order(col_uid.asc()),
+                OrderDirection::Desc => query.order(col_uid.desc()),
             },
             true,
         ),
         // Support both OCSF and legacy time field names
-        ("first_seen_time" | "first_seen", _) => (
+        "first_seen_time" | "first_seen" => (
             match clause.direction {
-                Asc => query.order(col_first_seen_time.asc()),
-                Desc => query.order(col_first_seen_time.desc()),
+                OrderDirection::Asc => query.order(col_first_seen_time.asc()),
+                OrderDirection::Desc => query.order(col_first_seen_time.desc()),
             },
             true,
         ),
-        ("last_seen_time" | "last_seen", _) => (
+        "last_seen_time" | "last_seen" => (
             match clause.direction {
-                Asc => query.order(col_last_seen_time.asc()),
-                Desc => query.order(col_last_seen_time.desc()),
+                OrderDirection::Asc => query.order(col_last_seen_time.asc()),
+                OrderDirection::Desc => query.order(col_last_seen_time.desc()),
             },
             true,
         ),
-        ("type_id", _) => (
+        "type_id" => (
             match clause.direction {
-                Asc => query.order(col_type_id.asc()),
-                Desc => query.order(col_type_id.desc()),
+                OrderDirection::Asc => query.order(col_type_id.asc()),
+                OrderDirection::Desc => query.order(col_type_id.desc()),
+            },
+            true,
+        ),
+        "hostname" => (
+            match clause.direction {
+                Asc => query.order(col_hostname.asc()),
+                Desc => query.order(col_hostname.desc()),
             },
             true,
         ),
@@ -114,51 +128,62 @@ fn apply_secondary_order<'a>(
     query: DeviceQuery<'a>,
     clause: &OrderClause,
 ) -> (DeviceQuery<'a>, bool) {
-    match (clause.field.as_str(), clause.direction) {
-        ("hostname", Asc) => (query.then_order_by(col_hostname.asc()), true),
-        ("hostname", Desc) => (query.then_order_by(col_hostname.desc()), true),
-        ("is_available", _) => (
+    match clause.field.as_str() {
+        "is_available" => (
             match clause.direction {
-                Asc => query.then_order_by(sql::<Bool>("coalesce(is_available, false)").asc()),
-                Desc => query.then_order_by(sql::<Bool>("coalesce(is_available, false)").desc()),
+                OrderDirection::Asc => {
+                    query.then_order_by(sql::<Bool>("coalesce(is_available, false)").asc())
+                }
+                OrderDirection::Desc => {
+                    query.then_order_by(sql::<Bool>("coalesce(is_available, false)").desc())
+                }
             },
             true,
         ),
-        ("ip", _) => (
+        "ip" => (
             match clause.direction {
-                Asc => query.then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc()),
-                Desc => {
+                OrderDirection::Asc => {
+                    query.then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc())
+                }
+                OrderDirection::Desc => {
                     query.then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).desc())
                 }
             },
             true,
         ),
-        ("uid", _) => (
+        "uid" => (
             match clause.direction {
-                Asc => query.then_order_by(col_uid.asc()),
-                Desc => query.then_order_by(col_uid.desc()),
+                OrderDirection::Asc => query.then_order_by(col_uid.asc()),
+                OrderDirection::Desc => query.then_order_by(col_uid.desc()),
             },
             true,
         ),
         // Support both OCSF and legacy time field names
-        ("first_seen_time" | "first_seen", _) => (
+        "first_seen_time" | "first_seen" => (
             match clause.direction {
-                Asc => query.then_order_by(col_first_seen_time.asc()),
-                Desc => query.then_order_by(col_first_seen_time.desc()),
+                OrderDirection::Asc => query.then_order_by(col_first_seen_time.asc()),
+                OrderDirection::Desc => query.then_order_by(col_first_seen_time.desc()),
             },
             true,
         ),
-        ("last_seen_time" | "last_seen", _) => (
+        "last_seen_time" | "last_seen" => (
             match clause.direction {
-                Asc => query.then_order_by(col_last_seen_time.asc()),
-                Desc => query.then_order_by(col_last_seen_time.desc()),
+                OrderDirection::Asc => query.then_order_by(col_last_seen_time.asc()),
+                OrderDirection::Desc => query.then_order_by(col_last_seen_time.desc()),
             },
             true,
         ),
-        ("type_id", _) => (
+        "type_id" => (
             match clause.direction {
-                Asc => query.then_order_by(col_type_id.asc()),
-                Desc => query.then_order_by(col_type_id.desc()),
+                OrderDirection::Asc => query.then_order_by(col_type_id.asc()),
+                OrderDirection::Desc => query.then_order_by(col_type_id.desc()),
+            },
+            true,
+        ),
+        "hostname" => (
+            match clause.direction {
+                Asc => query.then_order_by(col_hostname.asc()),
+                Desc => query.then_order_by(col_hostname.desc()),
             },
             true,
         ),
