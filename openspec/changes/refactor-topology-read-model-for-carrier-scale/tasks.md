@@ -73,8 +73,17 @@ have separate proposals and are not dependencies of this workstream.
 - [x] 6.2 Integrate the isolated Rust hierarchical Morton placement proof into the core-owned engine/NIF, retaining existing positions, parents, bounds, and reserved slots on incremental changes.
 - [x] 6.3 Add Oban generation coordination, staged full relayout, compare-and-swap publication, coherent bootstrap/restart, old-reader retention, and failed-candidate cleanup.
 - [x] 6.4 Build a quadtree node and relation-intersection index; prove high-zoom queries avoid canonical-size scans and find crossing edges whose endpoints lie outside the tile.
-- [x] 6.5 Integrate importance/min_zoom, stable aggregates and counts, stable-ID bundles, fixed shared side/corner portals, owned endpoint connectors with phase continuity, and over-budget generalization including at maximum zoom.
+- [x] 6.5 Integrate importance/min_zoom, stable aggregates and counts, stable-ID bundles, exact shared clips with neighbor-agreed routing grades before interior selection and encoding retries, displaced owned endpoint connectors on both axes and directions excluding coincident endpoints and non-owning corner contacts, and over-budget generalization including at maximum zoom.
 - [x] 6.6 Enforce actual schema-3 encoded-byte budgets as well as cardinality limits; measure final limits rather than treating provisional numbers as calibrated.
 - [x] 6.7 Pregenerate low-zoom tiles and implement bounded lazy high-zoom caching with geometry-only ETags and current authority checked before conditional responses.
 - [x] 6.8 Maintain dirty-tile dependencies for changed nodes, aggregate ancestry, and old/new relation geometry; retain untouched tile revisions across publication generations.
 - [x] 6.9 Serve separate bounded initial/live telemetry overlays through the existing JetStream-backed telemetry path, with no direct metric writes from layout or tile code.
+
+## ELK overview restoration
+
+- [x] Reuse the pinned ELK radial engine in the world worker through bounded hierarchy batches; retain the tile renderer and frozen incremental placements.
+- [x] Keep named singleton devices at authoritative coordinates, compute active-device bounds for Home/Fit, and stage algorithm upgrades behind the existing publication fence.
+- [x] Verify a connected invented 1M-device/2M-relation hierarchy and 1% growth through the native layout/index/tile owner.
+- [x] Verify the browser framing, labels, traffic and navigation owners with bounded clusters representing the million-device population, rather than a million simultaneous individual glyphs.
+- [ ] Deliver the ELK restoration through no-mistakes.
+- [ ] Finish the separate authenticated million-device product packet-flow acceptance in `prove-million-device-topology`; native and mocked-browser checks are not that proof.

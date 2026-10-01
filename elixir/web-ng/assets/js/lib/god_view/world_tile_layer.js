@@ -4,12 +4,22 @@ import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 import {GOD_VIEW_ALPHA_BLEND, GOD_VIEW_ADDITIVE_BLEND} from "./gpu_parameters"
 import {nodeGlyphLayerData} from "./rendering_node_frame"
+import {admitTopologyLabels} from "./rendering_label_collision"
 import {godViewRenderingStyleEdgeParticleMethods} from "./rendering_style_edge_particle_methods"
+import {edgeTopologyClassValue, edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 import {WORLD_TILE_SIZE} from "./world_tile_decode"
 
 // Coarsen the complete viewport instead of dropping tiles when a large display
 // would exceed the watch/geometry budget. TileLayer keeps parent/child coverage.
 class BoundedWorldTileset extends Tileset2D {
+  reloadAll() {
+    // deck.gl's reloadAll drops unselected cache entries without rebuilding
+    // its render list. A visible fallback parent can then survive refinement
+    // forever. Retain bounded cached tiles and invalidate their content in
+    // place so refinement still owns visibility, including while loading.
+    for (const tile of this.tiles) tile.setNeedsReload()
+  }
+
   getTileIndices(options) {
     let maxZoom = options.maxZoom
     let indices = super.getTileIndices(options)
@@ -72,12 +82,13 @@ function flowFrame(geometry, overlay) {
   if (frames.has(overlay)) return frames.get(overlay)
   const byId = new Map((overlay.flow?.edges || []).map(edge => [edge.id, edge]))
   const edges = geometry.edges.flatMap(edge => {
+    if (edge.stale) return []
     const flow = byId.get(edge.id)
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
     const ab = packetRate(flow.forward)
     const ba = packetRate(flow.reverse)
-    const bpsAb = measured(flow.forward, "octets_per_second") * 8
-    const bpsBa = measured(flow.reverse, "octets_per_second") * 8
+    const bpsAb = (measured(flow.forward, "observed_octets_per_second") || measured(flow.forward, "octets_per_second")) * 8
+    const bpsBa = (measured(flow.reverse, "observed_octets_per_second") || measured(flow.reverse, "octets_per_second")) * 8
     if (ab + ba + bpsAb + bpsBa === 0) return []
     return [{
       sourcePosition: Array.from(geometry.positions.subarray(edge.source * 2, edge.source * 2 + 2)),
@@ -97,6 +108,100 @@ function flowFrame(geometry, overlay) {
 
 /** Schema-3 binary sublayers, sharing #4749's glyph packing and packet shader. */
 export default class WorldTileLayer extends TileLayer {
+  tileOverlay(geometry) {
+    const candidate = this.props.overlays?.get(`${geometry.key.z}/${geometry.key.x}/${geometry.key.y}`)
+    return candidate?.layout_version === geometry.key.layout_version &&
+      candidate?.generation === geometry.generation && candidate?.revision === geometry.revision ? candidate : null
+  }
+
+  nodeShown(counts) {
+    const filters = this.props.filters || {}
+    return counts
+      ? ["healthy", "unavailable", "unknown"].some(state => counts[state] > 0 && filters[state] !== false)
+      : filters.unknown !== false
+  }
+
+  renderLayers() {
+    const layers = super.renderLayers()
+    const {viewport} = this.context
+    const {tileset} = this.state
+    const nodes = new Map()
+    const infrastructure = new Set()
+    const glyphBoxes = []
+    const routeCorridors = []
+    for (const tile of tileset.tiles) {
+      if (!tile.content || !tileset.isTileVisible(tile)) continue
+      const geometry = tile.content
+      const health = new Map((this.tileOverlay(geometry)?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
+      for (const node of geometryFrame(geometry).nodes) {
+        if (!this.nodeShown(health.get(node.id)) || nodes.has(node.id)) continue
+        const point = viewport.project(node.position)
+        const radius = node.kind === "aggregate" ? 9 : 4
+        if (point[0] + radius < 0 || point[0] - radius > viewport.width ||
+            point[1] + radius < 0 || point[1] - radius > viewport.height) continue
+        nodes.set(node.id, {...node, point})
+        glyphBoxes.push({nodeId: node.id, left: point[0] - radius, right: point[0] + radius,
+          top: point[1] - radius, bottom: point[1] + radius})
+      }
+      for (const edge of geometry.edges) {
+        if (edgeTopologyClassValue(edge) !== "backbone") continue
+        infrastructure.add(geometry.nodes[edge.source].id)
+        infrastructure.add(geometry.nodes[edge.target].id)
+      }
+      if (this.props.links === false) continue
+      for (const edge of geometry.edges) {
+        if (edgeTopologyClassValue(edge) === "inferred" && this.props.inferred !== true) continue
+        routeCorridors.push({
+          sourceId: geometry.nodes[edge.source].id, targetId: geometry.nodes[edge.target].id,
+          points: [edge.source, edge.target].map(index => viewport.project([
+            geometry.positions[index * 2], geometry.positions[index * 2 + 1], 0,
+          ])),
+          strokeWidth: 1.5,
+        })
+      }
+    }
+    // One admission pass covers all refined visible tiles. Tile-local passes
+    // would independently accept colliding labels on either side of a seam.
+    const candidates = [...nodes.values()]
+      .sort((a, b) => Number(infrastructure.has(b.id)) - Number(infrastructure.has(a.id)) ||
+        b.count - a.count || a.id.localeCompare(b.id))
+      .slice(0, 512)
+      .map(node => ({nodeId: node.id, point: node.point, fontSize: 11,
+        text: node.kind === "aggregate" ? node.count.toLocaleString() : node.label,
+        role: node.kind === "aggregate" ? "summary" : infrastructure.has(node.id) ? "infrastructure" : "member"}))
+    const {admitted} = admitTopologyLabels({
+      candidates, glyphBoxes, routeCorridors, maximumCount: 128,
+      safeRect: {left: 0, top: 0, right: viewport.width, bottom: viewport.height},
+      measureText: this.props.measureText,
+    })
+    const texts = new Map(candidates.map(candidate => [candidate.nodeId, candidate.text]))
+    const labels = admitted.map(placement => {
+      const node = nodes.get(placement.nodeId)
+      return {...node, ...placement, text: texts.get(placement.nodeId),
+        position: viewport.unproject([
+          node.point[0] + placement.pixelOffset[0], node.point[1] + placement.pixelOffset[1],
+        ]),
+      }
+    })
+    // An empty automatic character set cannot initialize a WebGPU font atlas.
+    if (labels.length === 0) return layers
+    return [layers, new TextLayer(this.getSubLayerProps({id: "labels"}), {
+      coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND,
+      data: labels, pickable: false, getPosition: item => item.position,
+      getText: item => item.text,
+      getSize: 11, sizeUnits: "pixels", getColor: [220, 232, 242, 240],
+      // Placement is already projected above. A constant offset avoids the
+      // resizable character-offset GPU buffer during zoom admission changes.
+      getTextAnchor: item => item.textAnchor,
+      getAlignmentBaseline: item => item.alignmentBaseline,
+      fontFamily: "Inter, system-ui, sans-serif", fontWeight: 600, characterSet: "auto",
+    })]
+  }
+
+  filterSubLayer(context) {
+    return context.layer.props.tile ? super.filterSubLayer(context) : true
+  }
+
   getPickingInfo(params) {
     const info = super.getPickingInfo(params)
     if (info.picked && !info.object) info.object = info.sourceTileSubLayer?.props.data.resolve?.(info.index)
@@ -107,51 +212,69 @@ export default class WorldTileLayer extends TileLayer {
     const geometry = props.data
     if (!geometry) return null
     const frame = geometryFrame(geometry)
-    const candidate = this.props.overlays?.get(`${geometry.key.z}/${geometry.key.x}/${geometry.key.y}`)
-    const overlay = candidate?.layout_version === geometry.key.layout_version &&
-      candidate?.generation === geometry.generation && candidate?.revision === geometry.revision ? candidate : null
+    const overlay = this.tileOverlay(geometry)
+    const edgeClass = index => edgeTopologyClassValue(geometry.edges[index])
+    const edgeStyle = index => edgeTopologyVisualStyleValue({topologyClass: edgeClass(index)})
+    const shownEdge = index => edgeClass(index) !== "inferred" || this.props.inferred === true
     const health = new Map((overlay?.health?.glyphs || []).map(glyph => [glyph.id, glyph.counts]))
     const filters = this.props.filters || {}
-    const shown = item => {
-      const counts = health.get(item.id)
-      return counts
-        ? ["healthy", "unavailable", "unknown"].some(state => counts[state] > 0 && filters[state] !== false)
-        : filters.unknown !== false
-    }
+    const shown = item => this.nodeShown(health.get(item.id))
     const common = {coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND}
     const node = ({index}) => frame.nodes[index]
+    const healthColor = item => {
+      const counts = health.get(item.id)
+      if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
+      return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
+    }
     const flow = overlay && this.props.packetFlow !== false ? flowFrame(geometry, overlay) : null
+    const edgeColor = (index, color) => geometry.edges[index].stale
+      ? [148, 163, 184, Math.max(1, Math.round(color[3] * 0.45))]
+      : color
     return [
+      frame.lines.length > 0 && new LineLayer(props, common, {
+        id: `${props.id}-edge-mantle`, data: frame.lines, pickable: false,
+        visible: this.props.links !== false,
+        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeColor(index, edgeClass(index) === "unknown"
+          ? [120, 132, 151, 30]
+          : [55, 175, 124, Math.round(70 * edgeStyle(index).mantleAlphaScale)]),
+        getWidth: (_, {index}) => shownEdge(index) ? 6 * edgeStyle(index).mantleWidthScale : 0,
+        widthUnits: "pixels", updateTriggers: {getWidth: this.props.inferred, getColor: this.props.inferred},
+      }),
       frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edges`, data: frame.lines, pickable: true,
         visible: this.props.links !== false,
-        getColor: [92, 132, 160, 150], getWidth: 1.5, widthUnits: "pixels",
+        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeColor(index, edgeClass(index) === "unknown"
+          ? [120, 132, 151, 100]
+          : [55, 175, 124, Math.round(135 * edgeStyle(index).crustAlphaScale)]),
+        getWidth: (_, {index}) => shownEdge(index) ? 1.5 * edgeStyle(index).crustWidthScale : 0, widthUnits: "pixels",
+        updateTriggers: {getWidth: this.props.inferred, getColor: this.props.inferred},
       }),
       flow && flow.length > 0 && new PacketFlowLayer(props, common, {
         id: `${props.id}-packets`, data: flow, animate: true, pickable: false,
         parameters: GOD_VIEW_ADDITIVE_BLEND,
         // Across at most 64 tiles, bound particles globally as well as per edge.
-        zoomDensity: 1 / 64,
+        zoomDensity: 1 / Math.max(1, Math.min(64, this.props.visibleTileCount)),
+      }),
+      frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
+        id: `${props.id}-node-glow`, data: frame.glyphs, pickable: false,
+        radiusUnits: "pixels",
+        getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 13 : 9) : 0,
+        getFillColor: (_, info) => [...healthColor(node(info)).slice(0, 3), 35],
+        updateTriggers: {getFillColor: overlay, getRadius: [overlay, filters]},
       }),
       frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
-        radiusUnits: "pixels", stroked: true, lineWidthUnits: "pixels", getLineWidth: 1,
+        radiusUnits: "pixels", stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.5,
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 9 : 4) : 0,
         getFillColor: (_, info) => {
-          const counts = health.get(node(info).id)
-          if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
-          return counts.unavailable > 0 ? [245, 117, 88, 240] : [65, 195, 156, 240]
+          if (node(info).kind === "device") return [232, 242, 237, 255]
+          return healthColor(node(info))
         },
-        getLineColor: [210, 226, 240, 230],
-        updateTriggers: {getFillColor: overlay, getRadius: [overlay, filters]},
-      }),
-      frame.nodes.length > 0 && new TextLayer(props, common, {
-        id: `${props.id}-labels`, data: frame.nodes, pickable: false,
-        getPosition: item => item.position,
-        getText: item => shown(item) ? (item.kind === "aggregate" ? item.count.toLocaleString() : item.label) : "",
-        getSize: 11, sizeUnits: "pixels", getColor: [220, 232, 242, 240],
-        getPixelOffset: [0, 15], fontFamily: "sans-serif", characterSet: "auto",
-        updateTriggers: {getText: [overlay, filters]},
+        getLineColor: (_, info) => {
+          if (node(info).kind !== "device") return [210, 226, 240, 230]
+          return healthColor(node(info))
+        },
+        updateTriggers: {getFillColor: overlay, getLineColor: overlay, getRadius: [overlay, filters]},
       }),
     ]
   }
@@ -169,7 +292,10 @@ WorldTileLayer.defaultProps = {
   refinementStrategy: "no-overlap",
   overlays: {type: "object", value: null, compare: false},
   overlayRevision: 0,
+  visibleTileCount: 64,
+  measureText: {type: "function", value: null, compare: false},
   packetFlow: true,
   links: true,
+  inferred: false,
   filters: {type: "object", value: null, compare: false},
 }

@@ -2,6 +2,7 @@ import GodViewLayoutEngine from "./god_view/GodViewLayoutEngine"
 import GodViewLifecycleController from "./god_view/GodViewLifecycleController"
 import GodViewRenderingEngine from "./god_view/GodViewRenderingEngine"
 import {buildLayoutDeps, buildLifecycleDeps, buildRenderingDeps} from "./god_view/renderer_deps"
+import {hasManagedTopologyScene} from "./god_view/topology_layout_mode"
 
 export default class GodViewRenderer {
   constructor(el, pushEvent, handleEvent, options = {}) {
@@ -53,7 +54,7 @@ export default class GodViewRenderer {
     lifecycle.resizeCanvas()
     await lifecycle.handleSnapshot(lifecycle.buildSnapshotFrameFromHttpResponse(payload, headers))
     if (this.destroyed) throw new Error("Topology detail was closed")
-    if (this.context.state.rendererMode !== "webgpu" || this.context.state.lastGraph?._layoutMode !== "elk-scene-detail") {
+    if (this.context.state.rendererMode !== "webgpu" || !hasManagedTopologyScene(this.context.state.lastGraph)) {
       throw new Error("Topology detail could not be rendered")
     }
   }

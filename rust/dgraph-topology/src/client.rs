@@ -16,7 +16,6 @@
 
 //! Typed JSON mutations and reads. Callers do not concatenate DQL for writes.
 
-use chrono::{SecondsFormat, Utc};
 use dgraph_client::{DgraphClient, Mutation};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -25,7 +24,7 @@ use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical}
 use crate::errors::TopologyError;
 use crate::types::{
     CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeWrite, HopWrite, InterfaceWrite,
-    PrefixWrite,
+    PrefixWrite, TopologyView,
 };
 
 /// Topology operations against one Dgraph client.
@@ -302,13 +301,9 @@ impl TopologyClient {
             "topo.pair_support_rank": edge.pair_support_rank(),
             "topo.stale": false,
         });
-        // Always present: an edge without `topo.last_seen` never matches the
-        // prune filter's `lt()` and would outlive every cutoff.
-        node["topo.last_seen"] = if edge.last_seen().is_empty() {
-            json!(Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true))
-        } else {
-            json!(edge.last_seen())
-        };
+        if !edge.last_seen().is_empty() {
+            node["topo.last_seen"] = json!(edge.last_seen());
+        }
         if !edge.mutation_id().is_empty() {
             node["topo.mutation_id"] = json!(edge.mutation_id());
         }
@@ -320,6 +315,84 @@ impl TopologyClient {
             .await?;
         require_block(&blocks.src, "src", edge.source())?;
         require_block(&blocks.dst, "dst", edge.target())?;
+        Ok(())
+    }
+
+    /// Replace this projection owner's HOSTED_ON edge for a guest atomically.
+    /// Older observations cannot replace a newer parent; unrelated ingestors
+    /// and edge kinds are outside the deletion scope.
+    pub async fn replace_hosted_edge(&self, edge: &EdgeWrite) -> Result<(), TopologyError> {
+        edge.validate_hosted_replacement()?;
+        let source = dql_string(edge.source())?;
+        let target = dql_string(edge.target())?;
+        let owner = dql_string("hypervisor_enrichment_v1")?;
+        let projection_key = format!(
+            "HOSTED_ON|{}|projection=hypervisor_enrichment_v1",
+            edge.source()
+        );
+        let key = dql_string(&projection_key)?;
+        let observed_at = dql_string(edge.last_seen())?;
+        let query = format!(
+            "{{\n  source(func: eq(device.id, {source})) {{ s as uid ~topo.src @filter(eq(topo.kind, \"HOSTED_ON\") AND eq(topo.ingestor, {owner})) {{ owned as uid }} }}\n  target(func: eq(device.id, {target})) {{ d as uid }}\n  current(func: eq(topo.link_key, {key})) {{ c as uid }}\n  same(func: uid(c)) @filter(eq(topo.last_seen, {observed_at}) AND uid_in(topo.dst, uid(d))) {{ identical as uid }}\n  superseded(func: uid(owned)) @filter(NOT uid(c)) {{ e as uid }}\n  newer(func: uid(owned)) @filter(gt(topo.last_seen, {observed_at})) {{ n as uid }}\n}}"
+        );
+        let set = json!({
+            "uid": "uid(c)",
+            "dgraph.type": "TopologyEdge",
+            "topo.link_key": projection_key,
+            "topo.src": [{"uid": "uid(s)"}],
+            "topo.dst": [{"uid": "uid(d)"}],
+            "topo.kind": "HOSTED_ON",
+            "topo.protocol": edge.protocol(),
+            "topo.evidence_class": edge.evidence_class(),
+            "topo.ingestor": edge.ingestor(),
+            "topo.confidence_tier": edge.confidence_tier(),
+            "topo.telemetry_eligible": false,
+            "topo.stale": false,
+            "topo.last_seen": edge.last_seen(),
+        });
+        let delete = json!([
+            {"uid": "uid(e)"},
+            {"uid": "uid(c)", "topo.dst": null}
+        ]);
+        let condition =
+            "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0) AND eq(len(identical), 0))";
+        let response: Value = self.upsert(&query, condition, &set, Some(&delete)).await?;
+        if response
+            .get("source")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len)
+            != 1
+            || response
+                .get("target")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+                != 1
+        {
+            return Err(TopologyError::ConditionSkipped(
+                "hosted replacement".to_owned(),
+                "source or target identity is missing or ambiguous".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Retire only the saved projection that was actually inspected. A concurrent
+    /// refresh or reparent changes the timestamp/destination and wins this race.
+    pub async fn retire_hosted_edge(
+        &self,
+        source: &str,
+        target: &str,
+        observed_at: &str,
+    ) -> Result<(), TopologyError> {
+        let source = dql_string(source)?;
+        let target = dql_string(target)?;
+        let observed_at = dql_string(observed_at)?;
+        let query = format!(
+            "{{ target(func: eq(device.id, {target})) {{ d as uid }} source(func: eq(device.id, {source})) {{ ~topo.src @filter(eq(topo.kind, \"HOSTED_ON\") AND eq(topo.ingestor, \"hypervisor_enrichment_v1\") AND eq(topo.last_seen, {observed_at}) AND uid_in(topo.dst, uid(d))) {{ e as uid }} }} }}"
+        );
+        let _: Value = self
+            .upsert(&query, "", &json!({}), Some(&json!({"uid": "uid(e)"})))
+            .await?;
         Ok(())
     }
 
@@ -395,18 +468,36 @@ impl TopologyClient {
         self.upsert_edge(edge).await
     }
 
-    /// Delete edges of the given `kinds` whose `topo.last_seen` is older than
-    /// `cutoff` (RFC3339). The caller owns both the cutoff and the kind set,
-    /// because each AGE prune statement deletes a different set of relationship
-    /// types on its own schedule.
+    /// Age edges of the given `kinds` whose `topo.last_seen` is older than
+    /// `cutoff` (RFC3339). The caller owns both the cutoff and the kind set.
+    ///
+    /// `ATTACHED_TO`, `HOSTED_ON`, and `INFERRED_TO` stay on their existing
+    /// `topo.link_key` with `topo.stale` set. Every other kind, including
+    /// `CANONICAL_TOPOLOGY` and `MTR_PATH`, is deleted. A later upsert of the
+    /// same key clears `topo.stale`. An explicit delete removes the row, so
+    /// absence is not turned back into evidence.
     ///
     /// # Errors
     ///
-    /// Returns [`TopologyError`] if the query or delete fails.
+    /// Returns [`TopologyError`] if the query or mutation fails.
     pub async fn prune_stale(
         &self,
         cutoff: &str,
         kinds: &[String],
+    ) -> Result<usize, TopologyError> {
+        let (retain, remove): (Vec<&String>, Vec<&String>) = kinds
+            .iter()
+            .partition(|kind| matches!(kind.as_str(), "ATTACHED_TO" | "HOSTED_ON" | "INFERRED_TO"));
+        let marked = self.age_edges(cutoff, &retain, false).await?;
+        let deleted = self.age_edges(cutoff, &remove, true).await?;
+        Ok(marked + deleted)
+    }
+
+    async fn age_edges(
+        &self,
+        cutoff: &str,
+        kinds: &[&String],
+        delete: bool,
     ) -> Result<usize, TopologyError> {
         if kinds.is_empty() {
             return Ok(0);
@@ -421,29 +512,19 @@ impl TopologyClient {
         let query = format!(
             "{{
   stale(func: type(TopologyEdge)) @filter(({kind_filter}) AND lt(topo.last_seen, {cutoff_q})) {{
-    uid
+    aged as uid
   }}
 }}"
         );
-        let parsed: StaleQuery = self.query(&query).await?;
-        if parsed.stale.is_empty() {
-            return Ok(0);
-        }
-        let delete: Vec<Value> = parsed
-            .stale
-            .iter()
-            .map(|row| json!({ "uid": row.uid }))
-            .collect();
-        let mut txn = self.client.new_txn();
-        let mutation = Mutation::new().delete_json(
-            serde_json::to_vec(&delete).map_err(|err| TopologyError::Serde(err.to_string()))?,
-        );
-        txn.mutate(mutation)
-            .await
-            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
-        txn.commit()
-            .await
-            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
+        let mut target = json!({ "uid": "uid(aged)" });
+        let parsed: StaleQuery = if delete {
+            self.upsert(&query, "@if(gt(len(aged), 0))", &json!({}), Some(&target))
+                .await?
+        } else {
+            target["topo.stale"] = json!(true);
+            self.upsert(&query, "@if(gt(len(aged), 0))", &target, None)
+                .await?
+        };
         Ok(parsed.stale.len())
     }
 
@@ -599,6 +680,23 @@ impl TopologyClient {
         crate::canonical_read::graph(&self.client).await
     }
 
+    /// Read devices and admitted topology-view edges from one read-only snapshot.
+    ///
+    /// The view is the current canonical backbone plus `ATTACHED_TO`,
+    /// `INFERRED_TO`, and `HOSTED_ON` edges, including last-known stale rows.
+    /// Observations and other kinds stay out. Traversal consumers keep
+    /// [`Self::query_canonical_graph`], which remains current backbone only.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_canonical_edges`].
+    pub async fn query_topology_view(
+        &self,
+        stale_cutoff: &str,
+    ) -> Result<TopologyView, TopologyError> {
+        crate::canonical_read::view(&self.client, stale_cutoff).await
+    }
+
     async fn delete_edge_by_link_key(&self, key: &str) -> Result<(), TopologyError> {
         let key_q = dql_string(key)?;
         let query = format!("{{ edge(func: eq(topo.link_key, {key_q})) {{ e as uid }} }}");
@@ -650,10 +748,7 @@ impl TopologyClient {
 }
 
 #[derive(Debug, Deserialize, Default)]
-struct UidRow {
-    #[serde(default)]
-    uid: String,
-}
+struct UidRow {}
 
 #[derive(Debug, Deserialize, Default)]
 struct NamedUidBlocks {
@@ -701,6 +796,10 @@ impl EndpointId {
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct CanonicalEdgeRow {
+    #[serde(default, rename = "topo.last_seen")]
+    last_seen: Option<String>,
+    #[serde(default, rename = "topo.stale")]
+    stale: bool,
     #[serde(default, rename = "topo.link_key")]
     link_key: String,
     #[serde(default, rename = "topo.kind")]
@@ -767,6 +866,38 @@ impl CanonicalEdgeRow {
             )
             .with_pair_support_rank(self.pair_support_rank),
         )
+    }
+
+    pub(crate) fn into_view_edge(
+        self,
+        stale_cutoff: chrono::DateTime<chrono::FixedOffset>,
+    ) -> Option<crate::types::NeighbourhoodEdge> {
+        if !matches!(
+            self.kind.as_str(),
+            "CANONICAL_TOPOLOGY" | "ATTACHED_TO" | "INFERRED_TO" | "HOSTED_ON"
+        ) {
+            return None;
+        }
+        let canonical = self.kind == "CANONICAL_TOPOLOGY";
+        if canonical && self.stale {
+            return None;
+        }
+        let current = self
+            .last_seen
+            .as_deref()
+            .and_then(|last_seen| chrono::DateTime::parse_from_rfc3339(last_seen).ok())
+            .is_some_and(|last_seen| last_seen >= stale_cutoff);
+        // Canonical rows ignore the cutoff. Attachment rows past the cutoff, or
+        // already marked, stay in the view as last-known evidence.
+        let stale = !canonical && (self.stale || !current);
+        let kind = self.kind.clone();
+        let seen = self.last_seen.clone();
+        let edge = self.into_edge()?;
+        let mut view = crate::types::NeighbourhoodEdge::new(kind, edge).with_stale(stale);
+        if let Some(seen) = seen {
+            view = view.with_last_seen(seen);
+        }
+        Some(view)
     }
 
     fn into_neighbourhood(self) -> Option<crate::types::NeighbourhoodEdge> {
@@ -889,5 +1020,21 @@ mod tests {
         }))
         .expect("endpoint");
         assert_eq!(endpoint.id(), Some("sr:host01.example.com"));
+    }
+
+    #[test]
+    fn missing_observation_time_stays_unknown_and_attachment_is_stale() {
+        let cutoff = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z").unwrap();
+        let mut row = row(
+            serde_json::json!({ "device.id": "synthetic-a" }),
+            serde_json::json!({ "device.id": "synthetic-b" }),
+        );
+        row.kind = "ATTACHED_TO".into();
+
+        let edge = row
+            .into_view_edge(cutoff)
+            .expect("attachment remains visible");
+        assert!(edge.stale());
+        assert_eq!(edge.last_seen(), None);
     }
 }

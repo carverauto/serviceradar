@@ -10,6 +10,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dgraph
+  alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.NetworkDiscovery.World
   alias ServiceRadar.NetworkDiscovery.WorldInventory
   alias ServiceRadar.Repo
@@ -31,19 +32,21 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   def ensure_scheduled do
     with {:ok, _url} <- Dgraph.url() do
       if ObanSupport.available?() do
-        case incomplete_reconcile() do
-          nil ->
-            enqueue_reconcile(schedule_in: next_reconcile_delay())
+        with {:ok, _repair} <- enqueue_hosted_repair() do
+          case incomplete_reconcile() do
+            nil ->
+              enqueue_reconcile(schedule_in: next_reconcile_delay())
 
-          %{state: "scheduled"} ->
-            if pending_request?(last_completed_reconcile()) do
-              enqueue_reconcile()
-            else
+            %{state: "scheduled"} ->
+              if pending_request?(last_completed()) do
+                enqueue_reconcile()
+              else
+                {:ok, :already_scheduled}
+              end
+
+            _job ->
               {:ok, :already_scheduled}
-            end
-
-          _job ->
-            {:ok, :already_scheduled}
+          end
         end
       else
         {:error, :oban_unavailable}
@@ -63,8 +66,40 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
     |> ObanSupport.safe_insert()
   end
 
+  defp enqueue_hosted_repair do
+    previous = last_completed("hosted_repair")
+
+    if previous &&
+         DateTime.diff(DateTime.utc_now(), previous.completed_at, :second) < @reconcile_seconds do
+      {:ok, :already_repaired}
+    else
+      %{"mode" => "hosted_repair"}
+      |> new()
+      |> ObanSupport.safe_insert()
+    end
+  end
+
   @impl Oban.Worker
   def timeout(_job), do: to_timeout(minute: 15)
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"mode" => "hosted_repair"}} = job) do
+    with {:ok, checkpoint} <-
+           HypervisorEnrichmentIngestor.reconcile_hosted_topology(
+             Map.get(job.args, "checkpoint", %{})
+           ),
+         {:ok, _job} <-
+           Oban.update_job(job.id, %{args: Map.put(job.args, "checkpoint", checkpoint)}) do
+      if checkpoint["guests_done"] and checkpoint["edges_done"] do
+        case enqueue_reconcile() do
+          {:ok, _job} -> :ok
+          {:error, _reason} = error -> error
+        end
+      else
+        {:snooze, 1}
+      end
+    end
+  end
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"mode" => mode, "layout_version" => version}} = job)
@@ -96,10 +131,23 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   defp record_request(job), do: {:ok, job}
 
   defp prepare("reconcile", version) do
-    case World.stream_active(%{}, &load_previous/2) do
-      {:ok, state} -> {:ok, Map.put(state, :mode, :incremental)}
-      {:error, :not_ready} -> fresh_state(version, 0, :initial)
-      {:error, _reason} = error -> error
+    case World.active_manifest(scope()) do
+      {:ok, manifest} ->
+        if manifest.algorithm_version == TopologyAtlas.algorithm_version() do
+          with {:ok, state} <- World.stream_active(%{}, &load_previous/2) do
+            {:ok, Map.put(state, :mode, :incremental)}
+          end
+        else
+          # Keep the accepted world available until its replacement is completely
+          # staged. The generation fence rejects a competing publication.
+          fresh_state(version, manifest.generation, :relayout)
+        end
+
+      {:error, :not_ready} ->
+        fresh_state(version, 0, :initial)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -132,21 +180,26 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
     with :ok <- TopologyAtlas.add_relations(state.builder, rows), do: {:ok, state}
   end
 
-  defp publish(%{mode: :incremental, manifest: previous} = state, candidate, info) do
-    if Map.take(previous, [:source_digest, :node_count, :relation_count]) ==
-         Map.take(info, [:source_digest, :node_count, :relation_count]) do
+  defp publish(state, candidate, info) do
+    publish_candidate(state, candidate, normalize_publication(info))
+  end
+
+  defp publish_candidate(%{mode: :incremental, manifest: previous} = state, candidate, info) do
+    if publication_identity(previous) == publication_identity(info) do
       :ok
     else
       delta =
         @delta_operations
         |> Map.new(&{&1, pages(candidate, &1)})
-        |> Map.merge(Map.take(info, [:source_digest, :node_count, :relation_count]))
+        |> Map.merge(
+          Map.take(info, [:source_digest, :node_count, :relation_count, :pipeline_stats])
+        )
 
       World.publish_delta(state.generation, delta)
     end
   end
 
-  defp publish(state, candidate, info) do
+  defp publish_candidate(state, candidate, info) do
     with :ok <-
            World.stage_candidate(
              state.layout_version,
@@ -159,6 +212,22 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
       World.activate_relayout(state.generation, state.layout_version)
     end
   end
+
+  defp normalize_publication(info) do
+    Map.put(info, :pipeline_stats, string_stats(Map.get(info, :pipeline_stats)))
+  end
+
+  defp publication_identity(info) do
+    info
+    |> Map.take([:source_digest, :node_count, :relation_count])
+    |> Map.put(:pipeline_stats, string_stats(Map.get(info, :pipeline_stats)))
+  end
+
+  defp string_stats(stats) when is_map(stats) do
+    Map.new(for {key, value} <- stats, is_integer(value), do: {to_string(key), value})
+  end
+
+  defp string_stats(_), do: %{}
 
   defp pages(candidate, operation) do
     Stream.resource(
@@ -205,7 +274,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   end
 
   defp next_reconcile_delay do
-    case last_completed_reconcile() do
+    case last_completed() do
       nil ->
         0
 
@@ -221,11 +290,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
     end
   end
 
-  defp last_completed_reconcile do
+  defp last_completed(mode \\ "reconcile") do
     query =
       from(job in Oban.Job,
         where: job.worker == ^Oban.Worker.to_string(__MODULE__),
-        where: fragment("? ->> 'mode'", job.args) == "reconcile",
+        where: fragment("? ->> 'mode'", job.args) == ^mode,
         where: job.state == "completed",
         order_by: [desc: job.completed_at, desc: job.id],
         limit: 1

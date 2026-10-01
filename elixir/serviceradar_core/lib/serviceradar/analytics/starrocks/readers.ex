@@ -2,9 +2,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   @moduledoc """
   Dataset reader routing for StarRocks cutover.
 
-  Ordinary installations stay on CNPG until a dataset is listed in
-  `cutover_datasets`. NetFlow is the exception: `:flows` is served from the
-  warehouse or not at all, so an installation that has not cut it over gets
+  Warehouse-owned datasets follow the enabled flag in `mode_for/1`; the
+  remaining datasets use `cutover_datasets`. NetFlow is warehouse-only:
+  `:flows` is served from the warehouse or not at all, so an installation that has not cut it over gets
   `{:error, :starrocks_required}` rather than CNPG rows. Flows ship in the
   default cutover set of a warehouse-enabled installation (`Env`), so that
   refusal arm is reached only when an operator explicitly lists cutover
@@ -117,6 +117,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # BMP routing events follow the same rule: AnalyticsSignals writes them to
   # the warehouse only when it is enabled (`store_routing_events/1`).
   def mode_for(:bmp), do: if(enabled?(), do: "starrocks")
+
+  # Interface counters and the other sysmon series use the same switch. A stale
+  # `cutover_datasets` entry does not select StarRocks while the warehouse is off,
+  # and an empty cutover list does not keep them on CNPG while it is on.
+  def mode_for(:metrics), do: if(enabled?(), do: "starrocks")
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do

@@ -86,6 +86,7 @@ function trustRank(edge) {
   if (
     topologyClass === "backbone" ||
     evidenceClass === "direct" ||
+    evidenceClass === "direct-physical" ||
     topologyPlane === "physical" ||
     topologyPlane === "backbone"
   ) return 0
@@ -245,6 +246,7 @@ function aggregatePairs(graph, normalized) {
       evidence: evidenceFor(edge, relationId, sourceId, targetId),
       relationId,
       trustRank: trustRank(edge),
+      stale: truthy(edge?.stale),
     })
     current.hasTransport = current.hasTransport || transport
     current.hasAttachment = current.hasAttachment || attachment
@@ -256,14 +258,15 @@ function aggregatePairs(graph, normalized) {
       const byId = left.relationId.localeCompare(right.relationId)
       return byId === 0 ? stableJson(left.evidence).localeCompare(stableJson(right.evidence)) : byId
     })
-    const usableEntries = entries.filter((entry) => !entry.attachment)
-    const rankEntries = usableEntries.length > 0 ? usableEntries : entries
+    const currentEntries = entries.filter((entry) => !entry.stale)
+    const preferredEntries = currentEntries.length > 0 ? currentEntries : entries
     return {
       ...pair,
       entries,
       evidence: entries.map((entry) => entry.evidence),
       semanticRelationIds: sortedUnique(entries.map((entry) => entry.relationId)),
-      trustRank: Math.min(...rankEntries.map((entry) => entry.trustRank)),
+      freshnessRank: currentEntries.length > 0 ? 0 : 1,
+      trustRank: Math.min(...preferredEntries.map((entry) => entry.trustRank)),
     }
   })
 
@@ -292,7 +295,7 @@ function promotableEndpointNode(node) {
   return !NON_PROMOTABLE_IDENTITY_SOURCES.has(identitySource)
 }
 
-function attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds) {
+function attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds, maximumEndpoints) {
   const promotableIds = new Set(
     normalized.nodes.filter(promotableEndpointNode).map((node) => node.id),
   )
@@ -317,14 +320,14 @@ function attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds
 
   const attachedIds = new Set()
   for (const endpointIds of byAnchor.values()) {
-    if (endpointIds.size > MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR) continue
+    if (endpointIds.size > maximumEndpoints) continue
     for (const endpointId of endpointIds) attachedIds.add(endpointId)
   }
 
   return normalized.nodes.filter((node) => attachedIds.has(node.id))
 }
 
-function overviewNodes(normalized, pairs) {
+function overviewNodes(normalized, pairs, maximumEndpoints, boundedPage) {
   const infrastructure = normalized.nodes.filter(isTransportInfrastructureNode)
   const infrastructureIds = new Set(infrastructure.map((node) => node.id))
   const summaries = normalized.nodes.filter(
@@ -345,8 +348,10 @@ function overviewNodes(normalized, pairs) {
     ...normalized.nodes.filter((node) => node.type === "endpoint-summary").map((node) => node.id),
     ...members.map((node) => node.id),
   ])
-  const attached = attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds)
-  const leaves = [...members, ...attached]
+  const attached = attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds, maximumEndpoints)
+  const leaves = boundedPage
+    ? normalized.nodes.filter((node) => promotableEndpointNode(node) && !excludedIds.has(node.id)).concat(members)
+    : [...members, ...attached]
   const visibleIds = new Set([...infrastructure, ...summaries, ...leaves].map((node) => node.id))
   const roleFor = (node) => {
     if (infrastructureIds.has(node.id)) return "infrastructure"
@@ -365,7 +370,9 @@ function overviewNodes(normalized, pairs) {
 }
 
 function comparePair(left, right) {
-  return left.trustRank - right.trustRank || left.pairId.localeCompare(right.pairId)
+  return left.freshnessRank - right.freshnessRank ||
+    left.trustRank - right.trustRank ||
+    left.pairId.localeCompare(right.pairId)
 }
 
 function createUnionFind(nodeIds) {
@@ -563,14 +570,21 @@ function graphKeyFor({semanticNodes, roots, semanticTreeRelations, crossLinks, s
 
 export function prepareTopologyOverviewInput(graph) {
   const normalized = normalizeNodes(graph)
+  // Requested native pages already have a fixed membership budget. Reuse the
+  // same real attachment projection without the unbounded overview fan cap.
+  const boundedPage = graph?._topologyBoundedPage === true && normalized.nodes.length <= 128
+  const maximumEndpoints = boundedPage ? 128 : MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR
   const {pairs, transportDegree, omittedMalformedEdges} = aggregatePairs(graph, normalized)
   const {attached, infrastructureIds, leaves, members, semanticNodes, summaries, visibleIds} =
-    overviewNodes(normalized, pairs)
+    overviewNodes(normalized, pairs, maximumEndpoints, boundedPage)
   const infrastructure = normalized.nodes.filter((node) => infrastructureIds.has(node.id))
+  const forestNodes = boundedPage ? normalized.nodes.filter((node) => visibleIds.has(node.id)) : infrastructure
   const candidatePairs = pairs
-    .filter((pair) => pair.hasTransport && pair.nodeIds.every((id) => infrastructureIds.has(id)))
+    .filter((pair) => boundedPage
+      ? pair.nodeIds.every((id) => visibleIds.has(id))
+      : pair.hasTransport && pair.nodeIds.every((id) => infrastructureIds.has(id)))
     .sort(comparePair)
-  const unionFind = createUnionFind(infrastructure.map((node) => node.id))
+  const unionFind = createUnionFind(forestNodes.map((node) => node.id))
   const treePairs = []
   const crossLinks = []
   for (const pair of candidatePairs) {
@@ -579,8 +593,9 @@ export function prepareTopologyOverviewInput(graph) {
     else crossLinks.push(relationFromPair(pair, left, right))
   }
 
-  const oriented = orientForest(treePairs, infrastructure, transportDegree)
-  const {relations: summaryLeaves, crossLinks: summaryCrossLinks} = summaryRelations(summaries, infrastructureIds, pairs)
+  const oriented = orientForest(treePairs, forestNodes, transportDegree)
+  const {relations: summaryLeaves, crossLinks: summaryCrossLinks} = boundedPage
+    ? {relations: [], crossLinks: []} : summaryRelations(summaries, infrastructureIds, pairs)
   const allCrossLinks = [...crossLinks, ...summaryCrossLinks].sort(
     (left, right) => left.pairId.localeCompare(right.pairId) || left.sourceId.localeCompare(right.sourceId),
   )
@@ -589,7 +604,7 @@ export function prepareTopologyOverviewInput(graph) {
   const treeRelations = [
     ...oriented.relations,
     ...summaryLeaves,
-    ...memberRelations(leaves, visibleIds, pairs, infrastructureIds),
+    ...(boundedPage ? [] : memberRelations(leaves, visibleIds, pairs, infrastructureIds)),
   ]
 
   if (oriented.roots.length > 1) {

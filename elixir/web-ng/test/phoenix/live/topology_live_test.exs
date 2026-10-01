@@ -116,8 +116,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
           "edge_class_backbone" => 0,
           "edge_class_attachment" => 57,
           "edge_class_inferred" => 12,
-          "edge_class_hosted" => 3,
-          "edge_class_observed" => 0
+          "edge_class_hosted" => 3
         }
       })
 
@@ -128,9 +127,31 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     assert html =~ "att:57"
     assert html =~ "inf:12"
     assert html =~ "host:3"
+    assert html =~ "obs:—"
     assert html =~ "edges are included in the topology map"
     refute html =~ "Show attachment layers"
     refute html =~ "No topology data yet"
+  end
+
+  test "counts unknown topology evidence outside the backbone warning", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    html =
+      render_hook(view, "god_view_stream_stats", %{
+        "node_count" => 2,
+        "edge_count" => 1,
+        "pipeline_stats" => %{
+          "final_edges" => 1,
+          "backbone_edge_count" => 0,
+          "edge_class_backbone" => 0,
+          "edge_class_unknown" => 1
+        }
+      })
+
+    assert html =~ "Backbone unavailable"
+    assert html =~ "bb:0"
+    assert html =~ "unk:1"
+    assert html =~ "att:—"
   end
 
   test "does not show the backbone-empty warning for a healthy snapshot", %{conn: conn} do

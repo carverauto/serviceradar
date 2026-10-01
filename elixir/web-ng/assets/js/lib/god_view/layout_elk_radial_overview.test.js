@@ -296,7 +296,7 @@ describe("layout_elk_radial_overview", () => {
     expect(validateTopologyOverview(scene, input)).toEqual({ok: true, errors: []})
   })
 
-  it("decodes only semantic Radial geometry, clips tree chords, and retains disclosure metadata", () => {
+  it("connects radial glyph centers rather than invisible envelopes and retains disclosure metadata", () => {
     const scene = decodeElkRadialOverview(elkLayout(), overviewInput())
 
     expect(scene).toMatchObject({
@@ -315,14 +315,14 @@ describe("layout_elk_radial_overview", () => {
         sourceId: "alpha",
         targetId: "beta",
         relationIds: ["wire:1"],
-        points: [{x: 112, y: 56}, {x: 200, y: 56}],
+        points: [{x: 56, y: 56}, {x: 256, y: 56}],
       }),
       expect.objectContaining({
         id: "beta-gamma",
         sourceId: "beta",
         targetId: "gamma",
         relationIds: ["wire:2"],
-        points: [{x: 256, y: 112}, {x: 256, y: 200}],
+        points: [{x: 256, y: 56}, {x: 256, y: 256}],
       }),
     ])
     expect(scene.physicalRoutes).toEqual(scene.routes)
@@ -388,15 +388,14 @@ describe("layout_elk_radial_overview", () => {
     expect(validateTopologyOverview(overlap, input).errors).toContain("routes a-b and c-d have overlapping interiors")
   })
 
-  it("allows only a shared semantic endpoint contact within route intersection tolerance", () => {
+  it("allows shared semantic endpoint contact", () => {
     const input = routeCollisionInput()
     input.treeRelations[1] = {id: "c-b", sourceId: "c", targetId: "b", semanticRelationIds: ["wire:c-b"]}
-    const scene = JSON.parse(JSON.stringify(decodeElkRadialOverview(routeCollisionLayout({
+    const scene = decodeElkRadialOverview(routeCollisionLayout({
       a: {x: 0, y: 0}, b: {x: 300, y: 0}, c: {x: 0, y: 300}, d: {x: 300, y: 300},
-    }, input), input)))
-    scene.routes[1] = {...scene.routes[1], points: [{x: 56, y: 300}, {x: 300, y: 56}]}
-    scene.physicalRoutes = scene.routes
+    }, input), input)
 
+    expect(scene.routes[0].points.at(-1)).toEqual(scene.routes[1].points.at(-1))
     expect(validateTopologyOverview(scene, input)).toEqual({ok: true, errors: []})
   })
 

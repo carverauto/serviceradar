@@ -7,8 +7,11 @@ import {applyTopologyOverviewToGraph, layoutTopologyOverview} from "./layout_elk
 import {LANDSCAPE_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "./layout_elk_scene"
 import {collapsedFarm01Graph, expandedFarm01Graph} from "./fixtures/farm01_topology_regression"
 import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
+import {godViewLifecycleStreamDecodeMethods} from "./lifecycle_stream_decode_methods"
 import {godViewRenderingGraphDataMethods, hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
+import {godViewRenderingSelectionMethods} from "./rendering_selection_methods"
 import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
+import {snapshotIpcBytes} from "./fixtures/snapshot_ipc"
 import {prepareTopologyOverviewInput} from "./topology_overview_projection"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
@@ -245,6 +248,8 @@ describe("rendering_graph_data_methods", () => {
       expect([edge.sourceId, edge.targetId]).toEqual([route.sourceId, route.targetId])
       expect(glyphIds).toContain(edge.sourceId)
       expect(glyphIds).toContain(edge.targetId)
+      expect(edge.sourcePosition).toEqual(out.nodeData.find(node => node.id === edge.sourceId).position)
+      expect(edge.targetPosition).toEqual(out.nodeData.find(node => node.id === edge.targetId).position)
       expect(edge.sourcePosition).toEqual([route.points[0].x, route.points[0].y, 0])
       expect(edge.targetPosition).toEqual([
         route.points.at(-1).x,
@@ -351,6 +356,97 @@ describe("rendering_graph_data_methods", () => {
 
     expect(collapseExpandedMemberTrunks).not.toHaveBeenCalled()
     expect(aggregateVisibleEdges).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {name: "current-only", includeCurrent: true, includeStale: false, expectedEdges: 1},
+    {name: "stale-only", includeCurrent: false, includeStale: true, expectedEdges: 1},
+    {name: "mixed current and stale evidence", includeCurrent: true, includeStale: true, expectedEdges: 2},
+  ])("keeps $name route membership separate through ELK rendering", async ({includeCurrent, includeStale, expectedEdges}) => {
+    const nodes = [
+      {id: "router-a", details: {type: "Router", topology_plane: "backbone"}},
+      {id: "switch-b", details: {type: "Switch", topology_plane: "backbone"}},
+    ]
+    const edges = []
+    if (includeCurrent) {
+      edges.push({
+        id: "current-backbone",
+        source: 0,
+        target: 1,
+        topologyClass: "backbone",
+        evidenceClass: "direct",
+        flowPps: 9,
+        metadata: {relation_type: "CONNECTS_TO", topology_plane: "backbone"},
+      })
+    }
+    if (includeStale) {
+      edges.push({
+        id: "stale-attachment",
+        source: 0,
+        target: 1,
+        topologyClass: "endpoints",
+        evidenceClass: "endpoint-attachment",
+        stale: true,
+        flowPps: 400,
+        metadata: {relation_type: "ATTACHED_TO", topology_plane: "attachment"},
+      })
+    }
+
+    const graph = {nodes, edges}
+    const input = prepareTopologySceneInput(graph)
+    const scene = await layoutTopologyScene(input, {engine: new ELK(), profile: LANDSCAPE_PROFILE})
+    const effective = {shape: "local", ...applyTopologySceneToGraph(graph, scene)}
+    const out = baseContext().buildVisibleGraphData(effective)
+
+    expect(scene.physicalRoutes).toHaveLength(1)
+    expect(out.edgeData).toHaveLength(expectedEdges)
+    expect(out.edgeData.every((edge) => edge.path.length > 1)).toBe(true)
+    if (includeCurrent && includeStale) {
+      const current = out.edgeData.find((edge) => edge.relationIds.includes("current-backbone"))
+      const stale = out.edgeData.find((edge) => edge.relationIds.includes("stale-attachment"))
+      expect(current).toMatchObject({flowPps: 9, telemetryEligible: true})
+      expect(current.stale).toBeUndefined()
+      expect(stale).toMatchObject({stale: true, flowPps: 0, telemetryEligible: false})
+      expect(current.path).toEqual(scene.physicalRoutes[0].points.map((point) => [point.x, point.y, 0]))
+      expect(stale.path).toEqual(current.path)
+      expect(current.interactionKey).not.toEqual(stale.interactionKey)
+    } else if (includeStale) {
+      expect(out.edgeData[0]).toMatchObject({stale: true, flowPps: 0, telemetryEligible: false})
+    } else {
+      expect(out.edgeData[0]).toMatchObject({flowPps: 9, telemetryEligible: true})
+      expect(out.edgeData[0].stale).toBeUndefined()
+    }
+  })
+
+  it.each([
+    {name: "current-only", current: true, stale: false, expectedEdges: 1},
+    {name: "stale-only", current: false, stale: true, expectedEdges: 1},
+    {name: "mixed current and stale", current: true, stale: true, expectedEdges: 2},
+  ])("keeps $name raw pair routes separate", ({current, stale, expectedEdges}) => {
+    const ctx = baseContext()
+    const edges = []
+    if (current) edges.push({id: "current", source: 0, target: 1, topologyClass: "backbone", flowPps: 5})
+    if (stale) edges.push({id: "stale", source: 0, target: 1, topologyClass: "endpoints", stale: true, flowPps: 300})
+    const out = ctx.buildVisibleGraphData({
+      shape: "local",
+      nodes: [
+        {id: "router-a", x: 0, y: 0, state: 0, label: "Router A", operUp: 1, details: {}},
+        {id: "switch-b", x: 100, y: 0, state: 1, label: "Switch B", operUp: 1, details: {}},
+      ],
+      edges,
+    })
+
+    expect(out.edgeData).toHaveLength(expectedEdges)
+    if (current && stale) {
+      expect(new Set(out.edgeData.map((edge) => edge.interactionKey)).size).toBe(2)
+      expect(out.edgeData.find((edge) => !edge.stale)).toMatchObject({flowPps: 5})
+      expect(out.edgeData.find((edge) => edge.stale)).toMatchObject({stale: true, flowPps: 0, telemetryEligible: false})
+    } else if (stale) {
+      expect(out.edgeData[0]).toMatchObject({stale: true, flowPps: 0, telemetryEligible: false})
+    } else {
+      expect(out.edgeData[0]).toMatchObject({flowPps: 5})
+      expect(out.edgeData[0].stale).toBeUndefined()
+    }
   })
 
   it("samples a scene route midpoint by cumulative polyline distance", () => {
@@ -1058,7 +1154,7 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData.map((edge) => [edge.sourceId, edge.targetId])).toEqual([["client", "switch"]])
   })
 
-  it("buildVisibleGraphData keeps a single trunk from the anchor to an expanded cluster", () => {
+  it("buildVisibleGraphData preserves every member link from an expanded cluster", () => {
     const ctx = baseContext({
       state: {
         topologyLayers: {backbone: true, inferred: false, endpoints: true},
@@ -1141,7 +1237,8 @@ describe("rendering_graph_data_methods", () => {
       ],
       edges: [
         {source: 0, target: 1, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "census", topologyClass: "endpoints"},
-        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "near", topologyClass: "endpoints"},
+        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "near", topologyClass: "endpoints", id: "near-current"},
+        {source: 1, target: 2, flowPps: 70, flowBps: 700, capacityBps: 1000, label: "near-stale", topologyClass: "endpoints", stale: true, id: "near-stale"},
         {source: 1, target: 3, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "far", topologyClass: "endpoints"},
         {source: 1, target: 4, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "farther", topologyClass: "endpoints"},
       ],
@@ -1155,9 +1252,15 @@ describe("rendering_graph_data_methods", () => {
       "client-near",
       "switch",
     ])
-    expect(out.edgeData).toHaveLength(1)
-    expect(out.edgeData[0].sourceId === "switch" || out.edgeData[0].targetId === "switch").toEqual(true)
-    expect([out.edgeData[0].sourceId, out.edgeData[0].targetId]).toContain("client-near")
+    expect(out.edgeData).toHaveLength(4)
+    expect(out.edgeData.map((edge) => [edge.sourceId, edge.targetId]).sort()).toEqual([
+      ["client-near", "switch"],
+      ["client-near", "switch"],
+      ["client-far", "switch"],
+      ["client-farther", "switch"],
+    ].sort())
+    expect(out.edgeData.filter((edge) => edge.sourceId === "client-near" || edge.targetId === "client-near")).toHaveLength(2)
+    expect(out.edgeData.some((edge) => edge.stale === true && edge.flowPps === 0 && edge.telemetryEligible === false)).toBe(true)
   })
 
   it("buildVisibleGraphData keeps endpoint nodes visible when the endpoint layer is enabled", () => {
@@ -1243,5 +1346,67 @@ describe("rendering_graph_data_methods", () => {
     expect(out.nodeData[0].stateReason).toBe("reason")
     expect(ctx.stateReasonForNode).toHaveBeenCalledTimes(1)
     expect(ctx.stateReasonForNode.mock.calls[0][0]).toBe(out.nodeData[0])
+  })
+})
+
+describe("bounded observation inspection", () => {
+  it("shows a shared stored time only for the inspected bounded route", () => {
+    const decoder = createStateBackedContext({}, {
+      normalizeDisplayLabel: (value, fallback) => (typeof value === "string" && value.trim() !== "" ? value : fallback),
+    })
+    Object.assign(decoder, bindApi(decoder, godViewLifecycleStreamDecodeMethods))
+    const decoded = decoder.decodeArrowGraph(snapshotIpcBytes({
+      metadataEntries: [["payload_kind", "detail"], ["layout_profile", "radial-overview"]],
+      nodes: [
+        {id: "core", label: "core"},
+        {id: "access", label: "access"},
+        {id: "leaf", label: "leaf"},
+      ],
+      edges: [
+        {source: 0, target: 1, details: {id: "shared-a", last_seen: "2020-01-01T00:00:00Z", source_if_index: 1, target_if_index: 1}},
+        {source: 0, target: 1, details: {id: "shared-b", last_seen: "2020-01-01T00:00:00Z", source_if_index: 2, target_if_index: 2}},
+        {source: 0, target: 2, details: {id: "mixed-a", last_seen: "2020-01-01T00:00:00Z", source_if_index: 3, target_if_index: 3}},
+        {source: 0, target: 2, details: {id: "mixed-b", last_seen: "2021-05-01T00:00:00Z", source_if_index: 4, target_if_index: 4}},
+        {source: 1, target: 2, details: {id: "only", last_seen: "2024-06-01T00:00:00Z", source_if_index: 5, target_if_index: 5}},
+      ],
+    }))
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+    const relationId = (detailsId) => decoded.edges.find((edge) => edge.details.id === detailsId).id
+    const ctx = baseContext({
+      state: {selectedEdgeKey: "local:route-shared", hoveredEdgeKey: null},
+      overrides: {selectEdgeLabels: godViewRenderingSelectionMethods.selectEdgeLabels},
+    })
+    const prepared = ctx.buildTopologySceneEdgeData({
+      nodes: decoded.nodes,
+      edges: decoded.edges,
+      _topologyScene: {
+        routes: [
+          {id: "route-shared", sourceId: "core", targetId: "access", points: [{x: 0, y: 0}, {x: 40, y: 0}], relationIds: [relationId("shared-a"), relationId("shared-b")]},
+          {id: "route-mixed", sourceId: "core", targetId: "leaf", points: [{x: 0, y: 0}, {x: 0, y: 40}], relationIds: [relationId("mixed-a"), relationId("mixed-b")]},
+          {id: "route-only", sourceId: "access", targetId: "leaf", points: [{x: 40, y: 0}, {x: 0, y: 40}], relationIds: [relationId("only")]},
+        ],
+      },
+    }, (edge) => edge.topologyClass || "backbone", () => true, () => true)
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+
+    const shared = ctx.selectEdgeLabels(prepared, "local")
+    expect(shared).toHaveLength(1)
+    expect(shared[0].lastSeen).toBe("2020-01-01T00:00:00Z")
+    expect(shared[0].connectionLabel).toContain("2020-01-01T00:00:00Z")
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 2})
+
+    ctx.state.selectedEdgeKey = "local:route-mixed"
+    const mixed = ctx.selectEdgeLabels(prepared, "local")
+    expect(mixed).toHaveLength(1)
+    expect(mixed[0].lastSeen).toBeUndefined()
+    expect(mixed[0].connectionLabel).not.toContain("2020-01-01T00:00:00Z")
+    expect(mixed[0].connectionLabel).not.toContain("2021-05-01T00:00:00Z")
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 4})
+
+    ctx.state.selectedEdgeKey = "local:route-only"
+    const only = ctx.selectEdgeLabels(prepared, "local")
+    expect(only[0].lastSeen).toBe("2024-06-01T00:00:00Z")
+    expect(only[0].connectionLabel).toContain("2024-06-01T00:00:00Z")
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 5})
   })
 })

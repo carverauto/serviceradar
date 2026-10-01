@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-use super::CanonicalEdge;
+use super::{CanonicalEdge, NeighbourhoodEdge};
 
 /// Canonical vertices and relations read from one Dgraph transaction snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,5 +70,35 @@ impl CanonicalDevice {
     #[must_use]
     pub fn ip(&self) -> Option<&str> {
         self.ip.as_deref()
+    }
+}
+
+/// One read-only snapshot of the tiled world: the canonical backbone plus
+/// mapper-admitted attachment, inferred, and hosted edges.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopologyView {
+    nodes: Vec<CanonicalDevice>,
+    edges: Vec<NeighbourhoodEdge>,
+}
+
+impl TopologyView {
+    #[must_use]
+    pub fn new(nodes: Vec<CanonicalDevice>, edges: Vec<NeighbourhoodEdge>) -> Self {
+        Self { nodes, edges }
+    }
+
+    #[must_use]
+    pub fn nodes(&self) -> &[CanonicalDevice] {
+        &self.nodes
+    }
+
+    #[must_use]
+    pub fn edges(&self) -> &[NeighbourhoodEdge] {
+        &self.edges
+    }
+
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<CanonicalDevice>, Vec<NeighbourhoodEdge>) {
+        (self.nodes, self.edges)
     }
 }
