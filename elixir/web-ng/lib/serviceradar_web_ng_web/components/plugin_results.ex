@@ -236,7 +236,6 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
   defp markdown_to_html(content) do
     content = to_string(content || "")
-    escaped = content |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 
     opts = [
       extension: [
@@ -245,12 +244,12 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
         table: true,
         tasklist: true
       ],
-      render: [hardbreaks: true]
+      render: [hardbreaks: true, escape: true, unsafe: false]
     ]
 
-    case MDEx.to_html(escaped, opts) do
+    case MDEx.to_html(content, opts) do
       {:ok, html} -> sanitize_rendered_markdown(html)
-      {:error, _reason} -> escaped
+      {:error, _reason} -> content |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
     end
   end
 
