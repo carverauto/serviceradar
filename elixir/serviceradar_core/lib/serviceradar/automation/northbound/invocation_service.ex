@@ -16,6 +16,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   alias ServiceRadar.Automation.Northbound.Dispatcher
   alias ServiceRadar.Automation.Northbound.PluginPackageContext
   alias ServiceRadar.Automation.Northbound.TargetResolver
+  alias ServiceRadar.Identity.RBAC
 
   require Ash.Query
 
@@ -31,6 +32,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
     with {:ok, descriptor_id} <- required_string(attrs, :descriptor_id),
          {:ok, descriptor} <- fetch_descriptor(descriptor_id, actor),
          :ok <- validate_descriptor(descriptor),
+         :ok <- authorize_package_rule_inputs(descriptor, attrs, actor),
          {:ok, targets} <- normalize_targets(attrs),
          :ok <- validate_target_scopes(descriptor, targets),
          {:ok, resolution_opts} <- target_resolution_opts(descriptor),
@@ -213,6 +215,19 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   end
 
   defp normalize_source(_value), do: :user
+
+  defp authorize_package_rule_inputs(descriptor, attrs, actor) do
+    package_rule_inputs =
+      PluginPackageContext.package_rule_inputs(descriptor.credential_requirements)
+
+    if normalize_source(fetch(attrs, :source)) == :user and package_rule_inputs != [] and
+         not SystemActor.system_actor?(actor) and
+         not RBAC.has_permission?(actor, "settings.credentials.manage") do
+      {:error, :credential_rule_permission_required}
+    else
+      :ok
+    end
+  end
 
   defp actor_id(%{id: id}) when is_binary(id) do
     case Ecto.UUID.cast(id) do

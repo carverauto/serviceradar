@@ -25,6 +25,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Plugins.ActionCredentialRequirements
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.PluginAssignment
@@ -123,12 +124,14 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
   """
   @spec eligible_rules(String.t() | nil, keyword()) :: {:ok, [struct()]} | {:error, term()}
   def eligible_rules(package_id, opts \\ []) do
-    actor = actor(opts)
+    rule_actor = Keyword.get(opts, :actor)
+    actor = SystemActor.system(:northbound_plugin_package_context)
 
-    with {:ok, manifest} <- approved_manifest(package_id, actor),
+    with :ok <- authorize_rule_read(rule_actor),
+         {:ok, manifest} <- approved_manifest(package_id, actor),
          providers when providers != [] <- scheduled_providers(manifest),
          {:ok, policy_ids} <- provisioned_policy_ids(package_id, actor),
-         {:ok, rules} <- enabled_rules_for_providers(providers, actor) do
+         {:ok, rules} <- enabled_rules_for_providers(providers, rule_actor) do
       {:ok,
        rules
        |> Enum.filter(fn rule ->
@@ -310,5 +313,13 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
 
   defp actor(opts) do
     Keyword.get(opts, :actor) || SystemActor.system(:northbound_plugin_package_context)
+  end
+
+  defp authorize_rule_read(%{role: :system}), do: :ok
+
+  defp authorize_rule_read(actor) do
+    if RBAC.has_permission?(actor, "settings.credentials.manage"),
+      do: :ok,
+      else: {:error, :credential_rule_permission_required}
   end
 end

@@ -80,7 +80,7 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
         Enum.flat_map(descriptors, fn descriptor ->
           case Map.get(providers_by_id, descriptor.provider_id) do
             nil -> []
-            provider -> [descriptor_summary(descriptor, provider, action_scope, opts)]
+            provider -> [descriptor_summary(descriptor, provider, scope, action_scope, opts)]
           end
         end)
 
@@ -89,7 +89,7 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
     end
   end
 
-  defp descriptor_summary(descriptor, provider, action_scope, opts) do
+  defp descriptor_summary(descriptor, provider, scope, action_scope, opts) do
     %{
       id: "northbound:#{descriptor.id}",
       descriptor_id: descriptor.id,
@@ -99,7 +99,7 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       provider_name: provider.name,
       scope: action_scope,
       destination: nil,
-      input_schema: input_schema(descriptor, provider, opts),
+      input_schema: input_schema(descriptor, provider, scope, opts),
       safety_classification: to_string(descriptor.safety_classification),
       requires_confirmation: descriptor.requires_confirmation,
       timeout_seconds: descriptor.timeout_seconds,
@@ -109,11 +109,12 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
     }
   end
 
-  defp input_schema(descriptor, provider, opts) do
+  defp input_schema(descriptor, provider, scope, opts) do
     context = Keyword.get(opts, :plugin_package_context, PluginPackageContext)
     schema = descriptor.input_schema || %{}
+    actor = scope_actor(scope)
 
-    case context.rule_options(descriptor, provider) do
+    case context.rule_options(descriptor, provider, actor: actor) do
       {:ok, options} when map_size(options) > 0 ->
         put_rule_options(schema, options)
 
@@ -178,6 +179,13 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
     property
     |> Map.put("x-credential-rule-options", options)
     |> Map.put("x-enum-labels", Map.new(options, &{&1["id"], &1["label"]}))
-    |> then(fn property -> if ids == [], do: property, else: Map.put(property, "enum", ids) end)
+    |> Map.put("enum", ids)
+    |> then(fn property ->
+      if ids == [], do: Map.put(property, "x-credential-rule-options-empty", true), else: property
+    end)
   end
+
+  defp scope_actor(%{actor: actor}) when not is_nil(actor), do: actor
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(scope), do: scope
 end

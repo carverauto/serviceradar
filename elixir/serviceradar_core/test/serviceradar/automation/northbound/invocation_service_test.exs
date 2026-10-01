@@ -84,6 +84,41 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
     assert device_uid == device.uid
   end
 
+  test "launch-only actors cannot submit package credential rule inputs", %{actor: actor} do
+    package = create_plugin_package(["example-sat"])
+
+    {:ok, provider} =
+      create_provider(actor, provider_type: :wasm_plugin, plugin_package_id: package.id)
+
+    requirements = %{
+      "destination_account" => %{
+        "credential_source" => "package_rule",
+        "rule_input" => "destination_rule_id",
+        "required" => true
+      }
+    }
+
+    {:ok, descriptor} = create_descriptor(provider, actor, credential_requirements: requirements)
+    {:ok, device} = create_device(actor)
+
+    launch_actor = %{
+      id: Ash.UUID.generate(),
+      email: "northbound-launcher@example.com",
+      role: :viewer,
+      permissions: MapSet.new(["northbound.actions.launch"])
+    }
+
+    assert {:error, :credential_rule_permission_required} =
+             InvocationService.create_invocation(
+               %{
+                 descriptor_id: descriptor.id,
+                 targets: [%{kind: :device, device_uid: device.uid}],
+                 input_values: %{"destination_rule_id" => "synthetic-rule-id"}
+               },
+               actor: launch_actor
+             )
+  end
+
   test "rejects inactive providers", %{actor: actor} do
     {:ok, provider} = create_provider(actor, activate?: false)
     {:ok, descriptor} = create_descriptor(provider, actor)
@@ -362,7 +397,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
         safety_classification: :standard,
         requires_confirmation: false,
         timeout_seconds: 60,
-        credential_requirements: %{},
+        credential_requirements: Keyword.get(opts, :credential_requirements, %{}),
         result_schema_version: "serviceradar.northbound_action_result.v1",
         descriptor_hash: "test",
         enabled: true,

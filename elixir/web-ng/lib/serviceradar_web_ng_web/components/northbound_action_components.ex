@@ -24,9 +24,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     properties = if action, do: ActionForm.schema_properties(action), else: []
     required = if action, do: ActionForm.schema_required(action), else: MapSet.new()
 
-    has_credential_rule_options_error =
+    has_blocked_credential_rule_options =
       Enum.any?(properties, fn {_name, schema} ->
-        ActionForm.schema_credential_rule_options_error?(schema)
+        ActionForm.schema_credential_rule_options_blocked?(schema)
       end)
 
     assigns =
@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       |> assign(:action, action)
       |> assign(:properties, properties)
       |> assign(:required, required)
-      |> assign(:has_credential_rule_options_error, has_credential_rule_options_error)
+      |> assign(:has_blocked_credential_rule_options, has_blocked_credential_rule_options)
 
     ~H"""
     <.ui_modal id={@id} size="md" on_cancel={@close_event} show_close={true}>
@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           </.ui_button>
           <.ui_button
             type="submit"
-            disabled={is_nil(@action) or @has_credential_rule_options_error}
+            disabled={is_nil(@action) or @has_blocked_credential_rule_options}
             size="sm"
             variant="primary"
           >
@@ -302,12 +302,15 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
     credential_rule_options_error =
       ActionForm.schema_credential_rule_options_error?(assigns.schema)
+    credential_rule_options_empty =
+      ActionForm.schema_credential_rule_options_empty?(assigns.schema)
 
     assigns =
       assigns
       |> assign(:type, type)
       |> assign(:enum_values, enum_values)
       |> assign(:credential_rule_options_error, credential_rule_options_error)
+      |> assign(:credential_rule_options_empty, credential_rule_options_empty)
       |> assign(:value, ActionForm.form_value(assigns.form, assigns.name))
       |> assign(:label, ActionForm.schema_title(assigns.name, assigns.schema))
       |> assign(:description, ActionForm.schema_description(assigns.schema))
@@ -333,7 +336,15 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         Credential rule options are unavailable; try again later
       </p>
 
-      <div :if={not @credential_rule_options_error}>
+      <p
+        :if={@credential_rule_options_empty}
+        role="status"
+        class="text-sm text-sr-muted"
+      >
+        No credential rules are available for this action.
+      </p>
+
+      <div :if={not (@credential_rule_options_error or @credential_rule_options_empty)}>
         <select
           :if={@enum_values != []}
           name={@input_name}

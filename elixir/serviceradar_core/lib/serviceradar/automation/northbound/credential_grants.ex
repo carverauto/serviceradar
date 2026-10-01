@@ -20,7 +20,13 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.PluginPackageContext
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.ActionCredentialRequirements
+  alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLDeviceMatcher
+
+  require Ash.Query
 
   @default_ttl_seconds 300
 
@@ -212,7 +218,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
         resolve_schedule_source(context, requirement, assignment, name)
 
       source == "package_rule" ->
-        resolve_package_rule_source(context, requirement, invocation, name)
+        resolve_package_rule_source(context, requirement, invocation, assignment, name, opts)
 
       true ->
         {:error, {:unsupported_credential_source, name, source}}
@@ -237,7 +243,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
     end
   end
 
-  defp resolve_package_rule_source(context, requirement, invocation, name) do
+  defp resolve_package_rule_source(context, requirement, invocation, assignment, name, opts) do
     input_key = requirement |> map_get("rule_input") |> trimmed()
     rule_id = input_value(normalize_map(invocation.input_values), input_key)
 
@@ -252,16 +258,119 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
         {:ok, nil}
 
       true ->
-        case context.eligible_rule(invocation.provider.plugin_package_id, rule_id, []) do
-          {:ok, rule} ->
-            {:ok, %{secret_id: to_string(rule.secret_id), credential_rule_id: to_string(rule.id)}}
+        with {:ok, actor} <- package_rule_actor(invocation, opts),
+             {:ok, rule} <-
+               context.eligible_rule(invocation.provider.plugin_package_id, rule_id, actor: actor),
+             :ok <- ensure_rule_scope(rule, assignment, invocation) do
+          {:ok, %{secret_id: to_string(rule.secret_id), credential_rule_id: to_string(rule.id)}}
+        else
+          {:error, :credential_rule_permission_required} ->
+            {:error, :credential_rule_permission_required}
 
           {:error, :credential_rule_not_eligible} ->
             {:error, {:credential_rule_not_eligible, name, input_key}}
 
-          {:error, reason} ->
-            {:error, reason}
+          {:error, _reason} ->
+            {:error, {:credential_rule_not_eligible, name, input_key}}
         end
+    end
+  end
+
+  defp package_rule_actor(%{source: source}, _opts)
+       when source in [:schedule, :event_handler, :system],
+       do: {:ok, SystemActor.system(:northbound_credential_grants)}
+
+  defp package_rule_actor(_invocation, opts) do
+    actor = Keyword.get(opts, :actor)
+
+    if not SystemActor.system_actor?(actor) and
+         not RBAC.has_permission?(actor, "settings.credentials.manage") do
+      {:error, :credential_rule_permission_required}
+    else
+      {:ok, actor || SystemActor.system(:northbound_credential_grants)}
+    end
+  end
+
+  defp ensure_rule_scope(rule, assignment, invocation) do
+    assignment_agent = to_string(Map.get(assignment, :agent_uid) || "")
+    scope_value = to_string(rule_field(rule, :scope_value, "scope_value") || "")
+
+    case grant_target_snapshots(invocation) do
+      [] ->
+        {:error, :credential_rule_not_eligible}
+
+      snapshots ->
+        if Enum.all?(snapshots, fn snapshot ->
+             rule_covers_target?(rule, scope_value, assignment_agent, assignment, snapshot)
+           end) do
+          :ok
+        else
+          {:error, :credential_rule_not_eligible}
+        end
+    end
+  end
+
+  defp rule_covers_target?(rule, scope_value, assignment_agent, assignment, snapshot) do
+    target_agent = map_get(snapshot, "agent_id") || map_get(snapshot, "device_agent_id")
+    target_gateway = map_get(snapshot, "gateway_id") || map_get(snapshot, "device_gateway_id")
+    target_uid = map_get(snapshot, "device_uid")
+
+    edge_matches =
+      case rule_field(rule, :scope_type, "scope_type") do
+        scope when scope in [:agent, "agent"] ->
+          scope_value == assignment_agent and to_string(target_agent || "") == assignment_agent
+
+        scope when scope in [:gateway, "gateway"] ->
+          is_binary(target_agent) and target_agent == assignment_agent and
+            to_string(target_gateway || "") == scope_value
+
+        scope when scope in [:partition, "partition"] ->
+          is_binary(target_agent) and target_agent == assignment_agent and
+            to_string(Map.get(assignment, :partition_id) || "") == scope_value
+
+        _scope ->
+          false
+      end
+
+    edge_matches and is_binary(target_uid) and
+      target_query_matches?(rule_field(rule, :target_query, "target_query"), target_uid) == :ok
+  end
+
+  defp rule_field(rule, atom_key, string_key) do
+    Map.get(rule, atom_key) || Map.get(rule, string_key)
+  end
+
+  defp grant_target_snapshots(%ActionInvocationTarget{target_snapshot: snapshot}),
+    do: [normalize_map(snapshot)]
+
+  defp grant_target_snapshots(invocation) do
+    Enum.map(List.wrap(invocation.target_snapshots), &normalize_map/1)
+  end
+
+  defp target_query_matches?(query, target_uid) when is_binary(query) do
+    with {:ok, ast} <- SRQLAst.parse(query),
+         filters <- SRQLDeviceMatcher.extract_filters(ast),
+         true <- filters == [] or target_matches_filters?(target_uid, filters) do
+      :ok
+    else
+      _ -> {:error, :credential_rule_not_eligible}
+    end
+  end
+
+  defp target_query_matches?(_query, _target_uid), do: {:error, :credential_rule_not_eligible}
+
+  defp target_matches_filters?(target_uid, filters) do
+    actor = SystemActor.system(:northbound_credential_rule_scope)
+
+    Device
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(uid == ^target_uid)
+    |> SRQLDeviceMatcher.apply_filters(filters)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %Device{}} -> true
+      _ -> false
     end
   end
 

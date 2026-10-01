@@ -17,6 +17,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
@@ -31,6 +32,12 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
   @schedule_id "example-sat.inventory.refresh"
   @schedule_ref "example_account"
   @partition_id "default"
+  @credential_manager %{
+    id: "018f0000-0000-7000-8000-000000000099",
+    email: "credential-manager@example.com",
+    role: :viewer,
+    permissions: MapSet.new(["settings.credentials.manage", "northbound.actions.launch"])
+  }
 
   @source_requirement %{
     "credential_source" => "assignment_schedule",
@@ -228,12 +235,14 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
             "source_account" => @source_requirement,
             "destination_account" => @destination_requirement
           },
-          %{"destination_rule_id" => to_string(first_rule.id)}
+          %{"destination_rule_id" => to_string(second_rule.id)},
+          bound.agent_uid
         )
 
       assert {:ok, prepared} =
                CredentialGrants.prepare_launch(invocation, bound,
-                 grant_issuer: {FakeGrantIssuer, :issue}
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
                )
 
       assert %{"credential_brokers" => [_first, _second]} = prepared.payload_fields
@@ -245,14 +254,64 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
         Map.new([first_attrs, second_attrs], &{&1.metadata["requirement_name"], &1})
 
       destination = grants["destination_account"]
-      assert to_string(destination.secret_id) == to_string(first_rule.secret_id)
-      assert destination.credential_rule_id == to_string(first_rule.id)
+      assert to_string(destination.secret_id) == to_string(second_rule.secret_id)
+      assert destination.credential_rule_id == to_string(second_rule.id)
       assert destination.metadata["credential_source"] == "package_rule"
       assert destination.allowed_hosts == ["api.example.com"]
 
       source = grants["source_account"]
       assert source.secret_ref == secret_ref(second_rule.secret_id)
       assert to_string(source.credential_rule_id) == to_string(second_rule.id)
+
+      wrong_edge = %{invocation | input_values: %{"destination_rule_id" => to_string(first_rule.id)}}
+
+      assert {:error,
+              {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
+               CredentialGrants.prepare_launch(wrong_edge, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+    end
+
+    test "selected rule target query must include every action target",
+         %{package: package, bound: bound, second_rule: second_rule} do
+      unique = System.unique_integer([:positive])
+      target_uid = "sr:example-sat-query-target-#{unique}"
+      target_hostname = "host-#{unique}.example.com"
+      target_device!(target_uid, target_hostname, bound.agent_uid)
+
+      rule_with_target = update_target_query!(second_rule, "in:devices hostname:#{target_hostname}")
+
+      invocation =
+        in_memory_invocation(
+          package,
+          %{"destination_account" => @destination_requirement},
+          %{"destination_rule_id" => to_string(rule_with_target.id)},
+          bound.agent_uid,
+          target_uid
+        )
+
+      assert {:ok, _prepared} =
+               CredentialGrants.prepare_launch(invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+
+      assert_received {:grant_attrs, attrs}
+      assert to_string(attrs.secret_id) == to_string(rule_with_target.secret_id)
+
+      rule_without_target =
+        update_target_query!(rule_with_target, "in:devices hostname:other.example.com")
+
+      invocation =
+        put_in(invocation.input_values["destination_rule_id"], to_string(rule_without_target.id))
+
+      assert {:error,
+              {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
+               CredentialGrants.prepare_launch(invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
     end
 
     test "rejects another package's rule, a disabled rule, an unprovisioned rule and a raw secret id",
@@ -270,24 +329,32 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
           in_memory_invocation(
             package,
             %{"destination_account" => @destination_requirement},
-            %{"destination_rule_id" => to_string(value)}
+            %{"destination_rule_id" => to_string(value)},
+            bound.agent_uid
           )
 
         assert {:error,
                 {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
                  CredentialGrants.prepare_launch(invocation, bound,
-                   grant_issuer: {FakeGrantIssuer, :issue}
+                   grant_issuer: {FakeGrantIssuer, :issue},
+                   actor: @credential_manager
                  ),
                "expected #{inspect(value)} to be rejected"
       end
 
       invocation =
-        in_memory_invocation(package, %{"destination_account" => @destination_requirement}, %{})
+        in_memory_invocation(
+          package,
+          %{"destination_account" => @destination_requirement},
+          %{},
+          bound.agent_uid
+        )
 
       assert {:error,
               {:missing_credential_rule_input, "destination_account", "destination_rule_id"}} =
                CredentialGrants.prepare_launch(invocation, bound,
-                 grant_issuer: {FakeGrantIssuer, :issue}
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
                )
 
       refute_received {:grant_attrs, _attrs}
@@ -300,17 +367,10 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
           scopes: ["device"]
         )
 
-      launch_scope = %{
-        actor: %{
-          id: Ash.UUID.generate(),
-          email: "northbound-launcher@serviceradar.local",
-          role: :viewer,
-          permissions: MapSet.new(["northbound.actions.launch"])
-        }
-      }
+      credential_scope = %{actor: @credential_manager}
 
       assert [action] =
-               launch_scope
+               credential_scope
                |> Catalog.eligible_device_actions()
                |> Enum.filter(&(&1.descriptor_id == descriptor.id))
 
@@ -328,7 +388,38 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       refute inspect(action) =~ to_string(second_rule.secret_id)
 
       assert {:ok, %{"destination_rule_id" => ^expected}} =
-               PluginPackageContext.rule_options(descriptor, descriptor.provider)
+               PluginPackageContext.rule_options(descriptor, descriptor.provider,
+                 actor: @credential_manager
+               )
+    end
+
+    test "launch-only catalog and server lookups do not expose credential rule choices",
+         %{package: package} do
+      {:ok, descriptor} =
+        plugin_descriptor(package, %{"destination_account" => @destination_requirement},
+          scopes: ["device"]
+        )
+
+      launch_actor = %{
+        id: Ash.UUID.generate(),
+        email: "northbound-launcher@example.com",
+        role: :viewer,
+        permissions: MapSet.new(["northbound.actions.launch"])
+      }
+
+      assert [action] =
+               %{actor: launch_actor}
+               |> Catalog.eligible_device_actions()
+               |> Enum.filter(&(&1.descriptor_id == descriptor.id))
+
+      property = action.input_schema["properties"]["destination_rule_id"]
+      assert property["x-credential-rule-options-error"] == true
+      refute Map.has_key?(property, "x-credential-rule-options")
+
+      assert {:error, :credential_rule_permission_required} =
+               PluginPackageContext.rule_options(descriptor, descriptor.provider,
+                 actor: launch_actor
+               )
     end
   end
 
@@ -574,7 +665,13 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
     )
   end
 
-  defp in_memory_invocation(package, requirements, input_values) do
+  defp in_memory_invocation(
+         package,
+         requirements,
+         input_values,
+         agent_uid \\ "",
+         target_uid \\ "sr:example-sat-terminal"
+       ) do
     %ActionInvocation{
       id: Ecto.UUID.generate(),
       provider_id: Ecto.UUID.generate(),
@@ -594,11 +691,39 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
         timeout_seconds: 60,
         metadata: %{}
       },
-      target_snapshots: [%{"kind" => "device", "device_uid" => "sr:example-sat-terminal"}],
+      target_snapshots: [
+        %{
+          "kind" => "device",
+          "device_uid" => target_uid,
+          "agent_id" => agent_uid
+        }
+      ],
       input_values: input_values,
       redacted_input_values: %{},
       metadata: %{}
     }
+  end
+
+  defp update_target_query!(rule, target_query) do
+    {:ok, updated} =
+      rule
+      |> Ash.Changeset.for_update(:update, %{target_query: target_query}, actor: @system_actor)
+      |> Ash.update(actor: @system_actor)
+
+    updated
+  end
+
+  defp target_device!(uid, hostname, agent_uid) do
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{uid: uid, ip: "192.0.2.44", hostname: hostname, agent_id: agent_uid},
+        actor: @system_actor
+      )
+      |> Ash.create(actor: @system_actor, domain: ServiceRadar.Inventory)
+
+    device
   end
 
   defp secret_ref(secret_id), do: "credentialref:network-credential-secret:#{secret_id}"

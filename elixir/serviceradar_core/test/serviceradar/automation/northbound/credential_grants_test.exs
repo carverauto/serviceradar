@@ -10,6 +10,11 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
   alias ServiceRadar.Plugins.PluginAssignment
 
   @secret_id "018f3f56-1111-7222-8333-123456789abc"
+  @credential_manager %{
+    id: "credential-manager",
+    role: :viewer,
+    permissions: MapSet.new(["settings.credentials.manage"])
+  }
 
   defmodule FakeGrantIssuer do
     @moduledoc false
@@ -39,7 +44,26 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
     def schedule_credential(_assignment, _ref_name, _opts), do: {:error, :no_bound_schedule}
 
     def eligible_rule("package-1", "rule-eligible", _opts),
-      do: {:ok, %{id: "rule-eligible", secret_id: "018f3f56-3333-7222-8333-123456789abc"}}
+      do:
+        {:ok,
+         %{
+           id: "rule-eligible",
+           secret_id: "018f3f56-3333-7222-8333-123456789abc",
+           scope_type: :agent,
+           scope_value: "agent-a",
+           target_query: "in:devices"
+         }}
+
+    def eligible_rule("package-1", "rule-without-target-query", _opts),
+      do:
+        {:ok,
+         %{
+           id: "rule-without-target-query",
+           secret_id: "018f3f56-3333-7222-8333-123456789abc",
+           scope_type: :agent,
+           scope_value: "agent-a",
+           target_query: nil
+         }}
 
     def eligible_rule(_package_id, _rule_id, _opts), do: {:error, :credential_rule_not_eligible}
   end
@@ -125,6 +149,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
                CredentialGrants.prepare_launch(eligible, assignment(),
                  grant_issuer: {FakeGrantIssuer, :issue},
                  plugin_package_context: FakePackageContext,
+                 actor: @credential_manager,
                  test_pid: self()
                )
 
@@ -132,7 +157,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
       assert attrs.secret_id == "018f3f56-3333-7222-8333-123456789abc"
       assert attrs.credential_rule_id == "rule-eligible"
 
-      for value <- [@secret_id, "rule-other"] do
+      for value <- [@secret_id, "rule-other", "rule-without-target-query"] do
         rejected = %{eligible | input_values: %{"destination_rule_id" => value}}
 
         assert {:error,
@@ -140,9 +165,37 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
                  CredentialGrants.prepare_launch(rejected, assignment(),
                    grant_issuer: {FakeGrantIssuer, :issue},
                    plugin_package_context: FakePackageContext,
+                   actor: @credential_manager,
                    test_pid: self()
                  )
       end
+
+      refute_receive {:grant_attrs, _}
+    end
+
+    test "launch-only actors cannot select package credential rules" do
+      invocation =
+        invocation(%{
+          descriptor:
+            descriptor(%{
+              credential_requirements: %{
+                "destination_account" => %{
+                  "credential_source" => "package_rule",
+                  "rule_input" => "destination_rule_id",
+                  "required" => true
+                }
+              }
+            }),
+          input_values: %{"destination_rule_id" => "rule-eligible"}
+        })
+
+      assert {:error, :credential_rule_permission_required} =
+               CredentialGrants.prepare_launch(invocation, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 actor: %{id: "launcher", role: :viewer, permissions: MapSet.new(["northbound.actions.launch"])},
+                 test_pid: self()
+               )
 
       refute_receive {:grant_attrs, _}
     end
@@ -327,7 +380,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
       requested_by_actor_id: "user-1",
       provider: provider(),
       descriptor: descriptor(),
-      target_snapshots: [%{"device_uid" => "device-1"}],
+      target_snapshots: [%{"kind" => "device", "device_uid" => "device-1", "agent_id" => "agent-a"}],
       input_values: %{},
       redacted_input_values: %{},
       metadata: %{}

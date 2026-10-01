@@ -16,6 +16,12 @@ defmodule ServiceRadar.Automation.Northbound.CatalogTest do
     def rule_options(_descriptor, _provider, _opts \\ []), do: {:error, :test_db_error}
   end
 
+  defmodule EmptyRulesContext do
+    @moduledoc false
+    def rule_options(_descriptor, _provider, _opts \\ []),
+      do: {:ok, %{"destination_rule_id" => []}}
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -67,6 +73,28 @@ defmodule ServiceRadar.Automation.Northbound.CatalogTest do
       end)
 
     assert log =~ inspect(:test_db_error)
+  end
+
+  test "successful empty rule lookup emits an explicit empty choice", %{actor: actor} do
+    {_provider, descriptor} =
+      create_action(actor, :wasm_plugin,
+        enabled: true,
+        credential_requirements: %{
+          "destination_rule_id" => %{
+            "credential_source" => "package_rule",
+            "rule_input" => "destination_rule_id"
+          }
+        },
+        input_schema: %{"properties" => %{"destination_rule_id" => %{"type" => "string"}}}
+      )
+
+    [action] =
+      Catalog.eligible_device_actions(%{actor: actor}, plugin_package_context: EmptyRulesContext)
+      |> Enum.filter(&(&1.descriptor_id == descriptor.id))
+
+    property = action.input_schema["properties"]["destination_rule_id"]
+    assert property["enum"] == []
+    assert property["x-credential-rule-options-empty"] == true
   end
 
   test "launch-only catalog exposes non-Ansible candidates without granting general reads", %{

@@ -32,7 +32,8 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     properties = schema_properties(action)
     required = schema_required(action)
 
-    with :ok <- validate_required(required, input) do
+    with :ok <- validate_required(required, input),
+         :ok <- validate_credential_rule_choices(properties, input) do
       cast_input(properties, input)
     end
   end
@@ -79,6 +80,14 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
 
   def schema_credential_rule_options_error?(schema) do
     schema_value(schema, "x-credential-rule-options-error") == true
+  end
+
+  def schema_credential_rule_options_empty?(schema) do
+    schema_value(schema, "x-credential-rule-options-empty") == true
+  end
+
+  def schema_credential_rule_options_blocked?(schema) do
+    schema_credential_rule_options_error?(schema) or schema_credential_rule_options_empty?(schema)
   end
 
   @doc """
@@ -170,6 +179,14 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     "#{humanize(field)} is required."
   end
 
+  def format_launch_error({:credential_rule_options_empty, field}, _target_label) do
+    "No credential rules are available for #{humanize(field)}."
+  end
+
+  def format_launch_error(:credential_rule_permission_required, _target_label) do
+    "You need credential management permission to select a credential rule."
+  end
+
   def format_launch_error({:invalid_integer, field}, _target_label) do
     "#{humanize(field)} must be a whole number."
   end
@@ -219,6 +236,16 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
       {:error, {:missing_required_input, missing}}
     else
       :ok
+    end
+  end
+
+  defp validate_credential_rule_choices(properties, input) do
+    case Enum.find(properties, fn {name, schema} ->
+           schema_credential_rule_options_empty?(schema) and
+             not blank_form_value?(Map.get(input, name))
+         end) do
+      {name, _schema} -> {:error, {:credential_rule_options_empty, name}}
+      nil -> :ok
     end
   end
 
@@ -295,7 +322,14 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     do: Map.get(schema, "x-enum-labels") || Map.get(schema, :"x-enum-labels")
 
   defp schema_value(schema, "x-credential-rule-options-error") when is_map(schema),
-    do: Map.get(schema, "x-credential-rule-options-error") || Map.get(schema, :"x-credential-rule-options-error")
+    do:
+      Map.get(schema, "x-credential-rule-options-error") ||
+        Map.get(schema, :"x-credential-rule-options-error")
+
+  defp schema_value(schema, "x-credential-rule-options-empty") when is_map(schema),
+    do:
+      Map.get(schema, "x-credential-rule-options-empty") ||
+        Map.get(schema, :"x-credential-rule-options-empty")
 
   defp schema_value(schema, "title") when is_map(schema), do: Map.get(schema, "title") || Map.get(schema, :title)
 

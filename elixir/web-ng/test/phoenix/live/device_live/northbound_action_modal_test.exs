@@ -121,4 +121,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionModalTest do
     refute html =~ ~s(name="action[input][destination_rule_id]")
     assert Regex.match?(~r/disabled[^:]/, html)
   end
+
+  test "empty credential rule choices block free-text submission" do
+    action =
+      action(%{
+        input_schema: %{
+          "type" => "object",
+          "required" => ["destination_rule_id"],
+          "properties" => %{
+            "destination_rule_id" => %{
+              "type" => "string",
+              "enum" => [],
+              "x-credential-rule-options-empty" => true
+            }
+          }
+        }
+      })
+
+    html = render_modal(action)
+    assert html =~ "No credential rules are available for this action."
+    refute html =~ ~s(name="action[input][destination_rule_id]")
+    assert Regex.match?(~r/disabled[^:]/, html)
+
+    assert {:error, {:credential_rule_options_empty, "destination_rule_id"}} =
+             ActionForm.parse_input(action, %{
+               "input" => %{"destination_rule_id" => "arbitrary-rule-id"}
+             })
+  end
 end
