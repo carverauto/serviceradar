@@ -1606,12 +1606,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           attachment: non_neg_integer(),
           inferred: non_neg_integer(),
           hosted: non_neg_integer(),
-          observed: non_neg_integer()
+          observed: non_neg_integer(),
+          unknown: non_neg_integer()
         }
   def edge_topology_class_counts(edges) when is_list(edges) do
     Enum.reduce(edges, empty_edge_topology_class_counts(), fn
       edge, acc when is_map(edge) ->
-        Map.update!(acc, edge_topology_class_count_key(edge), &(&1 + 1))
+        case edge_topology_class_count_key(edge) do
+          key -> Map.update!(acc, key, &(&1 + 1))
+        end
 
       _edge, acc ->
         acc
@@ -1621,7 +1624,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   def edge_topology_class_counts(_edges), do: empty_edge_topology_class_counts()
 
   defp empty_edge_topology_class_counts do
-    %{backbone: 0, logical: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0}
+    %{backbone: 0, logical: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0, unknown: 0}
   end
 
   defp edge_topology_class_count_key(edge) do
@@ -1631,7 +1634,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       "inferred" -> :inferred
       "hosted" -> :hosted
       "observed" -> :observed
-      _ -> :backbone
+      "backbone" -> :backbone
+      "unknown" -> :unknown
+      _ -> :unknown
     end
   end
 
@@ -2438,12 +2443,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @spec edge_topology_class(map()) :: String.t()
   def edge_topology_class(edge) do
     case evidence_class(edge) do
+      "direct" -> "backbone"
       "endpoint-attachment" -> "endpoints"
       "inferred" -> "inferred"
       "logical" -> "logical"
       "hosted" -> "hosted"
       "observed" -> "observed"
-      _ -> "backbone"
+      _ -> "unknown"
     end
   end
 
