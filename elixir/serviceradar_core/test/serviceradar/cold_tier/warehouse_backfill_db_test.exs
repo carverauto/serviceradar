@@ -112,7 +112,8 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
         if previous.new_state == state do
           refute_receive {:health_event, %{entity_id: "cold-tier-backend"}}
         else
-          assert_receive {:health_event, ^event}
+          event_id = event.id
+          assert_receive {:health_event, %{id: ^event_id, new_state: ^state}}
         end
 
         assert :ok = record_backend.()
