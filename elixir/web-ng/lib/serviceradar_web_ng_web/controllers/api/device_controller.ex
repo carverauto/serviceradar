@@ -281,7 +281,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
       {:ok, updated} ->
         json(conn, %{"data" => %{"uid" => updated.uid, "facts" => rendered_facts(updated)}})
 
-      {:error, %Ash.Error.Forbidden{}} ->
+      {:error, %Forbidden{}} ->
         conn
         |> put_status(:forbidden)
         |> json(%{"error" => "not authorized to remove device facts"})
