@@ -71,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.Components.PluginResultsTest do
     content = """
     <script>alert(1)</script>
 
-    <img src=x onerror=alert(1)>
+    <img src='icon.svg' onerror='fallback()'>
     """
 
     document =
@@ -79,7 +79,47 @@ defmodule ServiceRadarWebNGWeb.Components.PluginResultsTest do
 
     assert Enum.empty?(LazyHTML.query(document, "script, img, [onerror]"))
     assert LazyHTML.text(document) =~ "<script>alert(1)</script>"
-    assert LazyHTML.text(document) =~ "<img src=x onerror=alert(1)>"
+    assert LazyHTML.text(document) =~ "<img src='icon.svg' onerror='fallback()'>"
+  end
+
+  test "preserves attribute-like text in code and prose" do
+    for literal <- [
+          "<img src='icon.svg' onerror='fallback()'>",
+          "<a href='javascript:alert(1)' onclick='fallback()'>Example</a>",
+          "href='notes' src='icon.svg' onload='ready()'"
+        ] do
+      content = "`#{literal}`\n\n```\n#{literal}\n```\n\n    #{literal}\n"
+
+      document =
+        LazyHTML.from_fragment(render_component(&PluginResults.markdown/1, %{content: content}))
+
+      assert document
+             |> LazyHTML.query("code")
+             |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim())) ==
+               [literal, literal, literal]
+    end
+
+    prose = "Use href='notes' src='icon.svg' onload='ready()' as an example."
+
+    document =
+      LazyHTML.from_fragment(render_component(&PluginResults.markdown/1, %{content: prose}))
+
+    assert document |> LazyHTML.query("p") |> LazyHTML.text() == prose
+
+    title = "href='notes' src='icon.svg' onerror='fallback()'"
+
+    document =
+      LazyHTML.from_fragment(
+        render_component(&PluginResults.markdown/1, %{
+          content: "[Details](https://example.com/notes \"#{title}\")"
+        })
+      )
+
+    assert document |> LazyHTML.query("a") |> LazyHTML.attribute("title") == [title]
+
+    assert document |> LazyHTML.query("a") |> LazyHTML.attribute("href") == [
+             "https://example.com/notes"
+           ]
   end
 
   test "sanitizes javascript links in markdown widget content" do

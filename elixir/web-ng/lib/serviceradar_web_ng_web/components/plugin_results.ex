@@ -254,15 +254,23 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   end
 
   defp sanitize_rendered_markdown(html) when is_binary(html) do
-    html
-    |> strip_unsafe_event_attributes()
-    |> sanitize_href_attributes()
-    |> sanitize_src_attributes()
-    |> strip_dangerous_tags()
-  end
+    html =
+      Regex.replace(~r/<[a-z][a-z0-9]*\b(?:[^>"']|"[^"]*"|'[^']*')*>/i, html, fn tag ->
+        Regex.replace(
+          ~r/\s+([a-z][a-z0-9_-]*)\s*=\s*("[^"]*"|'[^']*')/i,
+          tag,
+          fn attribute, name, _value ->
+            case String.downcase(name) do
+              "href" -> sanitize_href_attributes(attribute)
+              "src" -> sanitize_src_attributes(attribute)
+              "on" <> _event -> ""
+              _ -> attribute
+            end
+          end
+        )
+      end)
 
-  defp strip_unsafe_event_attributes(html) do
-    Regex.replace(~r/\s+on[a-z0-9_-]+\s*=\s*(\"[^\"]*\"|'[^']*')/i, html, "")
+    strip_dangerous_tags(html)
   end
 
   defp sanitize_href_attributes(html) do
