@@ -77,8 +77,10 @@ impl Fixture {
                 return self.violation("edge upsert must use one write mutation");
             }
             let mutation = &request.mutations[0];
-            self.mutations.push(serde_json::from_slice(&mutation.set_json)
-                .map_err(|err| Status::invalid_argument(err.to_string()))?);
+            self.mutations.push(
+                serde_json::from_slice(&mutation.set_json)
+                    .map_err(|err| Status::invalid_argument(err.to_string()))?,
+            );
             self.mutation_contracts.push((
                 request.query,
                 mutation.cond.clone(),
@@ -239,7 +241,8 @@ async fn hosted_replacement_scopes_retirement_and_rejects_older_observations() {
     let server = RunningServer::start(Fixture {
         mutation_response: json!({"source":[{"uid":"0x1"}],"target":[{"uid":"0x2"}]}),
         ..Fixture::default()
-    }).await;
+    })
+    .await;
     let edge = EdgeWrite::new(
         "sr:guest.example.test",
         "sr:host.example.test",
@@ -262,20 +265,37 @@ async fn hosted_replacement_scopes_retirement_and_rejects_older_observations() {
         .first()
         .expect("one atomic replacement mutation");
     assert!(query.contains("~topo.src"), "{query}");
-    assert!(query.contains("eq(topo.ingestor, \"hypervisor_enrichment_v1\")"), "{query}");
+    assert!(
+        query.contains("eq(topo.ingestor, \"hypervisor_enrichment_v1\")"),
+        "{query}"
+    );
     assert!(query.contains("eq(topo.kind, \"HOSTED_ON\")"), "{query}");
-    assert!(query.contains("gt(topo.last_seen, \"2030-02-03T04:05:06Z\")"), "{query}");
+    assert!(
+        query.contains("gt(topo.last_seen, \"2030-02-03T04:05:06Z\")"),
+        "{query}"
+    );
     assert!(!query.contains("type(TopologyEdge)"), "{query}");
-    assert_eq!(condition, "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0))");
-    assert_eq!(delete, &json!([
-        {"uid": "uid(e)"},
-        {"uid": "uid(c)", "topo.dst": null}
-    ]));
-    assert_eq!(fixture.mutations[0]["topo.ingestor"], "hypervisor_enrichment_v1");
-    assert!(fixture.mutations[0]["topo.link_key"]
-        .as_str()
-        .expect("projection link key")
-        .contains("projection=hypervisor_enrichment_v1"));
+    assert_eq!(
+        condition,
+        "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0))"
+    );
+    assert_eq!(
+        delete,
+        &json!([
+            {"uid": "uid(e)"},
+            {"uid": "uid(c)", "topo.dst": null}
+        ])
+    );
+    assert_eq!(
+        fixture.mutations[0]["topo.ingestor"],
+        "hypervisor_enrichment_v1"
+    );
+    assert!(
+        fixture.mutations[0]["topo.link_key"]
+            .as_str()
+            .expect("projection link key")
+            .contains("projection=hypervisor_enrichment_v1")
+    );
     assert_eq!(fixture.mutations[0]["topo.kind"], "HOSTED_ON");
     assert_eq!(fixture.mutations[0]["topo.telemetry_eligible"], false);
 }
@@ -289,7 +309,8 @@ async fn hosted_replacement_rejects_missing_or_ambiguous_endpoint_identities() {
         let server = RunningServer::start(Fixture {
             mutation_response: response,
             ..Fixture::default()
-        }).await;
+        })
+        .await;
         let edge = EdgeWrite::new(
             "sr:guest.example.test",
             "sr:host.example.test",
@@ -508,7 +529,7 @@ async fn edge_upsert_preserves_only_supplied_observation_time() {
                 "physical",
                 "synthetic-test",
             )
-                .with_last_seen("2030-01-02T03:04:05Z"),
+            .with_last_seen("2030-01-02T03:04:05Z"),
         )
         .await
         .expect("upsert edge with observation time");

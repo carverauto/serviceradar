@@ -578,8 +578,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       prefix: "platform"
     )
 
-    Repo.query!("DELETE FROM platform.virtualization_guests WHERE device_uid = ANY($1::text[])", [ids])
-    Repo.query!("DELETE FROM platform.virtualization_hosts WHERE device_uid = ANY($1::text[])", [ids])
+    Repo.query!("DELETE FROM platform.virtualization_guests WHERE device_uid = ANY($1::text[])", [
+      ids
+    ])
+
+    Repo.query!("DELETE FROM platform.virtualization_hosts WHERE device_uid = ANY($1::text[])", [
+      ids
+    ])
 
     Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [ids])
 

@@ -807,10 +807,7 @@ fn logical_relations_are_not_reported_as_physical_backbone() {
     let candidate = Builder::new("synthetic-logical-counts".into(), 16)
         .unwrap()
         .reconcile(SourceGraph {
-            devices: BTreeMap::from([
-                (left.into(), device(left)),
-                (right.into(), device(right)),
-            ]),
+            devices: BTreeMap::from([(left.into(), device(left)), (right.into(), device(right))]),
             relations: BTreeMap::from([(logical.relation_id.clone(), logical)]),
             raw_links: 1,
         })
@@ -979,7 +976,7 @@ fn aged_attachment_and_hosted_links_stay_connected() {
             )
             .unwrap();
         let members = |id: &str| {
-            tile.edges.iter().find_map(|edge| {
+            tile.edges.iter().find(|edge| {
                 let page = geometry
                     .bundle_detail(&tile.selection, &edge.id, None)
                     .unwrap();
@@ -991,7 +988,7 @@ fn aged_attachment_and_hosted_links_stay_connected() {
                 );
                 assert!(!ids.contains("attach-shortcut"));
                 assert!(!ids.contains("backbone-shortcut"));
-                ids.contains(id).then_some(edge)
+                ids.contains(id)
             })
         };
         if let (Some(current), Some(known)) = (members("attach-fresh"), members("attach-stale")) {
