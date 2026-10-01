@@ -304,7 +304,12 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
 
   defp dispatch_poll_to_assignment(invocation, target, assignment, opts, actor) do
     with {:ok, credential_grants} <-
-           CredentialGrants.prepare_poll(invocation, target, assignment, opts) do
+           CredentialGrants.prepare_poll(
+             invocation,
+             target,
+             assignment,
+             Keyword.put(opts, :actor, actor)
+           ) do
       payload = build_poll_payload(invocation, target, assignment, credential_grants)
       ttl_seconds = invocation.descriptor.timeout_seconds || assignment.timeout_seconds || 60
       command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)

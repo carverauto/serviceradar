@@ -218,7 +218,7 @@ nats:
     # JetStream sizing profile: small (default), medium or large. A profile sets
     # max_file_store and the default max_bytes of every stream, KV bucket and
     # object store ServiceRadar creates (files/jetstream-profiles.yaml):
-    #   small  -> max_file_store 30G,  for the default 30Gi PVC
+    #   small  -> max_file_store 36G,  for the default 36Gi PVC
     #   medium -> max_file_store 100G, for a 100Gi PVC
     #   large  -> max_file_store 500G, for a 500Gi PVC
     #   tenant-2g -> max_file_store 2G, the hosted-tenant plan (values-tenant.yaml)
@@ -241,7 +241,7 @@ nats:
     # StatefulSet, then upgrade with the new persistence.size and profile).
     profile: small
     # Per-server JetStream file store. Unset: the profile supplies it (small =
-    # 30G). NATS reads G as 10^9 and Gi as 2^30, so 30G is 27.94 GiB, not 30;
+    # 36G). NATS reads G as 10^9 and Gi as 2^30, so 36G is 33.53 GiB, not 36;
     # the chart renders the exact byte count.
     # maxFileStore: 30G
     #
@@ -251,14 +251,14 @@ nats:
     # exceeds 85% of max_file_store (the rest is headroom for streams a later
     # release adds). The failure lists every stream with its size, replicas and
     # whether it lands on every server (replicas >= nats.replicas) or is spread.
-    # The small profile needs 22.42 GiB of its 23.75 GiB limit on three servers,
+    # The small profile needs 22.42 GiB of its 28.50 GiB limit on three servers,
     # with flow-collector, bmp-collector and the trivy sidecar all counted.
     # allowOvercommit: true skips that check (not the persistence.size ceiling).
     allowOvercommit: false
   persistence:
     # Immutable after first install for this StatefulSet: see the runbook above
     # before changing it on a live install.
-    size: 30Gi
+    size: 36Gi
     storageClassName: ""
 certs:
   runtimeSecretName: serviceradar-runtime-certs

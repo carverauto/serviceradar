@@ -4,13 +4,156 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
   alias ServiceRadarSRQL.Native
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.SRQL.EntityAccess
+  alias ServiceRadarWebNG.SRQL.FleetQuery
+  alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+  alias ServiceRadarWebNGWeb.SRQL.Page
 
   @moduletag :db_free
 
   # Interface settings are managed through the Ash-backed
   # ServiceRadar.Inventory.InterfaceSettings context, not the Rust SRQL engine.
   @non_rust_srql_entities MapSet.new(["interface_settings"])
+
+  test "fleet aliases require their own permissions and use the canonical builder catalog" do
+    devices = %Scope{permissions: MapSet.new(["devices.view"])}
+    plugins = %Scope{permissions: MapSet.new(["plugins.view"])}
+
+    for entity <- ~w(plugin_fleet plugin_fleets) do
+      assert :ok = EntityAccess.authorize("in:#{entity}", plugins)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", devices)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", nil)
+      assert Catalog.entity(entity).id == "plugin_fleet"
+      assert {:ok, _ast} = Native.parse_ast("in:#{entity} sort:category:asc")
+    end
+
+    for {entity, canonical} <- [{"addon_fleets", "addon_fleet"}, {"addon_status", "addon_statuses"}] do
+      assert :ok = EntityAccess.authorize("in:#{entity}", devices)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", plugins)
+      assert Catalog.entity(entity).id == canonical
+    end
+  end
+
+  test "security events require the audit permission even for an events reader" do
+    events_reader = %Scope{user: nil, permissions: MapSet.new(["observability.events.view"])}
+    auditor = %Scope{user: nil, permissions: MapSet.new(["settings.audit.view"])}
+
+    assert {:ok, _} = Native.parse_ast("in:security_events limit:1")
+    assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", events_reader)
+    assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", nil)
+    assert :ok = EntityAccess.authorize("in:security_events", auditor)
+  end
+
+  test "fleet builder timestamp filters compile and match observation timestamps" do
+    timestamp = ~U[2026-01-15 12:00:00Z]
+
+    for {entities, fields} <- [
+          {~w(addon_fleet addon_fleets), ~w(reported_at last_health_at last_scan_at)},
+          {~w(plugin_fleet plugin_fleets), ~w(reported_at last_success_at last_failure_at)}
+        ],
+        entity <- entities,
+        field <- fields do
+      query =
+        entity
+        |> Builder.default_state()
+        |> Map.put("filters", [
+          %{
+            "field" => field,
+            "op" => Catalog.default_filter_op(entity, field),
+            "value" => DateTime.to_iso8601(timestamp)
+          }
+        ])
+        |> Builder.build()
+
+      assert {:ok, json} = Native.translate(query, nil, nil, nil, "legacy")
+      %{"read_model" => plan} = Jason.decode!(json)
+      assert [%{"field" => ^field, "op" => "eq"}] = plan["filters"]
+      matching = %{field => timestamp}
+
+      assert [^matching] =
+               FleetQuery.apply_plan([%{field => nil}, %{field => DateTime.add(timestamp, -1)}, matching], plan)
+    end
+  end
+
+  test "multiword plugin name builder filters translate and select the intended rows" do
+    for name <- ["Example WASM Check", "Example\tWASM Check", ~s(Example "WASM" \\ Check)],
+        op <- ~w(contains not_contains equals not_equals) do
+      query =
+        "plugin_fleet"
+        |> Builder.default_state()
+        |> Map.put("filters", [%{"field" => "plugin_name", "op" => op, "value" => name}])
+        |> Builder.build()
+
+      assert {:ok, json} = Native.translate(query, nil, nil, nil, "legacy")
+      %{"read_model" => plan} = Jason.decode!(json)
+      matching = %{"plugin_name" => name}
+      containing = %{"plugin_name" => "Prefix #{name} suffix"}
+      other = %{"plugin_name" => "Different check"}
+
+      expected =
+        case op do
+          "contains" -> [matching, containing]
+          "not_contains" -> [other]
+          "equals" -> [matching]
+          "not_equals" -> [containing, other]
+        end
+
+      assert FleetQuery.apply_plan([matching, containing, other], plan) == expected
+    end
+  end
+
+  test "observed add-on builder filters translate with supported comparisons and values" do
+    for entity <- ~w(addon_statuses addon_status),
+        {field, value} <- [
+          {"agent_uid", "agent-example"},
+          {"addon_id", "example-check"},
+          {"state", "unhealthy"},
+          {"version", "1.2.3"},
+          {"arch", "amd64"}
+        ],
+        op <- [Catalog.default_filter_op(entity, field), "contains", "not_contains", "equals", "not_equals"] do
+      query =
+        entity
+        |> Builder.default_state()
+        |> Map.put("filters", [%{"field" => field, "op" => op, "value" => value}])
+        |> Builder.build()
+
+      exact? = field in ~w(state arch) or op in ~w(equals not_equals)
+      negated? = op in ~w(not_contains not_equals)
+      expected_value = if exact?, do: value, else: "%#{value}%"
+
+      operator =
+        case {exact?, negated?} do
+          {true, false} -> "="
+          {true, true} -> "!="
+          {false, false} -> "ILIKE"
+          {false, true} -> "NOT ILIKE"
+        end
+
+      assert {:ok, json} = Native.translate(query, nil, nil, nil, "legacy")
+      assert %{"sql" => sql, "params" => [%{"t" => "text", "v" => ^expected_value} | _]} = Jason.decode!(json)
+      assert sql =~ ~s("#{field}" #{operator} $1)
+    end
+  end
+
+  test "audit catalog advertises the browsing vocabulary without query navigation" do
+    event = Catalog.entity("security_events")
+    assert event.id == "security_events"
+    assert Catalog.structured()["entities"]["security_events"]["route"] == nil
+    assert Page.route_for_query("in:security_events severity:critical", "/devices") == "/devices"
+    assert event.default_time == "last_24h"
+    assert event.default_sort_field == "occurred_at"
+    assert event.default_sort_dir == "desc"
+
+    assert Catalog.structured()["entities"]["security_events"]["enums"] == %{
+             "kind" => Enum.map(ServiceRadar.Security.SecurityEvent.kinds(), &to_string/1),
+             "severity" => ["info", "warning", "critical"]
+           }
+
+    for field <- ["kind", "severity", "actor_id", "ip", "route", "correlation_id", "search"] do
+      assert field in event.filter_fields
+    end
+  end
 
   test "every catalog entity other than dashboards has a permission mapping" do
     unmapped =

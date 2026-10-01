@@ -53,6 +53,7 @@ defmodule ServiceRadar.Security.SecurityEvent do
     custom_indexes do
       index [:occurred_at], using: "BRIN"
       index [:kind, :occurred_at]
+      index [:occurred_at, :id], name: "security_events_browse_index"
     end
   end
 

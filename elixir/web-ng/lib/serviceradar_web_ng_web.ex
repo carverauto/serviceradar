@@ -34,6 +34,8 @@ defmodule ServiceRadarWebNGWeb do
       ServiceRadarWebNG.Mcp,
       ServiceRadarWebNG.Plugins,
       ServiceRadarWebNG.RBAC,
+      ServiceRadarWebNG.SRQL,
+      ServiceRadarWebNG.SRQL.EntityAccess,
       ServiceRadarWebNG.Topology
     ],
     exports: :all

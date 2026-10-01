@@ -109,7 +109,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
 
     Some(match plan.entity {
         Entity::Agents => inventory::agents(),
-        Entity::AddonFleet => inventory::addon_fleet(),
+        Entity::AddonFleet | Entity::PluginFleet => inventory::fleet(&plan.entity),
         Entity::AddonStatuses => inventory::addon_statuses(),
         Entity::EndpointInventoryScans => sbom::endpoint_inventory_scans(),
         Entity::EndpointPackages => sbom::endpoint_packages(),
@@ -154,6 +154,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::FieldSurveyPoseSamples => fieldsurvey::pose_samples(),
         Entity::FieldSurveyRfPoseMatches => fieldsurvey::rf_pose_matches(),
         Entity::FieldSurveySpectrumObservations => fieldsurvey::spectrum_observations(),
+        Entity::SecurityEvents => observability::security_events(),
         Entity::Logs => observability::logs(),
         Entity::Traces => observability::traces(),
         Entity::TraceSummaries => observability::trace_summaries(),

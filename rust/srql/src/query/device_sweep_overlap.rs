@@ -4,9 +4,8 @@
 //! versus which actually PRODUCED results for it" -- `relationship =
 //! 'declared_not_observed'` is the alert the view exists to surface.
 //!
-//! This follows the `addon_fleet` view-backed pattern, not the five earlier
-//! sweep entities (which query real tables via Diesel's typed schema):
-//! `platform.device_sweep_overlap` is a view, so it is deliberately absent
+//! Unlike the five earlier sweep entities (which query real tables via Diesel's
+//! typed schema), `platform.device_sweep_overlap` is a view and is absent
 //! from `schema.rs` and is read with `diesel::sql_query` plus a
 //! `QueryableByName` struct holding a single `Jsonb` payload column.
 
@@ -39,7 +38,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     // Postgres: `?` is a valid Postgres operator character (jsonb containment),
     // so a divergence here would surface as a syntax error at the NEXT token
     // rather than an obviously-wrong-placeholder error -- exactly the class of
-    // bug that shipped in five entities before this one (see addon_fleet.rs).
+    // bug that shipped in five entities before this one.
     let query = execution_query(plan)?;
 
     let rows: Vec<JsonPayload> = query
@@ -90,7 +89,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 
     // Overlap is a per-row diagnostic, not an aggregate; stats support is a
-    // separate task (see addon_fleet's identical rejection).
+    // separate task, as with fleet read plans.
     if plan.stats.is_some() {
         return Err(ServiceError::InvalidRequest(
             "device_sweep_overlap does not support stats queries".into(),

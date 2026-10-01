@@ -464,8 +464,11 @@ CLI device-code tokens request `plugins.manage` for these calls
 policies are preserved on upgrade: an administrator must add `plugins.manage`
 to the allowed scopes in **Settings -> CLI authentication**
 (`/settings/cli-auth`) before login can request it. New policy rows include it
-by default. The scope permits configuration calls and plugin/package reads;
-each endpoint still checks RBAC: `settings.credentials.manage` for secrets and
+by default. Saving this page creates the singleton authorization settings row
+if it is absent; otherwise, it updates only the CLI policy fields, preserving
+the default role and IdP role mappings. The scope permits configuration calls
+and plugin/package reads; each endpoint still checks RBAC:
+`settings.credentials.manage` for secrets and
 rules, `ansible.controllers.manage` for controllers, `plugins.view` for plugin
 reads, and `plugins.assign` for assignment writes.
 

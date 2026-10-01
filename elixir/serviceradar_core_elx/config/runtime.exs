@@ -486,6 +486,8 @@ config :serviceradar_core,
        ServiceRadar.Analytics.StarRocks,
        ServiceRadar.Analytics.StarRocks.Env.config()
 
+config :serviceradar_core, ServiceRadar.ColdTier, ServiceRadar.ColdTier.Config.from_env()
+
 # Terminal agent_command pruning (platform.agent_commands has a documented
 # bloat history, so these are incident-response levers).
 config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
@@ -1058,6 +1060,8 @@ if config_env() == :prod do
       {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
       {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
        queue: :maintenance},
+      {"47 * * * *", ServiceRadar.ColdTier.Exporter, queue: :maintenance},
+      {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
       {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance},
       # Drops evaluated-event ids past the redelivery window. Offset from the
       # 03:17 observability sweep.

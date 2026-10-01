@@ -743,3 +743,25 @@ occurrence stream, not this table. Do not use `in:cpes` as an entity.
   fields.
 - [Threat Investigation](./threat-investigation.md) — CVE, CPE, KEV, and matcher
   queries.
+
+## Native add-on and WASM fleet health
+
+Find managed add-ons with old observations, then inspect desired versus observed
+versions without losing agents that have not reported yet:
+
+```srql
+in:addon_fleet addon_id:example-collector stale:true sort:evidence_age_seconds:desc
+in:addon_fleet addon_id:example-collector version_drift:true
+in:addon_statuses addon_id:example-collector state:unhealthy sort:reported_at:desc
+```
+
+Inspect WASM assignments and latest runtime health in an exact partition:
+
+```srql
+in:plugin_fleet plugin_id:example-check partition_id:partition-a enabled:true
+in:plugin_fleet plugin_id:example-check category:(action_required,unavailable)
+in:plugin_fleet plugin_id:example-check assigned:false
+```
+
+See [Agent extension fleet queries](./srql-language-reference.md#agent-extension-fleet-queries)
+for permissions, safe fields, freshness, drift, and latest-result timestamp semantics.

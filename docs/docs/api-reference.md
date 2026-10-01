@@ -158,8 +158,8 @@ quotes for HTTP validation; send the quoted header value back in
 ## Alert rules and telemetry via JSON:API
 
 The `/api/v2` JSON:API surface supports automated provisioning of stateful
-alert rules, alongside read-only log, service-status, capacity-forecast,
-metric, and trace collections. Use `Accept: application/vnd.api+json` and,
+alert rules and event promotion rules, alongside read-only log, service-status,
+capacity-forecast, metric, and trace collections. Use `Accept: application/vnd.api+json` and,
 for request bodies, `Content-Type: application/vnd.api+json`.
 
 Stateful alert rules support listing, reading by ID, creating, updating,
@@ -167,8 +167,18 @@ and deleting at `/api/v2/stateful-alert-rules`. The `/active` collection
 returns enabled rules. Send a JSON:API `data` object with
 `type: "stateful-alert-rule"` and an `attributes` object; updates also carry
 the rule's `id`. For rule behavior and incident controls, see
-[Rule Builder](./rule-builder.md). Promotion rules, templates, and alert
-engine state/history are not exposed by this mount.
+[Rule Builder](./rule-builder.md). Templates and alert engine state/history
+are not exposed by this mount.
+
+Event rules support listing and creating at `/api/v2/event-rules`, and
+reading, updating, and deleting at `/api/v2/event-rules/{id}`. The
+`/api/v2/event-rules/active` collection returns enabled rules. Send a
+JSON:API `data` object with `type: "event-rule"` and an `attributes` object;
+updates also carry the rule's `id`. For log promotion, set `source_type`
+to `"log"` and supply the `match` criteria and `event` attributes. Creating,
+updating, or deleting a rule immediately invalidates the log promotion rule
+cache, so the next read reflects the mutation. Unauthenticated listing
+returns an empty `data` array; unauthenticated mutations are denied.
 
 Reads use the resource's viewer-or-higher policy; mutations require an
 operator or administrator, with the existing internal system bypass.

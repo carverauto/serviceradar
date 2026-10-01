@@ -36,6 +36,7 @@ fn translate_inner(
     if super::sysmon::is_entity(&plan.entity) {
         let (sql, params) = super::sysmon::to_sql_and_params(plan, Some(database), allow_rollup)?;
         return Ok(TranslateResponse {
+            read_model: None,
             sql,
             params,
             pagination: PaginationMeta {
@@ -323,6 +324,7 @@ fn dataset_sql(
             rollup,
         )?;
         return Ok(TranslateResponse {
+            read_model: None,
             sql,
             params,
             pagination: PaginationMeta {
@@ -350,6 +352,7 @@ fn dataset_sql(
     };
 
     Ok(TranslateResponse {
+        read_model: None,
         sql,
         params,
         pagination: PaginationMeta {
@@ -515,6 +518,7 @@ fn rollup_stats_sql(
         }
     };
     Ok(TranslateResponse {
+        read_model: None,
         sql,
         params,
         pagination: PaginationMeta {
@@ -1772,6 +1776,7 @@ LIMIT {limit} OFFSET {offset}"#,
     };
 
     Ok(TranslateResponse {
+        read_model: None,
         sql,
         params: vec![
             BindParam::timestamptz(range.start),

@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.TestSupport.McpSRQLTranslationProbe do
 
   @behaviour ServiceRadarWebNG.SRQLBehaviour
 
-  alias ServiceRadarWebNG.SRQL.Native
+  alias ServiceRadarSRQL.Native
 
   @impl true
   def query_request(%{"query" => query} = request) when is_binary(query) do

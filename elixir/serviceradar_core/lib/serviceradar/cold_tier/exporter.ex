@@ -52,17 +52,21 @@ defmodule ServiceRadar.ColdTier.Exporter do
   @query_timeout_ms 120_000
 
   @impl Oban.Worker
-  def perform(_job) do
+  def perform(_job), do: run()
+
+  @doc "One full CNPG exporter pass, guarded by deployment configuration."
+  @spec run() :: :ok
+  def run do
+    Health.record_backend()
+
     if Config.enabled?() do
-      run()
+      run_cnpg()
     else
       :ok
     end
   end
 
-  @doc "One full exporter pass. Public for tests and manual runs."
-  @spec run() :: :ok
-  def run do
+  defp run_cnpg do
     case Head.session(&Head.ensure_setup/1) do
       {:ok, :ok} ->
         enforce_fence()

@@ -18,7 +18,7 @@ reservation ServiceRadar creates and checks them at render time:
 
 | Profile | `max_file_store` | Target PVC (`nats.persistence.size`) |
 | --- | --- | --- |
-| `small` (default) | 30G (27.94 GiB) | 30Gi |
+| `small` (default) | 36G (33.53 GiB) | 36Gi |
 | `medium` | 100G (93.13 GiB) | 100Gi |
 | `large` | 500G (465.66 GiB) | 500Gi |
 
@@ -26,7 +26,8 @@ With `nats.replicas` of 1 or 2, `small`, `medium` and `large` use their
 single-server size table, the same sizes the Docker Compose presets ship (for
 example `flows` is 3 GiB instead of 8 GiB in `small`). On one server every
 stream reserves its full size, and on two the R3 streams still land on both
-servers, so the three-server table does not fit. The `tenant-2g` profile is a
+servers; both tables now fit the `small` budget, but the single-server table is
+used for Compose compatibility (it uses a 3 GiB `flows` size instead of 8 GiB). The `tenant-2g` profile is a
 hosted-tenant plan (see "Hosted tenant plans" below).
 
 When the chart deploys NATS itself, every stream replica count it renders is
@@ -186,7 +187,7 @@ into a profile name when it renders the tenant's values:
 | Plan `js_disk_storage` | `nats.jetstream.profile` |
 | --- | --- |
 | `2G` | `tenant-2g` |
-| `30G` | `small` |
+| `36G` | `small` |
 | `100G` | `medium` |
 | `500G` | `large` |
 
@@ -202,7 +203,7 @@ serviceradar-control repository):
   passes with the tenant's replica counts, rather than per-stream overrides in
   the control plane. The chart rejects an unknown profile name at render time.
 - Keep `nats.persistence.size` at or above `max_file_store / 0.94` (the chart's
-  disk ceiling). The tenant overlay leaves it at the chart default, 30Gi, which
+  disk ceiling). The tenant overlay leaves it at the chart default, 36Gi, which
   covers `tenant-2g`.
 - Per-stream overrides remain allowed on top of a profile and are checked by
   the same budget.

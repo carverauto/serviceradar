@@ -500,6 +500,9 @@ The Proxmox plugin collects read-only inventory and health data where the token 
 
 ServiceRadar maps this into canonical devices plus provider-neutral virtualization tables instead of storing all hypervisor-specific data in device metadata.
 
+For guest NIC correlation with agent-monitored devices and the required rollout,
+see [Agent host evidence](./dire-identity-model.md#agent-host-evidence).
+
 ## Logs
 
 Proxmox inventory collection does not scrape syslog. Forward Proxmox host logs to the ServiceRadar syslog collector using the deployment's normal syslog path. Future ServiceRadar flows may automate syslog forwarding through an audited edge action, but inventory collection should remain read-only.

@@ -72,9 +72,112 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionModalTest do
     refute html =~ ~s(name="action[vars])
   end
 
+  test "labels credential rule options by name and submits the rule id" do
+    rule_id = "018f3f56-4444-7222-8333-123456789abc"
+
+    html =
+      render_modal(
+        action(%{
+          input_schema: %{
+            "type" => "object",
+            "properties" => %{
+              "destination_rule_id" => %{
+                "type" => "string",
+                "enum" => [rule_id],
+                "x-enum-labels" => %{rule_id => "Example destination account"}
+              }
+            }
+          }
+        })
+      )
+
+    assert html =~ ~s(<option value="#{rule_id}")
+    assert html =~ "Example destination account"
+  end
+
   test "renders a generic empty-input state" do
     html = render_modal(action(%{input_schema: %{"type" => "object", "properties" => %{}}}))
 
     assert html =~ "This action does not require additional input."
+  end
+
+  test "required credential rule options errors hide input and disable submit" do
+    html =
+      render_modal(
+        action(%{
+          input_schema: %{
+            "type" => "object",
+            "required" => ["destination_rule_id"],
+            "properties" => %{
+              "destination_rule_id" => %{
+                "type" => "string",
+                "x-credential-rule-options-error" => true
+              }
+            }
+          }
+        })
+      )
+
+    assert html =~ "Credential rule options are unavailable; try again later"
+    refute html =~ ~s(name="action[input][destination_rule_id]")
+    assert Regex.match?(~r/disabled[^:]/, html)
+  end
+
+  test "empty credential rule choices block free-text submission" do
+    action =
+      action(%{
+        input_schema: %{
+          "type" => "object",
+          "required" => ["destination_rule_id"],
+          "properties" => %{
+            "destination_rule_id" => %{
+              "type" => "string",
+              "enum" => [],
+              "x-credential-rule-options-empty" => true
+            }
+          }
+        }
+      })
+
+    html = render_modal(action)
+    assert html =~ "No credential rules are available for this action."
+    refute html =~ ~s(name="action[input][destination_rule_id]")
+    assert Regex.match?(~r/disabled[^:]/, html)
+
+    assert {:error, {:credential_rule_options_empty, "destination_rule_id"}} =
+             ActionForm.parse_input(action, %{
+               "input" => %{"destination_rule_id" => "arbitrary-rule-id"}
+             })
+
+    assert {:error, {:missing_required_input, "destination_rule_id"}} =
+             ActionForm.parse_input(action, %{"input" => %{}})
+  end
+
+  test "optional credential rule inputs remain omittable when options are unavailable" do
+    action =
+      action(%{
+        input_schema: %{
+          "type" => "object",
+          "properties" => %{
+            "destination_rule_id" => %{
+              "type" => "string",
+              "x-credential-rule-options-error" => true
+            },
+            "source_rule_id" => %{
+              "type" => "string",
+              "enum" => [],
+              "x-credential-rule-options-empty" => true
+            }
+          }
+        }
+      })
+
+    html = render_modal(action)
+
+    assert html =~ "Credential rule options are unavailable; try again later"
+    assert html =~ "No credential rules are available for this action."
+    refute Regex.match?(~r/disabled[^:]/, html)
+
+    assert {:ok, %{}} = ActionForm.parse_input(action, %{"input" => %{}})
   end
 end

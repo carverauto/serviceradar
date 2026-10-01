@@ -103,31 +103,100 @@ fn addon_statuses_example_agent_and_state() {
     );
 }
 
+fn translate_fleet(query: &str) -> crate::error::Result<TranslateResponse> {
+    translate_request(&test_config(), request_for(query))
+}
+
 #[test]
-fn addon_fleet_example_category_reason_and_freshness() {
-    let query = "in:addon_fleet category:action_required reason_code:unsupported_platform evidence_age_seconds:<180 sort:agent_uid:asc";
-    let plan = plan_for(query);
+fn fleet_examples_compile_scoped_typed_read_plans() {
+    for (alias, entity) in [
+        ("addon_fleet", "addon_fleet"),
+        ("addon_fleets", "addon_fleet"),
+        ("plugin_fleet", "plugin_fleet"),
+        ("plugin_fleets", "plugin_fleet"),
+    ] {
+        let translated = translate_fleet(&format!("in:{alias} category:healthy stale:false evidence_age_seconds:<180 sort:agent_uid:asc limit:10")).unwrap();
+        assert!(translated.sql.is_empty());
+        assert!(translated.params.is_empty());
+        let plan = translated.read_model.unwrap();
+        assert_eq!(plan["entity"], entity);
+        assert_eq!(plan["filters"][1]["value"], false);
+        assert_eq!(plan["filters"][2]["value"], 180);
+        assert_eq!(plan["limit"], 10);
+        assert_eq!(plan["offset"], 0);
+        assert_eq!(plan["order"][0]["field"], "agent_uid");
+        let viz = serde_json::to_value(translated.viz.unwrap()).unwrap();
+        let reported_at = viz["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|column| column["name"] == "reported_at")
+            .unwrap();
+        assert_eq!(reported_at["type"], "timestamptz");
+        assert_eq!(reported_at["semantic"], "time");
+        for secret in [
+            "params",
+            "host_params_json",
+            "permissions_override",
+            "resources_override",
+            "details",
+        ] {
+            assert!(
+                !plan["fields"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|field| field == secret)
+            );
+        }
+    }
+}
 
-    assert!(matches!(plan.entity, Entity::AddonFleet));
-    let (sql, params) =
-        addon_fleet::to_sql_and_params(&plan).expect("should build addon_fleet SQL");
-    let lower = sql.to_lowercase();
+#[test]
+fn fleet_text_filters_preserve_wildcard_and_equality_semantics() {
+    for (entity_name, entity) in [
+        ("addon_fleet", Entity::AddonFleet),
+        ("plugin_fleet", Entity::PluginFleet),
+    ] {
+        for (field, kind) in fleet::fields(&entity) {
+            if !matches!(kind, fleet::Kind::Text) {
+                continue;
+            }
+            for spelling in [field.to_string(), field.to_ascii_uppercase()] {
+                for (prefix, value, op) in [
+                    ("", "%needle%", "like"),
+                    ("!", "%needle%", "not_like"),
+                    ("", "needle", "eq"),
+                    ("!", "needle", "not_eq"),
+                ] {
+                    let query = format!("in:{entity_name} {prefix}{spelling}:{value}");
+                    let plan = translate_fleet(&query).unwrap().read_model.unwrap();
+                    assert_eq!(plan["filters"][0]["field"], field, "{query}");
+                    assert_eq!(plan["filters"][0]["op"], op, "{query}");
+                    assert_eq!(plan["filters"][0]["value"], value, "{query}");
+                }
+            }
+        }
+    }
+}
 
-    assert!(
-        lower.contains("from platform.addon_fleet as fleet"),
-        "expected query against addon_fleet view, got: {sql}"
-    );
-    assert!(
-        lower.contains("fleet.category = $1")
-            && lower.contains("fleet.reason_code = $2")
-            && lower.contains("fleet.evidence_age_seconds < $3"),
-        "expected category, reason, and freshness filters, got: {sql}"
-    );
-    assert!(
-        lower.contains("order by fleet.agent_uid asc"),
-        "expected agent ordering, got: {sql}"
-    );
-    assert_eq!(params.len(), 5);
+#[test]
+fn fleet_queries_reject_sensitive_fields_invalid_types_and_aggregation() {
+    for query in [
+        "in:plugin_fleet params:token",
+        "in:plugin_fleet sort:params:asc",
+        "in:addon_fleet enabled:maybe",
+        "in:plugin_fleet interval_seconds:slow",
+        "in:plugin_fleet available:>true",
+        "in:addon_fleet stats:count()",
+        "in:plugin_fleet bucket:1h agg:avg",
+        "in:plugin_fleet sort:timestamp:desc",
+    ] {
+        assert!(
+            translate_fleet(query).is_err(),
+            "unexpectedly accepted {query}"
+        );
+    }
 }
 
 #[test]

@@ -252,6 +252,7 @@ Also pass cold-baseline bootstrap qualification, which remains part of
 time, connections, and storage against the policy. Keep preparation outside measured
 suite timing. These are required checks, not completed qualification claims.
 
-If any of that evidence fails, revert the callers while retaining both template
-families. Rollback must not copy a keyed generation into the legacy singleton or
-broaden ordinary teardown rules.
+For rollback prerequisites, including restoring retired code before callers after
+the planned retirement, see [the SRQL fixture runbook](https://github.com/carverauto/serviceradar/blob/staging/docs/agent-runbooks.md#srql-fixture-integration-tests).
+Rollback must not copy a keyed generation into the legacy singleton or broaden
+ordinary teardown rules.

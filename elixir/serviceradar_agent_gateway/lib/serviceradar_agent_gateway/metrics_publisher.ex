@@ -51,6 +51,7 @@ defmodule ServiceRadarAgentGateway.MetricsPublisher do
 
       alias Serviceradar.Metric.V1.MetricBatch
       alias ServiceRadarAgentGateway.IngressId
+      alias ServiceRadarAgentGateway.MetricBatchPublisher
       alias ServiceRadarAgentGateway.MetricEnvelopeAttestation
 
       require Logger
@@ -89,7 +90,11 @@ defmodule ServiceRadarAgentGateway.MetricsPublisher do
               producer_kind: @producer_kind
             )
 
-          publish_message(subject(batch), MetricBatch.encode(batch), ingress_context, config)
+          MetricBatchPublisher.publish(batch, ingress_context, status, config,
+            subject: subject(batch),
+            log_label: @log_label,
+            default_subject_prefix: @default_subject_prefix
+          )
         else
           {:error, reason} = error -> log_publish_error(reason, status, error)
         end
@@ -120,19 +125,6 @@ defmodule ServiceRadarAgentGateway.MetricsPublisher do
       end
 
       defp subject(_batch), do: "#{@default_subject_prefix}.custom.unknown"
-
-      defp publish_message(subject, payload, ingress_context, config) do
-        connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
-        subject_prefix = Keyword.get(config, :subject_prefix, @default_subject_prefix)
-        configured_headers = Keyword.get(config, :headers, [])
-        subject = String.replace_prefix(subject, @default_subject_prefix, subject_prefix)
-        headers = configured_headers ++ IngressId.headers(ingress_context)
-
-        case connection.publish(subject, payload, headers: headers) do
-          :ok -> :ok
-          {:error, reason} -> {:error, {:publish_failed, [{subject, reason}]}}
-        end
-      end
 
       defp normalize_string(nil), do: nil
       defp normalize_string(value) when is_binary(value), do: String.trim(value)

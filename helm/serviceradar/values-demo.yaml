@@ -1045,7 +1045,9 @@ nats:
   replicas: 3
   jetstream:
     maxMemoryStore: 1G
-    # maxFileStore is unset: the small profile supplies 30G for the existing
-    # 30Gi PVC. Do not change persistence.size here -- STS volumeClaimTemplates
-    # are immutable; see docs/nats-jetstream-profile-runbook.md.
+    # maxFileStore is pinned: the small profile default rose to 36G but the
+    # existing PVC is 30Gi; upgrading requires the profile runbook first.
+    maxFileStore: 30G
     profile: small
+  persistence:
+    size: 30Gi

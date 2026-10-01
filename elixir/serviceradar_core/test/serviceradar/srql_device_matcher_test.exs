@@ -22,6 +22,28 @@ defmodule ServiceRadar.SRQLDeviceMatcherTest do
     assert SRQLDeviceMatcher.extract_filters(%{}) == []
   end
 
+  test "filters_supported? accepts matcher-supported filters and rejects ignored ones" do
+    assert SRQLDeviceMatcher.filters_supported?(%{
+             "filters" => [
+               %{"field" => "hostname", "op" => "contains", "value" => "router"},
+               %{"field" => "is_active", "op" => "neq", "value" => "false"},
+               %{"field" => "tags.role", "value" => "network"}
+             ]
+           })
+
+    refute SRQLDeviceMatcher.filters_supported?(%{
+             "filters" => [%{"field" => "unsupported_field", "value" => "x"}]
+           })
+
+    refute SRQLDeviceMatcher.filters_supported?(%{
+             "filters" => [%{"field" => "hostname", "op" => "unsupported", "value" => "x"}]
+           })
+
+    refute SRQLDeviceMatcher.filters_supported?(%{
+             "filters" => [%{"field" => "include_inactive", "value" => "perhaps"}]
+           })
+  end
+
   test "apply_filters supports op aliases and custom field mappings" do
     query = Ash.Query.new(Device)
 

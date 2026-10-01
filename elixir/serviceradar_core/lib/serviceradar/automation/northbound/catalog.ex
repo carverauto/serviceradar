@@ -5,12 +5,29 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
   The operator catalog exposes configured, active northbound descriptors.
   Retained Ansible providers are an internal compatibility surface and are
   never synchronized or exposed by this read path.
+
+  A plugin action whose credential requirement declares
+  `credential_source: package_rule` has the `rule_input` property of its input
+  schema annotated with the credential rules the operator may choose, as
+  `enum` (rule ids), `x-enum-labels` (rule id to rule name) and
+  `x-credential-rule-options` (a list of `%{"id", "label"}`). Only the rule id
+  and name are exposed. The descriptor itself was authorized for the caller by
+  `:launchable_for_scope`; the choice is enforced again at dispatch, so the
+  annotation is presentation only.
+
+  Empty choices retain `enum: []` and carry
+  `x-credential-rule-options-empty: true`; lookup failures carry
+  `x-credential-rule-options-error: true`. Required credential inputs are added
+  to the schema's `required` list, allowing consumers to block an unsatisfiable
+  form while still permitting omitted optional credentials.
   """
 
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionProvider
+  alias ServiceRadar.Automation.Northbound.PluginPackageContext
 
   require Ash.Query
+  require Logger
 
   @type action_summary :: %{
           id: String.t(),
@@ -28,14 +45,14 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
           metadata: map()
         }
 
-  @spec eligible_device_actions(term()) :: [action_summary()]
-  def eligible_device_actions(scope) do
-    descriptor_actions(scope, "device")
+  @spec eligible_device_actions(term(), keyword()) :: [action_summary()]
+  def eligible_device_actions(scope, opts \\ []) do
+    descriptor_actions(scope, "device", opts)
   end
 
-  @spec eligible_interface_actions(term()) :: [action_summary()]
-  def eligible_interface_actions(scope) do
-    descriptor_actions(scope, "interface")
+  @spec eligible_interface_actions(term(), keyword()) :: [action_summary()]
+  def eligible_interface_actions(scope, opts \\ []) do
+    descriptor_actions(scope, "interface", opts)
   end
 
   @spec launchable_device_actions?(term()) :: boolean()
@@ -44,22 +61,22 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
   @spec launchable_interface_actions?(term()) :: boolean()
   def launchable_interface_actions?(scope), do: eligible_interface_actions(scope) != []
 
-  defp descriptor_actions(scope, action_scope) do
+  defp descriptor_actions(scope, action_scope, opts) do
     ActionDescriptor
     |> Ash.Query.for_read(:launchable_for_scope, %{scope: action_scope})
     |> Ash.read(scope: scope)
     |> case do
       {:ok, descriptors} ->
-        descriptor_actions_with_providers(descriptors, scope, action_scope)
+        descriptor_actions_with_providers(descriptors, scope, action_scope, opts)
 
       {:error, _reason} ->
         []
     end
   end
 
-  defp descriptor_actions_with_providers([], _scope, _action_scope), do: []
+  defp descriptor_actions_with_providers([], _scope, _action_scope, _opts), do: []
 
-  defp descriptor_actions_with_providers(descriptors, scope, action_scope) do
+  defp descriptor_actions_with_providers(descriptors, scope, action_scope, opts) do
     provider_ids = descriptors |> Enum.map(& &1.provider_id) |> Enum.uniq()
 
     case ActionProvider.list_launch_candidates_by_ids(provider_ids, scope: scope) do
@@ -69,7 +86,7 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
         Enum.flat_map(descriptors, fn descriptor ->
           case Map.get(providers_by_id, descriptor.provider_id) do
             nil -> []
-            provider -> [descriptor_summary(descriptor, provider, action_scope)]
+            provider -> [descriptor_summary(descriptor, provider, scope, action_scope, opts)]
           end
         end)
 
@@ -78,7 +95,7 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
     end
   end
 
-  defp descriptor_summary(descriptor, provider, action_scope) do
+  defp descriptor_summary(descriptor, provider, scope, action_scope, opts) do
     %{
       id: "northbound:#{descriptor.id}",
       descriptor_id: descriptor.id,
@@ -88,7 +105,7 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       provider_name: provider.name,
       scope: action_scope,
       destination: nil,
-      input_schema: descriptor.input_schema || %{},
+      input_schema: input_schema(descriptor, provider, scope, opts),
       safety_classification: to_string(descriptor.safety_classification),
       requires_confirmation: descriptor.requires_confirmation,
       timeout_seconds: descriptor.timeout_seconds,
@@ -97,4 +114,107 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       metadata: descriptor.metadata || %{}
     }
   end
+
+  defp input_schema(descriptor, provider, scope, opts) do
+    context = Keyword.get(opts, :plugin_package_context, PluginPackageContext)
+    schema = descriptor.input_schema || %{}
+    actor = scope_actor(scope)
+
+    schema =
+      case context.rule_options(descriptor, provider, actor: actor) do
+        {:ok, options} when map_size(options) > 0 ->
+          put_rule_options(schema, options)
+
+        {:error, reason} ->
+          Logger.warning(
+            "rule_options lookup failed for descriptor #{descriptor.id}: #{inspect(reason)}"
+          )
+
+          inputs = PluginPackageContext.package_rule_inputs(descriptor.credential_requirements)
+          put_rule_options_error(schema, inputs)
+
+        _no_options ->
+          schema
+      end
+
+    put_required_inputs(
+      schema,
+      PluginPackageContext.package_rule_required_inputs(descriptor.credential_requirements)
+    )
+  end
+
+  defp put_required_inputs(schema, []), do: schema
+
+  defp put_required_inputs(schema, inputs) do
+    required_key =
+      if Map.has_key?(schema, :required) and not Map.has_key?(schema, "required"),
+        do: :required,
+        else: "required"
+
+    required =
+      case Map.get(schema, required_key) do
+        values when is_list(values) -> values
+        _ -> []
+      end
+
+    Map.put(schema, required_key, Enum.uniq(required ++ inputs))
+  end
+
+  defp put_rule_options_error(schema, []), do: schema
+
+  defp put_rule_options_error(schema, inputs) do
+    {properties_key, properties} = properties(schema)
+
+    properties =
+      Enum.reduce(inputs, properties, fn input_key, acc ->
+        property_key = Enum.find(Map.keys(acc), input_key, &(to_string(&1) == input_key))
+        property = acc |> Map.get(property_key, %{}) |> then(&if is_map(&1), do: &1, else: %{})
+        Map.put(acc, property_key, Map.put(property, "x-credential-rule-options-error", true))
+      end)
+
+    Map.put(schema, properties_key, properties)
+  end
+
+  defp put_rule_options(schema, options_by_input) do
+    {properties_key, properties} = properties(schema)
+
+    properties =
+      Enum.reduce(options_by_input, properties, fn {input_key, options}, acc ->
+        property_key = Enum.find(Map.keys(acc), input_key, &(to_string(&1) == input_key))
+
+        property =
+          acc
+          |> Map.get(property_key, %{})
+          |> rule_option_property(options)
+
+        Map.put(acc, property_key, property)
+      end)
+
+    Map.put(schema, properties_key, properties)
+  end
+
+  defp properties(schema) do
+    cond do
+      is_map(Map.get(schema, "properties")) -> {"properties", Map.get(schema, "properties")}
+      is_map(Map.get(schema, :properties)) -> {:properties, Map.get(schema, :properties)}
+      true -> {"properties", %{}}
+    end
+  end
+
+  defp rule_option_property(property, options) do
+    property = if is_map(property), do: property, else: %{}
+    ids = Enum.map(options, & &1["id"])
+
+    property
+    |> Map.put("x-credential-rule-options", options)
+    |> Map.put("x-enum-labels", Map.new(options, &{&1["id"], &1["label"]}))
+    |> Map.put("enum", ids)
+    |> then(fn property ->
+      if ids == [], do: Map.put(property, "x-credential-rule-options-empty", true), else: property
+    end)
+  end
+
+  defp scope_actor(%{actor: actor}) when not is_nil(actor), do: actor
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(scope), do: scope
 end
