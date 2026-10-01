@@ -18,6 +18,9 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
     "status" => :status
   }
 
+  @string_fields ["hostname", "uid", "os", "status"]
+  @boolean_filter_ops ["eq", "equals", "neq", "not_eq", "not_equals"]
+
   @type filter :: %{
           field: String.t() | nil,
           op: String.t(),
@@ -53,6 +56,68 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
   end
 
   def extract_filters(_), do: []
+
+  @spec filters_supported?(term()) :: boolean()
+  def filters_supported?(%{"filters" => filters}) when is_list(filters) do
+    Enum.all?(filters, &filter_supported?/1)
+  end
+
+  def filters_supported?(_), do: false
+
+  defp filter_supported?(%{"field" => field} = filter) when is_binary(field) do
+    op = Map.get(filter, "op", "eq")
+    value = Map.get(filter, "value")
+    normalized_field = String.downcase(field)
+
+    cond do
+      normalized_field == "include_inactive" ->
+        op in ["eq", "equals"] and is_boolean(normalize_bool(value))
+
+      field in ["active", "is_active"] ->
+        op in @boolean_filter_ops and is_boolean(normalize_bool(value))
+
+      field in ["managed", "is_managed"] ->
+        op in ["eq", "equals"] and is_boolean(normalize_bool(value))
+
+      field in @string_fields ->
+        string_filter_supported?(op, value)
+
+      field == "type" ->
+        integer_filter_supported?(op, value)
+
+      String.starts_with?(field, "tags.") and byte_size(field) > byte_size("tags.") ->
+        op in ["eq", "equals"] and is_binary(value)
+
+      true ->
+        false
+    end
+  end
+
+  defp filter_supported?(_filter), do: false
+
+  defp string_filter_supported?("in", value) do
+    is_list(value) and value != [] and Enum.all?(value, &is_binary/1)
+  end
+
+  defp string_filter_supported?(op, value)
+       when op in ["eq", "equals", "contains", "like"],
+       do: is_binary(value)
+
+  defp string_filter_supported?(_op, _value), do: false
+
+  defp integer_filter_supported?(op, value) when op in ["eq", "equals"] do
+    is_binary(value) and valid_integer?(value)
+  end
+
+  defp integer_filter_supported?("in", values) when is_list(values) and values != [] do
+    Enum.all?(values, &(is_binary(&1) and valid_integer?(&1)))
+  end
+
+  defp integer_filter_supported?(_op, _value), do: false
+
+  defp valid_integer?(value) do
+    match?({integer, ""} when is_integer(integer), Integer.parse(value))
+  end
 
   @spec apply_filters(Ash.Query.t(), [filter()], keyword()) :: Ash.Query.t()
   def apply_filters(query, filters, opts \\ []) do

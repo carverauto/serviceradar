@@ -120,13 +120,17 @@ defmodule ServiceRadar.Plugins.ActionCredentialRequirements do
   """
   @spec validate(term(), term(), String.t()) :: [String.t()]
   def validate(credential_requirements, input_schema, path) do
-    input_keys = input_schema_keys(input_schema)
+    input_properties = input_schema_properties(input_schema)
 
     credential_requirements
     |> flatten()
     |> Enum.with_index(1)
     |> Enum.flat_map(fn {requirement, index} ->
-      validate_requirement(requirement, requirement_path(path, requirement, index), input_keys)
+      validate_requirement(
+        requirement,
+        requirement_path(path, requirement, index),
+        input_properties
+      )
     end)
     |> Enum.reverse()
   end
@@ -247,16 +251,16 @@ defmodule ServiceRadar.Plugins.ActionCredentialRequirements do
     end
   end
 
-  defp rule_input_errors(value, path, input_keys) do
+  defp rule_input_errors(value, path, input_properties) do
     case normalize(value) do
       nil ->
         ["#{path} must be a non-empty string"]
 
       key ->
-        if MapSet.member?(input_keys, key) do
-          []
-        else
-          ["#{path} must name a property declared in input_schema.properties"]
+        case Map.get(input_properties, key) do
+          %{type: "string"} -> []
+          %{"type" => "string"} -> []
+          _ -> ["#{path} must name a string property declared in input_schema.properties"]
         end
     end
   end
@@ -268,17 +272,17 @@ defmodule ServiceRadar.Plugins.ActionCredentialRequirements do
     end
   end
 
-  defp input_schema_keys(%{} = schema) do
+  defp input_schema_properties(%{} = schema) do
     schema
     |> stringify_keys()
     |> Map.get("properties")
     |> case do
-      %{} = properties -> MapSet.new(Map.keys(properties), &to_string/1)
-      _ -> MapSet.new()
+      %{} = properties -> properties
+      _ -> %{}
     end
   end
 
-  defp input_schema_keys(_schema), do: MapSet.new()
+  defp input_schema_properties(_schema), do: %{}
 
   defp normalize(value) when is_binary(value) do
     case String.trim(value) do

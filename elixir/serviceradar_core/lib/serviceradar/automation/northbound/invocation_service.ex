@@ -220,7 +220,17 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
     package_rule_inputs =
       PluginPackageContext.package_rule_inputs(descriptor.credential_requirements)
 
-    if normalize_source(fetch(attrs, :source)) == :user and package_rule_inputs != [] and
+    input_values = normalize_map(fetch(attrs, :input_values))
+
+    rule_input_supplied? =
+      Enum.any?(package_rule_inputs, fn input_key ->
+        case Map.get(input_values, input_key) do
+          value when is_binary(value) -> String.trim(value) != ""
+          _ -> false
+        end
+      end)
+
+    if normalize_source(fetch(attrs, :source)) == :user and rule_input_supplied? and
          not SystemActor.system_actor?(actor) and
          not RBAC.has_permission?(actor, "settings.credentials.manage") do
       {:error, :credential_rule_permission_required}

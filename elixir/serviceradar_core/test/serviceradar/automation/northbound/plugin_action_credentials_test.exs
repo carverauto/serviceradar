@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
   alias ServiceRadar.Automation.Northbound
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
+  alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.ActionProvider
   alias ServiceRadar.Automation.Northbound.Catalog
   alias ServiceRadar.Automation.Northbound.CredentialGrants
@@ -355,6 +356,105 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
                )
 
       refute_received {:grant_attrs, _}
+
+      unsupported_filter_rule =
+        update_target_query!(rule_without_filters, "in:devices unsupported_field:value")
+
+      unsupported_filter_invocation =
+        in_memory_invocation(
+          package,
+          %{"destination_account" => @destination_requirement},
+          %{"destination_rule_id" => to_string(unsupported_filter_rule.id)},
+          bound.agent_uid,
+          target_uid
+        )
+
+      assert {:error,
+              {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
+               CredentialGrants.prepare_launch(unsupported_filter_invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+
+      refute_received {:grant_attrs, _}
+
+      wrong_entity_rule = update_target_query!(unsupported_filter_rule, "in:agents")
+
+      wrong_entity_invocation =
+        in_memory_invocation(
+          package,
+          %{"destination_account" => @destination_requirement},
+          %{"destination_rule_id" => to_string(wrong_entity_rule.id)},
+          bound.agent_uid,
+          target_uid
+        )
+
+      assert {:error,
+              {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
+               CredentialGrants.prepare_launch(wrong_entity_invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+
+      refute_received {:grant_attrs, _}
+    end
+
+    test "polling a user invocation resolves its selected package rule with the dispatcher actor",
+         %{package: package, bound: bound, second_rule: second_rule} do
+      unique = System.unique_integer([:positive])
+      target_uid = "sr:example-sat-poll-target-#{unique}"
+      target_device!(target_uid, "poll-#{unique}.example.com", bound.agent_uid, true)
+      {:ok, descriptor} =
+        plugin_descriptor(package, %{"destination_account" => @destination_requirement},
+          scopes: ["device"]
+        )
+
+      assert {:ok, invocation} =
+               InvocationService.create_invocation(
+                 %{
+                   descriptor_id: descriptor.id,
+                   targets: [%{kind: :device, device_uid: target_uid}],
+                   input_values: %{"destination_rule_id" => to_string(second_rule.id)}
+                 },
+                 actor: @credential_manager
+               )
+
+      assert invocation.source == :user
+      assert {:ok, running} =
+               ActionInvocation.record_running(invocation, %{}, actor: @system_actor)
+
+      [target] = invocation.targets
+
+      assert {:ok, polling_target} =
+               ActionInvocationTarget.record_deferred(
+                 target,
+                 %{
+                   result: %{"status" => "queued"},
+                   external_correlation_id: "poll-task-#{unique}",
+                   continuation_state: %{"task_id" => "poll-task-#{unique}"},
+                   next_poll_at: DateTime.add(DateTime.utc_now(), 30, :second),
+                   poll_deadline_at: DateTime.add(DateTime.utc_now(), 300, :second)
+                 },
+                 actor: @system_actor
+               )
+
+      assert running.state == :running
+
+      assert {:ok, _target} =
+               Dispatcher.dispatch_poll(polling_target,
+                 system_actor: @system_actor,
+                 command_bus: CapturingCommandBus,
+                 grant_issuer: {FakeGrantIssuer, :issue}
+               )
+
+      assert_received {:grant_attrs, attrs}
+      assert to_string(attrs.secret_id) == to_string(second_rule.secret_id)
+      assert to_string(attrs.credential_rule_id) == to_string(second_rule.id)
+
+      assert_received {:dispatched, _agent_uid, "plugin.run_action", poll_payload, _transmitted}
+      assert poll_payload["phase"] == "poll"
+      assert [%{"credential_secret_ref" => ref}] = poll_payload["credential_brokers"]
+      assert ref == secret_ref(second_rule.secret_id)
     end
 
     test "rejects another package's rule, a disabled rule, an unprovisioned rule and a raw secret id",

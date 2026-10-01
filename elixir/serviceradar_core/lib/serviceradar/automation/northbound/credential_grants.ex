@@ -348,7 +348,9 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   end
 
   defp target_query_matches?(query, target_uid) when is_binary(query) do
-    with {:ok, ast} <- SRQLAst.parse(query),
+    with "devices" <- SRQLAst.entity(query, ""),
+         {:ok, ast} <- SRQLAst.parse(query),
+         true <- SRQLDeviceMatcher.filters_supported?(ast),
          filters <- SRQLDeviceMatcher.extract_filters(ast),
          true <- target_matches_filters?(target_uid, filters) do
       :ok

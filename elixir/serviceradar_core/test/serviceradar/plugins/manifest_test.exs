@@ -1111,7 +1111,25 @@ defmodule ServiceRadar.Plugins.ManifestTest do
                  })
                )
 
-      assert "actions[1].credential_requirements.api.rule_input must name a property declared in input_schema.properties" in errors
+      assert "actions[1].credential_requirements.api.rule_input must name a string property declared in input_schema.properties" in errors
+    end
+
+    test "requires package rule inputs to use string properties" do
+      manifest =
+        with_source_action(%{
+          "api" => %{
+            "credential_source" => "package_rule",
+            "rule_input" => "destination_rule_id"
+          }
+        })
+        |> Map.update!("actions", fn [action] ->
+          put_in(action, ["input_schema", "properties", "destination_rule_id", "type"], "integer")
+          |> then(&[&1])
+        end)
+
+      assert {:error, errors} = Manifest.from_map(manifest)
+
+      assert "actions[1].credential_requirements.api.rule_input must name a string property declared in input_schema.properties" in errors
     end
 
     test "package_rule needs a producer_schedule credential profile" do

@@ -117,6 +117,30 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
                },
                actor: launch_actor
              )
+
+    optional_requirements = %{
+      "destination_account" => %{
+        "credential_source" => "package_rule",
+        "rule_input" => "destination_rule_id",
+        "required" => false
+      }
+    }
+
+    {:ok, optional_descriptor} =
+      create_descriptor(provider, actor, credential_requirements: optional_requirements)
+
+    assert {:ok, optional_invocation} =
+             InvocationService.create_invocation(
+               %{
+                 descriptor_id: optional_descriptor.id,
+                 targets: [%{kind: :device, device_uid: device.uid}],
+                 input_values: %{}
+               },
+               actor: launch_actor
+             )
+
+    assert optional_invocation.source == :user
+    assert optional_invocation.input_values == %{}
   end
 
   test "rejects inactive providers", %{actor: actor} do
