@@ -88,23 +88,39 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   @spec upsert_hosted_link(map()) :: :ok | {:error, term()}
   def upsert_hosted_link(%{guest_device_id: guest, host_device_id: host} = payload)
       when is_binary(guest) and is_binary(host) and guest != host do
-    if Backend.write_dgraph?() do
-      Dgraph.replace_hosted_edge(%{
-        source: guest,
-        target: host,
-        kind: :hosted_on,
-        protocol: "virtualization_inventory",
-        evidence_class: "hosted-virtual",
-        ingestor: "hypervisor_enrichment_v1",
-        telemetry_eligible: false,
-        last_seen: payload[:observed_at]
-      })
-    else
-      :ok
-    end
+    persist(fn ->
+      with :ok <- Dgraph.upsert_device(%{id: guest}),
+           :ok <- Dgraph.upsert_device(%{id: host}) do
+        Dgraph.replace_hosted_edge(%{
+          source: guest,
+          target: host,
+          kind: :hosted_on,
+          protocol: "virtualization_inventory",
+          evidence_class: "hosted-virtual",
+          ingestor: "hypervisor_enrichment_v1",
+          telemetry_eligible: false,
+          last_seen: payload[:observed_at]
+        })
+      end
+    end)
   end
 
   def upsert_hosted_link(_payload), do: :ok
+
+  defp persist(fun) when is_function(fun, 0) do
+    if Backend.write_dgraph?() do
+      case fun.() do
+        :ok -> :ok
+        {:ok, _} -> :ok
+        {:error, _reason} = error -> error
+        other -> {:error, {:unexpected_dgraph_result, other}}
+      end
+    else
+      :ok
+    end
+  rescue
+    exception -> {:error, exception}
+  end
 
   @spec upsert_risk_summary(String.t(), map()) :: :ok
   def upsert_risk_summary(device_uid, summary) when is_binary(device_uid) and is_map(summary) do

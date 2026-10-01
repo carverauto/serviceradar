@@ -266,8 +266,11 @@ async fn hosted_replacement_scopes_retirement_and_rejects_older_observations() {
     assert!(query.contains("eq(topo.kind, \"HOSTED_ON\")"), "{query}");
     assert!(query.contains("gt(topo.last_seen, \"2030-02-03T04:05:06Z\")"), "{query}");
     assert!(!query.contains("type(TopologyEdge)"), "{query}");
-    assert_eq!(condition, "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(newer), 0))");
-    assert_eq!(delete, &json!({"uid": "uid(e)"}));
+    assert_eq!(condition, "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0))");
+    assert_eq!(delete, &json!([
+        {"uid": "uid(e)"},
+        {"uid": "uid(c)", "topo.dst": null}
+    ]));
     assert_eq!(fixture.mutations[0]["topo.ingestor"], "hypervisor_enrichment_v1");
     assert!(fixture.mutations[0]["topo.link_key"]
         .as_str()

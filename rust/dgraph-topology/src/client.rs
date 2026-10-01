@@ -356,9 +356,12 @@ impl TopologyClient {
             "topo.stale": false,
             "topo.last_seen": edge.last_seen(),
         });
-        let delete = json!({"uid": "uid(e)"});
+        let delete = json!([
+            {"uid": "uid(e)"},
+            {"uid": "uid(c)", "topo.dst": null}
+        ]);
         let condition = format!(
-            "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(newer), 0))"
+            "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0))"
         );
         let response: Value = self.upsert(&query, &condition, &set, Some(&delete)).await?;
         if response.get("source").and_then(Value::as_array).map_or(0, Vec::len) != 1

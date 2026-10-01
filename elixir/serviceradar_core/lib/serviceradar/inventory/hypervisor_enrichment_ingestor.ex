@@ -8,6 +8,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   envelope directly.
   """
 
+  import Ash.Expr
+
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -28,6 +31,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   require Logger
 
   @schema "serviceradar.hypervisor_enrichment.v1"
+  @hosted_page_size 500
 
   @record_keys [
     :clusters,
@@ -328,10 +332,66 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationNetworkInterface, nics, actor),
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor),
          :ok <- VirtualizationIdentityAliases.reconcile(records),
-         :ok <- project_hosted_topology(host_rows, guests, actor) do
+         :ok <- project_hosted_topology(host_rows, guests, actor),
+         :ok <- ServiceRadar.NetworkDiscovery.WorldWorker.enqueue_reconcile() do
       :ok
     end
   end
+
+  @doc "Projects saved virtualization guest ownership before a topology snapshot."
+  @spec reconcile_hosted_topology() :: :ok | {:error, term()}
+  def reconcile_hosted_topology do
+    actor = SystemActor.system(:topology_world)
+    reconcile_hosted_topology_page(nil, actor)
+  end
+
+  defp reconcile_hosted_topology_page(cursor, actor) do
+    query =
+      VirtualizationGuest
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(expr(not is_nil(host_id) and identity_state != :quarantined))
+      |> Ash.Query.sort(:id)
+      |> Ash.Query.limit(@hosted_page_size)
+      |> Ash.Query.load(:host)
+
+    query = if cursor, do: Ash.Query.filter(query, expr(id > ^cursor)), else: query
+
+    with {:ok, page} <- Ash.read(query, actor: actor),
+         {:ok, guests} <- ServiceRadar.Ash.Page.unwrap(page),
+         :ok <- Enum.reduce_while(guests, :ok, &reconcile_saved_guest(&1, &2, actor)) do
+      if length(guests) == @hosted_page_size do
+        reconcile_hosted_topology_page(List.last(guests).id, actor)
+      else
+        :ok
+      end
+    end
+  end
+
+  defp reconcile_saved_guest(guest, :ok, actor) do
+    with %{host: host} when is_map(host) <- guest,
+         false <- guest.identity_state == :quarantined or host.identity_state == :quarantined,
+         observed_at when not is_nil(observed_at) <-
+           observed_at_string(guest.observed_at || host.observed_at),
+         {:ok, guest_uid} <- live_canonical_device_uid(guest.device_uid, actor),
+         {:ok, host_uid} <- live_canonical_device_uid(host.device_uid, actor),
+         false <- guest_uid == host_uid,
+         :ok <-
+           DgraphPersist.upsert_hosted_link(%{
+             guest_device_id: guest_uid,
+             host_device_id: host_uid,
+             observed_at: observed_at
+           }) do
+      {:cont, :ok}
+    else
+      false -> {:cont, :ok}
+      nil -> {:cont, :ok}
+      {:skip, _reason} -> {:cont, :ok}
+      {:error, _reason} = error -> {:halt, error}
+      _ -> {:cont, :ok}
+    end
+  end
+
+  defp reconcile_saved_guest(_guest, {:error, _} = error, _actor), do: {:halt, error}
 
   defp project_hosted_topology(hosts, guests, actor) do
     host_uids = Map.new(hosts, &{{&1.provider, &1.provider_ref}, Map.get(&1, :device_uid)})

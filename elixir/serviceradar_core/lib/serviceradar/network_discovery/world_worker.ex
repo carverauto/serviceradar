@@ -10,13 +10,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dgraph
+  alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.NetworkDiscovery.World
   alias ServiceRadar.NetworkDiscovery.WorldInventory
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.TopologyAtlas
 
-  @batch_size 500
   @reconcile_seconds 900
   @delta_operations [
     :insert_positions,
@@ -70,8 +70,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   def perform(%Oban.Job{args: %{"mode" => mode, "layout_version" => version}} = job)
       when mode in ["reconcile", "relayout"] and is_binary(version) do
     with_result =
-      with {:ok, _job} <- record_request(job),
+    with {:ok, _job} <- record_request(job),
            {:ok, state} <- prepare(mode, version),
+           :ok <- HypervisorEnrichmentIngestor.reconcile_hosted_topology(),
            {:ok, graph} <- TopologyAtlas.read_graph(),
            {:ok, builder} <-
              WorldInventory.stream(state.builder, fn rows, builder ->
