@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.SRQL
 
   @moduletag :web_ng_shared_fixture_db
@@ -48,7 +49,8 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
           {"stale", true, "running", "1.0.0", 600},
           {"unhealthy", true, "unhealthy", "1.0.0", 0},
           {"unassigned", false, "running", "1.0.0", 0},
-          {"drift", true, "running", "0.9.0", 0}
+          {"drift", true, "running", "0.9.0", 0},
+          {"missing", true, nil, nil, 0}
         ] do
       agent = agent_fixture(gateway, %{uid: "#{addon_id}-#{suffix}"})
 
@@ -93,22 +95,43 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
         end
       end
 
-      AddonStatus
-      |> Ash.Changeset.for_create(
-        :report,
-        %{
-          agent_uid: agent.uid,
-          addon_id: addon_id,
-          state: state,
-          version: version,
-          active: true,
-          last_health_at: now,
-          reported_at: DateTime.add(now, -report_age)
-        },
-        actor: system_actor()
-      )
-      |> Ash.create!()
+      if state do
+        for observed_state <- if(suffix == "healthy", do: ["unhealthy", state], else: [state]) do
+          AddonStatus
+          |> Ash.Changeset.for_create(
+            :report,
+            %{
+              agent_uid: agent.uid,
+              addon_id: addon_id,
+              state: observed_state,
+              version: version,
+              active: true,
+              last_health_at: now,
+              reported_at: DateTime.add(now, -report_age)
+            },
+            actor: system_actor()
+          )
+          |> Ash.create!()
+        end
+      end
     end
+
+    other_addon_id = "other-" <> addon_id
+
+    AddonStatus
+    |> Ash.Changeset.for_create(
+      :report,
+      %{
+        agent_uid: "#{addon_id}-healthy",
+        addon_id: other_addon_id,
+        state: "unhealthy",
+        version: "2.0.0",
+        active: false,
+        reported_at: DateTime.add(now, 1)
+      },
+      scope: scope
+    )
+    |> Ash.create!(scope: scope)
 
     assert {:ok, %{"results" => rows}} =
              SRQL.query("in:addon_fleets addon_id:#{addon_id} sort:agent_uid:asc", %{scope: scope})
@@ -121,6 +144,8 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
              "update_policy" => "manual_pin"
            }
     assert by_suffix["healthy"]["assigned_version"] == "1.0.0"
+    assert by_suffix["healthy"]["observed_state"] == "running"
+    assert by_suffix["healthy"]["observed_version"] == "1.0.0"
     assert by_suffix["healthy"]["last_health_at"] == DateTime.to_iso8601(now)
     assert by_suffix["stale"]["stale"] == true
     assert by_suffix["stale"]["category"] == "unavailable"
@@ -130,6 +155,33 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
     assert by_suffix["unassigned"]["update_policy"] == nil
     assert by_suffix["drift"]["version_drift"] == true
     assert by_suffix["drift"]["observed_version"] == "0.9.0"
+    assert by_suffix["missing"]["observed_state"] == nil
+    assert by_suffix["missing"]["reported_at"] == nil
+    assert by_suffix["missing"]["category"] == "unavailable"
+
+    overview_rows =
+      [scope: scope, now: now]
+      |> AddonFleet.overview()
+      |> Map.fetch!(:rows)
+      |> Enum.filter(&(&1.agent_uid == "#{addon_id}-healthy"))
+      |> Map.new(&{&1.addon_id, &1})
+
+    assert Map.take(overview_rows[addon_id], [:assigned?, :running_state, :running_version]) == %{
+             assigned?: true,
+             running_state: "running",
+             running_version: "1.0.0"
+           }
+
+    assert Map.take(overview_rows[other_addon_id], [:assigned?, :running_state, :running_version]) == %{
+             assigned?: false,
+             running_state: "unhealthy",
+             running_version: "2.0.0"
+           }
+
+    assert {:error, :forbidden} =
+             SRQL.query("in:addon_fleet addon_id:#{addon_id}", %{
+               scope: %Scope{permissions: MapSet.new(["plugins.view"])}
+             })
 
     assert {:ok, %{"results" => [%{"state" => "unhealthy"}]}} =
              SRQL.query("in:addon_status addon_id:#{addon_id} state:unhealthy", %{scope: scope})

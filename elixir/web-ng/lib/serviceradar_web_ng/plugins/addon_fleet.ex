@@ -130,6 +130,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     packages = list_packages(scope, limit)
     assignments = scope |> list_assignments(limit) |> reject_retired_addon_ids()
     statuses = scope |> list_statuses(limit) |> reject_retired_addon_ids()
+
+    statuses_by_key =
+      Enum.reduce(statuses, %{}, fn status, index ->
+        Map.put_new(index, {status.agent_uid, status.addon_id}, status)
+      end)
+
     scans_by_agent = list_collector_scans(scope, limit)
     agents_by_uid = agents_by_uid(scope, limit)
     agent_labels = Map.new(agents_by_uid, fn {uid, agent} -> {uid, agent_label(agent)} end)
@@ -161,7 +167,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         history = Map.fetch!(assignment_groups, {agent_uid, addon_id}) -- [assignment]
         package_id = assignment.rollout_package_id || assignment.addon_package_id
         package = package_id && Map.get(package_index.by_id, package_id)
-        status = find_status(statuses, agent_uid, addon_id)
+        status = Map.get(statuses_by_key, {agent_uid, addon_id})
 
         build_row(
           agent_uid,
@@ -785,10 +791,6 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   defp package_sort_key(%AddonPackage{imported_at: nil, inserted_at: inserted_at}), do: inserted_at
   defp package_sort_key(%AddonPackage{imported_at: imported_at}), do: imported_at
-
-  defp find_status(statuses, agent_uid, addon_id) do
-    Enum.find(statuses, &(&1.agent_uid == agent_uid and &1.addon_id == addon_id))
-  end
 
   defp package_approved?(%AddonPackage{status: :approved}), do: true
   defp package_approved?(_package), do: false
