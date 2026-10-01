@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   - Observability Domain: /api/v2/stateful-alert-rules
   """
 
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
   alias ServiceRadar.Observability.LogPromotion
@@ -615,19 +615,19 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/event-rules" do
     setup %{conn: conn} do
-      _rule = event_rule_fixture()
-      %{conn: conn}
+      rule = event_rule_fixture()
+      %{conn: conn, rule: rule}
     end
 
-    test "viewer can list event rules", %{conn: conn} do
+    @tag :web_ng_shared_fixture_db
+    test "viewer can list event rules", %{conn: conn, rule: rule} do
       conn = get(conn, "/api/v2/event-rules")
       response = json_response(conn, 200)
 
-      assert is_map(response)
-      assert is_list(response["data"])
-      assert Map.has_key?(response, "data")
+      assert Enum.any?(response["data"], &(&1["id"] == rule.id))
     end
 
+    @tag :web_ng_shared_fixture_db
     test "unauthenticated request returns empty list" do
       conn = build_conn()
       conn = get(conn, "/api/v2/event-rules")
@@ -639,19 +639,22 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/event-rules/active" do
     setup %{conn: conn} do
-      _enabled = event_rule_fixture(%{enabled: true, name: "Active Rule #{System.unique_integer([:positive])}"})
-      _disabled = event_rule_fixture(%{enabled: false, name: "Disabled Rule #{System.unique_integer([:positive])}"})
-      %{conn: conn}
+      enabled = event_rule_fixture(%{enabled: true, name: "Active Rule #{System.unique_integer([:positive])}"})
+      disabled = event_rule_fixture(%{enabled: false, name: "Disabled Rule #{System.unique_integer([:positive])}"})
+      %{conn: conn, enabled: enabled, disabled: disabled}
     end
 
-    test "returns only enabled rules", %{conn: conn} do
+    @tag :web_ng_shared_fixture_db
+    test "returns only enabled rules", %{conn: conn, enabled: enabled, disabled: disabled} do
       response = conn |> get("/api/v2/event-rules/active") |> json_response(200)
-      assert is_list(response["data"])
+      assert Enum.any?(response["data"], &(&1["id"] == enabled.id))
+      refute Enum.any?(response["data"], &(&1["id"] == disabled.id))
       assert Enum.all?(response["data"], fn r -> r["attributes"]["enabled"] == true end)
     end
   end
 
   describe "POST /api/v2/event-rules" do
+    @tag :web_ng_shared_fixture_db
     test "operator can create, update, and delete an event rule" do
       conn = log_in_api_user(build_conn(), operator_user_fixture())
 
@@ -714,6 +717,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       refute Enum.any?(remaining["data"], &(&1["id"] == id))
     end
 
+    @tag :web_ng_shared_fixture_db
     test "viewer is denied write access" do
       conn = log_in_api_user(build_conn(), user_fixture())
 
@@ -732,6 +736,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert conn.status in [400, 403]
     end
 
+    @tag :web_ng_shared_fixture_db
     test "unauthenticated create is denied" do
       conn = build_conn()
 
@@ -752,12 +757,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   end
 
   describe "PATCH /api/v2/event-rules/:id" do
-    setup %{conn: conn} do
-      rule = event_rule_fixture()
-      %{conn: conn, rule: rule}
-    end
-
-    test "returns error for non-existent rule", %{conn: conn} do
+    @tag :web_ng_shared_fixture_db
+    test "returns not found for an operator updating a non-existent rule" do
+      conn = log_in_api_user(build_conn(), operator_user_fixture())
       fake_id = "00000000-0000-0000-0000-000000000000"
 
       conn =
@@ -767,7 +769,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
           "data" => %{"type" => "event-rule", "id" => fake_id, "attributes" => %{"priority" => 5}}
         })
 
-      assert conn.status in [400, 403, 404]
+      assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
     end
   end
 
@@ -777,12 +779,15 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       %{conn: conn, rule: rule}
     end
 
-    test "returns error for non-existent rule", %{conn: conn} do
+    @tag :web_ng_shared_fixture_db
+    test "returns not found for an operator deleting a non-existent rule" do
+      conn = log_in_api_user(build_conn(), operator_user_fixture())
       fake_id = "00000000-0000-0000-0000-000000000000"
       conn = delete(conn, "/api/v2/event-rules/#{fake_id}")
-      assert conn.status in [400, 403, 404]
+      assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "operator can destroy an event rule", %{rule: rule} do
       operator = operator_user_fixture()
       conn = log_in_api_user(build_conn(), operator)
@@ -792,11 +797,17 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   end
 
   describe "event rule API → log promotion integration" do
+    @tag :web_ng_shared_fixture_db
     test "a rule created via the API is visible to log promotion" do
       operator = operator_user_fixture()
       conn = log_in_api_user(build_conn(), operator)
 
+      LogPromotion.invalidate_rules_cache()
+      on_exit(&LogPromotion.invalidate_rules_cache/0)
+      assert {:ok, cached_rules} = LogPromotion.active_log_rules()
+
       rule_name = "example-app-#{System.unique_integer([:positive])}"
+      refute Enum.any?(cached_rules, &(&1.name == rule_name))
 
       params = %{
         "data" => %{
@@ -819,10 +830,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
       assert created["data"]["type"] == "event-rule"
 
-      # The API change invalidates the promotion cache; a fresh load must include the new rule.
-      LogPromotion.invalidate_rules_cache()
-      {:ok, rules} = LogPromotion.active_log_rules()
-      assert Enum.any?(rules, &(&1.name == rule_name))
+      assert {:ok, rules} = LogPromotion.active_log_rules()
+      assert Enum.any?(rules, &(&1.id == created["data"]["id"]))
     end
   end
 

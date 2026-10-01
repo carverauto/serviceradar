@@ -32,7 +32,8 @@ operator+ write).
 
 ### Requirement: OpenAPI Document Stays in Sync
 The committed `priv/static/openapi.json` SHALL include
-`/api/v2/event-rules` after this change.
+`/event-rules` as a router-relative path under the `/api/v2` mount after
+this change.
 
 #### Scenario: Committed OpenAPI document includes the new route
 - **WHEN** `mix serviceradar.openapi.dump --check` is run after this change

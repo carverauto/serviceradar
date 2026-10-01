@@ -22,6 +22,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/api/admin_authorization_test.exs",
     "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
     "test/phoenix/controllers/api/api_rate_limit_test.exs",
+    "test/phoenix/controllers/api/ash_json_api_test.exs",
     "test/phoenix/controllers/api/configuration_authentication_db_test.exs",
     "test/phoenix/controllers/api/configuration_lifecycle_db_test.exs",
     "test/phoenix/controllers/api/plugin_package_controller_test.exs",

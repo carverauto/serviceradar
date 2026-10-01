@@ -42,6 +42,22 @@ sufficient — no router change is needed.
   - `elixir/web-ng/test/support/ash_test_helpers.ex`
 - No migration needed: no schema change.
 - No router change needed.
-- Known accepted risk (pre-existing, tracked in issue #329): OAuth2 scope
-  is unenforced on `/api/v2/*`; authorization is role-based. This change
-  extends that existing surface to `EventRule` mutations. Out of scope here.
+
+## Inherited OpenAPI Reconciliation
+
+The complete regeneration also reconciles 43 non-EventRule semantic differences
+with the resource DSL already present at the intended base,
+`a5644da9a221453eed1bdb0330f95b14fed02ca1`. These changes are included explicitly
+so `mix serviceradar.openapi.dump --check` continues to validate the complete
+artifact. This proposal does not change those resources or their runtime behavior.
+All paths below are router-relative under `/api/v2`.
+
+| Existing API surface | Regenerated contract | Semantic differences |
+| --- | --- | --- |
+| `device_cleanup_settings` resource and filters | Add `ephemeral_expiry_enabled`, `ephemeral_expiry_days`, `ephemeral_expiry_exclusion_query`, `ephemeral_expiry_max_fraction`, and `ephemeral_expiry_guard_override` to the attribute schema and filter schema; add each field's filter definition. The resource's required-attribute list now also includes the four non-null fields (all except `ephemeral_expiry_exclusion_query`). | 16 |
+| `/device-cleanup-settings` GET/POST and `/device-cleanup-settings/{id}` PATCH | Add those five fields to POST and PATCH request attributes; update the sparse-field examples on all three operations to include them. | 13 |
+| `/timeseries_metrics_disk_hourly` GET | Document the existing read-only hourly disk-metric endpoint, its resource schema, filter schema, and ten field-filter definitions: `avg_value`, `bucket`, `device_id`, `max_value`, `metric_name`, `metric_type`, `min_value`, `mount_point`, `sample_count`, and `series_key`. | 13 |
+| `/devices` GET | Correct the pagination `page.limit` example from `5000` to `250`, reflecting the existing resource DSL. This is an example correction, not a new pagination limit. | 1 |
+
+The reconciliation accounts for all 43 inherited differences separately from the
+three EventRule paths and ten EventRule schemas introduced by this feature.
