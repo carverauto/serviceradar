@@ -48,6 +48,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/security_dashboard_routes_test.exs",
     "test/phoenix/live/settings/ansible_live_test.exs",
     "test/phoenix/live/settings/audit_events_live_test.exs",
+    "test/phoenix/live/settings/cli_auth_policy_live_test.exs",
     "test/phoenix/live/settings/integrations_live_test.exs",
     "test/phoenix/live/settings/network_credential_rules_live_test.exs",
     "test/phoenix/live/settings/networks_live_test.exs",
