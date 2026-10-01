@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
         fence: expected,
         revision: tile.revision,
         edges: edges,
-        page: page,
+        page: exclude_stale_telemetry(page, edges),
         health: health |> Map.put(:source, source_progress(progress)) |> Map.put(:sampled_at, DateTime.utc_now())
       }
 
@@ -95,5 +95,17 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
         Enum.all?(page.relations, &(counts[&1.rendered_edge_id] == &1.bundle_members))
 
     if valid, do: :ok, else: {:error, :invalid_tile_receipt}
+  end
+
+  defp exclude_stale_telemetry(page, edges) do
+    stale_ids = edges |> Enum.filter(&(Map.get(&1, :stale) == true)) |> MapSet.new(& &1.id)
+
+    Map.update!(page, :relations, fn relations ->
+      Enum.map(relations, fn relation ->
+        if MapSet.member?(stale_ids, relation.rendered_edge_id),
+          do: Map.put(relation, :telemetry_eligible, false),
+          else: relation
+      end)
+    end)
   end
 end
