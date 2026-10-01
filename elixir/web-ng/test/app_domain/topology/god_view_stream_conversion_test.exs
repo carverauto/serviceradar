@@ -60,8 +60,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
     ]
 
     assert GodViewStream.edge_topology_class_counts(edges) == %{
-             # direct, direct-physical, logical, unknown(nil)
-             backbone: 4,
+             # direct and direct-physical are physical backbone; logical and
+             # unknown(nil) remain separate.
+             backbone: 2,
+             logical: 1,
              attachment: 2,
              inferred: 2,
              hosted: 2,
@@ -70,7 +72,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
   end
 
   test "edge_topology_class_counts/1 returns zeroed counts for empty or invalid input" do
-    empty = %{backbone: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0}
+    empty = %{backbone: 0, logical: 0, attachment: 0, inferred: 0, hosted: 0, observed: 0}
 
     assert GodViewStream.edge_topology_class_counts([]) == empty
     assert GodViewStream.edge_topology_class_counts(nil) == empty
