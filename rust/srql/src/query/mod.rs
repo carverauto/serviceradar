@@ -12,7 +12,6 @@ mod starrocks;
 mod translate;
 mod types;
 
-mod addon_fleet;
 mod addon_statuses;
 mod advisory;
 mod advisory_coordinates;
@@ -34,6 +33,7 @@ mod endpoint_packages;
 mod endpoint_vulnerability_matches;
 mod events;
 mod field_survey;
+mod fleet;
 mod flows;
 mod gateways;
 mod graph_cypher;

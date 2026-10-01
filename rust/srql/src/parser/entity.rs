@@ -130,6 +130,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         }
         "alerts" | "alert" => Ok(Entity::Alerts),
         "addon_fleet" | "addon_fleets" => Ok(Entity::AddonFleet),
+        "plugin_fleet" | "plugin_fleets" => Ok(Entity::PluginFleet),
         "addon_statuses" | "addon_status" => Ok(Entity::AddonStatuses),
         "public_endpoints"
         | "public_endpoint"

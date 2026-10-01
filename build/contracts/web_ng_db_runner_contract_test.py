@@ -14,6 +14,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/app_domain/dashboards/report_jobs_test.exs",
     "test/app_domain/dashboards/report_import_db_test.exs",
     "test/app_domain/dashboards/system_reports_db_test.exs",
+    "test/app_domain/extension_fleet_db_test.exs",
     "test/app_domain/otel_services_access_db_test.exs",
     "test/app_domain/topology/runtime_supervision_test.exs",
     "test/phoenix/auth/sso_provisioning_test.exs",

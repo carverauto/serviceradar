@@ -202,6 +202,7 @@ LEFT JOIN candidates c ON c.device_id = p.device_id AND c.if_index = p.if_index
 ORDER BY p.device_id, p.if_index, f.direction, f.family"#
     );
     Ok(TranslateResponse {
+        read_model: None,
         sql,
         params,
         pagination: PaginationMeta {

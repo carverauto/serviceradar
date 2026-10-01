@@ -310,3 +310,11 @@ exposure, coordinates for catalog evidence.
 
 Replace `<device-uid>`, `<trace-id>`, `<name>` with real values from a previous
 `execute_srql` or `get_device` result. Do not leave the angle brackets in the query.
+
+## Native add-on and WASM fleet health
+
+Use `in:addon_fleet` for native assignments and health, `in:addon_statuses`
+for native reports, and `in:plugin_fleet` for WASM assignments and runtime evidence.
+See the [fleet recipes](https://docs.serviceradar.cloud/srql-cookbook#native-add-on-and-wasm-fleet-health)
+and [fleet reference](https://docs.serviceradar.cloud/srql-language-reference#agent-extension-fleet-queries)
+for queries, permissions, safe fields, freshness, and drift semantics.
