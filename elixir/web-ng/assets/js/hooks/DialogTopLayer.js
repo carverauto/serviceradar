@@ -19,8 +19,10 @@ export default {
     this._returnFocus = this._resolveReturnFocus()
     this._onCancel = (e) => this._handleCancel(e)
     this._onClick = (e) => this._handleOutsideClick(e)
+    this._onKeydown = (e) => this._handleKeydown(e)
     this.el.addEventListener("cancel", this._onCancel)
     this.el.addEventListener("click", this._onClick)
+    this.el.addEventListener("keydown", this._onKeydown)
     this._open()
   },
 
@@ -32,6 +34,7 @@ export default {
   destroyed() {
     this.el.removeEventListener("cancel", this._onCancel)
     this.el.removeEventListener("click", this._onClick)
+    this.el.removeEventListener("keydown", this._onKeydown)
     try {
       if (this.el.open) this.el.close()
     } catch (_err) {
@@ -75,6 +78,24 @@ export default {
         }
       }
     })
+  },
+
+  _handleKeydown(e) {
+    if (e.key !== "Tab" || !this.el.open) return
+
+    const focusable = [...this.el.querySelectorAll(
+      "a[href], button, input, select, textarea, [tabindex]"
+    )].filter(el => el.tabIndex >= 0 && !el.matches(":disabled") && el.getClientRects().length)
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const target = e.shiftKey && document.activeElement === first
+      ? last
+      : !e.shiftKey && document.activeElement === last ? first : null
+
+    if (target) {
+      e.preventDefault()
+      target.focus()
+    }
   },
 
   _handleOutsideClick(e) {

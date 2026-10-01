@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.Edge.ReleaseSourceImporter
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.PluginResults
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
@@ -70,6 +71,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:rollout_page, 1)
        |> assign(:rollout_page_size, @rollout_page_size)
        |> assign(:selected_rollout_id, nil)
+       |> assign(:release_notes, nil)
        |> assign(:connected_agents, [])
        |> assign(:rollout_summaries, %{})
        |> assign(:rollout_targets, %{})
@@ -187,6 +189,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   def handle_event("hide_rollout_details", _params, socket) do
     {:noreply, assign(socket, :selected_rollout_id, nil)}
+  end
+
+  def handle_event("show_release_notes", %{"id" => id, "trigger" => trigger}, socket) do
+    release = Enum.find(socket.assigns.releases, &(&1.id == id))
+
+    notes =
+      if release do
+        %{release: release, trigger: trigger}
+      end
+
+    {:noreply, assign(socket, :release_notes, notes)}
+  end
+
+  def handle_event("hide_release_notes", _params, socket) do
+    {:noreply, assign(socket, :release_notes, nil)}
   end
 
   def handle_event("create_rollout", %{"rollout" => params}, socket) do
@@ -1091,7 +1108,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         <td class="font-mono text-xs">
                           <div class="flex flex-col gap-1">
                             <div class="flex items-center gap-2">
-                              <span>{release.version}</span>
+                              <.ui_button
+                                id={"release-version-#{release.id}"}
+                                type="button"
+                                size="xs"
+                                variant="ghost"
+                                phx-click="show_release_notes"
+                                phx-value-id={release.id}
+                                phx-value-trigger={"release-version-#{release.id}"}
+                                aria-haspopup="dialog"
+                                aria-controls="release-notes-modal"
+                                aria-label={"View release notes for #{release.version}"}
+                              >
+                                {release.version}
+                              </.ui_button>
                               <.ui_badge :if={index == 0} size="xs" variant="success">
                                 Latest
                               </.ui_badge>
@@ -1136,8 +1166,25 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             </div>
                           </div>
                         </td>
-                        <td class="max-w-sm truncate text-xs" title={release.release_notes || "—"}>
-                          {release.release_notes || "—"}
+                        <td class="text-xs">
+                          <.ui_button
+                            :if={!blank?(release.release_notes)}
+                            id={"release-notes-#{release.id}"}
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            phx-click="show_release_notes"
+                            phx-value-id={release.id}
+                            phx-value-trigger={"release-notes-#{release.id}"}
+                            aria-haspopup="dialog"
+                            aria-controls="release-notes-modal"
+                            aria-label={"View release notes for #{release.version}"}
+                          >
+                            View notes
+                          </.ui_button>
+                          <span :if={blank?(release.release_notes)} class="text-sr-muted">
+                            No release notes
+                          </span>
                         </td>
                         <td>
                           <.ui_button
@@ -1278,6 +1325,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
             </.ui_panel>
           </div>
         </div>
+
+        <.ui_modal
+          :if={@release_notes}
+          id="release-notes-modal"
+          size="xl"
+          on_cancel="hide_release_notes"
+          data-return-focus={"##{@release_notes.trigger}"}
+        >
+          <:title>Release notes for {@release_notes.release.version}</:title>
+          <div
+            id="release-notes-content"
+            class="break-words text-sm leading-relaxed [&_h1]:my-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:my-4 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:my-3 [&_h3]:font-semibold [&_p]:my-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_a]:underline [&_pre]:my-3 [&_pre]:overflow-x-auto [&_code]:font-mono [&_blockquote]:border-l-2 [&_blockquote]:border-sr-line [&_blockquote]:pl-4"
+          >
+            <%= if blank?(@release_notes.release.release_notes) do %>
+              <p class="text-sm text-sr-muted">No release notes were provided for this release.</p>
+            <% else %>
+              <PluginResults.markdown content={@release_notes.release.release_notes} />
+            <% end %>
+          </div>
+        </.ui_modal>
 
         <%= if selected_rollout = selected_rollout(@rollouts, @selected_rollout_id) do %>
           <% selected_summary =

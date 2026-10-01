@@ -132,15 +132,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   end
 
   defp render_widget(%{"widget" => "markdown"} = data) do
-    content = Map.get(data, "content") || ""
-    html = markdown_to_html(content)
-    assigns = %{html: html}
-
-    ~H"""
-    <div class="prose prose-sm max-w-none">
-      {raw(@html)}
-    </div>
-    """
+    markdown(%{__changed__: nil, content: Map.get(data, "content") || ""})
   end
 
   defp render_widget(%{"widget" => "sparkline"} = data) do
@@ -229,9 +221,21 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
 
   defp to_float(_), do: nil
 
+  attr :content, :string, required: true
+
+  @doc "Renders Markdown using the same HTML and URL safety policy as plugin results."
+  def markdown(assigns) do
+    assigns = assign(assigns, :html, markdown_to_html(assigns.content))
+
+    ~H"""
+    <div class="prose prose-sm max-w-none">
+      {raw(@html)}
+    </div>
+    """
+  end
+
   defp markdown_to_html(content) do
     content = to_string(content || "")
-    escaped = content |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 
     opts = [
       extension: [
@@ -240,25 +244,33 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
         table: true,
         tasklist: true
       ],
-      render: [hardbreaks: true]
+      render: [hardbreaks: true, escape: true, unsafe: false]
     ]
 
-    case MDEx.to_html(escaped, opts) do
+    case MDEx.to_html(content, opts) do
       {:ok, html} -> sanitize_rendered_markdown(html)
-      {:error, _reason} -> escaped
+      {:error, _reason} -> content |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
     end
   end
 
   defp sanitize_rendered_markdown(html) when is_binary(html) do
-    html
-    |> strip_unsafe_event_attributes()
-    |> sanitize_href_attributes()
-    |> sanitize_src_attributes()
-    |> strip_dangerous_tags()
-  end
+    html =
+      Regex.replace(~r/<[a-z][a-z0-9]*\b(?:[^>"']|"[^"]*"|'[^']*')*>/i, html, fn tag ->
+        Regex.replace(
+          ~r/\s+([a-z][a-z0-9_-]*)\s*=\s*("[^"]*"|'[^']*')/i,
+          tag,
+          fn attribute, name, _value ->
+            case String.downcase(name) do
+              "href" -> sanitize_href_attributes(attribute)
+              "src" -> sanitize_src_attributes(attribute)
+              "on" <> _event -> ""
+              _ -> attribute
+            end
+          end
+        )
+      end)
 
-  defp strip_unsafe_event_attributes(html) do
-    Regex.replace(~r/\s+on[a-z0-9_-]+\s*=\s*(\"[^\"]*\"|'[^']*')/i, html, "")
+    strip_dangerous_tags(html)
   end
 
   defp sanitize_href_attributes(html) do
