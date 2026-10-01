@@ -402,11 +402,14 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp live_canonical_device_uid(uid, actor) do
     canonical_uid = IdentityReconciler.follow_canonical_device_id(uid, actor)
 
-    case Device.get_by_uid(canonical_uid, false, actor: actor) do
-      {:ok, %Device{deleted_at: nil}} -> {:ok, canonical_uid}
+    query =
+      Device
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(uid == ^canonical_uid and is_nil(deleted_at))
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, %Device{}} -> {:ok, canonical_uid}
       {:ok, nil} -> {:skip, {:missing_or_inactive_virtualization_endpoint, canonical_uid}}
-      {:ok, _deleted_or_missing} -> {:skip, {:inactive_virtualization_endpoint, canonical_uid}}
-      {:error, %Ash.Error.Query.NotFound{}} -> {:skip, {:missing_virtualization_endpoint, canonical_uid}}
       {:error, reason} -> {:error, reason}
     end
   end
