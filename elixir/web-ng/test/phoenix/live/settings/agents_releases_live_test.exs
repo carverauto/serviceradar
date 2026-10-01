@@ -400,6 +400,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     refute html =~ "8.0.0"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "release notes show the chosen release's full safe Markdown without changing rollout", %{
     conn: conn,
     scope: scope
@@ -474,6 +475,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     refute has_element?(lv, "#release-notes-modal")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "release without notes has an honest empty state", %{conn: conn, scope: scope} do
     version = "9.4.0"
     manifest = release_manifest(version)
