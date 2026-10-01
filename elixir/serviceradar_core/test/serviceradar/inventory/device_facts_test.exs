@@ -82,7 +82,7 @@ defmodule ServiceRadar.Inventory.DeviceFactsTest do
         {updated, transaction_now}
       end)
 
-    assert provenance_at(updated, "nac_applied") == transaction_now
+    assert DateTime.compare(provenance_at(updated, "nac_applied"), transaction_now) == :eq
   end
 
   # The facts write merges in the database. Writing a whole map computed from

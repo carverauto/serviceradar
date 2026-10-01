@@ -56,8 +56,26 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     assert :ok = Dgraph.rebuild_canonical(edges)
     guest = saved_hosted_inventory!(hd(ids), Enum.at(ids, 1))
 
+    guest
+    |> Ash.Changeset.for_update(:update, %{observed_at: nil}, actor: actor())
+    |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+    assert [] = hosted_projection(hd(ids))
+
+    guest
+    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2030-02-03 04:05:06Z]},
+      actor: actor()
+    )
+    |> Ash.update!(actor: actor())
+
     assert {:ok, %{"guests_done" => true, "edges_done" => true}} =
              HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+    assert [%{"observed_at" => "2030-02-03T04:05:06Z", "target" => [%{"id" => host_uid}]}] =
+             hosted_projection(hd(ids))
+
+    assert host_uid == Enum.at(ids, 1)
 
     job = reconcile_job!()
     version = job.args["layout_version"]
@@ -536,6 +554,27 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     assert [%{"stale" => true, "observed_at" => "2030-02-03T04:05:06Z"}] =
              hosted_projection(source)
 
+    guest
+    |> Ash.Changeset.for_update(:update, %{observed_at: nil}, actor: actor())
+    |> Ash.update!(actor: actor())
+
+    guest_host!(original_host)
+    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2032-02-03 04:05:06Z]},
+      actor: actor()
+    )
+    |> Ash.update!(actor: actor())
+
+    assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
+
+    assert [%{"stale" => true, "observed_at" => "2030-02-03T04:05:06Z"}] =
+             hosted_projection(source)
+
+    guest
+    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2030-02-03 04:05:06Z]},
+      actor: actor()
+    )
+    |> Ash.update!(actor: actor())
+
     # A sibling ingestor's relationship survives every inventory retirement.
     assert :ok =
              Dgraph.upsert_edge(%{
@@ -817,7 +856,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
         host_id: host.id,
         device_uid: guest_uid,
         name: "synthetic-guest",
-        guest_type: "vm"
+        guest_type: "vm",
+        observed_at: observed_at
       },
       actor: actor()
     )

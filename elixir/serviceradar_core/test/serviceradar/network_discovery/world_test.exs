@@ -508,6 +508,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
       source_if_name: "eth7",
       target_if_index: 9,
       target_if_name: "eth9",
+      stale: false,
+      last_seen: nil,
       active: true
     }
   end

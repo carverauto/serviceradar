@@ -206,10 +206,11 @@ The tile engine SHALL bundle low-zoom relations by their visible endpoint or agg
 - **AND** a quantized portal SHALL use aggregate route identity and SHALL NOT be drawn as a resolved canonical cable
 - **AND** paging every rendered edge SHALL conserve the exact relation membership of the published geometry
 
-#### Scenario: Owned endpoint contact draws the canonical segment once
+#### Scenario: Owned endpoint contact preserves displaced endpoint connectivity
 - **GIVEN** a canonical endpoint lies on a shared boundary
 - **WHEN** the canonical segment has zero length inside its half-open owner
-- **THEN** that owner SHALL draw no synthetic connector
+- **THEN** that owner SHALL preserve a connector from its displaced endpoint representation to the shared portal for source and target endpoints on either axis
+- **AND** coincident endpoint representations SHALL NOT create a connector
 - **AND** the neighbor that contains the interior SHALL draw the canonical segment
 - **AND** an unowned tangential corner contact SHALL NOT create a segment
 - **AND** a genuine self-loop SHALL contribute to the owning representation's internal-relation count
