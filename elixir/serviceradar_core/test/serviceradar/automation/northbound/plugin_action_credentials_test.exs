@@ -231,6 +231,10 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
 
     test "accepts a rule provisioned for the same package and mints one grant per requirement",
          %{package: package, bound: bound, first_rule: first_rule, second_rule: second_rule} do
+      unique = System.unique_integer([:positive])
+      target_uid = "sr:example-sat-grant-target-#{unique}"
+      target_device!(target_uid, "grant-#{unique}.example.com", bound.agent_uid, true)
+
       invocation =
         in_memory_invocation(
           package,
@@ -239,7 +243,8 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
             "destination_account" => @destination_requirement
           },
           %{"destination_rule_id" => to_string(second_rule.id)},
-          bound.agent_uid
+          bound.agent_uid,
+          target_uid
         )
 
       assert {:ok, prepared} =
@@ -355,7 +360,13 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       assert to_string(attrs.secret_id) == to_string(implicit_device_query_rule.secret_id)
 
       inactive_uid = "sr:example-inactive-query-target-#{unique}"
-      target_device!(inactive_uid, "inactive-#{unique}.example.com", bound.agent_uid, false)
+      target_device!(
+        inactive_uid,
+        "inactive-#{unique}.example.com",
+        bound.agent_uid,
+        false,
+        "192.0.2.45"
+      )
 
       inactive_invocation =
         in_memory_invocation(
@@ -577,6 +588,9 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
 
     test "catalog and grants reject a rule whose purpose differs from the requirement",
          %{package: package, bound: bound, second_rule: second_rule} do
+      unique = System.unique_integer([:positive])
+      target_uid = "sr:example-sat-purpose-target-#{unique}"
+      target_device!(target_uid, "purpose-#{unique}.example.com", bound.agent_uid, true)
       mismatched_requirement = Map.put(@destination_requirement, "purpose", "management")
 
       {:ok, descriptor} =
@@ -603,7 +617,8 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
           package,
           %{"destination_account" => mismatched_requirement},
           %{"destination_rule_id" => to_string(second_rule.id)},
-          bound.agent_uid
+          bound.agent_uid,
+          target_uid
         )
 
       assert {:error,
@@ -997,14 +1012,14 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
     updated
   end
 
-  defp target_device!(uid, hostname, agent_uid, is_active) do
+  defp target_device!(uid, hostname, agent_uid, is_active, ip \\ "192.0.2.44") do
     {:ok, device} =
       Device
       |> Ash.Changeset.for_create(
         :create,
         %{
           uid: uid,
-          ip: "192.0.2.44",
+          ip: ip,
           hostname: hostname,
           agent_id: agent_uid,
           is_active: is_active

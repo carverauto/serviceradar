@@ -256,8 +256,8 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
 
   defp approved_manifest(nil, _actor), do: {:ok, nil}
 
-  defp approved_manifest(package_id, actor) do
-    case Ecto.UUID.cast(to_string(package_id)) do
+  defp approved_manifest(package_id, actor) when is_binary(package_id) do
+    case Ecto.UUID.cast(package_id) do
       {:ok, package_id} ->
         PluginPackage
         |> Ash.Query.for_read(:approved, %{}, actor: actor)
@@ -273,6 +273,8 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
         {:ok, nil}
     end
   end
+
+  defp approved_manifest(_package_id, _actor), do: {:ok, nil}
 
   defp parse_manifest(%PluginPackage{manifest: manifest}) when is_map(manifest) do
     case Manifest.from_map(manifest) do
