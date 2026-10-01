@@ -322,14 +322,10 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     do: Map.get(schema, "x-enum-labels") || Map.get(schema, :"x-enum-labels")
 
   defp schema_value(schema, "x-credential-rule-options-error") when is_map(schema),
-    do:
-      Map.get(schema, "x-credential-rule-options-error") ||
-        Map.get(schema, :"x-credential-rule-options-error")
+    do: Map.get(schema, "x-credential-rule-options-error") || Map.get(schema, :"x-credential-rule-options-error")
 
   defp schema_value(schema, "x-credential-rule-options-empty") when is_map(schema),
-    do:
-      Map.get(schema, "x-credential-rule-options-empty") ||
-        Map.get(schema, :"x-credential-rule-options-empty")
+    do: Map.get(schema, "x-credential-rule-options-empty") || Map.get(schema, :"x-credential-rule-options-empty")
 
   defp schema_value(schema, "title") when is_map(schema), do: Map.get(schema, "title") || Map.get(schema, :title)
 

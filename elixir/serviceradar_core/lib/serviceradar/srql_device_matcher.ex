@@ -99,9 +99,8 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
     is_list(value) and value != [] and Enum.all?(value, &is_binary/1)
   end
 
-  defp string_filter_supported?(op, value)
-       when op in ["eq", "equals", "contains", "like"],
-       do: is_binary(value)
+  defp string_filter_supported?(op, value) when op in ["eq", "equals", "contains", "like"],
+    do: is_binary(value)
 
   defp string_filter_supported?(_op, _value), do: false
 

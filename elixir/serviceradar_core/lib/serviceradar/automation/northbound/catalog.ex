@@ -14,6 +14,12 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
   and name are exposed. The descriptor itself was authorized for the caller by
   `:launchable_for_scope`; the choice is enforced again at dispatch, so the
   annotation is presentation only.
+
+  Empty choices retain `enum: []` and carry
+  `x-credential-rule-options-empty: true`; lookup failures carry
+  `x-credential-rule-options-error: true`. Required credential inputs are added
+  to the schema's `required` list, allowing consumers to block an unsatisfiable
+  form while still permitting omitted optional credentials.
   """
 
   alias ServiceRadar.Automation.Northbound.ActionDescriptor

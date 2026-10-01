@@ -5,6 +5,10 @@ defmodule ServiceRadar.Automation.Northbound.TargetPayloadContract do
   Stored invocation snapshots remain full audit snapshots. The contract only
   narrows the payload sent to a plugin when a descriptor explicitly declares
   supported target fields in metadata.
+
+  System-supplied `attributes.integration_ids` on device and interface targets
+  survive this narrowing: the plugin needs its package-scoped inventory identity
+  even when its field contract omits other attributes.
   """
 
   @always_include ~w(kind device_uid interface_uid event_id northbound_job_id callback)

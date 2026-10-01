@@ -303,6 +303,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
     credential_rule_options_error =
       ActionForm.schema_credential_rule_options_error?(assigns.schema)
+
     credential_rule_options_empty =
       ActionForm.schema_credential_rule_options_empty?(assigns.schema)
 

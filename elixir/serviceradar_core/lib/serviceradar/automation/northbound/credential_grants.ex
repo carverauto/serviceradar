@@ -357,7 +357,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
     with "devices" <- SRQLAst.entity(normalized_query, "devices"),
          {:ok, ast} <- SRQLAst.parse(normalized_query),
          true <- SRQLDeviceMatcher.filters_supported?(ast),
-         filters <- SRQLDeviceMatcher.extract_filters(ast),
+         filters = SRQLDeviceMatcher.extract_filters(ast),
          true <- target_matches_filters?(target_uid, filters) do
       :ok
     else

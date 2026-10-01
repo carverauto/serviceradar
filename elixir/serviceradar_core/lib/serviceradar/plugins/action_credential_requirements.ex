@@ -8,24 +8,11 @@ defmodule ServiceRadar.Plugins.ActionCredentialRequirements do
   shared by manifest ingest and the northbound dispatcher, so validation and
   grant issuance cannot disagree about which requirements an action declares.
 
-  A requirement of a plugin action may declare where its secret comes from
-  instead of naming one:
-
-    * `credential_source: assignment_schedule` with `requirement: <name>` takes
-      the secret reference the credential provisioner bound into
-      `credential_refs[<name>]` of the enabled producer schedule on the
-      invocation's plugin assignment. `<name>` must be the
-      `provisioning.credential_requirement` of one of the package's
-      `producer_schedule` credential profiles.
-    * `credential_source: package_rule` with `rule_input: <input key>` takes the
-      secret of the credential rule whose id the operator supplied in that
-      input. The id is accepted only among enabled rules provisioned for the
-      same package and provider; `<input key>` must be a property of the
-      action's `input_schema`.
-
-  A declared source cannot be combined with a static secret or with an input
-  that names a secret, so an invocation input can never select arbitrary
-  credential material.
+  The operator contract for declared credential sources is documented in
+  `docs/docs/wasm-plugins.md`, under "Northbound actions on discovered devices".
+  This module validates the manifest shape and package profile references;
+  `ServiceRadar.Automation.Northbound.CredentialGrants` enforces runtime
+  authorization and target scope before issuing grants.
   """
 
   @sources ~w(assignment_schedule package_rule)
