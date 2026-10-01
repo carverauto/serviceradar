@@ -11,9 +11,10 @@ ExUnit.configure(
 
 # Count from merge of HEAD (2362) plus new staging additions:
 # +8 ash_json_api_test.exs (2×1 outer + 2×3 nested for-loop),
-# +2 admin_authorization_test.exs (for role <- [:operator,:viewer]),
+# +3 admin_authorization_test.exs (2 for-loop + 1 recount correction),
 # +2 agents_releases_live_test.exs, +4 admin_user_test.exs.
-expected_selected_tests = 2378
+# CI-verified: 2379 actual.
+expected_selected_tests = 2379
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped
