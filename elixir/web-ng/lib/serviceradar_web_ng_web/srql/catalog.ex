@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   @moduledoc false
 
+  alias ServiceRadar.Security.SecurityEvent
+
   @wifi_site_filter_fields [
     "source_id",
     "site_code",
@@ -97,6 +99,31 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   ]
 
   @entities [
+    %{
+      id: "security_events",
+      label: "Security audit events",
+      exact_fields: ["search"],
+      address_fields: ["ip"],
+      default_time: "last_24h",
+      default_sort_field: "occurred_at",
+      default_sort_dir: "desc",
+      default_filter_field: "kind",
+      filter_fields: [
+        "kind",
+        "severity",
+        "actor_id",
+        "ip",
+        "route",
+        "correlation_id",
+        "search",
+        "id"
+      ],
+      known_values: %{
+        "kind" => Enum.map(SecurityEvent.kinds(), &to_string/1),
+        "severity" => Enum.map(SecurityEvent.severities(), &to_string/1)
+      },
+      downsample: false
+    },
     %{
       id: "dashboards",
       label: "Dashboards",

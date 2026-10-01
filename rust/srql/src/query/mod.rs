@@ -47,6 +47,7 @@ mod otel_metric_points;
 mod otel_metrics;
 mod otel_services;
 mod public_endpoints;
+mod security_events;
 mod services;
 mod source_fact_disagreements;
 mod sweep_coverage;

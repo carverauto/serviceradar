@@ -317,6 +317,7 @@ fields; using a field that the entity does not support returns an
 |----------------|---------|-------------|
 | `devices` | `device`, `device_inventory` | Device inventory and current state |
 | `events` | `activity` | Normalized OCSF events and activity |
+| `security_events` | | Control-plane security audit log. Requires `settings.audit.view`. |
 | `logs` | — | Application and system logs (OpenTelemetry) |
 | `threat_intel_matches` | `threat_intel_match`, `ioc_matches`, `ioc_match` | Current IP/CIDR cache-to-indicator memberships. Requires `observability.netflow.view`. |
 | `flows` | `flow`, `network_activity` | NetFlow / network activity records (raw 5-tuples) |
@@ -421,6 +422,39 @@ state; `include_deleted:true` includes soft-deleted records.
 | `span_id` | | OpenTelemetry span ID |
 
 Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
+
+### security_events
+
+`in:security_events` reads the control-plane security
+log behind Settings -> Audit -> Events. It requires `settings.audit.view`;
+permission to read OCSF `events` or `security_findings` does not grant access.
+
+Filters: `kind`, `severity`, `actor_id`, `ip`, `route`, `correlation_id`, `id`,
+and `search`. Dedicated fields support equality, lists and `%` wildcards.
+`search` matches a literal, case-insensitive substring across actor ID, IP,
+route and correlation ID. Lists match any of the search terms; negation excludes
+all matching terms. The builder offers equality and inequality for literal search.
+Details are returned but cannot be searched or sorted.
+Severity values are `info`, `warning` and `critical`; the catalog publishes the
+current kind vocabulary.
+
+The default time window is the last 24 hours. Results default to
+`occurred_at DESC, id DESC`; explicit sorts also include an ID tie-breaker.
+Limits and SRQL cursors follow the standard bounded pagination contract.
+
+```text
+in:security_events time:last_7d kind:login_failed severity:critical limit:25
+in:security_events ip:192.0.2.8 route:/login time:last_24h
+in:security_events search:invented-correlation limit:25
+```
+
+The Settings page displays 25 rows per page using timestamp/ID keyset cursors.
+Filters survive paging; changing filters or clearing them returns to page 1.
+Page 1 refreshes from storage on live notifications, so delayed or duplicate
+notifications preserve ordering. Older pages pause live updates. Relative time
+windows move with the current time; custom From/To values use UTC. Clear all
+restores the last-24-hours window. Neither the page nor SRQL computes a total
+count or loads the whole event set.
 
 ### logs
 

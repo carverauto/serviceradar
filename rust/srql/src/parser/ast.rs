@@ -79,6 +79,7 @@ pub enum Entity {
     SourceFactDisagreements,
     MergeAudit,
     DeviceRevivalAudit,
+    SecurityEvents,
     DeviceIdentifiers,
     IdentityReconciliationRuns,
     IdentityEvidenceEdges,

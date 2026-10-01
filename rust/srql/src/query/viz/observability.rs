@@ -452,3 +452,28 @@ pub(super) fn otel_metric_points() -> VizMeta {
         }],
     }
 }
+
+pub(super) fn security_events() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "occurred_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("kind", ColumnType::Text, None),
+            col("severity", ColumnType::Text, None),
+            col("actor_id", ColumnType::Text, None),
+            col("ip", ColumnType::Text, None),
+            col("route", ColumnType::Text, None),
+            col("correlation_id", ColumnType::Text, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}

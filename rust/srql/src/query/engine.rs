@@ -6,7 +6,7 @@ use super::{
     endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
     endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
     identity, interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces,
-    otel_metric_points, otel_metrics, otel_services, public_endpoints, services,
+    otel_metric_points, otel_metrics, otel_services, public_endpoints, security_events, services,
     source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
     sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
     translate_request, virtualization, vulnerability_advisories, wifi_map,
@@ -79,6 +79,7 @@ impl QueryEngine {
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::PublicEndpoints => public_endpoints::execute(&mut conn, &plan).await?,
                 Entity::CameraSources => camera_sources::execute(&mut conn, &plan).await?,
+                Entity::SecurityEvents => security_events::execute(&mut conn, &plan).await?,
                 Entity::MergeAudit => identity::merge_audit::execute(&mut conn, &plan).await?,
                 Entity::DeviceRevivalAudit => {
                     identity::device_revival_audit::execute(&mut conn, &plan).await?

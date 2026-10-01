@@ -5,12 +5,42 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+  alias ServiceRadarWebNGWeb.SRQL.Page
 
   @moduletag :db_free
 
   # Interface settings are managed through the Ash-backed
   # ServiceRadar.Inventory.InterfaceSettings context, not the Rust SRQL engine.
   @non_rust_srql_entities MapSet.new(["interface_settings"])
+
+  test "security events require the audit permission even for an events reader" do
+    events_reader = %Scope{user: nil, permissions: MapSet.new(["observability.events.view"])}
+    auditor = %Scope{user: nil, permissions: MapSet.new(["settings.audit.view"])}
+
+    assert {:ok, _} = Native.parse_ast("in:security_events limit:1")
+    assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", events_reader)
+    assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", nil)
+    assert :ok = EntityAccess.authorize("in:security_events", auditor)
+  end
+
+  test "audit catalog advertises the browsing vocabulary without query navigation" do
+    event = Catalog.entity("security_events")
+    assert event.id == "security_events"
+    assert Catalog.structured()["entities"]["security_events"]["route"] == nil
+    assert Page.route_for_query("in:security_events severity:critical", "/devices") == "/devices"
+    assert event.default_time == "last_24h"
+    assert event.default_sort_field == "occurred_at"
+    assert event.default_sort_dir == "desc"
+
+    assert Catalog.structured()["entities"]["security_events"]["enums"] == %{
+             "kind" => Enum.map(ServiceRadar.Security.SecurityEvent.kinds(), &to_string/1),
+             "severity" => ["info", "warning", "critical"]
+           }
+
+    for field <- ["kind", "severity", "actor_id", "ip", "route", "correlation_id", "search"] do
+      assert field in event.filter_fields
+    end
+  end
 
   test "every catalog entity other than dashboards has a permission mapping" do
     unmapped =
