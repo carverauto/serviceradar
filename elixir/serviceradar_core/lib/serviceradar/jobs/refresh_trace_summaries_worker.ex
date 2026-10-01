@@ -628,8 +628,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   defp trace_summary_relations_present? do
     Enum.all?(["observability_watermarks", "otel_traces", "otel_trace_summaries"], fn name ->
-      case SQL.query(Repo, "SELECT to_regclass($1)", [name]) do
-        {:ok, %{rows: [[relation]]}} when is_binary(relation) -> true
+      case SQL.query(Repo, "SELECT to_regclass($1) IS NOT NULL", [name]) do
+        {:ok, %{rows: [[true]]}} -> true
         {:ok, _} -> false
         {:error, error} -> raise error
       end
