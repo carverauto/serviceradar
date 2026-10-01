@@ -10,6 +10,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
 
   @moduletag :web_ng_shared_fixture_db
 
+  @filter_defaults %{
+    "kind" => "",
+    "severity" => "",
+    "actor_id" => "",
+    "ip" => "",
+    "route" => "",
+    "correlation_id" => "",
+    "search" => "",
+    "time" => "last_24h",
+    "from" => "",
+    "to" => ""
+  }
+
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
     at = DateTime.add(DateTime.utc_now(), -60, :second)
@@ -194,7 +207,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
   end
 
   defp filter(view, values) do
-    view |> element("#audit-event-filters") |> render_change(%{"filters" => values})
+    filters = Map.merge(@filter_defaults, values)
+    view |> element("#audit-event-filters") |> render_change(%{"filters" => filters})
   end
 
   defp row_ids(view) do
