@@ -166,7 +166,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     assert body =~ "FROM serviceradar.ocsf_network_activity"
   end
 
-  test "authorized timeseries queries execute StarRocks SQL when metrics are in cutover_datasets",
+  test "authorized timeseries queries execute StarRocks SQL when the warehouse is enabled",
        %{prev: prev} do
     parent = self()
     scope = %{permissions: MapSet.new(["observability.metrics.view"])}
@@ -180,7 +180,8 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       :serviceradar_core,
       StarRocks,
       prev
-      |> Keyword.put(:cutover_datasets, [:metrics])
+      |> Keyword.put(:enabled, true)
+      |> Keyword.put(:cutover_datasets, [])
       |> Keyword.put(:mysql, mysql)
     )
 

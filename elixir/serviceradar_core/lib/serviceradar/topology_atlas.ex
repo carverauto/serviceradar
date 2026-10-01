@@ -4,12 +4,12 @@ defmodule ServiceRadar.TopologyAtlas do
 
   Import persisted positions (including inactive reservations), active relations,
   and projected inventory in batches of at most 500. Finish a cold world or
-  reconcile with a canonical Dgraph snapshot, then publish bounded candidate
+  reconcile with one topology-view snapshot, then publish bounded candidate
   pages through `NetworkDiscovery.World`. Builders and graph snapshots are
   consumed once; worlds and candidates are immutable process-local resources.
 
   Canonical IDs remain intact. Labels are limited to 256 UTF-8 bytes by the
-  inventory projector. Tile budgets are at most 128 glyphs and 256 relations.
+  inventory projector. Tile budgets are at most 128 glyphs and 512 rendered relations.
   Cursors start at zero, and `next_cursor: nil` ends a publication stream.
   Resources must never be serialized into jobs or persisted as database values.
 
@@ -19,6 +19,7 @@ defmodule ServiceRadar.TopologyAtlas do
   """
 
   alias ServiceRadar.Dgraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
   alias ServiceRadar.TopologyAtlas.Native
 
   @relation_defaults %{
@@ -28,7 +29,11 @@ defmodule ServiceRadar.TopologyAtlas do
     source_if_name: nil,
     target_if_index: nil,
     target_if_name: nil,
-    active: true
+    telemetry_eligible: false,
+    kind: "CANONICAL_TOPOLOGY",
+    active: true,
+    stale: false,
+    last_seen: nil
   }
   @operations [
     :insert_positions,
@@ -66,22 +71,23 @@ defmodule ServiceRadar.TopologyAtlas do
 
   def add_relations(_builder, _rows), do: {:error, :invalid_rows}
 
+  defdelegate algorithm_version(), to: Native
   defdelegate finish_world(builder), to: Native
   defdelegate reconcile(builder, graph), to: Native
   defdelegate world_info(world), to: Native
   defdelegate candidate_info(candidate), to: Native
 
-  @doc "Read the canonical graph directly into a native resource from one paged Dgraph snapshot."
+  @doc "Read the topology view directly into a native resource from one paged Dgraph snapshot."
   def read_graph do
-    with {:ok, url} <- Dgraph.url(), do: Native.read_graph(url)
+    with {:ok, url} <- Dgraph.url(), do: Native.read_graph(url, Utils.stale_cutoff_iso8601())
   end
 
-  def tile(world, z, x, y, budget \\ %{nodes: 128, edges: 256})
+  def tile(world, z, x, y, budget \\ %{nodes: 128, edges: 512})
 
   def tile(world, z, x, y, %{nodes: nodes, edges: edges} = budget)
       when is_integer(z) and z in 0..24 and is_integer(x) and x in 0..16_777_215 and is_integer(y) and
              y in 0..16_777_215 and
-             is_integer(nodes) and nodes in 9..128 and is_integer(edges) and edges in 72..256 do
+             is_integer(nodes) and nodes in 9..128 and is_integer(edges) and edges in 72..512 do
     case Map.get(budget, :profile, :standard) do
       profile when profile in [:standard, :aggregate_only] ->
         Native.tile(world, z, x, y, Map.put(budget, :profile, profile))
@@ -133,9 +139,11 @@ defmodule ServiceRadar.TopologyAtlas do
   def bundle_detail(_world, _selection, _id, _cursor), do: {:error, :invalid_identity}
 
   @doc """
-  Reads at most 256 canonical bindings with explicit total rendered coverage.
-  Interface degrees count distinct active world relations across all pages and
-  evidence classes; missing interface indices have degree zero.
+  Reads at most 256 bindings with explicit total rendered coverage.
+  Interface degrees count normalized canonical physical bindings of each
+  interface across the whole world, including bindings without telemetry.
+  Attachments, inferred edges, and relation roles do not add a binding.
+  A missing interface index has degree zero.
   """
   def tile_relations(world, selection, cursor \\ nil, limit \\ 256)
 

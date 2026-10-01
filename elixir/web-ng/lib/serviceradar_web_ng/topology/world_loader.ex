@@ -131,6 +131,8 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
     with {:ok, %{builder: builder, manifest: manifest}} <- World.stream_active(nil, &load_batch/2),
          :ok <- notify_head(owner, token, manifest),
          {:ok, world} <- TopologyAtlas.finish_world(builder),
+         {:ok, info} <- TopologyAtlas.world_info(world),
+         manifest = Map.put(manifest, :bounds, info.bounds),
          {:ok, tiles} <- prepare_tiles(world, manifest) do
       {:ok, %{world: world, manifest: manifest, tiles: tiles}}
     end

@@ -1,7 +1,7 @@
 //! Opaque selection resources contain bounded descriptors, never a World Arc.
 //! The serving owner additionally fences these reads by publication generation.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use rustler::{Atom, Encoder, Env, NifMap, NifTaggedEnum, Resource, ResourceArc, Term};
 use serviceradar_topology_atlas::{
@@ -97,10 +97,13 @@ impl From<WireDetailCursor> for DetailCursor {
 #[derive(NifMap)]
 struct WireDetailRelation {
     id: String,
+    topology_class: String,
     source: u32,
     target: u32,
     evidence_class: Option<String>,
     role: Option<String>,
+    stale: bool,
+    last_seen: Option<String>,
 }
 
 fn detail_relations(
@@ -112,11 +115,14 @@ fn detail_relations(
         .map(|edge| {
             let row = relation_row(world, &edge.id)?;
             Ok(WireDetailRelation {
+                topology_class: row.topology_class().as_str().to_owned(),
                 id: edge.id,
                 source: edge.source,
                 target: edge.target,
                 evidence_class: row.evidence_class.clone(),
                 role: row.role.clone(),
+                stale: row.stale,
+                last_seen: row.last_seen.clone(),
             })
         })
         .collect()
@@ -252,6 +258,7 @@ struct WireBundleInfo {
     relation_count: u64,
     source: WireGlyph,
     target: WireGlyph,
+    last_seen: Option<String>,
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -269,6 +276,7 @@ fn bundle_info(
                 relation_count: info.relation_count,
                 source: info.source.into(),
                 target: info.target.into(),
+                last_seen: info.last_seen,
             })
         })
     })
@@ -383,6 +391,8 @@ struct WireSelectedRelation {
     source_if_name: Option<String>,
     target_if_index: Option<i32>,
     target_if_name: Option<String>,
+    telemetry_eligible: bool,
+    kind: String,
     source_interface_degree: u32,
     target_interface_degree: u32,
     rendered_edge_id: String,
@@ -408,6 +418,8 @@ impl WireSelectedRelation {
             source_if_name: row.source_if_name.clone(),
             target_if_index: row.target_if_index,
             target_if_name: row.target_if_name.clone(),
+            telemetry_eligible: row.telemetry_eligible,
+            kind: row.kind.clone(),
             source_interface_degree: degrees[0],
             target_interface_degree: degrees[1],
             rendered_edge_id: selected.rendered_edge_id,

@@ -475,6 +475,7 @@ ex_unit_test(
     name = "networks_live_db_test",
     size = "enormous",
     srcs = [
+        "test/app_domain/bootstrap/admin_user_test.exs",
         "test/app_domain/dashboards/dashboard_export_round_trip_db_test.exs",
         "test/app_domain/dashboards/group_access_db_test.exs",
         "test/app_domain/dashboards/packages_test.exs",

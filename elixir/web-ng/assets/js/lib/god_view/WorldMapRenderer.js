@@ -1,7 +1,7 @@
 import {Deck, LinearInterpolator, OrthographicView} from "@deck.gl/core"
 import {Socket} from "phoenix"
 import GodViewRenderer from "../GodViewRenderer"
-import {GOD_VIEW_DEVICE_PROPS} from "./lifecycle_dom_setup_methods"
+import {GOD_VIEW_DEVICE_PROPS, createTopologyLabelMeasureText} from "./lifecycle_dom_setup_methods"
 import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 import {adoptDeckViewportSize, syncCanvasContextSize} from "./deck_canvas_size"
 import {WorldTileCache} from "./world_tile_cache"
@@ -11,11 +11,36 @@ import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode
 import {readBoundedBody, worldJson} from "./world_http"
 import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
 
+const MAP_BUTTON_CLASS = "inline-flex min-h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-sr-control border border-sr-line bg-sr-subtle px-3 text-sm font-semibold text-sr-brand shadow-sr-control outline-none hover:border-sr-line-hover hover:bg-sr-control focus-visible:ring-2 focus-visible:ring-sr-focus"
+
 function element(tag, className, text) {
   const node = document.createElement(tag)
   node.className = className
   if (text) node.textContent = text
   return node
+}
+
+function selectionTitle(object) {
+  const title = object.label || `${object.count.toLocaleString()} relations`
+  const seen = typeof object.lastSeen === "string" && object.lastSeen !== "" ? object.lastSeen : ""
+  const parts = [title]
+  if (object.stale) parts.push("last known")
+  if (seen) parts.push(seen)
+  return parts.join(" · ")
+}
+
+function worldZoomTier(zoom) {
+  if (zoom < 2) return "global"
+  if (zoom < 7) return "regional"
+  return "local"
+}
+
+function storedObservation(details) {
+  const values = [details?.bundle?.last_seen, details?.relation?.last_seen]
+  for (const value of values) {
+    if (typeof value === "string" && value !== "") return value
+  }
+  return ""
 }
 
 /** The persistent world camera owns bounded ELK scenes and returns to its retained tiles. */
@@ -26,6 +51,8 @@ export default class WorldMapRenderer {
     this.overlayRevision = 0
     this.packetFlow = true
     this.links = true
+    this.inferred = false
+    this.zoomMode = "auto"
     this.filters = {}
     this.destroyed = false
     this.sceneCache = new Map()
@@ -46,20 +73,24 @@ export default class WorldMapRenderer {
   async mount() {
     this.el.replaceChildren()
     this.el.style.position = "relative"
+    this.el.style.backgroundColor = "var(--sr-color-canvas)"
     this.canvas = element("canvas", "absolute inset-0 h-full w-full")
+    this.canvas.tabIndex = 0
+    this.canvas.setAttribute("aria-label", "Topology map")
+    this.measureText = createTopologyLabelMeasureText()
     this.summary = element("div", "absolute bottom-2 left-3 right-3 pointer-events-none text-xs text-sr-muted", "Loading topology…")
     this.summary.setAttribute("role", "status")
     this.toolbar = element("form", "absolute left-3 top-3 z-20 flex gap-2")
     const input = element("input", "input input-sm bg-sr-surface")
     input.placeholder = "Find device by ID"
     input.setAttribute("aria-label", "Find device by ID")
-    const find = element("button", "btn btn-sm", "Find")
+    const find = element("button", MAP_BUTTON_CLASS, "Find")
     find.type = "submit"
-    this.back = element("button", "btn btn-sm", "Back to map")
+    this.back = element("button", MAP_BUTTON_CLASS, "Back to map")
     this.back.type = "button"
     this.back.hidden = true
     this.back.addEventListener("click", () => this.returnToMap())
-    const share = element("button", "btn btn-sm", "Share map")
+    const share = element("button", MAP_BUTTON_CLASS, "Share map")
     share.type = "button"
     share.addEventListener("click", () => this.shareMap())
     this.toolbar.append(input, find, share, this.back)
@@ -67,6 +98,12 @@ export default class WorldMapRenderer {
     this.panel = element("div", "absolute left-3 top-14 z-20 max-w-xs rounded-lg border border-sr-line bg-sr-surface p-3 text-sm")
     this.panel.hidden = true
     this.el.append(this.canvas, this.summary, this.toolbar, this.panel)
+    window.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !this.panel.hidden) this.dismissPanel(true)
+    }, {signal: this.lifetime.signal})
+    this.el.addEventListener("pointerdown", event => {
+      if (this.detailRenderer && event.target.tagName === "CANVAS") this.dismissPanel()
+    }, {signal: this.lifetime.signal})
     this.viewState = this.overviewView()
     this.deck = new Deck({
       canvas: this.canvas, width: this.el.clientWidth, height: this.el.clientHeight,
@@ -84,19 +121,22 @@ export default class WorldMapRenderer {
         })
       },
       onError: error => this.failRenderer(error),
-      initialViewState: this.viewState, parameters: GOD_VIEW_ALPHA_BLEND,
+      // Deck advances camera transitions after drawing, before Luma's loop
+      // submits. Flush now, before those updates can retire drawn buffers.
+      onAfterRender: ({device}) => device.submit(),
+      viewState: this.viewState, parameters: GOD_VIEW_ALPHA_BLEND,
       controller: {dragPan: true, scrollZoom: {smooth: true}, touchZoom: true, dragRotate: false, touchRotate: false, doubleClickZoom: false},
       pickingRadius: 6, _animate: true,
       onViewStateChange: ({viewState}) => {
-        this.viewState = viewState
-        this.scheduleLocationUpdate()
+        this.setView(viewState)
       },
-      onClick: info => {if (info.object) void this.pick(info)},
-      getTooltip: info => info.object ? {text: info.object.label || `${info.object.count.toLocaleString()} relations`} : null,
+      onClick: info => {if (info.object) void this.pick(info); else this.dismissPanel()},
+      getTooltip: info => info.object ? {text: selectionTitle(info.object)} : null,
     })
     this.resize = new ResizeObserver(() => {
       const width = this.el.clientWidth
       const height = this.el.clientHeight
+      this.flushPendingCommands()
       this.deck?.setProps({width, height})
       adoptDeckViewportSize(this.deck, width, height)
     })
@@ -132,16 +172,26 @@ export default class WorldMapRenderer {
     this.handleEvent("god_view:set_zoom_mode", ({mode}) => {
       if (this.detailRenderer) return this.detailHandlers.get("god_view:set_zoom_mode")?.({mode})
       const zoom = {global: 0, regional: 4, local: 10, auto: this.overviewView().zoom}[mode]
-      if (zoom !== undefined) this.setView({...this.viewState, zoom: Math.min(this.cache.manifest?.zmax ?? 16, zoom)})
+      if (zoom === undefined) return
+      this.setZoomMode(mode)
+      this.setView({...this.viewState, zoom: Math.min(this.cache.manifest?.zmax ?? 16, zoom)})
     })
     this.timer = setInterval(() => void this.poll(), 5000)
     await this.poll()
+  }
+
+  setZoomMode(mode) {
+    this.zoomMode = mode
   }
 
   setSceneControl(name, payload) {
     this.sceneControls.set(name, payload)
     this.detailHandlers?.get(name)?.(payload)
     this.pendingDetail?.handlers.get(name)?.(payload)
+    if (name === "god_view:set_topology_layers") {
+      this.inferred = payload.layers?.inferred === true
+      this.render()
+    }
   }
 
   async poll() {
@@ -163,13 +213,25 @@ export default class WorldMapRenderer {
   }
 
   overviewView() {
-    return {target: [256, 256, 0], zoom: Math.min(0, Math.max(-2, Math.log2(Math.max(128, Math.min(this.el.clientWidth, this.el.clientHeight) - 100) / WORLD_TILE_SIZE)))}
+    const bounds = this.cache.manifest?.bounds
+    if (!bounds) return {target: [256, 256, 0], zoom: Math.min(0, Math.max(-2, Math.log2(Math.max(128, Math.min(this.el.clientWidth, this.el.clientHeight) - 100) / WORLD_TILE_SIZE)))}
+    const scale = WORLD_TILE_SIZE / WORLD_EXTENT
+    const width = Math.max(2, (bounds[1][0] - bounds[0][0]) * scale)
+    const height = Math.max(2, (bounds[1][1] - bounds[0][1]) * scale)
+    const zoom = Math.log2(Math.min(Math.max(128, this.el.clientWidth - 160) / width, Math.max(128, this.el.clientHeight - 140) / height))
+    return {target: [(bounds[0][0] + bounds[1][0]) * scale / 2, (bounds[0][1] + bounds[1][1]) * scale / 2, 0],
+      zoom: Math.max(-2, Math.min(this.cache.manifest?.zmax ?? 16, zoom))}
   }
 
   setView(viewState) {
     this.viewState = viewState
-    this.deck?.setProps({initialViewState: viewState})
+    this.flushPendingCommands()
+    this.deck?.setProps({viewState})
     this.scheduleLocationUpdate()
+  }
+
+  flushPendingCommands() {
+    this.deck?.device?.submit?.()
   }
 
   locationFrame() {
@@ -199,7 +261,23 @@ export default class WorldMapRenderer {
 
   locationNotice(message) {
     this.selection?.abort()
-    this.panel.replaceChildren(element("p", "text-sr-muted", message))
+    this.openPanel(element("p", "text-sr-muted", message))
+  }
+
+  dismissPanel(focusMap = false) {
+    this.selection?.abort()
+    this.searchRequest?.abort()
+    if (!this.detailRenderer) this.sceneRequest?.abort()
+    this.panel.hidden = true
+    if (focusMap) this.canvas.focus({preventScroll: true})
+  }
+
+  openPanel(...content) {
+    const close = element("button", `${MAP_BUTTON_CLASS} float-right ml-2`, "Close")
+    close.type = "button"
+    close.setAttribute("aria-label", "Close map popup")
+    close.addEventListener("click", () => this.dismissPanel(true))
+    this.panel.replaceChildren(close, ...content)
     this.panel.hidden = false
   }
 
@@ -249,8 +327,7 @@ export default class WorldMapRenderer {
     input.readOnly = true
     input.value = url.href
     input.addEventListener("click", () => input.select())
-    this.panel.replaceChildren(element("p", "text-sr-muted", `${label}: copy this address to share.`), input)
-    this.panel.hidden = false
+    this.openPanel(element("p", "text-sr-muted", `${label}: copy this address to share.`), input)
     input.focus()
     input.select()
   }
@@ -265,7 +342,7 @@ export default class WorldMapRenderer {
       this.sceneCache.clear()
       this.overlays.setVisible([])
       this.returnToMap()
-      if (!previous) this.restoreLocation()
+      if (!previous) {this.setView(this.overviewView()); this.restoreLocation()}
       else if (previous.layout_version !== manifest.layout_version) {
         this.setView(this.overviewView())
         this.locationNotice("The topology layout changed. Showing the current Home view.")
@@ -327,6 +404,8 @@ export default class WorldMapRenderer {
     if (this.destroyed) return
     this.cache.setVisible(tiles.map(tile => tile.index))
     const geometries = tiles.map(tile => tile.content).filter(Boolean)
+    const count = Math.max(1, tiles.length)
+    if (count !== this.visibleTileCount) {this.visibleTileCount = count; this.render()}
     this.overlays.setVisible(geometries)
     void this.overlays.poll()
     this.scheduleWatch()
@@ -337,24 +416,35 @@ export default class WorldMapRenderer {
     }
     const manifest = this.cache.manifest
     this.status(`${manifest.node_count.toLocaleString()} devices · ${tiles.length} visible tiles`)
-    this.pushEvent("god_view_stream_stats", {
+    const payload = {
       schema_version: 3, revision: manifest.generation, node_count: manifest.node_count, edge_count: manifest.relation_count,
       rendered_node_count: geometries.reduce((sum, tile) => sum + tile.nodes.length, 0),
       rendered_edge_count: geometries.reduce((sum, tile) => sum + tile.edges.length, 0),
       bytes: geometries.reduce((sum, tile) => sum + tile.byteLength, 0), renderer_mode: this.deviceType,
-      generated_at: new Date().toISOString(), zoom_mode: "auto", zoom_tier: "local",
-    })
+    }
+    if (typeof manifest.generated_at === "string") payload.generated_at = manifest.generated_at
+    const stats = {}
+    if (manifest.pipeline_stats && typeof manifest.pipeline_stats === "object") {
+      for (const [key, value] of Object.entries(manifest.pipeline_stats)) {
+        if (Number.isInteger(value)) stats[key] = value
+      }
+    }
+    if (Object.keys(stats).length > 0) payload.pipeline_stats = stats
+    if (typeof this.viewState?.zoom === "number") payload.zoom_tier = worldZoomTier(this.viewState.zoom)
+    if (this.zoomMode) payload.zoom_mode = this.zoomMode
+    this.pushEvent("god_view_stream_stats", payload)
   }
 
   render() {
     if (!this.deck || !this.cache.manifest || this.destroyed || this.rendererFailed) return
+    this.flushPendingCommands()
     this.deck.setProps({layers: [new WorldTileLayer({
       id: `god-view-world-${this.cache.manifest.layout_version}`, visible: !this.detailRenderer,
       maxZoom: this.cache.manifest.zmax, getTileData: this.getTileData,
       updateTriggers: {getTileData: this.geometryRevision},
       overlays: this.overlays.entries, overlayRevision: this.overlayRevision, packetFlow: this.packetFlow,
-      links: this.links, filters: this.filters,
-      onViewportLoad: this.onViewportLoad, onTileError: this.onTileError,
+      links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
+      onViewportLoad: this.onViewportLoad, onTileError: this.onTileError, measureText: this.measureText,
     })], _animate: !this.detailRenderer && this.packetFlow})
   }
 
@@ -385,6 +475,25 @@ export default class WorldMapRenderer {
     const geometry = info.sourceTile?.content
     if (!geometry) return
     const object = info.object
+    if (object.kind === "aggregate") {
+      this.dismissPanel()
+      const viewport = this.deck.getViewports()[0]
+      const zoom = Math.min(this.cache.manifest.zmax, Math.max(viewport.zoom, geometry.key.z) + 2)
+      if (zoom > viewport.zoom) {
+        const target = [geometry.positions[object.index * 2], geometry.positions[object.index * 2 + 1], 0]
+        this.setView({target, zoom, transitionDuration: 500, transitionInterpolator: new LinearInterpolator(["target", "zoom"])})
+        return
+      }
+      const selection = new globalThis.AbortController()
+      this.selection = selection
+      const params = {...geometry.key, generation: geometry.generation, tile_revision: geometry.revision, kind: object.kind, id: object.id}
+      try {
+        const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
+        if (selection.signal.aborted || this.destroyed) return
+        await this.openScene({layout_version: params.layout_version, generation: params.generation, ...result.details.scene})
+      } catch (error) {if (!selection.signal.aborted && !this.destroyed) this.locationNotice(error.message)}
+      return
+    }
     return this.showSelection(object, {...geometry.key, generation: geometry.generation, tile_revision: geometry.revision, kind: object.kind, id: object.id})
   }
 
@@ -392,14 +501,21 @@ export default class WorldMapRenderer {
     this.selection?.abort()
     const selection = new globalThis.AbortController()
     this.selection = selection
-    this.panel.replaceChildren(element("div", "font-semibold", object.label || `${object.count.toLocaleString()} relations`))
-    this.panel.hidden = false
+    const title = element("div", "font-semibold", selectionTitle(object))
+    this.openPanel(title)
     try {
       const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
       if (selection.signal.aborted || this.destroyed) return
       const details = result.details
+      const seen = storedObservation(details)
+      const stale = object?.stale === true || details?.relation?.stale === true
+      title.textContent = selectionTitle({label: object.label, count: object.count, stale, lastSeen: seen})
       const text = details.members ? `${details.members.toLocaleString()} devices` : details.device?.label || details.device?.id || "Selected topology connection"
       this.panel.append(element("p", "mt-2 text-sr-muted", text))
+      const observation = []
+      if (stale) observation.push("last known")
+      if (seen) observation.push(seen)
+      if (observation.length > 0) this.panel.append(element("p", "mt-2 text-sr-muted", observation.join(" · ")))
       const open = element("button", "btn btn-sm mt-3", object.kind === "device" ? "Open neighborhood" : "Show members")
       // Scene identity comes from the server. A device neighborhood is the
       // same scene when picked from a parent tile, child tile, or search.
@@ -508,6 +624,7 @@ export default class WorldMapRenderer {
   failRenderer(error) {
     if (this.rendererFailed) return
     this.rendererFailed = true
+    this.flushPendingCommands()
     this.deck?.setProps({_animate: false, layers: []})
     this.status(`Topology renderer stopped: ${error.message}. Reload to try again.`)
   }

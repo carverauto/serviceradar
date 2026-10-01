@@ -8,10 +8,12 @@
 
 const CLASS_KEYS = [
   ["backbone", "edge_class_backbone"],
+  ["logical", "edge_class_logical"],
   ["attachment", "edge_class_attachment"],
   ["inferred", "edge_class_inferred"],
   ["hosted", "edge_class_hosted"],
   ["observed", "edge_class_observed"],
+  ["unknown", "edge_class_unknown"],
 ]
 
 function toCount(value) {
@@ -29,7 +31,7 @@ export function edgeClassCounts(stats) {
   for (const [name, key] of CLASS_KEYS) {
     const parsed = toCount(stats[key])
     if (parsed !== null) present = true
-    out[name] = parsed === null ? 0 : parsed
+    out[name] = parsed
   }
 
   const backboneCount = toCount(stats.backbone_edge_count)
@@ -44,15 +46,16 @@ export function edgeClassCounts(stats) {
 export function backboneEmptyState(stats) {
   const counts = edgeClassCounts(stats)
   if (!counts) return false
-  const otherEdges = counts.attachment + counts.inferred + counts.hosted + counts.observed
-  return counts.backbone === 0 && otherEdges > 0
+  const hasOtherEdges = [counts.logical, counts.attachment, counts.inferred, counts.hosted, counts.observed, counts.unknown]
+    .some(count => count !== null && count > 0)
+  return counts.backbone === 0 && hasOtherEdges
 }
 
 export function formatEdgeClassStatus(stats) {
   const counts = edgeClassCounts(stats)
   if (!counts) return ""
   const base =
-    `classes=bb:${counts.backbone}/att:${counts.attachment}/inf:${counts.inferred}` +
-    `/host:${counts.hosted}/obs:${counts.observed}`
+    `classes=bb:${counts.backbone ?? "—"}/att:${counts.attachment ?? "—"}/inf:${counts.inferred ?? "—"}` +
+    `/log:${counts.logical ?? "—"}/host:${counts.hosted ?? "—"}/obs:${counts.observed ?? "—"}/unk:${counts.unknown ?? "—"}`
   return backboneEmptyState(stats) ? `${base} backbone=EMPTY` : base
 }

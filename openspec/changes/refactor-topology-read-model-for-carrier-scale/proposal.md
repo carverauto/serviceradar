@@ -6,7 +6,7 @@ God-View must remain useful at 200,000 to 1,000,000 or more devices. Sending and
 [Issue #4774](https://github.com/carverauto/serviceradar/issues/4774) and its confirmed scope revision replace the earlier semantic-level-only plan. This proposal amends the existing carrier-scale change rather than creating a parallel design.
 
 ## What Changes
-- **BREAKING architecture amendment:** server-authored persistent world coordinates become the overview geometry authority. ELK remains only for explicitly entered bounded device-neighborhood, component/aggregate-member, and rendered-bundle-member detail scenes.
+- **BREAKING architecture amendment:** server-authored persistent world coordinates become the overview geometry authority. The background world worker reuses the pinned ELK radial engine for persisted overview placement through bounded hierarchy batches; browser ELK remains scoped to explicitly entered bounded device-neighborhood, component/aggregate-member, and rendered-bundle-member detail scenes.
 - Add a core-owned Rust world-layout/tile engine and an Oban-coordinated persistence/publication lifecycle. Stable `layout_version` identifies the coordinate space; immutable publication generations and per-tile content revisions have separate identities.
 - Persist device positions and relation bindings using platform Elixir migrations and the corresponding Helm migration expected-version bump. Incremental changes preserve existing placements; full relayout is explicit and versioned.
 - Serve quadtree z/x/y tiles with importance-based visibility, stable aggregates, correct member counts, low-zoom edge bundles, clipped long relations, and hard feature/encoded-byte budgets. Overflow remains represented and reachable.

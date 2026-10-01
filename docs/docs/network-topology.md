@@ -22,14 +22,29 @@ Runtime behavior:
 
 ### Serving model
 
-The overview is a quadtree of world tiles over a persisted, versioned layout.
+The overview is a quadtree of world tiles over a persisted, versioned radial
+ELK layout. The background worker composes bounded ELK batches before publishing
+coordinates; individual tiles never run their own layout. Ordinary additions
+preserve existing positions, while a staged layout upgrade or explicit relayout
+can replace the coordinate space.
 The client fetches only the tiles in the viewport, keyed by
 `layout_version`/`z`/`x`/`y`, and renders schema-3 Arrow batches; telemetry
 (health and interface rates) rides a separate per-tile overlay so geometry
 tiles stay cached. Zoom reveals aggregates first, then backbone, infrastructure
-and endpoints. Searching for a device resolves its world coordinates and flies
-to them; opening a device or attachment group enters a bounded ELK detail scene
-and returns to the tile map on exit.
+and endpoints, subject to density limits. Large populations remain navigable
+as groups rather than requiring every device or label on screen at once.
+Reset view fits the active devices. Searching for a device resolves its world
+coordinates and flies to them; opening a device or attachment group enters a bounded ELK detail scene
+and returns to the tile map on exit. These bounded map pages reuse the radial
+overview projection, including real attachment fans; older detail payloads
+without that profile retain their layered layout.
+
+The tiled world reads Dgraph's admitted topology view, including fresh and
+last-known stale attachment, hosted and inferred evidence alongside the canonical
+backbone. Stale links remain visible and marked stale, but never supply current
+traffic or packet animation. The separate canonical traversal API remains
+backbone-only. Overview routes follow the preferred physical-first forest;
+retained cross-links remain available in bounded details. Zoom changes grouping and label admission, not device coordinates.
 
 ## Rollout Guidance
 
@@ -70,9 +85,11 @@ one-shot `age-to-dgraph`) runs the Bazel `age-to-dgraph` binary:
 A checksum failure fails the Job and does **not** flip `graph.read`. Cutover is
 an operator values change (`graph.read: dgraph`), with rollback `graph.read: age`.
 
-The migrator, core's dual-write copy, and the projection that feeds God View
-must all select the same canonical set, because `rebuild` deletes every
-canonical edge it was not given. The predicate has one definition in
+The migrator and core's dual-write copy must select the same canonical set,
+because `rebuild` deletes every canonical edge it was not given. God View reads
+Dgraph's admitted topology view directly; it includes eligible attachment,
+hosted and inferred evidence in addition to canonical edges. The canonical
+predicate has one definition in
 `RuntimeTopologyProjection.canonical_edge_predicate/3`; the migrator's Cypher
 repeats it verbatim.
 
@@ -138,7 +155,7 @@ Primary controls in the Network Topology view:
 
 - Zoom mode (`auto`, `world`, `region`, or `detail`)
 - Health toggles (`unavailable`, `healthy`, `unknown`)
-- Layer toggles (links and traffic)
+- Layer toggles (links, traffic, and opt-in inferred relations)
 
 Interpretation:
 
@@ -151,14 +168,27 @@ imply a causal `root_cause`/`affected` status.
 
 ## Known Limitations
 
-- Performance depends on browser/GPU capability; WebGPU-capable clients perform best.
-- Unsupported WebGPU clients run in fallback mode with reduced throughput.
+- Rendering requires WebGPU; unsupported clients receive an error rather than a fallback renderer.
+- Performance depends on browser/GPU capability. Authenticated million-device product acceptance remains pending.
 - Large revisions may be dropped under budget pressure to preserve interaction responsiveness.
 - Causal confidence is bounded by telemetry quality/completeness.
 
 ## Telemetry and Signals
 
 ### Link traffic
+
+World-tile traffic uses the shared telemetry reader: StarRocks while enabled,
+CNPG otherwise. It does not read the frozen CNPG history when warehouse writes
+are enabled. Only fresh, unambiguous physical interface measurements can drive
+packets. Attachment, inferred and hosted evidence does not supply traffic.
+
+A fully selected bundle can animate its measured contribution even when some
+selected bindings have no telemetry. Complete totals remain unknown and observed
+coverage is reported separately. Bundles with unselected membership do not
+animate; rates are never extrapolated across telemetry pages. Bounded detail
+scenes currently have no live traffic overlay.
+
+### Canonical graph telemetry refresh
 
 Link traffic shows packets per second (pps) and bits per second (bps), derived
 from cumulative interface counters. Each interval uses two samples from the

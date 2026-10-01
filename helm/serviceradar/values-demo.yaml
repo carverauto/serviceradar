@@ -577,9 +577,8 @@ webNg:
       memory: 2Gi
   devRoutes: "true"
   localMailer: "false"
-  # The serviceradar-secrets/admin-password is the source of truth for demo;
-  # if it gets rotated while the database persists, force-sync resets the
-  # stored hash on the next restart instead of locking us out of the UI.
+  # Demo opts into the rotation policy documented in
+  # docs/docs/auth-configuration.md, Bootstrap Admin Access.
   adminPasswordForceSync: true
   # Local-login break-glass + SSO toggle (server-side LoginPolicy). Default off.
   auth:

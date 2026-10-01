@@ -279,6 +279,29 @@ describe("rendering_graph_layer_transport_methods", () => {
     expect(GOD_VIEW_ADDITIVE_BLEND).toMatchObject({blendColorDstFactor: "one", depthWriteEnabled: false})
   })
 
+  it("draws a last-known link in slate and keeps it out of the packet layer", () => {
+    const state = {
+      animationPhase: 1.2,
+      layers: {mantle: true, crust: true, atmosphere: true, security: false},
+      packetFlowEnabled: true,
+      visual: {pulse: [255, 64, 64, 220], particleBlend: GOD_VIEW_ADDITIVE_BLEND},
+    }
+    const ctx = createStateBackedContext(state, {geoGridData: vi.fn(() => [])})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
+      buildPacketFlowEdges: godViewRenderingStyleEdgeParticleMethods.buildPacketFlowEdges,
+      edgeTelemetryArcColors: vi.fn(() => ({source: [100, 100, 255, 120], target: [200, 120, 255, 120]})),
+      edgeWidthPixels: vi.fn(() => 2.2),
+      edgeIsFocused: vi.fn(() => false),
+    })
+    const fresh = {sourcePosition: [0, 0, 0], targetPosition: [100, 50, 0], flowBps: 10, flowPps: 10, capacityBps: 100, topologyClass: "backbone"}
+    const stale = {...fresh, sourcePosition: [0, 20, 0], targetPosition: [100, 70, 0], stale: true}
+    const out = ctx.buildTransportAndEffectLayers({shape: "local"}, [], [fresh, stale])
+    expect(out.atmosphereLayers[0].props.data.length).toBe(1)
+    const color = out.crustLayers[0].props.getSourceColor(stale)
+    expect(color.slice(0, 3)).toEqual([148, 163, 184])
+    expect(color[3]).toBeGreaterThan(0)
+  })
+
   it("buildTransportAndEffectLayers omits atmosphere particles when layer toggle is disabled", () => {
     const state = {
       animationPhase: 1.2,
