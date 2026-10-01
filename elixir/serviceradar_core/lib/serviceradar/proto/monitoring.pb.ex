@@ -446,6 +446,7 @@ defmodule Monitoring.AgentHelloRequest do
   field :labels, 9, repeated: true, type: Monitoring.AgentHelloRequest.LabelsEntry, map: true
   field :config_source, 10, type: :string, json_name: "configSource"
   field :host_ip, 11, type: :string, json_name: "hostIp"
+  field :host_macs, 12, repeated: true, type: :string, json_name: "hostMacs"
 end
 
 defmodule Monitoring.AgentHelloResponse do
@@ -603,6 +604,8 @@ defmodule Monitoring.ControlStreamHello do
     repeated: true,
     type: Monitoring.PluginAssignmentPolicyAck,
     json_name: "appliedPluginAssignments"
+
+  field :host_macs, 13, repeated: true, type: :string, json_name: "hostMacs"
 end
 
 defmodule Monitoring.CommandRequest do

@@ -22,6 +22,22 @@ Validation happens at every boundary (Go agent `syncsources.NormalizeUpdate`
 and Elixir `Identity.Mac`): multi-value fields are split, malformed values
 are rejected with telemetry, and rejected values never become rows.
 
+### Agent host evidence
+
+The agent sends `host_macs` in both unary enrollment and control-stream hello.
+It reports only the MAC of an active, non-loopback local interface owning its
+announced `host_ip`. If no eligible interface owns that IP, or eligible owners
+have different MACs, it sends no MAC evidence. Unrelated interface MACs and
+neighbor observations are excluded. The selection contract is covered by
+`go/pkg/agent/host_identity_test.go`.
+
+The gateway forwards this evidence to core's existing identity reconciliation.
+Both the agent and agent-gateway must be upgraded for this path to supply
+evidence; older peers remain compatible but do not supply or forward the new
+field. Matching Proxmox guest NIC evidence can then correlate a guest with the
+monitored device, subject to the merge policy below. This does not guarantee
+every missing VM-to-hypervisor edge, merge by hostname, or fabricate links.
+
 ### Integration identity admission
 
 DIRE rejects bare numeric `integration_id` candidates regardless of provider.

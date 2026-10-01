@@ -122,31 +122,7 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	}
 
 	// Build Hello request
-	p.server.mu.RLock()
-	var cfg ServerConfig
-	if p.server.config != nil {
-		cfg = *p.server.config
-	}
-	agentID := cfg.AgentID
-	p.server.mu.RUnlock()
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = ""
-	}
-	helloReq := &proto.AgentHelloRequest{
-		AgentId:       agentID,
-		Version:       Version, // Agent version from version.go
-		Capabilities:  p.getAgentCapabilities(&cfg),
-		Hostname:      hostname,
-		Os:            runtime.GOOS,
-		Arch:          runtime.GOARCH,
-		ConfigVersion: p.getConfigVersion(),
-		Labels:        deploymentHelloLabels(),
-		// Report the agent's own host IP so the gateway links it to the
-		// correct device even when the TCP peer IP is NAT'd (external agents).
-		// Mirrors getSourceIP() used for PushStatus so the two agree.
-		HostIp: p.getSourceIP(),
-	}
+	helloReq := p.buildEnrollmentHelloRequest()
 
 	// Send Hello
 	helloResp, err := p.gateway.Hello(ctx, helloReq)
@@ -187,6 +163,38 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (p *PushLoop) buildEnrollmentHelloRequest() *proto.AgentHelloRequest {
+	p.server.mu.RLock()
+	var cfg ServerConfig
+	if p.server.config != nil {
+		cfg = *p.server.config
+	}
+	agentID := cfg.AgentID
+	p.server.mu.RUnlock()
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = ""
+	}
+
+	hostIP := p.getSourceIP()
+	return &proto.AgentHelloRequest{
+		AgentId:       agentID,
+		Version:       Version,
+		Capabilities:  p.getAgentCapabilities(&cfg),
+		Hostname:      hostname,
+		Os:            runtime.GOOS,
+		Arch:          runtime.GOARCH,
+		ConfigVersion: p.getConfigVersion(),
+		Labels:        deploymentHelloLabels(),
+		// Report the agent's own host IP so the gateway links it to the
+		// correct device even when the TCP peer IP is NAT'd (external agents).
+		// Mirrors getSourceIP() used for PushStatus so the two agree.
+		HostIp:   hostIP,
+		HostMacs: hostInterfaceMACs(hostIP, p.hostInventory),
+	}
 }
 
 func isRetryableEnrollError(err error) bool {
