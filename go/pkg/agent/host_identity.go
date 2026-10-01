@@ -7,21 +7,30 @@ type hostInterface struct {
 	addresses []net.Addr
 }
 
-// Only report the interface that owns the announced IP. Enumerating every MAC
-// would also claim bridges, guest veths and unrelated network namespaces.
-func hostInterfaceMACs(hostIP string) []string {
+// hostInventoryProvider resolves the full annotated host interface list.
+// Replaced in tests to supply a deterministic fake inventory (including
+// pre-resolved addresses) without skipping on CI executors that lack an
+// active Ethernet interface.
+var hostInventoryProvider func() []hostInterface = defaultHostInventory
+
+func defaultHostInventory() []hostInterface {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil
 	}
 	local := make([]hostInterface, 0, len(interfaces))
 	for _, iface := range interfaces {
-		addresses, err := iface.Addrs()
-		if err == nil {
+		if addresses, err := iface.Addrs(); err == nil {
 			local = append(local, hostInterface{Interface: iface, addresses: addresses})
 		}
 	}
-	return selectHostInterfaceMACs(net.ParseIP(hostIP), local)
+	return local
+}
+
+// Only report the interface that owns the announced IP. Enumerating every MAC
+// would also claim bridges, guest veths and unrelated network namespaces.
+func hostInterfaceMACs(hostIP string) []string {
+	return selectHostInterfaceMACs(net.ParseIP(hostIP), hostInventoryProvider())
 }
 
 func selectHostInterfaceMACs(hostIP net.IP, interfaces []hostInterface) []string {

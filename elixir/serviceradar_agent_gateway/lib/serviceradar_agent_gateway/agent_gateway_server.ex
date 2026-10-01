@@ -314,8 +314,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           inventory_id: Map.get(material, :inventory_id, 0),
           job_template_id: Map.get(material, :job_template_id, 0),
           callback_credential_type_id: Map.get(material, :callback_credential_type_id, 0),
-          callback_credential_organization_id: Map.get(material, :callback_credential_organization_id, 0),
-          callback_credential_injector_sha256: Map.get(material, :callback_credential_injector_sha256, <<>>),
+          callback_credential_organization_id:
+            Map.get(material, :callback_credential_organization_id, 0),
+          callback_credential_injector_sha256:
+            Map.get(material, :callback_credential_injector_sha256, <<>>),
           dispatch_agent_id: Map.get(material, :dispatch_agent_id, ""),
           child_execution_id: Map.get(material, :child_execution_id, ""),
           command_id: Map.get(material, :command_id, "")
@@ -363,7 +365,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
     partition_id = resolve_partition(identity)
 
-    Logger.info("Stream config request received: component_type=#{component_type}, agent_id=#{agent_id}")
+    Logger.info(
+      "Stream config request received: component_type=#{component_type}, agent_id=#{agent_id}"
+    )
 
     response =
       AgentGatewaySync
@@ -552,7 +556,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           {count, directives, outcome}
 
         e ->
-          Logger.warning("Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}")
+          Logger.warning(
+            "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
+          )
 
           {count, directives, outcome}
       end
@@ -567,19 +573,24 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp strict_delivery_service?(%Monitoring.GatewayServiceStatus{source: source}, metadata) when is_binary(source),
-    do: strict_delivery_source?(String.trim(source), metadata)
+  defp strict_delivery_service?(%Monitoring.GatewayServiceStatus{source: source}, metadata)
+       when is_binary(source),
+       do: strict_delivery_source?(String.trim(source), metadata)
 
   defp strict_delivery_service?(_service, _metadata), do: false
 
-  defp strict_delivery_source?(source, _metadata) when source in @strict_delivery_sources, do: true
+  defp strict_delivery_source?(source, _metadata) when source in @strict_delivery_sources,
+    do: true
 
-  defp strict_delivery_source?(@plugin_result_source, metadata), do: retained_plugin_result_delivery?(metadata)
+  defp strict_delivery_source?(@plugin_result_source, metadata),
+    do: retained_plugin_result_delivery?(metadata)
 
   defp strict_delivery_source?(_source, _metadata), do: false
 
   defp retained_plugin_result_delivery?(metadata) do
-    @plugin_result_retained_delivery_capability_v1 in List.wrap(Map.get(metadata, :delivery_capabilities, []))
+    @plugin_result_retained_delivery_capability_v1 in List.wrap(
+      Map.get(metadata, :delivery_capabilities, [])
+    )
   end
 
   defp agent_retained_service?(%Monitoring.GatewayServiceStatus{source: source}, metadata) do
@@ -745,7 +756,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp normalize_service_message(nil, source), do: normalize_message("", source)
 
-  defp normalize_service_message(message, source) when is_binary(message), do: normalize_message(message, source)
+  defp normalize_service_message(message, source) when is_binary(message),
+    do: normalize_message(message, source)
 
   defp normalize_service_message(message, source) when is_list(message),
     do: message |> IO.iodata_to_binary() |> normalize_message(source)
@@ -790,7 +802,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp handle_delivery_error(service, status, reason) do
     cond do
       agent_retained_status?(status) ->
-        Logger.warning("Failed to commit #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to commit #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}"
+        )
 
         {:agent_retained_uncommitted, []}
 
@@ -798,7 +812,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         maybe_raise_strict_delivery_error(service, status, reason)
 
       true ->
-        Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to process status for service #{service.service_name}: #{inspect(reason)}"
+        )
 
         {:best_effort_accepted, []}
     end
@@ -806,7 +822,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp agent_retained_status?(%{source: @flow_attribution_source}), do: true
 
-  defp agent_retained_status?(%{source: @plugin_result_source} = status), do: retained_plugin_result_delivery?(status)
+  defp agent_retained_status?(%{source: @plugin_result_source} = status),
+    do: retained_plugin_result_delivery?(status)
 
   defp agent_retained_status?(_status), do: false
 
@@ -867,20 +884,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     %Monitoring.GatewayStatusResponse{received: true, directives: directives}
   end
 
-  defp combine_delivery_outcomes(:agent_retained_uncommitted, _outcome), do: :agent_retained_uncommitted
+  defp combine_delivery_outcomes(:agent_retained_uncommitted, _outcome),
+    do: :agent_retained_uncommitted
 
-  defp combine_delivery_outcomes(_outcome, :agent_retained_uncommitted), do: :agent_retained_uncommitted
+  defp combine_delivery_outcomes(_outcome, :agent_retained_uncommitted),
+    do: :agent_retained_uncommitted
 
-  defp combine_delivery_outcomes(:agent_retained_committed, _outcome), do: :agent_retained_committed
+  defp combine_delivery_outcomes(:agent_retained_committed, _outcome),
+    do: :agent_retained_committed
 
-  defp combine_delivery_outcomes(_outcome, :agent_retained_committed), do: :agent_retained_committed
+  defp combine_delivery_outcomes(_outcome, :agent_retained_committed),
+    do: :agent_retained_committed
 
   defp combine_delivery_outcomes(_left, _right), do: :best_effort_accepted
 
   defp committed_plugin_result_error?(
          %{source: @plugin_result_source} = status,
          {:plugin_result_handlers_failed, _failures}
-       ), do: strict_delivery_status?(status)
+       ),
+       do: strict_delivery_status?(status)
 
   defp committed_plugin_result_error?(_status, _reason), do: false
 
@@ -888,19 +910,24 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     if strict_delivery_status?(status) do
       # Bufferable downstream errors are acknowledged by StatusProcessor. An
       # error reaching here is not queueable and must preserve strict delivery.
-      Logger.warning("Failed to forward #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
+      Logger.warning(
+        "Failed to forward #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}"
+      )
 
       raise GRPC.RPCError,
         status: :unavailable,
         message: "#{status.source} forward failed"
     else
-      Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+      Logger.warning(
+        "Failed to process status for service #{service.service_name}: #{inspect(reason)}"
+      )
 
       []
     end
   end
 
-  defp strict_delivery_status?(%{source: source} = status), do: strict_delivery_source?(source, status)
+  defp strict_delivery_status?(%{source: source} = status),
+    do: strict_delivery_source?(source, status)
 
   defp strict_delivery_status?(_status), do: false
 
@@ -912,7 +939,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp gateway_status_directives(_service, _result), do: []
 
-  defp build_gateway_status_directive(service, target, payload) when is_map(payload) and map_size(payload) > 0 do
+  defp build_gateway_status_directive(service, target, payload)
+       when is_map(payload) and map_size(payload) > 0 do
     case Jason.encode(payload) do
       {:ok, payload_json} ->
         [
@@ -1045,7 +1073,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp resolve_component_type!(identity, component_id) do
     case Map.get(identity, :component_type) do
       nil ->
-        Logger.warning("Component type missing from client certificate: component_id=#{component_id}")
+        Logger.warning(
+          "Component type missing from client certificate: component_id=#{component_id}"
+        )
 
         raise GRPC.RPCError, status: :permission_denied, message: "component_type missing"
 
@@ -1053,7 +1083,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         {identity, component_type}
 
       _ ->
-        Logger.warning("Invalid component type in client certificate: component_id=#{component_id}")
+        Logger.warning(
+          "Invalid component type in client certificate: component_id=#{component_id}"
+        )
 
         raise GRPC.RPCError, status: :permission_denied, message: "invalid component_type"
     end
@@ -1071,7 +1103,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
 
     if component_id != cert_component_id do
-      Logger.warning("Component identity mismatch: request=#{component_id} cert=#{cert_component_id}")
+      Logger.warning(
+        "Component identity mismatch: request=#{component_id} cert=#{cert_component_id}"
+      )
 
       raise GRPC.RPCError, status: :permission_denied, message: "component_id mismatch"
     end
@@ -1220,7 +1254,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     _ -> :ok
   end
 
-  defp device_attrs_from_request(partition_id, request, source_ip) do
+  @doc false
+  def device_attrs_from_request(partition_id, request, source_ip) do
     capabilities = if request, do: request.capabilities || [], else: []
 
     # Prefer the agent's self-reported host IP when present so DIRE links to the
@@ -1260,7 +1295,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp maybe_add_config_source(attrs, nil), do: attrs
 
-  defp maybe_add_config_source(attrs, config_source), do: Map.put(attrs, :config_source, config_source)
+  defp maybe_add_config_source(attrs, config_source),
+    do: Map.put(attrs, :config_source, config_source)
 
   defp agent_record_attrs(agent_id, partition_id, request, source_ip) do
     metadata =
@@ -1405,7 +1441,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           true
 
         {:badrpc, reason} ->
-          Logger.debug("RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}")
+          Logger.debug(
+            "RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}"
+          )
 
           false
 
@@ -1558,11 +1596,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp decode_config_json(_config_json), do: %{}
 
-  defp mapper_scheduled_job_count(%{"scheduled_jobs" => jobs}) when is_list(jobs), do: length(jobs)
+  defp mapper_scheduled_job_count(%{"scheduled_jobs" => jobs}) when is_list(jobs),
+    do: length(jobs)
 
   defp mapper_scheduled_job_count(_mapper), do: 0
 
-  defp plugin_assignment_count(%{"assignments" => assignments}) when is_list(assignments), do: length(assignments)
+  defp plugin_assignment_count(%{"assignments" => assignments}) when is_list(assignments),
+    do: length(assignments)
 
   defp plugin_assignment_count(_plugins), do: 0
 
@@ -1761,7 +1801,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     refresh_agent_heartbeat(identity, agent_id, partition, chunk, stream)
   end
 
-  defp ensure_stream_registration(true, _identity, _agent_id, _partition, _chunk, _stream), do: :ok
+  defp ensure_stream_registration(true, _identity, _agent_id, _partition, _chunk, _stream),
+    do: :ok
 
   defp chunk_metadata(
          agent_id,
@@ -1887,7 +1928,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     if not valid? do
       raise GRPC.RPCError,
         status: :invalid_argument,
-        message: "every non-empty chunk must contain exactly one service from the same retained source"
+        message:
+          "every non-empty chunk must contain exactly one service from the same retained source"
     end
 
     cond do
@@ -1983,7 +2025,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp validate_final_chunk!(chunk_index, total_chunks) when chunk_index == total_chunks - 1, do: :ok
+  defp validate_final_chunk!(chunk_index, total_chunks) when chunk_index == total_chunks - 1,
+    do: :ok
 
   defp validate_final_chunk!(_chunk_index, _total_chunks) do
     raise GRPC.RPCError,
@@ -2035,7 +2078,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     )
   end
 
-  defp register_control_session(session, agent_id, partition_id, capabilities, identity_context, hello) do
+  defp register_control_session(
+         session,
+         agent_id,
+         partition_id,
+         capabilities,
+         identity_context,
+         hello
+       ) do
     case ControlStreamSession.register(
            session,
            agent_id,
@@ -2051,7 +2101,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         session
 
       {:error, reason} ->
-        Logger.warning("Failed to register control stream for agent #{agent_id}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to register control stream for agent #{agent_id}: #{inspect(reason)}"
+        )
 
         raise GRPC.RPCError,
           status: :internal,
