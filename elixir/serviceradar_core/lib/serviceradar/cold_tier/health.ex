@@ -70,8 +70,7 @@ defmodule ServiceRadar.ColdTier.Health do
             do:
               "Cold tier does not archive StarRocks telemetry; configured exports cover only " <>
                 "CNPG history. Keep the CNPG retention fence until history is verified or " <>
-                "explicitly waived. See docs/cold-tier-runbook.md",
-            else: nil
+                "explicitly waived. See docs/cold-tier-runbook.md"
           )
       },
       refresh_metadata: true

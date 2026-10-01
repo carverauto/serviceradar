@@ -4,9 +4,9 @@ defmodule ServiceRadar.ColdTier.Config do
   (`config :serviceradar_core, ServiceRadar.ColdTier` — populated from
   SERVICERADAR_COLD_* environment variables in runtime.exs).
 
-  Absent or incomplete configuration means the cold tier is disabled;
-  callers must treat `head_opts/0` / `s3/0` returning `:disabled` as the
-  signal to do nothing.
+  Archive work requires `enabled?/0`; absent intent and incomplete intended
+  configuration have distinct states for operational reporting. Connection
+  helpers alone do not establish activation. See `state/0`.
   """
 
   @doc "Deployment environment shared by the application and shipped core release."
@@ -67,7 +67,8 @@ defmodule ServiceRadar.ColdTier.Config do
   can never disagree:
 
     * `:disabled` — no cold-tier intent (enable flag off or bucket absent).
-      The OSS default: nothing fences retention, nothing runs.
+      The OSS default: archive work is disabled; existing boundary residue
+      still fences retention (see `ServiceRadar.ColdTier.RetentionFence.fenced?/1`).
     * `:enabled` — fully configured, with CNPG as the telemetry backend.
     * `:cnpg_backfill` — fully configured, with StarRocks as the telemetry
       backend. Existing CNPG chunks still export and remain retention-fenced;
@@ -75,8 +76,9 @@ defmodule ServiceRadar.ColdTier.Config do
     * `:misconfigured` — cold tier is INTENDED but the config is incomplete.
       This is the dangerous middle the reviewer caught: fencing retention here
       while the exporter cannot run would hold data hot forever and fill the
-      primary. So a misconfigured deployment does NOT fence — normal retention
-      proceeds (identical to no cold tier) — and the retention worker alerts.
+      primary. So incomplete configuration does not establish a new fence;
+      existing boundary residue remains protected by `RetentionFence.fenced?/1`,
+      and the retention worker alerts.
   """
   @type state :: :disabled | :enabled | :cnpg_backfill | :misconfigured
 

@@ -94,9 +94,10 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
 
   Keys off the SAME activation state as the exporter (`Config.enabled?/0`,
   i.e. state == :enabled or :cnpg_backfill) — NOT mere cold-tier intent.
-  A partial config that fenced retention while the exporter could not run would hold data hot
-  forever and fill the primary (review F09); a misconfigured deployment
-  therefore does not fence, and normal retention proceeds.
+  A partial config that established a new fence while the exporter could not
+  run would hold data hot forever and fill the primary (review F09).
+  Misconfiguration alone therefore does not fence retention; existing residue
+  remains protected as described below.
 
   Also fenced when the cold tier has been disabled but un-drained state
   remains (two-phase disable, task 2.6): flipping the env off must never

@@ -296,12 +296,9 @@
 - [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
   installation that turns StarRocks on, newest first, in bounded units; verify counts and totals
   per day.
-- [x] 5.4a Resolve cold-tier reader finding 8 (issue #4872): keep archival CNPG-only with
-  explicit per-dataset warehouse unavailability. Configured StarRocks installations retain
-  historical CNPG export as `:cnpg_backfill`; preserve verified-drop gating and residue
-  fences and keep existing archives manageable. Backend health is
-  separate from successful CNPG export health. The shipped core-elx runtime loads the
-  shared environment configuration and schedules the existing exporter and pruner.
+- [x] 5.4a Implement the cold-tier backend-scope contract in
+  [the telemetry-tiering delta](specs/telemetry-tiering/spec.md), resolving
+  [reader finding 8](reader-inventory.md) (issue #4872).
   Runtime activation, mounted-secret and schedule tests plus database backend-health
   persistence/notification and drop-gate regressions are registered. Database execution
   and regression validation remain pending the in-cluster BazelCI gate; review verification

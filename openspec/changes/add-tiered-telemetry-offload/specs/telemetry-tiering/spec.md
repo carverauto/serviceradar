@@ -3,12 +3,12 @@
 ## ADDED Requirements
 
 ### Requirement: Cold-tier behavior activates only on deployment-supplied configuration
-All tiered-offload behavior SHALL key off deployment-supplied cold-tier configuration (object-store location and credentials, analytics-head connection, per-table windows). When that configuration is absent, the system SHALL behave exactly as it does today: no exporter scheduling, unmodified retention policies, no cold query routing, and no analytics-head deployment.
+Archive work SHALL key off deployment-supplied cold-tier configuration (object-store location and credentials, analytics-head connection, per-table windows). When that configuration is absent on a deployment without existing cold history, retention policies and cold query routing SHALL remain unchanged, and no analytics head SHALL be deployed. Scheduled workers MAY record backend health while archive work remains disabled. Existing history SHALL retain the two-phase disable contract below.
 
 #### Scenario: Configuration absent
-- **WHEN** a deployment provides no cold-tier configuration
+- **WHEN** a deployment provides no cold-tier configuration and has no existing cold history
 - **THEN** retention policies, `drop_chunks` behavior, SRQL routing, and Helm rendering are byte-identical to current behavior
-- **AND** no cold-tier jobs are scheduled and no new external connections are attempted
+- **AND** scheduled cold-tier workers perform no archive work or new external connections
 
 #### Scenario: Configuration present
 - **WHEN** cold-tier configuration is supplied for a set of registry tables

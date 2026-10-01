@@ -10,6 +10,8 @@ defmodule ServiceRadar.Observability.TripwireHealth do
   over `HealthPubSub`, and publish a `health.state_change` OCSF log that
   alert rules can match. The tracker dedupes unchanged states, so a
   persistently failing check records one transition, not one row per run.
+  Callers can forward `:refresh_metadata` as documented by
+  `HealthTracker.record_health_check/3` without emitting another transition.
 
   Recording is best-effort: a health-write failure logs a warning and returns
   `:ok`, so a broken health surface can never crash the tripwire that is

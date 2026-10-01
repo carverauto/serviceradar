@@ -47,8 +47,10 @@ the direct variable. Restart the release after changing these settings.
 
 With the default Oban scheduler enabled, the release runs the exporter at
 minute 47 each hour and the pruner at 04:23 UTC on the maintenance queue.
-Incomplete intended configuration prevents archive work while the exporter
-still records backend scope. Cold windows are opt-in through
+Incomplete intended configuration resolves to `:misconfigured`: archive work
+and new retention fencing stay disabled, while the exporter records backend
+scope and the retention worker alerts. Existing residue fences remain active.
+Cold windows are opt-in through
 `SERVICERADAR_COLD_WINDOW_<CLASS>_DAYS`; absent windows keep existing archives
 while reconciliation continues on configured deployments.
 
@@ -62,7 +64,8 @@ archived by this pipeline. A successful CNPG export is not evidence of warehouse
 archival. Warehouse retention and shared-data object storage are separate.
 
 The `cold-tier-backend` infrastructure health check reports
-`unavailable_with_starrocks` for each registry dataset, alongside the export
+`unavailable_with_starrocks` for each registry dataset when StarRocks is enabled
+and cold archival is intended (enable flag plus bucket), alongside the export
 source (`cnpg`), mode and whether CNPG export is enabled. The hourly exporter
 reports this even when configuration is incomplete, and the retention worker
 also warns. Export, pressure and fence checks continue describing CNPG history.
@@ -103,9 +106,9 @@ data-loss decision.
    pressure alerts for headroom.
 2. Head down: fix/restart the analytics head cluster. Exports resume where
    the manifest left off; the frontier only advances over verified chunks.
-3. Credentials: the exporter re-asserts the head's FDW server/user mapping
-   and S3 secret from mounted secrets on every run. After rotating secrets,
-   the next run picks them up; sessions are never reused across errors.
+3. Credentials: follow "Secret rotation" below. The exporter re-asserts the
+   head's FDW server/user mapping and S3 secret from runtime configuration on
+   every run; sessions are never reused across errors.
 4. Never cancel an in-flight exporter `COPY` (`pg_cancel_backend`,
    `pg_terminate_backend`, timeouts): it produces corrupt-but-complete
    objects, can poison sessions, and can crash the head's postmaster. The
@@ -143,12 +146,10 @@ volume expansion and fixing the export path first.
 
 ## What the cold tier costs a deployment that never enables it
 
-Nothing that runs, and nothing that grows. The feature ships in every build but
-is inert until switched on:
+Archive work stays disabled. See "Release configuration" for the scheduled
+workers and disabled-state backend health reporting. Without existing history:
 
-- no supervised processes and no Oban workers -- the exporter, pruner and
-  pressure monitor are only reachable from the retention worker's cold-tier
-  branches, which return immediately when the tier is disabled;
+- no analytics-head or object-store connections from the scheduled workers;
 - two empty tables (`platform.cold_tier_boundaries`,
   `platform.cold_chunk_exports`) from the manifest migration;
 - a `cold_reader` role created `NOLOGIN`, carrying SELECT-only grants and
@@ -184,10 +185,8 @@ head is cheaper to diagnose than a half-live pipeline).
    the primary image: pg_duckdb is structurally incompatible with a
    TimescaleDB-loaded instance.
 
-3. **Runtime.** `SERVICERADAR_COLD_TIER_ENABLED=true` plus the bucket and
-   head/primary connection settings. Incomplete config resolves to
-   `:misconfigured`, which does NOT fence retention -- the retention worker
-   logs loudly instead, so a dead exporter cannot silently fill the primary.
+3. **Runtime.** Follow "Release configuration" above for activation settings
+   and incomplete-configuration behavior.
 
 ## Rollup retention widening
 
@@ -239,6 +238,7 @@ revoke the login it already granted; `ALTER ROLE cold_reader NOLOGIN` does.
 
 1. Update the mounted Kubernetes secrets (cold-tier S3 credentials,
    `cold_reader` password on the primary).
-2. The exporter's next run re-asserts head-side objects (drops duplicate S3
+2. Restart the release so its runtime configuration reads the updated files.
+   The exporter's next run re-asserts head-side objects (drops duplicate S3
    secrets, recreates the FDW user mapping). Force it immediately with:
    `bin/serviceradar_core rpc 'ServiceRadar.ColdTier.Exporter.run()'`.
