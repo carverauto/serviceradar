@@ -18,6 +18,8 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
@@ -464,10 +466,67 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
     end
   end
 
-  defp provisioned_package!(label, rule_count) do
+  test "dispatch preserves package integration ids outside declared target fields" do
+    %{package: package, assignments: [assignment]} =
+      provisioned_package!("target-contract", 1, inventory_sources: ["example-sat"])
+
+    {:ok, descriptor} =
+      plugin_descriptor(package, %{},
+        scopes: ["device", "interface"],
+        metadata: %{
+          "target_fields" => %{
+            "device" => ["device_uid"],
+            "interface" => ["interface_uid"]
+          }
+        }
+      )
+
+    unique = System.unique_integer([:positive])
+    device =
+      target_device!(
+        "sr:example-sat-contract-#{unique}",
+        "contract-#{unique}.example.com",
+        assignment.agent_uid,
+        true
+      )
+
+    interface = target_interface!(device)
+    integration_id = "example-sat:ut:contract-#{unique}"
+    register_integration_id!(device.uid, integration_id)
+
+    assert {:ok, invocation} =
+             InvocationService.create_invocation(
+               %{
+                 descriptor_id: descriptor.id,
+                 targets: [
+                   %{kind: :device, device_uid: device.uid},
+                   %{
+                     kind: :interface,
+                     device_uid: device.uid,
+                     interface_uid: interface.interface_uid
+                   }
+                 ],
+                 input_values: %{}
+               },
+               actor: @system_actor
+             )
+
+    assert {:ok, _invocation} =
+             Dispatcher.dispatch_invocation(invocation, command_bus: CapturingCommandBus)
+
+    assert_received {:dispatched, _agent_uid, "plugin.run_action", _stored, transmitted}
+
+    assert [device_target, interface_target] = transmitted["targets"]
+    assert device_target["attributes"] == %{"integration_ids" => [integration_id]}
+    assert interface_target["attributes"] == %{"integration_ids" => [integration_id]}
+    refute Map.has_key?(device_target, "hostname")
+    refute Map.has_key?(interface_target, "if_name")
+  end
+
+  defp provisioned_package!(label, rule_count, opts \\ []) do
     unique = System.unique_integer([:positive])
     provider = "example-sat-#{label}-#{unique}"
-    package = approved_package!("example-sat-#{label}-#{unique}", provider)
+    package = approved_package!("example-sat-#{label}-#{unique}", provider, opts)
 
     rules =
       for index <- 1..rule_count do
@@ -535,7 +594,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
     rule
   end
 
-  defp approved_package!(plugin_id, provider) do
+  defp approved_package!(plugin_id, provider, opts \\ []) do
     {:ok, _plugin} =
       Plugin
       |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Example Satellite"},
@@ -570,6 +629,10 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
         }
       ],
       "integrations" => %{
+        "inventory_sources" =>
+          Enum.map(Keyword.get(opts, :inventory_sources, []), fn source ->
+            %{"source" => source, "label" => "Example source #{source}"}
+          end),
         "credential_profiles" => [
           %{
             "provider" => provider,
@@ -686,7 +749,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
                result_schema_version: "serviceradar.northbound_action_result.v1",
                descriptor_hash: "test-plugin-credentials",
                enabled: true,
-               metadata: %{}
+               metadata: Keyword.get(opts, :metadata, %{})
              },
              actor: @system_actor
            )
@@ -771,6 +834,50 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       |> Ash.create(actor: @system_actor, domain: ServiceRadar.Inventory)
 
     device
+  end
+
+  defp target_interface!(device) do
+    {:ok, interface} =
+      Interface
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          timestamp: DateTime.truncate(DateTime.utc_now(), :second),
+          device_id: device.uid,
+          interface_uid: "ifindex:#{System.unique_integer([:positive])}",
+          if_index: 17,
+          device_ip: device.ip,
+          if_name: "Ethernet#{System.unique_integer([:positive])}",
+          if_descr: "Synthetic interface",
+          if_admin_status: 1,
+          if_oper_status: 2,
+          if_type_name: "ethernetCsmacd",
+          interface_kind: "physical",
+          metadata: %{}
+        },
+        actor: @system_actor
+      )
+      |> Ash.create(actor: @system_actor, domain: ServiceRadar.Inventory)
+
+    interface
+  end
+
+  defp register_integration_id!(device_uid, integration_id) do
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(
+        :register,
+        %{
+          device_id: device_uid,
+          identifier_type: :integration_id,
+          identifier_value: integration_id,
+          partition: @partition_id,
+          confidence: :strong,
+          source: "test"
+        },
+        actor: @system_actor
+      )
+      |> Ash.create(actor: @system_actor, domain: ServiceRadar.Inventory)
   end
 
   defp secret_ref(secret_id), do: "credentialref:network-credential-secret:#{secret_id}"
