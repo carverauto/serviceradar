@@ -7,7 +7,6 @@ defmodule ServiceRadar.ColdTier.StateTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.ColdTier.Config
-  alias ServiceRadar.ColdTier.Health
   alias ServiceRadar.ColdTier.RetentionFence
 
   @full [
@@ -92,40 +91,5 @@ defmodule ServiceRadar.ColdTier.StateTest do
     assert RetentionFence.fenced?("logs")
     assert RetentionFence.undrained_tables() == []
     refute RetentionFence.fenced?("devices")
-  end
-
-  test "backend health distinguishes CNPG backfill from warehouse archival" do
-    put(@full)
-    recorder = fn check, healthy?, metadata -> send(self(), {check, healthy?, metadata}) end
-
-    assert Health.record_backend(health_recorder: recorder) == :ok
-    assert_receive {"cold-tier-backend", true, %{mode: :enabled}}
-
-    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: true)
-
-    assert Health.record_backend(health_recorder: recorder) == :ok
-
-    assert_receive {"cold-tier-backend", false,
-                    %{
-                      mode: :cnpg_backfill,
-                      export_source: :cnpg,
-                      cnpg_export_enabled: true,
-                      warehouse_export_enabled: false,
-                      datasets: datasets
-                    }}
-
-    assert Enum.any?(datasets, &(&1.table == "logs"))
-    assert Enum.any?(datasets, &(&1.table == "otel_traces"))
-    assert Enum.all?(datasets, &(&1.archival_status == :unavailable_with_starrocks))
-
-    put(Keyword.drop(@full, [:head_host]))
-    assert Config.state() == :misconfigured
-    refute Config.enabled?()
-    assert Health.record_backend(health_recorder: recorder) == :ok
-    assert_receive {"cold-tier-backend", false, %{cnpg_export_enabled: false}}
-
-    put(enabled: false)
-    assert Health.record_backend(health_recorder: recorder) == :ok
-    assert_receive {"cold-tier-backend", true, %{mode: :disabled, cnpg_export_enabled: false}}
   end
 end

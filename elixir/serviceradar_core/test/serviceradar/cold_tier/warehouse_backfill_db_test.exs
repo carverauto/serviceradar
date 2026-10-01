@@ -74,7 +74,8 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
         assert event.metadata["cnpg_export_enabled"] == export_enabled?
         assert event.metadata["export_source"] == "cnpg"
         assert event.metadata["warehouse_export_enabled"] == false
-        assert event.metadata["datasets"] != []
+        assert Enum.any?(event.metadata["datasets"], &(&1["table"] == "logs"))
+        assert Enum.any?(event.metadata["datasets"], &(&1["table"] == "otel_traces"))
         assert Enum.all?(event.metadata["datasets"], &(&1["archival_status"] == archival_status))
 
         if previous.new_state == state do
