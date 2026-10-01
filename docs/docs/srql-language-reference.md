@@ -15,10 +15,11 @@ recipes.
 
 ## Overview
 
-SRQL is parsed and executed by the Rust-based SRQL engine (`rust/srql`). The engine
-parses the `key:value` syntax into a query AST, plans it against ServiceRadar's
-streaming schema, translates it to PostgreSQL via Diesel, and returns consistently
-shaped JSON results.
+The Rust-based SRQL engine (`rust/srql`) parses the `key:value` syntax into a
+query AST and validates the query plan. Web-ng executes SQL plans against the
+configured backend and returns consistently shaped results. Agent extension
+fleet plans use the scoped read models described in
+[Agent extension fleet queries](#agent-extension-fleet-queries).
 
 Use SRQL to:
 
@@ -1065,7 +1066,8 @@ Native add-ons and WASM plugins have separate entities. `addon_fleet` (alias
 `addon_fleets`) requires `devices.view`; `plugin_fleet` (alias `plugin_fleets`)
 requires `plugins.view`. Both execute scoped Ash reads. Translation returns a
 validated `read_model` plan with empty SQL; execute it through web-ng's query
-API, which also supports Arrow responses and signed cursor pagination.
+API, which also supports Arrow responses and signed cursor pagination. Direct
+execution through the standalone Rust query engine rejects fleet queries.
 
 ```srql
 in:addon_fleet addon_id:example-collector assigned:true sort:agent_uid:asc
@@ -1086,30 +1088,41 @@ existing status-only behavior and newest-report ordering.
 
 WASM fleet rows include partition, agent, plugin, package/version, assignment
 source/policy, enabled state, cadence, latest runtime evidence, and the reported
-`result_status` (`OK`, `WARNING`, `CRITICAL`, or `UNKNOWN`). A fresh warning
-requires action even when the runtime reports availability. The join
-matches both partition and agent; legacy name-only evidence is used only for an
-unambiguous plugin name. Disabled assignments remain visible as
+`result_status` (`OK`, `WARNING`, `CRITICAL`, or `UNKNOWN`). An otherwise healthy
+runtime with a fresh warning requires action even when it reports availability.
+The join matches both partition and agent; legacy name-only evidence is used
+only for an unambiguous plugin name. Disabled assignments remain visible as
 `expected_inactive`, and identified runtimes without an assignment are
 `observed_only`. Assignment placeholders appear as `pending` or `ready`, with
 no result timestamp or inferred availability. They are never reported results.
 
 `stale` compares native evidence age with the configured add-on freshness
 threshold (180 seconds by default). WASM evidence is stale after the greater of
-180 seconds and three assignment intervals. Stale assigned runtime evidence has
-category `unavailable`. Missing evidence has null timestamps and age; it is not a
-fresh success. `time:` filters the last reported observation, excluding missing
-evidence. Omit `time:` when investigating assignments that have not reported.
+180 seconds and three assignment intervals, using a 60-second interval for
+observed-only rows. `stale` describes evidence age independently of health
+category: package and rollout problems, disabled assignments, and observed-only
+runtimes can take classification precedence over stale evidence. Missing evidence has null
+timestamps and age and `stale:false`; it is not a fresh success. `time:` filters
+the last reported observation, excluding missing evidence. Omit `time:` when
+investigating assignments that have not reported.
+
+For WASM results, `reported_at` uses the logical observation timestamp resolved
+by the existing plugin state contract, with the stored observation timestamp as
+its fallback. Reported-result markers must authenticate the snapshot identity,
+payload, and physical timestamp. Freshness and timestamp filters use the
+resolved observation time.
 
 `version_drift` is null unless both desired and observed versions are known.
 WASM results do not currently carry a host-authored version; an explicitly
 reported `package_version` is shown when present, without inferring it from the
 assignment. `assignment_drift` compares a reported assignment ID with the
-current assignment; it is null when either ID is unknown. Fresh available
-results with known drift require action.
+current assignment; it is null when either ID is unknown. Otherwise healthy
+WASM results with known drift require action.
 
-`last_success_at` and `last_failure_at` describe the latest WASM result: only the
-corresponding timestamp is set. They do not scan historical telemetry.
+`last_success_at` and `last_failure_at` describe availability of the latest WASM
+result: `available:true` sets the former and `available:false` sets the latter.
+A warning can therefore have `last_success_at` set and category
+`action_required`. These fields do not scan historical telemetry.
 `last_error` is the standardized `plugin_result_unavailable` code for a failed
 latest result. Raw messages, result details, assignment params, permissions and
 resource overrides, and host-only credential material are excluded.

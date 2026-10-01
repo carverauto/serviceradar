@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNG.SRQL.FleetQuery do
         value = if is_atom(value) and value not in [nil, true, false], do: Atom.to_string(value), else: value
         {field, value}
       end)
+
     age = row.evidence_age_seconds
     threshold = Application.get_env(:serviceradar_web_ng, :addon_status_freshness_seconds, 180)
 

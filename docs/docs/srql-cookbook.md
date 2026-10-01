@@ -763,7 +763,5 @@ in:plugin_fleet plugin_id:example-check category:(action_required,unavailable)
 in:plugin_fleet plugin_id:example-check assigned:false
 ```
 
-These fleet queries use scoped Ash reads and exclude assignment parameters and
-raw plugin payloads. Native queries require `devices.view`; WASM queries require
-`plugins.view`. See the language reference for freshness, unknown versions, and
-latest-result success/failure timestamp semantics.
+See [Agent extension fleet queries](./srql-language-reference.md#agent-extension-fleet-queries)
+for permissions, safe fields, freshness, drift, and latest-result timestamp semantics.

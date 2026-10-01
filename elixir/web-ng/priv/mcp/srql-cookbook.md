@@ -313,24 +313,8 @@ Replace `<device-uid>`, `<trace-id>`, `<name>` with real values from a previous
 
 ## Native add-on and WASM fleet health
 
-Find managed add-ons with old observations, then inspect desired versus observed
-versions without losing agents that have not reported yet:
-
-```srql
-in:addon_fleet addon_id:example-collector stale:true sort:evidence_age_seconds:desc
-in:addon_fleet addon_id:example-collector version_drift:true
-in:addon_statuses addon_id:example-collector state:unhealthy sort:reported_at:desc
-```
-
-Inspect WASM assignments and latest runtime health in an exact partition:
-
-```srql
-in:plugin_fleet plugin_id:example-check partition_id:partition-a enabled:true
-in:plugin_fleet plugin_id:example-check category:(action_required,unavailable)
-in:plugin_fleet plugin_id:example-check assigned:false
-```
-
-These fleet queries use scoped Ash reads and exclude assignment parameters and
-raw plugin payloads. Native queries require `devices.view`; WASM queries require
-`plugins.view`. See the language reference for freshness, unknown versions, and
-latest-result success/failure timestamp semantics.
+Use `in:addon_fleet` for native assignments and health, `in:addon_statuses`
+for native reports, and `in:plugin_fleet` for WASM assignments and runtime evidence.
+See the [fleet recipes](https://docs.serviceradar.cloud/srql-cookbook#native-add-on-and-wasm-fleet-health)
+and [fleet reference](https://docs.serviceradar.cloud/srql-language-reference#agent-extension-fleet-queries)
+for queries, permissions, safe fields, freshness, and drift semantics.
