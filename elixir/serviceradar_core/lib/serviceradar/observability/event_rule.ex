@@ -13,6 +13,8 @@ defmodule ServiceRadar.Observability.EventRule do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
   @event_rule_fields [:name, :enabled, :priority, :source_type, :source, :match, :event]
 
   postgres do
@@ -77,8 +79,22 @@ defmodule ServiceRadar.Observability.EventRule do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_viewer_plus()
-    operator_action([:create, :update, :destroy])
+    read_with_permission({ActorHasPermission, permission: "observability.rules.view"})
+
+    action_with_permission(
+      :create,
+      {ActorHasPermission, permission: "observability.rules.create"}
+    )
+
+    action_with_permission(
+      :update,
+      {ActorHasPermission, permission: "observability.rules.update"}
+    )
+
+    action_with_permission(
+      :destroy,
+      {ActorHasPermission, permission: "observability.rules.delete"}
+    )
   end
 
   attributes do

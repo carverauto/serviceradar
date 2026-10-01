@@ -12,7 +12,15 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  import Ecto.Query, only: [from: 2]
+
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.RoleProfilePolicy
+  alias ServiceRadar.Identity.User
+  alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Repo
 
   # Use API bearer token authentication
   setup :register_and_log_in_api_user
@@ -797,6 +805,137 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert conn.status == 200
     end
   end
+
+  describe "event rule custom profile permissions" do
+    for role <- [:operator, :viewer] do
+      @tag :web_ng_shared_fixture_db
+      @tag sandbox: :unboxed
+      test "#{role} custom profile controls all event rule read routes" do
+        role = unquote(role)
+        user = event_rule_profile_user(role, [])
+        rule = event_rule_fixture()
+        on_exit(fn -> Repo.delete_all(from r in EventRule, where: r.id == ^rule.id) end)
+        conn = log_in_api_user(build_conn(), user)
+
+        for path <- ["/api/v2/event-rules", "/api/v2/event-rules/active"] do
+          assert conn |> get(path) |> json_response(200) |> Map.fetch!("data") == []
+        end
+
+        assert conn |> get("/api/v2/event-rules/#{rule.id}") |> json_response(404) |> Map.has_key?("errors")
+
+        grant_event_rule_permissions(user, ["observability.rules.view"])
+
+        for path <- ["/api/v2/event-rules", "/api/v2/event-rules/active"] do
+          response = conn |> get(path) |> json_response(200)
+          assert Enum.any?(response["data"], &(&1["id"] == rule.id))
+        end
+
+        assert conn |> get("/api/v2/event-rules/#{rule.id}") |> json_response(200) |> get_in(["data", "id"]) == rule.id
+
+        grant_event_rule_permissions(user, [])
+        assert conn |> get("/api/v2/event-rules") |> json_response(200) |> Map.fetch!("data") == []
+      end
+
+      for operation <- [:create, :update, :delete] do
+        @tag :web_ng_shared_fixture_db
+        @tag sandbox: :unboxed
+        test "#{role} custom profile independently controls event rule #{operation}" do
+          role = unquote(role)
+          operation = unquote(operation)
+          permission = "observability.rules.#{operation}"
+
+          other_permissions =
+            for action <- [:view, :create, :update, :delete],
+                action != operation,
+                do: "observability.rules.#{action}"
+
+          user = event_rule_profile_user(role, other_permissions)
+          rule = event_rule_fixture()
+          conn = log_in_api_user(build_conn(), user)
+          name = "Synthetic RBAC rule #{System.unique_integer([:positive])}"
+
+          on_exit(fn ->
+            Repo.delete_all(from r in EventRule, where: r.id == ^rule.id or r.name == ^name)
+          end)
+
+          denied = event_rule_request(conn, operation, rule.id, name)
+          assert denied.status == 403
+          assert Enum.any?(json_response(denied, 403)["errors"], &(&1["code"] == "forbidden"))
+          assert Ash.get!(EventRule, rule.id, actor: system_actor()).priority == rule.priority
+          refute Enum.any?(EventRule.list!(actor: system_actor()), &(&1.name == name))
+
+          grant_event_rule_permissions(user, [permission, "observability.rules.view"])
+          allowed = event_rule_request(conn, operation, rule.id, name)
+
+          case operation do
+            :create ->
+              created = json_response(allowed, 201)["data"]
+              assert Ash.get!(EventRule, created["id"], actor: system_actor()).name == name
+
+            :update ->
+              assert json_response(allowed, 200)["data"]["attributes"]["priority"] == 17
+              assert Ash.get!(EventRule, rule.id, actor: system_actor()).priority == 17
+
+            :delete ->
+              assert allowed.status == 200
+              refute Enum.any?(EventRule.list!(actor: system_actor()), &(&1.id == rule.id))
+          end
+        end
+      end
+    end
+  end
+
+  defp event_rule_profile_user(role, permissions) do
+    user = if role == :operator, do: operator_user_fixture(), else: viewer_user_fixture()
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Synthetic rule profile #{System.unique_integer([:positive])}",
+          permissions: permissions
+        },
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.create!()
+
+    on_exit(fn ->
+      Repo.delete_all(from u in User, where: u.id == ^user.id)
+      Repo.delete_all(from p in RoleProfile, where: p.id == ^profile.id)
+    end)
+
+    user
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+    |> Ash.update!()
+  end
+
+  defp grant_event_rule_permissions(user, permissions) do
+    # Prime the same cache used by bearer authentication before changing the profile.
+    RBAC.permissions_for_user(user)
+    admin = admin_user_fixture()
+    on_exit(fn -> Repo.delete_all(from u in User, where: u.id == ^admin.id) end)
+    assert {:ok, _profile} = RoleProfilePolicy.update(admin, user.role_profile_id, %{permissions: permissions})
+  end
+
+  defp event_rule_request(conn, :create, _id, name) do
+    conn
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> post("/api/v2/event-rules", %{
+      "data" => %{"type" => "event-rule", "attributes" => %{"name" => name, "source_type" => "log"}}
+    })
+  end
+
+  defp event_rule_request(conn, :update, id, _name) do
+    conn
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> patch("/api/v2/event-rules/#{id}", %{
+      "data" => %{"type" => "event-rule", "id" => id, "attributes" => %{"priority" => 17}}
+    })
+  end
+
+  defp event_rule_request(conn, :delete, id, _name), do: delete(conn, "/api/v2/event-rules/#{id}")
 
   describe "event rule API → log promotion integration" do
     @tag :web_ng_shared_fixture_db
