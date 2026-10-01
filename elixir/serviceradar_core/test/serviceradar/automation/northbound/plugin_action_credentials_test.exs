@@ -62,7 +62,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
     "credential_source" => "package_rule",
     "rule_input" => "destination_rule_id",
     "required" => true,
-    "purpose" => "management",
+    "purpose" => "device_inventory",
     "allow" => %{"methods" => ["POST"], "hosts" => ["api.example.com"]}
   }
 
@@ -336,6 +336,24 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       assert_received {:grant_attrs, attrs}
       assert to_string(attrs.secret_id) == to_string(rule_without_filters.secret_id)
 
+      implicit_device_query_rule =
+        update_target_query!(rule_without_filters, "hostname:#{target_hostname}")
+
+      implicit_device_query_invocation =
+        put_in(
+          active_invocation.input_values["destination_rule_id"],
+          to_string(implicit_device_query_rule.id)
+        )
+
+      assert {:ok, _prepared} =
+               CredentialGrants.prepare_launch(implicit_device_query_invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+
+      assert_received {:grant_attrs, attrs}
+      assert to_string(attrs.secret_id) == to_string(implicit_device_query_rule.secret_id)
+
       inactive_uid = "sr:example-inactive-query-target-#{unique}"
       target_device!(inactive_uid, "inactive-#{unique}.example.com", bound.agent_uid, false)
 
@@ -534,6 +552,46 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
                PluginPackageContext.rule_options(descriptor, descriptor.provider,
                  actor: @credential_manager
                )
+    end
+
+    test "catalog and grants reject a rule whose purpose differs from the requirement",
+         %{package: package, bound: bound, second_rule: second_rule} do
+      mismatched_requirement = Map.put(@destination_requirement, "purpose", "management")
+
+      {:ok, descriptor} =
+        plugin_descriptor(package, %{"destination_account" => mismatched_requirement},
+          scopes: ["device"]
+        )
+
+      assert [action] =
+               %{actor: @credential_manager}
+               |> Catalog.eligible_device_actions()
+               |> Enum.filter(&(&1.descriptor_id == descriptor.id))
+
+      property = action.input_schema["properties"]["destination_rule_id"]
+      assert property["enum"] == []
+
+      assert {:ok, %{"destination_rule_id" => []}} =
+               PluginPackageContext.rule_options(descriptor, descriptor.provider,
+                 actor: @credential_manager
+               )
+
+      invocation =
+        in_memory_invocation(
+          package,
+          %{"destination_account" => mismatched_requirement},
+          %{"destination_rule_id" => to_string(second_rule.id)},
+          bound.agent_uid
+        )
+
+      assert {:error,
+              {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
+               CredentialGrants.prepare_launch(invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+
+      refute_received {:grant_attrs, _}
     end
 
     test "launch-only catalog and server lookups do not expose credential rule choices",

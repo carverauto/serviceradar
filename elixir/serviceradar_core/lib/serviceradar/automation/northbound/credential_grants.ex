@@ -260,7 +260,10 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
       true ->
         with {:ok, actor} <- package_rule_actor(invocation, opts),
              {:ok, rule} <-
-               context.eligible_rule(invocation.provider.plugin_package_id, rule_id, actor: actor),
+               context.eligible_rule(invocation.provider.plugin_package_id, rule_id,
+                 actor: actor,
+                 purpose: map_get(requirement, "purpose")
+               ),
              :ok <- ensure_rule_scope(rule, assignment, invocation) do
           {:ok, %{secret_id: to_string(rule.secret_id), credential_rule_id: to_string(rule.id)}}
         else
@@ -348,7 +351,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   end
 
   defp target_query_matches?(query, target_uid) when is_binary(query) do
-    with "devices" <- SRQLAst.entity(query, ""),
+    with "devices" <- SRQLAst.entity(query, "devices"),
          {:ok, ast} <- SRQLAst.parse(query),
          true <- SRQLDeviceMatcher.filters_supported?(ast),
          filters <- SRQLDeviceMatcher.extract_filters(ast),

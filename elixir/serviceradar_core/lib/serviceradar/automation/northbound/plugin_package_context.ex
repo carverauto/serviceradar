@@ -137,6 +137,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
        |> Enum.filter(fn rule ->
          MapSet.member?(policy_ids, PluginIntegrationProvisioner.policy_id_for_rule_id(rule.id))
        end)
+       |> Enum.filter(&purpose_matches?(&1, Keyword.get(opts, :purpose)))
        |> Enum.sort_by(&{String.downcase(&1.name || ""), to_string(&1.id)})}
     else
       [] -> {:ok, []}
@@ -178,14 +179,25 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
         opts
       )
       when not is_nil(package_id) do
-    case package_rule_inputs(requirements) do
+    case package_rule_requirements(requirements) do
       [] ->
         {:ok, %{}}
 
-      inputs ->
+      rule_requirements ->
         with {:ok, rules} <- eligible_rules(package_id, opts) do
-          options = Enum.map(rules, &rule_option/1)
-          {:ok, Map.new(inputs, &{&1, options})}
+          options =
+            rule_requirements
+            |> Enum.group_by(& &1.input)
+            |> Map.new(fn {input, requirements} ->
+              eligible =
+                Enum.filter(rules, fn rule ->
+                  Enum.all?(requirements, &purpose_matches?(rule, &1.purpose))
+                end)
+
+              {input, Enum.map(eligible, &rule_option/1)}
+            end)
+
+          {:ok, options}
         end
     end
   end
@@ -196,13 +208,33 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
   @spec package_rule_inputs(term()) :: [String.t()]
   def package_rule_inputs(requirements) do
     requirements
-    |> ActionCredentialRequirements.flatten()
-    |> Enum.filter(&(ActionCredentialRequirements.credential_source(&1) == "package_rule"))
-    |> Enum.map(& &1["rule_input"])
-    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
-    |> Enum.map(&String.trim/1)
+    |> package_rule_requirements()
+    |> Enum.map(& &1.input)
     |> Enum.uniq()
   end
+
+  defp package_rule_requirements(requirements) do
+    requirements
+    |> ActionCredentialRequirements.flatten()
+    |> Enum.filter(&(ActionCredentialRequirements.credential_source(&1) == "package_rule"))
+    |> Enum.map(fn requirement ->
+      input = requirement["rule_input"]
+
+      if is_binary(input) and String.trim(input) != "" do
+        %{input: String.trim(input), purpose: requirement["purpose"]}
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp purpose_matches?(_rule, nil), do: true
+
+  defp purpose_matches?(rule, purpose) when is_binary(purpose) and purpose != "" do
+    rule_purpose = Map.get(rule, :purpose) || Map.get(rule, "purpose")
+    rule_purpose == purpose
+  end
+
+  defp purpose_matches?(_rule, _purpose), do: false
 
   defp rule_option(rule) do
     %{"id" => to_string(rule.id), "label" => rule.name || to_string(rule.id)}
