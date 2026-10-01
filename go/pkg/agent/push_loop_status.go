@@ -557,12 +557,12 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 					continue
 				}
 
-				metricStatuses, err := p.sweepMetricStatusesFromMap(metricPayload)
+				metricStatus, err := p.sweepMetricStatusFromMap(metricPayload)
 				if err != nil {
 					p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to marshal sweep status metric envelope")
 					continue
 				}
-				statuses = append(statuses, metricStatuses...)
+				statuses = append(statuses, metricStatus)
 			}
 		}
 	}

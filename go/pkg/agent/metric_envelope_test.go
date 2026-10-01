@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
@@ -333,7 +331,7 @@ func TestMarshalMTRMetricEnvelope(t *testing.T) {
 func TestMarshalSweepMetricEnvelope(t *testing.T) {
 	t.Parallel()
 
-	payloads, droppedPoints, err := marshalSweepMetricEnvelopesFromMap(map[string]any{
+	payload, err := marshalSweepMetricEnvelopeFromMap(map[string]any{
 		"network":         "edge-lan",
 		"execution_id":    "exec-1",
 		"sweep_group_id":  "group-1",
@@ -376,10 +374,6 @@ func TestMarshalSweepMetricEnvelope(t *testing.T) {
 		},
 	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition, KvStoreID: "kv-1"})
 	require.NoError(t, err)
-	require.Empty(t, droppedPoints)
-	require.Len(t, payloads, 1)
-
-	payload := payloads[0]
 
 	batch := decodeMetricBatch(t, payload)
 	require.Equal(t, metricEnvelopeSchemaVersion, batch.SchemaVersion)
@@ -422,87 +416,6 @@ func TestMarshalSweepMetricEnvelope(t *testing.T) {
 	require.InDelta(t, 2.0, metrics["sweep.banner_grab.inflight"].Points[0].Value, 1e-9)
 }
 
-// TestMarshalSweepMetricEnvelopeSizeBound guards the encoded-size bound on
-// sweep metric batches: a many-host, many-port sweep chunk (the shape whose
-// single batch used to exceed the NATS max_payload and drop the gateway
-// connection) must marshal as multiple payloads, each under the bound, with
-// no points lost and the batch envelope on every part.
-func TestMarshalSweepMetricEnvelopeSizeBound(t *testing.T) {
-	t.Setenv("SWEEP_METRICS_MAX_BATCH_BYTES", strconv.Itoa(minSweepMetricBatchMaxBytes))
-
-	const (
-		hosts = 160
-		ports = 6
-	)
-
-	portResults := make([]any, 0, ports)
-	for p := 0; p < ports; p++ {
-		portResults = append(portResults, map[string]any{
-			"port":          30_000 + p,
-			"available":     p%2 == 0,
-			"response_time": 100_000 + p,
-			"service":       "synthetic",
-		})
-	}
-
-	hostEntries := make([]any, 0, hosts)
-	for h := 0; h < hosts; h++ {
-		hostEntries = append(hostEntries, map[string]any{
-			"host":          fmt.Sprintf("198.18.%d.%d", h/250, h%250+1),
-			"hostname":      fmt.Sprintf("host-%03d.bench.test", h),
-			"available":     h%3 != 0,
-			"response_time": 200_000 + h,
-			"icmp_status": map[string]any{
-				"available":   h%3 != 0,
-				"round_trip":  150_000 + h,
-				"packet_loss": float64(h%5) / 100,
-			},
-			"port_results": portResults,
-		})
-	}
-
-	decoded := map[string]any{
-		"network":         "bench-lan",
-		"execution_id":    "exec-size-bound",
-		"sweep_group_id":  "group-size-bound",
-		"total_hosts":     hosts,
-		"available_hosts": hosts / 2,
-		"last_sweep":      int64(1_780_000_000),
-		"sequence":        7,
-		"hosts":           hostEntries,
-	}
-
-	ctx := metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition, KvStoreID: "kv-1"}
-
-	payloads, dropped, err := marshalSweepMetricEnvelopesFromMap(decoded, ctx)
-	require.NoError(t, err)
-	require.Zero(t, dropped)
-	require.Greater(t, len(payloads), 1)
-
-	reference, err := buildSweepMetricBatch(decoded, ctx)
-	require.NoError(t, err)
-
-	parts := make([]*metricpb.MetricBatch, 0, len(payloads))
-
-	for _, payload := range payloads {
-		require.LessOrEqual(t, len(payload), minSweepMetricBatchMaxBytes)
-
-		part := decodeMetricBatch(t, payload)
-		require.Equal(t, metricEnvelopeSchemaVersion, part.SchemaVersion)
-		require.Equal(t, "sweep-metrics", part.IngestIdentity.Source)
-		require.Equal(t, sweepType, part.Resource.ServiceType)
-
-		parts = append(parts, part)
-	}
-
-	for _, part := range parts[1:] {
-		require.Equal(t, parts[0].EmittedAtUnixNano, part.EmittedAtUnixNano)
-	}
-
-	require.NotZero(t, countBatchPoints(parts))
-	require.Equal(t, countBatchPoints([]*metricpb.MetricBatch{reference}), countBatchPoints(parts))
-}
-
 func TestDefaultStatusSourceMarksRperfMetricEnvelope(t *testing.T) {
 	t.Parallel()
 
@@ -536,18 +449,6 @@ func decodeMetricBatch(t *testing.T, payload []byte) *metricpb.MetricBatch {
 	var batch metricpb.MetricBatch
 	require.NoError(t, proto.Unmarshal(payload, &batch))
 	return &batch
-}
-
-func countBatchPoints(batches []*metricpb.MetricBatch) int {
-	total := 0
-
-	for _, batch := range batches {
-		for _, metric := range batch.GetMetrics() {
-			total += len(metric.GetPoints())
-		}
-	}
-
-	return total
 }
 
 func metricsByName(batch *metricpb.MetricBatch) map[string]*metricpb.Metric {

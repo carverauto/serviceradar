@@ -45,7 +45,7 @@ defmodule ServiceRadarAgentGateway.MetricBatchPublisher do
   @spec publish(MetricBatch.t(), map(), map(), keyword(), keyword()) :: publish_result()
   def publish(%MetricBatch{} = batch, ingress_context, status, config, opts) do
     connection = Keyword.get(config, :connection, Connection)
-    max_payload = resolve_max_payload(config, connection)
+    max_payload = advertised_max_payload(connection)
 
     split = MetricBatchSplit.split(batch, publish_budget(max_payload))
     log_split(split, max_payload, status, opts)
@@ -60,19 +60,27 @@ defmodule ServiceRadarAgentGateway.MetricBatchPublisher do
   end
 
   defp publish_parts(subject, parts, ingress_context, config, opts) do
-    Enum.reduce_while(parts, :ok, fn part, :ok ->
-      case publish_message(subject, MetricBatch.encode(part), ingress_context, config, opts) do
+    message_id =
+      ingress_context[:nats_msg_id] || ingress_context[:message_id] ||
+        ingress_context[:event_id] || ingress_context[:ingress_id]
+
+    split? = length(parts) > 1
+
+    parts
+    |> Enum.with_index(1)
+    |> Enum.reduce_while(:ok, fn {part, index}, :ok ->
+      part_context =
+        if split? do
+          Map.put(ingress_context, :nats_msg_id, "#{message_id}:part:#{index}")
+        else
+          ingress_context
+        end
+
+      case publish_message(subject, MetricBatch.encode(part), part_context, config, opts) do
         :ok -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
-  end
-
-  defp resolve_max_payload(config, connection) do
-    case Keyword.get(config, :max_payload_bytes) do
-      bytes when is_integer(bytes) and bytes > 0 -> bytes
-      _ -> advertised_max_payload(connection)
-    end
   end
 
   # The connection module may not export max_payload/0 and the INFO query

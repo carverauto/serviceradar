@@ -88,15 +88,12 @@ defmodule ServiceRadarAgentGateway.MetricBatchSplit do
       cost = point_item_cost(point)
 
       cond do
+        envelope_size + wrapped_size(header_size + cost) > max_bytes ->
+          {shards, current, current_size, dropped + 1}
+
         current != [] and envelope_size + wrapped_size(header_size + current_size + cost) > max_bytes ->
           shard = %{header | points: Enum.reverse(current)}
-          {[shard | shards], [point], header_size + cost, dropped}
-
-        current == [] and envelope_size + wrapped_size(header_size + cost) > max_bytes ->
-          # A lone point that cannot fit under the budget can never be
-          # published; report it dropped rather than sending a message the
-          # broker is guaranteed to reject.
-          {shards, current, current_size, dropped + 1}
+          {[shard | shards], [point], cost, dropped}
 
         true ->
           {shards, [point | current], current_size + cost, dropped}

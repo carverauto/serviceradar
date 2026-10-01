@@ -84,7 +84,7 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 			return sentAny
 		}
 		for idx, chunk := range chunks {
-			metricStatuses, err := p.sweepMetricStatusesFromMap(chunk.MetricPayload)
+			metricStatus, err := p.sweepMetricStatusFromMap(chunk.MetricPayload)
 			if err != nil {
 				p.logger.Error().
 					Err(err).
@@ -94,7 +94,7 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 
 				return sentAny
 			}
-			statusChunks[idx].Services = append(statusChunks[idx].Services, metricStatuses...)
+			statusChunks[idx].Services = append(statusChunks[idx].Services, metricStatus)
 		}
 
 		pushCtx, cancel := context.WithTimeout(ctx, sweepResultsStreamTimeout(len(statusChunks)))
@@ -130,11 +130,7 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 	return sentAny
 }
 
-// sweepMetricStatusesFromMap encodes the sweep payload as one or more
-// size-bounded MetricBatch status messages. Oversized batches are split so
-// no single one approaches the NATS max_payload the gateway must publish
-// under; points that cannot fit under the bound are dropped with a warning.
-func (p *PushLoop) sweepMetricStatusesFromMap(payload map[string]any) ([]*proto.GatewayServiceStatus, error) {
+func (p *PushLoop) sweepMetricStatusFromMap(payload map[string]any) (*proto.GatewayServiceStatus, error) {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
@@ -142,7 +138,7 @@ func (p *PushLoop) sweepMetricStatusesFromMap(payload map[string]any) ([]*proto.
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
 
-	messages, droppedPoints, err := marshalSweepMetricEnvelopesFromMap(payload, metricEnvelopeContext{
+	message, err := marshalSweepMetricEnvelopeFromMap(payload, metricEnvelopeContext{
 		AgentID:   agentID,
 		GatewayID: gatewayID,
 		Partition: partition,
@@ -152,38 +148,18 @@ func (p *PushLoop) sweepMetricStatusesFromMap(payload map[string]any) ([]*proto.
 		return nil, err
 	}
 
-	if len(messages) > 1 {
-		p.logger.Warn().
-			Int("payload_count", len(messages)).
-			Int("max_batch_bytes", sweepMetricBatchMaxBytes()).
-			Msg("Split oversized sweep metric batch to stay under the NATS max payload")
-	}
-
-	if droppedPoints > 0 {
-		p.logger.Warn().
-			Int("dropped_points", droppedPoints).
-			Int("max_batch_bytes", sweepMetricBatchMaxBytes()).
-			Msg("Dropped sweep metric points that cannot fit under the NATS max payload bound")
-	}
-
-	statuses := make([]*proto.GatewayServiceStatus, 0, len(messages))
-
-	for _, message := range messages {
-		statuses = append(statuses, &proto.GatewayServiceStatus{
-			ServiceName:  networkSweepServiceName,
-			ServiceType:  sweepType,
-			Available:    true,
-			Message:      message,
-			ResponseTime: 0,
-			AgentId:      agentID,
-			GatewayId:    gatewayID,
-			Partition:    partition,
-			Source:       "sweep-metrics",
-			KvStoreId:    kvStoreID,
-		})
-	}
-
-	return statuses, nil
+	return &proto.GatewayServiceStatus{
+		ServiceName:  networkSweepServiceName,
+		ServiceType:  sweepType,
+		Available:    true,
+		Message:      message,
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    gatewayID,
+		Partition:    partition,
+		Source:       "sweep-metrics",
+		KvStoreId:    kvStoreID,
+	}, nil
 }
 
 type sweepResultsChunk struct {

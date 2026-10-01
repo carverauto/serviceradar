@@ -10,6 +10,8 @@ defmodule ServiceRadarAgentGateway.SweepMetricsPublisherTest do
   alias Serviceradar.Metric.V1.MetricPoint
   alias Serviceradar.Metric.V1.MetricResource
   alias Serviceradar.Metric.V1.StringMapEntry
+  alias ServiceRadarAgentGateway.MetricBatchPublisher
+  alias ServiceRadarAgentGateway.MetricBatchSplit
   alias ServiceRadarAgentGateway.SweepMetricsPublisher
 
   setup do
@@ -72,13 +74,12 @@ defmodule ServiceRadarAgentGateway.SweepMetricsPublisherTest do
   end
 
   test "splits an oversized batch into multiple under-limit publishes" do
-    max_payload_bytes = 32 * 1024
+    max_payload_bytes = __MODULE__.ConnectionStub.max_payload()
 
     Application.put_env(:serviceradar_agent_gateway, :sweep_metrics_publisher,
       enabled: true,
       subject_prefix: "metrics.sweep",
-      connection: __MODULE__.ConnectionStub,
-      max_payload_bytes: max_payload_bytes
+      connection: __MODULE__.ConnectionStub
     )
 
     payload = oversized_metric_batch_payload()
@@ -93,10 +94,11 @@ defmodule ServiceRadarAgentGateway.SweepMetricsPublisherTest do
     published = collect_published([])
     assert length(published) > 1
 
-    {subjects, payloads} =
-      published
-      |> Enum.map(fn {subject, published_payload, _opts} -> {subject, published_payload} end)
-      |> Enum.unzip()
+    subjects = Enum.map(published, &elem(&1, 0))
+    payloads = Enum.map(published, &elem(&1, 1))
+    message_ids = Enum.map(published, &message_id/1)
+
+    assert length(Enum.uniq(message_ids)) == length(published)
 
     # Routing stays identical to an unsplit publish: every part uses the
     # subject derived from the original batch's first metric.
@@ -121,6 +123,46 @@ defmodule ServiceRadarAgentGateway.SweepMetricsPublisherTest do
 
     # The points across all parts together equal the original batch's points.
     assert Enum.flat_map(parts, &batch_points/1) == batch_points(MetricBatch.decode(payload))
+    assert Enum.uniq(Enum.map(parts, & &1.ingress_id)) == [hd(parts).ingress_id]
+
+    attested_batch = %{hd(parts) | metrics: MetricBatch.decode(payload).metrics}
+
+    ingress_context = %{
+      ingress_id: attested_batch.ingress_id,
+      ingress_time_unix_nano: attested_batch.ingress_timestamp_unix_nano
+    }
+
+    config = Application.fetch_env!(:serviceradar_agent_gateway, :sweep_metrics_publisher)
+    opts = [subject: hd(subjects), default_subject_prefix: "metrics.sweep", log_label: "sweep"]
+
+    capture_log(fn ->
+      assert :ok = MetricBatchPublisher.publish(attested_batch, ingress_context, sweep_status(payload), config, opts)
+    end)
+
+    retried = collect_published([])
+    assert Enum.map(retried, &message_id/1) == message_ids
+    assert Enum.map(retried, &elem(&1, 1)) == payloads
+  end
+
+  test "rejects a point that cannot fit alone before or after shard rollover" do
+    batch = MetricBatch.decode(metric_batch_payload())
+    metric = hd(batch.metrics)
+    points = for value <- 1..5, do: %{hd(metric.points) | value: value / 1, raw_value: Integer.to_string(value)}
+    fitting_batch = %{batch | metrics: [%{metric | points: Enum.take(points, 2)}]}
+    max_bytes = byte_size(MetricBatch.encode(fitting_batch))
+    oversized = %{hd(points) | attributes: [%StringMapEntry{key: "error", value: String.duplicate("x", max_bytes)}]}
+
+    for position <- [0, 1, 3] do
+      input = %{batch | metrics: [%{metric | points: List.insert_at(points, position, oversized)}]}
+      result = MetricBatchSplit.split(input, max_bytes)
+
+      assert result.dropped_points == 1
+      assert Enum.flat_map(result.parts, &batch_points/1) == points
+
+      for part <- result.parts do
+        assert byte_size(MetricBatch.encode(part)) <= max_bytes
+      end
+    end
   end
 
   test "rejects legacy JSON sweep metric payloads" do
@@ -148,6 +190,8 @@ defmodule ServiceRadarAgentGateway.SweepMetricsPublisherTest do
 
   defmodule ConnectionStub do
     @moduledoc false
+    def max_payload, do: 32 * 1024
+
     def publish(subject, payload, opts) do
       send(Application.fetch_env!(:serviceradar_agent_gateway, :sweep_metrics_publisher_test_pid), {
         :published,
@@ -181,6 +225,10 @@ defmodule ServiceRadarAgentGateway.SweepMetricsPublisherTest do
     after
       200 -> Enum.reverse(acc)
     end
+  end
+
+  defp message_id({_subject, _payload, opts}) do
+    opts |> Keyword.fetch!(:headers) |> Map.new() |> Map.fetch!("Nats-Msg-Id")
   end
 
   defp batch_points(%MetricBatch{} = batch) do
