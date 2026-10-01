@@ -196,7 +196,10 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
   defp runtime_state(_state, false), do: "unavailable"
 
   defp observed_at(state) do
-    PluginStateContract.details_logical_observed_at(state.details, state.last_observed_at)
+    state
+    |> Map.take([:agent_id, :gateway_id, :partition, :service_type, :service_name, :details])
+    |> Map.put(:timestamp, state.last_observed_at)
+    |> PluginStateContract.snapshot_logical_observed_at()
   end
 
   defp decode_details(nil), do: %{}

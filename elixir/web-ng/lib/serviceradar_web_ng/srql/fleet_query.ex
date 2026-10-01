@@ -30,7 +30,12 @@ defmodule ServiceRadarWebNG.SRQL.FleetQuery do
   defp rows("plugin_fleet", scope), do: PluginFleet.rows(scope)
 
   defp native_row(row) do
-    projected = Map.new(@native_fields, fn field -> {field, Map.get(row, String.to_existing_atom(field))} end)
+    projected =
+      Map.new(@native_fields, fn field ->
+        value = Map.get(row, String.to_existing_atom(field))
+        value = if is_atom(value) and value not in [nil, true, false], do: Atom.to_string(value), else: value
+        {field, value}
+      end)
     age = row.evidence_age_seconds
     threshold = Application.get_env(:serviceradar_web_ng, :addon_status_freshness_seconds, 180)
 

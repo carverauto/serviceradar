@@ -153,6 +153,34 @@ fn fleet_examples_compile_scoped_typed_read_plans() {
 }
 
 #[test]
+fn fleet_text_filters_preserve_wildcard_and_equality_semantics() {
+    for (entity_name, entity) in [
+        ("addon_fleet", Entity::AddonFleet),
+        ("plugin_fleet", Entity::PluginFleet),
+    ] {
+        for (field, kind) in fleet::fields(&entity) {
+            if !matches!(kind, fleet::Kind::Text) {
+                continue;
+            }
+            for spelling in [field.to_string(), field.to_ascii_uppercase()] {
+                for (prefix, value, op) in [
+                    ("", "%needle%", "like"),
+                    ("!", "%needle%", "not_like"),
+                    ("", "needle", "eq"),
+                    ("!", "needle", "not_eq"),
+                ] {
+                    let query = format!("in:{entity_name} {prefix}{spelling}:{value}");
+                    let plan = translate_fleet(&query).unwrap().read_model.unwrap();
+                    assert_eq!(plan["filters"][0]["field"], field, "{query}");
+                    assert_eq!(plan["filters"][0]["op"], op, "{query}");
+                    assert_eq!(plan["filters"][0]["value"], value, "{query}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn fleet_queries_reject_sensitive_fields_invalid_types_and_aggregation() {
     for query in [
         "in:plugin_fleet params:token",

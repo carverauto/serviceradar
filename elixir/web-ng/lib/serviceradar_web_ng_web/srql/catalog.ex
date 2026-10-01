@@ -199,6 +199,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ],
       boolean_fields: ~w(assigned active enabled stale version_drift),
       numeric_fields: ["evidence_age_seconds"],
+      timestamp_fields: ~w(reported_at last_health_at last_scan_at),
       known_values: %{
         "category" => [
           "healthy",
@@ -237,6 +238,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         last_success_at last_failure_at last_error runtime outputs category reason_code),
       boolean_fields: ~w(assigned enabled available stale version_drift assignment_drift),
       numeric_fields: ~w(interval_seconds timeout_seconds evidence_age_seconds),
+      timestamp_fields: ~w(reported_at last_success_at last_failure_at),
       known_values: %{
         "category" => ~w(healthy unavailable action_required expected_inactive observed_only),
         "observed_state" => ~w(not_reported pending ready available unavailable inactive),

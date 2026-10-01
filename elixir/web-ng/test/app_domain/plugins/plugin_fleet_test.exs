@@ -1,6 +1,9 @@
 defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Observability.PluginResultReportedMarker
+  alias ServiceRadar.Observability.PluginResultSlot
+  alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -83,6 +86,65 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
              %{"category" => "unavailable", "partition_id" => "partition-a", "reported_at" => nil},
              %{"assigned" => false, "partition_id" => "partition-b", "category" => "observed_only"}
            ] = rows
+  end
+
+  test "allocated reported results retain authenticated logical time throughout fleet queries" do
+    package = package()
+    assignment = assignment(package)
+    state = state()
+    payload = Jason.decode!(state.details)
+    snapshot = Map.put(state, :timestamp, @now)
+    physical_at = DateTime.add(PluginResultSlot.block_base(snapshot, 0), -14_000 * 257, :microsecond)
+
+    details =
+      Map.put(payload, PluginResultReportedMarker.marker_key(), %{
+        "kind" => "reported",
+        "observation_timestamp" => DateTime.to_iso8601(@now),
+        "payload_digest" => PluginResultReportedMarker.payload_digest(payload),
+        "service_id" => ServiceIdentity.service_id(state),
+        "slot" => %{
+          "base_timestamp" => DateTime.to_iso8601(physical_at),
+          "version" => 1,
+          "width_microseconds" => PluginResultSlot.block_width_microseconds()
+        },
+        "version" => 1
+      })
+
+    state = %{state | details: Jason.encode!(details), last_observed_at: physical_at}
+    now = DateTime.add(@now, 179)
+
+    assert {:ok, json} =
+             Native.translate(
+               "in:plugin_fleet time:[2026-01-15T12:00:00Z,2026-01-15T12:00:01Z]",
+               nil,
+               nil,
+               nil,
+               "legacy"
+             )
+
+    %{"read_model" => plan} = Jason.decode!(json)
+
+    for available <- [true, false], assignments <- [[assignment], []] do
+      assert [row] = PluginFleet.build_rows(assignments, [package], [%{state | available: available}], now)
+      assert row["reported_at"] == @now
+      assert row["evidence_age_seconds"] == 179
+      assert row["stale"] == false
+      assert row["last_success_at"] == if(available, do: @now)
+      assert row["last_failure_at"] == if(not available, do: @now)
+      assert [^row] = FleetQuery.apply_plan([row], plan)
+    end
+
+    for field <- [:agent_id, :gateway_id, :partition, :service_type, :service_name] do
+      tampered = Map.put(state, field, "different-example-identity")
+      assert [row] = PluginFleet.build_rows([], [package], [tampered], now)
+      assert row["reported_at"] == physical_at
+      assert row["stale"] == true
+      assert [] = FleetQuery.apply_plan([row], plan)
+    end
+
+    outside_slot = %{state | last_observed_at: DateTime.add(physical_at, -1, :microsecond)}
+    assert [row] = PluginFleet.build_rows([], [package], [outside_slot], now)
+    assert row["reported_at"] == outside_slot.last_observed_at
   end
 
   test "duplicate assignments prefer the enabled newest desired state across month boundaries" do

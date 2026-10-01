@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
   alias ServiceRadarSRQL.Native
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.SRQL.EntityAccess
+  alias ServiceRadarWebNG.SRQL.FleetQuery
+  alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Catalog
   alias ServiceRadarWebNGWeb.SRQL.Page
 
@@ -40,6 +42,37 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", events_reader)
     assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", nil)
     assert :ok = EntityAccess.authorize("in:security_events", auditor)
+  end
+
+  test "fleet builder timestamp filters compile and match observation timestamps" do
+    timestamp = ~U[2026-01-15 12:00:00Z]
+
+    for {entities, fields} <- [
+          {~w(addon_fleet addon_fleets), ~w(reported_at last_health_at last_scan_at)},
+          {~w(plugin_fleet plugin_fleets), ~w(reported_at last_success_at last_failure_at)}
+        ],
+        entity <- entities,
+        field <- fields do
+      query =
+        entity
+        |> Builder.default_state()
+        |> Map.put("filters", [
+          %{
+            "field" => field,
+            "op" => Catalog.default_filter_op(entity, field),
+            "value" => DateTime.to_iso8601(timestamp)
+          }
+        ])
+        |> Builder.build()
+
+      assert {:ok, json} = Native.translate(query, nil, nil, nil, "legacy")
+      %{"read_model" => plan} = Jason.decode!(json)
+      assert [%{"field" => ^field, "op" => "eq"}] = plan["filters"]
+      matching = %{field => timestamp}
+
+      assert [^matching] =
+               FleetQuery.apply_plan([%{field => nil}, %{field => DateTime.add(timestamp, -1)}, matching], plan)
+    end
   end
 
   test "the observed add-on catalog only offers filters accepted by its existing compiler" do

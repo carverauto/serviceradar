@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonRollout
+  alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
@@ -57,9 +59,38 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
       )
 
       if assigned? do
-        AddonAssignment
-        |> Ash.Changeset.for_create(:create, %{agent_uid: agent.uid, addon_package_id: package.id}, actor: system_actor())
-        |> Ash.create!()
+        assignment =
+          AddonAssignment
+          |> Ash.Changeset.for_create(:create, %{agent_uid: agent.uid, addon_package_id: package.id}, actor: system_actor())
+          |> Ash.create!()
+
+        if suffix == "healthy" do
+          rollout_attrs = %{
+            addon_id: addon_id,
+            source_type: :assignment,
+            source_id: assignment.id,
+            previous_package_id: package.id,
+            candidate_package_id: package.id
+          }
+
+          rollout =
+            AddonRollout
+            |> Ash.Changeset.for_create(:create, Map.put(rollout_attrs, :state, :completed), scope: scope)
+            |> Ash.create!(scope: scope)
+
+          target_attrs =
+            Map.merge(rollout_attrs, %{
+              rollout_id: rollout.id,
+              assignment_id: assignment.id,
+              agent_uid: agent.uid,
+              batch_index: 0,
+              state: :succeeded
+            })
+
+          AddonRolloutTarget
+          |> Ash.Changeset.for_create(:create, target_attrs, scope: scope)
+          |> Ash.create!(scope: scope)
+        end
       end
 
       AddonStatus
@@ -83,13 +114,20 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
              SRQL.query("in:addon_fleets addon_id:#{addon_id} sort:agent_uid:asc", %{scope: scope})
 
     by_suffix = Map.new(rows, fn row -> {String.replace_prefix(row["agent_uid"], addon_id <> "-", ""), row} end)
-    assert by_suffix["healthy"]["category"] == "healthy"
+    assert Map.take(by_suffix["healthy"], ~w(category package_status rollout_state update_policy)) == %{
+             "category" => "healthy",
+             "package_status" => "approved",
+             "rollout_state" => "completed",
+             "update_policy" => "manual_pin"
+           }
     assert by_suffix["healthy"]["assigned_version"] == "1.0.0"
     assert by_suffix["healthy"]["last_health_at"] == DateTime.to_iso8601(now)
     assert by_suffix["stale"]["stale"] == true
     assert by_suffix["stale"]["category"] == "unavailable"
     assert by_suffix["unhealthy"]["category"] == "action_required"
     assert by_suffix["unassigned"]["assigned"] == false
+    assert by_suffix["unassigned"]["rollout_state"] == nil
+    assert by_suffix["unassigned"]["update_policy"] == nil
     assert by_suffix["drift"]["version_drift"] == true
     assert by_suffix["drift"]["observed_version"] == "0.9.0"
 
