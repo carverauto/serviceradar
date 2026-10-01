@@ -532,7 +532,9 @@ impl World {
             let seen = self.relation_last_seen[i as usize].clone();
             let source_point = published_portal(cell, clipped.source, seam);
             let target_point = published_portal(cell, clipped.target, seam);
-            let quantized = source_point != clipped.source || target_point != clipped.target;
+            let generalized = source_point != clipped.source
+                || target_point != clipped.target
+                || clipped.start == clipped.end;
             let source = plan.endpoint(
                 edge.source,
                 source_point,
@@ -566,7 +568,7 @@ impl World {
                         }
                     })
                     .or_insert_with(|| TileEdge {
-                        id: if quantized || profile == TileProfile::AggregateOnly {
+                        id: if generalized || profile == TileProfile::AggregateOnly {
                             self.bundle_id(&from.id, &to.id, class, stale)
                         } else {
                             self.relations[i as usize].id.clone()
@@ -577,8 +579,8 @@ impl World {
                         topology_class: class,
                         stale,
                         last_seen: seen.clone(),
-                        start: if quantized { 0.0 } else { clipped.start },
-                        end: if quantized { 1.0 } else { clipped.end },
+                        start: if generalized { 0.0 } else { clipped.start },
+                        end: if generalized { 1.0 } else { clipped.end },
                     });
             }
             plan.glyphs.len() <= budget.nodes && bundles.len() <= budget.edges

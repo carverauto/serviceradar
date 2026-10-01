@@ -425,9 +425,9 @@ js_library(
     name = "world_gpu_test_lib",
     srcs = [
         "god_view_world_gpu.playwright.js",
-        "js/lib/god_view/fixtures/world_transport.js",
-        "js/lib/god_view/fixtures/world_tile_ipc.js",
         "js/lib/god_view/fixtures/snapshot_ipc.js",
+        "js/lib/god_view/fixtures/world_tile_ipc.js",
+        "js/lib/god_view/fixtures/world_transport.js",
     ],
     deps = [
         ":node_modules/@playwright/test",

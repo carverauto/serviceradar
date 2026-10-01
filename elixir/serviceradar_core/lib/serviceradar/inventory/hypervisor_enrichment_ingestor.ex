@@ -434,12 +434,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          false <- guest.identity_state == :quarantined or host.identity_state == :quarantined,
          guest_uid when is_binary(guest_uid) <- guest.device_uid,
          host_uid when is_binary(host_uid) <- host.device_uid,
-         observed_at when not is_nil(observed_at) <-
-           observed_at_string(guest.observed_at || host.observed_at),
          {:ok, guest_uid} <- live_canonical_device_uid(guest_uid, actor),
          {:ok, host_uid} <- live_canonical_device_uid(host_uid, actor),
          false <- guest_uid == host_uid do
-      {:ok, %{guest_device_id: guest_uid, host_device_id: host_uid, observed_at: observed_at}}
+      {:ok,
+       %{
+         guest_device_id: guest_uid,
+         host_device_id: host_uid,
+         observed_at: observed_at_string(guest.observed_at)
+       }}
     else
       {:error, _reason} = error -> error
       _ -> {:skip, :invalid_saved_owner}
@@ -448,6 +451,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp reconcile_saved_guest(guest, :ok, actor) do
     case saved_hosted_link(guest, actor) do
+      # A valid owner without an observation can retain last-known evidence,
+      # but cannot create or refresh it from a host heartbeat.
+      {:ok, %{observed_at: nil}} -> {:cont, :ok}
       {:ok, link} -> reduce_hosted_result(DgraphPersist.upsert_hosted_link(link))
       {:skip, _reason} -> {:cont, :ok}
       {:error, _reason} = error -> {:halt, error}

@@ -32,9 +32,13 @@ server generation enforces feature and actual encoded-byte limits on every call.
 
 The validation device reports Apple Metal 3, a non-fallback WebGPU adapter,
 `maxVertexBuffers=8`, and `maxBufferSize=4294967292`. The browser viewport is
-1280 by 720 CSS pixels at DPR 1. Geometry is bounded to 128 glyph rows, 256 edge
-rows and 262,144 encoded bytes per tile; client cache and viewport limits are
-64 tiles and 32 MiB with four concurrent fetches.
+1280 by 720 CSS pixels at DPR 1. In this recorded run, geometry was bounded to
+128 glyph rows, 256 edge rows and 262,144 encoded bytes per tile; client cache
+and viewport limits were 64 tiles and 32 MiB with four concurrent fetches.
+
+These measurements predate the ELK world restoration and increased tile edge
+budget. Current limits are owned by [the tile-budget requirement](../openspec/changes/refactor-topology-read-model-for-carrier-scale/specs/topology-god-view/spec.md#requirement-quadtree-tiles-conserve-membership-within-hard-budgets);
+this run does not establish acceptance of the revised geometry.
 
 The visible Chrome run passed all four SLOs with normal frame scheduling and
 packet flow enabled: 293 ms to usable geometry, 52.3 FPS across the complete

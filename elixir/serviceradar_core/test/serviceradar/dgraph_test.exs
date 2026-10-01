@@ -120,16 +120,34 @@ defmodule ServiceRadar.DgraphTest do
   end
 
   test "hosted replacement reaches its NIF binding for invalid hosted input" do
-    assert {:error, _reason} =
-             Dgraph.replace_hosted_edge(%{
-               source: "synthetic-guest",
-               target: "synthetic-host",
-               kind: :attached_to,
-               protocol: "virtualization_inventory",
-               evidence_class: "hosted-virtual",
-               ingestor: "hypervisor_enrichment_v1",
-               last_seen: "2030-02-03T04:05:06Z"
-             })
+    env_url = System.get_env("DGRAPH_URL")
+    System.put_env("DGRAPH_URL", "dgraph://unused.example.test:9080?sslmode=disable")
+
+    edge = %{
+      source: "synthetic-guest",
+      target: "synthetic-host",
+      kind: :hosted_on,
+      protocol: "virtualization_inventory",
+      evidence_class: "hosted-virtual",
+      ingestor: "hypervisor_enrichment_v1",
+      last_seen: "2030-02-03T04:05:06Z"
+    }
+
+    try do
+      for invalid <- [
+            %{kind: :attached_to},
+            %{ingestor: "synthetic-other-projection"},
+            %{target: edge.source},
+            %{last_seen: ""}
+          ] do
+        assert {:error,
+                "upsert @if skipped: hosted replacement empty for " <>
+                  "hosted replacement requires virtualization projection, distinct endpoints, and an observation timestamp"} =
+                 Dgraph.replace_hosted_edge(Map.merge(edge, invalid))
+      end
+    after
+      restore_env("DGRAPH_URL", env_url)
+    end
   end
 
   @tag :dgraph

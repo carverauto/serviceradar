@@ -107,6 +107,9 @@ fn upsert_edge(url: String, edge: NifEdgeWrite) -> WriteResult {
 #[rustler::nif(schedule = "DirtyIo")]
 fn replace_hosted_edge(url: String, edge: NifEdgeWrite) -> WriteResult {
     let write = edge.into_write();
+    if let Err(err) = write.validate_hosted_replacement() {
+        return WriteResult::Error(err.to_string());
+    }
     write_call(url, move |client| async move {
         client.replace_hosted_edge(&write).await
     })
