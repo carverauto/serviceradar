@@ -15,7 +15,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettingsNotifier do
           data: record
         } = notification
       ) do
-    if action_name in [:create, :update] do
+    if action_name in [:create, :update, :save_cli_policy] do
       AuditNotifier.write_async(notification,
         resource_type: "authorization_settings",
         resource_id: record.key,
