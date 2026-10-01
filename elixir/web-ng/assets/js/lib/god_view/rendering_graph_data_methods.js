@@ -564,7 +564,7 @@ export const godViewRenderingGraphDataMethods = {
                 : true
           const protocols = Array.from(new Set(relations.map((relation) => String(relation?.protocol || "")).filter(Boolean))).sort()
           const evidenceClasses = Array.from(new Set(relations.map((relation) => String(relation?.evidenceClass || "")).filter(Boolean))).sort()
-  
+
           const built = {
             routeId: `${route.id}${freshnessSuffix}`,
             sourceId: route.sourceId,

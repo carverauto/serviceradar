@@ -54,6 +54,7 @@ struct Fixture {
     fault: Option<Fault>,
     calls: Vec<PageCall>,
     queries: Vec<String>,
+    mutations: Vec<Value>,
     snapshot_established: bool,
     faults_delivered: usize,
     violations: Vec<String>,
@@ -61,6 +62,21 @@ struct Fixture {
 
 impl Fixture {
     fn query(&mut self, request: api::Request) -> Result<api::Response, Status> {
+        if !request.mutations.is_empty() {
+            if request.read_only || request.mutations.len() != 1 {
+                return self.violation("edge upsert must use one write mutation");
+            }
+            let mutation = &request.mutations[0];
+            self.mutations.push(
+                serde_json::from_slice(&mutation.set_json)
+                    .map_err(|err| Status::invalid_argument(err.to_string()))?,
+            );
+            return Ok(api::Response {
+                json: br#"{"src":[{"uid":"0x1"}],"dst":[{"uid":"0x2"}]}"#.to_vec(),
+                txn: Some(api::TxnContext::default()),
+                ..Default::default()
+            });
+        }
         if !request.read_only || request.best_effort || !request.mutations.is_empty() {
             return self.violation("canonical reads must be read-only snapshot queries");
         }
@@ -374,6 +390,49 @@ async fn canonical_edges_page_past_the_grpc_limit_and_an_unadmitted_page() {
             .iter()
             .filter(|call| call.after > 0)
             .all(|call| call.start_ts == SNAPSHOT)
+    );
+}
+
+#[tokio::test]
+async fn edge_upsert_preserves_only_supplied_observation_time() {
+    use dgraph_topology::{EdgeKind, EdgeWrite};
+
+    let server = RunningServer::start(Fixture::default()).await;
+    server
+        .client
+        .upsert_edge(&EdgeWrite::new(
+            "synthetic-source",
+            "synthetic-target",
+            EdgeKind::AttachedTo,
+            "fixture",
+            "physical",
+            "synthetic-test",
+        ))
+        .await
+        .expect("upsert edge without observation time");
+    server
+        .client
+        .upsert_edge(
+            &EdgeWrite::new(
+                "synthetic-source",
+                "synthetic-target",
+                EdgeKind::AttachedTo,
+                "fixture",
+                "physical",
+                "synthetic-test",
+            )
+                .with_last_seen("2030-01-02T03:04:05Z"),
+        )
+        .await
+        .expect("upsert edge with observation time");
+
+    let fixture = server.fixture.lock().expect("fixture lock");
+    assert_eq!(fixture.mutations.len(), 2);
+    assert_eq!(fixture.mutations[0]["topo.stale"], false);
+    assert!(fixture.mutations[0].get("topo.last_seen").is_none());
+    assert_eq!(
+        fixture.mutations[1]["topo.last_seen"],
+        "2030-01-02T03:04:05Z"
     );
 }
 
