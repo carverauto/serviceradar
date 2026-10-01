@@ -132,15 +132,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   end
 
   defp render_widget(%{"widget" => "markdown"} = data) do
-    content = Map.get(data, "content") || ""
-    html = markdown_to_html(content)
-    assigns = %{html: html}
-
-    ~H"""
-    <div class="prose prose-sm max-w-none">
-      {raw(@html)}
-    </div>
-    """
+    markdown(%{__changed__: nil, content: Map.get(data, "content") || ""})
   end
 
   defp render_widget(%{"widget" => "sparkline"} = data) do
@@ -228,6 +220,19 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   end
 
   defp to_float(_), do: nil
+
+  attr :content, :string, required: true
+
+  @doc "Renders Markdown using the same HTML and URL safety policy as plugin results."
+  def markdown(assigns) do
+    assigns = assign(assigns, :html, markdown_to_html(assigns.content))
+
+    ~H"""
+    <div class="prose prose-sm max-w-none">
+      {raw(@html)}
+    </div>
+    """
+  end
 
   defp markdown_to_html(content) do
     content = to_string(content || "")
