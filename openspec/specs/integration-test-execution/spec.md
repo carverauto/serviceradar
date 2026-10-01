@@ -1,8 +1,11 @@
 # integration-test-execution Specification
 
 ## Purpose
-TBD - created by archiving change isolate-ci-schema-templates. Update Purpose after archive.
+
+Define schema-input isolation, immutable template publication, generation pinning, and guarded cleanup for CI database integration lifecycles.
+
 ## Requirements
+
 ### Requirement: Template identity follows declared schema inputs
 
 The integration lifecycle SHALL select templates using a canonical versioned manifest covering migration paths and contents, baseline inputs, and schema-affecting construction dependencies and configuration. Rust and Elixir SHALL consume the same declared manifest. Fixture compatibility SHALL be checked before reuse.
@@ -66,4 +69,3 @@ Template lifecycle actions SHALL use typed fixture configuration and declared Ba
 - **THEN** it SHALL retain the same manifest-selected generation
 - **AND** it SHALL fail explicitly if that generation is unavailable
 - **AND** it SHALL NOT fall back to the legacy shared template.
-
