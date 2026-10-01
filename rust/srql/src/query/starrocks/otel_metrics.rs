@@ -218,6 +218,7 @@ pub(super) fn translate(plan: &QueryPlan, database: &str) -> Result<TranslateRes
     };
 
     Ok(TranslateResponse {
+        read_model: None,
         sql,
         params,
         pagination: PaginationMeta {

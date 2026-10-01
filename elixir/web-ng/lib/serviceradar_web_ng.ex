@@ -9,6 +9,6 @@ defmodule ServiceRadarWebNG do
 
   use Boundary,
     check: [apps: [:datasvc, :serviceradar_core, :serviceradar_srql]],
-    deps: [Datasvc, ServiceRadar, ServiceRadarSRQL],
+    deps: [Datasvc, ServiceRadar, ServiceRadarSRQL, ServiceRadarWebNG.SRQL.EntityAccess],
     exports: :all
 end

@@ -13,6 +13,25 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
   # ServiceRadar.Inventory.InterfaceSettings context, not the Rust SRQL engine.
   @non_rust_srql_entities MapSet.new(["interface_settings"])
 
+  test "fleet aliases require their own permissions and use the canonical builder catalog" do
+    devices = %Scope{permissions: MapSet.new(["devices.view"])}
+    plugins = %Scope{permissions: MapSet.new(["plugins.view"])}
+
+    for entity <- ~w(plugin_fleet plugin_fleets) do
+      assert :ok = EntityAccess.authorize("in:#{entity}", plugins)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", devices)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", nil)
+      assert Catalog.entity(entity).id == "plugin_fleet"
+      assert {:ok, _ast} = Native.parse_ast("in:#{entity} sort:category:asc")
+    end
+
+    for {entity, canonical} <- [{"addon_fleets", "addon_fleet"}, {"addon_status", "addon_statuses"}] do
+      assert :ok = EntityAccess.authorize("in:#{entity}", devices)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", plugins)
+      assert Catalog.entity(entity).id == canonical
+    end
+  end
+
   test "security events require the audit permission even for an events reader" do
     events_reader = %Scope{user: nil, permissions: MapSet.new(["observability.events.view"])}
     auditor = %Scope{user: nil, permissions: MapSet.new(["settings.audit.view"])}
@@ -21,6 +40,12 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", events_reader)
     assert {:error, :forbidden} = EntityAccess.authorize("in:security_events", nil)
     assert :ok = EntityAccess.authorize("in:security_events", auditor)
+  end
+
+  test "the observed add-on catalog only offers filters accepted by its existing compiler" do
+    for field <- Catalog.entity("addon_statuses").filter_fields do
+      assert {:ok, _translation} = Native.translate("in:addon_statuses #{field}:example", nil, nil, nil, "legacy")
+    end
   end
 
   test "audit catalog advertises the browsing vocabulary without query navigation" do

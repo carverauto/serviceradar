@@ -1,5 +1,5 @@
 use super::{
-    addon_fleet, composite_results, devices, endpoint_inventory_scans, endpoint_package_catalog,
+    composite_results, devices, endpoint_inventory_scans, endpoint_package_catalog,
     endpoint_packages, gateways, interfaces, *,
 };
 use crate::parser::{self, FilterOp, FilterValue, OrderDirection};
@@ -12,17 +12,21 @@ mod placeholders;
 mod telemetry_ids;
 mod translation;
 
-fn plan_for(query: &str) -> QueryPlan {
-    let config = test_config();
-    let ast = parser::parse(query).expect("docs query should parse");
-    let request = QueryRequest {
+fn request_for(query: &str) -> QueryRequest {
+    QueryRequest {
         query: query.to_string(),
         limit: None,
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
         permitted_signals: None,
-    };
+    }
+}
+
+fn plan_for(query: &str) -> QueryPlan {
+    let config = test_config();
+    let ast = parser::parse(query).expect("docs query should parse");
+    let request = request_for(query);
     build_query_plan(&config, &request, ast).expect("should build plan for docs query")
 }
 

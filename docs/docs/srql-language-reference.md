@@ -326,6 +326,9 @@ fields; using a field that the entity does not support returns an
 | `camera_sources` | `camera_source`, `cameras`, `camera` | Camera inventory with availability and viewable stream profiles. Requires `devices.view`. |
 | `services` | `service` | Observed services and their availability |
 | `gateways` | `gateway` | Gateway/agent operational state |
+| `addon_statuses` | `addon_status` | Observed native add-on reports. Requires `devices.view`. |
+| `addon_fleet` | `addon_fleets` | Native add-on assignments, observed health, freshness and version drift per agent. Requires `devices.view`. |
+| `plugin_fleet` | `plugin_fleets` | WASM plugin assignments and current runtime evidence per partition and agent. Requires `plugins.view`. |
 | `interfaces` | `interface`, `discovered_interfaces` | Discovered network interfaces (time-series) |
 | `bmp_events` | `bmp_event`, `bmp_routing_events` | BGP Monitoring Protocol (BMP) routing events |
 | `alerts` | `alert` | Generated alerts |
@@ -1055,3 +1058,63 @@ CVSS, and last seen.
 - [SRQL Cookbook](./srql-cookbook.md) — task-oriented copy-paste recipes.
 - [Threat Investigation](./threat-investigation.md) — CVE, CPE, KEV, and matcher
   queries.
+
+## Agent extension fleet queries
+
+Native add-ons and WASM plugins have separate entities. `addon_fleet` (alias
+`addon_fleets`) requires `devices.view`; `plugin_fleet` (alias `plugin_fleets`)
+requires `plugins.view`. Both execute scoped Ash reads. Translation returns a
+validated `read_model` plan with empty SQL; execute it through web-ng's query
+API, which also supports Arrow responses and signed cursor pagination.
+
+```srql
+in:addon_fleet addon_id:example-collector assigned:true sort:agent_uid:asc
+in:addon_fleet addon_id:example-collector category:action_required
+in:addon_fleet addon_id:example-collector stale:true
+in:addon_fleet addon_id:example-collector version_drift:true
+in:plugin_fleet plugin_id:example-check enabled:true sort:partition_id:asc
+in:plugin_fleet plugin_id:example-check category:action_required
+in:plugin_fleet plugin_id:example-check partition_id:partition-a stale:true
+```
+
+Native fleet rows reuse the native fleet UI's health classification and include
+assigned package/version, observed state/version, active flag, degradation
+reason, report/health/scan timestamps, evidence age, rollout state, and reason
+code. Disabled native assignments are history, so a runtime without an enabled
+assignment has `assigned:false`. `addon_statuses` / `addon_status` retain their
+existing status-only behavior and newest-report ordering.
+
+WASM fleet rows include partition, agent, plugin, package/version, assignment
+source/policy, enabled state, cadence, latest runtime evidence, and the reported
+`result_status` (`OK`, `WARNING`, `CRITICAL`, or `UNKNOWN`). A fresh warning
+requires action even when the runtime reports availability. The join
+matches both partition and agent; legacy name-only evidence is used only for an
+unambiguous plugin name. Disabled assignments remain visible as
+`expected_inactive`, and identified runtimes without an assignment are
+`observed_only`. Assignment placeholders appear as `pending` or `ready`, with
+no result timestamp or inferred availability. They are never reported results.
+
+`stale` compares native evidence age with the configured add-on freshness
+threshold (180 seconds by default). WASM evidence is stale after the greater of
+180 seconds and three assignment intervals. Stale assigned runtime evidence has
+category `unavailable`. Missing evidence has null timestamps and age; it is not a
+fresh success. `time:` filters the last reported observation, excluding missing
+evidence. Omit `time:` when investigating assignments that have not reported.
+
+`version_drift` is null unless both desired and observed versions are known.
+WASM results do not currently carry a host-authored version; an explicitly
+reported `package_version` is shown when present, without inferring it from the
+assignment. `assignment_drift` compares a reported assignment ID with the
+current assignment; it is null when either ID is unknown. Fresh available
+results with known drift require action.
+
+`last_success_at` and `last_failure_at` describe the latest WASM result: only the
+corresponding timestamp is set. They do not scan historical telemetry.
+`last_error` is the standardized `plugin_result_unavailable` code for a failed
+latest result. Raw messages, result details, assignment params, permissions and
+resource overrides, and host-only credential material are excluded.
+
+Fleet queries support equality, negation, list membership, text wildcards,
+numeric/timestamp comparisons, sorting, limits, and cursors. Null sort values
+come last; identity fields break ties for stable pagination. Stats, rollups,
+and downsampling fail explicitly.

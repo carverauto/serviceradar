@@ -68,31 +68,39 @@ pub(super) fn addon_statuses() -> VizMeta {
     }
 }
 
-pub(super) fn addon_fleet() -> VizMeta {
+pub(super) fn fleet(entity: &crate::parser::Entity) -> VizMeta {
+    use super::super::fleet::Kind;
     VizMeta {
-        columns: vec![
-            col("agent_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
-            col("agent_label", ColumnType::Text, Some(ColumnSemantic::Label)),
-            col("addon_id", ColumnType::Text, Some(ColumnSemantic::Id)),
-            col("addon_name", ColumnType::Text, Some(ColumnSemantic::Label)),
-            col("assigned", ColumnType::Bool, None),
-            col("assigned_version", ColumnType::Text, None),
-            col("observed_state", ColumnType::Text, None),
-            col("observed_version", ColumnType::Text, None),
-            col("active", ColumnType::Bool, None),
-            col("category", ColumnType::Text, Some(ColumnSemantic::Label)),
-            col("reason_code", ColumnType::Text, None),
-            col("evidence_age_seconds", ColumnType::Int, None),
-            col(
-                "reported_at",
-                ColumnType::Timestamptz,
-                Some(ColumnSemantic::Time),
-            ),
-            col("rollout_state", ColumnType::Text, None),
-            col("update_policy", ColumnType::Text, None),
-            col("package_status", ColumnType::Text, None),
-            col("degradation_reason", ColumnType::Text, None),
-        ],
+        columns: super::super::fleet::fields(entity)
+            .into_iter()
+            .map(|(name, kind)| {
+                let column_type = match kind {
+                    Kind::Text => ColumnType::Text,
+                    Kind::Bool => ColumnType::Bool,
+                    Kind::Int => ColumnType::Int,
+                    Kind::Time => ColumnType::Timestamptz,
+                };
+                let semantic = match (name, kind) {
+                    (_, Kind::Time) => Some(ColumnSemantic::Time),
+                    (
+                        "agent_uid"
+                        | "addon_id"
+                        | "plugin_id"
+                        | "partition_id"
+                        | "package_id"
+                        | "assignment_id"
+                        | "observed_assignment_id"
+                        | "policy_id",
+                        _,
+                    ) => Some(ColumnSemantic::Id),
+                    ("agent_label" | "addon_name" | "plugin_name" | "category", _) => {
+                        Some(ColumnSemantic::Label)
+                    }
+                    _ => None,
+                };
+                col(name, column_type, semantic)
+            })
+            .collect(),
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,
             x: None,

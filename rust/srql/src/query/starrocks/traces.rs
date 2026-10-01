@@ -156,6 +156,7 @@ fn response(plan: &QueryPlan, sql: String) -> TranslateResponse {
         })
         .unwrap_or_default();
     TranslateResponse {
+        read_model: None,
         sql,
         params,
         pagination: PaginationMeta {
