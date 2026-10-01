@@ -20,8 +20,7 @@ sufficient — no router change is needed.
 
 - `event_rule.ex`: add `extensions: [AshJsonApi.Resource]` to
   `use Ash.Resource`; add a `:by_id` read action (`argument :id, :uuid,
-  allow_nil?: false; get? true; filter expr(id == ^arg(:id))`); add a
-  `code_interface define` for `:get_by_id`; add a `json_api do end` block
+  allow_nil?: false; get? true; filter expr(id == ^arg(:id))`); add a `json_api do end` block
   with `type "event-rule"`, `base "/event-rules"`, routes `get :by_id`,
   `index :read`, `index :active, route: "/active"`, `post :create`,
   `patch :update`, `delete :destroy`.
@@ -29,8 +28,8 @@ sufficient — no router change is needed.
 - Regenerate `priv/static/openapi.json` (`mix serviceradar.openapi.dump`).
 - Tests: extend `ash_json_api_test.exs` with `/api/v2/event-rules` GET/
   POST/PATCH/DELETE coverage; add `event_rule_fixture/1` to
-  `ash_test_helpers.ex`; add one test confirming a rule created via the API
-  is visible to `LogPromotion.active_log_rules/0`.
+  `ash_test_helpers.ex`; add one test confirming API creation, disable,
+  re-enable, and deletion immediately refresh `LogPromotion.active_log_rules/0`.
 
 ## Impact
 

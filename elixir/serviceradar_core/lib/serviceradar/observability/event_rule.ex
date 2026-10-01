@@ -38,7 +38,6 @@ defmodule ServiceRadar.Observability.EventRule do
   code_interface do
     define :list, action: :read
     define :list_active, action: :active
-    define :get_by_id, action: :by_id, args: [:id]
     define :create, action: :create
     define :update, action: :update
     define :destroy, action: :destroy
@@ -146,6 +145,8 @@ defmodule ServiceRadar.Observability.EventRule do
     end
 
     @impl true
-    def atomic(_changeset, _opts, _context), do: :ok
+    def atomic(changeset, opts, context) do
+      {:ok, change(changeset, opts, context)}
+    end
   end
 end
