@@ -11,7 +11,7 @@ type hostInterface struct {
 // Replaced in tests to supply a deterministic fake inventory (including
 // pre-resolved addresses) without skipping on CI executors that lack an
 // active Ethernet interface.
-var hostInventoryProvider func() []hostInterface = defaultHostInventory
+var hostInventoryProvider func() []hostInterface = defaultHostInventory //nolint:gochecknoglobals // replaced in tests to inject a deterministic fake inventory
 
 func defaultHostInventory() []hostInterface {
 	interfaces, err := net.Interfaces()
