@@ -35,6 +35,27 @@ this document exists at runtime.
 
 ## Mental model
 
+The cold tier archives CNPG chunks, not StarRocks partitions. It remains the
+cold-storage path for installations without StarRocks. When StarRocks is enabled,
+fully configured cold tier enters `:cnpg_backfill`: exports and pruning still
+cover historical CNPG data, but no newly warehouse-resident telemetry is
+archived by this pipeline. A successful CNPG export is not evidence of warehouse
+archival. Warehouse retention and shared-data object storage are separate.
+
+The `cold-tier-backend` infrastructure health check reports
+`unavailable_with_starrocks` for each registry dataset, alongside the export
+source (`cnpg`), mode and whether CNPG export is enabled. The hourly exporter
+reports this even when configuration is incomplete, and the retention worker
+also warns. Export, pressure and fence checks continue describing CNPG history.
+
+Switching the telemetry backend never waives existing CNPG history. Retention
+continues to require verified exports and an acknowledged boundary. Turning
+backfill off keeps residue fenced until the operator completes the existing
+two-phase disable with `ServiceRadar.ColdTier.Admin.waive/2`. Keep the analytics
+head and bucket available while draining history; waiving it is an explicit
+data-loss decision. CNPG CAGG windows are not widened while StarRocks serves
+telemetry, and previously widened windows are not shrunk automatically.
+
 - The **exporter** (hourly) copies closed hypertable chunks to Parquet on
   the deployment bucket via the analytics head, verifies each object with a
   dual-engine checksum, and records it in `platform.cold_chunk_exports`.

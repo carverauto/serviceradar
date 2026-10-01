@@ -296,6 +296,13 @@
 - [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
   installation that turns StarRocks on, newest first, in bounded units; verify counts and totals
   per day.
+- [x] 5.4a Resolve cold-tier reader finding 8 (issue #4872): keep archival CNPG-only with
+  explicit per-dataset warehouse unavailability. Configured StarRocks installations retain
+  historical CNPG export as `:cnpg_backfill`; preserve verified-drop gating and residue
+  fences, skip new CAGG widening, and keep existing archives manageable. Backend health is
+  separate from successful CNPG export health. Focused state/health and CAGG tests plus a
+  database drop-gate regression are registered; execution and regression validation remain
+  pending BazelCI (no local Bazel or Mix compile/test).
 - [ ] 5.6 Keep the CNPG telemetry schema: no migration drops a telemetry hypertable, continuous
   aggregate, retention or compression policy, because installations without StarRocks use them.
   On a StarRocks installation they receive no rows and retention ages them out.

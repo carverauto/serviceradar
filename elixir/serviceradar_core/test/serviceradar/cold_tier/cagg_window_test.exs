@@ -38,11 +38,19 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
 
   setup do
     original = Application.get_env(:serviceradar_core, ServiceRadar.ColdTier)
+    starrocks = Application.get_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks)
+    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: false)
 
     on_exit(fn ->
       case original do
         nil -> Application.delete_env(:serviceradar_core, ServiceRadar.ColdTier)
         cfg -> Application.put_env(:serviceradar_core, ServiceRadar.ColdTier, cfg)
+      end
+
+      if is_nil(starrocks) do
+        Application.delete_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks)
+      else
+        Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, starrocks)
       end
     end)
 
@@ -80,5 +88,13 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
     assert_raise RuntimeError, ~r/could not lookup Ecto repo/, fn ->
       RetentionFence.reconcile_cagg_windows(repo: NotARepo)
     end
+  end
+
+  test "StarRocks backfill does not widen frozen CNPG rollups" do
+    put(@enabled)
+    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: true)
+
+    assert ServiceRadar.ColdTier.Config.state() == :cnpg_backfill
+    assert RetentionFence.reconcile_cagg_windows(repo: NotARepo) == :ok
   end
 end

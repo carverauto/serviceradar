@@ -26,28 +26,35 @@ defmodule ServiceRadar.ColdTier.Config do
 
     * `:disabled` — no cold-tier intent (enable flag off or bucket absent).
       The OSS default: nothing fences retention, nothing runs.
-    * `:enabled` — fully configured (intent + analytics head + primary FDW +
-      object store). Everything runs.
+    * `:enabled` — fully configured, with CNPG as the telemetry backend.
+    * `:cnpg_backfill` — fully configured, with StarRocks as the telemetry
+      backend. Existing CNPG chunks still export and remain retention-fenced;
+      warehouse data is NOT archived by this pipeline.
     * `:misconfigured` — cold tier is INTENDED but the config is incomplete.
       This is the dangerous middle the reviewer caught: fencing retention here
       while the exporter cannot run would hold data hot forever and fill the
       primary. So a misconfigured deployment does NOT fence — normal retention
       proceeds (identical to no cold tier) — and the retention worker alerts.
   """
-  @type state :: :disabled | :enabled | :misconfigured
+  @type state :: :disabled | :enabled | :cnpg_backfill | :misconfigured
 
   @doc "The single activation state all cold consumers key off (review F09)."
   @spec state() :: state()
   def state do
     cond do
       not ServiceRadar.ColdTier.Registry.enabled?() -> :disabled
-      fully_configured?() -> :enabled
-      true -> :misconfigured
+      not fully_configured?() -> :misconfigured
+      warehouse_backend?() -> :cnpg_backfill
+      true -> :enabled
     end
   end
 
   @spec enabled?() :: boolean()
-  def enabled?, do: state() == :enabled
+  def enabled?, do: state() in [:enabled, :cnpg_backfill]
+
+  @doc "Whether incoming telemetry is served by the warehouse, independent of cold intent."
+  @spec warehouse_backend?() :: boolean()
+  def warehouse_backend?, do: ServiceRadar.Analytics.StarRocks.Readers.enabled?()
 
   @doc "True when the cold tier is intended (enable flag + bucket), regardless of completeness."
   @spec intended?() :: boolean()

@@ -109,7 +109,7 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 
 | Reader | Reads | Surface |
 |---|---|---|
-| `ColdTier.Exporter` (`C/cold_tier/`) | seven hot tables | exports CNPG chunks; exports nothing once CNPG stops receiving rows |
+| `ColdTier.Exporter` (`C/cold_tier/`) | seven hot tables | CNPG archival; with StarRocks enabled, historical CNPG backfill only and explicit per-dataset warehouse archival unavailability (`cold-tier-backend`) |
 | `ScanResult.by_scan_run` (scan page, scan export, scan API, composite check orchestrator) | adhoc_scan_results | UI + API |
 | Dashboard `survey_summary`; SRQL `field_survey` | survey tables | UI |
 | SRQL `endpoint_packages` hourly counts | endpoint inventory caggs | SRQL CNPG |
@@ -173,6 +173,15 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
 7. **Write-path reads** (`AnalyticsSignals`, `EndpointVulnerabilityFindingEmitter`,
    `PluginResultIngestor` / `PluginResultStateWinner`, `MtrMetricsIngestor.stored_trace_ids`)
    read CNPG before writing; they move with the writers in 5.2, not with the readers in 5.4.
-8. **`ColdTier.Exporter`** exports CNPG chunks, so it stops producing Parquet once a dataset is
-   warehouse-only; it needs a warehouse source or to be scoped to installations without
-   StarRocks.
+8. **Cold-tier backend scope resolved (issue #4872).** Cold tier remains CNPG-only;
+   it is not dead: `add-tiered-telemetry-offload` defines the supported archival path for
+   CNPG installations. `Exporter.eligible_chunks` enumerates Timescale chunks, `Head` copies
+   through the primary FDW, and `RetentionFence` gates CNPG drops on verified manifests and
+   head acknowledgements. None reads warehouse partitions. New warehouse telemetry is
+   explicitly unavailable for archival per registry dataset in `cold-tier-backend` health;
+   a successful historical CNPG export cannot clear that separate check. Fully configured
+   deployments with StarRocks enter `:cnpg_backfill` and continue archiving CNPG history.
+   The backend switch never releases existing retention fences or bypasses the two-phase
+   disable/residue check. CNPG CAGG retention widening is skipped under StarRocks without
+   shrinking previously retained history. Warehouse export is deliberately out of scope;
+   see `docs/cold-tier-runbook.md` for operating and draining the historical path.

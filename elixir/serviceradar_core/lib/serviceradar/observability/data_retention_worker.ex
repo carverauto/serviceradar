@@ -185,6 +185,18 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   # the primary cannot fill behind a dead exporter — but this must be loud,
   # because the operator believes offload is happening and it is not.
   defp alert_on_misconfigured_cold_tier do
+    if Config.intended?() and Config.warehouse_backend?() do
+      ServiceRadar.ColdTier.Health.record_backend()
+
+      Logger.warning(
+        "Cold tier does NOT archive StarRocks telemetry; configured exports cover only " <>
+          "CNPG history. Existing CNPG retention fences remain in force until history " <>
+          "is verified or explicitly waived.",
+        tables: ServiceRadar.ColdTier.Registry.table_names(),
+        cnpg_export_enabled: Config.enabled?()
+      )
+    end
+
     if Config.state() == :misconfigured do
       Logger.error(
         "Cold tier is INTENDED but MISCONFIGURED — offload is NOT running and data " <>

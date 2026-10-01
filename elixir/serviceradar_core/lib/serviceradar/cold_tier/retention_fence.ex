@@ -93,8 +93,8 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   Whether in-database retention policies are fenced off for this table.
 
   Keys off the SAME activation state as the exporter (`Config.enabled?/0`,
-  i.e. state == :enabled) — NOT mere cold-tier intent. A partial config that
-  fenced retention while the exporter could not run would hold data hot
+  i.e. state == :enabled or :cnpg_backfill) — NOT mere cold-tier intent.
+  A partial config that fenced retention while the exporter could not run would hold data hot
   forever and fill the primary (review F09); a misconfigured deployment
   therefore does not fence, and normal retention proceeds.
 
@@ -103,6 +103,10 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   silently re-arm drops while un-exported chunks are held. The operator
   completes the disable with `ServiceRadar.ColdTier.Admin.waive/2`, which
   clears the residue.
+
+  Switching telemetry to StarRocks does not waive CNPG history. Configured
+  CNPG backfill keeps the fence active, and disabling backfill still follows
+  the same two-phase disable protocol.
   """
   @spec fenced?(String.t()) :: boolean()
   def fenced?(table_name) do
@@ -330,8 +334,10 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   This runs from the retention worker rather than from a migration on purpose.
   Widening a rollup's retention costs storage on EVERY deployment, and the
   reason to pay it only exists once raw history is being served from the cold
-  tier -- so it is gated on `Config.enabled?/0` and follows the flag instead of
-  being a one-way schema change that every operator inherits.
+  tier with CNPG serving telemetry -- so it is gated on cold configuration
+  and the telemetry backend instead of being a one-way schema change that
+  every operator inherits. Historical CNPG backfill under StarRocks does not
+  need wider CNPG rollups.
 
   Deliberately asymmetric -- it only ever WIDENS:
 
@@ -353,7 +359,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   """
   @spec reconcile_cagg_windows(keyword()) :: :ok
   def reconcile_cagg_windows(opts \\ []) do
-    if Config.enabled?() do
+    if Config.enabled?() and not Config.warehouse_backend?() do
       repo = Keyword.get(opts, :repo, Repo)
 
       Enum.each(@cagg_cold_windows, fn {view, target_days} ->
