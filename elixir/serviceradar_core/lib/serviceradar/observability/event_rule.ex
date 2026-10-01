@@ -32,8 +32,8 @@ defmodule ServiceRadar.Observability.EventRule do
       index :read
       index :active, route: "/active"
       post :create
-      patch :update
-      delete :destroy
+      patch :update, read_action: :for_update
+      delete :destroy, read_action: :for_destroy
     end
   end
 
@@ -59,6 +59,9 @@ defmodule ServiceRadar.Observability.EventRule do
       prepare build(sort: [priority: :asc, inserted_at: :asc])
     end
 
+    read :for_update
+    read :for_destroy
+
     create :create do
       accept @event_rule_fields
       change {__MODULE__.InvalidateLogPromotionRulesCache, []}
@@ -66,11 +69,13 @@ defmodule ServiceRadar.Observability.EventRule do
 
     update :update do
       accept @event_rule_fields
+      atomic_upgrade_with :for_update
       change {__MODULE__.InvalidateLogPromotionRulesCache, []}
     end
 
     destroy :destroy do
       primary? true
+      atomic_upgrade_with :for_destroy
       change {__MODULE__.InvalidateLogPromotionRulesCache, []}
     end
   end
@@ -79,7 +84,10 @@ defmodule ServiceRadar.Observability.EventRule do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission({ActorHasPermission, permission: "observability.rules.view"})
+    action_with_permission(
+      [:read, :by_id, :active],
+      {ActorHasPermission, permission: "observability.rules.view"}
+    )
 
     action_with_permission(
       :create,
@@ -87,12 +95,12 @@ defmodule ServiceRadar.Observability.EventRule do
     )
 
     action_with_permission(
-      :update,
+      [:update, :for_update],
       {ActorHasPermission, permission: "observability.rules.update"}
     )
 
     action_with_permission(
-      :destroy,
+      [:destroy, :for_destroy],
       {ActorHasPermission, permission: "observability.rules.delete"}
     )
   end

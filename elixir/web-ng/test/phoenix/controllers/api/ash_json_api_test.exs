@@ -833,7 +833,12 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
         assert conn |> get("/api/v2/event-rules/#{rule.id}") |> json_response(200) |> get_in(["data", "id"]) == rule.id
 
         grant_event_rule_permissions(user, [])
-        assert conn |> get("/api/v2/event-rules") |> json_response(200) |> Map.fetch!("data") == []
+
+        for path <- ["/api/v2/event-rules", "/api/v2/event-rules/active"] do
+          assert conn |> get(path) |> json_response(200) |> Map.fetch!("data") == []
+        end
+
+        assert conn |> get("/api/v2/event-rules/#{rule.id}") |> json_response(404) |> Map.has_key?("errors")
       end
 
       for operation <- [:create, :update, :delete] do
@@ -851,11 +856,15 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
           user = event_rule_profile_user(role, other_permissions)
           rule = event_rule_fixture()
+          revoked_rule = event_rule_fixture()
           conn = log_in_api_user(build_conn(), user)
           name = "Synthetic RBAC rule #{System.unique_integer([:positive])}"
+          revoked_name = "#{name} revoked"
+          rule_ids = [rule.id, revoked_rule.id]
+          rule_names = [name, revoked_name]
 
           on_exit(fn ->
-            Repo.delete_all(from r in EventRule, where: r.id == ^rule.id or r.name == ^name)
+            Repo.delete_all(from r in EventRule, where: r.id in ^rule_ids or r.name in ^rule_names)
           end)
 
           denied = event_rule_request(conn, operation, rule.id, name)
@@ -864,7 +873,14 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
           assert Ash.get!(EventRule, rule.id, actor: system_actor()).priority == rule.priority
           refute Enum.any?(EventRule.list!(actor: system_actor()), &(&1.name == name))
 
-          grant_event_rule_permissions(user, [permission, "observability.rules.view"])
+          grant_event_rule_permissions(user, [permission])
+
+          for path <- ["/api/v2/event-rules", "/api/v2/event-rules/active"] do
+            assert conn |> get(path) |> json_response(200) |> Map.fetch!("data") == []
+          end
+
+          assert conn |> get("/api/v2/event-rules/#{rule.id}") |> json_response(404) |> Map.has_key?("errors")
+
           allowed = event_rule_request(conn, operation, rule.id, name)
 
           case operation do
@@ -880,6 +896,13 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
               assert allowed.status == 200
               refute Enum.any?(EventRule.list!(actor: system_actor()), &(&1.id == rule.id))
           end
+
+          grant_event_rule_permissions(user, [])
+          revoked = event_rule_request(conn, operation, revoked_rule.id, revoked_name)
+          assert revoked.status == 403
+          assert Enum.any?(json_response(revoked, 403)["errors"], &(&1["code"] == "forbidden"))
+          assert Ash.get!(EventRule, revoked_rule.id, actor: system_actor()).priority == revoked_rule.priority
+          refute Enum.any?(EventRule.list!(actor: system_actor()), &(&1.name == revoked_name))
         end
       end
     end
