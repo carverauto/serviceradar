@@ -721,7 +721,6 @@ ex_unit_test(
         "test/serviceradar_web_ng_web/live/diagnostics_live/mtr_compare_test.exs",
         "test/serviceradar_web_ng_web/live/diagnostics_live/mtr_data_test.exs",
         "test/serviceradar_web_ng_web/live/flows/attributed_live_test.exs",
-    
     ],
     data = glob(
         [
