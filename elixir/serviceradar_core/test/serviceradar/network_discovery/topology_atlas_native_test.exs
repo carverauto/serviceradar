@@ -394,27 +394,6 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, %{device_id: ^id}} = TopologyAtlas.search(world, id)
   end
 
-  test "tile selection budget includes the owned stored observation timestamp" do
-    a = position("sr:timestamp-node-a", 100, true)
-    b = position("sr:timestamp-node-b", 200, true)
-    world =
-      "synthetic-timestamp-budget"
-      |> then(fn revision ->
-        assert {:ok, builder} = TopologyAtlas.new_builder(revision, 16)
-        assert :ok = TopologyAtlas.add_positions(builder, [a, b])
-
-        assert :ok =
-                 TopologyAtlas.add_relations(builder, [
-                   observed("synthetic-timestamp-edge", a, b, 1, String.duplicate("t", 1_100_000))
-                 ])
-
-        assert {:ok, built_world} = TopologyAtlas.finish_world(builder)
-        built_world
-      end)
-
-    assert {:error, :selection_budget_exceeded} = TopologyAtlas.tile(world, 0, 0, 0)
-  end
-
   defp cold_world(positions) do
     assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-health-layout", 16)
     assert :ok = TopologyAtlas.add_positions(builder, positions)

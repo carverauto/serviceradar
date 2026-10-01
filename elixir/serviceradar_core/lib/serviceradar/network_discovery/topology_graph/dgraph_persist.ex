@@ -89,19 +89,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   def upsert_hosted_link(%{guest_device_id: guest, host_device_id: host} = payload)
       when is_binary(guest) and is_binary(host) and guest != host do
     if Backend.write_dgraph?() do
-      with :ok <- upsert_endpoint(guest, nil),
-           :ok <- upsert_endpoint(host, nil) do
-        Dgraph.upsert_edge(%{
-          source: guest,
-          target: host,
-          kind: :hosted_on,
-          protocol: "virtualization_inventory",
-          evidence_class: "hosted-virtual",
-          ingestor: "hypervisor_enrichment_v1",
-          telemetry_eligible: false,
-          last_seen: payload[:observed_at]
-        })
-      end
+      Dgraph.replace_hosted_edge(%{
+        source: guest,
+        target: host,
+        kind: :hosted_on,
+        protocol: "virtualization_inventory",
+        evidence_class: "hosted-virtual",
+        ingestor: "hypervisor_enrichment_v1",
+        telemetry_eligible: false,
+        last_seen: payload[:observed_at]
+      })
     else
       :ok
     end

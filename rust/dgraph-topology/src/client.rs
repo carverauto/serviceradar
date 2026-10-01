@@ -318,6 +318,60 @@ impl TopologyClient {
         Ok(())
     }
 
+    /// Replace this projection owner's HOSTED_ON edge for a guest atomically.
+    /// Older observations cannot replace a newer parent; unrelated ingestors
+    /// and edge kinds are outside the deletion scope.
+    pub async fn replace_hosted_edge(&self, edge: &EdgeWrite) -> Result<(), TopologyError> {
+        if edge.kind() != crate::types::EdgeKind::HostedOn
+            || edge.ingestor() != "hypervisor_enrichment_v1"
+            || edge.source() == edge.target()
+            || edge.last_seen().is_empty()
+        {
+            return Err(TopologyError::ConditionSkipped(
+                "hosted replacement".to_owned(),
+                "hosted replacement requires virtualization projection, distinct endpoints, and an observation timestamp".to_owned(),
+            ));
+        }
+        let source = dql_string(edge.source())?;
+        let target = dql_string(edge.target())?;
+        let owner = dql_string("hypervisor_enrichment_v1")?;
+        let projection_key = format!("HOSTED_ON|{}|projection=hypervisor_enrichment_v1", edge.source());
+        let key = dql_string(&projection_key)?;
+        let observed_at = dql_string(edge.last_seen())?;
+        let query = format!(
+            "{{\n  source(func: eq(device.id, {source})) {{ s as uid ~topo.src @filter(eq(topo.kind, \"HOSTED_ON\") AND eq(topo.ingestor, {owner})) {{ owned as uid }} }}\n  target(func: eq(device.id, {target})) {{ d as uid }}\n  current(func: eq(topo.link_key, {key})) {{ c as uid }}\n  superseded(func: uid(owned)) @filter(NOT uid(c)) {{ e as uid }}\n  newer(func: uid(owned)) @filter(gt(topo.last_seen, {observed_at})) {{ n as uid }}\n}}"
+        );
+        let set = json!({
+            "uid": "uid(c)",
+            "dgraph.type": "TopologyEdge",
+            "topo.link_key": projection_key,
+            "topo.src": [{"uid": "uid(s)"}],
+            "topo.dst": [{"uid": "uid(d)"}],
+            "topo.kind": "HOSTED_ON",
+            "topo.protocol": edge.protocol(),
+            "topo.evidence_class": edge.evidence_class(),
+            "topo.ingestor": edge.ingestor(),
+            "topo.confidence_tier": edge.confidence_tier(),
+            "topo.telemetry_eligible": false,
+            "topo.stale": false,
+            "topo.last_seen": edge.last_seen(),
+        });
+        let delete = json!({"uid": "uid(e)"});
+        let condition = format!(
+            "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(newer), 0))"
+        );
+        let response: Value = self.upsert(&query, &condition, &set, Some(&delete)).await?;
+        if response.get("source").and_then(Value::as_array).map_or(0, Vec::len) != 1
+            || response.get("target").and_then(Value::as_array).map_or(0, Vec::len) != 1
+        {
+            return Err(TopologyError::ConditionSkipped(
+                "hosted replacement".to_owned(),
+                "source or target identity is missing or ambiguous".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Canonical topology upsert.
     ///
     /// # Errors

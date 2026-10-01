@@ -91,6 +91,13 @@ defmodule ServiceRadar.Dgraph do
     end
   end
 
+  @spec replace_hosted_edge(map()) :: write_result()
+  def replace_hosted_edge(edge) when is_map(edge) do
+    with {:ok, url} <- url() do
+      Native.replace_hosted_edge(url, edge_map(edge))
+    end
+  end
+
   @spec upsert_canonical_edge(map()) :: write_result()
   def upsert_canonical_edge(edge) when is_map(edge) do
     with {:ok, url} <- url() do

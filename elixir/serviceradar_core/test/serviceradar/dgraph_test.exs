@@ -119,6 +119,19 @@ defmodule ServiceRadar.DgraphTest do
     assert graph_reason =~ "not configured"
   end
 
+  test "hosted replacement reaches its NIF binding for invalid hosted input" do
+    assert {:error, _reason} =
+             Dgraph.replace_hosted_edge(%{
+               source: "synthetic-guest",
+               target: "synthetic-host",
+               kind: :attached_to,
+               protocol: "virtualization_inventory",
+               evidence_class: "hosted-virtual",
+               ingestor: "hypervisor_enrichment_v1",
+               last_seen: "2030-02-03T04:05:06Z"
+             })
+  end
+
   @tag :dgraph
   @tag skip: @dgraph_url in [nil, ""]
   test "upserts a synthetic device against the configured cluster" do

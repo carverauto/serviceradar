@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dgraph_topology::TopologyClient;
+use dgraph_topology::{EdgeKind, EdgeWrite, TopologyClient};
 use proto_dgraph::api;
 use proto_dgraph::api::dgraph_server::{Dgraph, DgraphServer};
 use serde_json::{Value, json};
@@ -55,24 +55,42 @@ struct Fixture {
     calls: Vec<PageCall>,
     queries: Vec<String>,
     mutations: Vec<Value>,
+    mutation_contracts: Vec<(String, String, Value)>,
+    mutation_response: Value,
     snapshot_established: bool,
     faults_delivered: usize,
     violations: Vec<String>,
 }
 
 impl Fixture {
+    fn mutation_response(&self) -> Value {
+        if self.mutation_response.is_null() {
+            json!({"src":[{"uid":"0x1"}],"dst":[{"uid":"0x2"}]})
+        } else {
+            self.mutation_response.clone()
+        }
+    }
+
     fn query(&mut self, request: api::Request) -> Result<api::Response, Status> {
         if !request.mutations.is_empty() {
             if request.read_only || request.mutations.len() != 1 {
                 return self.violation("edge upsert must use one write mutation");
             }
             let mutation = &request.mutations[0];
-            self.mutations.push(
-                serde_json::from_slice(&mutation.set_json)
-                    .map_err(|err| Status::invalid_argument(err.to_string()))?,
-            );
+            self.mutations.push(serde_json::from_slice(&mutation.set_json)
+                .map_err(|err| Status::invalid_argument(err.to_string()))?);
+            self.mutation_contracts.push((
+                request.query,
+                mutation.cond.clone(),
+                if mutation.delete_json.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_slice(&mutation.delete_json)
+                        .map_err(|err| Status::invalid_argument(err.to_string()))?
+                },
+            ));
             return Ok(api::Response {
-                json: br#"{"src":[{"uid":"0x1"}],"dst":[{"uid":"0x2"}]}"#.to_vec(),
+                json: serde_json::to_vec(&self.mutation_response()).expect("mutation response"),
                 txn: Some(api::TxnContext::default()),
                 ..Default::default()
             });
@@ -213,6 +231,72 @@ impl Fixture {
                 .iter()
                 .all(|call| call.first > 0 && call.first <= 256)
         );
+    }
+}
+
+#[tokio::test]
+async fn hosted_replacement_scopes_retirement_and_rejects_older_observations() {
+    let server = RunningServer::start(Fixture {
+        mutation_response: json!({"source":[{"uid":"0x1"}],"target":[{"uid":"0x2"}]}),
+        ..Fixture::default()
+    }).await;
+    let edge = EdgeWrite::new(
+        "sr:guest.example.test",
+        "sr:host.example.test",
+        EdgeKind::HostedOn,
+        "virtualization_inventory",
+        "hosted-virtual",
+        "hypervisor_enrichment_v1",
+    )
+    .with_last_seen("2030-02-03T04:05:06Z");
+
+    server
+        .client
+        .replace_hosted_edge(&edge)
+        .await
+        .expect("valid hosted projection mutation");
+
+    let fixture = server.fixture.lock().expect("fixture lock");
+    let (query, condition, delete) = fixture
+        .mutation_contracts
+        .first()
+        .expect("one atomic replacement mutation");
+    assert!(query.contains("~topo.src"), "{query}");
+    assert!(query.contains("eq(topo.ingestor, \"hypervisor_enrichment_v1\")"), "{query}");
+    assert!(query.contains("eq(topo.kind, \"HOSTED_ON\")"), "{query}");
+    assert!(query.contains("gt(topo.last_seen, \"2030-02-03T04:05:06Z\")"), "{query}");
+    assert!(!query.contains("type(TopologyEdge)"), "{query}");
+    assert_eq!(condition, "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(newer), 0))");
+    assert_eq!(delete, &json!({"uid": "uid(e)"}));
+    assert_eq!(fixture.mutations[0]["topo.ingestor"], "hypervisor_enrichment_v1");
+    assert!(fixture.mutations[0]["topo.link_key"]
+        .as_str()
+        .expect("projection link key")
+        .contains("projection=hypervisor_enrichment_v1"));
+    assert_eq!(fixture.mutations[0]["topo.kind"], "HOSTED_ON");
+    assert_eq!(fixture.mutations[0]["topo.telemetry_eligible"], false);
+}
+
+#[tokio::test]
+async fn hosted_replacement_rejects_missing_or_ambiguous_endpoint_identities() {
+    for response in [
+        json!({"source":[],"target":[{"uid":"0x2"}]}),
+        json!({"source":[{"uid":"0x1"},{"uid":"0x3"}],"target":[{"uid":"0x2"}]}),
+    ] {
+        let server = RunningServer::start(Fixture {
+            mutation_response: response,
+            ..Fixture::default()
+        }).await;
+        let edge = EdgeWrite::new(
+            "sr:guest.example.test",
+            "sr:host.example.test",
+            EdgeKind::HostedOn,
+            "virtualization_inventory",
+            "hosted-virtual",
+            "hypervisor_enrichment_v1",
+        )
+        .with_last_seen("2030-02-03T04:05:06Z");
+        assert!(server.client.replace_hosted_edge(&edge).await.is_err());
     }
 }
 
