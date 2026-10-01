@@ -182,6 +182,5 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
    a successful historical CNPG export cannot clear that separate check. Fully configured
    deployments with StarRocks enter `:cnpg_backfill` and continue archiving CNPG history.
    The backend switch never releases existing retention fences or bypasses the two-phase
-   disable/residue check. CNPG CAGG retention widening is skipped under StarRocks without
-   shrinking previously retained history. Warehouse export is deliberately out of scope;
+   disable/residue check. Warehouse export is deliberately out of scope;
    see `docs/cold-tier-runbook.md` for operating and draining the historical path.

@@ -20,11 +20,12 @@ defmodule ServiceRadar.Observability.TripwireHealth do
 
   require Logger
 
-  @spec record(String.t(), boolean(), map()) :: :ok
-  def record(check_name, healthy?, metadata \\ %{}) when is_binary(check_name) do
+  @spec record(String.t(), boolean(), map(), keyword()) :: :ok
+  def record(check_name, healthy?, metadata \\ %{}, opts \\ []) when is_binary(check_name) do
     case HealthTracker.record_health_check(:core, check_name,
            healthy: healthy?,
-           metadata: metadata
+           metadata: metadata,
+           refresh_metadata: Keyword.get(opts, :refresh_metadata, false)
          ) do
       {:ok, _} ->
         :ok

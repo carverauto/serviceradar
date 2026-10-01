@@ -299,7 +299,7 @@
 - [x] 5.4a Resolve cold-tier reader finding 8 (issue #4872): keep archival CNPG-only with
   explicit per-dataset warehouse unavailability. Configured StarRocks installations retain
   historical CNPG export as `:cnpg_backfill`; preserve verified-drop gating and residue
-  fences, skip new CAGG widening, and keep existing archives manageable. Backend health is
+  fences and keep existing archives manageable. Backend health is
   separate from successful CNPG export health. Focused state/health and CAGG tests plus a
   database drop-gate regression are registered; execution and regression validation remain
   pending BazelCI (no local Bazel or Mix compile/test).

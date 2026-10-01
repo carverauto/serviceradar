@@ -53,8 +53,7 @@ continues to require verified exports and an acknowledged boundary. Turning
 backfill off keeps residue fenced until the operator completes the existing
 two-phase disable with `ServiceRadar.ColdTier.Admin.waive/2`. Keep the analytics
 head and bucket available while draining history; waiving it is an explicit
-data-loss decision. CNPG CAGG windows are not widened while StarRocks serves
-telemetry, and previously widened windows are not shrunk automatically.
+data-loss decision.
 
 - The **exporter** (hourly) copies closed hypertable chunks to Parquet on
   the deployment bucket via the analytics head, verifies each object with a

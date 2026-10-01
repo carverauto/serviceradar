@@ -45,7 +45,10 @@ defmodule ServiceRadar.ColdTier.Health do
   @doc "Report warehouse archival availability separately from historical CNPG export health."
   @spec record_backend(keyword()) :: :ok
   def record_backend(opts \\ []) do
-    recorder = Keyword.get(opts, :health_recorder, &TripwireHealth.record/3)
+    recorder =
+      Keyword.get(opts, :health_recorder, fn check, healthy?, metadata ->
+        TripwireHealth.record(check, healthy?, metadata, refresh_metadata: true)
+      end)
     warehouse? = Config.warehouse_backend?()
     unavailable? = Config.intended?() and warehouse?
 

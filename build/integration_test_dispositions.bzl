@@ -386,7 +386,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/automation/northbound/action_lifecycle_test.exs": 8,
     "test/serviceradar/automation/northbound/invocation_service_test.exs": 5,
     "test/serviceradar/cluster/startup_migrations_test.exs": 2,
-    "test/serviceradar/cold_tier/warehouse_backfill_db_test.exs": 1,
+    "test/serviceradar/cold_tier/warehouse_backfill_db_test.exs": 2,
     "test/serviceradar/composite_checks/composite_check_input_test.exs": 8,
     "test/serviceradar/composite_checks/composite_check_rule_test.exs": 11,
     "test/serviceradar/composite_checks/composite_check_test.exs": 6,

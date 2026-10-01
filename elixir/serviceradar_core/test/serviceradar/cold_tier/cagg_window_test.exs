@@ -85,16 +85,12 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
     # reconcile_cagg_windows/1 would leave them all green.
     put(@enabled)
 
-    assert_raise RuntimeError, ~r/could not lookup Ecto repo/, fn ->
-      RetentionFence.reconcile_cagg_windows(repo: NotARepo)
+    for warehouse? <- [false, true] do
+      Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: warehouse?)
+
+      assert_raise RuntimeError, ~r/could not lookup Ecto repo/, fn ->
+        RetentionFence.reconcile_cagg_windows(repo: NotARepo)
+      end
     end
-  end
-
-  test "StarRocks backfill does not widen frozen CNPG rollups" do
-    put(@enabled)
-    Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks, enabled: true)
-
-    assert ServiceRadar.ColdTier.Config.state() == :cnpg_backfill
-    assert RetentionFence.reconcile_cagg_windows(repo: NotARepo) == :ok
   end
 end

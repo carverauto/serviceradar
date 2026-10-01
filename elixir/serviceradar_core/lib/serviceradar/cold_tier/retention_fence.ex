@@ -334,10 +334,8 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   This runs from the retention worker rather than from a migration on purpose.
   Widening a rollup's retention costs storage on EVERY deployment, and the
   reason to pay it only exists once raw history is being served from the cold
-  tier with CNPG serving telemetry -- so it is gated on cold configuration
-  and the telemetry backend instead of being a one-way schema change that
-  every operator inherits. Historical CNPG backfill under StarRocks does not
-  need wider CNPG rollups.
+  tier -- so it is gated on `Config.enabled?/0` and follows the flag instead of
+  being a one-way schema change that every operator inherits.
 
   Deliberately asymmetric -- it only ever WIDENS:
 
@@ -359,7 +357,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   """
   @spec reconcile_cagg_windows(keyword()) :: :ok
   def reconcile_cagg_windows(opts \\ []) do
-    if Config.enabled?() and not Config.warehouse_backend?() do
+    if Config.enabled?() do
       repo = Keyword.get(opts, :repo, Repo)
 
       Enum.each(@cagg_cold_windows, fn {view, target_days} ->
