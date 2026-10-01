@@ -42,30 +42,6 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
       do: {:ok, %{secret_ref: @bound_ref, credential_rule_id: "rule-bound"}}
 
     def schedule_credential(_assignment, _ref_name, _opts), do: {:error, :no_bound_schedule}
-
-    def eligible_rule("package-1", "rule-eligible", _opts),
-      do:
-        {:ok,
-         %{
-           id: "rule-eligible",
-           secret_id: "018f3f56-3333-7222-8333-123456789abc",
-           scope_type: :agent,
-           scope_value: "agent-a",
-           target_query: "in:devices"
-         }}
-
-    def eligible_rule("package-1", "rule-without-target-query", _opts),
-      do:
-        {:ok,
-         %{
-           id: "rule-without-target-query",
-           secret_id: "018f3f56-3333-7222-8333-123456789abc",
-           scope_type: :agent,
-           scope_value: "agent-a",
-           target_query: nil
-         }}
-
-    def eligible_rule(_package_id, _rule_id, _opts), do: {:error, :credential_rule_not_eligible}
   end
 
   describe "declared credential sources" do
@@ -126,49 +102,6 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
                  plugin_package_context: FakePackageContext,
                  test_pid: self()
                )
-
-      refute_receive {:grant_attrs, _}
-    end
-
-    test "package_rule resolves only an eligible rule of the invocation's package" do
-      requirements = %{
-        "destination_account" => %{
-          "credential_source" => "package_rule",
-          "rule_input" => "destination_rule_id",
-          "required" => true
-        }
-      }
-
-      eligible =
-        invocation(%{
-          descriptor: descriptor(%{credential_requirements: requirements}),
-          input_values: %{"destination_rule_id" => "rule-eligible"}
-        })
-
-      assert {:ok, _prepared} =
-               CredentialGrants.prepare_launch(eligible, assignment(),
-                 grant_issuer: {FakeGrantIssuer, :issue},
-                 plugin_package_context: FakePackageContext,
-                 actor: @credential_manager,
-                 test_pid: self()
-               )
-
-      assert_receive {:grant_attrs, attrs}
-      assert attrs.secret_id == "018f3f56-3333-7222-8333-123456789abc"
-      assert attrs.credential_rule_id == "rule-eligible"
-
-      for value <- [@secret_id, "rule-other", "rule-without-target-query"] do
-        rejected = %{eligible | input_values: %{"destination_rule_id" => value}}
-
-        assert {:error,
-                {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
-                 CredentialGrants.prepare_launch(rejected, assignment(),
-                   grant_issuer: {FakeGrantIssuer, :issue},
-                   plugin_package_context: FakePackageContext,
-                   actor: @credential_manager,
-                   test_pid: self()
-                 )
-      end
 
       refute_receive {:grant_attrs, _}
     end

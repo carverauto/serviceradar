@@ -350,7 +350,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   defp target_query_matches?(query, target_uid) when is_binary(query) do
     with {:ok, ast} <- SRQLAst.parse(query),
          filters <- SRQLDeviceMatcher.extract_filters(ast),
-         true <- filters == [] or target_matches_filters?(target_uid, filters) do
+         true <- target_matches_filters?(target_uid, filters) do
       :ok
     else
       _ -> {:error, :credential_rule_not_eligible}

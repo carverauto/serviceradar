@@ -278,7 +278,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       unique = System.unique_integer([:positive])
       target_uid = "sr:example-sat-query-target-#{unique}"
       target_hostname = "host-#{unique}.example.com"
-      target_device!(target_uid, target_hostname, bound.agent_uid)
+      target_device!(target_uid, target_hostname, bound.agent_uid, true)
 
       rule_with_target = update_target_query!(second_rule, "in:devices hostname:#{target_hostname}")
 
@@ -312,6 +312,47 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
                  grant_issuer: {FakeGrantIssuer, :issue},
                  actor: @credential_manager
                )
+
+      rule_without_filters = update_target_query!(rule_without_target, "in:devices")
+
+      active_invocation =
+        in_memory_invocation(
+          package,
+          %{"destination_account" => @destination_requirement},
+          %{"destination_rule_id" => to_string(rule_without_filters.id)},
+          bound.agent_uid,
+          target_uid
+        )
+
+      assert {:ok, _prepared} =
+               CredentialGrants.prepare_launch(active_invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+
+      assert_received {:grant_attrs, attrs}
+      assert to_string(attrs.secret_id) == to_string(rule_without_filters.secret_id)
+
+      inactive_uid = "sr:example-inactive-query-target-#{unique}"
+      target_device!(inactive_uid, "inactive-#{unique}.example.com", bound.agent_uid, false)
+
+      inactive_invocation =
+        in_memory_invocation(
+          package,
+          %{"destination_account" => @destination_requirement},
+          %{"destination_rule_id" => to_string(rule_without_filters.id)},
+          bound.agent_uid,
+          inactive_uid
+        )
+
+      assert {:error,
+              {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
+               CredentialGrants.prepare_launch(inactive_invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+
+      refute_received {:grant_attrs, _}
     end
 
     test "rejects another package's rule, a disabled rule, an unprovisioned rule and a raw secret id",
@@ -713,12 +754,18 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
     updated
   end
 
-  defp target_device!(uid, hostname, agent_uid) do
+  defp target_device!(uid, hostname, agent_uid, is_active) do
     {:ok, device} =
       Device
       |> Ash.Changeset.for_create(
         :create,
-        %{uid: uid, ip: "192.0.2.44", hostname: hostname, agent_id: agent_uid},
+        %{
+          uid: uid,
+          ip: "192.0.2.44",
+          hostname: hostname,
+          agent_id: agent_uid,
+          is_active: is_active
+        },
         actor: @system_actor
       )
       |> Ash.create(actor: @system_actor, domain: ServiceRadar.Inventory)
