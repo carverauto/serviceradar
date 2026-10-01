@@ -222,6 +222,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_dir: "desc",
       default_filter_field: "addon_id",
       filter_fields: ~w(agent_uid addon_id state version arch),
+      exact_fields: ~w(state arch),
       downsample: false
     },
     %{

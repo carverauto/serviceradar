@@ -75,9 +75,37 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     end
   end
 
-  test "the observed add-on catalog only offers filters accepted by its existing compiler" do
-    for field <- Catalog.entity("addon_statuses").filter_fields do
-      assert {:ok, _translation} = Native.translate("in:addon_statuses #{field}:example", nil, nil, nil, "legacy")
+  test "observed add-on builder filters translate with supported comparisons and values" do
+    for entity <- ~w(addon_statuses addon_status),
+        {field, value} <- [
+          {"agent_uid", "agent-example"},
+          {"addon_id", "example-check"},
+          {"state", "unhealthy"},
+          {"version", "1.2.3"},
+          {"arch", "amd64"}
+        ],
+        op <- [Catalog.default_filter_op(entity, field), "contains", "not_contains", "equals", "not_equals"] do
+      query =
+        entity
+        |> Builder.default_state()
+        |> Map.put("filters", [%{"field" => field, "op" => op, "value" => value}])
+        |> Builder.build()
+
+      exact? = field in ~w(state arch) or op in ~w(equals not_equals)
+      negated? = op in ~w(not_contains not_equals)
+      expected_value = if exact?, do: value, else: "%#{value}%"
+
+      operator =
+        case {exact?, negated?} do
+          {true, false} -> "="
+          {true, true} -> "!="
+          {false, false} -> "ILIKE"
+          {false, true} -> "NOT ILIKE"
+        end
+
+      assert {:ok, json} = Native.translate(query, nil, nil, nil, "legacy")
+      assert %{"sql" => sql, "params" => [%{"t" => "text", "v" => ^expected_value} | _]} = Jason.decode!(json)
+      assert sql =~ ~s("#{field}" #{operator} $1)
     end
   end
 
