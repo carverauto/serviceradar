@@ -59,6 +59,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     assert {:ok, %{"guests_done" => true, "edges_done" => true}} =
              HypervisorEnrichmentIngestor.reconcile_hosted_topology()
 
+    assert [%{"observed_at" => "2030-02-03T04:05:06Z", "target" => [%{"id" => host_uid}]}] =
+             hosted_projection(hd(ids))
+
+    assert host_uid == Enum.at(ids, 1)
+
     job = reconcile_job!()
     version = job.args["layout_version"]
 

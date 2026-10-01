@@ -30,6 +30,7 @@ async fn real_worker_publishes_pages_and_coalesces_a_later_source_change() {
 
         let mut child = Command::new(executable)
             .env("DGRAPH_URL", target)
+            .env("GRAPH_BACKEND", "dgraph")
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
