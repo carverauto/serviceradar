@@ -84,6 +84,31 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
     end)
   end
 
+  @doc "Project an authoritative virtualization guest/host relationship to Dgraph."
+  @spec upsert_hosted_link(map()) :: :ok | {:error, term()}
+  def upsert_hosted_link(%{guest_device_id: guest, host_device_id: host} = payload)
+      when is_binary(guest) and is_binary(host) and guest != host do
+    if Backend.write_dgraph?() do
+      with :ok <- upsert_endpoint(guest, nil),
+           :ok <- upsert_endpoint(host, nil) do
+        Dgraph.upsert_edge(%{
+          source: guest,
+          target: host,
+          kind: :hosted_on,
+          protocol: "virtualization_inventory",
+          evidence_class: "hosted-virtual",
+          ingestor: "hypervisor_enrichment_v1",
+          telemetry_eligible: false,
+          last_seen: payload[:observed_at]
+        })
+      end
+    else
+      :ok
+    end
+  end
+
+  def upsert_hosted_link(_payload), do: :ok
+
   @spec upsert_risk_summary(String.t(), map()) :: :ok
   def upsert_risk_summary(device_uid, summary) when is_binary(device_uid) and is_map(summary) do
     maybe(fn ->

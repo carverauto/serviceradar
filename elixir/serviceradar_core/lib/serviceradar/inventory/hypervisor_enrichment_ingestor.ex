@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   """
 
   alias ServiceRadar.Inventory.DeviceClaimPolicy
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.SyncIngestor
@@ -20,6 +21,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.VirtualizationIdentityAliases
   alias ServiceRadar.Inventory.VirtualizationNetworkInterface
   alias ServiceRadar.Inventory.VirtualizationStorageSystem
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -324,10 +326,53 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationDatastore, datastores, actor),
          {:ok, _} <- upsert_group(VirtualizationHostDisk, disks, actor),
          {:ok, _} <- upsert_group(VirtualizationNetworkInterface, nics, actor),
-         {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor) do
-      VirtualizationIdentityAliases.reconcile(records)
+         {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor),
+         :ok <- VirtualizationIdentityAliases.reconcile(records),
+         :ok <- project_hosted_topology(host_rows, guests, actor) do
+      :ok
     end
   end
+
+  defp project_hosted_topology(hosts, guests, actor) do
+    host_uids = Map.new(hosts, &{{&1.provider, &1.provider_ref}, Map.get(&1, :device_uid)})
+
+    guests
+    |> Enum.reduce_while(:ok, fn guest, :ok ->
+      host_uid = Map.get(host_uids, {guest.provider, guest.host_provider_ref})
+
+      with guest_uid when is_binary(guest_uid) <- Map.get(guest, :device_uid),
+           host_uid when is_binary(host_uid) <- host_uid,
+           {:ok, guest_uid} <- live_canonical_device_uid(guest_uid, actor),
+           {:ok, host_uid} <- live_canonical_device_uid(host_uid, actor),
+           result <-
+             DgraphPersist.upsert_hosted_link(%{
+               guest_device_id: guest_uid,
+               host_device_id: host_uid,
+               observed_at: observed_at_string(guest[:observed_at])
+             }),
+           :ok <- result do
+        {:cont, :ok}
+      else
+        nil -> {:cont, :ok}
+        {:skip, _reason} -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp live_canonical_device_uid(uid, actor) do
+    canonical_uid = IdentityReconciler.follow_canonical_device_id(uid, actor)
+
+    case Device.get_by_uid(canonical_uid, true, actor: actor) do
+      {:ok, %Device{deleted_at: nil}} -> {:ok, canonical_uid}
+      {:ok, _deleted_or_missing} -> {:skip, {:inactive_virtualization_endpoint, canonical_uid}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp observed_at_string(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
+  defp observed_at_string(timestamp) when is_binary(timestamp), do: timestamp
+  defp observed_at_string(_), do: nil
 
   # Proxmox v3 object identity is authoritative only because its integration
   # and controller scope was derived from the authenticated assignment. A
