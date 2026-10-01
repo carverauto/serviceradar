@@ -75,6 +75,33 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     end
   end
 
+  test "multiword plugin name builder filters translate and select the intended rows" do
+    for name <- ["Example WASM Check", "Example\tWASM Check", ~s(Example "WASM" \\ Check)],
+        op <- ~w(contains not_contains equals not_equals) do
+      query =
+        "plugin_fleet"
+        |> Builder.default_state()
+        |> Map.put("filters", [%{"field" => "plugin_name", "op" => op, "value" => name}])
+        |> Builder.build()
+
+      assert {:ok, json} = Native.translate(query, nil, nil, nil, "legacy")
+      %{"read_model" => plan} = Jason.decode!(json)
+      matching = %{"plugin_name" => name}
+      containing = %{"plugin_name" => "Prefix #{name} suffix"}
+      other = %{"plugin_name" => "Different check"}
+
+      expected =
+        case op do
+          "contains" -> [matching, containing]
+          "not_contains" -> [other]
+          "equals" -> [matching]
+          "not_equals" -> [containing, other]
+        end
+
+      assert FleetQuery.apply_plan([matching, containing, other], plan) == expected
+    end
+  end
+
   test "observed add-on builder filters translate with supported comparisons and values" do
     for entity <- ~w(addon_statuses addon_status),
         {field, value} <- [
