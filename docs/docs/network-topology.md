@@ -39,11 +39,12 @@ and returns to the tile map on exit. These bounded map pages reuse the radial
 overview projection, including real attachment fans; older detail payloads
 without that profile retain their layered layout.
 
-The tiled world reads Dgraph's admitted topology view, including fresh attachment,
-hosted and inferred evidence alongside the canonical backbone. The separate
-canonical traversal API remains backbone-only. Overview routes follow the
-preferred physical-first forest; retained cross-links remain available in
-bounded details. Zoom changes grouping and label admission, not device coordinates.
+The tiled world reads Dgraph's admitted topology view, including fresh and
+last-known stale attachment, hosted and inferred evidence alongside the canonical
+backbone. Stale links remain visible and marked stale, but never supply current
+traffic or packet animation. The separate canonical traversal API remains
+backbone-only. Overview routes follow the preferred physical-first forest;
+retained cross-links remain available in bounded details. Zoom changes grouping and label admission, not device coordinates.
 
 ## Rollout Guidance
 

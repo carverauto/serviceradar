@@ -6,7 +6,13 @@ package(default_visibility = ["//visibility:public"])
 
 filegroup(
     name = "srcs",
-    srcs = glob(["**"], exclude = ["bazel-*", "target/**"]),
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "target/**",
+        ],
+    ),
 )
 
 rust_shared_library(
@@ -20,7 +26,10 @@ rust_shared_library(
         "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
         "//conditions:default": [],
     }),
-    deps = all_crate_deps(cargo_only = True, normal = True) + [
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
         "//rust/dgraph-topology:dgraph_topology",
         "//rust/topology-atlas:topology_atlas",
     ],
@@ -33,9 +42,13 @@ rust_test(
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
-    deps = all_crate_deps(cargo_only = True, normal = True, normal_dev = True) + [
-        "@crates//:serde_json",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
         "//rust/dgraph-topology:dgraph_topology",
         "//rust/topology-atlas:topology_atlas",
+        "@crates//:serde_json",
     ],
 )

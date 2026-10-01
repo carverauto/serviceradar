@@ -10,15 +10,15 @@ mod abi;
 mod runtime;
 
 use std::future::Future;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use dgraph_topology::{DownstreamFact, TopologyClient};
 
 use crate::abi::{
-    CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult, JsonResult,
-    NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph, NifChangeWrite, NifDeviceWrite,
-    NifDownstreamFact, NifEdgeWrite, NifHopWrite, NifInterfaceWrite, NifNeighbourhoodEdge,
-    NifPrefixWrite, WriteResult, refuses_mutation,
+    refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
+    JsonResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph, NifChangeWrite,
+    NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite, NifInterfaceWrite,
+    NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
 };
 use crate::runtime::{client_for, require_url, runtime};
 

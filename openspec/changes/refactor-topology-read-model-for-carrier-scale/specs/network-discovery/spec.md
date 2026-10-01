@@ -20,6 +20,13 @@ The topology read model SHALL acquire Dgraph Device vertices and admitted topolo
 - **AND** an explicitly deleted edge SHALL NOT reappear
 - **AND** the canonical backbone API and causal readers SHALL remain current-only
 
+#### Scenario: Hosted repair preserves ownership observation time
+- **GIVEN** saved guest ownership is valid and its host receives a newer heartbeat
+- **WHEN** hosted topology repair replays the saved owner
+- **THEN** the guest's own observation time SHALL determine ownership freshness; the host heartbeat SHALL NOT refresh it
+- **AND** a guest with unknown observation time SHALL NOT create or refresh a hosted edge
+- **AND** valid last-known hosted evidence for that guest SHALL remain retained rather than being retired solely because the observation time is unknown
+
 #### Scenario: A later source page cannot be accepted
 - **GIVEN** earlier pages were read successfully
 - **WHEN** a later page fails, has a malformed or non-advancing cursor, has missing required response fields, wrong field types, an invalid snapshot timestamp, or cannot fit the transport limit even as a single row

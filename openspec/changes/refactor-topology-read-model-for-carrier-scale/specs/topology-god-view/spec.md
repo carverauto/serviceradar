@@ -272,7 +272,16 @@ Telemetry SHALL use a separate bounded overlay keyed by stable node, aggregate, 
 
 Overlay bodies SHALL use authenticated HTTP with a separate ETag and a 256 KiB encoded JSON limit; channel control metadata SHALL remain within 16 KiB. Each overlay SHALL pin the installed generation and encoded geometry revision, using a compatible native selector and health index. Telemetry SQL waits SHALL retain only bounded plain selected data, not native world handles. Rate queries SHALL select at most 512 exact interface pairs from at most 256 selected relations and obey a separate 1 MiB request budget without truncating identities.
 
+The geometry receipt SHALL retain every rendered edge, including stale edges, with its identity and represented-relation count. Overlay preparation SHALL strictly validate selected membership and counts against that complete receipt before reading telemetry. Relations belonging to stale rendered edges SHALL be telemetry-ineligible without changing selection coverage or removing health rollups.
+
 Packet attribution SHALL admit only direct physical evidence with no virtual role; only a globally exclusive endpoint interface SHALL supply a relation measurement. Fresh measured packet or octet rates SHALL drive directional traffic animation without requiring every packet family. The response SHALL distinguish observed packet rates from complete packet totals: missing families remain unknown, never zero. Summing packet families SHALL require common identified producer provenance; a uniquely measured single family SHALL NOT require cross-family identity proof. Ambiguous measurements and excluded evidence SHALL remain unknown. A bundle direction SHALL animate only after its rendered membership is fully selected in that frame. It MAY animate the observed contribution from fresh, unambiguous physical bindings while other selected bindings have no telemetry; complete totals SHALL remain unknown and observed coverage SHALL be explicit. Sampled rates SHALL NOT be extrapolated or accumulated across pages as a complete current measurement. Health SHALL distinguish healthy, unavailable and unknown counts, with explicit seed/source freshness metadata.
+
+#### Scenario: Stale links do not reject a mixed tile's overlay
+- **GIVEN** a tile contains live physical links and retained stale links
+- **WHEN** its overlay is prepared with the matching complete receipt
+- **THEN** health and eligible live-link traffic SHALL remain available
+- **AND** stale rendered edges SHALL NOT receive attributed traffic or packet animation even if telemetry rows exist
+- **AND** a mismatched membership or represented-relation count SHALL reject the receipt
 
 #### Scenario: Geometry change touches only dependent tiles
 - **WHEN** one device's non-telemetry geometry content changes
