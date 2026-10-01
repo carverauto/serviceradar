@@ -47,7 +47,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert {:ok, parsed} = Builder.parse(query)
     rebuilt = Builder.build(parsed)
     assert rebuilt =~ "in:devices"
-    assert rebuilt =~ "type:Access\\ Point"
+    assert rebuilt =~ ~s|type:"Access Point"|
+    assert {:ok, ^parsed} = Builder.parse(rebuilt)
   end
 
   test "an apostrophe inside an unquoted value does not swallow the rest of the query" do
