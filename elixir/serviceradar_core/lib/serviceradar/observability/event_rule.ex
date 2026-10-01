@@ -84,6 +84,7 @@ defmodule ServiceRadar.Observability.EventRule do
     import ServiceRadar.Policies
 
     system_bypass()
+
     action_with_permission(
       [:read, :by_id, :active],
       {ActorHasPermission, permission: "observability.rules.view"}

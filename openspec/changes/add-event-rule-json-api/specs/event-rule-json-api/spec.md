@@ -27,7 +27,8 @@ SHALL remain supported.
 - **WHEN** a viewer's configured profile grants `observability.rules.create`,
   `.update`, or `.delete`
 - **THEN** the corresponding API operation SHALL succeed for a valid request
-  without requiring an operator role or unrelated write permissions
+  without requiring an operator role, view permission, or unrelated write
+  permissions
 
 #### Scenario: Reading rules honors the configured view permission
 - **WHEN** an authenticated actor requests the rule list, active rules, or a

@@ -180,11 +180,23 @@ updating, or deleting a rule immediately invalidates the log promotion rule
 cache, so the next read reflects the mutation. Unauthenticated listing
 returns an empty `data` array; unauthenticated mutations are denied.
 
-Reads use the resource's viewer-or-higher policy; mutations require an
-operator or administrator, with the existing internal system bypass.
+Event rule reads (list, active list, and detail) require
+`observability.rules.view`. Creating, updating, and deleting require
+`observability.rules.create`, `observability.rules.update`, and
+`observability.rules.delete`, respectively. Custom profiles can grant or
+revoke each permission independently of the user's base role. A write
+permission permits its operation without view permission; it does not grant
+GET access. Without view permission, lists return an empty `data` array and
+detail requests return 404. Profile changes affect subsequent authenticated
+requests without replacing the bearer token. Built-in role defaults and the
+internal system bypass remain supported. Rule permissions do not grant RBAC
+profile management; see [Roles & Permissions](./rbac-and-roles.md).
+
+Stateful alert rule reads retain the viewer-or-higher policy; mutations
+require an operator or administrator, with the internal system bypass.
 OAuth2 token scopes are not enforced by this JSON:API pipeline: restrict the
-credential owner's role rather than relying on a `read` scope to prevent
-writes. This limitation is tracked in
+credential owner's effective permissions rather than relying on a `read`
+scope to prevent writes. This limitation is tracked in
 [scope enforcement](https://github.com/carverauto/serviceradar/issues/329).
 
 Telemetry collections use bounded offset pagination even when no page is
