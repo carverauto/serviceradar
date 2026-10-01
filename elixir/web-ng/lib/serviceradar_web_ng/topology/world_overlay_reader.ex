@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
          {:ok, %{world: world, health: health, manifest: manifest, progress: progress}} <-
            WorldHealth.snapshot(health_owner),
          true <- TileControl.fence(manifest) == expected and tile.generation == expected.generation,
-         %{selection: selection, flow_edges: edges} when is_list(edges) and length(edges) <= 256 <- tile,
+         %{selection: selection, flow_edges: edges} when is_list(edges) and length(edges) <= 512 <- tile,
          {:ok, health} <- TopologyAtlas.tile_health(world, health, selection),
          cursor = if(continuation && continuation.revision == tile.revision, do: continuation.cursor),
          {:ok, page} <- TopologyAtlas.tile_relations(world, selection, cursor, 256),
@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
         fence: expected,
         revision: tile.revision,
         edges: edges,
-        page: page,
+        page: exclude_stale_telemetry(page, edges),
         health: health |> Map.put(:source, source_progress(progress)) |> Map.put(:sampled_at, DateTime.utc_now())
       }
 
@@ -95,5 +95,17 @@ defmodule ServiceRadarWebNG.Topology.WorldOverlayReader do
         Enum.all?(page.relations, &(counts[&1.rendered_edge_id] == &1.bundle_members))
 
     if valid, do: :ok, else: {:error, :invalid_tile_receipt}
+  end
+
+  defp exclude_stale_telemetry(page, edges) do
+    stale_ids = edges |> Enum.filter(&(Map.get(&1, :stale) == true)) |> MapSet.new(& &1.id)
+
+    Map.update!(page, :relations, fn relations ->
+      Enum.map(relations, fn relation ->
+        if MapSet.member?(stale_ids, relation.rendered_edge_id),
+          do: Map.put(relation, :telemetry_eligible, false),
+          else: relation
+      end)
+    end)
   end
 end

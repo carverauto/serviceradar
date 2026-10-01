@@ -15,6 +15,7 @@ const requiredColumns = {
   node_detail_cluster_member_count: "Float64",
   edge_source: "Uint32",
   edge_target: "Uint32",
+  edge_topology_class: "Utf8",
   edge_detail_id: "Utf8",
   edge_detail_represented_count: "Float64",
   edge_detail_phase_start: "Float64",
@@ -50,10 +51,10 @@ export function decodeWorldTile(bytes, expected) {
   requireValue(typeof revision === "string" && /^[0-9a-f]{64}$/.test(revision), "revision")
   if (expected.revision) requireValue(revision === expected.revision, "response revision")
   const nodeCount = integer(metadata, "node_count", 128)
-  const edgeCount = integer(metadata, "edge_count", 256)
+  const edgeCount = integer(metadata, "edge_count", 512)
   requireValue(table.numRows === nodeCount + edgeCount, "row count")
   requireValue(nodeCount <= integer(metadata, "max_nodes", 128), "node budget")
-  requireValue(edgeCount <= integer(metadata, "max_edges", 256), "edge budget")
+  requireValue(edgeCount <= integer(metadata, "max_edges", 512), "edge budget")
   requireValue(bytes.byteLength <= integer(metadata, "max_encoded_bytes", MAX_TILE_BYTES), "encoded budget")
   requireValue(integer(metadata, "world_extent") === WORLD_EXTENT, "world extent")
   requireValue(metadata.get("coordinate_space") === "tile-local-u16", "coordinate space")
@@ -97,6 +98,8 @@ export function decodeWorldTile(bytes, expected) {
   requireValue(represented === integer(metadata, "device_count"), "device conservation")
   const edges = new Array(edgeCount)
   const edgeIds = new Set()
+  const edgeClass = columns.edgeStrings("edge_topology_class")
+  const hasStaleColumn = table.schema.fields.some(field => field.name === "edge_detail_stale")
   for (let index = 0; index < edgeCount; index += 1) {
     const source = columns.edgeSource[index]
     const target = columns.edgeTarget[index]
@@ -105,12 +108,15 @@ export function decodeWorldTile(bytes, expected) {
     const count = details.represented_count
     const start = details.phase_start
     const end = details.phase_end
+    const topologyClass = edgeClass(index)
+    requireValue(["backbone", "logical", "hosted", "endpoints", "inferred", "unknown"].includes(topologyClass), "edge class")
     requireValue(source < nodeCount && target < nodeCount, "endpoint")
     requireValue(typeof id === "string" && id.length > 0 && !edgeIds.has(id), "edge identity")
     requireValue(Number.isSafeInteger(count) && count > 0, "relation count")
     requireValue(Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end <= 1 && start < end, "flow phase")
     edgeIds.add(id)
-    edges[index] = {id, index, source, target, count, start, end}
+    const stale = hasStaleColumn ? details.stale === true : false
+    edges[index] = {id, index, source, target, count, start, end, topologyClass, stale}
   }
   return {key: {...expected}, revision, columns, positions, nodes, edges, byteLength: bytes.byteLength}
 }

@@ -19,40 +19,61 @@ pub fn reconcile(
     let mut slots = ComponentSlots::from_previous(previous);
     let mut cells = ComponentCells::new(previous)?;
     let forest = forest(&devices, &adjacency, &known);
-    let fresh_components = forest
+    let fresh_tree: Vec<_> = forest
         .iter()
         .filter(|tree| {
             !tree
                 .iter()
                 .any(|(i, _)| known.contains_key(devices[*i].id.as_str()))
         })
-        .count();
-    let component_depth = previous
-        .iter()
-        .map(|p| p.component.z)
-        .min()
-        .unwrap_or_else(|| depth_for(fresh_components.saturating_mul(4)).max(1));
+        .flatten()
+        .copied()
+        .collect();
+    let component_depth = previous.iter().map(|p| p.component.z).min().unwrap_or(1);
     let mut positions: Vec<Option<Position>> = vec![None; devices.len()];
 
+    // Reserve a single envelope for the composed fresh forest, so isolated
+    // devices do not receive the same world area as a large connected fan.
+    // Semantic component IDs and real parent bindings remain independent.
+    let fresh = if fresh_tree.is_empty() {
+        None
+    } else {
+        // QuickJS permits 8 MiB of stack; BEAM dirty schedulers provide much
+        // less. Keep the runtime's entire lifetime on a stack with headroom.
+        let drawing = std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn_scoped(scope, || {
+                    let elk = crate::elk::Elk::new()?;
+                    crate::elk_hierarchy::compose(&fresh_tree, &elk)
+                })
+                .map_err(|_| Error::LayoutUnavailable)?
+                .join()
+                .map_err(|_| Error::LayoutUnavailable)?
+        })?;
+        let finest = crate::elk_hierarchy::finest_cell(&drawing, fresh_tree.len())?;
+        let component = cells.reserve(&devices[fresh_tree[0].0].id, component_depth, finest)?;
+        let geometry = crate::elk_hierarchy::project(&drawing, component, fresh_tree.len())?;
+        Some((
+            component,
+            geometry,
+            depth_for(fresh_tree.len().saturating_mul(4)),
+        ))
+    };
     for tree in forest {
         let anchor = tree
             .iter()
             .find_map(|(i, _)| known.get(devices[*i].id.as_str()).copied());
         let root = tree[0].0;
-        let component = match anchor {
-            Some(position) => position.component,
-            None => cells.reserve(&devices[root].id, component_depth)?,
-        };
+        let component = anchor.map_or_else(|| fresh.as_ref().unwrap().0, |p| p.component);
         let component_id =
             anchor.map_or_else(|| devices[root].id.clone(), |p| p.component_id.clone());
-        let placement_depth = anchor.map_or_else(
-            || depth_for(tree.len().saturating_mul(4)),
-            |p| p.placement_depth,
-        );
+        let placement_depth =
+            anchor.map_or_else(|| fresh.as_ref().unwrap().2, |p| p.placement_depth);
         if u16::from(component.z) + u16::from(placement_depth) > 24 {
             return Err(Error::ExhaustedWorld);
         }
-        for (rank, &(i, parent)) in tree.iter().enumerate() {
+        for &(i, parent) in &tree {
             let device = &devices[i];
             let position = if let Some(old) = known.get(device.id.as_str()) {
                 let mut old = (*old).clone();
@@ -60,7 +81,7 @@ pub fn reconcile(
                 old.min_zoom = minimum_zoom(device.importance);
                 old
             } else if anchor.is_none() {
-                let (x, y) = morton_point(component, placement_depth, rank as u64 * 4);
+                let (x, y) = fresh.as_ref().unwrap().1[&i];
                 Position {
                     id: device.id.clone(),
                     label: device.label.clone(),
@@ -144,7 +165,6 @@ fn previous_index(previous: &[Position]) -> Result<HashMap<&str, &Position>, Err
     let mut index = HashMap::with_capacity(previous.len());
     let mut points = HashSet::with_capacity(previous.len());
     let mut components = HashMap::new();
-    let mut component_ids = HashMap::new();
     for position in previous {
         let valid_cell = Cell::new(
             position.component.z,
@@ -160,13 +180,10 @@ fn previous_index(previous: &[Position]) -> Result<HashMap<&str, &Position>, Err
         {
             return Err(Error::InvalidPosition(position.id.clone()));
         }
+        // Independent semantic components can share a composed reservation;
+        // one semantic component must still resolve to exactly one cell.
         if let Some(old) = components.insert(position.component_id.as_str(), position.component)
             && old != position.component
-        {
-            return Err(Error::InvalidPosition(position.id.clone()));
-        }
-        if let Some(old) = component_ids.insert(position.component, position.component_id.as_str())
-            && old != position.component_id
         {
             return Err(Error::InvalidPosition(position.id.clone()));
         }
@@ -371,26 +388,43 @@ impl ComponentCells {
         }
     }
 
-    fn reserve(&mut self, id: &str, initial_depth: u8) -> Result<Cell, Error> {
+    fn reserve(&mut self, id: &str, initial_depth: u8, finest: u8) -> Result<Cell, Error> {
         let seed = hash(id);
-        let total = 1u64 << 24;
-        for z in initial_depth..=12 {
-            let count = 1u64 << (2 * z);
-            if total / count > (total - self.occupied_area) / 4 {
-                continue;
-            }
-            for offset in 0..count.min(128) {
-                let (x, y) = morton_xy(seed.wrapping_add(offset) % count);
-                let cell = Cell { z, x, y };
-                if !self.prefixes.contains(&cell)
-                    && !(0..=z).any(|a| self.leaves.contains(&cell.ancestor(a)))
-                {
-                    self.insert(cell);
-                    return Ok(cell);
-                }
+        let finest = finest.min(12);
+        if initial_depth <= finest
+            && let Some(cell) = self.find(seed, initial_depth, finest, true)
+        {
+            self.insert(cell);
+            return Ok(cell);
+        }
+        for z in (0..=finest).rev() {
+            if let Some(cell) = self.find(seed, z, z, false) {
+                self.insert(cell);
+                return Ok(cell);
             }
         }
         Err(Error::ExhaustedWorld)
+    }
+
+    fn find(&self, seed: u64, from: u8, to: u8, area_limited: bool) -> Option<Cell> {
+        let total = 1u64 << 24;
+        for z in from..=to {
+            let count = 1u64 << (2 * z);
+            if area_limited && total / count > (total - self.occupied_area) / 4 {
+                continue;
+            }
+            let samples = if area_limited { count.min(128) } else { count };
+            for offset in 0..samples {
+                let (x, y) = morton_xy(seed.wrapping_add(offset) % count);
+                let cell = Cell { z, x, y };
+                if !self.prefixes.contains(&cell)
+                    && !(0..=z).any(|ancestor| self.leaves.contains(&cell.ancestor(ancestor)))
+                {
+                    return Some(cell);
+                }
+            }
+        }
+        None
     }
 }
 

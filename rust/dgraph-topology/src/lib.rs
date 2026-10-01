@@ -41,5 +41,5 @@ pub use crate::schema::{
 };
 pub use crate::types::{
     CanonicalDevice, CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite,
-    HopWrite, InterfaceWrite, NeighbourhoodEdge, PrefixWrite, link_key,
+    HopWrite, InterfaceWrite, NeighbourhoodEdge, PrefixWrite, TopologyView, link_key,
 };

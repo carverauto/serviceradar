@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use serviceradar_topology_atlas::{
-    Budget, Cell, Device, HealthIndex, HealthObservation, HealthState, Relation, WORLD_EXTENT,
-    World, reconcile,
+    Budget, Cell, Device, GlyphKind, HealthIndex, HealthObservation, HealthState, Relation,
+    WORLD_EXTENT, World, reconcile,
 };
 
 fn device(id: &str, importance: u8) -> Device {
@@ -24,6 +24,37 @@ fn relation(source: &str, target: &str) -> Relation {
         source: source.into(),
         target: target.into(),
     }
+}
+
+#[test]
+fn elk_reconciliation_does_not_depend_on_the_callers_stack_size() {
+    // Native callers include BEAM dirty schedulers, whose stacks are smaller
+    // than ordinary Rust test threads. Exercise the real ELK runtime there.
+    std::thread::Builder::new()
+        .stack_size(128 * 1024)
+        .spawn(|| {
+            let nodes: Vec<_> = (0..384)
+                .map(|n| device(&format!("sr:chain-{n:03}.example.test"), 1))
+                .collect();
+            let links: Vec<_> = nodes
+                .windows(2)
+                .map(|pair| relation(&pair[0].id, &pair[1].id))
+                .collect();
+            let placed = reconcile(nodes.clone(), &links, &[]).unwrap();
+            assert_eq!(placed.len(), nodes.len());
+            assert_eq!(
+                placed
+                    .iter()
+                    .map(|p| (p.x, p.y))
+                    .collect::<HashSet<_>>()
+                    .len(),
+                nodes.len()
+            );
+            assert_eq!(reconcile(nodes, &links, &placed).unwrap(), placed);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 #[test]
@@ -83,8 +114,167 @@ fn deterministic_world_preserves_positions_parents_and_tombstones() {
     changed.push(nodes[2].clone());
     let returned = reconcile(changed, &[], &persisted).unwrap();
     assert_eq!(returned.iter().find(|p| p.id == retired.id), Some(retired));
-    let original_cells: HashSet<_> = original.iter().map(|p| p.component).collect();
-    assert_eq!(original_cells.len(), 2);
+    let original_components: HashSet<_> = original.iter().map(|p| &p.component_id).collect();
+    assert_eq!(original_components.len(), 2);
+}
+
+#[test]
+fn fresh_elk_component_keeps_unique_centers_in_a_crowded_world() {
+    // One free z=11 cell remains. Coarser siblings occupy every other branch,
+    // so the area walk's next fresh component is a z=12 cell of width 4096.
+    let mut previous = Vec::new();
+    for z in 1..=11 {
+        for (dx, dy) in [(1u32, 0u32), (0, 1), (1, 1)] {
+            let cell = Cell::new(z, dx, dy).unwrap();
+            let (left, top) = cell.origin();
+            let mid = cell.width() / 2;
+            let id = format!("sr:reserved-{z}-{dx}-{dy}.example.test");
+            previous.push(serviceradar_topology_atlas::Position {
+                id: id.clone(),
+                label: id,
+                x: left + mid,
+                y: top + mid,
+                min_zoom: 0,
+                parent_id: None,
+                component_id: format!("sr:reserved-component-{z}-{dx}-{dy}.example.test"),
+                component: cell,
+                placement_depth: 1,
+            });
+        }
+    }
+    let hub = device("sr:hub-46772.example.test", 0);
+    let mut nodes = vec![hub.clone()];
+    nodes.extend((0..25_000).map(|n| device(&format!("sr:spoke-{n:05}.example.test"), 2)));
+    let links: Vec<_> = nodes[1..]
+        .iter()
+        .map(|spoke| relation(&hub.id, &spoke.id))
+        .collect();
+    let placed = reconcile(nodes, &links, &previous).unwrap();
+    let component = placed[0].component;
+    assert!(
+        placed
+            .iter()
+            .all(|p| p.component == component && component.contains(p.x, p.y)),
+        "star leaked outside {component:?}"
+    );
+    assert_eq!(
+        placed
+            .iter()
+            .map(|p| (p.x, p.y))
+            .collect::<HashSet<_>>()
+            .len(),
+        placed.len()
+    );
+    let reserved: HashSet<_> = previous.iter().map(|p| p.component).collect();
+    assert!(
+        !reserved.contains(&component),
+        "fresh star reused a frozen reservation: {component:?}"
+    );
+    assert!(
+        placed
+            .iter()
+            .all(|p| previous.iter().all(|old| old.x != p.x || old.y != p.y)),
+        "fresh star occupied a frozen coordinate"
+    );
+}
+
+#[test]
+fn elk_radial_geometry_survives_tiling_with_named_endpoint_devices() {
+    let root = device("sr:root.example.test", 0);
+    let mut nodes = vec![root.clone()];
+    nodes.extend((0..40).map(|n| device(&format!("sr:leaf-{n:02}.example.test"), 2)));
+    let links: Vec<_> = nodes[1..]
+        .iter()
+        .map(|n| relation(&root.id, &n.id))
+        .collect();
+    let points = reconcile(nodes.clone(), &links, &[]).unwrap();
+    let center = points.iter().find(|p| p.id == root.id).unwrap();
+    let distances: Vec<_> = points
+        .iter()
+        .filter(|p| p.id != root.id)
+        .map(|p| (f64::from(p.x) - f64::from(center.x)).hypot(f64::from(p.y) - f64::from(center.y)))
+        .collect();
+    let minimum = distances.iter().copied().fold(f64::INFINITY, f64::min);
+    let maximum = distances.iter().copied().fold(0.0, f64::max);
+    assert!(
+        minimum > 0.0 && maximum / minimum < 1.001,
+        "ELK leaves occupy one radial level: {distances:?}"
+    );
+    let world = World::new("radial-synthetic".into(), 16, points.clone(), links).unwrap();
+    // Fit this component into one 512-pixel tile: adjacent ELK leaves are
+    // readable here, long before the legacy absolute endpoint zoom of eight.
+    let fitted = world.tile(center.component, Budget::default()).unwrap();
+    assert_eq!(
+        fitted
+            .glyphs
+            .iter()
+            .filter(|g| g.kind == GlyphKind::Device)
+            .count(),
+        points.len(),
+        "readable radial leaves must not remain count-of-a-few aggregates"
+    );
+    let overview = world
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    assert_eq!(overview.device_count, nodes.len() as u64);
+    for glyph in &overview.glyphs {
+        if glyph.kind == GlyphKind::Device {
+            let point = points.iter().find(|p| p.id == glyph.id).unwrap();
+            assert_eq!(glyph.label, point.label);
+            assert_eq!((glyph.x, glyph.y), (f64::from(point.x), f64::from(point.y)));
+        }
+    }
+    for point in &points {
+        let tile = world
+            .tile(
+                Cell::at_point(16, point.x, point.y).unwrap(),
+                Budget::default(),
+            )
+            .unwrap();
+        let glyph = tile
+            .glyphs
+            .iter()
+            .find(|glyph| glyph.kind == GlyphKind::Device && glyph.id == point.id)
+            .unwrap();
+        assert_eq!(glyph.label, point.label);
+        assert_eq!((glyph.x, glyph.y), (f64::from(point.x), f64::from(point.y)));
+    }
+}
+
+#[test]
+fn disconnected_devices_do_not_shrink_the_connected_radial_overview() {
+    let hub = device("sr:overview-hub.example.test", 0);
+    let mut nodes = vec![hub.clone()];
+    nodes.extend((0..40).map(|n| device(&format!("sr:overview-leaf-{n:02}.example.test"), 2)));
+    let links: Vec<_> = nodes[1..]
+        .iter()
+        .map(|node| relation(&hub.id, &node.id))
+        .collect();
+    nodes.extend((0..24).map(|n| device(&format!("sr:isolated-{n:02}.example.test"), 2)));
+    let points = reconcile(nodes.clone(), &links, &[]).unwrap();
+    let span = |xs: Vec<u32>| xs.iter().max().unwrap() - xs.iter().min().unwrap();
+    let occupied = span(points.iter().map(|p| p.x).collect());
+    let connected = span(
+        points
+            .iter()
+            .filter(|p| p.component_id == hub.id)
+            .map(|p| p.x)
+            .collect(),
+    );
+    assert!(
+        connected * 3 > occupied * 2,
+        "a connected radial fan must retain useful Fit scale: connected={connected}, world={occupied}"
+    );
+    assert_eq!(points.iter().filter(|p| p.parent_id.is_none()).count(), 25);
+    assert_eq!(
+        points
+            .iter()
+            .map(|p| &p.component_id)
+            .collect::<HashSet<_>>()
+            .len(),
+        25
+    );
+    assert_eq!(reconcile(nodes, &links, &points).unwrap(), points);
 }
 
 #[test]
@@ -99,6 +289,15 @@ fn invented_million_device_hierarchy_and_one_percent_growth() {
         started.elapsed().as_millis()
     );
     assert_eq!(world.len(), COUNT);
+    assert_eq!(
+        world
+            .iter()
+            .map(|p| &p.component_id)
+            .collect::<HashSet<_>>()
+            .len(),
+        1,
+        "the invented million-device network is connected"
+    );
     assert_eq!(
         world
             .iter()
@@ -154,11 +353,10 @@ fn invented_million_device_hierarchy_and_one_percent_growth() {
         started.elapsed().as_millis()
     );
     let started = Instant::now();
-    let overview = indexed
-        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
-        .unwrap();
+    let budget = Budget::default();
+    let overview = indexed.tile(Cell::new(0, 0, 0).unwrap(), budget).unwrap();
     assert_eq!(overview.device_count, COUNT as u64);
-    assert!(overview.glyphs.len() <= 128 && overview.edges.len() <= 256);
+    assert!(overview.glyphs.len() <= budget.nodes && overview.edges.len() <= budget.edges);
     eprintln!(
         "synthetic overview generation: elapsed_ms={} candidates={}",
         started.elapsed().as_millis(),
@@ -170,11 +368,11 @@ fn invented_million_device_hierarchy_and_one_percent_growth() {
         for &(x, y) in &samples {
             let started = Instant::now();
             let tile = indexed
-                .tile(Cell::at_point(z, x, y).unwrap(), Budget::default())
+                .tile(Cell::at_point(z, x, y).unwrap(), budget)
                 .unwrap();
             latency.push(started.elapsed().as_micros());
             candidates.push(tile.candidate_relations);
-            assert!(tile.glyphs.len() <= 128 && tile.edges.len() <= 256);
+            assert!(tile.glyphs.len() <= budget.nodes && tile.edges.len() <= budget.edges);
             assert!(tile.device_count > 0);
         }
     }

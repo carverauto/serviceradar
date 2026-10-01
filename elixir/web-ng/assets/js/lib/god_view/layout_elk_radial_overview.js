@@ -1,3 +1,4 @@
+import {radialGraph} from "../../../../../../js/topology-layout/radial_graph"
 import {isLazySnapshotDetails} from "./snapshot_columns"
 
 const SEMANTIC_ENVELOPE = 112
@@ -6,11 +7,6 @@ const NODE_SPACING = 96
 const SCENE_PADDING = 64
 const EPSILON = 0.01
 const RADIAL_BASE_RADIUS = SEMANTIC_ENVELOPE * 2
-const RADIAL_RADIUS_ATTEMPTS = Object.freeze([
-  RADIAL_BASE_RADIUS,
-  RADIAL_BASE_RADIUS * 2,
-  RADIAL_BASE_RADIUS * 4,
-])
 
 class RetryableRadialGeometryError extends Error {
   constructor(message) {
@@ -204,16 +200,6 @@ function segmentIntersectsOpenBox(start, end, box) {
   return false
 }
 
-function clippedPoint(from, toward, width, height) {
-  const deltaX = toward.x - from.x
-  const deltaY = toward.y - from.y
-  const candidates = []
-  if (Math.abs(deltaX) > EPSILON) candidates.push((width / 2) / Math.abs(deltaX))
-  if (Math.abs(deltaY) > EPSILON) candidates.push((height / 2) / Math.abs(deltaY))
-  const scale = Math.min(...candidates)
-  return {x: from.x + (deltaX * scale), y: from.y + (deltaY * scale)}
-}
-
 function chordForRelation(relation, nodeById) {
   const source = nodeById.get(relation.sourceId)
   const target = nodeById.get(relation.targetId)
@@ -221,10 +207,9 @@ function chordForRelation(relation, nodeById) {
   const identicalCenters = Math.abs(source.center.x - target.center.x) <= EPSILON
     && Math.abs(source.center.y - target.center.y) <= EPSILON
   if (identicalCenters) throw new RetryableRadialGeometryError(`relation ${relation.id} has coincident semantic geometry`)
-  return [
-    clippedPoint(source.center, target.center, source.width, source.height),
-    clippedPoint(target.center, source.center, target.width, target.height),
-  ]
+  // ELK envelopes reserve spacing; the visible glyphs are drawn at their
+  // centers with pixel-sized radii. Draw beneath them at every camera scale.
+  return [{...source.center}, {...target.center}]
 }
 
 function sceneBounds(nodes, routes) {
@@ -276,23 +261,8 @@ export function buildElkRadialOverviewGraph(input, {radius = RADIAL_BASE_RADIUS}
   const nodes = expectedNodes(input)
   const semantic = semanticNodes(input)
   const orderById = new Map(semantic.map((node, index) => [node.id, index]))
-  const graph = {
-    id: "topology-overview",
-    layoutOptions: {
-      "elk.algorithm": "radial",
-      "org.eclipse.elk.radial.centerOnRoot": "true",
-      "org.eclipse.elk.radial.sorter": "ID",
-      "org.eclipse.elk.radial.radius": String(radius),
-      "org.eclipse.elk.radial.compactor": "NONE",
-      // Allocate each subtree's wedge by how many leaves it carries, not by the size of the
-      // node at its root. Under NODE_SIZE an anchor got the same narrow wedge whether it had
-      // one child or an expanded cluster's twenty-four, so the members were crammed into a few
-      // degrees and their routes ran together into a single bright fan.
-      "org.eclipse.elk.radial.wedgeCriteria": "LEAF_NUMBER",
-      "elk.spacing.nodeNode": String(NODE_SPACING),
-      "elk.padding": `[top=${SCENE_PADDING},left=${SCENE_PADDING},bottom=${SCENE_PADDING},right=${SCENE_PADDING}]`,
-    },
-    children: nodes.map((node) => ({
+  return radialGraph(
+    nodes.map((node) => ({
       id: node.id,
       ...nodeDimensions(node, input),
       layoutOptions: {
@@ -300,13 +270,13 @@ export function buildElkRadialOverviewGraph(input, {radius = RADIAL_BASE_RADIUS}
         "serviceradar.synthetic": String(Boolean(node.synthetic || syntheticIds(input).has(node.id))),
       },
     })),
-    edges: expectedRelations(input).map((relation) => ({
+    expectedRelations(input).map((relation) => ({
       id: relation.id,
       sources: [relation.sourceId],
       targets: [relation.targetId],
     })),
-  }
-  return graph
+    {radius, padding: SCENE_PADDING},
+  )
 }
 
 export function decodeElkRadialOverview(layout, input) {

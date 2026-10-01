@@ -1220,7 +1220,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     _ -> :ok
   end
 
-  defp device_attrs_from_request(partition_id, request, source_ip) do
+  @doc false
+  def device_attrs_from_request(partition_id, request, source_ip) do
     capabilities = if request, do: request.capabilities || [], else: []
 
     # Prefer the agent's self-reported host IP when present so DIRE links to the
@@ -1233,6 +1234,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       arch: if(request, do: request.arch),
       partition: partition_id,
       source_ip: device_ip,
+      host_macs: request_value(request, :host_macs) || [],
       capabilities: capabilities
     }
   end

@@ -5,12 +5,14 @@ defmodule ServiceRadar.TopologyAtlas.Native do
     otp_app: :serviceradar_core,
     crate: "topology_atlas_nif"
 
+  def algorithm_version, do: :erlang.nif_error(:nif_not_loaded)
+
   def new_builder(_layout_version, _zmax), do: :erlang.nif_error(:nif_not_loaded)
   def add_positions(_builder, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def add_relations(_builder, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def add_inventory(_builder, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def finish_world(_builder), do: :erlang.nif_error(:nif_not_loaded)
-  def read_graph(_url), do: :erlang.nif_error(:nif_not_loaded)
+  def read_graph(_url, _stale_cutoff), do: :erlang.nif_error(:nif_not_loaded)
   def reconcile(_builder, _graph), do: :erlang.nif_error(:nif_not_loaded)
   def candidate_info(_candidate), do: :erlang.nif_error(:nif_not_loaded)
   def world_info(_world), do: :erlang.nif_error(:nif_not_loaded)

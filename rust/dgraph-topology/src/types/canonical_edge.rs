@@ -201,16 +201,39 @@ impl CanonicalEdge {
 pub struct NeighbourhoodEdge {
     kind: String,
     edge: CanonicalEdge,
+    stale: bool,
+    last_seen: Option<String>,
 }
 
 impl NeighbourhoodEdge {
     /// Pair a stored `topo.kind` with the God View edge shape.
+    /// Freshness defaults to current; view admission sets [`Self::with_stale`].
     #[must_use]
     pub fn new(kind: impl Into<String>, edge: CanonicalEdge) -> Self {
         Self {
             kind: kind.into(),
             edge,
+            stale: false,
+            last_seen: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_stale(mut self, stale: bool) -> Self {
+        self.stale = stale;
+        self
+    }
+
+    /// Keep the stored observation instant. An empty value stays absent.
+    #[must_use]
+    pub fn with_last_seen(mut self, last_seen: impl Into<String>) -> Self {
+        let last_seen = last_seen.into();
+        self.last_seen = if last_seen.is_empty() {
+            None
+        } else {
+            Some(last_seen)
+        };
+        self
     }
 
     #[must_use]
@@ -219,8 +242,23 @@ impl NeighbourhoodEdge {
     }
 
     #[must_use]
+    pub fn stale(&self) -> bool {
+        self.stale
+    }
+
+    #[must_use]
+    pub fn last_seen(&self) -> Option<&str> {
+        self.last_seen.as_deref()
+    }
+
+    #[must_use]
     pub fn edge(&self) -> &CanonicalEdge {
         &self.edge
+    }
+
+    #[must_use]
+    pub fn into_edge(self) -> CanonicalEdge {
+        self.edge
     }
 }
 

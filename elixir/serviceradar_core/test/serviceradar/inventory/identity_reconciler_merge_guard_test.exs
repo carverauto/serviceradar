@@ -727,4 +727,44 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
     # 02 prefix would be locally administered; use a globally-unique OUI.
     "001A2B" <> suffix
   end
+
+  describe "guard-block log level" do
+    import ExUnit.CaptureLog
+
+    test "a blocked merge emits no warning-level log", %{actor: actor} do
+      {:ok, device_a} = create_device(actor, "log-level-host-a")
+      {:ok, device_b} = create_device(actor, "log-level-host-b")
+      {:ok, _} = register_identifier(actor, device_a.uid, :agent_id, unique("log-agent-a"))
+      {:ok, _} = register_identifier(actor, device_b.uid, :agent_id, unique("log-agent-b"))
+
+      log =
+        capture_log([level: :warning], fn ->
+          assert {:error, {:merge_blocked, :distinct_agent_identity}} =
+                   IdentityReconciler.merge_devices(device_a.uid, device_b.uid,
+                     actor: actor,
+                     reason: "identifier_backfill"
+                   )
+        end)
+
+      refute log =~ "Blocked merge", "guard block must not appear at warning level"
+    end
+
+    test "a blocked merge is still logged at info level", %{actor: actor} do
+      {:ok, device_a} = create_device(actor, "log-info-host-a")
+      {:ok, device_b} = create_device(actor, "log-info-host-b")
+      {:ok, _} = register_identifier(actor, device_a.uid, :agent_id, unique("log-info-agent-a"))
+      {:ok, _} = register_identifier(actor, device_b.uid, :agent_id, unique("log-info-agent-b"))
+
+      log =
+        capture_log([level: :info], fn ->
+          assert {:error, {:merge_blocked, :distinct_agent_identity}} =
+                   IdentityReconciler.merge_devices(device_a.uid, device_b.uid,
+                     actor: actor,
+                     reason: "identifier_backfill"
+                   )
+        end)
+
+      assert log =~ "Blocked merge", "guard block must appear at info level"
+    end
+  end
 end

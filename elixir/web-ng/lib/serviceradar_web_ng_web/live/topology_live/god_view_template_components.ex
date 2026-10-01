@@ -52,11 +52,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
           >
             <.ui_badge size="sm" variant="warning">Backbone unavailable</.ui_badge>
             <span class="text-xs text-sr-muted">
-              This snapshot has no backbone topology edges; {backbone_warning.other_edges} attachment/inferred
+              This snapshot has no backbone topology edges; {backbone_warning.other_edges} non-backbone
               edges are included in the topology map.
             </span>
             <span class="font-mono text-[10px] text-sr-muted">
-              bb:{backbone_warning.counts.backbone} att:{backbone_warning.counts.attachment} inf:{backbone_warning.counts.inferred} host:{backbone_warning.counts.hosted} obs:{backbone_warning.counts.observed}
+              bb:{backbone_warning.counts.backbone || "—"} att:{backbone_warning.counts.attachment ||
+                "—"} inf:{backbone_warning.counts.inferred || "—"} host:{backbone_warning.counts.hosted ||
+                "—"} obs:{backbone_warning.counts.observed || "—"} unk:{backbone_warning.counts.unknown ||
+                "—"}
             </span>
           </div>
         </div>
@@ -210,6 +213,15 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   >
                     {label}
                   </button>
+                  <button
+                    type="button"
+                    class={overlay_filter_button_class(@topology_layers.inferred)}
+                    phx-click="toggle_topology_layer"
+                    phx-value-layer="inferred"
+                    aria-pressed={to_string(@topology_layers.inferred)}
+                  >
+                    Inferred
+                  </button>
                 </div>
               </div>
             </div>
@@ -306,7 +318,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
       </:header>
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
-          <div class="text-xs uppercase tracking-wide text-sr-muted">Raw Observations</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Source Links</div>
           <div class="text-sm font-mono mt-1">{Map.get(@pipeline_stats, :raw_links, "—")}</div>
         </div>
         <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
@@ -432,7 +444,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
 
   @doc """
   Backbone-empty warning state: the served snapshot carries zero
-  backbone-class edges while attachment/inferred/hosted/observed edges
+  backbone-class edges while non-backbone edges
   exist. Returns `nil` when the snapshot is healthy or per-class counts
   are not (yet) available in the pipeline stats.
   """
@@ -443,13 +455,18 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
 
     counts = %{
       backbone: backbone,
-      attachment: pipeline_class_count(pipeline_stats, :edge_class_attachment) || 0,
-      inferred: pipeline_class_count(pipeline_stats, :edge_class_inferred) || 0,
-      hosted: pipeline_class_count(pipeline_stats, :edge_class_hosted) || 0,
-      observed: pipeline_class_count(pipeline_stats, :edge_class_observed) || 0
+      logical: pipeline_class_count(pipeline_stats, :edge_class_logical),
+      attachment: pipeline_class_count(pipeline_stats, :edge_class_attachment),
+      inferred: pipeline_class_count(pipeline_stats, :edge_class_inferred),
+      hosted: pipeline_class_count(pipeline_stats, :edge_class_hosted),
+      observed: pipeline_class_count(pipeline_stats, :edge_class_observed),
+      unknown: pipeline_class_count(pipeline_stats, :edge_class_unknown)
     }
 
-    other_edges = counts.attachment + counts.inferred + counts.hosted + counts.observed
+    other_edges =
+      [counts.logical, counts.attachment, counts.inferred, counts.hosted, counts.observed, counts.unknown]
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sum()
 
     if backbone == 0 and other_edges > 0 do
       %{counts: counts, other_edges: other_edges}

@@ -1,0 +1,42 @@
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "radial_graph.js",
+    "elk_layout.bundle.js",
+])
+
+js_library(
+    name = "radial_graph",
+    srcs = ["radial_graph.js"],
+)
+
+js_binary(
+    name = "bundler",
+    chdir = "elixir/web-ng/assets",
+    data = ["//elixir/web-ng/assets:node_modules/esbuild"],
+    entry_point = "bundle.mjs",
+)
+
+js_run_binary(
+    name = "bundle",
+    srcs = [
+        "radial_graph.js",
+        "worker.js",
+        "//elixir/web-ng/assets:node_modules/elkjs",
+    ],
+    outs = ["elk_layout.generated.js"],
+    args = [
+        "../../../js/topology-layout/worker.js",
+        "../../../js/topology-layout/elk_layout.generated.js",
+    ],
+    chdir = "elixir/web-ng/assets",
+    tool = ":bundler",
+)
+
+write_source_files(
+    name = "update_bundle",
+    files = {"elk_layout.bundle.js": ":bundle"},
+)
