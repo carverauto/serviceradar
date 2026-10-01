@@ -17,6 +17,7 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.ColdTier.RetentionFence
 
   @enabled [
@@ -38,11 +39,19 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
 
   setup do
     original = Application.get_env(:serviceradar_core, ServiceRadar.ColdTier)
+    starrocks = Application.get_env(:serviceradar_core, StarRocks)
+    Application.put_env(:serviceradar_core, StarRocks, enabled: false)
 
     on_exit(fn ->
       case original do
         nil -> Application.delete_env(:serviceradar_core, ServiceRadar.ColdTier)
         cfg -> Application.put_env(:serviceradar_core, ServiceRadar.ColdTier, cfg)
+      end
+
+      if is_nil(starrocks) do
+        Application.delete_env(:serviceradar_core, StarRocks)
+      else
+        Application.put_env(:serviceradar_core, StarRocks, starrocks)
       end
     end)
 
@@ -77,8 +86,12 @@ defmodule ServiceRadar.ColdTier.CaggWindowTest do
     # reconcile_cagg_windows/1 would leave them all green.
     put(@enabled)
 
-    assert_raise RuntimeError, ~r/could not lookup Ecto repo/, fn ->
-      RetentionFence.reconcile_cagg_windows(repo: NotARepo)
+    for warehouse? <- [false, true] do
+      Application.put_env(:serviceradar_core, StarRocks, enabled: warehouse?)
+
+      assert_raise RuntimeError, ~r/could not lookup Ecto repo/, fn ->
+        RetentionFence.reconcile_cagg_windows(repo: NotARepo)
+      end
     end
   end
 end

@@ -13,6 +13,8 @@ defmodule ServiceRadar.ColdTier.Health do
 
   Checks (all `:core` entity health):
 
+    * `cold-tier-backend` — unavailable per dataset when cold archival is
+      intended with StarRocks enabled. CNPG backfill health cannot clear it.
     * `cold-tier-export` — unhealthy when chunks are quarantined (the
       frontier is blocked and needs the break-glass path) or the export
       frontier has fallen far behind its target lag.
@@ -38,6 +40,42 @@ defmodule ServiceRadar.ColdTier.Health do
   @export_check "cold-tier-export"
   @pressure_check "cold-tier-pressure"
   @fence_check "cold-tier-fence"
+  @backend_check "cold-tier-backend"
+
+  @doc "Report warehouse archival availability separately from historical CNPG export health."
+  @spec record_backend() :: :ok
+  def record_backend do
+    warehouse? = Config.warehouse_backend?()
+    unavailable? = Config.intended?() and warehouse?
+
+    TripwireHealth.record(
+      @backend_check,
+      not unavailable?,
+      %{
+        mode: Config.state(),
+        telemetry_backend: if(warehouse?, do: :starrocks, else: :cnpg),
+        export_source: :cnpg,
+        cnpg_export_enabled: Config.enabled?(),
+        warehouse_export_enabled: false,
+        datasets:
+          Enum.map(Registry.table_names(), fn table ->
+            %{
+              table: table,
+              archival_status:
+                if(unavailable?, do: :unavailable_with_starrocks, else: Config.state())
+            }
+          end),
+        remediation:
+          if(unavailable?,
+            do:
+              "Cold tier does not archive StarRocks telemetry; configured exports cover only " <>
+                "CNPG history. Keep the CNPG retention fence until history is verified or " <>
+                "explicitly waived. See docs/cold-tier-runbook.md"
+          )
+      },
+      refresh_metadata: true
+    )
+  end
 
   # Frontier is targeted at now - export_lag; allow a generous multiple
   # before calling it stalled (a single slow run must not flap the check).

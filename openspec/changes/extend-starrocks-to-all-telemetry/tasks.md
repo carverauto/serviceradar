@@ -296,6 +296,13 @@
 - [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
   installation that turns StarRocks on, newest first, in bounded units; verify counts and totals
   per day.
+- [x] 5.4a Implement the cold-tier backend-scope contract in
+  [the telemetry-tiering delta](specs/telemetry-tiering/spec.md), resolving
+  [reader finding 8](reader-inventory.md) (issue #4872).
+  Runtime activation, mounted-secret and schedule tests plus database backend-health
+  persistence/notification and drop-gate regressions are registered. Database execution
+  and regression validation remain pending the in-cluster BazelCI gate; review verification
+  uses authenticated remote RBE, with no local Bazel or Mix compile/test.
 - [ ] 5.6 Keep the CNPG telemetry schema: no migration drops a telemetry hypertable, continuous
   aggregate, retention or compression policy, because installations without StarRocks use them.
   On a StarRocks installation they receive no rows and retention ages them out.

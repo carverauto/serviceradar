@@ -372,11 +372,10 @@ baseline (`pg_database_size` − tracked hypertable bytes) — exported as its o
 gauge so projections don't systematically overestimate.
 
 ### D11. Gating (tenant-capabilities pattern)
-All OSS behavior keys off deployment-supplied configuration: when the
-cold-tier configuration (bucket, credentials secret name, head connection,
-entity windows) is absent, the exporter never schedules, the fence is inert,
-SRQL routing is disabled, and the Helm analytics-head component renders
-nothing. No plan names or commercial policy in OSS code or specs. The runtime
+Archive activation follows the configuration requirement in
+`specs/telemetry-tiering/spec.md`; operator settings and disabled-state reporting
+are documented in [the cold-tier runbook](../../../docs/cold-tier-runbook.md#release-configuration).
+No plan names or commercial policy in OSS code or specs. The runtime
 consumes per-table retention envs (`SERVICERADAR_<TABLE>_RETENTION_DAYS`) —
 these exist for six of the seven v1 tables; `timeseries_metrics` currently
 rides the shared compile-time `:raw_metrics_retention_days` key (also used by
