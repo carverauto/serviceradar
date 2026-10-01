@@ -688,15 +688,21 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
     assert [] = hosted_projection(source)
 
-    device =
-      Device
-      |> Ash.Query.for_read(:read, %{include_deleted: true})
-      |> Ash.Query.filter(uid == ^new_host)
-      |> Ash.read_one!(actor: actor())
-
-    device
-    |> Ash.Changeset.for_update(:restore, %{}, actor: actor())
-    |> Ash.update!(actor: actor())
+    # Keep the tombstone-inclusive query through the atomic write; a record
+    # update rebuilds its query from the primary read, which excludes deleted rows.
+    assert %Ash.BulkResult{
+             status: :success,
+             records: [%Device{uid: ^new_host, deleted_at: nil}]
+           } =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^new_host)
+             |> Ash.bulk_update(:restore, %{},
+               actor: actor(),
+               return_records?: true,
+               return_errors?: true,
+               strategy: [:atomic, :stream]
+             )
 
     assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
     assert [_] = hosted_projection(source)
