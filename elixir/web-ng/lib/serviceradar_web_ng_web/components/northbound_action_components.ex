@@ -25,8 +25,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     required = if action, do: ActionForm.schema_required(action), else: MapSet.new()
 
     has_blocked_credential_rule_options =
-      Enum.any?(properties, fn {_name, schema} ->
-        ActionForm.schema_credential_rule_options_blocked?(schema)
+      Enum.any?(properties, fn {name, schema} ->
+        MapSet.member?(required, name) and
+          ActionForm.schema_credential_rule_options_blocked?(schema)
       end)
 
     assigns =
