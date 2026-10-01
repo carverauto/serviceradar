@@ -63,7 +63,9 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
       if assigned? do
         assignment =
           AddonAssignment
-          |> Ash.Changeset.for_create(:create, %{agent_uid: agent.uid, addon_package_id: package.id},
+          |> Ash.Changeset.for_create(
+            :create,
+            %{agent_uid: agent.uid, addon_package_id: package.id, update_policy: :manual_pin},
             actor: system_actor()
           )
           |> Ash.create!()
