@@ -64,6 +64,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/bumblebee_ingestor_test.exs",
     "test/serviceradar/inventory/device_facts_test.exs",
     "test/serviceradar/inventory/device_metadata_merge_test.exs",
+    "test/serviceradar/inventory/device_remove_facts_test.exs",
     "test/serviceradar/inventory/device_revival_audit_db_test.exs",
     "test/serviceradar/inventory/device_snmp_fact_test.exs",
     "test/serviceradar/inventory/device_snmp_fact_writer_test.exs",

@@ -419,6 +419,21 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :remove_facts do
+      description """
+      Remove one or more fact keys from metadata, along with their provenance
+      entries. Only keys the caller itself wrote (matching provenance source)
+      may be removed. Removing a key not in provenance is a no-op.
+      """
+
+      accept []
+
+      argument :keys, {:array, :string}, allow_nil?: false
+
+      change ServiceRadar.Inventory.Changes.RemoveDeviceFacts
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     update :soft_delete do
       accept @soft_delete_fields
 
@@ -572,10 +587,11 @@ defmodule ServiceRadar.Inventory.Device do
 
     action_with_permission(:bulk_soft_delete, @devices_bulk_delete_check)
 
-    # Fact writes get their own permission rather than riding on devices.update:
-    # an external validation tool should be able to set a boolean without also
-    # being able to rename, retag, or reassign the device.
+    # Fact writes and retracts share their own permission rather than riding on
+    # devices.update: an external validation tool should be able to set or remove
+    # a boolean without also being able to rename, retag, or reassign the device.
     action_with_permission(:write_facts, @devices_facts_write_check)
+    action_with_permission(:remove_facts, @devices_facts_write_check)
   end
 
   attributes do
