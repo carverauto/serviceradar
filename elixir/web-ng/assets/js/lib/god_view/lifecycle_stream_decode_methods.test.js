@@ -17,13 +17,36 @@ function decoder() {
 }
 
 describe("lifecycle_stream_decode_methods", () => {
-  it("routes a bounded server detail page to the ELK detail coordinate space", () => {
+  it.each([
+    {profile: undefined, semanticLevel: "detail"},
+    {profile: "radial-overview", semanticLevel: "overview"},
+  ])("routes a bounded server page to its selected ELK profile: $profile", ({profile, semanticLevel}) => {
     const metadataEntries = [["payload_kind", "detail"], ["layout_algorithm", "elk"]]
+    if (profile) metadataEntries.push(["layout_profile", profile])
     const nodes = [{label: "Synthetic switch", details: {id: "invented-detail-switch"}}]
     const graph = decoder().decodeArrowGraph(snapshotIpcBytes({nodes, edges: [], metadataEntries}))
-    expect(graph._topologySemanticLevel).toBe("detail")
+    expect(graph._topologySemanticLevel).toBe(semanticLevel)
+    expect(graph._topologyBoundedPage).toBe(true)
     expect(graph.nodes[0].id).toBe("invented-detail-switch")
     expect(() => decoder().decodeArrowGraph(snapshotIpcBytes({nodes: Array(129).fill(nodes[0]), edges: [], metadataEntries}))).toThrow("Topology detail exceeds budget")
+  })
+
+  it("keeps last-known status and the stored observation time on a bounded page", () => {
+    const graph = decoder().decodeArrowGraph(snapshotIpcBytes({
+      metadataEntries: [["payload_kind", "detail"], ["layout_profile", "radial-overview"]],
+      nodes: [{id: "core", label: "core"}, {id: "edge-node", label: "edge-node"}],
+      edges: [
+        {source: 0, target: 1, details: {id: "aged", stale: true, last_seen: "2020-01-01T00:00:00Z"}},
+        {source: 1, target: 0, details: {id: "current"}},
+      ],
+    }))
+    expect(graph._topologySemanticLevel).toBe("overview")
+    expect(graph.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+    expect(graph.edges[0].stale).toBe(true)
+    expect(graph.edges[0].details.last_seen).toBe("2020-01-01T00:00:00Z")
+    expect(graph.edges[1].stale).toBe(false)
+    expect(graph.edges[1].details.last_seen).toBeUndefined()
+    expect(graph.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 2})
   })
 
   it("decodes explicit edge topology metadata without label inference", () => {

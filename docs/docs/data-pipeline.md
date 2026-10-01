@@ -43,6 +43,17 @@ CNPG. EventWriter's logs consumer promotes logs that match an event rule into
 OCSF events as it stores them; there is no separate promotion consumer, so each
 log is promoted once, under an id derived from the JetStream message.
 
+For sysmon, SNMP, ICMP, rperf, MTR scalar and sweep metrics, `agent-gateway`
+splits oversized protobuf batches before publishing them to NATS. The gateway
+uses the broker-advertised `max_payload` with headroom for NATS headers; no
+agent-side batch-size setting is required. Large multi-port sweep groups can
+therefore produce several messages on the same subject. A warning reports
+the original byte count, broker limit, number of parts and `dropped_points`.
+A point that cannot fit by itself is dropped; if no parts remain, publishing
+returns an error. The payload-budget and per-part deduplication contracts live
+in `ServiceRadarAgentGateway.MetricBatchPublisher` and
+`ServiceRadarAgentGateway.MetricBatchSplit`.
+
 ## Data Service (datasvc)
 
 `datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed

@@ -19,6 +19,8 @@ Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent
 - **GIVEN** a bounded detail payload is opened from a map device, aggregate, or rendered relation bundle
 - **WHEN** the client lays out that detail scene
 - **THEN** one selected ELK pipeline SHALL author its accepted coordinates and routes
+- **AND** bounded map pages SHALL declare the existing radial overview profile rather than selecting the layered detail profile solely because their transport payload kind is `detail`
+- **AND** the bounded page SHALL elaborate its real endpoint attachment fan using existing radial projection and relation bindings, without applying the unbounded overview's small unclustered-fan cap
 - **AND** neither its output nor its camera SHALL overwrite the map's persisted coordinate space
 
 #### Scenario: Client handles unsupported snapshot schema
@@ -108,7 +110,15 @@ The system MUST provide a WebAssembly execution layer for Arrow-backed God-View 
 ### Requirement: Persistent world layout is deterministic and incrementally stable
 God-View SHALL support an invented topology of 1,000,000 devices and at least 2,000,000 relations using server-authored hierarchical world coordinates persisted through platform migrations. A `layout_version` SHALL identify an explicit coordinate space and placement configuration. An ordinary incremental update SHALL preserve existing coordinates; only an explicit full relayout SHALL publish a different coordinate space.
 
+Fresh world placement SHALL reuse the existing pinned ELK radial engine through bounded hierarchy batches of at most 512 nodes, with validated subtree envelopes composed into persisted coordinates before tile generation. Tiles SHALL NOT run independent layout passes. The layout worker SHALL retain the prior accepted publication when ELK execution or geometry validation fails. An incompatible placement algorithm SHALL trigger a staged new layout version on reconciliation and SHALL NOT relabel old Morton coordinates as ELK output.
+
 Initial placement SHALL use authoritative sites when available, otherwise stable transport components, then infrastructure and attachment groups. Stable identifiers SHALL break ties independently of input row order. Existing placement slots and parent assignments SHALL survive incremental insertion, deletion, component merge/split, and changes to preferred roots unless a new layout version is explicitly published. Deleted slots SHALL NOT cause surviving positions to be renumbered.
+
+#### Scenario: Radial layout remains visible through the tile engine
+- **GIVEN** an invented root with endpoint attachments whose count fits a standard tile
+- **WHEN** the background worker computes and publishes a fresh world
+- **THEN** the endpoints SHALL occupy the ELK radial level and the tile SHALL retain their names, coordinates and connections
+- **AND** the Home view SHALL fit the accepted active-device bounds
 
 #### Scenario: Equivalent fresh input produces equivalent coordinates
 - **GIVEN** identical invented canonical membership, relations, seed, and layout configuration in different input orders
@@ -144,9 +154,9 @@ The server SHALL distinguish stable `layout_version`, immutable publication `gen
 - **AND** publication generation or source-poll identity alone SHALL NOT invalidate its ETag
 
 ### Requirement: Quadtree tiles conserve membership within hard budgets
-The server SHALL expose quadtree tiles keyed by `(layout_version, z, x, y)` within a fixed world extent and declared maximum zoom. Every admitted device SHALL have exactly one owning tile and one visible representation at every zoom: an individual device or membership in one stable aggregate. Importance-based `min_zoom` SHALL determine eligibility for individual display without overriding density or byte budgets.
+The server SHALL expose quadtree tiles keyed by `(layout_version, z, x, y)` within a fixed world extent and declared maximum zoom. Every admitted device SHALL have exactly one owning tile and one visible representation at every zoom: an individual device or membership in one stable aggregate. Importance-based `min_zoom` SHALL prioritize individual display without overriding density or byte budgets. A singleton representation in the standard profile SHALL preserve the device identity, label and authoritative coordinates rather than displaying an aggregate count of one. The compact aggregate-only profile SHALL continue bounding identifier bytes.
 
-Each tile SHALL enforce node, relation, label, total-feature, and actual encoded-byte limits during construction. An oversized tile SHALL generalize further; it SHALL NOT silently truncate membership or transmit overflow. Boundary and context proxies SHALL count against feature budgets but contribute zero represented-device membership. Aggregate payloads SHALL contain bounded summaries and navigation references, not complete member lists.
+Each tile SHALL enforce a fixed maximum of 128 glyphs, 512 rendered edges and 262,144 encoded bytes, along with label and total-feature limits during construction. All five known topology classes and the unknown class SHALL remain separate. Encoding retries, cached routing plans, overlay edge summaries and bundle selectors SHALL retain this shared tile routing budget; bounded detail pages SHALL retain their separate 128-node and 256-relation limits. An oversized tile SHALL generalize further; it SHALL NOT silently truncate membership or transmit overflow. Boundary and context proxies SHALL count against feature budgets but contribute zero represented-device membership. Aggregate payloads SHALL contain bounded summaries and navigation references, not complete member lists.
 
 #### Scenario: Membership is conserved at every zoom
 - **GIVEN** the seeded 1,000,000-device canonical fixture
@@ -155,6 +165,13 @@ Each tile SHALL enforce node, relation, label, total-feature, and actual encoded
 - **AND** shared tile boundaries SHALL neither omit nor duplicate a member
 - **AND** every tile SHALL remain within its feature and encoded-byte limits
 
+#### Scenario: Dense mixed-class corner and face routes remain conserved
+- **GIVEN** a tile carries every admitted topology class across directed face, corner and interior routes
+- **WHEN** it reaches the coarsest shared routing plan
+- **THEN** its one interior glyph and eight boundary glyphs SHALL fit all directed class-separated pairs within 512 rendered edges
+- **AND** exact corner and shared face positions SHALL NOT be folded together to reduce edge cardinality
+- **AND** neighboring tiles, encoding retries and paged selectors SHALL agree on routes and conserve every represented relation
+
 #### Scenario: Maximum-zoom density remains reachable
 - **GIVEN** one maximum-zoom tile contains more devices or relations than its budgets permit
 - **WHEN** it is generated
@@ -162,8 +179,15 @@ Each tile SHALL enforce node, relation, label, total-feature, and actual encoded
 - **AND** every admitted device SHALL remain reachable by search and bounded detail navigation
 - **AND** no overflow member list SHALL be embedded in the tile
 
+#### Scenario: Large worlds use map-style level of detail
+- **GIVEN** a canonical world contains one million or more admitted devices
+- **WHEN** the operator zooms out
+- **THEN** the viewport SHALL display bounded clusters and grouped relations without requiring every individual device glyph or label to fit on screen
+- **AND** panning SHALL load bounded visible tiles and neighboring prefetch rather than the complete canonical world
+- **AND** zooming in SHALL reveal nearby individual devices subject to density and encoded-byte budgets
+
 ### Requirement: Tile relations preserve identity across bundles and clipping
-The tile engine SHALL bundle low-zoom relations by their visible endpoint or aggregate pair while retaining stable bundle identity and represented-relation counts. Long relations SHALL become visible when their endpoint representations are eligible and SHALL be clipped deterministically across tiles. The spatial index SHALL find a crossing segment even when both endpoints lie outside the requested tile, without scanning all canonical relations for every tile request. Every returned edge endpoint SHALL be local to its batch.
+The tile engine SHALL bundle low-zoom relations by their visible endpoint or aggregate pair while retaining stable bundle identity and represented-relation counts. Overview routes SHALL use the preferred physical-first forest, retaining parallel bindings of the selected pair and class; other cross-links SHALL remain in bounded detail evidence rather than being added to overview routes as zoom changes. Long overview relations SHALL become visible when their endpoint representations are eligible and SHALL be clipped deterministically across tiles. The spatial index SHALL find a crossing segment even when both endpoints lie outside the requested tile, without scanning all canonical relations for every tile request. Every returned edge endpoint SHALL be local to its batch.
 
 #### Scenario: Adjacent tiles share a continuous relation
 - **GIVEN** one admitted relation crosses multiple tiles
@@ -172,19 +196,22 @@ The tile engine SHALL bundle low-zoom relations by their visible endpoint or agg
 - **AND** procedural packet flow SHALL retain route-distance continuity
 - **AND** clipping proxies SHALL NOT appear as extra devices or inflate aggregate counts
 
-#### Scenario: Shared portals remain independent of tile density
-- **GIVEN** adjacent tiles at the same zoom use different interior generalization
+#### Scenario: Shared seams retain the same routing grade across adjacent tiles
+- **GIVEN** adjacent tiles at the same zoom and budget, one denser than the other
 - **WHEN** a relation crosses their shared boundary
-- **THEN** both SHALL use the same fixed side-midpoint or exact corner portal and stable portal identity
-- **AND** their phase values SHALL agree at that boundary without consulting the other tile's plan
-- **AND** boundary proxies SHALL be limited to eight per tile with zero represented-device membership
-- **AND** bundle identity SHALL derive from stable endpoint representation IDs and layout identity rather than local row indexes
+- **THEN** both SHALL publish the same point for that crossing
+- **AND** the point SHALL be the canonical intersection while that side's distinct crossings fit the shared cap
+- **AND** a shared face SHALL use the stricter dyadic routing grade and crossing count of both adjacent cells, accounting for corners and edge-pair cardinality before interior selection
+- **AND** encoding retries SHALL retain the publication routing budget regardless of interior budget or profile
+- **AND** a quantized portal SHALL use aggregate route identity and SHALL NOT be drawn as a resolved canonical cable
+- **AND** paging every rendered edge SHALL conserve the exact relation membership of the published geometry
 
-#### Scenario: Owned endpoint contact retains its connector
-- **GIVEN** a canonical endpoint immediately enters or leaves its half-open owning tile at a shared boundary
-- **WHEN** the canonical segment has zero length inside that owner
-- **THEN** the tile SHALL retain its representation-to-portal connector unless its rendered endpoints coincide
-- **AND** phase SHALL reserve half a tile width for that connector independently of local aggregation
+#### Scenario: Owned endpoint contact preserves displaced endpoint connectivity
+- **GIVEN** a canonical endpoint lies on a shared boundary
+- **WHEN** the canonical segment has zero length inside its half-open owner
+- **THEN** that owner SHALL preserve a connector from its displaced endpoint representation to the shared portal for source and target endpoints on either axis
+- **AND** coincident endpoint representations SHALL NOT create a connector
+- **AND** the neighbor that contains the interior SHALL draw the canonical segment
 - **AND** an unowned tangential corner contact SHALL NOT create a segment
 - **AND** a genuine self-loop SHALL contribute to the owning representation's internal-relation count
 
@@ -245,7 +272,16 @@ Telemetry SHALL use a separate bounded overlay keyed by stable node, aggregate, 
 
 Overlay bodies SHALL use authenticated HTTP with a separate ETag and a 256 KiB encoded JSON limit; channel control metadata SHALL remain within 16 KiB. Each overlay SHALL pin the installed generation and encoded geometry revision, using a compatible native selector and health index. Telemetry SQL waits SHALL retain only bounded plain selected data, not native world handles. Rate queries SHALL select at most 512 exact interface pairs from at most 256 selected relations and obey a separate 1 MiB request budget without truncating identities.
 
-Packet attribution SHALL admit only direct physical evidence with no virtual role; only a globally exclusive endpoint interface SHALL supply a relation measurement. Fresh measured packet or octet rates SHALL drive directional traffic animation without requiring every packet family. The response SHALL distinguish observed packet rates from complete packet totals: missing families remain unknown, never zero. Summing packet families SHALL require common identified producer provenance; a uniquely measured single family SHALL NOT require cross-family identity proof. Ambiguous measurements and excluded evidence SHALL remain unknown. A bundle direction SHALL animate only when the driving measurement covers its rendered membership in that frame; sampled rates SHALL NOT be extrapolated or accumulated across pages as a complete current measurement. Health SHALL distinguish healthy, unavailable and unknown counts, with explicit seed/source freshness metadata.
+The geometry receipt SHALL retain every rendered edge, including stale edges, with its identity and represented-relation count. Overlay preparation SHALL strictly validate selected membership and counts against that complete receipt before reading telemetry. Relations belonging to stale rendered edges SHALL be telemetry-ineligible without changing selection coverage or removing health rollups.
+
+Packet attribution SHALL admit only direct physical evidence with no virtual role; only a globally exclusive endpoint interface SHALL supply a relation measurement. Fresh measured packet or octet rates SHALL drive directional traffic animation without requiring every packet family. The response SHALL distinguish observed packet rates from complete packet totals: missing families remain unknown, never zero. Summing packet families SHALL require common identified producer provenance; a uniquely measured single family SHALL NOT require cross-family identity proof. Ambiguous measurements and excluded evidence SHALL remain unknown. A bundle direction SHALL animate only after its rendered membership is fully selected in that frame. It MAY animate the observed contribution from fresh, unambiguous physical bindings while other selected bindings have no telemetry; complete totals SHALL remain unknown and observed coverage SHALL be explicit. Sampled rates SHALL NOT be extrapolated or accumulated across pages as a complete current measurement. Health SHALL distinguish healthy, unavailable and unknown counts, with explicit seed/source freshness metadata.
+
+#### Scenario: Stale links do not reject a mixed tile's overlay
+- **GIVEN** a tile contains live physical links and retained stale links
+- **WHEN** its overlay is prepared with the matching complete receipt
+- **THEN** health and eligible live-link traffic SHALL remain available
+- **AND** stale rendered edges SHALL NOT receive attributed traffic or packet animation even if telemetry rows exist
+- **AND** a mismatched membership or represented-relation count SHALL reject the receipt
 
 #### Scenario: Geometry change touches only dependent tiles
 - **WHEN** one device's non-telemetry geometry content changes
@@ -269,7 +305,8 @@ Packet attribution SHALL admit only direct physical evidence with no virtual rol
 - **WHEN** the server computes its current overlay
 - **THEN** the response SHALL report observed and total membership separately
 - **AND** a shared interface SHALL NOT be attributed to an individual relation unless a unique opposite endpoint supplies the measurement
-- **AND** an incompletely measured bundle SHALL have unknown flow and no packet animation
+- **AND** a bundle with unselected membership SHALL have unknown flow and no packet animation
+- **AND** a fully selected bundle with partial telemetry MAY animate only its measured contribution, SHALL keep complete totals unknown, and SHALL report observed relation counts
 
 #### Scenario: Measured zero and missing producer provenance remain distinct
 - **GIVEN** a single physical relation has three fresh measured packet families from one identified producer
@@ -292,7 +329,7 @@ Packet attribution SHALL admit only direct physical evidence with no virtual rol
 - **AND** telemetry refresh SHALL NOT refetch geometry or extend a sample's freshness timestamp
 
 ### Requirement: Tile navigation preserves bounded detail scenes and cached maps
-The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded prefetch and an LRU cache, reusing #4749 typed WebGPU sublayers and procedural packet flow. Picking SHALL fetch details by stable identity. ELK SHALL run only on a bounded device-neighborhood, component/aggregate-member, or rendered-bundle-member detail scene, with explicit entry and exit.
+The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded prefetch and an LRU cache, reusing #4749 typed WebGPU sublayers and procedural packet flow. Picking SHALL fetch details by stable identity. Browser ELK SHALL run only on a bounded device-neighborhood, component/aggregate-member, or rendered-bundle-member detail scene, with explicit entry and exit.
 
 #### Scenario: Panning back reuses cached geometry
 - **GIVEN** an unchanged previously visited area remains within the LRU budget

@@ -1011,6 +1011,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:series_fields, series_fields)
       |> assign(:value_fields, value_fields)
       |> assign(:boolean_fields, boolean_fields)
+      |> assign(:exact_fields, Catalog.exact_fields(config))
       |> assign(:comparison_fields, comparison_fields)
       |> assign(:address_fields, address_fields)
       |> assign(:filter_fields, filter_fields)
@@ -1196,8 +1197,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                             </.ui_inline_select>
                           <% end %>
 
-                          <%= if is_bool_field do %>
-                            <%!-- Boolean fields only support equals/not_equals --%>
+                          <%= if is_bool_field or (filter["field"] || "") in @exact_fields do %>
                             <.ui_inline_select
                               name={"builder[filters][#{idx}][op]"}
                               disabled={not @supported}

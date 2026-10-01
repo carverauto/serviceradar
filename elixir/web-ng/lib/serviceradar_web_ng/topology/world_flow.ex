@@ -63,8 +63,8 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
       selected_relations: length(relations),
       eligibility:
         relations |> Enum.frequencies_by(&eligibility/1) |> Map.put(:unselected, edge.count - length(relations)),
-      forward: direction_summary(values, :forward, edge.count),
-      reverse: direction_summary(values, :reverse, edge.count)
+      forward: direction_summary(values, :forward, edge.count, length(relations) == edge.count),
+      reverse: direction_summary(values, :reverse, edge.count, length(relations) == edge.count)
     }
   end
 
@@ -161,20 +161,22 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
 
   defp measured?(_row, _request), do: false
 
-  defp direction_summary(values, direction, total) do
+  defp direction_summary(values, direction, total, selected_complete) do
     packets = values |> Enum.map(& &1[direction].packets) |> observed()
     octets = values |> Enum.map(& &1[direction].octets) |> observed()
     packets_covered = total > 0 and length(packets) == total
     packets_complete = packets_covered and Enum.all?(packets, & &1.complete)
     octets_complete = total > 0 and length(octets) == total
-    observed_pps = if packets_covered, do: sum(packets)
+    observed_pps = if selected_complete and packets != [], do: sum(packets)
+    observed_octets = if selected_complete and octets != [], do: sum(octets)
     octets_per_second = if octets_complete, do: sum(octets)
 
     %{
-      status: packet_status(packets_covered, packets_complete),
-      animate: (packets_covered and observed_pps > 0) or (octets_complete and octets_per_second > 0),
+      status: packet_status(selected_complete and packets != [], packets_complete),
+      animate: positive?(observed_pps) or positive?(observed_octets),
       packets_per_second: if(packets_complete, do: observed_pps),
       observed_packets_per_second: observed_pps,
+      observed_octets_per_second: observed_octets,
       octets_per_second: octets_per_second,
       packet_observed_relations: length(packets),
       octet_observed_relations: length(octets),
@@ -186,6 +188,8 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
   defp packet_status(_covered, true), do: :measured
   defp packet_status(true, false), do: :partial
   defp packet_status(false, false), do: :unknown
+
+  defp positive?(rate), do: is_number(rate) and rate > 0
 
   defp observed(values), do: Enum.filter(values, &is_map/1)
   defp sum(values), do: Enum.reduce(values, 0, &(&1.rate + &2))
@@ -212,6 +216,12 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
   # ports and cannot be attributed to those individual relationships.
   defp eligibility(relation) do
     cond do
+      Map.get(relation, :telemetry_eligible) != true ->
+        :ineligible
+
+      admitted_kind?(relation) == false ->
+        :ineligible
+
       relation.evidence_class not in ["direct-physical", "direct"] ->
         :not_physical_evidence
 
@@ -239,6 +249,10 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
     do: pair(relation.target_id, relation.target_if_index)
 
   defp endpoint_pair(_relation, _endpoint), do: nil
+
+  defp admitted_kind?(%{kind: kind}) when is_binary(kind) and kind != "" and kind != "CANONICAL_TOPOLOGY", do: false
+
+  defp admitted_kind?(_relation), do: true
 
   defp pair(id, index) when is_binary(id) and byte_size(id) > 0 and is_integer(index) and index > 0, do: {id, index}
 

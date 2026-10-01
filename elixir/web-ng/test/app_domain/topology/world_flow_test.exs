@@ -73,6 +73,27 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
     assert edge.forward.packets_per_second == nil
     assert edge.forward.octets_per_second == 25
     assert edge.forward.animate
+
+    # Complete geometry selection may contain another binding with no telemetry.
+    # Animate the measured contribution while keeping both full totals unknown.
+    unseen = relation("unmeasured", "edge")
+    request = WorldFlow.request([link, unseen], @now, @settings)
+
+    [edge] =
+      summary(
+        [link, unseen],
+        [%{id: "edge", count: 2}],
+        [rate(link.source_id, "out", "unicast_packets", 17), rate(link.source_id, "out", "octets", 25)],
+        request
+      ).edges
+
+    assert edge.forward.packets_per_second == nil
+    assert edge.forward.octets_per_second == nil
+    assert edge.forward.observed_packets_per_second == 17
+    assert edge.forward.observed_octets_per_second == 25
+    assert edge.forward.packet_observed_relations == 1
+    assert edge.forward.status == :partial
+    assert edge.forward.animate
   end
 
   test "partial packet totals, stale samples and ambiguous producers remain distinguishable" do
@@ -183,8 +204,26 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
       source_interface_degree: 1,
       target_interface_degree: 1,
       evidence_class: "direct-physical",
-      role: nil
+      role: nil,
+      telemetry_eligible: true,
+      kind: "CANONICAL_TOPOLOGY"
     }
+  end
+
+  test "direct-physical evidence without telemetry eligibility requests no pairs" do
+    link = %{relation("silent", "edge") | telemetry_eligible: false}
+    request = WorldFlow.request([link], @now, @settings)
+    assert request.pairs == []
+    [edge] = summary([link], [%{id: "edge", count: 1}], packets(link.source_id, "out", [1, 2, 3]), request).edges
+    refute edge.forward.animate
+  end
+
+  test "attachment evidence does not animate when the eligibility flag is set" do
+    link = %{relation("fan", "edge") | kind: "ATTACHED_TO"}
+    request = WorldFlow.request([link], @now, @settings)
+    assert request.pairs == []
+    [edge] = summary([link], [%{id: "edge", count: 1}], packets(link.source_id, "out", [4, 5, 6]), request).edges
+    refute edge.forward.animate
   end
 
   defp summary(relations, edges, rows, request) do

@@ -73,6 +73,7 @@ pub(crate) const EDGE_DETAIL_FIELDS: &[DetailField] = &[
     field("observed_at", DetailKind::Text),
     field("source_if_index", DetailKind::Number),
     field("target_if_index", DetailKind::Number),
+    field("stale", DetailKind::Flag),
 ];
 
 /// Edge `details.metadata` keys read for every edge (`edge_metadata_<key>`).

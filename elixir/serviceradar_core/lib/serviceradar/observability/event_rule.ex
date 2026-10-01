@@ -10,7 +10,8 @@ defmodule ServiceRadar.Observability.EventRule do
   use Ash.Resource,
     domain: ServiceRadar.Observability,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshJsonApi.Resource]
 
   @event_rule_fields [:name, :enabled, :priority, :source_type, :source, :match, :event]
 
@@ -18,6 +19,20 @@ defmodule ServiceRadar.Observability.EventRule do
     table "event_rules"
     repo ServiceRadar.Repo
     schema "platform"
+  end
+
+  json_api do
+    type "event-rule"
+
+    routes do
+      base "/event-rules"
+      get :by_id
+      index :read
+      index :active, route: "/active"
+      post :create
+      patch :update
+      delete :destroy
+    end
   end
 
   code_interface do
@@ -30,6 +45,12 @@ defmodule ServiceRadar.Observability.EventRule do
 
   actions do
     defaults [:read]
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
 
     read :active do
       filter expr(enabled == true)
@@ -124,6 +145,8 @@ defmodule ServiceRadar.Observability.EventRule do
     end
 
     @impl true
-    def atomic(_changeset, _opts, _context), do: :ok
+    def atomic(changeset, opts, context) do
+      {:ok, change(changeset, opts, context)}
+    end
   end
 end

@@ -3,3 +3,6 @@
 third_party/crate_mirror/** -text
 third_party/netprobe_ebpf_vendor/** -text
 third_party/netprobe_corpora/** -text
+
+# Generated ELK bundle retains vendor template-string whitespace verbatim.
+js/topology-layout/elk_layout.bundle.js -whitespace linguist-generated=true

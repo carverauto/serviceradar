@@ -41,13 +41,12 @@ go_library(
         "endpoint_inventory_upload_ack.go",
         "errors.go",
         "gateway_artifact_download.go",
+        "host_identity.go",
         "icmp_checker.go",
-        "k8s_public_endpoints_spool_service.go",
-        "self_terminate_unix.go",
-        "self_terminate_windows.go",
         "interfaces.go",
         "ipv4_sorter.go",
         "json_helpers.go",
+        "k8s_public_endpoints_spool_service.go",
         "kv.go",
         "mapper_config_gateway.go",
         "mapper_service.go",
@@ -111,6 +110,8 @@ go_library(
         "release_update.go",
         "remote_console.go",
         "remote_file_transfer.go",
+        "self_terminate_unix.go",
+        "self_terminate_windows.go",
         "server.go",
         "snmp_service.go",
         "sweep_config_gateway.go",
@@ -140,9 +141,9 @@ go_library(
         "//go/pkg/config",
         "//go/pkg/config/kv",
         "//go/pkg/endpointinventory",
-        "//go/pkg/k8sinventory",
         "//go/pkg/grpc",
         "//go/pkg/hashutil",
+        "//go/pkg/k8sinventory",
         "//go/pkg/logger",
         "//go/pkg/mapper",
         "//go/pkg/models",
@@ -182,21 +183,6 @@ go_library(
 
 go_test(
     name = "agent_test",
-    # keep
-    #
-    # The largest Go test target in the repo by a wide margin: 77 files, 702 test functions,
-    # ~33k lines. Unsharded it is a single test action, so it is one executor doing all of it
-    # while the rest of the fleet idles -- and under the race pass in //buildbuddy.yaml, which
-    # repeats every function, that is ~3,500 executions serialised into one action.
-    #
-    # Sharding splits it into 8 independent test actions that RBE runs concurrently. Bazel
-    # assigns functions to shards by index, so this is not a source-layout change and no test
-    # needs to know about it. Both the plain sweep and the race pass benefit.
-    #
-    # 8 rather than more: each shard loads the whole test binary, so shard count trades
-    # parallelism against repeated startup. Bazel caps this at 50; going near that for a binary
-    # this size spends more on loading than it saves.
-    shard_count = 8,
     srcs = [
         "addon_activation_test.go",
         "addon_capabilities_test.go",
@@ -261,6 +247,7 @@ go_test(
         "push_loop_plugin_results_test.go",
         "push_loop_snmp_test.go",
         "push_loop_source_ip_test.go",
+        "host_identity_test.go",
         "push_loop_test.go",
         "push_loop_workload_identity_test.go",
         "release_runtime_test.go",
@@ -308,6 +295,20 @@ go_test(
         "//go/cmd/wasm-plugins/unifi-protect:plugin.yaml",
     ],
     embed = [":agent"],
+    # keep
+    #
+    # Unsharded it is a single test action, so it is one executor doing all of it
+    # while the rest of the fleet idles -- and under the race pass in //buildbuddy.yaml, which
+    # repeats every function, that leaves the repeated executions in one action.
+    #
+    # Sharding splits it into 8 independent test actions that RBE runs concurrently. Bazel
+    # assigns functions to shards by index, so this is not a source-layout change and no test
+    # needs to know about it. Both the plain sweep and the race pass benefit.
+    #
+    # 8 rather than more: each shard loads the whole test binary, so shard count trades
+    # parallelism against repeated startup. Bazel caps this at 50; going near that for a binary
+    # this size spends more on loading than it saves.
+    shard_count = 8,
     deps = [
         "//go/pkg/addon",
         "//go/pkg/addon/sdk",

@@ -2,9 +2,13 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.TopologyAtlas
+  alias ServiceRadarWebNG.Topology.TileControl
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
+  alias ServiceRadarWebNG.Topology.WorldFlow
+  alias ServiceRadarWebNG.Topology.WorldOverlayReader
   alias ServiceRadarWebNG.Topology.WorldTile
+  alias ServiceRadarWebNG.Topology.WorldTileTest.Upstream
   alias ServiceRadarWebNGWeb.TopologyTileController
 
   @moduletag :db_free
@@ -55,6 +59,86 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
              TopologyAtlas.tile_relations(next_world, empty.selection)
   end
 
+  test "retained stale links preserve tile health and live traffic without attributing stale traffic" do
+    cache = start_named_cache()
+    {:ok, builder} = TopologyAtlas.new_builder(@version, 16)
+    ids = Enum.map(1..4, &"invented-flow-#{&1}")
+    positions = ids |> Enum.with_index(1) |> Enum.map(fn {id, n} -> position(id, n * 200_000) end)
+    assert :ok = TopologyAtlas.add_positions(builder, positions)
+
+    relations =
+      for {source, target, stale} <- [
+            {"invented-flow-1", "invented-flow-2", false},
+            {"invented-flow-3", "invented-flow-4", true}
+          ] do
+        %{
+          relation_id: source <> "-link",
+          source_id: source,
+          target_id: target,
+          kind: "CANONICAL_TOPOLOGY",
+          evidence_class: "direct-physical",
+          telemetry_eligible: true,
+          source_if_index: 1,
+          target_if_index: 2,
+          stale: stale
+        }
+      end
+
+    assert :ok = TopologyAtlas.add_relations(builder, relations)
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    manifest = %{layout_version: @version, generation: 1, zmax: 16}
+    assert :ok = WorldCache.install(world, manifest, prepared(world, manifest), cache)
+    assert {:ok, health} = TopologyAtlas.new_health(world, 1)
+    health_owner = __MODULE__.HealthReply
+
+    start_supervised!(
+      {Upstream, name: health_owner, reply: {:ok, %{world: world, health: health, manifest: manifest, progress: %{}}}}
+    )
+
+    assert {:ok, key} = TileKey.new(@version, 3, 0, 0)
+    assert {:ok, tile} = WorldCache.fetch(key, :foreground, cache)
+
+    assert {:ok, overlay} =
+             WorldOverlayReader.prepare(key, TileControl.fence(manifest), tile.revision, nil, cache, health_owner)
+
+    assert Enum.sum(Enum.map(overlay.health.glyphs, & &1.counts.total)) == 4
+    now = ~U[2001-04-05 06:07:08Z]
+    settings = %{window_seconds: 900, freshness_seconds: 120, timeout_ms: 5_000}
+    request = WorldFlow.request(overlay.page.relations, now, settings)
+    assert Enum.sort(request.pairs) == [{"invented-flow-1", 1}, {"invented-flow-2", 2}]
+
+    rows =
+      for id <- ["invented-flow-1", "invented-flow-3"] do
+        %{
+          "device_id" => id,
+          "if_index" => 1,
+          "direction" => "out",
+          "family" => "octets",
+          "status" => "measured",
+          "rate" => 64,
+          "observed_at" => DateTime.add(now, -10, :second),
+          "previous_observed_at" => DateTime.add(now, -70, :second)
+        }
+      end
+
+    flow = WorldFlow.summarize(overlay.edges, overlay.page, rows, request)
+    assert flow.coverage.rendered_relations == 2
+    assert flow.coverage.selected_relations == 2
+
+    for relation <- overlay.page.relations do
+      edge = Enum.find(flow.edges, &(&1.id == relation.rendered_edge_id))
+
+      if relation.source_id == "invented-flow-1" do
+        assert edge.forward.animate
+        assert edge.forward.octets_per_second == 64
+      else
+        refute edge.forward.animate
+        refute edge.reverse.animate
+        assert edge.forward.octets_per_second == nil
+      end
+    end
+  end
+
   test "tile HTTP classifies a stale layout before zoom and does not ask the client to retry" do
     cache = start_named_cache()
     world = world()
@@ -73,7 +157,7 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
   end
 
   test "overlay and tile budget failures are client limits, not retryable unavailability" do
-    upstream = ServiceRadarWebNG.Topology.WorldTileTest.Upstream
+    upstream = Upstream
 
     start_supervised!(
       {upstream, name: ServiceRadarWebNG.Topology.WorldOverlay, reply: {:error, :overlay_budget_exceeded}}
@@ -129,7 +213,12 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
 
   defp world do
     {:ok, builder} = TopologyAtlas.new_builder(@version, 16)
-    :ok = TopologyAtlas.add_positions(builder, [position("invented-device-a", 100), position("invented-device-b", 200)])
+
+    :ok =
+      TopologyAtlas.add_positions(builder, [
+        position("invented-device-a", 300_000),
+        position("invented-device-b", 600_000)
+      ])
 
     :ok =
       TopologyAtlas.add_relations(builder, [

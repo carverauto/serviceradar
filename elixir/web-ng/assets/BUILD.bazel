@@ -214,6 +214,7 @@ filegroup(
         "js/lib/spatial_location.js",
         "js/utils/dashboard_user_time.js",
         "js/utils/user_time.js",
+        "//js/topology-layout:radial_graph",
     ],
 )
 
@@ -242,6 +243,7 @@ js_test(
         "js/lib/spatial_location.js",
         ":bundle_srcs",
         ":node_modules",
+        "//js/topology-layout:radial_graph",
     ],
     entry_point = "god_view_scene_test_runner.mjs",
     tags = ["unit_test"],
@@ -297,6 +299,21 @@ vitest_bin.vitest_test(
         "js/hooks/DashboardWasmHost.test.js",
         "js/utils/dashboard_user_time.js",
         "js/utils/user_time.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "theme_init_test",
+    args = [
+        "run",
+        "js/utils/theme_init.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        "js/theme_init.js",
+        "js/utils/theme_init.test.js",
         ":node_modules",
     ],
     tags = ["unit_test"],
@@ -370,6 +387,7 @@ js_run_binary(
         "god_view_elk_scene_harness.js",
         ":god_view_scene_test_srcs",
         ":node_modules",
+        "//js/topology-layout:radial_graph",
     ],
     outs = ["god_view_elk_scene.bundle.js"],
     args = [
@@ -420,8 +438,16 @@ write_source_files(
 
 js_library(
     name = "world_gpu_test_lib",
-    srcs = ["god_view_world_gpu.playwright.js"],
-    deps = [":node_modules/@playwright/test"],
+    srcs = [
+        "god_view_world_gpu.playwright.js",
+        "js/lib/god_view/fixtures/snapshot_ipc.js",
+        "js/lib/god_view/fixtures/world_tile_ipc.js",
+        "js/lib/god_view/fixtures/world_transport.js",
+    ],
+    deps = [
+        ":node_modules/@playwright/test",
+        ":node_modules/apache-arrow",
+    ],
 )
 
 js_library(
@@ -460,7 +486,7 @@ filegroup(
 # sources that Tailwind scans via `@source "../component/src"`.
 filegroup(
     name = "bundle_srcs",
-    srcs = glob(
+    srcs = ["//js/topology-layout:radial_graph"] + glob(
         [
             "css/**",
             "js/**",

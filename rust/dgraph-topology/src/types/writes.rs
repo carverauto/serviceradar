@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::TopologyError;
 use crate::types::canonical_edge::link_key;
 
 /// Kind stored on `topo.kind`.
@@ -377,6 +378,20 @@ pub struct EdgeWrite {
 }
 
 impl EdgeWrite {
+    pub fn validate_hosted_replacement(&self) -> Result<(), TopologyError> {
+        if self.kind() != EdgeKind::HostedOn
+            || self.ingestor() != "hypervisor_enrichment_v1"
+            || self.source() == self.target()
+            || self.last_seen().is_empty()
+        {
+            return Err(TopologyError::ConditionSkipped(
+                "hosted replacement".to_owned(),
+                "hosted replacement requires virtualization projection, distinct endpoints, and an observation timestamp".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub fn new(
         source: impl Into<String>,

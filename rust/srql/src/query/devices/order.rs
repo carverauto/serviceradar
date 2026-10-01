@@ -2,13 +2,17 @@ use super::{DeviceQuery, filters::safe_device_ip_inet_sql};
 use crate::{
     parser::{OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
-        first_seen_time as col_first_seen_time, last_seen_time as col_last_seen_time,
-        type_id as col_type_id, uid as col_uid,
+        first_seen_time as col_first_seen_time, hostname as col_hostname,
+        last_seen_time as col_last_seen_time, type_id as col_type_id, uid as col_uid,
     },
 };
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Inet, Nullable};
+// Bring variants into scope so new arms can write `Asc`/`Desc` without the
+// fully-qualified form that the structural publish scanner misidentifies as
+// compressed IPv6.
+use OrderDirection::*;
 
 pub(super) fn apply_ordering<'a>(
     mut query: DeviceQuery<'a>,
@@ -109,6 +113,13 @@ fn apply_primary_order<'a>(
             },
             true,
         ),
+        "hostname" => (
+            match clause.direction {
+                Asc => query.order(col_hostname.asc()),
+                Desc => query.order(col_hostname.desc()),
+            },
+            true,
+        ),
         _ => (query, false),
     }
 }
@@ -166,6 +177,13 @@ fn apply_secondary_order<'a>(
             match clause.direction {
                 OrderDirection::Asc => query.then_order_by(col_type_id.asc()),
                 OrderDirection::Desc => query.then_order_by(col_type_id.desc()),
+            },
+            true,
+        ),
+        "hostname" => (
+            match clause.direction {
+                Asc => query.then_order_by(col_hostname.asc()),
+                Desc => query.then_order_by(col_hostname.desc()),
             },
             true,
         ),

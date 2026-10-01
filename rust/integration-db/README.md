@@ -5,12 +5,11 @@
 Every active database workflow (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*`) uses
 these guarded targets: `cleanup_generations`, `prepare_generation`, `provision_generation`,
 `provision_generation_large_ingestion`, and `release_generation`, with
-`//elixir/serviceradar_core:migrate_generation` as the builder. The legacy singleton
-`sr_core_template` is a frozen rollback artifact: no workflow migrates or clones it, and its
-writers (`prepare_template`, `reset_template`, `migrate_template`) refuse without
-`--//build:template_authority=true`, which no active workflow may pass. The legacy
-`provision_base`/`provision_db*` run-base targets remain in the tree but are not invoked.
-They consume the declared `build/schema_template/manifest.json` and `policy.json`;
+`//elixir/serviceradar_core:migrate_generation` as the builder. Singleton guards, planned
+target retirement and rollback prerequisites are owned by
+[the SRQL fixture runbook](../../docs/agent-runbooks.md#srql-fixture-integration-tests).
+
+Generation targets consume the declared `build/schema_template/manifest.json` and `policy.json`;
 there are no ambient generation or capacity overrides. Preparation emits JSON with
 `status` (`needs_migration` or `ready`), `digest`, `database`, and `builder_token`.
 
@@ -139,8 +138,8 @@ CA, and `PGSSLSERVERNAME` supplies the certificate DNS name when the DSN address
 The Elixir consumers see the original `verify-ca`/`verify-full` value and enable `verify_peer`.
 
 Without that parser-boundary normalization, the kubectl setup path's `verify-full` default
-aborts `provision_base`, `provision_db`, `teardown_db`, and `sweep_stale_dbs` before they can
-connect. A pure Rust lifecycle regression covers both verified libpq modes.
+aborts `teardown_db` and `sweep_stale_dbs` before they can connect.
+A pure Rust lifecycle regression covers both verified libpq modes.
 
 **The Elixir consumers do depend on it**, and both must treat "nothing named a mode" as
 "a CA was supplied, so TLS was intended". Defaulting to plaintext there is what produced two of
@@ -179,12 +178,8 @@ ordered sequence of Bazel invocations, not a wrapper script:
 `sweep -> cleanup generations -> prepare generation -> migrate generation if needs_migration ->
 prepare generation (ready) -> provision generation -> suite -> teardown -> release generation`
 
-Note what is NOT in that sequence: `prepare_template`, `migrate_template` and
-`reset_template`. They write the frozen `sr_core_template`, refuse without
-`--//build:template_authority=true`, and `//build/contracts:ci_heavy_gate_contract_test` fails if
-any active workflow passes that flag or names them. A checkout's own migrations produce a new
-schema digest, and therefore a new immutable `sr_tpl_<digest>` generation, instead of changing
-a database other branches clone.
+For the legacy singleton's exclusion from this sequence and rollback prerequisites, see
+[the SRQL fixture runbook](../../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 Every target must receive `--//build:enable_integration_tests`. Database tests clear the manual
 test filter, use `--strategy=TestRunner=local`, and disable test-result caching. The generation
@@ -193,26 +188,9 @@ rather than matching text. Use one run id for the whole sequence: the lease, the
 teardown are keyed on the run database it names. Always invoke `teardown_db` and then
 `release_generation` after preparation, including after a red shard.
 
-Against a local docker Postgres with TLS off:
-
-```
-export SRQL_TEST_ADMIN_URL='postgres://<admin>:<pw>@127.0.0.1:5432/postgres?sslmode=disable'
-export SRQL_TEST_DATABASE_URL='postgres://<app>:<pw>@127.0.0.1:5432/serviceradar_test?sslmode=disable'
-```
-
-For that Docker variant, reuse the skill recipe from `run_entropy` onward with the two preset URLs
-above. Omit its Kubernetes host/TLS exports and `buildbuddy_setup_fixture_env`/source lines; those
-deliberately select the shared CNPG fixture and require its CA.
-
-The image must carry all of `REQUIRED_EXTENSIONS` (`pgcrypto pg_trgm citext timescaledb age
-postgis vector`) with `age` and `timescaledb` in `shared_preload_libraries`.
-`registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4` does; it is operator-managed,
-so it has no entrypoint and its binaries are not on `PATH` — you have to `initdb` and start
-`postgres` yourself.
-
-The owner of the template and every clone is taken from the **user in
-`SRQL_TEST_DATABASE_URL`**, never hardcoded, because the suite connects as that role and a
-database owned by anyone else fails on its first DDL.
+Guarded targets do not accept a local Docker endpoint. For workstation tests, use the
+skill's shared-CNPG scratch-database recipe. Generation and clone ownership comes from
+`database.owning_role` in the declared environment, not `SRQL_TEST_DATABASE_URL`.
 
 ### Reproducing the CA-content fallback locally
 

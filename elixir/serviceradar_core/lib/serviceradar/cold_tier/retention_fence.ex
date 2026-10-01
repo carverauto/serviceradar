@@ -93,16 +93,21 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   Whether in-database retention policies are fenced off for this table.
 
   Keys off the SAME activation state as the exporter (`Config.enabled?/0`,
-  i.e. state == :enabled) — NOT mere cold-tier intent. A partial config that
-  fenced retention while the exporter could not run would hold data hot
-  forever and fill the primary (review F09); a misconfigured deployment
-  therefore does not fence, and normal retention proceeds.
+  i.e. state == :enabled or :cnpg_backfill) — NOT mere cold-tier intent.
+  A partial config that established a new fence while the exporter could not
+  run would hold data hot forever and fill the primary (review F09).
+  Misconfiguration alone therefore does not fence retention; existing residue
+  remains protected as described below.
 
   Also fenced when the cold tier has been disabled but un-drained state
   remains (two-phase disable, task 2.6): flipping the env off must never
   silently re-arm drops while un-exported chunks are held. The operator
   completes the disable with `ServiceRadar.ColdTier.Admin.waive/2`, which
   clears the residue.
+
+  Switching telemetry to StarRocks does not waive CNPG history. Configured
+  CNPG backfill keeps the fence active, and disabling backfill still follows
+  the same two-phase disable protocol.
   """
   @spec fenced?(String.t()) :: boolean()
   def fenced?(table_name) do

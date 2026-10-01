@@ -58,11 +58,16 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
   defp put_cutover(datasets) do
     previous = Application.get_env(:serviceradar_core, StarRocks, [])
 
-    Application.put_env(
-      :serviceradar_core,
-      StarRocks,
-      Keyword.put(previous, :cutover_datasets, datasets)
-    )
+    config =
+      if :metrics in datasets do
+        previous
+        |> Keyword.put(:cutover_datasets, datasets)
+        |> Keyword.put(:enabled, true)
+      else
+        Keyword.put(previous, :cutover_datasets, datasets)
+      end
+
+    Application.put_env(:serviceradar_core, StarRocks, config)
 
     on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous) end)
   end

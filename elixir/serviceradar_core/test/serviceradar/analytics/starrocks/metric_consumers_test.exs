@@ -22,7 +22,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      Keyword.put(prev, :cutover_datasets, [:metrics])
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
     )
 
     query = fn sql ->
@@ -43,7 +43,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      Keyword.put(prev, :cutover_datasets, [:metrics])
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
     )
 
     query = fn sql ->
@@ -233,7 +233,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      Keyword.put(prev, :cutover_datasets, [:metrics])
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
     )
 
     query = fn sql ->

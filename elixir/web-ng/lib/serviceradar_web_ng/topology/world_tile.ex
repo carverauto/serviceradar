@@ -11,12 +11,11 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.TileKey
 
+  # Compact identities bound bytes without changing the publication's shared
+  # routing grade. Reducing per-tile portal budgets would break adjacency.
   @profiles [
-    %{profile: :standard, nodes: 128, edges: 256},
-    %{profile: :standard, nodes: 64, edges: 128},
-    %{profile: :standard, nodes: 32, edges: 72},
-    %{profile: :standard, nodes: 9, edges: 72},
-    %{profile: :aggregate_only, nodes: 9, edges: 72}
+    %{profile: :standard, nodes: 128, edges: 512},
+    %{profile: :aggregate_only, nodes: 128, edges: 512}
   ]
 
   def build(world, %TileKey{} = key) do
@@ -56,7 +55,7 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
          revision: revision,
          selection: tile.selection,
          selection_bytes: tile.selection_bytes,
-         flow_edges: Enum.map(tile.edges, &Map.take(&1, [:id, :count]))
+         flow_edges: Enum.map(tile.edges, &Map.take(&1, [:id, :count, :stale]))
        }}
     end
   end
@@ -67,7 +66,7 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
       revision: 0,
       nodes: Enum.map(tile.glyphs, &node(&1, transform)),
       edges: Enum.map(tile.edges, &{&1.source, &1.target, 0, 0, 0, "", 0}),
-      edge_meta: [],
+      edge_meta: Enum.map(tile.edges, &{&1.topology_class, "", ""}),
       edge_directional: [],
       edge_details: Enum.map(tile.edges, &edge_details/1),
       root_bitmap_bytes: 0,
@@ -92,7 +91,8 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
       id: edge.id,
       represented_count: edge.count,
       phase_start: edge.start,
-      phase_end: edge.end
+      phase_end: edge.end,
+      stale: edge.stale == true
     })
   end
 

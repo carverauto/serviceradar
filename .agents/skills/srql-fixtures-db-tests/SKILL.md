@@ -95,11 +95,9 @@ the schema another branch clones. Generation count, concurrent builders, storage
 lease length are bounded by `build/schema_template/policy.json`, and `cleanup_generations`
 reclaims only idle, unleased, unconnected generations. See `docs/docs/ci-schema-templates.md`.
 
-`sr_core_template` is a frozen rollback artifact: no workflow migrates it or clones from it.
-Do not write it. `//elixir/serviceradar_core:migrate_template`,
-`//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` refuse
-without `--//build:template_authority=true`, and the CI contract test fails if any active
-workflow passes that flag -- never reach for it to get past a refusal.
+Do not write the frozen `sr_core_template` or bypass its guards. Current guards, planned
+target retirement and rollback prerequisites are owned by
+[the SRQL fixture runbook](../../../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 That workflow owns `SERVICERADAR_ENV=ci`, the typed configuration inputs, the private secret
 environment, capacity observer, run ID, and caller-owned cleanup. It keeps secret-bearing test
@@ -236,13 +234,8 @@ length live in `build/schema_template/policy.json`; `cleanup_generations` reclai
 generations idle past retention with no live lease and no connections. Contract and recovery:
 [docs/docs/ci-schema-templates.md](docs/docs/ci-schema-templates.md).
 
-**`sr_core_template` is a frozen rollback artifact. Do not write it.** No workflow migrates or
-clones it. Its writers (`//elixir/serviceradar_core:migrate_template`,
-`//rust/integration-db:prepare_template`, `//rust/integration-db:reset_template`) still refuse
-without `--//build:template_authority=true`, and `//build/contracts:ci_heavy_gate_contract_test`
-fails if any active workflow passes that flag or names those targets. Never pass it to get past
-a refusal: writing the shared singleton from a branch is what once left seven unmerged
-migrations in it and turned every other pull request red.
+For singleton guards, planned target retirement and rollback prerequisites, see
+[the SRQL fixture runbook](../../../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 Step order, run-id and credential rules, the BazelCI merge-tree caveat and cleanup checks:
 [docs/agent-runbooks.md](docs/agent-runbooks.md).

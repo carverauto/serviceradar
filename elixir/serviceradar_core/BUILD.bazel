@@ -83,6 +83,7 @@ INTEGRATION_RUNTIME_DATA = glob(
         "test/release_gates/**",
     ],
 ) + [
+    "//elixir/serviceradar_core_elx:runtime_config",
     # Read at MODULE level (compile time) by
     # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
     # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it

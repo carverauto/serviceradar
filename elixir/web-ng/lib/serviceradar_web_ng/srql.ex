@@ -2,14 +2,22 @@ defmodule ServiceRadarWebNG.SRQL do
   @moduledoc """
   SRQL (ServiceRadar Query Language) module.
 
-  All queries are executed through the Rust NIF which generates parameterized SQL,
-  then executed directly via Ecto adapters. No intermediate query layers.
+  The Rust NIF compiles validated queries to parameterized SQL or fleet read plans.
+  SQL runs through Ecto adapters; agent extension fleets use scoped Ash reads.
   """
 
   @behaviour ServiceRadarWebNG.SRQLBehaviour
 
   use Boundary,
-    deps: [ServiceRadarWebNG],
+    top_level?: true,
+    check: [apps: [:serviceradar_core, :serviceradar_srql]],
+    deps: [
+      ServiceRadar,
+      ServiceRadarSRQL,
+      ServiceRadarWebNG,
+      ServiceRadarWebNG.Plugins,
+      ServiceRadarWebNG.SRQL.EntityAccess
+    ],
     exports: :all
 
   alias Ecto.Adapters.SQL
@@ -20,6 +28,7 @@ defmodule ServiceRadarWebNG.SRQL do
   alias ServiceRadar.Analytics.StarRocks.RollupFreshness
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.EntityAccess
+  alias ServiceRadarWebNG.SRQL.FleetQuery
   alias ServiceRadarWebNG.SRQL.Native
 
   require Logger
@@ -56,7 +65,7 @@ defmodule ServiceRadarWebNG.SRQL do
              mode,
              &translate(query, limit, cursor, direction, &1, permitted_signals)
            ),
-         {:ok, result} <- execute_backend_raw(translation, mode),
+         {:ok, result} <- execute_backend_raw(Map.put(translation, "_scope", scope), mode),
          {:ok, payload} <- encode_result_arrow(result, warehouse_shape(query, mode)) do
       {:ok,
        %{
@@ -113,7 +122,10 @@ defmodule ServiceRadarWebNG.SRQL do
                      mode,
                      &translate(query, limit, cursor, direction, &1, permitted_signals)
                    ) do
-              execute_backend(Map.put(translation, "_query", query), mode)
+              translation
+              |> Map.put("_query", query)
+              |> Map.put("_scope", scope)
+              |> execute_backend(mode)
             end
           end
       end
@@ -150,6 +162,12 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
+  defp execute_backend(%{"read_model" => plan} = translation, _mode) do
+    with {:ok, result} <- FleetQuery.execute(plan, Map.get(translation, "_scope")) do
+      {:ok, build_response(translation, result)}
+    end
+  end
+
   defp execute_backend(%{"sql" => sql} = translation, mode)
        when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
     with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
@@ -169,6 +187,9 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp execute_backend(translation, _mode), do: execute_translation(translation)
+
+  defp execute_backend_raw(%{"read_model" => plan} = translation, _mode),
+    do: FleetQuery.execute(plan, Map.get(translation, "_scope"))
 
   defp execute_backend_raw(%{"sql" => sql}, mode) when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
     with :ok <- CatalogAllowlist.assert_sql_executable(sql) do

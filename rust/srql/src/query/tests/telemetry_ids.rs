@@ -5,17 +5,6 @@ const TRACE_ID_LOWER: &str = "6d88848d08854d6ad1561d510041d03c";
 const SPAN_ID_UPPER: &str = "AB54A98CEB1F0AD2";
 const SPAN_ID_LOWER: &str = "ab54a98ceb1f0ad2";
 
-fn request_for(query: &str) -> QueryRequest {
-    QueryRequest {
-        query: query.to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    }
-}
-
 fn translate(query: &str) -> TranslateResponse {
     translate_request(&test_config(), request_for(query)).expect("query should translate")
 }

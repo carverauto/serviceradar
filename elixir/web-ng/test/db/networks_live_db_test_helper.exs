@@ -9,12 +9,11 @@ ExUnit.configure(
   max_cases: 1
 )
 
-# Lane arbiter from the filtered run: summary "3 properties, 2340 tests,
-# 8 skipped (2 excluded)". That 2343 includes the 8 skipped GodView cases
-# (https://github.com/carverauto/serviceradar/issues/4988) and excludes the
-# 2 :db_free-only cases. after_suite total is 2345, so selected is
-# total - excluded - skipped = 2335.
-expected_selected_tests = 2335
+# Count from merge of HEAD (2335) plus staging additions:
+# +10 ash_json_api_test.exs, +2 extension_fleet_db_test.exs,
+# +3 audit_events_live_test.exs, +3 cli_auth_policy_live_test.exs (for-loop),
+# +9 device_remove_facts_controller_test.exs.
+expected_selected_tests = 2362
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

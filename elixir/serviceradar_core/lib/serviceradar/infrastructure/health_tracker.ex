@@ -230,41 +230,47 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - `:latency_ms` - Response time in milliseconds
   - `:error` - Error message if unhealthy
   - `:metadata` - Additional context
+  - `:refresh_metadata` - Record changed metadata even when health is unchanged (default: false)
   """
   @spec record_health_check(entity_type(), String.t(), keyword()) ::
-          {:ok, struct()} | {:error, term()}
+          {:ok, struct()} | {:ok, :unchanged} | {:error, term()}
   def record_health_check(entity_type, entity_id, opts \\ []) do
     case ensure_tracking_ready() do
       :ok ->
         healthy = Keyword.fetch!(opts, :healthy)
         latency_ms = Keyword.get(opts, :latency_ms)
         error = Keyword.get(opts, :error)
-        metadata = Keyword.get(opts, :metadata, %{})
+
+        metadata =
+          Map.merge(Keyword.get(opts, :metadata, %{}), %{
+            latency_ms: latency_ms,
+            error: error
+          })
 
         # Determine new state based on health
         new_state = if healthy, do: :healthy, else: :unhealthy
 
         # Get previous state to detect changes
-        old_state =
+        current =
           case current_status(entity_type, entity_id) do
-            {:ok, %{new_state: prev}} -> prev
+            {:ok, event} -> event
             _ -> nil
           end
 
-        # Only record if state changed (or first event)
-        if old_state == new_state do
-          # State unchanged, just return ok
+        old_state = if current, do: current.new_state
+
+        metadata_changed? =
+          Keyword.get(opts, :refresh_metadata, false) and
+            (is_nil(current) or current.metadata != Jason.decode!(Jason.encode!(metadata)))
+
+        if old_state == new_state and not metadata_changed? do
           {:ok, :unchanged}
         else
           record_state_change(entity_type, entity_id,
             old_state: old_state,
             new_state: new_state,
             reason: if(healthy, do: :health_check_passed, else: :health_check_failed),
-            metadata:
-              Map.merge(metadata, %{
-                latency_ms: latency_ms,
-                error: error
-              })
+            metadata: metadata
           )
         end
 

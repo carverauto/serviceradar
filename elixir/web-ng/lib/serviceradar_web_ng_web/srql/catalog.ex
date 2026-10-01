@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   @moduledoc false
 
+  alias ServiceRadar.Security.SecurityEvent
+
   @wifi_site_filter_fields [
     "source_id",
     "site_code",
@@ -98,6 +100,31 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   @entities [
     %{
+      id: "security_events",
+      label: "Security audit events",
+      exact_fields: ["search"],
+      address_fields: ["ip"],
+      default_time: "last_24h",
+      default_sort_field: "occurred_at",
+      default_sort_dir: "desc",
+      default_filter_field: "kind",
+      filter_fields: [
+        "kind",
+        "severity",
+        "actor_id",
+        "ip",
+        "route",
+        "correlation_id",
+        "search",
+        "id"
+      ],
+      known_values: %{
+        "kind" => Enum.map(SecurityEvent.kinds(), &to_string/1),
+        "severity" => Enum.map(SecurityEvent.severities(), &to_string/1)
+      },
+      downsample: false
+    },
+    %{
       id: "dashboards",
       label: "Dashboards",
       route: "/dashboards",
@@ -158,10 +185,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "degradation_reason",
         "assigned",
         "active",
-        "evidence_age_seconds"
+        "evidence_age_seconds",
+        "enabled",
+        "stale",
+        "version_drift",
+        "package_id",
+        "content_hash",
+        "reported_at",
+        "last_health_at",
+        "last_scan_at",
+        "latest_approved_version",
+        "verification_status"
       ],
-      boolean_fields: ["assigned", "active"],
+      boolean_fields: ~w(assigned active enabled stale version_drift),
       numeric_fields: ["evidence_age_seconds"],
+      timestamp_fields: ~w(reported_at last_health_at last_scan_at),
       known_values: %{
         "category" => [
           "healthy",
@@ -173,6 +211,39 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         ],
         "assigned" => ["true", "false"],
         "active" => ["true", "false"]
+      },
+      downsample: false
+    },
+    %{
+      id: "addon_statuses",
+      label: "Add-on Statuses",
+      default_time: "",
+      default_sort_field: "reported_at",
+      default_sort_dir: "desc",
+      default_filter_field: "addon_id",
+      filter_fields: ~w(agent_uid addon_id state version arch),
+      exact_fields: ~w(state arch),
+      downsample: false
+    },
+    %{
+      id: "plugin_fleet",
+      label: "WASM Plugin Fleet",
+      default_time: "",
+      default_sort_field: "category",
+      default_sort_dir: "asc",
+      default_filter_field: "plugin_id",
+      filter_fields: ~w(partition_id agent_uid plugin_id plugin_name assignment_id
+        observed_assignment_id assignment_drift assigned enabled source policy_id interval_seconds
+        timeout_seconds package_id package_status content_hash assigned_version observed_version
+        version_drift observed_state available result_status reported_at evidence_age_seconds stale
+        last_success_at last_failure_at last_error runtime outputs category reason_code),
+      boolean_fields: ~w(assigned enabled available stale version_drift assignment_drift),
+      numeric_fields: ~w(interval_seconds timeout_seconds evidence_age_seconds),
+      timestamp_fields: ~w(reported_at last_success_at last_failure_at),
+      known_values: %{
+        "category" => ~w(healthy unavailable action_required expected_inactive observed_only),
+        "observed_state" => ~w(not_reported pending ready available unavailable inactive),
+        "result_status" => ~w(OK WARNING CRITICAL UNKNOWN)
       },
       downsample: false
     },
@@ -2342,6 +2413,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   # catalog record per entity. Without this, opening a legacy query in the
   # visual builder silently falls back to the generic timestamp-sorted shape.
   @entity_aliases %{
+    "addon_fleets" => "addon_fleet",
+    "addon_status" => "addon_statuses",
+    "plugin_fleets" => "plugin_fleet",
     "cpu" => "cpu_metrics",
     "memory" => "memory_metrics",
     "disk" => "disk_metrics",

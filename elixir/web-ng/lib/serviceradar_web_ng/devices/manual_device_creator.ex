@@ -536,7 +536,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
           {:cont, :ok}
 
         {:error, {:merge_blocked, guard}} ->
-          Logger.warning(
+          Logger.info(
             "CSV/manual upsert left duplicate #{device.uid} beside #{canonical.uid} " <>
               "(merge blocked: #{guard})"
           )

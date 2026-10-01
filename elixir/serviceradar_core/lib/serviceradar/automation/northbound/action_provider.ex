@@ -34,7 +34,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
     :metadata
   ]
 
-  @launch_read_fields [:id, :name, :provider_type, :status]
+  @launch_read_fields [:id, :name, :provider_type, :plugin_package_id, :status]
 
   postgres do
     table "northbound_action_providers"

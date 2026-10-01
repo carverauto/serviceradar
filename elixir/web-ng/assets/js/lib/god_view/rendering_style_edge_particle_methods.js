@@ -25,7 +25,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
 
     for (let i = 0; i < edges.length; i += 1) {
       const edge = edges[i]
-      if (edge?.telemetryEligible === false || edge?.telemetry_eligible === false) continue
+      if (edge?.stale === true || edge?.telemetryEligible === false || edge?.telemetry_eligible === false) continue
       if (Array.isArray(edge?.path) && edge.path.length > 2) continue
       const src = edge?.sourcePosition
       const dst = edge?.targetPosition

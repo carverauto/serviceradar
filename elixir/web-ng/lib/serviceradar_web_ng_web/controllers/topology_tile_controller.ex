@@ -26,10 +26,13 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
           :layout_version,
           :generation,
           :extent,
+          :bounds,
           :algorithm_version,
           :zmax,
           :node_count,
           :relation_count,
+          :pipeline_stats,
+          :generated_at,
           :observed_generation,
           :catching_up
         ])

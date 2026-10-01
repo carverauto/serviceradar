@@ -581,12 +581,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp build_filter_by_op(field, "contains", values, _array_fields) do
     value = values |> List.first() |> safe_to_string() |> String.trim()
-    if value == "", do: nil, else: "#{field}:%#{escape_value(value)}%"
+    if value == "", do: nil, else: "#{field}:#{escape_value("%#{value}%")}"
   end
 
   defp build_filter_by_op(field, "not_contains", values, _array_fields) do
     value = values |> List.first() |> safe_to_string() |> String.trim()
-    if value == "", do: nil, else: "!#{field}:%#{escape_value(value)}%"
+    if value == "", do: nil, else: "!#{field}:#{escape_value("%#{value}%")}"
   end
 
   defp build_filter_by_op(field, "gt", values, _array_fields) do
@@ -653,7 +653,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     "!#{field}:(#{Enum.join(escaped, ",")})"
   end
 
-  defp escape_value(value), do: String.replace(value, " ", "\\ ")
+  defp escape_value(value) do
+    if String.match?(value, ~r/\s/) do
+      escaped = value |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
+      "\"#{escaped}\""
+    else
+      value
+    end
+  end
 
   defp stringify_map(%{} = map) do
     Map.new(map, fn
@@ -754,7 +761,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       [field, value] ->
         {field, negated} = parse_filter_field(field)
         value = String.trim(value)
-        {op, final_value} = parse_filter_value(negated, value)
+        {op, final_value} = parse_filter_value(negated, value, String.downcase(field))
 
         filter = %{
           "field" => String.downcase(field),
@@ -787,7 +794,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     end
   end
 
-  defp parse_filter_value(negated, value) do
+  defp parse_filter_value(negated, value, field) do
     value = String.trim(value)
     value = maybe_unquote(value)
 
@@ -814,7 +821,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       String.starts_with?(value, "<") ->
         {"lt", String.replace_prefix(value, "<", "")}
 
-      String.contains?(value, "%") ->
+      field != "search" and String.contains?(value, "%") ->
         op = if negated, do: "not_contains", else: "contains"
         {op, unwrap_like(value)}
 

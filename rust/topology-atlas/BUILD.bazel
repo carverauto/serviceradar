@@ -6,6 +6,7 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 rust_library(
     name = "topology_atlas",
     srcs = glob(["src/**/*.rs"]),
+    compile_data = ["//js/topology-layout:elk_layout.bundle.js"],
     crate_name = "serviceradar_topology_atlas",
     crate_root = "src/lib.rs",
     visibility = ["//visibility:public"],

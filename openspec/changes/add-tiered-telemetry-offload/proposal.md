@@ -16,8 +16,8 @@ retention machinery is allowed to drop them, a dedicated analytics PostgreSQL
 instance (pg_duckdb, no TimescaleDB) serves queries over the archived Parquet
 plus the recent hot rows, and SRQL routes raw-shape queries whose window
 reaches below the hot retention window to that cold path — invisibly to the
-user. When no cold-tier configuration is supplied, every behavior in this
-change is inert and OSS deployments run exactly as today.
+user. Archive activation follows the deployment-configuration requirement in
+`specs/telemetry-tiering/spec.md`.
 
 ## What Changes
 

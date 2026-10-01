@@ -86,6 +86,7 @@ pub(super) fn translate(plan: &QueryPlan, database: &str) -> Result<TranslateRes
     let sql = rows_sql(plan, &from, &where_sql);
 
     Ok(TranslateResponse {
+        read_model: None,
         sql,
         params,
         pagination: PaginationMeta {

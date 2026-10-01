@@ -8,6 +8,22 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
 
   @moduletag :db_free
 
+  test "literal audit search offers only the operators it can emit" do
+    builder =
+      "security_events"
+      |> Builder.default_state(25)
+      |> Map.put("filters", [%{"field" => "search", "op" => "equals", "value" => "%literal"}])
+
+    options =
+      (&SRQLComponents.srql_query_builder/1)
+      |> render_component(builder: builder)
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("select[name='builder[filters][0][op]'] option")
+      |> LazyHTML.attribute("value")
+
+    assert options == ["equals", "not_equals"]
+  end
+
   test "compact editor keeps the SRQLInput hook and its own dropdown" do
     html =
       render_component(&SRQLComponents.srql_editor/1,
