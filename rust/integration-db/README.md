@@ -7,9 +7,13 @@ these guarded targets: `cleanup_generations`, `prepare_generation`, `provision_g
 `provision_generation_large_ingestion`, and `release_generation`, with
 `//elixir/serviceradar_core:migrate_generation` as the builder. The legacy singleton
 `sr_core_template` is a frozen rollback artifact: no workflow migrates or clones it, and its
-writers (`prepare_template`, `reset_template`, `migrate_template`) refuse without
-`--//build:template_authority=true`, which no active workflow may pass. The legacy
-`provision_base`/`provision_db*` run-base targets remain in the tree but are not invoked.
+writers (`prepare_template`, `reset_template`, `migrate_template`) still refuse without
+`--//build:template_authority=true`, which no active workflow may pass. The writers, the flag,
+and the legacy `provision_base`/`provision_db*` run-base targets remain in the tree but are not
+invoked, and the accepted retirement plan deletes them; per-lane `provision_generation_<lane>`
+clone targets arrive with that retirement and are not yet callable. Rolling back to the
+singleton lifecycle after the retirement means reverting the retirement code first, then
+restoring the callers.
 They consume the declared `build/schema_template/manifest.json` and `policy.json`;
 there are no ambient generation or capacity overrides. Preparation emits JSON with
 `status` (`needs_migration` or `ready`), `digest`, `database`, and `builder_token`.
@@ -139,8 +143,8 @@ CA, and `PGSSLSERVERNAME` supplies the certificate DNS name when the DSN address
 The Elixir consumers see the original `verify-ca`/`verify-full` value and enable `verify_peer`.
 
 Without that parser-boundary normalization, the kubectl setup path's `verify-full` default
-aborts `provision_base`, `provision_db`, `teardown_db`, and `sweep_stale_dbs` before they can
-connect. A pure Rust lifecycle regression covers both verified libpq modes.
+aborts `teardown_db` and `sweep_stale_dbs` before they can connect.
+A pure Rust lifecycle regression covers both verified libpq modes.
 
 **The Elixir consumers do depend on it**, and both must treat "nothing named a mode" as
 "a CA was supplied, so TLS was intended". Defaulting to plaintext there is what produced two of
@@ -180,9 +184,11 @@ ordered sequence of Bazel invocations, not a wrapper script:
 prepare generation (ready) -> provision generation -> suite -> teardown -> release generation`
 
 Note what is NOT in that sequence: `prepare_template`, `migrate_template` and
-`reset_template`. They write the frozen `sr_core_template`, refuse without
+`reset_template`. They write the frozen `sr_core_template`, still refuse without
 `--//build:template_authority=true`, and `//build/contracts:ci_heavy_gate_contract_test` fails if
-any active workflow passes that flag or names them. A checkout's own migrations produce a new
+any active workflow passes that flag or names them -- and the accepted retirement plan deletes
+those targets and the flag outright, after which rolling back to them means reverting the
+retirement code first. A checkout's own migrations produce a new
 schema digest, and therefore a new immutable `sr_tpl_<digest>` generation, instead of changing
 a database other branches clone.
 

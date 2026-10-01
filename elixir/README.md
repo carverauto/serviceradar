@@ -50,7 +50,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | --- | --- | --- |
 | `elixir/datasvc` | `erlang_app` | gRPC data service |
 | `elixir/serviceradar_srql` | `erlang_app` | Wraps the `srql_nif` Rust NIF |
-| `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_generation`, `migrate_run`, `migrate_template`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
+| `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_generation`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
 | `elixir/serviceradar_agent_gateway` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/web-ng` | `erlang_app`, `unit_tests`, `deps_cache`, `precommit`, `release_tar` | Phoenix; see `elixir/web-ng/AGENTS.md` |
 | `elixir/serviceradar_core_elx` | `release_tar` | Release wrapper, no `mix_app` |
@@ -347,7 +347,10 @@ PostgreSQL fixture (CNPG with TimescaleDB and Apache AGE).
   `integration_tests_serial_6`. Each has its own database; CI clones all eight in one
   `//rust/integration-db:provision_generation` invocation. The per-lane `provision_db_async` and
   `provision_db_serial_0` through `provision_db_serial_6` targets belong to the legacy run-base
-  path, which no workflow invokes.
+  path, which no workflow invokes; the accepted retirement plan deletes them and adds per-lane
+  `provision_generation_<lane>` clones for the one-lane loop. Those labels are forthcoming,
+  not yet callable -- until they land, the aggregate `provision_generation` invocation above is
+  the only way to provision a lane database.
 - Lane names and the audited source partition live in `//build:integration_shards.bzl`, which
   both the Elixir targets and Rust provisioner read. The async lane runs `max_cases=8`; every
   serial lane runs `max_cases=1`.
@@ -422,13 +425,17 @@ immutable generations replaced the singleton outright.
 No workflow migrates it or clones from it now. It is kept, unmodified, for rollback. Its three
 writers -- `//rust/integration-db:prepare_template`,
 `//elixir/serviceradar_core:migrate_template` and `//rust/integration-db:reset_template` --
-still refuse unless the caller passes `--//build:template_authority=true` (read by Rust and
-Elixir from the same staged `//build:template_authority_file`, failing closed on an absent,
-empty or mangled marker), and `//build/contracts:ci_heavy_gate_contract_test` fails if any active
-workflow passes that flag or names one of those targets. Do not pass it to make a refusal go
-away. The run-base targets that fed from the singleton (`//rust/integration-db:provision_base`,
-`//elixir/serviceradar_core:migrate_run`, `//rust/integration-db:provision_db*`) are still in
-the tree but are not part of any active lifecycle.
+are still in the tree and still refuse without `--//build:template_authority=true` (read by
+Rust and Elixir from the same staged `//build:template_authority_file`, failing closed on an
+absent, empty or mangled marker), and `//build/contracts:ci_heavy_gate_contract_test` fails
+if any active workflow passes that flag or names one of those targets. The writers and the
+flag are slated for deletion by the accepted retirement plan; while the flag exists, never
+pass it to make a refusal go away. The run-base targets that fed from the singleton
+(`//rust/integration-db:provision_base`, `//elixir/serviceradar_core:migrate_run`,
+`//rust/integration-db:provision_db*`) are likewise still in the tree but are not part of any
+active lifecycle, and the retirement deletes them too. After that deletion, rolling back to
+the singleton lifecycle means reverting the retirement code first to restore the targets and
+their guards, then restoring the callers -- the frozen database alone restores nothing.
 
 ### Tags
 
@@ -659,10 +666,13 @@ fit the PR lifecycle budget; cold database bootstrap is the current example and 
 source-membership contract and release-qualification coverage.
 
 **3. If the test is slow**, profile it as a lane step of the
-[canonical fixture lifecycle](../.agents/skills/srql-fixtures-db-tests/SKILL.md), after its
-matching provision target. Use `provision_db_async` with `integration_tests_async`, or the same
-`serial_0` through `serial_6` suffix on `provision_db_serial_*` and
-`integration_tests_serial_*`. Built-in slowest reporting enables trace, forces serial execution,
+[canonical fixture lifecycle](../.agents/skills/srql-fixtures-db-tests/SKILL.md), after
+`//rust/integration-db:provision_generation` has cloned that lane's database. The legacy
+per-lane `provision_db_async` / `provision_db_serial_*` targets are not part of any active
+lifecycle and are slated for deletion; their per-lane generation replacements
+(`provision_generation_<lane>`) arrive with the retirement and are not yet callable, so keep
+the `serial_0` through `serial_6` suffix matched between the lane's test target and its
+provision target. Built-in slowest reporting enables trace, forces serial execution,
 and disables test timeouts, so explicitly set the profiling cap to one and never use this command
 as latency or concurrency evidence:
 
@@ -809,9 +819,10 @@ On Apple Silicon the image is `linux/amd64` and runs under emulation; Docker pri
 warning, which is expected.
 
 Then create the owner role. A fresh `initdb` has only `postgres`, and
-`//rust/integration-db:{provision_base,provision_db_async,provision_db_serial_0..serial_6}`
-create every database owned by the
-**user in `SRQL_TEST_DATABASE_URL`** -- `serviceradar` for the DSN below:
+`//rust/integration-db:provision_generation` clones every lane database owned by the
+**user in `SRQL_TEST_DATABASE_URL`** -- `serviceradar` for the DSN below. (The legacy
+`provision_base` / `provision_db*` targets this sentence once named are slated for deletion;
+the forthcoming per-lane `provision_generation_<lane>` targets use the same owner.)
 
 ```sh
 docker exec sr-pg psql -U postgres -c "CREATE ROLE serviceradar LOGIN SUPERUSER;"
@@ -914,11 +925,11 @@ reads Rust sources.
 | `module Connection is not loaded and could not be found` | A `path:` dep edge dropped. Add it to `@path_deps` in `third_party/hex/gen_hex_bazel.exs`. |
 | `{:bad_lib, "Failed to find library init function"}` | `RUSTLER_PRIMARY_NIF_INIT=1` missing from the NIF's `rustc_env`. |
 | Cargo runs during a Bazel build | `skip_compilation?: true` missing from `extra_config`. |
-| `40P01 deadlock_detected` across integration groups | Two lanes sharing a database. Check the matching `provision_db_async` or `provision_db_serial_*` target ran first. |
+| `40P01 deadlock_detected` across integration groups | Two lanes sharing a database. Check `//rust/integration-db:provision_generation` cloned every lane's database first. |
 | Integration suite green having run zero tests | Fixture URL absent, so `test_helper` took the no-database branch. The `manual` tag exists to prevent this. |
 | `42501 must be owner of schema platform` | Admin DSN has no password; see [Running things locally](#running-things-locally). |
 | `provision_db` fails with `sr_core_test_<run> does not exist; run //rust/integration-db:provision_base first` | The branch's `buildbuddy.yaml` predates the generation cutover and still runs the legacy run-base steps. Rebase onto `staging`. |
-| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Working as intended. `sr_core_template` is a frozen rollback artifact; use the generation lifecycle (`prepare_generation`, `migrate_generation`, `provision_generation`). Do not pass `--//build:template_authority=true` to get past it. |
+| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Working as intended while the legacy writers still exist. `sr_core_template` is a frozen rollback artifact; use the generation lifecycle (`prepare_generation`, `migrate_generation`, `provision_generation`). The writers and the authority flag are slated for deletion; see [`sr_core_template` is a frozen rollback artifact](#sr_core_template-is-a-frozen-rollback-artifact). |
 | `the application :X has a different value set for key :Y during runtime compared to compile time` | A Hex dependency read `Y` with `compile_env` and was compiled without it. Add it to `HEX_COMPILE_ENV_CONFIG` in `//build:hex_compile_env.bzl`. Never `validate_compile_env: false` -- see [Compile-time config a dependency reads](#compile-time-config-a-dependency-reads). |
 | `undefined function config/2` while compiling a Hex package | That package's `config/config.exs` exists but is empty, so nothing imported `Config`. `mix_app` handles this; if you see it, the guard regressed. |
 | `function config/2 imported from both Config and Mix.Config` | That package uses the deprecated `use Mix.Config`. Same guard, other direction. |
