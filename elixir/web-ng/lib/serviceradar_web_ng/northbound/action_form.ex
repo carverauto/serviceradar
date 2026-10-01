@@ -32,7 +32,8 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     properties = schema_properties(action)
     required = schema_required(action)
 
-    with :ok <- validate_required(required, input) do
+    with :ok <- validate_required(required, input),
+         :ok <- validate_credential_rule_choices(properties, input) do
       cast_input(properties, input)
     end
   end
@@ -77,6 +78,38 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     end
   end
 
+  def schema_credential_rule_options_error?(schema) do
+    schema_value(schema, "x-credential-rule-options-error") == true
+  end
+
+  def schema_credential_rule_options_empty?(schema) do
+    schema_value(schema, "x-credential-rule-options-empty") == true
+  end
+
+  def schema_credential_rule_options_blocked?(schema) do
+    schema_credential_rule_options_error?(schema) or schema_credential_rule_options_empty?(schema)
+  end
+
+  @doc """
+  Display label for an enum value.
+
+  The action catalog annotates a property whose value names a credential rule
+  with `x-enum-labels` (rule id to rule name), so the operator picks a rule by
+  name while the submitted value stays the id.
+  """
+  def schema_enum_label(schema, value) do
+    case schema_value(schema, "x-enum-labels") do
+      %{} = labels ->
+        case Map.get(labels, value) do
+          label when is_binary(label) and label != "" -> label
+          _ -> value
+        end
+
+      _ ->
+        value
+    end
+  end
+
   def schema_title(name, schema) do
     case schema_value(schema, "title") do
       value when is_binary(value) and value != "" -> value
@@ -112,7 +145,9 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
   def json_textarea_value(nil, "array"), do: "[]"
   def json_textarea_value(nil, _type), do: "{}"
   def json_textarea_value(value, _type) when is_binary(value), do: value
+
   def json_textarea_value(value, _type) when is_map(value) or is_list(value), do: Jason.encode!(value)
+
   def json_textarea_value(value, _type), do: to_string(value)
 
   def html_input_type("integer"), do: "number"
@@ -144,6 +179,14 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     "#{humanize(field)} is required."
   end
 
+  def format_launch_error({:credential_rule_options_empty, field}, _target_label) do
+    "No credential rules are available for #{humanize(field)}."
+  end
+
+  def format_launch_error(:credential_rule_permission_required, _target_label) do
+    "You need credential management permission to select a credential rule."
+  end
+
   def format_launch_error({:invalid_integer, field}, _target_label) do
     "#{humanize(field)} must be a whole number."
   end
@@ -157,16 +200,28 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
   end
 
   def format_launch_error(:action_not_found, _target_label), do: "Select a launchable action."
+
   def format_launch_error(:targets_required, target_label), do: "Select at least one #{target_label}."
 
   def format_launch_error(:descriptor_not_found, _target_label), do: "The selected action no longer exists."
+
   def format_launch_error(:descriptor_disabled, _target_label), do: "The selected action is disabled."
 
   def format_launch_error({:provider_not_active, _status}, _target_label) do
     "The selected action integration is not active."
   end
 
+  def format_launch_error({reason, _requirement, field}, _target_label)
+      when reason in [:credential_rule_not_eligible, :missing_credential_rule_input] do
+    "Select a credential provisioned for this integration in #{humanize(field)}."
+  end
+
+  def format_launch_error({:no_bound_schedule_credential, _requirement, _ref}, _target_label) do
+    "This integration has no enabled credential bound to its agent assignment."
+  end
+
   def format_launch_error(%Forbidden{}, _target_label), do: "You are not authorized to launch actions."
+
   def format_launch_error(_reason, _target_label), do: "Failed to create action invocation."
 
   defp validate_required(required, input) do
@@ -181,6 +236,16 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
       {:error, {:missing_required_input, missing}}
     else
       :ok
+    end
+  end
+
+  defp validate_credential_rule_choices(properties, input) do
+    case Enum.find(properties, fn {name, schema} ->
+           schema_credential_rule_options_empty?(schema) and
+             not blank_form_value?(Map.get(input, name))
+         end) do
+      {name, _schema} -> {:error, {:credential_rule_options_empty, name}}
+      nil -> :ok
     end
   end
 
@@ -244,12 +309,24 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
   defp schema_value(schema, "required") when is_map(schema), do: Map.get(schema, "required") || Map.get(schema, :required)
 
   defp schema_value(schema, "default") when is_map(schema), do: Map.get(schema, "default") || Map.get(schema, :default)
+
   defp schema_value(schema, "type") when is_map(schema), do: Map.get(schema, "type") || Map.get(schema, :type)
 
   defp schema_value(schema, "x-order") when is_map(schema), do: Map.get(schema, "x-order") || Map.get(schema, :"x-order")
 
   defp schema_value(schema, "order") when is_map(schema), do: Map.get(schema, "order") || Map.get(schema, :order)
+
   defp schema_value(schema, "enum") when is_map(schema), do: Map.get(schema, "enum") || Map.get(schema, :enum)
+
+  defp schema_value(schema, "x-enum-labels") when is_map(schema),
+    do: Map.get(schema, "x-enum-labels") || Map.get(schema, :"x-enum-labels")
+
+  defp schema_value(schema, "x-credential-rule-options-error") when is_map(schema),
+    do: Map.get(schema, "x-credential-rule-options-error") || Map.get(schema, :"x-credential-rule-options-error")
+
+  defp schema_value(schema, "x-credential-rule-options-empty") when is_map(schema),
+    do: Map.get(schema, "x-credential-rule-options-empty") || Map.get(schema, :"x-credential-rule-options-empty")
+
   defp schema_value(schema, "title") when is_map(schema), do: Map.get(schema, "title") || Map.get(schema, :title)
 
   defp schema_value(schema, "description") when is_map(schema),

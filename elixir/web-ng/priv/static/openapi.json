@@ -609,6 +609,112 @@
         },
         "type": "object"
       },
+      "event-rule": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a event-rule",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a event-rule",
+            "properties": {
+              "enabled": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "event": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "match": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "name": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "priority": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "source_type": {
+                "description": "Field included by default.",
+                "enum": [
+                  "log",
+                  "metric"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "source_type"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a event-rule",
+            "properties": {},
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
       "notification_escalation_step-filter-delay_seconds": {
         "additionalProperties": false,
         "description": "Offset from the ALERT FIRE TIME at which this step fires, never an offset from the previous step's dispatch. The one exception, applied by the dispatch scheduler rather than by this resource, is that after a snooze expires the remaining delays are measured from the snooze expiry instant.",
@@ -1061,6 +1167,54 @@
         },
         "type": "object"
       },
+      "timeseries_metric_disk_hourly-filter-min_value": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "in": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "not_eq": {
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "log-filter-id": {
         "additionalProperties": false,
         "description": "Unique log entry ID (part of composite PK)",
@@ -1479,6 +1633,54 @@
           },
           "not_eq": {
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "timeseries_metric_disk_hourly-filter-max_value": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "in": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "not_eq": {
+            "format": "float",
+            "type": "number"
           }
         },
         "type": "object"
@@ -2419,6 +2621,60 @@
         },
         "type": "object"
       },
+      "timeseries_metric_disk_hourly-filter-series_key": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "interface_classification_rule-filter-id": {
         "additionalProperties": false,
         "properties": {
@@ -2914,6 +3170,69 @@
           },
           "not_eq": {
             "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "event-rule-filter-source_type": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "enum": [
+              "log",
+              "metric"
+            ],
+            "type": "string"
+          },
+          "greater_than": {
+            "enum": [
+              "log",
+              "metric"
+            ],
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "enum": [
+              "log",
+              "metric"
+            ],
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "enum": [
+              "log",
+              "metric"
+            ],
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "enum": [
+              "log",
+              "metric"
+            ],
+            "type": "string"
+          },
+          "not_eq": {
+            "enum": [
+              "log",
+              "metric"
+            ],
             "type": "string"
           }
         },
@@ -4464,6 +4783,45 @@
         },
         "type": "object"
       },
+      "event-rule-filter-enabled": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "alert-filter-source_type": {
         "additionalProperties": false,
         "description": "Type of source that generated this alert",
@@ -4703,6 +5061,55 @@
           },
           "string_starts_with": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "device_cleanup_settings-filter-ephemeral_expiry_max_fraction": {
+        "additionalProperties": false,
+        "description": "Largest fraction of live devices one expiry pass may expire; a larger pass is refused",
+        "properties": {
+          "eq": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "in": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "not_eq": {
+            "format": "float",
+            "type": "number"
           }
         },
         "type": "object"
@@ -7003,6 +7410,60 @@
         },
         "type": "object"
       },
+      "timeseries_metric_disk_hourly-filter-metric_name": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "notification_route-filter-group_wait_seconds": {
         "additionalProperties": false,
         "description": "Hold a new group this long so related alerts arrive as one notification",
@@ -9007,6 +9468,45 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "event-rule-filter-source": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
           }
         },
         "type": "object"
@@ -11388,6 +11888,45 @@
         },
         "type": "object"
       },
+      "event-rule-filter-match": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "capacity_forecast-filter-window_started_at": {
         "additionalProperties": false,
         "description": "Oldest aggregate sample used by the forecast",
@@ -13537,6 +14076,46 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "device_cleanup_settings-filter-ephemeral_expiry_guard_override": {
+        "additionalProperties": false,
+        "description": "Let one expiry pass exceed ephemeral_expiry_max_fraction (a deliberate first cleanup); leave off in steady state",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -15962,6 +16541,46 @@
         },
         "type": "deepObject"
       },
+      "device_cleanup_settings-filter-ephemeral_expiry_enabled": {
+        "additionalProperties": false,
+        "description": "Whether devices with no strong identifier are soft-deleted once unseen for ephemeral_expiry_days (off by default)",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "agent-filter-plugin_engine_max_concurrent": {
         "additionalProperties": false,
         "description": "Max number of concurrent Wasm plugin executions on this agent",
@@ -17274,6 +17893,54 @@
         },
         "type": "object"
       },
+      "timeseries_metric_disk_hourly-filter-avg_value": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "in": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "not_eq": {
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "capacity_forecast-filter-metric_name": {
         "additionalProperties": false,
         "description": "Forecasted metric name",
@@ -17407,6 +18074,139 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "timeseries_metric_disk_hourly": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a timeseries_metric_disk_hourly",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a timeseries_metric_disk_hourly",
+            "properties": {
+              "avg_value": {
+                "anyOf": [
+                  {
+                    "format": "float",
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "bucket": {
+                "description": "Field included by default."
+              },
+              "device_id": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "max_value": {
+                "anyOf": [
+                  {
+                    "format": "float",
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "metric_name": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "metric_type": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "min_value": {
+                "anyOf": [
+                  {
+                    "format": "float",
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "mount_point": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "sample_count": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "series_key": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              }
+            },
+            "required": [
+              "bucket",
+              "device_id",
+              "mount_point"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a timeseries_metric_disk_hourly",
+            "properties": {},
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
         "type": "object"
       },
       "alert-filter-last_notification_at": {
@@ -17778,6 +18578,60 @@
         },
         "type": "object"
       },
+      "timeseries_metric_disk_hourly-filter-mount_point": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "log-filter-severity_number": {
         "additionalProperties": false,
         "description": "OpenTelemetry severity number (1-24)",
@@ -18053,6 +18907,54 @@
         },
         "type": "object"
       },
+      "event-rule-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "otel_metric_point-filter-service_instance_id": {
         "additionalProperties": false,
         "description": "Resource service.instance.id ('' when absent); folded into attributes_hash",
@@ -18111,6 +19013,60 @@
       "device-filter-domain": {
         "additionalProperties": false,
         "description": "Network domain",
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "timeseries_metric_disk_hourly-filter-metric_type": {
+        "additionalProperties": false,
         "properties": {
           "contains": {
             "type": "string"
@@ -20375,6 +21331,21 @@
           "enabled": {
             "$ref": "#/components/schemas/device_cleanup_settings-filter-enabled"
           },
+          "ephemeral_expiry_days": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-ephemeral_expiry_days"
+          },
+          "ephemeral_expiry_enabled": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-ephemeral_expiry_enabled"
+          },
+          "ephemeral_expiry_exclusion_query": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-ephemeral_expiry_exclusion_query"
+          },
+          "ephemeral_expiry_guard_override": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-ephemeral_expiry_guard_override"
+          },
+          "ephemeral_expiry_max_fraction": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-ephemeral_expiry_max_fraction"
+          },
           "not": {
             "$ref": "#/components/schemas/device_cleanup_settings-filter"
           },
@@ -22504,6 +23475,60 @@
         },
         "type": "object"
       },
+      "timeseries_metric_disk_hourly-filter-device_id": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "stateful-alert-rule-filter-template_fingerprint": {
         "additionalProperties": false,
         "properties": {
@@ -22744,6 +23769,61 @@
           },
           "not_eq": {
             "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "device_cleanup_settings-filter-ephemeral_expiry_exclusion_query": {
+        "additionalProperties": false,
+        "description": "SRQL device query whose matching devices are never expired",
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -23233,6 +24313,61 @@
         },
         "type": "object"
       },
+      "timeseries_metric_disk_hourly-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "avg_value": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-avg_value"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-bucket"
+          },
+          "device_id": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-device_id"
+          },
+          "max_value": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-max_value"
+          },
+          "metric_name": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-metric_name"
+          },
+          "metric_type": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-metric_type"
+          },
+          "min_value": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-min_value"
+          },
+          "mount_point": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-mount_point"
+          },
+          "not": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "sample_count": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-sample_count"
+          },
+          "series_key": {
+            "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter-series_key"
+          }
+        },
+        "type": "deepObject"
+      },
       "gateway-filter-is_healthy": {
         "additionalProperties": false,
         "description": "Current health status",
@@ -23682,6 +24817,55 @@
           }
         },
         "type": "object"
+      },
+      "event-rule-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/event-rule-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "enabled": {
+            "$ref": "#/components/schemas/event-rule-filter-enabled"
+          },
+          "event": {
+            "$ref": "#/components/schemas/event-rule-filter-event"
+          },
+          "id": {
+            "$ref": "#/components/schemas/event-rule-filter-id"
+          },
+          "match": {
+            "$ref": "#/components/schemas/event-rule-filter-match"
+          },
+          "name": {
+            "$ref": "#/components/schemas/event-rule-filter-name"
+          },
+          "not": {
+            "$ref": "#/components/schemas/event-rule-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/event-rule-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "priority": {
+            "$ref": "#/components/schemas/event-rule-filter-priority"
+          },
+          "source": {
+            "$ref": "#/components/schemas/event-rule-filter-source"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/event-rule-filter-source_type"
+          }
+        },
+        "type": "deepObject"
       },
       "device-filter-is_trusted": {
         "additionalProperties": false,
@@ -24251,6 +25435,60 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "event-rule-filter-name": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -25992,6 +27230,35 @@
                 "description": "Whether device cleanup scheduling is enabled. Field included by default.",
                 "type": "boolean"
               },
+              "ephemeral_expiry_days": {
+                "description": "Days a device with no strong identifier may go unseen before it expires. Field included by default.",
+                "type": "integer"
+              },
+              "ephemeral_expiry_enabled": {
+                "description": "Whether devices with no strong identifier are soft-deleted once unseen for ephemeral_expiry_days (off by default). Field included by default.",
+                "type": "boolean"
+              },
+              "ephemeral_expiry_exclusion_query": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "SRQL device query whose matching devices are never expired. Field included by default."
+              },
+              "ephemeral_expiry_guard_override": {
+                "description": "Let one expiry pass exceed ephemeral_expiry_max_fraction (a deliberate first cleanup); leave off in steady state. Field included by default.",
+                "type": "boolean"
+              },
+              "ephemeral_expiry_max_fraction": {
+                "description": "Largest fraction of live devices one expiry pass may expire; a larger pass is refused. Field included by default.",
+                "format": "float",
+                "type": "number"
+              },
               "retention_days": {
                 "description": "Number of days to keep soft-deleted devices before purging. Field included by default.",
                 "type": "integer"
@@ -26001,7 +27268,11 @@
               "retention_days",
               "cleanup_interval_minutes",
               "batch_size",
-              "enabled"
+              "enabled",
+              "ephemeral_expiry_enabled",
+              "ephemeral_expiry_days",
+              "ephemeral_expiry_max_fraction",
+              "ephemeral_expiry_guard_override"
             ],
             "type": "object"
           },
@@ -26612,6 +27883,45 @@
           "not_eq": {
             "format": "date-time",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "timeseries_metric_disk_hourly-filter-sample_count": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -28066,6 +29376,27 @@
           }
         },
         "type": "deepObject"
+      },
+      "timeseries_metric_disk_hourly-filter-bucket": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
+        },
+        "type": "object"
       },
       "stateful-alert-rule-filter-enabled": {
         "additionalProperties": false,
@@ -29713,6 +31044,45 @@
         },
         "type": "object"
       },
+      "event-rule-filter-event": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "agent-filter-plugin_engine_max_memory_mb": {
         "additionalProperties": false,
         "description": "Max total memory (MB) for Wasm plugins on this agent",
@@ -30388,6 +31758,46 @@
           },
           "string_starts_with": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "device_cleanup_settings-filter-ephemeral_expiry_days": {
+        "additionalProperties": false,
+        "description": "Days a device with no strong identifier may go unseen before it expires",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -31434,6 +32844,45 @@
           }
         },
         "type": "object"
+      },
+      "event-rule-filter-priority": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -31486,7 +32935,7 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 5000
+                "limit": 250
               },
               "properties": {
                 "after": {
@@ -33954,12 +35403,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled"
+                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override"
               },
               "properties": {
                 "device_cleanup_settings": {
                   "description": "Comma separated field names for device_cleanup_settings",
-                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled",
+                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override",
                   "type": "string"
                 }
               },
@@ -34012,6 +35461,62 @@
                               }
                             ],
                             "description": "Whether device cleanup scheduling is enabled"
+                          },
+                          "ephemeral_expiry_days": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Days a device with no strong identifier may go unseen before it expires"
+                          },
+                          "ephemeral_expiry_enabled": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Whether devices with no strong identifier are soft-deleted once unseen for ephemeral_expiry_days (off by default)"
+                          },
+                          "ephemeral_expiry_exclusion_query": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "SRQL device query whose matching devices are never expired"
+                          },
+                          "ephemeral_expiry_guard_override": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Let one expiry pass exceed ephemeral_expiry_max_fraction (a deliberate first cleanup); leave off in steady state"
+                          },
+                          "ephemeral_expiry_max_fraction": {
+                            "anyOf": [
+                              {
+                                "format": "float",
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Largest fraction of live devices one expiry pass may expire; a larger pass is refused"
                           },
                           "retention_days": {
                             "anyOf": [
@@ -35016,12 +36521,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled"
+                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override"
               },
               "properties": {
                 "device_cleanup_settings": {
                   "description": "Comma separated field names for device_cleanup_settings",
-                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled",
+                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override",
                   "type": "string"
                 }
               },
@@ -35090,12 +36595,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled"
+                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override"
               },
               "properties": {
                 "device_cleanup_settings": {
                   "description": "Comma separated field names for device_cleanup_settings",
-                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled",
+                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override",
                   "type": "string"
                 }
               },
@@ -35148,6 +36653,62 @@
                               }
                             ],
                             "description": "Whether device cleanup scheduling is enabled"
+                          },
+                          "ephemeral_expiry_days": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Days a device with no strong identifier may go unseen before it expires"
+                          },
+                          "ephemeral_expiry_enabled": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Whether devices with no strong identifier are soft-deleted once unseen for ephemeral_expiry_days (off by default)"
+                          },
+                          "ephemeral_expiry_exclusion_query": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "SRQL device query whose matching devices are never expired"
+                          },
+                          "ephemeral_expiry_guard_override": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Let one expiry pass exceed ephemeral_expiry_max_fraction (a deliberate first cleanup); leave off in steady state"
+                          },
+                          "ephemeral_expiry_max_fraction": {
+                            "anyOf": [
+                              {
+                                "format": "float",
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Largest fraction of live devices one expiry pass may expire; a larger pass is refused"
                           },
                           "retention_days": {
                             "anyOf": [
@@ -35718,6 +37279,138 @@
         },
         "tags": [
           "alert"
+        ]
+      }
+    },
+    "/timeseries_metrics_disk_hourly": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/timeseries_metrics_disk_hourly operation on timeseries_metric_disk_hourly resource",
+        "parameters": [
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/timeseries_metric_disk_hourly-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(bucket|-bucket|\\+\\+bucket|--bucket|device_id|-device_id|\\+\\+device_id|--device_id|metric_type|-metric_type|\\+\\+metric_type|--metric_type|metric_name|-metric_name|\\+\\+metric_name|--metric_name|series_key|-series_key|\\+\\+series_key|--series_key|mount_point|-mount_point|\\+\\+mount_point|--mount_point|avg_value|-avg_value|\\+\\+avg_value|--avg_value|min_value|-min_value|\\+\\+min_value|--min_value|max_value|-max_value|\\+\\+max_value|--max_value|sample_count|-sample_count|\\+\\+sample_count|--sample_count)(,(bucket|-bucket|\\+\\+bucket|--bucket|device_id|-device_id|\\+\\+device_id|--device_id|metric_type|-metric_type|\\+\\+metric_type|--metric_type|metric_name|-metric_name|\\+\\+metric_name|--metric_name|series_key|-series_key|\\+\\+series_key|--series_key|mount_point|-mount_point|\\+\\+mount_point|--mount_point|avg_value|-avg_value|\\+\\+avg_value|--avg_value|min_value|-min_value|\\+\\+min_value|--min_value|max_value|-max_value|\\+\\+max_value|--max_value|sample_count|-sample_count|\\+\\+sample_count|--sample_count))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Paginates the response with the limit and offset or keyset pagination.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": {
+                "limit": 100,
+                "offset": 0
+              },
+              "properties": {
+                "count": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "limit": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "offset": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "timeseries_metric_disk_hourly": "bucket,device_id,metric_type,metric_name,series_key,mount_point,avg_value,min_value,max_value,sample_count"
+              },
+              "properties": {
+                "timeseries_metric_disk_hourly": {
+                  "description": "Comma separated field names for timeseries_metric_disk_hourly",
+                  "example": "bucket,device_id,metric_type,metric_name,series_key,mount_point,avg_value,min_value,max_value,sample_count",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a timeseries_metric_disk_hourly",
+                      "items": {
+                        "$ref": "#/components/schemas/timeseries_metric_disk_hourly"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "timeseries_metric_disk_hourly"
         ]
       }
     },
@@ -40650,6 +42343,110 @@
         ]
       }
     },
+    "/event-rules/active": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/event-rules/active operation on event-rule resource",
+        "parameters": [
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/event-rule-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+              },
+              "properties": {
+                "event-rule": {
+                  "description": "Comma separated field names for event-rule",
+                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a event-rule",
+                      "items": {
+                        "$ref": "#/components/schemas/event-rule"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "event-rule"
+        ]
+      }
+    },
     "/notification-escalation-steps": {
       "get": {
         "callbacks": {},
@@ -42352,6 +44149,354 @@
         ]
       }
     },
+    "/event-rules/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/event-rules/:id operation on event-rule resource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+              },
+              "properties": {
+                "event-rule": {
+                  "description": "Comma separated field names for event-rule",
+                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted successfully"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "event-rule"
+        ]
+      },
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/event-rules/:id operation on event-rule resource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+              },
+              "properties": {
+                "event-rule": {
+                  "description": "Comma separated field names for event-rule",
+                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/event-rule"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "event-rule"
+        ]
+      },
+      "patch": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/event-rules/:id operation on event-rule resource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+              },
+              "properties": {
+                "event-rule": {
+                  "description": "Comma separated field names for event-rule",
+                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "enabled": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "event": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "match": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "priority": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source_type": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "log",
+                                  "metric"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "event-rule"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /event-rules/:id operation on event-rule resource",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/event-rule"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "event-rule"
+        ]
+      }
+    },
     "/notification-routes/{id}/enable": {
       "patch": {
         "callbacks": {},
@@ -42610,6 +44755,326 @@
         },
         "tags": [
           "timeseries_metric_hourly"
+        ]
+      }
+    },
+    "/event-rules": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/event-rules operation on event-rule resource",
+        "parameters": [
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/event-rule-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Paginates the response with the limit and offset or keyset pagination.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": {
+                "limit": 25
+              },
+              "properties": {
+                "after": {
+                  "type": "string"
+                },
+                "before": {
+                  "type": "string"
+                },
+                "count": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "limit": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "offset": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+              },
+              "properties": {
+                "event-rule": {
+                  "description": "Comma separated field names for event-rule",
+                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a event-rule",
+                      "items": {
+                        "$ref": "#/components/schemas/event-rule"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "event-rule"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/event-rules operation on event-rule resource",
+        "parameters": [
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+              },
+              "properties": {
+                "event-rule": {
+                  "description": "Comma separated field names for event-rule",
+                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "enabled": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "event": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "match": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "priority": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source_type": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "log",
+                                  "metric"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ],
+                        "type": "object"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "event-rule"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /event-rules operation on event-rule resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/event-rule"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "event-rule"
         ]
       }
     },

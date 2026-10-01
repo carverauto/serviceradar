@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Automation.Northbound.CatalogTest do
   use ServiceRadar.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Automation.Northbound
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionProvider
@@ -8,6 +10,17 @@ defmodule ServiceRadar.Automation.Northbound.CatalogTest do
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
+
+  defmodule FakeErrorContext do
+    @moduledoc false
+    def rule_options(_descriptor, _provider, _opts \\ []), do: {:error, :test_db_error}
+  end
+
+  defmodule EmptyRulesContext do
+    @moduledoc false
+    def rule_options(_descriptor, _provider, _opts \\ []),
+      do: {:ok, %{"destination_rule_id" => []}}
+  end
 
   setup_all do
     TestSupport.start_core!()
@@ -29,6 +42,60 @@ defmodule ServiceRadar.Automation.Northbound.CatalogTest do
     }
 
     {:ok, actor: admin_actor, launch_actor: launch_actor, launch_scope: %{actor: launch_actor}}
+  end
+
+  test "rule_options error: action still appears with x-credential-rule-options-error on package_rule inputs",
+       %{launch_scope: launch_scope, actor: actor} do
+    {_provider, descriptor} =
+      create_action(actor, :wasm_plugin,
+        enabled: true,
+        credential_requirements: %{
+          "destination_rule_id" => %{
+            "credential_source" => "package_rule",
+            "rule_input" => "destination_rule_id"
+          }
+        },
+        input_schema: %{"properties" => %{"destination_rule_id" => %{"type" => "string"}}}
+      )
+
+    log =
+      capture_log(fn ->
+        actions =
+          Catalog.eligible_device_actions(launch_scope, plugin_package_context: FakeErrorContext)
+
+        action = Enum.find(actions, &(&1.descriptor_id == descriptor.id))
+        assert action, "action should still appear when rule_options fails"
+
+        property = action.input_schema["properties"]["destination_rule_id"]
+        assert property["x-credential-rule-options-error"] == true
+        refute Map.has_key?(property, "enum")
+        refute Map.has_key?(property, "x-credential-rule-options")
+      end)
+
+    assert log =~ inspect(:test_db_error)
+  end
+
+  test "successful empty rule lookup emits an explicit empty choice", %{actor: actor} do
+    {_provider, descriptor} =
+      create_action(actor, :wasm_plugin,
+        enabled: true,
+        credential_requirements: %{
+          "destination_rule_id" => %{
+            "credential_source" => "package_rule",
+            "rule_input" => "destination_rule_id"
+          }
+        },
+        input_schema: %{"properties" => %{"destination_rule_id" => %{"type" => "string"}}}
+      )
+
+    [action] =
+      %{actor: actor}
+      |> Catalog.eligible_device_actions(plugin_package_context: EmptyRulesContext)
+      |> Enum.filter(&(&1.descriptor_id == descriptor.id))
+
+    property = action.input_schema["properties"]["destination_rule_id"]
+    assert property["enum"] == []
+    assert property["x-credential-rule-options-empty"] == true
   end
 
   test "launch-only catalog exposes non-Ansible candidates without granting general reads", %{
@@ -98,11 +165,11 @@ defmodule ServiceRadar.Automation.Northbound.CatalogTest do
           label: "#{provider_type} catalog action",
           scopes: ["device"],
           required_context: ["device.uid"],
-          input_schema: %{},
+          input_schema: Keyword.get(opts, :input_schema, %{}),
           safety_classification: :standard,
           requires_confirmation: false,
           timeout_seconds: 60,
-          credential_requirements: %{},
+          credential_requirements: Keyword.get(opts, :credential_requirements, %{}),
           result_schema_version: "serviceradar.northbound_action_result.v1",
           descriptor_hash: "catalog-#{unique}",
           enabled: Keyword.fetch!(opts, :enabled),

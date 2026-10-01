@@ -32,6 +32,9 @@ defmodule ServiceRadar.NATS.Connection do
 
   @connection_name :serviceradar_nats
 
+  # NATS server default max_payload.
+  @default_max_payload 1_048_576
+
   @doc """
   Gets the NATS connection PID.
 
@@ -102,6 +105,38 @@ defmodule ServiceRadar.NATS.Connection do
     case ServiceRadar.Otel.Propagation.inject_headers(headers) do
       ^headers -> opts
       injected -> Keyword.put(opts, :headers, injected)
+    end
+  end
+
+  @doc """
+  Returns the server-advertised maximum publish payload size in bytes.
+
+  Reads `max_payload` from the NATS INFO of the active connection so callers
+  can bound outgoing messages below the broker's enforcement limit — an
+  oversized publish is rejected with "Maximum Payload Violation" and the
+  server closes the connection. Falls back to the NATS server default
+  (1 MiB) when the connection is down, the query races a reconnect, or the
+  server advertises nothing usable.
+
+  ## Examples
+
+      ServiceRadar.NATS.Connection.max_payload()
+      #=> 1_048_576
+  """
+  @spec max_payload() :: pos_integer()
+  def max_payload do
+    case get() do
+      {:ok, pid} ->
+        try do
+          advertised = Gnat.server_info(pid)[:max_payload]
+
+          if is_integer(advertised) and advertised > 0, do: advertised, else: @default_max_payload
+        catch
+          :exit, _reason -> @default_max_payload
+        end
+
+      {:error, _reason} ->
+        @default_max_payload
     end
   end
 

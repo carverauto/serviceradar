@@ -152,6 +152,75 @@ validated descriptor, JSON Schema, generic discovery envelope, and nested
 `source_metadata`; duplicate provider/source claims and attempts to replace a
 reserved built-in provider are rejected.
 
+### Northbound actions on discovered devices
+
+A package that declares `inventory_sources` and northbound `actions` receives,
+on every device and interface target, `attributes.integration_ids`: the
+target device's `integration_id` identifiers whose `<source>:` prefix is one of
+the package's own declared sources, sorted and deduplicated. Identifiers of
+other sources are never included. These system-supplied identifiers remain in
+the dispatch payload even when the action declares a target-field allowlist
+that omits `attributes`.
+
+An action credential requirement can take its secret from the package's own
+provisioned credentials instead of naming one:
+
+```yaml
+actions:
+  - action_id: example-inventory.move_device
+    label: Move device between accounts
+    scopes: [device]
+    safety_classification: destructive
+    requires_confirmation: true
+    input_schema:
+      type: object
+      properties:
+        destination_rule_id: {type: string}
+    credential_requirements:
+      source_account:
+        credential_source: assignment_schedule
+        requirement: inventory_account
+        required: true
+        allow: {methods: [POST], hosts: [api.example.com]}
+      destination_account:
+        credential_source: package_rule
+        rule_input: destination_rule_id
+        required: true
+        allow: {methods: [POST], hosts: [api.example.com]}
+```
+
+`assignment_schedule` uses the secret bound under `credential_refs[<requirement>]`
+of the enabled producer schedule on the plugin assignment the action runs on;
+`requirement` must be the `provisioning.credential_requirement` of one of the
+package's `producer_schedule` credential profiles. `package_rule` uses the
+credential rule whose id the operator selects in the `rule_input` field, which
+must name a string property in the action's `input_schema`. The package must
+declare a `producer_schedule` credential profile. Only enabled rules
+provisioned for the same package and provider are candidates; when the action
+requirement declares `purpose`, the rule's purpose must match it exactly.
+
+The action form lists candidate rules by name. Selecting a rule for a
+user-launched action requires `settings.credentials.manage` as well as the
+permission to launch the action. At grant preparation, the selected rule must
+cover the dispatch assignment's agent and every target device through its
+agent, gateway, or partition scope and its device target query. Invalid queries
+and unsupported query filters are rejected rather than ignored; supported
+filters are defined by `ServiceRadar.SRQLDeviceMatcher.filters_supported?/1`.
+The form's candidate list does not guarantee that a rule covers the selected
+targets; launch and poll grant preparation enforce that boundary.
+
+If there are no candidate rules, or the lookup fails, the form displays that
+state and disables submission when the credential input is required. An
+optional `package_rule` credential can be omitted, in which case no grant is
+issued for it. `required: true` on a `package_rule` requirement makes its input
+required even when the input schema does not list it in `required`.
+
+Neither source may be combined with `credential_secret_id`, `secret_ref` or any
+secret input key, so an action input can never select arbitrary credential
+material. An unresolved schedule binding,
+an invalid supplied rule, or a missing required rule fails grant preparation
+before the command is dispatched.
+
 ### Pre-production validation
 
 Validate a new inventory integration in a non-production partition before

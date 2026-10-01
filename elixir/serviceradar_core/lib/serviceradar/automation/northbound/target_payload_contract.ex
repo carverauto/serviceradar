@@ -5,6 +5,10 @@ defmodule ServiceRadar.Automation.Northbound.TargetPayloadContract do
   Stored invocation snapshots remain full audit snapshots. The contract only
   narrows the payload sent to a plugin when a descriptor explicitly declares
   supported target fields in metadata.
+
+  System-supplied `attributes.integration_ids` on device and interface targets
+  survive this narrowing: the plugin needs its package-scoped inventory identity
+  even when its field contract omits other attributes.
   """
 
   @always_include ~w(kind device_uid interface_uid event_id northbound_job_id callback)
@@ -30,13 +34,36 @@ defmodule ServiceRadar.Automation.Northbound.TargetPayloadContract do
       fields ->
         allowed = MapSet.new(@always_include ++ fields)
 
-        Map.filter(target, fn {key, _value} ->
-          MapSet.member?(allowed, to_string(key))
-        end)
+        target
+        |> Map.filter(fn {key, _value} -> MapSet.member?(allowed, to_string(key)) end)
+        |> preserve_system_integration_ids(target, kind)
     end
   end
 
   defp apply_target_contract(target, _contract), do: target
+
+  defp preserve_system_integration_ids(filtered, target, kind)
+       when kind in ["device", "interface"] do
+    with %{} = source_attributes <- Map.get(target, "attributes"),
+         {:ok, integration_ids} <- Map.fetch(source_attributes, "integration_ids") do
+      Map.update(
+        filtered,
+        "attributes",
+        %{"integration_ids" => integration_ids},
+        fn attributes ->
+          if is_map(attributes) do
+            Map.put(attributes, "integration_ids", integration_ids)
+          else
+            %{"integration_ids" => integration_ids}
+          end
+        end
+      )
+    else
+      _ -> filtered
+    end
+  end
+
+  defp preserve_system_integration_ids(filtered, _target, _kind), do: filtered
 
   defp field_contract(%{metadata: metadata}), do: metadata_field_contract(metadata)
   defp field_contract(%{"metadata" => metadata}), do: metadata_field_contract(metadata)

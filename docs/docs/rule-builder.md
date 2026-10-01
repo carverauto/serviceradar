@@ -75,7 +75,7 @@ The default Falco rule ships with `group_by = ["rule", "hostname"]`, so repeated
 critical detections from the same rule on the same host stay within one active
 incident unless the cooldown gap is exceeded.
 
-For automated stateful alert-rule provisioning, see the
+For automated promotion-rule and stateful alert-rule provisioning, see the
 [JSON:API guide](./api-reference.md#alert-rules-and-telemetry-via-jsonapi).
 
 ### Templates
