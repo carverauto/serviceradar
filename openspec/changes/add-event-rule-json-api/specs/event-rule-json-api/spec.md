@@ -10,8 +10,9 @@ operator+ write).
 - **WHEN** an actor with `operator`, `admin`, or `system` role sends
   `POST /api/v2/event-rules` with a valid rule definition
 - **THEN** the rule SHALL be created exactly as if authored through the
-  existing Settings → Events UI, and SHALL be visible to
-  `LogPromotion.active_log_rules/0` on the next cache refresh
+  existing Settings -> Events UI, and SHALL be visible to
+  `LogPromotion.active_log_rules/0` on the next read without waiting for
+  cache expiry or manually invalidating the cache
 
 #### Scenario: A non-operator actor is denied write access
 - **WHEN** an actor without `operator`, `admin`, or `system` role attempts

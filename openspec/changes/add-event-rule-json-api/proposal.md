@@ -2,10 +2,10 @@
 
 ## Why
 
-`EventRule` — the resource that defines which log patterns are promoted to
+`EventRule` - the resource that defines which log patterns are promoted to
 OCSF events (`ServiceRadar.Observability.EventRule`,
-`elixir/serviceradar_core/lib/serviceradar/observability/event_rule.ex`) —
-can only be managed today through the Settings → Events UI. An external
+`elixir/serviceradar_core/lib/serviceradar/observability/event_rule.ex`) -
+can only be managed today through the Settings -> Events UI. An external
 application that ships OTel error logs wants to manage promotion rules
 programmatically at deploy time without human UI interaction. No such API
 exists: the resource has no `AshJsonApi.Resource` extension and no
@@ -14,7 +14,7 @@ exists: the resource has no `AshJsonApi.Resource` extension and no
 `ServiceRadar.Observability` is already mounted on
 `ServiceRadarWebNGWeb.AshJsonApiRouter` (added in `add-alert-rule-json-api`),
 so adding `AshJsonApi.Resource` plus a `json_api` block to `EventRule` is
-sufficient — no router change is needed.
+sufficient - no router change is needed.
 
 ## What Changes
 
