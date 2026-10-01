@@ -71,7 +71,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   def perform(%Oban.Job{args: %{"mode" => mode, "layout_version" => version}} = job)
       when mode in ["reconcile", "relayout"] and is_binary(version) do
     with_result =
-    with {:ok, _job} <- record_request(job),
+      with {:ok, _job} <- record_request(job),
            {:ok, state} <- prepare(mode, version),
            :ok <- HypervisorEnrichmentIngestor.reconcile_hosted_topology(),
            {:ok, graph} <- TopologyAtlas.read_graph(),

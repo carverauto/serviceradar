@@ -1612,9 +1612,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   def edge_topology_class_counts(edges) when is_list(edges) do
     Enum.reduce(edges, empty_edge_topology_class_counts(), fn
       edge, acc when is_map(edge) ->
-        case edge_topology_class_count_key(edge) do
-          key -> Map.update!(acc, key, &(&1 + 1))
-        end
+        key = edge_topology_class_count_key(edge)
+        Map.update!(acc, key, &(&1 + 1))
 
       _edge, acc ->
         acc

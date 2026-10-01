@@ -335,7 +335,10 @@ impl TopologyClient {
         let source = dql_string(edge.source())?;
         let target = dql_string(edge.target())?;
         let owner = dql_string("hypervisor_enrichment_v1")?;
-        let projection_key = format!("HOSTED_ON|{}|projection=hypervisor_enrichment_v1", edge.source());
+        let projection_key = format!(
+            "HOSTED_ON|{}|projection=hypervisor_enrichment_v1",
+            edge.source()
+        );
         let key = dql_string(&projection_key)?;
         let observed_at = dql_string(edge.last_seen())?;
         let query = format!(
@@ -360,12 +363,18 @@ impl TopologyClient {
             {"uid": "uid(e)"},
             {"uid": "uid(c)", "topo.dst": null}
         ]);
-        let condition = format!(
-            "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0))"
-        );
-        let response: Value = self.upsert(&query, &condition, &set, Some(&delete)).await?;
-        if response.get("source").and_then(Value::as_array).map_or(0, Vec::len) != 1
-            || response.get("target").and_then(Value::as_array).map_or(0, Vec::len) != 1
+        let condition = "@if(eq(len(s), 1) AND eq(len(d), 1) AND eq(len(n), 0))";
+        let response: Value = self.upsert(&query, condition, &set, Some(&delete)).await?;
+        if response
+            .get("source")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len)
+            != 1
+            || response
+                .get("target")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+                != 1
         {
             return Err(TopologyError::ConditionSkipped(
                 "hosted replacement".to_owned(),
@@ -727,10 +736,7 @@ impl TopologyClient {
 }
 
 #[derive(Debug, Deserialize, Default)]
-struct UidRow {
-    #[serde(default)]
-    uid: String,
-}
+struct UidRow {}
 
 #[derive(Debug, Deserialize, Default)]
 struct NamedUidBlocks {
@@ -1013,7 +1019,9 @@ mod tests {
         );
         row.kind = "ATTACHED_TO".into();
 
-        let edge = row.into_view_edge(cutoff).expect("attachment remains visible");
+        let edge = row
+            .into_view_edge(cutoff)
+            .expect("attachment remains visible");
         assert!(edge.stale());
         assert_eq!(edge.last_seen(), None);
     }

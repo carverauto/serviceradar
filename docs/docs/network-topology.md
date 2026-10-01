@@ -84,9 +84,11 @@ one-shot `age-to-dgraph`) runs the Bazel `age-to-dgraph` binary:
 A checksum failure fails the Job and does **not** flip `graph.read`. Cutover is
 an operator values change (`graph.read: dgraph`), with rollback `graph.read: age`.
 
-The migrator, core's dual-write copy, and the projection that feeds God View
-must all select the same canonical set, because `rebuild` deletes every
-canonical edge it was not given. The predicate has one definition in
+The migrator and core's dual-write copy must select the same canonical set,
+because `rebuild` deletes every canonical edge it was not given. God View reads
+Dgraph's admitted topology view directly; it includes eligible attachment,
+hosted and inferred evidence in addition to canonical edges. The canonical
+predicate has one definition in
 `RuntimeTopologyProjection.canonical_edge_predicate/3`; the migrator's Cypher
 repeats it verbatim.
 

@@ -9,8 +9,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.SyncIngestor
@@ -329,9 +329,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationHostDisk, disks, actor),
          {:ok, _} <- upsert_group(VirtualizationNetworkInterface, nics, actor),
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor),
-         :ok <- VirtualizationIdentityAliases.reconcile(records),
-         :ok <- enqueue_world_reconcile() do
-      :ok
+         :ok <- VirtualizationIdentityAliases.reconcile(records) do
+      enqueue_world_reconcile()
     end
   end
 
