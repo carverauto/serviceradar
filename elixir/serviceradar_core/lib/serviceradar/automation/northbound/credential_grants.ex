@@ -25,6 +25,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   alias ServiceRadar.Plugins.ActionCredentialRequirements
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLDeviceMatcher
+  alias ServiceRadar.SRQLQuery
 
   require Ash.Query
 
@@ -351,8 +352,10 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   end
 
   defp target_query_matches?(query, target_uid) when is_binary(query) do
-    with "devices" <- SRQLAst.entity(query, "devices"),
-         {:ok, ast} <- SRQLAst.parse(query),
+    normalized_query = SRQLQuery.ensure_target(query, :devices)
+
+    with "devices" <- SRQLAst.entity(normalized_query, "devices"),
+         {:ok, ast} <- SRQLAst.parse(normalized_query),
          true <- SRQLDeviceMatcher.filters_supported?(ast),
          filters <- SRQLDeviceMatcher.extract_filters(ast),
          true <- target_matches_filters?(target_uid, filters) do

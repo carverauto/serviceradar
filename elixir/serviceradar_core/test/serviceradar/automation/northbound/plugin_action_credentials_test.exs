@@ -415,6 +415,27 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
                )
 
       refute_received {:grant_attrs, _}
+
+      whitespace_wrong_entity_rule =
+        update_target_query!(wrong_entity_rule, " in:interfaces hostname:#{target_hostname}")
+
+      whitespace_wrong_entity_invocation =
+        in_memory_invocation(
+          package,
+          %{"destination_account" => @destination_requirement},
+          %{"destination_rule_id" => to_string(whitespace_wrong_entity_rule.id)},
+          bound.agent_uid,
+          target_uid
+        )
+
+      assert {:error,
+              {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
+               CredentialGrants.prepare_launch(whitespace_wrong_entity_invocation, bound,
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 actor: @credential_manager
+               )
+
+      refute_received {:grant_attrs, _}
     end
 
     test "polling a user invocation resolves its selected package rule with the dispatcher actor",
@@ -570,6 +591,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
 
       property = action.input_schema["properties"]["destination_rule_id"]
       assert property["enum"] == []
+      assert action.input_schema["required"] == ["destination_rule_id"]
 
       assert {:ok, %{"destination_rule_id" => []}} =
                PluginPackageContext.rule_options(descriptor, descriptor.provider,

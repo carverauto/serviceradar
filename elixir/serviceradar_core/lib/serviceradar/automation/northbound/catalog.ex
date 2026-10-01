@@ -114,21 +114,44 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
     schema = descriptor.input_schema || %{}
     actor = scope_actor(scope)
 
-    case context.rule_options(descriptor, provider, actor: actor) do
-      {:ok, options} when map_size(options) > 0 ->
-        put_rule_options(schema, options)
+    schema =
+      case context.rule_options(descriptor, provider, actor: actor) do
+        {:ok, options} when map_size(options) > 0 ->
+          put_rule_options(schema, options)
 
-      {:error, reason} ->
-        Logger.warning(
-          "rule_options lookup failed for descriptor #{descriptor.id}: #{inspect(reason)}"
-        )
+        {:error, reason} ->
+          Logger.warning(
+            "rule_options lookup failed for descriptor #{descriptor.id}: #{inspect(reason)}"
+          )
 
-        inputs = PluginPackageContext.package_rule_inputs(descriptor.credential_requirements)
-        put_rule_options_error(schema, inputs)
+          inputs = PluginPackageContext.package_rule_inputs(descriptor.credential_requirements)
+          put_rule_options_error(schema, inputs)
 
-      _no_options ->
-        schema
-    end
+        _no_options ->
+          schema
+      end
+
+    put_required_inputs(
+      schema,
+      PluginPackageContext.package_rule_required_inputs(descriptor.credential_requirements)
+    )
+  end
+
+  defp put_required_inputs(schema, []), do: schema
+
+  defp put_required_inputs(schema, inputs) do
+    required_key =
+      if Map.has_key?(schema, :required) and not Map.has_key?(schema, "required"),
+        do: :required,
+        else: "required"
+
+    required =
+      case Map.get(schema, required_key) do
+        values when is_list(values) -> values
+        _ -> []
+      end
+
+    Map.put(schema, required_key, Enum.uniq(required ++ inputs))
   end
 
   defp put_rule_options_error(schema, []), do: schema

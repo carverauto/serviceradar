@@ -213,6 +213,16 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
     |> Enum.uniq()
   end
 
+  @doc "The required `rule_input` keys of a descriptor's `package_rule` requirements."
+  @spec package_rule_required_inputs(term()) :: [String.t()]
+  def package_rule_required_inputs(requirements) do
+    requirements
+    |> package_rule_requirements()
+    |> Enum.filter(& &1.required)
+    |> Enum.map(& &1.input)
+    |> Enum.uniq()
+  end
+
   defp package_rule_requirements(requirements) do
     requirements
     |> ActionCredentialRequirements.flatten()
@@ -221,7 +231,11 @@ defmodule ServiceRadar.Automation.Northbound.PluginPackageContext do
       input = requirement["rule_input"]
 
       if is_binary(input) and String.trim(input) != "" do
-        %{input: String.trim(input), purpose: requirement["purpose"]}
+        %{
+          input: String.trim(input),
+          purpose: requirement["purpose"],
+          required: requirement["required"] == true or requirement["required?"] == true
+        }
       end
     end)
     |> Enum.reject(&is_nil/1)

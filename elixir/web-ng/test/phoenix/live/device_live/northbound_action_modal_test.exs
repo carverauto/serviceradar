@@ -148,6 +148,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionModalTest do
              ActionForm.parse_input(action, %{
                "input" => %{"destination_rule_id" => "arbitrary-rule-id"}
              })
+
+    assert {:error, {:missing_required_input, "destination_rule_id"}} =
+             ActionForm.parse_input(action, %{"input" => %{}})
   end
 
   test "optional credential rule inputs remain omittable when options are unavailable" do
