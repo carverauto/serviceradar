@@ -584,7 +584,16 @@ fn corners_and_owned_boundary_contacts_preserve_adjacency_and_flow_phase() {
             .unwrap();
         assert_eq!(owner.internal_relations, 1);
         assert_eq!(owner.device_count, 1);
-        assert!(owner.edges.is_empty());
+        assert_eq!(owner.edges.len(), usize::from(kind == GlyphKind::Aggregate));
+        if kind == GlyphKind::Aggregate {
+            let closure = &owner.edges[0];
+            assert_eq!(owner.glyphs[closure.source as usize].kind, kind);
+            assert_eq!(
+                owner.glyphs[closure.target as usize].kind,
+                GlyphKind::Boundary
+            );
+            assert_eq!((closure.start, closure.end), (0.0, 1.0));
+        }
         assert!(owner.glyphs.iter().any(|glyph| glyph.kind == kind));
         assert_eq!(neighbor.edges.len(), 1);
         let continuation = &neighbor.edges[0];
@@ -599,6 +608,90 @@ fn corners_and_owned_boundary_contacts_preserve_adjacency_and_flow_phase() {
         if kind == GlyphKind::Device {
             let far = &neighbor.glyphs[continuation.target as usize];
             assert_eq!((far.x, far.y), (1.0, f64::from(y)));
+        }
+    }
+}
+
+#[test]
+fn aggregate_endpoint_closures_join_shared_portals_and_select_exact_relations() {
+    let half = WORLD_EXTENT / 2;
+    for ((ax, ay), (bx, by)) in [
+        ((half, 5_000_000), (1, 5_000_000)),
+        ((5_000_000, half), (5_000_000, 1)),
+        ((half, half), (1, 1)),
+    ] {
+        for reversed in [false, true] {
+            for profile in [TileProfile::Standard, TileProfile::AggregateOnly] {
+                let a = position(1, ax, ay, 8);
+                let b = position(2, bx, by, 0);
+                let c = position(3, ax + 1, ay + 1, 8);
+                let crossing = if reversed { edge(&b, &a) } else { edge(&a, &b) };
+                let world = World::new(
+                    "aggregate-closures".into(),
+                    8,
+                    vec![a.clone(), b.clone(), c.clone()],
+                    vec![crossing.clone(), edge(&a, &c)],
+                )
+                .unwrap();
+                let owner = world
+                    .tile_with_profile(
+                        Cell::at_point(1, ax, ay).unwrap(),
+                        Budget::default(),
+                        profile,
+                    )
+                    .unwrap();
+                let neighbor = world
+                    .tile_with_profile(
+                        Cell::at_point(1, bx, by).unwrap(),
+                        Budget::default(),
+                        profile,
+                    )
+                    .unwrap();
+                assert_eq!(owner.device_count, 2);
+                assert_eq!(owner.internal_relations, 1);
+                assert_eq!(owner.edges.len(), 1);
+                assert_eq!(neighbor.edges.len(), 1);
+                let closure = &owner.edges[0];
+                let continuation = &neighbor.edges[0];
+                let (aggregate_index, portal_index, neighbor_portal_index) = if reversed {
+                    (closure.target, closure.source, continuation.target)
+                } else {
+                    (closure.source, closure.target, continuation.source)
+                };
+                let aggregate = &owner.glyphs[aggregate_index as usize];
+                let portal = &owner.glyphs[portal_index as usize];
+                assert_eq!(aggregate.kind, GlyphKind::Aggregate);
+                assert_eq!(aggregate.count, 2);
+                assert_eq!(portal.kind, GlyphKind::Boundary);
+                assert_eq!((portal.x, portal.y), (f64::from(ax), f64::from(ay)));
+                assert_eq!(
+                    portal.id,
+                    neighbor.glyphs[neighbor_portal_index as usize].id
+                );
+                assert_ne!((aggregate.x, aggregate.y), (portal.x, portal.y));
+                assert_eq!((closure.start, closure.end), (0.0, 1.0));
+                for tile in [&owner, &neighbor] {
+                    let page = world.tile_relations(&tile.selection, None, 256).unwrap();
+                    assert!(page.next.is_none());
+                    assert_eq!(page.total_rendered_relations, 1);
+                    assert_eq!(page.relations.len(), 1);
+                    assert_eq!(page.relations[0].relation_id, crossing.id);
+                    assert_eq!(page.relations[0].rendered_edge_id, tile.edges[0].id);
+                    let detail = world
+                        .bundle_detail(&tile.selection, &tile.edges[0].id, None)
+                        .unwrap();
+                    assert_eq!(detail.relations.len(), 1);
+                    assert_eq!(detail.relations[0].id, crossing.id);
+                }
+                if ax == half && ay == half {
+                    for cell in [Cell::new(1, 0, 1).unwrap(), Cell::new(1, 1, 0).unwrap()] {
+                        let tangent = world
+                            .tile_with_profile(cell, Budget::default(), profile)
+                            .unwrap();
+                        assert!(tangent.glyphs.is_empty() && tangent.edges.is_empty());
+                    }
+                }
+            }
         }
     }
 }

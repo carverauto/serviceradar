@@ -10,15 +10,15 @@ mod abi;
 mod runtime;
 
 use std::future::Future;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use dgraph_topology::{DownstreamFact, TopologyClient};
 
 use crate::abi::{
-    refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
-    JsonResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph, NifChangeWrite,
-    NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite, NifInterfaceWrite,
-    NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
+    CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult, JsonResult,
+    NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph, NifChangeWrite, NifDeviceWrite,
+    NifDownstreamFact, NifEdgeWrite, NifHopWrite, NifInterfaceWrite, NifNeighbourhoodEdge,
+    NifPrefixWrite, WriteResult, refuses_mutation,
 };
 use crate::runtime::{client_for, require_url, runtime};
 
@@ -107,6 +107,9 @@ fn upsert_edge(url: String, edge: NifEdgeWrite) -> WriteResult {
 #[rustler::nif(schedule = "DirtyIo")]
 fn replace_hosted_edge(url: String, edge: NifEdgeWrite) -> WriteResult {
     let write = edge.into_write();
+    if let Err(err) = write.validate_hosted_replacement() {
+        return WriteResult::Error(err.to_string());
+    }
     write_call(url, move |client| async move {
         client.replace_hosted_edge(&write).await
     })

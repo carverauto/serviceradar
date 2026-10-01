@@ -322,16 +322,7 @@ impl TopologyClient {
     /// Older observations cannot replace a newer parent; unrelated ingestors
     /// and edge kinds are outside the deletion scope.
     pub async fn replace_hosted_edge(&self, edge: &EdgeWrite) -> Result<(), TopologyError> {
-        if edge.kind() != crate::types::EdgeKind::HostedOn
-            || edge.ingestor() != "hypervisor_enrichment_v1"
-            || edge.source() == edge.target()
-            || edge.last_seen().is_empty()
-        {
-            return Err(TopologyError::ConditionSkipped(
-                "hosted replacement".to_owned(),
-                "hosted replacement requires virtualization projection, distinct endpoints, and an observation timestamp".to_owned(),
-            ));
-        }
+        edge.validate_hosted_replacement()?;
         let source = dql_string(edge.source())?;
         let target = dql_string(edge.target())?;
         let owner = dql_string("hypervisor_enrichment_v1")?;

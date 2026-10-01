@@ -344,7 +344,7 @@ fn clip(a: Point, b: Point, bounds: Bounds) -> Option<Clip> {
         }
     }
     let order = start.compare(end);
-    if !order.is_lt() {
+    if order.is_gt() || (order.is_eq() && !owns_source && !owns_target) {
         return None;
     }
 
