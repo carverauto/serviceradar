@@ -29,9 +29,28 @@
   them. Their refresh windows are clamped inside raw retention precisely so
   a refresh can never recompute a dropped region into oblivion.
 
-Tiered telemetry offload (OpenSpec `add-tiered-telemetry-offload`). Applies
-only to deployments with cold-tier configuration; without it, nothing in
-this document exists at runtime.
+Tiered telemetry offload (OpenSpec `add-tiered-telemetry-offload`) is disabled
+by default. Export and prune jobs perform no archive work without cold-tier
+configuration; the backend health check reports the disabled state. Existing
+undrained history remains retention-fenced until explicitly waived.
+
+## Release configuration
+
+The shipped `serviceradar_core_elx` release and the core application load the
+same `SERVICERADAR_COLD_*` settings. To enable archival, set
+`SERVICERADAR_COLD_TIER_ENABLED=true`, `SERVICERADAR_COLD_TIER_BUCKET_URL`,
+`SERVICERADAR_COLD_TIER_HEAD_HOST` and `SERVICERADAR_COLD_TIER_PRIMARY_HOST`.
+Supply the head and primary database/user settings and object-store endpoint
+and credentials for the deployment. Passwords and S3 credentials accept a
+matching `_FILE` variable for mounted secrets; the file takes precedence over
+the direct variable. Restart the release after changing these settings.
+
+With the default Oban scheduler enabled, the release runs the exporter at
+minute 47 each hour and the pruner at 04:23 UTC on the maintenance queue.
+Incomplete intended configuration prevents archive work while the exporter
+still records backend scope. Cold windows are opt-in through
+`SERVICERADAR_COLD_WINDOW_<CLASS>_DAYS`; absent windows keep existing archives
+while reconciliation continues on configured deployments.
 
 ## Mental model
 

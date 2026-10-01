@@ -9,6 +9,48 @@ defmodule ServiceRadar.ColdTier.Config do
   signal to do nothing.
   """
 
+  @doc "Deployment environment shared by the application and shipped core release."
+  @spec from_env() :: keyword()
+  def from_env do
+    [
+      enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
+      bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
+      s3_endpoint: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT"),
+      s3_endpoint_runtime: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT_RUNTIME"),
+      s3_region: System.get_env("SERVICERADAR_COLD_TIER_S3_REGION"),
+      s3_url_style: System.get_env("SERVICERADAR_COLD_TIER_S3_URL_STYLE"),
+      s3_use_ssl: System.get_env("SERVICERADAR_COLD_TIER_S3_USE_SSL", "true") in ["true", "1"],
+      s3_access_key_id: secret_env("SERVICERADAR_COLD_TIER_S3_ACCESS_KEY_ID"),
+      s3_secret_access_key: secret_env("SERVICERADAR_COLD_TIER_S3_SECRET_ACCESS_KEY"),
+      head_host: System.get_env("SERVICERADAR_COLD_TIER_HEAD_HOST"),
+      head_port: parse_int_env("SERVICERADAR_COLD_TIER_HEAD_PORT", 5432),
+      head_database: System.get_env("SERVICERADAR_COLD_TIER_HEAD_DATABASE"),
+      head_username: System.get_env("SERVICERADAR_COLD_TIER_HEAD_USERNAME"),
+      head_password: secret_env("SERVICERADAR_COLD_TIER_HEAD_PASSWORD"),
+      primary_host: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_HOST"),
+      primary_port: parse_int_env("SERVICERADAR_COLD_TIER_PRIMARY_PORT", 5432),
+      primary_database: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_DATABASE"),
+      primary_fdw_username: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_FDW_USERNAME"),
+      primary_fdw_password: secret_env("SERVICERADAR_COLD_TIER_PRIMARY_FDW_PASSWORD"),
+      export_lag_hours: max(parse_int_env("SERVICERADAR_COLD_EXPORT_LAG_HOURS", 48), 1),
+      quarantine_attempts: max(parse_int_env("SERVICERADAR_COLD_QUARANTINE_ATTEMPTS", 5), 1),
+      run_chunk_budget: max(parse_int_env("SERVICERADAR_COLD_RUN_CHUNK_BUDGET", 24), 1),
+      cold_windows:
+        Enum.reject(
+          [
+            logs: cold_window("SERVICERADAR_COLD_WINDOW_LOGS_DAYS"),
+            traces: cold_window("SERVICERADAR_COLD_WINDOW_TRACES_DAYS"),
+            otel_metrics: cold_window("SERVICERADAR_COLD_WINDOW_OTEL_METRICS_DAYS"),
+            otel_metric_points: cold_window("SERVICERADAR_COLD_WINDOW_OTEL_METRIC_POINTS_DAYS"),
+            timeseries: cold_window("SERVICERADAR_COLD_WINDOW_TIMESERIES_DAYS"),
+            events: cold_window("SERVICERADAR_COLD_WINDOW_EVENTS_DAYS"),
+            flows: cold_window("SERVICERADAR_COLD_WINDOW_FLOWS_DAYS")
+          ],
+          fn {_class, days} -> is_nil(days) end
+        )
+    ]
+  end
+
   @type s3 :: %{
           bucket_url: String.t(),
           endpoint: String.t() | nil,
@@ -172,4 +214,37 @@ defmodule ServiceRadar.ColdTier.Config do
 
   defp positive(value, _default) when is_integer(value) and value > 0, do: value
   defp positive(_value, default), do: default
+
+  defp parse_int_env(name, default) do
+    case System.get_env(name) do
+      value when value in [nil, ""] ->
+        default
+
+      value ->
+        case Integer.parse(value) do
+          {int, ""} -> int
+          _ -> default
+        end
+    end
+  end
+
+  defp secret_env(name) do
+    case System.get_env(name <> "_FILE") do
+      nil -> System.get_env(name)
+      path -> path |> File.read!() |> String.trim()
+    end
+  end
+
+  defp cold_window(name) do
+    case System.get_env(name) do
+      value when value in [nil, ""] ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {days, _} -> max(days, 1)
+          :error -> nil
+        end
+    end
+  end
 end

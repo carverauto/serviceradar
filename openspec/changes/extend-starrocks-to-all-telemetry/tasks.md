@@ -300,9 +300,12 @@
   explicit per-dataset warehouse unavailability. Configured StarRocks installations retain
   historical CNPG export as `:cnpg_backfill`; preserve verified-drop gating and residue
   fences and keep existing archives manageable. Backend health is
-  separate from successful CNPG export health. Focused state/health and CAGG tests plus a
-  database drop-gate regression are registered; execution and regression validation remain
-  pending BazelCI (no local Bazel or Mix compile/test).
+  separate from successful CNPG export health. The shipped core-elx runtime loads the
+  shared environment configuration and schedules the existing exporter and pruner.
+  Runtime activation, mounted-secret and schedule tests plus database backend-health
+  persistence/notification and drop-gate regressions are registered. Database execution
+  and regression validation remain pending the in-cluster BazelCI gate; review verification
+  uses authenticated remote RBE, with no local Bazel or Mix compile/test.
 - [ ] 5.6 Keep the CNPG telemetry schema: no migration drops a telemetry hypertable, continuous
   aggregate, retention or compression policy, because installations without StarRocks use them.
   On a StarRocks installation they receive no rows and retention ages them out.

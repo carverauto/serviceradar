@@ -3,10 +3,12 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.ColdTier.Boundary
+  alias ServiceRadar.ColdTier.Exporter
   alias ServiceRadar.ColdTier.Health
   alias ServiceRadar.ColdTier.RetentionFence
   alias ServiceRadar.Infrastructure.HealthPubSub
   alias ServiceRadar.Infrastructure.HealthTracker
+  alias ServiceRadar.TestSupport.ColdTierRuntimeConfig
 
   @moduletag :integration
 
@@ -34,12 +36,26 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
   end
 
   test "backend metadata stays current without repeating health transitions" do
-    full = Application.fetch_env!(:serviceradar_core, ServiceRadar.ColdTier)
-    incomplete = Keyword.delete(full, :head_host)
-    disabled = [enabled: false]
+    full = %{
+      "SERVICERADAR_COLD_TIER_ENABLED" => "true",
+      "SERVICERADAR_COLD_TIER_BUCKET_URL" => "s3://synthetic-history",
+      "SERVICERADAR_COLD_TIER_HEAD_HOST" => "archive.example.com",
+      "SERVICERADAR_COLD_TIER_PRIMARY_HOST" => "database.example.com"
+    }
 
-    Application.put_env(:serviceradar_core, ServiceRadar.ColdTier, disabled)
-    assert :ok = Health.record_backend()
+    incomplete = Map.delete(full, "SERVICERADAR_COLD_TIER_HEAD_HOST")
+    disabled = %{}
+    runtime = ColdTierRuntimeConfig.read!(disabled)
+    Application.put_env(:serviceradar_core, ServiceRadar.ColdTier, runtime[ServiceRadar.ColdTier])
+
+    crontab =
+      Enum.find_value(runtime[Oban][:plugins], fn
+        {Oban.Plugins.Cron, options} -> Keyword.fetch!(options, :crontab)
+        _other -> nil
+      end)
+
+    {_schedule, reporter, _options} = Enum.find(crontab, &(elem(&1, 1) == Exporter))
+    assert :ok = reporter.perform(%Oban.Job{})
     assert {:ok, initial} = HealthTracker.current_status(:core, "cold-tier-backend")
     :ok = Phoenix.PubSub.subscribe(ServiceRadar.PubSub, HealthPubSub.topic())
 
@@ -58,13 +74,22 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
       ],
       initial,
       fn {cfg, warehouse?, mode, export_enabled?, state, archival_status}, previous ->
-        Application.put_env(:serviceradar_core, ServiceRadar.ColdTier, cfg)
+        runtime =
+          cfg
+          |> Map.put("SERVICERADAR_STARROCKS_ENABLED", to_string(warehouse?))
+          |> ColdTierRuntimeConfig.read!()
+
+        Application.put_env(:serviceradar_core, ServiceRadar.ColdTier, runtime[ServiceRadar.ColdTier])
 
         Application.put_env(:serviceradar_core, ServiceRadar.Analytics.StarRocks,
-          enabled: warehouse?
+          runtime[ServiceRadar.Analytics.StarRocks]
         )
 
-        assert :ok = Health.record_backend()
+        record_backend = fn ->
+          if export_enabled?, do: Health.record_backend(), else: reporter.perform(%Oban.Job{})
+        end
+
+        assert :ok = record_backend.()
         assert {:ok, event} = HealthTracker.current_status(:core, "cold-tier-backend")
         refute event.id == previous.id
         assert event.new_state == state
@@ -84,7 +109,7 @@ defmodule ServiceRadar.ColdTier.WarehouseBackfillDbTest do
           assert_receive {:health_event, ^event}
         end
 
-        assert :ok = Health.record_backend()
+        assert :ok = record_backend.()
         assert {:ok, repeated} = HealthTracker.current_status(:core, "cold-tier-backend")
         assert repeated.id == event.id
         refute_receive {:health_event, %{entity_id: "cold-tier-backend"}}

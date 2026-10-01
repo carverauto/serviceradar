@@ -181,6 +181,10 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
    explicitly unavailable for archival per registry dataset in `cold-tier-backend` health;
    a successful historical CNPG export cannot clear that separate check. Fully configured
    deployments with StarRocks enter `:cnpg_backfill` and continue archiving CNPG history.
+   The shipped core-elx runtime loads the shared cold-tier environment settings and
+   schedules Exporter and Pruner on its maintenance queue. Runtime evaluation tests
+   cover activation and scheduling; the database regression consumes that same runtime
+   output and exercises persisted backend metadata and transition notifications.
    The backend switch never releases existing retention fences or bypasses the two-phase
    disable/residue check. Warehouse export is deliberately out of scope;
    see `docs/cold-tier-runbook.md` for operating and draining the historical path.
