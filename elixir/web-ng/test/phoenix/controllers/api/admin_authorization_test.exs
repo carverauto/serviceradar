@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Ecto.Query
+  import Phoenix.LiveViewTest
 
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
@@ -75,6 +76,50 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
       conn = get(conn, ~p"/api/admin/role-profiles")
       body = json_response(conn, 403)
       assert body["error"] == "forbidden" or Map.has_key?(body, "errors")
+    end
+
+    for role <- [:operator, :viewer] do
+      @tag :web_ng_shared_fixture_db
+      test "#{role} granted event rule permissions cannot manage RBAC profiles", %{conn: conn} do
+        system = AshTestHelpers.system_actor()
+
+        user =
+          case unquote(role) do
+            :operator -> AshTestHelpers.operator_user_fixture()
+            :viewer -> viewer_user_fixture()
+          end
+
+        permissions = Enum.map([:view, :create, :update, :delete], &"observability.rules.#{&1}")
+        marker = "synthetic-rule-manager-#{System.unique_integer([:positive])}"
+        profile = custom_profile!(system, marker, permissions)
+
+        user =
+          user
+          |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system)
+          |> Ash.update!()
+
+        conn = log_in_user(conn, user)
+        assert conn |> get(~p"/api/admin/role-profiles") |> json_response(403)
+
+        assert conn
+               |> post(~p"/api/admin/role-profiles", %{
+                 "name" => "#{marker}-unauthorized",
+                 "permissions" => ["settings.rbac.manage"]
+               })
+               |> json_response(403)
+
+        assert conn
+               |> patch(~p"/api/admin/role-profiles/#{profile.id}", %{"permissions" => ["settings.rbac.manage"]})
+               |> json_response(403)
+
+        assert conn |> delete(~p"/api/admin/role-profiles/#{profile.id}") |> json_response(403)
+        assert Ash.get!(RoleProfile, profile.id, actor: system).permissions == permissions
+
+        assert {:ok, nil} =
+                 RoleProfile |> Ash.Query.filter(name == ^"#{marker}-unauthorized") |> Ash.read_one(actor: system)
+
+        assert {:error, {:live_redirect, %{to: "/settings/profile"}}} = live(conn, ~p"/settings/auth/rbac")
+      end
     end
 
     @tag :web_ng_shared_fixture_db

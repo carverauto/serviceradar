@@ -402,6 +402,102 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     refute html =~ "8.0.0"
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "release notes show the chosen release's full safe Markdown without changing rollout", %{
+    conn: conn,
+    scope: scope
+  } do
+    notes = """
+    ## Synthetic improvements
+
+    - **Faster** discovery with *clearer* status
+    - Read the [guide](https://example.com/guide)
+
+    Use `status` to inspect progress.
+
+    ```text
+    synthetic command output
+    ```
+
+    [Unsafe link](javascript:alert(1))
+    <script>alert('unsafe')</script>
+
+    #{String.duplicate("Additional synthetic detail. ", 80)}
+
+    Final synthetic note.
+    """
+
+    releases =
+      for {version, content} <- [{"9.3.1", notes}, {"9.3.2", "Other release notes"}] do
+        manifest = release_manifest(version)
+
+        {:ok, release} =
+          AgentReleaseManager.publish_release(
+            %{
+              version: version,
+              release_notes: content,
+              signature: sign_manifest(manifest),
+              manifest: manifest
+            },
+            scope: scope
+          )
+
+        release
+      end
+
+    [release, other] = releases
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+    lv |> element("#use-release-9-3-2") |> render_click()
+    assert has_element?(lv, "#rollout_version option[value='9.3.2'][selected]")
+
+    lv |> element("#release-notes-#{release.id}") |> render_click()
+
+    assert has_element?(lv, "#release-notes-modal[aria-labelledby='release-notes-modal-title']")
+    assert has_element?(lv, "#release-notes-modal-title", "9.3.1")
+    assert has_element?(lv, "#release-notes-content h2", "Synthetic improvements")
+    assert has_element?(lv, "#release-notes-content li strong", "Faster")
+    assert has_element?(lv, "#release-notes-content em", "clearer")
+    assert has_element?(lv, "#release-notes-content a[href='https://example.com/guide']")
+    assert has_element?(lv, "#release-notes-content code", "status")
+    assert has_element?(lv, "#release-notes-content pre code", "synthetic command output")
+    assert has_element?(lv, "#release-notes-content", "Final synthetic note.")
+    refute has_element?(lv, "#release-notes-content script")
+    refute has_element?(lv, "#release-notes-content a[href^='javascript:']")
+    assert has_element?(lv, "#rollout_version option[value='9.3.2'][selected]")
+
+    lv |> element("#release-notes-modal button[aria-label='Close']") |> render_click()
+    refute has_element?(lv, "#release-notes-modal")
+    assert has_element?(lv, "#rollout_version option[value='9.3.2'][selected]")
+
+    lv |> element("#release-version-#{other.id}") |> render_click()
+    assert has_element?(lv, "#release-notes-modal-title", "9.3.2")
+    assert has_element?(lv, "#release-notes-content", "Other release notes")
+    refute has_element?(lv, "#release-notes-content h2")
+    render_click(lv, "hide_release_notes")
+    refute has_element?(lv, "#release-notes-modal")
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "release without notes has an honest empty state", %{conn: conn, scope: scope} do
+    version = "9.4.0"
+    manifest = release_manifest(version)
+
+    {:ok, release} =
+      AgentReleaseManager.publish_release(
+        %{version: version, signature: sign_manifest(manifest), manifest: manifest},
+        scope: scope
+      )
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
+    refute has_element?(lv, "#release-notes-#{release.id}")
+    lv |> element("#release-version-#{release.id}") |> render_click()
+    assert has_element?(lv, "#release-notes-content", "No release notes were provided")
+    lv |> element("#release-notes-modal button[aria-label='Close']") |> render_click()
+    refute has_element?(lv, "#release-notes-modal")
+    lv |> element("#use-release-9-4-0") |> render_click()
+    assert has_element?(lv, "#rollout_version option[value='9.4.0'][selected]")
+  end
+
   test "imports a recent repository release with one click", %{conn: conn, scope: scope} do
     Application.put_env(
       :serviceradar_web_ng,

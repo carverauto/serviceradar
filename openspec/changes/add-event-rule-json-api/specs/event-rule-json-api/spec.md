@@ -3,28 +3,46 @@
 ### Requirement: EventRule JSON:API Provisioning
 The system SHALL expose `EventRule` create, read, update, and destroy
 operations over the existing Ash JSON:API surface at `/api/v2/event-rules`,
-authorized by the same role policy that governs it today (viewer+ read,
-operator+ write).
+authorized by the existing `observability.rules.view`, `.create`, `.update`,
+and `.delete` permissions for the corresponding operations. Custom profiles
+SHALL grant or revoke these permissions independently of the user's base role.
+Built-in viewer read and operator write defaults and trusted system access
+SHALL remain supported.
 
-#### Scenario: An operator-role actor creates a log promotion rule via the API
-- **WHEN** an actor with `operator`, `admin`, or `system` role sends
+#### Scenario: An authorized actor creates a log promotion rule via the API
+- **WHEN** an actor with `observability.rules.create` permission sends
   `POST /api/v2/event-rules` with a valid rule definition
 - **THEN** the rule SHALL be created exactly as if authored through the
   existing Settings -> Events UI, and SHALL be visible to
   `LogPromotion.active_log_rules/0` on the next read without waiting for
   cache expiry or manually invalidating the cache
 
-#### Scenario: A non-operator actor is denied write access
-- **WHEN** an actor without `operator`, `admin`, or `system` role attempts
-  `POST`, `PATCH`, or `DELETE` against `/api/v2/event-rules`
-- **THEN** the request SHALL be denied, matching the resource's existing
-  policy for those actions
+#### Scenario: A custom operator profile revokes a write permission
+- **WHEN** an operator's configured profile lacks the permission corresponding
+  to `POST`, `PATCH`, or `DELETE` against `/api/v2/event-rules`
+- **THEN** that operation SHALL be denied without creating, modifying, or
+  deleting a rule, even if other rule permissions remain granted
 
-#### Scenario: Reading rules requires viewer or higher
-- **WHEN** any authenticated actor sends `GET /api/v2/event-rules` or
-  `GET /api/v2/event-rules/active`
-- **THEN** results SHALL be scoped exactly as the resource's existing read
-  policy already scopes them
+#### Scenario: A custom viewer profile grants a targeted write permission
+- **WHEN** a viewer's configured profile grants `observability.rules.create`,
+  `.update`, or `.delete`
+- **THEN** the corresponding API operation SHALL succeed for a valid request
+  without requiring an operator role, view permission, or unrelated write
+  permissions
+
+#### Scenario: Reading rules honors the configured view permission
+- **WHEN** an authenticated actor requests the rule list, active rules, or a
+  rule by ID
+- **THEN** the resource SHALL require `observability.rules.view`, including
+  grants to viewers and revocations from operators
+- **AND** a profile update SHALL affect subsequent authenticated requests
+  without requiring a new bearer token
+
+#### Scenario: Rule permissions do not authorize profile management
+- **WHEN** a viewer or operator has rule permissions but lacks
+  `settings.rbac.manage`
+- **THEN** profile API mutations and access to the RBAC profile editor SHALL
+  remain denied under the existing admin permission boundary
 
 #### Scenario: Unauthenticated read returns empty
 - **WHEN** an unauthenticated request is sent to `GET /api/v2/event-rules`

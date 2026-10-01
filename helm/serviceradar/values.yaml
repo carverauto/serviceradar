@@ -710,7 +710,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261003120000"
+    expectedVersion: "20261004120000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1333,12 +1333,7 @@ webNg:
   # Bootstrap admin identity. The generated admin password is stored in
   # secrets.existingSecretName under admin-password.
   adminEmail: "root@localhost"
-  # When true, the bootstrap step resets the stored admin password hash to
-  # match SERVICERADAR_ADMIN_PASSWORD on every restart. Use this in
-  # environments where the secret is the source of truth (e.g. demo, where
-  # rotating admin-password should re-grant login). Leave false for tenants
-  # that rely on UI-driven password changes — otherwise restarts overwrite
-  # them.
+  # Rotation policy: docs/docs/auth-configuration.md, Bootstrap Admin Access.
   adminPasswordForceSync: false
   # Local-login break-glass + SSO toggle (server-side LoginPolicy).
   # forceLocalLogin permits local password login regardless of SSO enforcement —

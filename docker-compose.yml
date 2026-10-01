@@ -1254,9 +1254,7 @@ services:
       - DGRAPH_URL=${DGRAPH_URL:-dgraph://groot:password@dgraph:9080?sslmode=disable}
       - SERVICERADAR_ADMIN_EMAIL=${SERVICERADAR_ADMIN_EMAIL:-root@localhost}
       - SERVICERADAR_ADMIN_PASSWORD_FILE=/etc/serviceradar/admin/admin-password
-      # Leave force-sync off by default so UI-driven admin password changes are
-      # not overwritten on restart. Set true only when the mounted admin-password
-      # file is the intended source of truth.
+      # Rotation policy: docs/docs/auth-configuration.md, Bootstrap Admin Access.
       - SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=${SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC:-false}
       # Break-glass: permit local password login regardless of SSO enforcement
       # (server-side LoginPolicy). A valid password is still required — this is the

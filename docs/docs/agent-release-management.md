@@ -60,6 +60,14 @@ such as `netprobe` and `workload-identity` are reviewed, approved, and assigned 
 catalogs separate prevents add-on package versions from hiding the agent releases
 operators expect to roll out from this page.
 
+To read a published release's full notes, select its version or **View notes**
+in the published-release list. The modal renders Markdown headings, lists, links,
+and code; raw HTML is escaped and unsafe URLs are filtered. Selecting a version
+without notes opens an explicit empty state. Opening notes does not change the
+version selected for a rollout. Both controls support keyboard activation; Tab
+and Shift+Tab keep focus inside the modal. Press Escape or select **Close** to
+dismiss it and return focus to the control that opened it.
+
 The control plane stores:
 
 - the desired version,

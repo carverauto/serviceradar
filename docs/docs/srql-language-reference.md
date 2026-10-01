@@ -160,6 +160,10 @@ serve the aggregates that have a stored column. `agg:last` does not use them; se
 - `sort:<field>[:asc|:desc]` — orders results. Direction defaults to `desc`.
   Multiple sort keys are comma-separated: `sort:time:desc,bytes_total`.
   `order:` is an accepted alias for `sort:`.
+- Device queries support `sort:hostname:asc` and `sort:hostname:desc`,
+  including hostname as a secondary sort key. UID ascending is the final
+  tie-breaker. Null hostnames appear last in ascending order and first
+  in descending order; empty hostnames remain empty strings.
 - `limit:<n>` — caps the number of rows returned in one page. Must be a
   positive integer. An explicit limit is the limit that runs. When
   `srql_max_limit` is set above zero, that configured maximum still applies.

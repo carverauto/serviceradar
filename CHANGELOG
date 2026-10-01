@@ -13,9 +13,13 @@ failed config read leaves the agent on its running config.
   `(agent_id, updated_at)`, plus a partial concurrent index
   `ocsf_devices_type_active_hostname_idx` on
   `(COALESCE(NULLIF(trim(type), ''), 'Unknown'), hostname, uid)` for
-  active, non-deleted devices (partial index). Helm
-  `core.migrations.expectedVersion` is `20261002100200`. Both indexes
-  build outside a transaction and do not take the migration lock.
+  active, non-deleted devices (partial index). Both indexes build
+  outside a transaction and do not take the migration lock.
+  Migration `20261004120000` adds `platform.admin_secret_markers`,
+  which records the last-seen secret digest for each admin email so
+  that bootstrap can detect rotation without re-reading the
+  bootstrap secret on every start. Helm
+  `core.migrations.expectedVersion` is `20261004120000`.
 - Composite checks no longer run inside sweep ingestion. A minute
   cron re-evaluates devices whose availability changed since the
   last mark. A nil `last_incremental_at` runs one full pass first.
