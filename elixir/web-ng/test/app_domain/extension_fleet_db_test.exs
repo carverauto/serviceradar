@@ -63,7 +63,9 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
       if assigned? do
         assignment =
           AddonAssignment
-          |> Ash.Changeset.for_create(:create, %{agent_uid: agent.uid, addon_package_id: package.id}, actor: system_actor())
+          |> Ash.Changeset.for_create(:create, %{agent_uid: agent.uid, addon_package_id: package.id},
+            actor: system_actor()
+          )
           |> Ash.create!()
 
         if suffix == "healthy" do
@@ -137,12 +139,14 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
              SRQL.query("in:addon_fleets addon_id:#{addon_id} sort:agent_uid:asc", %{scope: scope})
 
     by_suffix = Map.new(rows, fn row -> {String.replace_prefix(row["agent_uid"], addon_id <> "-", ""), row} end)
+
     assert Map.take(by_suffix["healthy"], ~w(category package_status rollout_state update_policy)) == %{
              "category" => "healthy",
              "package_status" => "approved",
              "rollout_state" => "completed",
              "update_policy" => "manual_pin"
            }
+
     assert by_suffix["healthy"]["assigned_version"] == "1.0.0"
     assert by_suffix["healthy"]["observed_state"] == "running"
     assert by_suffix["healthy"]["observed_version"] == "1.0.0"
