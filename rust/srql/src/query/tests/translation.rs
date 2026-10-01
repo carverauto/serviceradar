@@ -1780,6 +1780,30 @@ fn translate_query(query: &str) -> std::result::Result<String, crate::error::Ser
     crate::query::translate::translate_request(&config, request).map(|response| response.sql)
 }
 
+#[test]
+fn translate_devices_hostname_order_preserves_direction_and_uid_tiebreaker() {
+    for (sort, expected) in [
+        (
+            "hostname:asc",
+            "\"ocsf_devices\".\"hostname\" ASC, \"ocsf_devices\".\"uid\" ASC",
+        ),
+        (
+            "hostname:desc",
+            "\"ocsf_devices\".\"hostname\" DESC, \"ocsf_devices\".\"uid\" ASC",
+        ),
+        (
+            "type_id:asc,hostname:desc",
+            "\"ocsf_devices\".\"type_id\" ASC, \"ocsf_devices\".\"hostname\" DESC, \"ocsf_devices\".\"uid\" ASC",
+        ),
+    ] {
+        let query = format!("in:devices type:\"IP Cameras\" is_active:true sort:{sort}");
+        let sql = translate_query(&query).expect("hostname query should translate");
+        let order = sql.split(" ORDER BY ").nth(1).expect("ORDER BY clause");
+        assert!(order.starts_with(expected), "{query}: {sql}");
+        println!("{query}\n{sql}");
+    }
+}
+
 /// Before this was fixed, this exact query succeeded and returned a fleet-wide
 /// average: the stats path discarded the tag predicate and emitted SQL carrying
 /// only the two time-bound binds. Nothing surfaced the difference, so the number
