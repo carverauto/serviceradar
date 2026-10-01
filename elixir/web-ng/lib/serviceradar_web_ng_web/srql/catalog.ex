@@ -216,7 +216,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "addon_statuses",
       label: "Add-on Statuses",
-      route: "/settings/agents/addons/fleet",
       default_time: "",
       default_sort_field: "reported_at",
       default_sort_dir: "desc",
@@ -227,7 +226,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "plugin_fleet",
       label: "WASM Plugin Fleet",
-      route: "/admin/plugins",
       default_time: "",
       default_sort_field: "category",
       default_sort_dir: "asc",
