@@ -117,10 +117,24 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert Enum.count(relations, &(&1.source_id == hd(ids) and &1.target_id == Enum.at(ids, 1))) ==
                3
 
-      assert Enum.any?(relations, fn relation ->
-               relation.source_id == hd(ids) and relation.target_id == Enum.at(ids, 1) and
-                 relation.evidence_class == "hosted-virtual"
-             end)
+      assert %{last_seen: "2030-02-03T04:05:06Z"} =
+               hosted_relation =
+               Enum.find(relations, fn relation ->
+                 relation.source_id == hd(ids) and relation.target_id == Enum.at(ids, 1) and
+                   relation.evidence_class == "hosted-virtual"
+               end)
+
+      hosted_fields = [
+        :relation_id,
+        :source_id,
+        :target_id,
+        :evidence_class,
+        :kind,
+        :stale,
+        :last_seen
+      ]
+
+      hosted_relation = Map.take(hosted_relation, hosted_fields)
 
       assert %{source_if_index: 7, target_if_index: 9} =
                Enum.find(relations, &(&1.source_if_name == "eth7"))
@@ -133,7 +147,15 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert_drain_success()
       assert {:ok, %{generation: 3, source_digest: digest}} = World.active_manifest(scope())
       refute digest == manifest.source_digest
-      {updated_world, updated_relations} = reload_world([500, 4], [500, 3])
+      {updated_world, updated_relations} = reload_world([500, 4], [500, 4])
+
+      assert {:ok, %{node_count: 504, relation_count: 504}} =
+               TopologyAtlas.world_info(updated_world)
+
+      reloaded_hosted =
+        Enum.find(updated_relations, &(&1.relation_id == hosted_relation.relation_id))
+
+      assert Map.take(reloaded_hosted, hosted_fields) == hosted_relation
 
       assert %{source_if_index: 23, target_if_index: 9} =
                Enum.find(updated_relations, &(&1.source_if_name == "eth7"))
