@@ -345,12 +345,9 @@ PostgreSQL fixture (CNPG with TimescaleDB and Apache AGE).
 
 - **8 lanes**: `integration_tests_async` plus `integration_tests_serial_0` through
   `integration_tests_serial_6`. Each has its own database; CI clones all eight in one
-  `//rust/integration-db:provision_generation` invocation. The per-lane `provision_db_async` and
-  `provision_db_serial_0` through `provision_db_serial_6` targets belong to the legacy run-base
-  path, which no workflow invokes; the accepted retirement plan deletes them and adds per-lane
-  `provision_generation_<lane>` clones for the one-lane loop. Those labels are forthcoming,
-  not yet callable -- until they land, the aggregate `provision_generation` invocation above is
-  the only way to provision a lane database.
+  `//rust/integration-db:provision_generation` invocation. For legacy target retirement and
+  forthcoming per-lane clone targets, see
+  [the SRQL fixture runbook](../docs/agent-runbooks.md#srql-fixture-integration-tests).
 - Lane names and the audited source partition live in `//build:integration_shards.bzl`, which
   both the Elixir targets and Rust provisioner read. The async lane runs `max_cases=8`; every
   serial lane runs `max_cases=1`.
@@ -416,26 +413,9 @@ forces a drop. Changing the policy changes the digest.
 
 #### `sr_core_template` is a frozen rollback artifact
 
-Before the generation cutover, every run cloned one shared, long-lived `sr_core_template`, and
-because migrations only accumulate, whoever migrated it decided the schema every other branch
-got. A branch with seven unmerged migrations advanced it, and from then on every branch whose
-checkout lacked them was refused a clone. The trunk-only authority flag was the first fix;
-immutable generations replaced the singleton outright.
-
-No workflow migrates it or clones from it now. It is kept, unmodified, for rollback. Its three
-writers -- `//rust/integration-db:prepare_template`,
-`//elixir/serviceradar_core:migrate_template` and `//rust/integration-db:reset_template` --
-are still in the tree and still refuse without `--//build:template_authority=true` (read by
-Rust and Elixir from the same staged `//build:template_authority_file`, failing closed on an
-absent, empty or mangled marker), and `//build/contracts:ci_heavy_gate_contract_test` fails
-if any active workflow passes that flag or names one of those targets. The writers and the
-flag are slated for deletion by the accepted retirement plan; while the flag exists, never
-pass it to make a refusal go away. The run-base targets that fed from the singleton
-(`//rust/integration-db:provision_base`, `//elixir/serviceradar_core:migrate_run`,
-`//rust/integration-db:provision_db*`) are likewise still in the tree but are not part of any
-active lifecycle, and the retirement deletes them too. After that deletion, rolling back to
-the singleton lifecycle means reverting the retirement code first to restore the targets and
-their guards, then restoring the callers -- the frozen database alone restores nothing.
+Do not write the frozen singleton or bypass its guards. Current guards, their safety
+rationale, planned target retirement and rollback prerequisites are owned by
+[the SRQL fixture runbook](../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 ### Tags
 
@@ -667,12 +647,10 @@ source-membership contract and release-qualification coverage.
 
 **3. If the test is slow**, profile it as a lane step of the
 [canonical fixture lifecycle](../.agents/skills/srql-fixtures-db-tests/SKILL.md), after
-`//rust/integration-db:provision_generation` has cloned that lane's database. The legacy
-per-lane `provision_db_async` / `provision_db_serial_*` targets are not part of any active
-lifecycle and are slated for deletion; their per-lane generation replacements
-(`provision_generation_<lane>`) arrive with the retirement and are not yet callable, so keep
-the `serial_0` through `serial_6` suffix matched between the lane's test target and its
-provision target. Built-in slowest reporting enables trace, forces serial execution,
+`//rust/integration-db:provision_generation` has cloned that lane's database. For forthcoming
+per-lane clone targets, see
+[the SRQL fixture runbook](../docs/agent-runbooks.md#srql-fixture-integration-tests).
+Built-in slowest reporting enables trace, forces serial execution,
 and disables test timeouts, so explicitly set the profiling cap to one and never use this command
 as latency or concurrency evidence:
 
@@ -774,108 +752,21 @@ Integration targets are `manual`, so they do not run here.
 
 ### Integration tier
 
-You need a PostgreSQL fixture with TimescaleDB and AGE. This is the exact invocation that
-works against the project image:
+Guarded Bazel integration lanes run only in the in-cluster BuildBuddy workflow; use
+[the SRQL fixture runbook](../docs/agent-runbooks.md#srql-fixture-integration-tests)
+for their lifecycle and cleanup contract. These targets resolve the typed CI endpoint
+and ignore `SRQL_TEST_*` endpoint coordinates; a local Docker fixture cannot substitute
+for it.
 
-```sh
-docker run -d --name sr-pg -p 55433:5432 \
-  registry.carverauto.dev/serviceradar/serviceradar-cnpg@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9 \
-  bash -c 'export PGDATA=/tmp/pgdata; \
-    if [ ! -s "$PGDATA/PG_VERSION" ]; then \
-      initdb -U postgres --auth-host=trust --auth-local=trust >/dev/null \
-        && echo "host all all all trust" >> "$PGDATA/pg_hba.conf"; \
-    fi; \
-    exec postgres -D "$PGDATA" \
-      -c listen_addresses=0.0.0.0 \
-      -c shared_preload_libraries=timescaledb,age \
-      -c max_connections=300 \
-      -c max_worker_processes=64'
-```
+For focused workstation tests, use
+[the fixture skill's scratch-database recipe](../.agents/skills/srql-fixtures-db-tests/SKILL.md)
+on the shared CNPG fixture. It owns endpoint discovery, verified TLS, scratch-database
+creation, schema migration, focused Mix execution and cleanup. Database-backed tests
+must use that fixture rather than a local PostgreSQL instance.
 
-Every part of that is load-bearing:
-
-- **Pinned by digest.** The `:18.3.0-sr5` tag is a broken re-push whose container dies with a
-  `GLIBC_2.38` error. Do not use the tag.
-- **`initdb` into `/tmp/pgdata`.** The image's default entrypoint expects CNPG's operator
-  environment; running `initdb` yourself is what makes it usable standalone.
-- **The `PG_VERSION` guard.** Without it the command is single-use: `docker stop` followed by
-  `docker start` re-runs `initdb` against a populated directory, it fails, and the container
-  exits 1 before `postgres` ever starts. The guard makes the fixture survive a restart with
-  its template and lane databases intact.
-- **`--auth-host=trust` plus the `pg_hba.conf` line.** Without them every connection fails
-  with `no pg_hba.conf entry for host ...`.
-- **`shared_preload_libraries=...,age`.** AGE must be *preloaded*, not merely on the
-  `search_path`. `create_graph` fails without the library loaded, which surfaces during
-  template preparation, not at connect time.
-- **`max_connections=300`.** One async and seven serial test BEAMs, each with a 12-connection
-  pool, exceed the default 100.
-- **`max_worker_processes=64`.** Each cloned lane database carries Timescale's
-  continuous-aggregate policy jobs, and all eight lanes exhaust the default. The symptom is a
-  log full of `failed to launch job NNNN "Refresh Continuous Aggregate Policy": failed to
-  start a background worker`. Harmless for the tests, which do not depend on background
-  refresh, but it buries real errors.
-
-On Apple Silicon the image is `linux/amd64` and runs under emulation; Docker prints a platform
-warning, which is expected.
-
-Then create the owner role. A fresh `initdb` has only `postgres`, and
-`//rust/integration-db:provision_generation` clones every lane database owned by the
-**user in `SRQL_TEST_DATABASE_URL`** -- `serviceradar` for the DSN below. (The legacy
-`provision_base` / `provision_db*` targets this sentence once named are slated for deletion;
-the forthcoming per-lane `provision_generation_<lane>` targets use the same owner.)
-
-```sh
-docker exec sr-pg psql -U postgres -c "CREATE ROLE serviceradar LOGIN SUPERUSER;"
-```
-
-Without it the very first step fails with `ERROR: role "serviceradar" does not exist`.
-`SUPERUSER` because the migrations create extensions and AGE graphs; a plain owner is not
-enough.
-
-The owner is taken from that DSN rather than fixed, because it has to be the role the suite
-*connects* as -- a database owned by anyone else fails on the first DDL the tests attempt. A
-fixture whose application role is named something else therefore needs no configuration here.
-Set `SERVICERADAR_TEST_DATABASE_OWNER` only to separate the owning role from the connecting
-one deliberately.
-
-You do **not** need to create `serviceradar_bootstrap_test` -- `StartupMigrations` creates the
-application role itself, which is part of what the bootstrap test exercises.
-
-Then establish one numeric run identity for the entire lifecycle. Keep the fixture URL in
-`SRQL_TEST_DATABASE_URL`; the integration target derives its disposable lane URL inside the test
-action:
-
-```sh
-export SRQL_TEST_DATABASE_URL="postgres://serviceradar@127.0.0.1:55433/serviceradar_test?sslmode=disable"
-export SRQL_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:55433/postgres?sslmode=disable"
-unset SERVICERADAR_TEST_DATABASE_URL SERVICERADAR_TEST_ADMIN_URL
-
-# The run correlation id. Passed to EVERY bazel invocation in the sequence as
-# --//build:run_id=$RUN_ID; it reaches each step as a declared input, not as environment.
-RUN_ID="$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)"
-```
-
-Invoke the Bazel targets with the caller-owned cleanup trap in
-`.agents/skills/srql-fixtures-db-tests/SKILL.md`. For this Docker fixture, reuse the recipe from
-`RUN_ID` onward with the two URLs and run id above; omit its Kubernetes host/TLS
-exports plus `buildbuddy_setup_fixture_env`/source lines. This Docker setup is a local development
-fixture, not a substitute for the guarded async/serial topology: that topology requires disposable
-`srql-fixtures` clones and must never target demo or production. The canonical cleanup preserves a
-red lane status and also fails an otherwise-green run when teardown fails.
-
-**Put a password in the admin DSN even on a `trust` fixture.** `StartupMigrations` discards
-admin credentials whose password is empty and silently falls back to the unprivileged
-application role; the bootstrap test then dies in ownership repair with `42501 must be owner
-of schema platform`, which names neither the credentials nor the cause. Under `trust`
-PostgreSQL ignores the value, so any non-empty password works.
-
-The fixture URLs reach the test through `--test_env` entries in `.bazelrc`. If they are
-absent, `test_helper.exs` takes the no-database branch and excludes every test -- which is
-why the integration targets are `manual`, so that never reads as a pass.
-
-With an ignored mode-0600 `.bazelrc.remote` credential, the skill selects `--config=cache_only`.
-Bazel then reuses and populates the authenticated cache while `TestRunner` stays on the native
-workstation. Do not use `--config=ci` locally: it selects the Linux RBE platform.
+The admin DSN must include a non-empty password. `StartupMigrations` discards admin
+credentials with an empty password and falls back to the application role, which can
+fail ownership repair with `42501 must be owner of schema platform`.
 
 ### Compiling only
 
@@ -929,7 +820,7 @@ reads Rust sources.
 | Integration suite green having run zero tests | Fixture URL absent, so `test_helper` took the no-database branch. The `manual` tag exists to prevent this. |
 | `42501 must be owner of schema platform` | Admin DSN has no password; see [Running things locally](#running-things-locally). |
 | `provision_db` fails with `sr_core_test_<run> does not exist; run //rust/integration-db:provision_base first` | The branch's `buildbuddy.yaml` predates the generation cutover and still runs the legacy run-base steps. Rebase onto `staging`. |
-| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Working as intended while the legacy writers still exist. `sr_core_template` is a frozen rollback artifact; use the generation lifecycle (`prepare_generation`, `migrate_generation`, `provision_generation`). The writers and the authority flag are slated for deletion; see [`sr_core_template` is a frozen rollback artifact](#sr_core_template-is-a-frozen-rollback-artifact). |
+| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Use the generation lifecycle; see [`sr_core_template` is a frozen rollback artifact](#sr_core_template-is-a-frozen-rollback-artifact) for guards and retirement guidance. |
 | `the application :X has a different value set for key :Y during runtime compared to compile time` | A Hex dependency read `Y` with `compile_env` and was compiled without it. Add it to `HEX_COMPILE_ENV_CONFIG` in `//build:hex_compile_env.bzl`. Never `validate_compile_env: false` -- see [Compile-time config a dependency reads](#compile-time-config-a-dependency-reads). |
 | `undefined function config/2` while compiling a Hex package | That package's `config/config.exs` exists but is empty, so nothing imported `Config`. `mix_app` handles this; if you see it, the guard regressed. |
 | `function config/2 imported from both Config and Mix.Config` | That package uses the deprecated `use Mix.Config`. Same guard, other direction. |
