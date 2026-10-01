@@ -64,9 +64,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     assert [] = hosted_projection(hd(ids))
 
     guest
-    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2030-02-03 04:05:06Z]},
-      actor: actor()
-    )
+    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2030-02-03 04:05:06Z]}, actor: actor())
     |> Ash.update!(actor: actor())
 
     assert {:ok, %{"guests_done" => true, "edges_done" => true}} =
@@ -580,10 +578,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     |> Ash.Changeset.for_update(:update, %{observed_at: nil}, actor: actor())
     |> Ash.update!(actor: actor())
 
-    guest_host!(original_host)
-    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2032-02-03 04:05:06Z]},
-      actor: actor()
-    )
+    original_host
+    |> guest_host!()
+    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2032-02-03 04:05:06Z]}, actor: actor())
     |> Ash.update!(actor: actor())
 
     assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
@@ -592,9 +589,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
              hosted_projection(source)
 
     guest
-    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2030-02-03 04:05:06Z]},
-      actor: actor()
-    )
+    |> Ash.Changeset.for_update(:update, %{observed_at: ~U[2030-02-03 04:05:06Z]}, actor: actor())
     |> Ash.update!(actor: actor())
 
     # A sibling ingestor's relationship survives every inventory retirement.
@@ -722,15 +717,21 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
     assert [] = hosted_projection(source)
 
-    device =
-      Device
-      |> Ash.Query.for_read(:read, %{include_deleted: true})
-      |> Ash.Query.filter(uid == ^new_host)
-      |> Ash.read_one!(actor: actor())
-
-    device
-    |> Ash.Changeset.for_update(:restore, %{}, actor: actor())
-    |> Ash.update!(actor: actor())
+    # Keep the tombstone-inclusive query through the atomic write; a record
+    # update rebuilds its query from the primary read, which excludes deleted rows.
+    assert %Ash.BulkResult{
+             status: :success,
+             records: [%Device{uid: ^new_host, deleted_at: nil}]
+           } =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^new_host)
+             |> Ash.bulk_update(:restore, %{},
+               actor: actor(),
+               return_records?: true,
+               return_errors?: true,
+               strategy: [:atomic, :stream]
+             )
 
     assert {:ok, _} = HypervisorEnrichmentIngestor.reconcile_hosted_topology()
     assert [_] = hosted_projection(source)
