@@ -23,7 +23,11 @@ func defaultHostInventory() []hostInterface {
 
 // Only report the interface that owns the announced IP. Enumerating every MAC
 // would also claim bridges, guest veths and unrelated network namespaces.
+// inventory may be nil, in which case it falls back to defaultHostInventory.
 func hostInterfaceMACs(hostIP string, inventory func() []hostInterface) []string {
+	if inventory == nil {
+		inventory = defaultHostInventory
+	}
 	return selectHostInterfaceMACs(net.ParseIP(hostIP), inventory())
 }
 
