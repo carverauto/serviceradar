@@ -83,7 +83,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       instead (`assert_golden!(witness: ...)`, expects `violation:OneSourceRecordPerDevice`).
       The extended `src_attach_shared_mac` violates nothing today and is the fix's regression
       trace.
-- [ ] 1.10 Trace in `dire_lifecycle_trace_test.exs`: add `expired_sweep_only_returns`, with its
+- [x] 1.10 Trace in `dire_lifecycle_trace_test.exs`: add `expired_sweep_only_returns`, with its
       knockout for `sweep_refreshes_expired_tombstone`. `sweep_restores_merged` now records the
       sweep's write to the merged tombstone (`SweepRefresh`) and gets a knockout for the same
       switch.

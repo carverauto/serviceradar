@@ -240,10 +240,16 @@ The lifecycle traces come from
 `ServiceRadar.DireLifecycleTrace` (`test/support/dire_lifecycle_trace.ex`), which drives the
 lifecycle entry points: ingest (`SyncIngestor`, `AgentGatewaySync`), `MergeEngine` merge and
 unmerge (including the resolver's conflict merge), `Device :soft_delete`,
-`SweepResultsIngestor` restores, `EphemeralDeviceExpiry` expiry, and `DeviceCleanupWorker`
+`SweepResultsIngestor` sweeps, `EphemeralDeviceExpiry` expiry, and `DeviceCleanupWorker`
 purges. It records device status and
-delete reason, identifier owners, addresses, the `merge_audit` rows and the devices each step's
-`identity_revision` moved. An ingest is logged as the model's `StartWork` and `Commit`; the code
+delete reason, identifier owners, addresses, the `merge_audit` rows, the `source_retired` mark,
+the identifier archive, which devices only the sweep discovered, and the devices each step's
+`identity_revision` moved. A sweep is logged as the model's step for what it did:
+`SweepCreate`, `SweepRestore`, `SweepRefresh` (it wrote its sighting to the record it found) or
+`SweepSkip`. Whether a sweep wrote a row is read from the row's version, since a sighting's
+one-second timestamps can equal an earlier step's. No code writes the mark or the archive
+before D5 and D1 land, so those entries are empty in every trace recorded today; the tamper
+variants still prove both are pinned. An ingest is logged as the model's `StartWork` and `Commit`; the code
 runs them in one call, so `work` is never stale in a recorded trace: a black-box trace cannot
 place a transition between the pin and the write. The enforced fence (#4618) is proven instead by
 `elixir/serviceradar_core/test/serviceradar/inventory/identity/fence_enforcement_test.exs`, which
@@ -254,9 +260,9 @@ one-second precision. `DireLifecycleTrace.tla` checks them the same way.
 
 A trace whose defect is still present is also rejected by the model with that defect switch
 turned off (a knockout, `Trace_<name>__knockout.cfg`, written by the test's
-`assert_golden!(demonstrates: switch)`), which proves the defect on the real code. Every
-trace, lifecycle and resolution, is now a regression trace of a fixed defect, so none has a
-knockout.
+`assert_golden!(demonstrates: switch)`), which proves the defect on the real code. Two
+lifecycle traces have one, for `sweep_refreshes_expired_tombstone`: `expired_sweep_only_returns`
+and `sweep_restores_merged`. Every other trace is a regression trace of a fixed defect.
 
 `census_randomized_mac` is a regression trace of `randomized_mac_seeds_uid` (#4760): two census
 sightings of one randomized MAC at different addresses are address-only, each landing on the
@@ -277,11 +283,18 @@ The lifecycle regression traces:
 - `expire_ephemeral` (#4603) records an address-only device expiring while a hardware-MAC device
   stays, then a sweep restoring it with a bump.
 - `sweep_restores_merged` (#4617) records a sweep of a merged-away device's old address leaving
-  it deleted. A sweep that restores nothing changes no modeled state and the model has no step
-  for it, so the harness checks that nothing it reads changed and logs no step; the trace ends
-  at the merge.
+  it deleted. The sweep still writes its sighting to that tombstone (`SweepRefresh`), the
+  defect `sweep_refreshes_expired_tombstone` names, so its knockout requires TLC to reject the
+  trace without the switch, where the model leaves the tombstone alone (`SweepSkip`).
 - `purge_recreate` (#4620) records a source carrying a purged merged-away uid landing on the
   survivor.
+
+The lifecycle trace of an open defect:
+
+- `expired_sweep_only_returns` (`sweep_refreshes_expired_tombstone`, D12) records a host only a
+  sweep knows: the sweep seeds it, it expires, and the next sweep finds its tombstone, does not
+  restore it and writes the sighting to it, so it stays deleted. Its knockout requires TLC to
+  reject the trace without the switch, where the model restores the device.
 
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with

@@ -4,11 +4,11 @@
 EXTENDS DireLifecycleTrace, CurrentBugs
 
 TheLog == <<
-  [status |-> ("d1" :> "absent"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> NoIp), audit |-> <<>>, work |-> {}, act |-> [name |-> "Init", u |-> NoDev, v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {}]],
-  [status |-> ("d1" :> "absent"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> NoIp), audit |-> <<>>, work |-> {[target |-> "d1", stale |-> FALSE]}, act |-> [name |-> "StartWork", u |-> "d1", v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {}]],
-  [status |-> ("d1" :> "live"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> "d1"), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, act |-> [name |-> "Commit", u |-> NoDev, v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]],
-  [status |-> ("d1" :> "tomb"), reason |-> ("d1" :> "other"), owner |-> ("i1" :> "d1"), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, act |-> [name |-> "SoftDelete", u |-> "d1", v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]],
-  [status |-> ("d1" :> "tomb"), reason |-> ("d1" :> "other"), owner |-> ("i1" :> "d1"), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {[target |-> "d1", stale |-> FALSE]}, act |-> [name |-> "StartWork", u |-> "d1", v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {}]],
-  [status |-> ("d1" :> "live"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> "d1"), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, act |-> [name |-> "Commit", u |-> NoDev, v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]]
+  [status |-> ("d1" :> "absent"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> NoIp), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {}, act |-> [name |-> "Init", u |-> NoDev, v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {}]],
+  [status |-> ("d1" :> "absent"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> NoIp), audit |-> <<>>, work |-> {[target |-> "d1", stale |-> FALSE]}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {}, act |-> [name |-> "StartWork", u |-> "d1", v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {}]],
+  [status |-> ("d1" :> "live"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> "d1"), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {}, act |-> [name |-> "Commit", u |-> NoDev, v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]],
+  [status |-> ("d1" :> "tomb"), reason |-> ("d1" :> "other"), owner |-> ("i1" :> "d1"), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {}, act |-> [name |-> "SoftDelete", u |-> "d1", v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]],
+  [status |-> ("d1" :> "tomb"), reason |-> ("d1" :> "other"), owner |-> ("i1" :> "d1"), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {[target |-> "d1", stale |-> FALSE]}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {}, act |-> [name |-> "StartWork", u |-> "d1", v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {}]],
+  [status |-> ("d1" :> "live"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> "d1"), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {}, act |-> [name |-> "Commit", u |-> NoDev, v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]]
 >>
 ====

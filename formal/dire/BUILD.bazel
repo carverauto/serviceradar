@@ -339,6 +339,8 @@ tlc_test(
 
 # ---- Traces recorded from the real code (a matched trace reaches its last state) ----
 # A __tamper_<var> variant alters one variable in the final state and must NOT be matched.
+# A __knockout configuration checks a trace without the defect switch it demonstrates and must
+# NOT be matched either.
 
 tlc_test(
     name = "trace_agent_alias_unknown_mac_test",
@@ -499,6 +501,17 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_conflict_unmerge__tamper_arch_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_arch.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_arch.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_conflict_unmerge__tamper_audit_test",
     cfg = "traces/Trace_conflict_unmerge__tamper_audit.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_audit.tla",
@@ -513,6 +526,17 @@ tlc_test(
     name = "trace_conflict_unmerge__tamper_ipOf_test",
     cfg = "traces/Trace_conflict_unmerge__tamper_ipOf.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_ipOf.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_marked_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_marked.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_marked.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",
@@ -554,6 +578,17 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_conflict_unmerge__tamper_sweepOnly_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_sweepOnly.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_sweepOnly.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_conflict_unmerge__tamper_work_test",
     cfg = "traces/Trace_conflict_unmerge__tamper_work.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_work.tla",
@@ -569,6 +604,29 @@ tlc_test(
     cfg = "traces/Trace_expire_ephemeral.cfg",
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_expire_ephemeral.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_expired_sweep_only_returns_test",
+    cfg = "traces/Trace_expired_sweep_only_returns.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_expired_sweep_only_returns.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_expired_sweep_only_returns__knockout_test",
+    cfg = "traces/Trace_expired_sweep_only_returns__knockout.cfg",
+    spec = "traces/Trace_expired_sweep_only_returns.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",
@@ -688,6 +746,17 @@ tlc_test(
     name = "trace_sweep_restores_merged_test",
     cfg = "traces/Trace_sweep_restores_merged.cfg",
     expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_sweep_restores_merged.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_sweep_restores_merged__knockout_test",
+    cfg = "traces/Trace_sweep_restores_merged__knockout.cfg",
     spec = "traces/Trace_sweep_restores_merged.tla",
     deps = [
         "CurrentBugs.tla",
