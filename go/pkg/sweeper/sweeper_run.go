@@ -108,6 +108,10 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	targetEstimate := estimateTargetCount(s.config)
 	if targetEstimate > defaultTargetBatch {
 		if err := s.runBatchedSweep(ctx, targetEstimate); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return s.completeCancelledSweep(ctx, startedAt)
+			}
+
 			return err
 		}
 
