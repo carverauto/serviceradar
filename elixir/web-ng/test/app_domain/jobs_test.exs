@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.JobsTest do
   alias ServiceRadarWebNG.Jobs.Schedule
   alias ServiceRadarWebNG.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "schedules" do
     test "validates cron expressions" do
       changeset = Schedule.changeset(%Schedule{}, %{cron: "not-a-cron", timezone: "Etc/UTC"})

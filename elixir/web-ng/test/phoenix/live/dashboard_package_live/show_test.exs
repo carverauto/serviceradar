@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.ShowTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Dashboards
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "unauthorized viewer sees the same not-found as an unknown slug", %{conn: conn} do
     admin = AshTestHelpers.admin_user_fixture()
     viewer = viewer_user()
@@ -91,7 +93,23 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.ShowTest do
         dashboard_id: "com.test.show.#{suffix}",
         name: "#{name_prefix} Package #{suffix}",
         version: "0.1.0",
-        manifest: %{},
+        manifest: %{
+          "schema_version" => 1,
+          "id" => "com.test.show.#{suffix}",
+          "name" => "#{name_prefix} Package #{suffix}",
+          "version" => "0.1.0",
+          "renderer" => %{
+            "kind" => "browser_module",
+            "interface_version" => "dashboard-browser-module-v1",
+            "artifact" => "renderer.js",
+            "sha256" => String.duplicate("a", 64),
+            "trust" => "trusted"
+          },
+          "data_frames" => [
+            %{"id" => "f1", "query" => "in:wifi_sites limit:1", "encoding" => "json_rows"}
+          ],
+          "capabilities" => ["srql.execute"]
+        },
         renderer: %{
           "kind" => "browser_module",
           "interface_version" => "dashboard-browser-module-v1",
@@ -103,8 +121,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.ShowTest do
         settings_schema: %{},
         wasm_object_key: "dashboards/test/show-#{suffix}.js",
         content_hash: String.duplicate("a", 64),
-        verification_status: "verified",
-        status: :enabled
+        verification_status: "verified"
       })
       |> Ash.create!(actor: AshTestHelpers.system_actor())
 

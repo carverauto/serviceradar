@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.OAuthControllerTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   @password_action :oauth_password_grant
   @client_credentials_action :oauth_client_credentials
   @ip "127.0.0.1"

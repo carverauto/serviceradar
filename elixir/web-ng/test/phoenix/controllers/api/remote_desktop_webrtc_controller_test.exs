@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteDesktopWebRTCControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.RemoteDesktopWebRTCSignalingManagerStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_enabled = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
 

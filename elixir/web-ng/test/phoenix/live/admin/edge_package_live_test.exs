@@ -2,10 +2,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
-  import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, actor_for_user: 1]
+
+  import ServiceRadarWebNG.AshTestHelpers,
+    only: [admin_user_fixture: 0, actor_for_user: 1, ensure_process_registry!: 0]
 
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadarWebNG.Edge.OnboardingPackages
+
+  @moduletag :web_ng_shared_fixture_db
 
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
@@ -19,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     user = admin_user_fixture()
     actor = actor_for_user(user)
     gateway_id = "test-gateway-#{System.unique_integer([:positive])}"
+    ensure_process_registry!()
 
     case ServiceRadar.GatewayRegistry.register_gateway(gateway_id, %{
            partition_id: "default",

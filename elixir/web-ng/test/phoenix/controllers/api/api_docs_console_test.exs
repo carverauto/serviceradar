@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.Api.ApiDocsConsoleTest do
 
   alias ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   @service_check_params %{
     "data" => %{
       "type" => "service-check",

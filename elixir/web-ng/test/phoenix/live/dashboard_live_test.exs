@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.DashboardLive.Data
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_user
 
   test "renders the operations dashboard inside the authenticated shell", %{conn: conn} do

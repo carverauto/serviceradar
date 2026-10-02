@@ -13,9 +13,7 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackRouteTest do
 
   alias ServiceRadarWebNGWeb.Api.RawBodyReader
 
-  # web-ng's Bazel tier runs `ExUnit.configure(exclude: [:test], include: [:db_free])`,
-  # so an untagged file runs ZERO tests in CI while reporting success. These need no
-  # database - that is the point of the tag, not a workaround for one.
+  # Lane tag. See elixir/web-ng/AGENTS.md ("Tests here are excluded by default").
   @moduletag :db_free
 
   @providers ["slack"]

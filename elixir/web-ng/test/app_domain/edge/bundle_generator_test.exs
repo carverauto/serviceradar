@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
+  @moduletag :web_ng_shared_fixture_db
+
   @onboarding_token_private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
 
   setup do
@@ -82,7 +84,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
           name |> to_string() |> String.ends_with?("install.sh")
         end)
 
-      assert install_sh =~ "COMPONENT_TYPE=\"gateway\""
+      assert install_sh =~ "COMPONENT_TYPE='gateway'"
       assert install_sh =~ "ServiceRadar Edge Component Installer"
       assert install_sh =~ "docker"
       assert install_sh =~ "systemd"
@@ -133,7 +135,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         |> String.split("\n")
         |> Enum.find(&String.starts_with?(&1, "gateway_addr: "))
 
-      assert gateway_line =~ "gateway_addr: \"demo-gw.serviceradar.cloud:50052\\\\\\\\\\nmalicious: true\""
+      assert gateway_line =~ "gateway_addr: \"demo-gw.serviceradar.cloud:50052\\\\\\nmalicious: true\""
       refute config_yaml =~ "\nmalicious: true\n"
     end
 

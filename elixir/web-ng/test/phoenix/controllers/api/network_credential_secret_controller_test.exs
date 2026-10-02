@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.NetworkCredentialsStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous = Application.get_env(:serviceradar_web_ng, :network_credentials)
     previous_pid = Application.get_env(:serviceradar_web_ng, :network_credentials_test_pid)

@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
   alias ServiceRadar.Spatial.SurveySpectrumObservation
   alias ServiceRadarWebNG.FieldSurveyReview
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "review projection includes floorplan segments in bounds" do
     review =
       FieldSurveyReview.build_review(

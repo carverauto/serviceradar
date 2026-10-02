@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = ServiceRadarWebNG.AshTestHelpers.user_fixture()
     %{conn: log_in_api_user(conn, user)}

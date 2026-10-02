@@ -77,7 +77,7 @@ defmodule ServiceRadar.Observability.BmpSettings do
   end
 
   attributes do
-    uuid_primary_key :id
+    integer_primary_key :id
 
     attribute :bmp_routing_retention_days, :integer do
       allow_nil? false

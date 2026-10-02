@@ -17,6 +17,8 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "partition creation" do
     test "can create a partition with required fields" do
       result =

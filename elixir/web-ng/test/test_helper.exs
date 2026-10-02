@@ -29,6 +29,13 @@ db_required? = require_db_tests? or ci? or not allow_db_free_tests?
 if allow_db_free_tests? and not db_required? do
   ExUnit.configure(exclude: [:test], include: [:db_free])
 
+  # The lane-coverage guard: every test this allow-list tier excludes must carry
+  # one of the OTHER lane tags, or no CI lane selects it at all (issue #4797).
+  # Registered here -- not at ExUnit.start/1 -- so only the database-free
+  # configuration ever enforces it. A `--include test` override runs everything,
+  # nothing is excluded, and the guard stays silent by construction.
+  ExUnit.configure(formatters: [ExUnit.CLIFormatter, ServiceRadarWebNG.Test.LaneCoverageGuard])
+
   # A target that runs zero tests must not report success.
   #
   # The filter above is an ALLOW-LIST: every test is excluded and only `:db_free`
@@ -44,10 +51,9 @@ if allow_db_free_tests? and not db_required? do
   # (private/ex_unit_test.bzl) but explicitly skips any log containing
   # "excluded", which a default-exclude tier defeats by construction.
   #
-  # This catches SHARD-level vacuity only. It does NOT catch a single untagged
-  # file in an otherwise-populated shard -- that is a tier-design problem
-  # (serviceradar_core defaults to RUNNING via a deny-list; web-ng defaults to
-  # silence), and pretending otherwise is how the next person gets caught.
+  # This catches shard-level vacuity only. One test with no lane tag is
+  # LaneCoverageGuard's job (registered above), not this hook's. The lane
+  # contract is in elixir/web-ng/AGENTS.md.
   ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
     if total - excluded - skipped == 0 do
       IO.puts(:stderr, """

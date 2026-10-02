@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditHistoryLiveTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_admin_user
 
   @path "/settings/audit/history"

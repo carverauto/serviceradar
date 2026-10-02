@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.InventoryTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "list_devices returns devices ordered by last_seen_time desc" do
     suffix = System.unique_integer([:positive])
     uid1 = "test-device-1-#{suffix}"

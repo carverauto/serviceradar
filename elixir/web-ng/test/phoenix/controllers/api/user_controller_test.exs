@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Api.UserControllerTest do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     admin = AshTestHelpers.admin_user_fixture()
     conn = log_in_api_user(conn, admin)

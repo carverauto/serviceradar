@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.Inventory.DeviceIdentifier
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = ServiceRadarWebNG.AccountsFixtures.user_fixture(%{role: :operator})
     n = System.unique_integer([:positive])

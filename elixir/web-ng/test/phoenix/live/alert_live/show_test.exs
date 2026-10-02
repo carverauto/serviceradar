@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
   end
 
   describe "authorization" do
+    @tag :web_ng_shared_fixture_db
     test "a scope without observability.alerts.manage gets no controls", %{conn: conn} do
       user = viewer_user_fixture()
       alert = alert_fixture()
@@ -45,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       refute has_element?(lv, "form[phx-submit='alert_snooze']")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a forged acknowledge event is refused inside handle_event", %{conn: conn} do
       user = viewer_user_fixture()
       alert = alert_fixture()
@@ -58,6 +60,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert acknowledgements(alert.id) == []
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a forged snooze event is refused inside handle_event", %{conn: conn} do
       user = viewer_user_fixture()
       alert = alert_fixture()
@@ -73,6 +76,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert reloaded.status == :pending
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a forged resolve event is refused inside handle_event", %{conn: conn} do
       user = viewer_user_fixture()
       alert = alert_fixture()
@@ -84,6 +88,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert reload(alert).status == :pending
     end
 
+    @tag :web_ng_shared_fixture_db
     test "an operator holding the permission gets the controls", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -97,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
   end
 
   describe "acknowledge" do
+    @tag :web_ng_shared_fixture_db
     test "acknowledges an ESCALATED alert and attributes it to the platform user", %{conn: conn} do
       user = operator_user_fixture()
       alert = %{severity: :critical} |> alert_fixture() |> escalate()
@@ -114,6 +120,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert %DateTime{} = reloaded.acknowledged_at
     end
 
+    @tag :web_ng_shared_fixture_db
     test "records a NotificationAcknowledgement as a platform user from the UI", %{conn: conn} do
       user = operator_user_fixture()
       alert = escalate(alert_fixture())
@@ -129,6 +136,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert row.source == :ui
     end
 
+    @tag :web_ng_shared_fixture_db
     test "acknowledging clears an active snooze", %{conn: conn} do
       user = operator_user_fixture()
       alert = snooze(alert_fixture(), 3_600)
@@ -144,6 +152,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert is_nil(reloaded.snooze_until)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a resolved alert renders acknowledge disabled rather than failing on click", %{conn: conn} do
       user = operator_user_fixture()
       alert = resolve(alert_fixture())
@@ -159,6 +168,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
   end
 
   describe "snooze" do
+    @tag :web_ng_shared_fixture_db
     test "sets snooze_until without changing status", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -177,6 +187,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert DateTime.before?(reloaded.snooze_until, DateTime.add(before, 3_700, :second))
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders the derived snoozed badge rather than a snoozed status", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -189,6 +200,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert has_element?(lv, "button[phx-click='alert_unsnooze']")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "records a snooze acknowledgement carrying snooze_until", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -203,6 +215,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert %DateTime{} = row.snooze_until
     end
 
+    @tag :web_ng_shared_fixture_db
     test "an unknown duration is refused and nothing is snoozed", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -215,6 +228,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert is_nil(reload(alert).snooze_until)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "clearing the snooze resumes dispatch", %{conn: conn} do
       user = operator_user_fixture()
       alert = snooze(alert_fixture(), 3_600)
@@ -228,6 +242,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
   end
 
   describe "acknowledgement attribution" do
+    @tag :web_ng_shared_fixture_db
     test "distinguishes an external principal from a platform user", %{conn: conn} do
       user = operator_user_fixture()
 
@@ -319,6 +334,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
              )
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders suppressed deliveries with their reason", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -333,6 +349,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert html =~ "No enabled route matched this alert"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "test deliveries are distinguished and excluded from the counts", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -349,6 +366,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert html =~ "3 test (not counted)"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "an alert with no delivery history says so", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -358,6 +376,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert html =~ "No notification was recorded for this alert"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "links into the delivery log filtered to this alert", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -367,6 +386,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert has_element?(lv, "a[href*='/settings/notifications/deliveries'][href*='#{alert.id}']")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "a scope without notifications.deliveries.view gets no history panel", %{conn: conn} do
       user = viewer_user_fixture()
       alert = alert_fixture()

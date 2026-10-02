@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.McpTest do
   alias ServiceRadarWebNG.Mcp
   alias ServiceRadarWebNGWeb.FeatureFlags
 
+  @moduletag :web_ng_shared_fixture_db
+
   @ip "127.0.0.1"
 
   setup do

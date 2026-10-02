@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthPolicyTest do
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.UserAuth
 
+  @moduletag :web_ng_shared_fixture_db
+
   @rsa_private_key JOSE.JWK.generate_key({:rsa, 2048})
   @rsa_public_key JOSE.JWK.to_public(@rsa_private_key)
   @rsa_public_pem elem(JOSE.JWK.to_pem(@rsa_public_key), 1)

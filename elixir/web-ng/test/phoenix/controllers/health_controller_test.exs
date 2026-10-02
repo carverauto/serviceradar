@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.HealthControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "GET /health/live returns ok", %{conn: conn} do
     conn = get(conn, ~p"/health/live")
 

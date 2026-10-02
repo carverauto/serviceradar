@@ -108,6 +108,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     {:ok, conn: log_in_user(conn, user), user: user, scope: scope}
   end
 
+  @tag :web_ng_shared_fixture_db
   test "creator saves an SRQL dashboard and redirects to the saved dashboard", %{
     conn: conn,
     scope: scope,
@@ -139,6 +140,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert Dashboards.list_authored_panels(scope, dashboard.id) == []
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard settings creates schema-guided panels", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     title = "Multi Query LiveView #{unique}"
@@ -208,6 +210,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert Enum.map(panels, & &1.srql_query) == ["series services"]
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard settings show grouped availability binding controls", %{
     conn: conn,
     scope: scope
@@ -257,6 +260,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert has_element?(view, "select[name='panel[label_field]'] option[selected][value='is_available']")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard settings create panels from reusable source query outputs", %{
     conn: conn,
     scope: scope
@@ -318,6 +322,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert Enum.any?(source["outputs"], &(&1["visual_type"] == "category"))
   end
 
+  @tag :web_ng_shared_fixture_db
   test "dashboard library lists authored dashboards and updates favorite/default preferences", %{
     conn: conn,
     scope: scope
@@ -357,6 +362,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert default.is_default
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard settings edit panels and manage report schedules", %{
     conn: conn,
     scope: scope
@@ -428,6 +434,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert render(view) =~ "No report schedules yet."
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard table renders status boolean JSON and sparkline cells", %{
     conn: conn,
     scope: scope
@@ -458,6 +465,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     refute html =~ "{&quot;owner&quot;"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard renders pivot and trend dashlets", %{conn: conn, scope: scope} do
     {dashboard, _panel} =
       dashboard_with_panel!(scope,
@@ -480,6 +488,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert html =~ "down"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard variables substitute into panel SRQL", %{conn: conn, scope: scope} do
     {dashboard, _panel} =
       dashboard_with_panel!(scope,
@@ -501,6 +510,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     refute html =~ "iah-core"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "view-only dashboard variables cannot rewrite panel collection or filters", %{scope: scope} do
     viewer = viewer_user_fixture()
 
@@ -533,6 +543,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     refute html =~ "msp-core"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard renders gauge and count dashlets with thresholds and trends", %{
     conn: conn,
     scope: scope
@@ -579,6 +590,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert html =~ " services</span>"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "saved dashboard panel actions duplicate clone compact inspect refresh and export", %{
     conn: conn,
     scope: scope
@@ -668,6 +680,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
              ~s("message","time"\n"raw UTC export","2026-08-30T18:00:00Z"\n)
   end
 
+  @tag :web_ng_shared_fixture_db
   test "user groups are managed from settings instead of the dashboard creator", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/settings/user-groups")
     html = render_async(view, 5_000)

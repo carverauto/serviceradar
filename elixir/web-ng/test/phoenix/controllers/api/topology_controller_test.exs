@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Api.TopologyControllerTest do
 
   alias ServiceRadarWebNG.Auth.Guardian
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = admin_user_fixture()
     {:ok, token, _claims} = Guardian.create_access_token(user)

@@ -12,8 +12,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule FakeNativeAddonCatalogClient do
     @moduledoc false
+
+    # Production fetches through ServiceRadar.HTTP.EgressClient (`fetch_body/2`);
+    # translate that call onto the Req-style `get/2` clauses below. Qualified so
+    # the outer ConnCase's imported `Phoenix.ConnTest.get/2` cannot win.
+    def fetch_body(url, opts), do: __MODULE__.get(url, opts)
 
     def get(url, _opts) do
       fixture = Application.fetch_env!(:serviceradar_web_ng, :native_addon_live_catalog_fixture)

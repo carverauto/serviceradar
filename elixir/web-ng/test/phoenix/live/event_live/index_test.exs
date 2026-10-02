@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.IndexTest do
 
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :operator})
     conn = log_in_user(conn, user)
@@ -13,8 +15,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.IndexTest do
 
   test "redirects /events to Observability events tab", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: to}}} = live(conn, ~p"/events")
-    assert to =~ "/observability"
-    assert to =~ "tab=events"
+    assert to == "/observability/events"
   end
 
   test "preserves SRQL query when redirecting", %{conn: conn} do
@@ -23,9 +24,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.IndexTest do
     assert {:error, {:live_redirect, %{to: to}}} =
              live(conn, ~p"/events?#{%{q: q, limit: 20}}")
 
-    assert to =~ "/observability"
-    assert to =~ "tab=events"
+    assert to =~ "/observability/events"
+    refute to =~ "tab=events"
+    refute to =~ "limit=20"
     assert to =~ URI.encode_query(%{q: q}) or to =~ "q="
-    assert to =~ "limit=20"
   end
 end

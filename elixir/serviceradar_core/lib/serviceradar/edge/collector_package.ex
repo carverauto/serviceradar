@@ -26,7 +26,9 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
   - NATS credentials file (.creds)
   - Collector configuration (collector-specific)
-  - mTLS certificates (from deployment CA)
+  - mTLS certificates when the package has them (omitted from the bundle otherwise;
+    Falcosidekick uses the cluster runtime-cert secret). Bundle layout:
+    `ServiceRadarWebNG.Edge.CollectorBundleGenerator`
   - Installation instructions
   """
 
@@ -60,14 +62,18 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       transition :fail, from: [:pending, :provisioning], to: :failed
       transition :download, from: :ready, to: :downloaded
       transition :install, from: :downloaded, to: :installed
-      transition :revoke, from: [:ready, :downloaded, :installed], to: :revoked
+
+      transition :revoke,
+        from: [:pending, :provisioning, :ready, :downloaded, :installed],
+        to: :revoked
     end
   end
 
   cloak do
     vault(ServiceRadar.Vault)
     attributes([:nats_creds_ciphertext, :tls_key_pem_ciphertext])
-    # Not decrypted by default for security - use ServiceRadar.Vault.decrypt/1 when needed
+    # Not decrypted unless a query loads the attribute. AshCloak returns plaintext
+    # on that load; do not pass the loaded value to Vault.decrypt/1.
     decrypt_by_default([])
   end
 
@@ -172,6 +178,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :provision do
       description "Mark package as provisioning"
       accept []
+      change transition_state(:provisioning)
     end
 
     update :ready do
@@ -182,33 +189,43 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       argument :nats_credential_id, :uuid, allow_nil?: false
       argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
-      argument :tls_cert_pem, :string, allow_nil?: false, sensitive?: true
-      argument :tls_key_pem, :string, allow_nil?: false, sensitive?: true
-      argument :ca_chain_pem, :string, allow_nil?: false, sensitive?: true
+      argument :tls_cert_pem, :string, allow_nil?: true, sensitive?: true
+      argument :tls_key_pem, :string, allow_nil?: true, sensitive?: true
+      argument :ca_chain_pem, :string, allow_nil?: true, sensitive?: true
+
+      change transition_state(:ready)
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
         creds_content = Ash.Changeset.get_argument(changeset, :nats_creds_content)
         tls_key_pem = Ash.Changeset.get_argument(changeset, :tls_key_pem)
 
-        changeset
-        |> Ash.Changeset.change_attribute(
-          :nats_credential_id,
-          Ash.Changeset.get_argument(changeset, :nats_credential_id)
-        )
-        # Store TLS certificate (public - not encrypted)
-        |> Ash.Changeset.change_attribute(
-          :tls_cert_pem,
-          Ash.Changeset.get_argument(changeset, :tls_cert_pem)
-        )
-        |> Ash.Changeset.change_attribute(
-          :ca_chain_pem,
-          Ash.Changeset.get_argument(changeset, :ca_chain_pem)
-        )
-        # Encrypt NATS credentials and TLS private key using AshCloak
-        |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
-        |> AshCloak.encrypt_and_set(:tls_key_pem_ciphertext, tls_key_pem)
-        |> AfterAction.after_action(fn package ->
+        changeset =
+          changeset
+          |> Ash.Changeset.change_attribute(
+            :nats_credential_id,
+            Ash.Changeset.get_argument(changeset, :nats_credential_id)
+          )
+          # Store TLS certificate (public - not encrypted)
+          |> Ash.Changeset.change_attribute(
+            :tls_cert_pem,
+            Ash.Changeset.get_argument(changeset, :tls_cert_pem)
+          )
+          |> Ash.Changeset.change_attribute(
+            :ca_chain_pem,
+            Ash.Changeset.get_argument(changeset, :ca_chain_pem)
+          )
+          # Encrypt NATS credentials and TLS private key using AshCloak
+          |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
+
+        changeset =
+          if is_binary(tls_key_pem) do
+            AshCloak.encrypt_and_set(changeset, :tls_key_pem_ciphertext, tls_key_pem)
+          else
+            changeset
+          end
+
+        AfterAction.after_action(changeset, fn package ->
           __MODULE__.broadcast_status_changed(package, old_status, :ready)
         end)
       end
@@ -221,6 +238,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       accept []
 
       argument :error_message, :string
+
+      change transition_state(:failed)
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
@@ -244,6 +263,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       argument :downloaded_by_ip, :string
 
+      change transition_state(:downloaded)
+
       change fn changeset, _context ->
         changeset
         |> Ash.Changeset.change_attribute(:downloaded_at, DateTime.utc_now())
@@ -258,6 +279,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       description "Mark package as installed"
       accept []
 
+      change transition_state(:installed)
       change set_attribute(:installed_at, &DateTime.utc_now/0)
     end
 
@@ -268,6 +290,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       accept []
 
       argument :reason, :string
+
+      change transition_state(:revoked)
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)

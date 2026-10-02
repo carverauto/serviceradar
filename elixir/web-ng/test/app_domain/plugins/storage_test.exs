@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Plugins.StorageTest do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.Storage
 
+  @moduletag :db_free
+
   @gib 1_073_741_824
 
   setup do

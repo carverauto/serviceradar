@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
   @async_timeout 15_000
 
+  @tag :web_ng_shared_fixture_db
   test "dashboards section lists authored and package resources without aliased cli keys", %{
     conn: conn
   } do

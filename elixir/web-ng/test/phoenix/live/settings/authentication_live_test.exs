@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLiveTest do
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "treats password-only mode as SSO disabled and repairs a contradictory saved flag", %{conn: conn} do
     Repo.query!("""
     UPDATE platform.auth_settings

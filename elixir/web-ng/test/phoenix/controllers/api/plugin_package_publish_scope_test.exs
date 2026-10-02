@@ -18,9 +18,11 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import ServiceRadarWebNG.AshTestHelpers,
-    only: [admin_user_fixture: 0, api_token_fixture: 2, user_fixture: 0]
+    only: [admin_user_fixture: 0, api_token_fixture: 2, user_fixture: 0, viewer_user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian
+
+  @moduletag :web_ng_shared_fixture_db
 
   @manifest %{
     "id" => "scope-probe",
@@ -55,11 +57,12 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   describe "POST /api/admin/plugin-packages" do
     test "an API key with plugins.stage still authorizes", %{conn: conn} do
       admin = admin_user_fixture()
-      token = api_token_fixture(admin, %{})
+      raw_token = "srk_" <> Base.encode64(:crypto.strong_rand_bytes(32))
+      _token = api_token_fixture(admin, %{token: raw_token})
 
       conn =
         conn
-        |> put_req_header("x-api-key", token.token)
+        |> put_req_header("x-api-key", raw_token)
         |> post(~p"/api/admin/plugin-packages", create_params())
 
       # The assertion is about authorization, not about the package body: any
@@ -92,7 +95,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
     end
 
     test "a user without plugins.stage is refused" do
-      viewer = user_fixture()
+      viewer = viewer_user_fixture()
 
       conn =
         build_conn()

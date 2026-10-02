@@ -68,6 +68,7 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
                RoleProfile |> Ash.Query.filter(id == ^id) |> Ash.read_one(actor: system)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "denies viewers for role profiles endpoints", %{conn: conn} do
       user = viewer_user_fixture()
       conn = log_in_user(conn, user)
@@ -121,6 +122,7 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
       end
     end
 
+    @tag :web_ng_shared_fixture_db
     test "allows admins for role profiles endpoints", %{conn: conn} do
       user = admin_user_fixture()
       conn = log_in_user(conn, user)
@@ -177,6 +179,7 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
                |> Ash.read(actor: system)
     end
 
+    @tag :web_ng_shared_fixture_db
     test "denies viewers for users endpoints", %{conn: conn} do
       user = viewer_user_fixture()
       conn = log_in_user(conn, user)
@@ -186,6 +189,7 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
       assert body["error"] == "forbidden" or Map.has_key?(body, "errors")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "denies viewers for authorization settings endpoints", %{conn: conn} do
       user = viewer_user_fixture()
       conn = log_in_user(conn, user)

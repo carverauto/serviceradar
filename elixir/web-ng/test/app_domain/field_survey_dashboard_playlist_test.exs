@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.FieldSurveyDashboardPlaylistTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.FieldSurveyDashboardPlaylist
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule FloorplanRasterSRQLStub do
     @moduledoc false
     def query(query, opts) do

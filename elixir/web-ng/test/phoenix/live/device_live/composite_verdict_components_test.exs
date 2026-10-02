@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictComponentsTest do
 
   alias ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictComponents
 
+  @moduletag :db_free
+
   defp input(attrs) do
     Map.merge(
       %{

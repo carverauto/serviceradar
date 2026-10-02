@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   @release_public_key "ot8W1BsqSvXV7KEjLL+RkQz106lzcIJNCY91OXSqBpk="
   @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
 
@@ -1751,7 +1753,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       SET status = 'active', completed_at = NULL
       WHERE rollout_id = $1
       """,
-      [rollout.id]
+      [Ecto.UUID.dump!(rollout.id)]
     )
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")

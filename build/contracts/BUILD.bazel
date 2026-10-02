@@ -95,11 +95,35 @@ genquery(
     scope = ["//elixir/web-ng:networks_live_db_test"],
 )
 
+genquery(
+    name = "web_ng_lane_target_query",
+    # deps() of the suite, not a hardcoded pair of lanes. The suite lists every
+    # ex_unit_test in //elixir/web-ng, so a manual target a workflow runs by
+    # name still shows up in this query and its file counts as routed.
+    expression = "kind(ex_unit_test, deps(//elixir/web-ng:web_ng_lane_scope))",
+    opts = ["--output=xml"],
+    scope = ["//elixir/web-ng:web_ng_lane_scope"],
+)
+
 py_test(
     name = "web_ng_db_runner_contract_test",
     size = "small",
     srcs = ["web_ng_db_runner_contract_test.py"],
     data = [":web_ng_db_target_query"],
+)
+
+# Static half of web-ng lane routing (issue #4797); the runtime half is
+# ServiceRadarWebNG.Test.LaneCoverageGuard, registered by test/test_helper.exs in
+# the database-free lane. Needs the BUILD file and the test tree as data so a
+# run from any sandbox sees the same sources CI sees.
+py_test(
+    name = "web_ng_test_lane_routing_contract_test",
+    size = "small",
+    srcs = ["web_ng_test_lane_routing_contract_test.py"],
+    data = [
+        ":web_ng_lane_target_query",
+        "//elixir/web-ng:srcs",
+    ],
 )
 
 py_test(

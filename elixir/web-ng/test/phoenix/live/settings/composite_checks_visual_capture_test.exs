@@ -20,6 +20,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksVisualCaptureTest do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   @moduletag :visual
 
   setup %{conn: conn} do

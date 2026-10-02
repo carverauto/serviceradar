@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLiveTest do
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   defp settings!(mappings) do
     actor = SystemActor.system(:authorization_live_test)
     attrs = %{default_role: :viewer, role_mappings: mappings}

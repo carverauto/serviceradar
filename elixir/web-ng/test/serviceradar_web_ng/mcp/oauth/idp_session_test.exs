@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.IdPSessionTest do
   alias ServiceRadar.Identity.McpOAuthGrant
   alias ServiceRadarWebNG.Mcp.OAuth.IdPSession
 
+  @moduletag :db_free
+
   defmodule RefreshClient do
     @moduledoc false
     @behaviour ServiceRadarWebNG.Mcp.OAuth.IdPRefreshClient

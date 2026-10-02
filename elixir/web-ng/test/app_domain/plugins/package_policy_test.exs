@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Plugins.PackagePolicyTest do
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
+  @moduletag :web_ng_shared_fixture_db
+
   @manifest %{
     "id" => "http-check",
     "name" => "HTTP Check",
@@ -174,7 +176,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagePolicyTest do
       })
 
     assert {:ok, approved} =
-             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+             Plugins.approve_package(package.id, %{}, actor: system_actor(), approved_by: "admin")
 
     assert approved.status == :approved
   end

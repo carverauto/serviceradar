@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule SRQLStub do
     @moduledoc false
     def query(query, _opts) do

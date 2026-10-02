@@ -37,6 +37,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
     :ok
   end
 
+  @tag :web_ng_shared_fixture_db
+
   test "pushes an initial relay snapshot and subsequent state changes" do
     relay_session_id = Ecto.UUID.generate()
 
@@ -75,8 +77,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "relay_session_id" => ^relay_session_id,
              "status" => "opening",
              "playback_state" => "pending",
-             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs",
+             "preferred_playback_transport" => "membrane_webrtc",
              "available_playback_transports" => [
+               "membrane_webrtc",
                "websocket_h264_annexb_webcodecs",
                "websocket_h264_annexb_jmuxer_mse"
              ],
@@ -103,8 +106,9 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "playback_state" => "ready",
              "media_ingest_id" => "core-media-1",
              "viewer_count" => 2,
-             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs",
+             "preferred_playback_transport" => "membrane_webrtc",
              "available_playback_transports" => [
+               "membrane_webrtc",
                "websocket_h264_annexb_webcodecs",
                "websocket_h264_annexb_jmuxer_mse"
              ]
@@ -127,9 +131,11 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
              "playback_state" => "closed",
              "termination_kind" => "viewer_idle",
              "close_reason" => "viewer idle timeout",
-             "preferred_playback_transport" => "websocket_h264_annexb_webcodecs"
+             "preferred_playback_transport" => "membrane_webrtc"
            } = Jason.decode!(payload)
   end
+
+  @tag :db_free
 
   test "stops when the relay session no longer exists" do
     relay_session_id = Ecto.UUID.generate()
@@ -145,6 +151,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
                poll_interval_ms: 10_000
              )
   end
+
+  @tag :web_ng_shared_fixture_db
 
   test "stops on poll when an already-open relay session goes stale" do
     relay_session_id = Ecto.UUID.generate()
@@ -181,6 +189,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
     assert {:stop, :normal, {1008, "relay session not found"}, _state} =
              CameraRelayStreamHandler.handle_info(:poll, state)
   end
+
+  @tag :web_ng_shared_fixture_db
 
   test "forwards media chunks as websocket binary frames" do
     relay_session_id = Ecto.UUID.generate()
@@ -260,6 +270,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
            >> = rest
   end
 
+  @tag :web_ng_shared_fixture_db
+
   test "ignores regressive active snapshots after a relay enters closing" do
     relay_session_id = Ecto.UUID.generate()
     scope = Scope.for_user(%{id: "viewer-1", email: "viewer@example.com", role: :viewer})
@@ -323,6 +335,8 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
                state
              )
   end
+
+  @tag :web_ng_shared_fixture_db
 
   test "ignores normal linked process exits while the websocket stays open" do
     relay_session_id = Ecto.UUID.generate()

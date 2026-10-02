@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.ProxmoxConsoleSessionManagerStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :proxmox_console_session_manager)
 
@@ -160,7 +162,10 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
     test "denies websocket upgrade without credential-use permission", %{conn: conn, user: user} do
       put_test_permissions(user, ["devices.console.open"])
 
-      conn = get(conn, ~p"/v1/proxmox/console-sessions/#{Ecto.UUID.generate()}/stream")
+      conn =
+        conn
+        |> put_req_header("host", "www.example.com")
+        |> get(~p"/v1/proxmox/console-sessions/#{Ecto.UUID.generate()}/stream")
 
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
@@ -168,7 +173,9 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
   end
 
   defp put_test_permissions(user, permissions) do
-    Process.put({:rbac_permissions, user.id}, MapSet.new(permissions))
+    # The legacy process-dict injection this replaced is dead: permissions
+    # resolve through the shared ETS cache, so narrow them there.
+    ServiceRadar.Identity.RBAC.Cache.put(user.id, MapSet.new(permissions))
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

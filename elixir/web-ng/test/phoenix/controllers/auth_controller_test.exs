@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   @password_action :auth_local
   @reset_action :auth_password_reset
   @ip "127.0.0.1"

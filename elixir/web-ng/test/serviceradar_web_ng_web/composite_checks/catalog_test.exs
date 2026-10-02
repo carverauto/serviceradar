@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.CompositeChecks.CatalogTest do
 
   alias ServiceRadarWebNGWeb.CompositeChecks.Catalog
 
+  @moduletag :db_free
+
   describe "filter_query/2" do
     test "builds the form the translator's composite filter accepts" do
       assert Catalog.filter_query("dmz-isolation", "not_isolated") ==

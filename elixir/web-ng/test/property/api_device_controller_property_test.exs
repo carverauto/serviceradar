@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.ApiDeviceControllerPropertyTest do
   alias ServiceRadarWebNG.TestSupport.PropertyOpts
   alias ServiceRadarWebNGWeb.Api.DeviceController
 
+  @moduletag :web_ng_shared_fixture_db
+
   defp devices_index_params do
     StreamData.fixed_map(%{
       "limit" => SRQLGenerators.untrusted_param_value(),

@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.TestSupport.ProxmoxConsoleSessionManagerStub
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :proxmox_console_session_manager)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :proxmox_console_session_manager_test_pid)

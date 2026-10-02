@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNG.EdgeOnboardingTokenPropertyTest do
   alias ServiceRadarWebNG.Generators.EdgeOnboardingGenerators
   alias ServiceRadarWebNG.TestSupport.PropertyOpts
 
+  @moduletag :db_free
+
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
 

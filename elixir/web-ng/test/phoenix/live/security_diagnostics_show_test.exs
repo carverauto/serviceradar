@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
 
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
     Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.SRQLStub)

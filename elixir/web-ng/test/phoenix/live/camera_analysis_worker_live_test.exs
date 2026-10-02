@@ -79,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
     assert opts[:scope]
   end
 
+  @tag :web_ng_shared_fixture_db
   test "toggles worker enabled state", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/camera-relays/workers")
     worker_id = "00000000-0000-0000-0000-000000000101"
@@ -94,11 +95,13 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
     assert opts[:scope]
   end
 
+  @tag :web_ng_shared_fixture_db
   test "legacy worker route redirects to the camera relays subsection", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/observability/camera-relays/workers"}}} =
              live(conn, ~p"/observability/camera-analysis-workers")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "redirects viewers without settings.edge.manage", %{conn: _conn} do
     viewer = viewer_user_fixture()
     conn = log_in_user(build_conn(), viewer)

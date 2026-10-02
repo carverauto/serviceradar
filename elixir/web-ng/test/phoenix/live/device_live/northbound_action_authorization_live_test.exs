@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionAuthorizationLiveTest 
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user =
       %{role: :viewer}

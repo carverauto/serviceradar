@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     %{conn: conn}
   end
 
+  @tag :web_ng_shared_fixture_db
   test "reset control restores the first-visit netflows query", %{conn: conn} do
     filtered =
       "in:flows time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z] sort:time:desc"
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     refute html =~ "time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z]"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "/flows redirects to the canonical NetFlow page with retained query bytes", %{conn: conn} do
     q = "in:flows time:last_24h"
 
@@ -70,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert html =~ "Total Packets"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "/observability netflows summary rates use the selected query window", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
@@ -100,6 +103,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
            end)
   end
 
+  @tag :web_ng_shared_fixture_db
   test "/flows keeps canonical path when patching state", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
@@ -122,6 +126,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert String.starts_with?(path, "/observability/netflows?")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "/observability netflows open_flow=1 opens flow details and preserves explicit time window",
        %{conn: conn} do
     Application.put_env(
@@ -199,6 +204,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
            )
   end
 
+  @tag :web_ng_shared_fixture_db
   test "flow details map renders a configured Local CIDR anchor", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
@@ -254,6 +260,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert source["lng"] == -93.6258
   end
 
+  @tag :web_ng_shared_fixture_db
   test "prefix tag filter control patches SRQL tag: into the query", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
@@ -278,6 +285,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert Map.get(decoded, "q", "") =~ "tag:netbox:tag:iot"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "flow listing and detail show prefix tag chips when present", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
@@ -308,6 +316,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert detail_html =~ "Prefix tag: provider:cloudflare"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "untagged flows do not render prefix tag chips", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,

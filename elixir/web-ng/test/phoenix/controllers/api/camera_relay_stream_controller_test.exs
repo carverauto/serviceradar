@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayStreamControllerTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.CameraRelayStreamController
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "returns forbidden for browser viewers without devices.view", %{conn: conn} do
     conn =
       conn

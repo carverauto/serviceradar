@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   @plugin_id "alienvault-otx-threat-intel"
 
   setup :register_and_log_in_admin_user

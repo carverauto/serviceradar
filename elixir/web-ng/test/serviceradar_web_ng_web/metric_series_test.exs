@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.MetricSeriesTest do
 
   alias ServiceRadarWebNGWeb.MetricSeries
 
+  @moduletag :db_free
+
   defp point(overrides) do
     Map.merge(
       %{

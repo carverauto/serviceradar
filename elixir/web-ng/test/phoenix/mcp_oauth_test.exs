@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.McpOAuthTest do
   alias ServiceRadarWebNG.Mcp.OAuth.Server
   alias ServiceRadarWebNGWeb.FeatureFlags
 
+  @moduletag :web_ng_shared_fixture_db
+
   @ip "127.0.0.1"
   @redirect "http://127.0.0.1:43721/callback"
   @client_id "serviceradar-mcp"

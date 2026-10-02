@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
 
   import Phoenix.LiveViewTest
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_user
 
   setup do

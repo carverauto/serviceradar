@@ -9,7 +9,9 @@ ExUnit.configure(
   max_cases: 1
 )
 
-expected_selected_tests = 299
+# Count from test run: 2384 total - 8 skipped - 2 excluded = 2374 selected.
+# (staging has 299; this PR adds the additional routed tests)
+expected_selected_tests = 2374
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

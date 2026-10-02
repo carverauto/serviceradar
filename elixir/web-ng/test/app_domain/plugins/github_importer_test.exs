@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporterTest do
   alias ServiceRadarWebNG.Plugins.GitHubImporterTest
   alias ServiceRadarWebNG.Plugins.Storage
 
+  @moduletag :db_free
+
   @repo_url "https://github.com/acme/demo"
   @manifest_yaml """
   id: http-check

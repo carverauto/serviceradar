@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.MetricsControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "GET /metrics returns prometheus scrape output", %{conn: conn} do
     ServiceRadarWebNGWeb.Telemetry.measure_tenant_usage()
 

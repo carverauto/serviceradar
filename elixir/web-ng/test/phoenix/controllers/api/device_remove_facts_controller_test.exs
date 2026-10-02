@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceRemoveFactsControllerTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.DeviceController
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = ServiceRadarWebNG.AccountsFixtures.user_fixture(%{role: :operator})
     device = device_fixture()

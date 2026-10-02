@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
 
+  @moduletag :web_ng_shared_fixture_db
+
   defmodule HostnameResolverStub do
     @moduledoc false
 

@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictDataTest do
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
   alias ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictData
 
+  @moduletag :web_ng_shared_fixture_db
+
   defp check_fixture(attrs) do
     defaults = %{
       name: "Verdict Check #{System.unique_integer([:positive])}",

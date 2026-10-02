@@ -16,6 +16,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.AnsibleLive.LaunchLive
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
 

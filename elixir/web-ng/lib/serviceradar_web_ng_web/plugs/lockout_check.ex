@@ -173,6 +173,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
 
   defp actor_id_from_param(_conn, nil), do: nil
 
+  # A pipeline that has not run Plug.Parsers leaves params unfetched; treat
+  # that as "no actor in params" rather than raising past the caller.
+  defp actor_id_from_param(%{params: %Plug.Conn.Unfetched{}}, _param), do: nil
+
   defp actor_id_from_param(conn, param) do
     case conn.params[param] do
       value when is_binary(value) and value != "" -> value

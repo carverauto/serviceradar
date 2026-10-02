@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.SweepGroupLastRunTest do
 
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents
 
+  @moduletag :db_free
+
   test "prefers persisted last_run_at" do
     last_run_at = ~U[2026-08-12 20:16:07Z]
 

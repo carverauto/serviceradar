@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.Edge.TokenHardeningTest do
   alias ServiceRadarWebNG.Edge.EnrollmentToken
   alias ServiceRadarWebNG.Edge.OnboardingToken
 
+  @moduletag :db_free
+
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
 

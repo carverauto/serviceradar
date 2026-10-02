@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuthTest do
   """
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   # Generate test RSA key pair for signing JWTs
   @rsa_private_key JOSE.JWK.generate_key({:rsa, 2048})
   @rsa_public_key JOSE.JWK.to_public(@rsa_private_key)

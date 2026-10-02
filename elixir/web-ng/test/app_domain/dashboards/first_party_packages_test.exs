@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackagesTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   @manifest_paths [
     "../../../priv/dashboard-packages/service-availability-noc/manifest.json",
     "../../../priv/dashboard-packages/security-findings/manifest.json",

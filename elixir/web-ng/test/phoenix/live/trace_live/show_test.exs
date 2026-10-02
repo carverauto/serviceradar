@@ -47,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     %{conn: conn}
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders the span waterfall in parent/child order", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 
@@ -75,6 +76,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     assert ~s(in:logs trace_id:"#{@trace_id}" time:[2023-11-14T22:08:20Z,2023-11-14T22:18:20Z] sort:timestamp:asc limit:50) in queries
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders correlated logs with a logs-tab pivot", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 
@@ -117,11 +119,12 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute render(lv) =~ "2023-11-14T16:13:20Z"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "error span gets error styling and expands details", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 
-    assert has_element?(lv, "#trace-spans-row-1 .badge-error")
-    refute has_element?(lv, "#trace-spans-row-2 .badge-error")
+    assert has_element?(lv, "#trace-spans-row-1 .text-red-700", "error")
+    refute has_element?(lv, "#trace-spans-row-2 .text-red-700")
 
     lv
     |> element("#trace-spans-row-1")
@@ -135,6 +138,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     assert html =~ "db.statement"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "?span= auto-expands and highlights the matching span", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}?span=bbbbbbbbbbbbbbbb")
 
@@ -150,6 +154,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute has_element?(lv, "#trace-spans-row-0.ring-2")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "?span= is normalized before matching", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}?span=BBBBBBBBBBBBBBBB")
 
@@ -157,6 +162,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     assert has_element?(lv, "#trace-spans-row-1.ring-2")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "bogus or unknown ?span= params are ignored", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}?span=not-a-span-id")
 
@@ -170,6 +176,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute has_element?(lv, "[id^='trace-spans-detail-']")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "span inspector shows ingest identity chips only when present", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 
@@ -204,6 +211,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute html =~ "Ingest Identity"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows retention notice when summary exists but spans expired", %{conn: conn} do
     :persistent_term.put({__MODULE__, :scenario}, :expired)
 
@@ -227,6 +235,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute Enum.any?(queries, &String.contains?(&1, "2026-06-10T11:55:00Z"))
   end
 
+  @tag :web_ng_shared_fixture_db
   test "orphan trace header falls back to service_set when root service is unknown", %{conn: conn} do
     :persistent_term.put({__MODULE__, :scenario}, :orphan)
 
@@ -237,6 +246,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute html =~ "Trace not found or expired."
   end
 
+  @tag :web_ng_shared_fixture_db
   test "shows not-found state when neither summary nor spans exist", %{conn: conn} do
     :persistent_term.put({__MODULE__, :scenario}, :missing)
 
@@ -247,11 +257,13 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute has_element?(lv, "#trace-summary-bar")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "invalid trace id redirects back to the traces pane", %{conn: conn} do
-    assert {:error, {:live_redirect, %{to: "/observability?tab=traces"}}} =
+    assert {:error, {:live_redirect, %{to: "/observability/traces"}}} =
              live(conn, ~p"/observability/traces/not-a-trace-id")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "uppercase trace ids are canonicalized before querying", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{String.upcase(@trace_id)}")
 

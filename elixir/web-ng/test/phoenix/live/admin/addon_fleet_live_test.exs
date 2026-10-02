@@ -18,6 +18,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = admin_user_fixture()
     %{conn: log_in_user(conn, user), actor: actor_for_user(user)}

@@ -28,6 +28,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   @repo_url "https://github.com/carverauto/serviceradar"
   @index_asset_name "serviceradar-native-addon-index.json"
   @oci_repository "serviceradar/native-addon-sample"

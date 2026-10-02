@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup :register_and_log_in_user
 
   defmodule ReplayHandler do

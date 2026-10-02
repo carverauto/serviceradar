@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Api.RawBodyReaderTest do
 
   alias ServiceRadarWebNGWeb.Api.RawBodyReader
 
+  @moduletag :db_free
+
   @northbound_prefix "/api/northbound/action-callbacks/"
   @notification_prefix "/api/notifications/callbacks/"
 

@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheckTest do
 
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
 
+  @moduletag :db_free
+
   describe "init/1" do
     test "rejects an empty config" do
       assert_raise ArgumentError, ~r/requires :actor_id_param or :actor_id_assign/, fn ->

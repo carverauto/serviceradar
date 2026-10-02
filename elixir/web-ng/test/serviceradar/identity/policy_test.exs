@@ -19,6 +19,8 @@ defmodule ServiceRadar.Identity.PolicyTest do
   alias Ash.Error.Forbidden
   alias ServiceRadar.Identity.User
 
+  @moduletag :web_ng_shared_fixture_db
+
   defp unwrap_results({:ok, %Ash.Page.Keyset{results: results}}), do: results
   defp unwrap_results({:ok, results}) when is_list(results), do: results
   defp unwrap_results(_), do: []

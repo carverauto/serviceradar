@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNG.Auth.HooksTest do
   alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNG.Auth.Hooks.Default
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "Hooks.on_user_created/2" do
     test "calls the implementation and returns :ok" do
       user = user_fixture()
@@ -134,7 +136,7 @@ defmodule ServiceRadarWebNG.Auth.HooksTest do
           Default.on_auth_failed(:invalid_credentials, context)
         end)
 
-      assert log =~ "auth_event: auth_failed"
+      assert log =~ "Authentication failed reason=:invalid_credentials"
       assert log =~ "invalid_credentials"
     end
   end

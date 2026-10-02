@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientRetryTest do
 
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
 
+  @moduletag :db_free
+
   test "retries a closed pooled connection" do
     assert OIDCClient.stale_connection?(%Req.TransportError{reason: :closed})
   end

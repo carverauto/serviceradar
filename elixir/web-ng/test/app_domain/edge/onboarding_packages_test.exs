@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
+  @moduletag :web_ng_shared_fixture_db
+
   @actor system_actor()
 
   describe "create/2" do

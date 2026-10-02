@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Settings.PendingApprovalsTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Settings.PendingApprovals
 
+  @moduletag :web_ng_shared_fixture_db
+
   defp viewer_scope, do: %Scope{permissions: MapSet.new(["plugins.view"])}
 
   test "counts run against the repo and return a map" do

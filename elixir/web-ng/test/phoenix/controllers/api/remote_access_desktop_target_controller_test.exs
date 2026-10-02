@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
   alias ServiceRadar.Edge.RemoteAccessDesktopTarget
   alias ServiceRadarWebNG.Auth.Guardian
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     previous_enabled = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
     previous_provider = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_target_provider)
@@ -291,7 +293,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
   end
 
   defp put_test_permissions(user, permissions) do
-    Process.put({:rbac_permissions, user.id}, MapSet.new(permissions))
+    # The legacy process-dict injection this replaced is dead: permissions
+    # resolve through the shared ETS cache, so narrow them there.
+    ServiceRadar.Identity.RBAC.Cache.put(user.id, MapSet.new(permissions))
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

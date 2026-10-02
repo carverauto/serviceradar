@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
 
+  @moduletag :web_ng_shared_fixture_db
+
   # Param-decoding tests, not authz tests: carry both catalog permissions
   # these queries need so the RBAC gate passes them through.
   @srql_test_scope %Scope{

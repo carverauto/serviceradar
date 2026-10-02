@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.AlertActionsTransactionTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.AlertActions
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)

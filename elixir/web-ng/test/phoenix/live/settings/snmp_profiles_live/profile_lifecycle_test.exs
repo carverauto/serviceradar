@@ -19,9 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.ProfileLifecycleTest do
 
   require Ash.Query
 
-  # The database-free unit tier loads this file but cannot run it. This tag is
-  # what assigns the cases to //elixir/web-ng:networks_live_db_test, the lane
-  # that has a database; without it they would be silently excluded.
+  # Lane tag. See elixir/web-ng/AGENTS.md ("Tests here are excluded by default").
   @moduletag :web_ng_shared_fixture_db
 
   setup :register_and_log_in_admin_user

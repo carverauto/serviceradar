@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLiveTest do
 
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   @trace_id "aabbccddeeff00112233445566778899"
 
   setup %{conn: conn} do

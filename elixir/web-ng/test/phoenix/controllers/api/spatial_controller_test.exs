@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Api.SpatialControllerTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.SpatialController
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "index fails closed without an authenticated scope", %{conn: conn} do
     conn = SpatialController.index(conn, %{})
 

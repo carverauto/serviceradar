@@ -18,6 +18,8 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   describe "package creation" do
     test "can create a package with required fields" do
       result =

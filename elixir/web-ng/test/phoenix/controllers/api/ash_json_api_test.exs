@@ -22,6 +22,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   # Use API bearer token authentication
   setup :register_and_log_in_api_user
 

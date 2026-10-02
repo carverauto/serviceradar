@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
 
   require Ash.Query
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     provider = NotificationsFixtures.provider_fixture("webhook")
     user = AccountsFixtures.user_fixture(%{role: :admin})

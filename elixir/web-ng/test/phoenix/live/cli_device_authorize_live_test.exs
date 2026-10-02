@@ -16,6 +16,8 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLiveTest do
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   @moduletag :integration
 
   describe "unauthenticated visitor" do

@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.AddonAssignments
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "upsert updates an existing assignment even when form attrs include immutable keys" do
     addon_id = unique_addon_id("upsert")
     agent_uid = "agent-addon-upsert-#{System.unique_integer([:positive])}"

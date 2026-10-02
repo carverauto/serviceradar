@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.Edge.ComponentIDTest do
 
   alias ServiceRadarWebNG.Edge.ComponentID
 
+  @moduletag :db_free
+
   test "prefixes labels that do not already include the component type" do
     assert ComponentID.generate("Production Gateway 01", "gateway") ==
              "gateway-production-gateway-01"

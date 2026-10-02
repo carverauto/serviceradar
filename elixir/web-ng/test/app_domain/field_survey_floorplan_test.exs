@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.FieldSurveyFloorplanTest do
 
   alias ServiceRadarWebNG.FieldSurveyFloorplan
 
+  @moduletag :db_free
+
   test "rectify_segments snaps near-orthogonal RoomPlan walls without changing diagonal geometry" do
     segments = [
       %{kind: "wall", start_x: 0.0, start_z: 0.0, end_x: 5.0, end_z: 0.28, height: 2.4},

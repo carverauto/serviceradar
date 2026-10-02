@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   @repo ServiceRadar.Repo
 
   setup %{conn: conn} do

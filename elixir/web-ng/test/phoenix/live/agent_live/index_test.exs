@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.IndexTest do
 
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     conn = log_in_user(conn, user)
