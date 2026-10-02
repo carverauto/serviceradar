@@ -1,3 +1,54 @@
+# ServiceRadar v1.4.81
+
+This release expands Starlink inventory and telemetry, adds bounded sweep
+execution and batch fact writes, and fixes dashboard visibility, plugin
+upgrades, and large inventory sync batches.
+
+## Upgrade Notes
+
+- Helm `core.migrations.expectedVersion` is `20261005110100`.
+  New migrations add sweep profile scan timeouts and the `cancelled`
+  execution status, source-identifier retirement settings and absence
+  tracking, and concurrent indexes for retirement and identifier archives.
+- Source-ID retirement defaults to enabled. Only Armis currently supplies
+  exact collections: IDs retire after three consecutive absent collections
+  under one query and at least 24 hours since last reported. A pass that
+  would retire IDs from more than half the source's live records is refused.
+  Retired-only records remain visible; reactivation, grace deletion, and
+  automatic source-ID succession are not included in this release.
+
+## Whats New
+
+**1.4.81**
+- Starlink: ship cloud WASM plugin 0.1.5 with expanded alert descriptions,
+  availability and link telemetry, GPS coordinates from address and
+  telemetry APIs, data usage and pool metrics, and aviation flight status
+  and metadata. Initialize telemetry metric maps at call time to prevent
+  nil-map failures (PR #5068, PR #5073, PR #5076, PR #5077, PR #5079,
+  PR #5080).
+- Sweeps: add optional `scan_timeout` to profiles, retaining the default
+  20-minute limit when unset. Timed-out or cancelled batched and unbatched
+  sweeps report `cancelled` rather than completed or failed (PR #5070).
+- Device details: add Events and Alerts tabs (PR #5064).
+- Inventory facts: add `PATCH /api/devices/metadata/batch` for up to 1000
+  device/fact pairs with independent per-device results (PR #5065).
+- Identity: retire absent source IDs and their derived integration IDs to
+  the archive, preserve archived authority through merge/unmerge, and
+  expose retirement settings in Inventory Cleanup. Archive-aware guards
+  prevent automatic merges across conflicting source-ID histories
+  (PR #5075).
+- Inventory sync: chunk identifier upserts below PostgreSQL's bind-parameter
+  limit while preserving the batch transaction (PR #5078).
+- Inventory cleanup: declare generic action return types so Run cleanup
+  now and other affected actions accept their results (PR #5063).
+- Plugins: update existing alert rules during package upgrades, reassign
+  package ownership, and preserve operator-owned settings (PR #5069).
+- Dashboards: stamp frame freshness so refreshes reach clients, and hide
+  instances belonging to disabled packages from listings and placements
+  (PR #5070, PR #5072).
+- CLI: accept Bazel ZIP artifacts with `plugin publish --bundle`; document
+  WASM plugin build, test, and publication steps (PR #5066, PR #5074).
+
 # ServiceRadar v1.4.80
 
 Release publication repair for the unavailable Alpine OpenSSL package pins
