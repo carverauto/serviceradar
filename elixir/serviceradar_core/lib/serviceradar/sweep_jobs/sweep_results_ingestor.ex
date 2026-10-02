@@ -2188,8 +2188,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp maybe_mark_execution_complete(set_fields, false, _is_cancelled, _completed_at, _duration_ms),
-    do: set_fields
+  defp maybe_mark_execution_complete(
+         set_fields,
+         false,
+         _is_cancelled,
+         _completed_at,
+         _duration_ms
+       ), do: set_fields
 
   defp maybe_mark_execution_complete(set_fields, true, true, completed_at, duration_ms) do
     set_fields
