@@ -38,6 +38,9 @@ func TestDispatchTelemetryCollectEmitsMetricsAlertsAndMarker(t *testing.T) {
 	fake := &cacheHTTP{fakeHTTP: newFakeHTTP(t), wantBody: cacheQueryPage0, status: 200}
 	fake.on(http.MethodGet, "/account", 200, accountFixture())
 	fake.on(http.MethodGet, "/user-terminals?page=0", 200, terminalsPage(0, true, terminalRowA))
+	// collectFlightStatus fetches service-lines to find aviation (tail number) terminals;
+	// the fixture has none so it short-circuits after this page.
+	fake.on(http.MethodGet, "/service-lines?page=0", 200, envelope(serviceLinesPage))
 	stream := &streamThenFake{inner: fake, bodies: []string{streamBody(terminalColumns, row)}}
 
 	var emitted []sdk.TelemetryRecord

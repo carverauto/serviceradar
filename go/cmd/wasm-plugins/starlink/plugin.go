@@ -135,6 +135,17 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 		}
 	}
 
+	// Flight status for aviation terminals (best-effort; skips non-aviation).
+	flightRecords, flightDiscovery := collectFlightStatus(client, instance, time.Now().UTC())
+	flightEmitErr := ""
+	for start := 0; start < len(flightRecords); start += maxRecordsPerEmit {
+		end := min(start+maxRecordsPerEmit, len(flightRecords))
+		if err := emit(flightRecords[start:end]); err != nil {
+			flightEmitErr = "starlink_flight_emit_failed"
+			break
+		}
+	}
+
 	active := 0
 	for _, d := range alerts.Devices {
 		active += len(d.Active)
@@ -150,6 +161,9 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 	if alertEmitErr != "" {
 		problems = append(problems, alertEmitErr)
 	}
+	if flightEmitErr != "" {
+		problems = append(problems, flightEmitErr)
+	}
 	if run.Err == nil && run.Rows == 0 {
 		// Either every device is offline, or another consumer shares this
 		// service account and is reading the stream (each client ID has one
@@ -160,6 +174,9 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 	result := sdk.Ok(summary)
 	if len(problems) > 0 {
 		result = sdk.Warning(summary + " (" + strings.Join(problems, ", ") + ")")
+	}
+	if flightDiscovery != nil {
+		result.AddDeviceDiscovery(*flightDiscovery)
 	}
 	details, _ := json.Marshal(map[string]any{
 		"stream_iterations": run.Iterations,

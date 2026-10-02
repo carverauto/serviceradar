@@ -180,6 +180,7 @@ producer_schedules:
               paths:
                 - /api/public/v2/account
                 - /api/public/v2/user-terminals
+                - /api/public/v2/service-lines
             inject:
               type: oauth2_client_credentials
               token_method: POST
@@ -202,6 +203,27 @@ producer_schedules:
               paths:
                 - /api/public/v2/telemetry/stream
                 - /api/public/v2/telemetry/query
+            inject:
+              type: oauth2_client_credentials
+              token_method: POST
+              token_host: starlink.com
+              token_port: "443"
+              token_path: /api/auth/connect/token
+              field_client_id: client_id
+              field_client_secret: client_secret
+              fixed_grant_type: client_credentials
+          - name: flight_status_read
+            grant_type: oauth2_client_credentials
+            purpose: inventory_telemetry
+            allow:
+              methods:
+                - POST
+              hosts:
+                - starlink.com
+              ports:
+                - 443
+              paths:
+                - /api/public/v2/flights/status
             inject:
               type: oauth2_client_credentials
               token_method: POST
