@@ -76,7 +76,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       defect against the code and add the switch `sweep_refreshes_expired_tombstone` to
       `KnownBugs` and `CurrentBugs.LifecycleBugs`, with a witness expecting
       `violation:ExpiredDeviceReturns`.
-- [ ] 1.9 Traces in `dire_resolution_trace_test.exs`: extend `src_attach_shared_mac` so the
+- [x] 1.9 Traces in `dire_resolution_trace_test.exs`: extend `src_attach_shared_mac` so the
       first device leaves Armis for N exact collections; add `src_rekey_succession`; keep
       `armis_moves_onto_sweep_seed`. Record each from today's code with
       `DIRE_TRACE_WRITE=1`. `armis_moves_onto_sweep_seed` demonstrates
@@ -86,19 +86,27 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       reject a trace. `src_rekey_succession` demonstrates it with a trace witness configuration
       instead (`assert_golden!(witness: ...)`, expects `violation:OneSourceRecordPerDevice`).
       The extended `src_attach_shared_mac` violates nothing today and is the fix's regression
-      trace.
+      trace. Recording found the alias defects of 1.13: `armis_dhcp` demonstrates
+      `armis_alias_pass_blind`, and `src_rekey_succession` `foreign_sighting_confirms_alias`,
+      each with a knockout.
 - [x] 1.10 Trace in `dire_lifecycle_trace_test.exs`: add `expired_sweep_only_returns`, with its
       knockout for `sweep_refreshes_expired_tombstone`. `sweep_restores_merged` now records the
       sweep's write to the merged tombstone (`SweepRefresh`) and gets a knockout for the same
       switch.
-- [ ] 1.11 Wire every new configuration and trace into `formal/dire/BUILD.bazel` as
+- [x] 1.11 Wire every new configuration and trace into `formal/dire/BUILD.bazel` as
       `tlc_test` targets selected by `make test`, with `expect = "pass"`,
       `"violation:<Prop>"` as above. Bump the selected-test counts in
       `build/integration_test_dispositions.bzl` for each new trace test, and keep each check
       inside its runtime budget by splitting the environment, never by excluding it.
-- [ ] 1.12 Update `formal/dire/README.md`: the scope, the new switches and alternatives, and
+- [x] 1.12 Update `formal/dire/README.md`: the scope, the new switches and alternatives, and
       "What the models do not express" (the absence clock is coarse; telemetry re-keying and
       agent-id rotation are not modeled).
+- [x] 1.13 Confirm against the Elixir code the alias defects the traces found, then add the
+      switches `armis_alias_pass_blind` and `foreign_sighting_confirms_alias` to `KnownBugs`
+      and `CurrentBugs.ResolutionBugs`, the `aliasRow` variable the second needs, and the
+      property `AliasFollowsSyncedDevice`, checked by every `resolution_goal_*` configuration.
+      Each switch has a witness expecting `violation:AliasFollowsSyncedDevice`. Which pull
+      request fixes them is an open question in `design.md`.
 
 ## 2. Schema and settings (D1, D5, D6, D7)
 

@@ -61,6 +61,21 @@ enable an unsafe alternative.
 - **WHEN** a negative configuration is model checked and TLC finds no violation, or reports a different property
 - **THEN** the test fails
 
+### Requirement: The Resolution Model Checks Alias Ownership After A Source Sync
+Every resolution `goal` configuration SHALL check that, after a source sync observes a device at an address, every identified record keeping a confirmed alias of that address describes that device.
+The model SHALL represent the alias sightings that source syncs and the census record, and the
+sync's alias pass. A defect that lets a record keep or gain an alias of another device's address
+is a defect switch under "Known DIRE Defects Have Witness Configurations", with a witness that
+expects a violation of this property.
+
+#### Scenario: Alias ownership holds in the goal configurations
+- **WHEN** a resolution goal configuration is model checked
+- **THEN** after every source sync, each identified record keeping a confirmed alias of the observed address describes the synced device
+
+#### Scenario: An alias defect is reproduced
+- **WHEN** the witness configuration of an alias defect switch is model checked
+- **THEN** TLC reports a violation of the alias ownership property and the test passes
+
 ### Requirement: The Lifecycle Model Does Not Assume Expiry Runs
 The DIRE lifecycle model SHALL gate ephemeral expiry by a constant, SHALL have a configuration with expiry disabled that checks every must-pass property, and SHALL model the marking of a record whose source identifiers are all retired, its deletion after a grace period, and the rule that no sweep, address-only or MAC-only sighting restores a `source_retired` tombstone.
 A configuration that proves the grace deletion is reachable SHALL accompany them.

@@ -113,6 +113,12 @@ caused by address or IP-alias evidence. No address-only record in the model ever
 (sweep-created records get no alias sightings, as in the code), so absorbing one is unreachable
 either way; the property guards against any change that lets address evidence merge records.
 
+Every `resolution_goal_*` configuration also checks `AliasFollowsSyncedDevice`: after a source
+sync observes a device at an address, every identified record keeping a confirmed alias of the
+address describes that device. It is checked after source syncs only: a census runs no alias
+pass, and AliasGuard runs only on the resolver's strong-match branch. Two defect switches break
+it today (Defect switches).
+
 Every `resolution_goal_*` configuration also checks the source id change properties:
 - `OneSourceRecordPerDevice`: at rest, at most one live record holding a source id describes
   each physical device. At rest means every id the source stopped reporting has been absent
@@ -131,14 +137,16 @@ paths.
 
 Each switch is a defect today's code has, confirmed against the code before it was added.
 `CurrentBugs.tla` lists them for every configuration and trace that describes today's code.
-Each is fixed by a decision in `openspec/changes/add-source-id-succession/design.md`; a new
-defect gets a row here.
+Each is fixed by a decision in `openspec/changes/add-source-id-succession/design.md`, or
+listed there as an open question until one is made; a new defect gets a row here.
 
 | Switch | Model | Code path | Fix | Witness property |
 |---|---|---|---|---|
 | `retired_source_id_vetoes` | resolution | Nothing retires a source id its source stopped reporting: `Inventory.Remediation.ArmisSourceIdentityRepair` only classifies, in a dry run. The old record keeps the id, and with it the veto (`SourceAuthorityGuard.source_mismatch?/3`) against the device's new id, so a re-keyed device keeps a second record. | D1 | `OneSourceRecordPerDevice`, in environment `armis_rekey` |
 | `stale_holder_keeps_address` | resolution | `DeviceWrites.claim_address_from_holder/4` releases a holder only to a write `observed_after?/2` finds newer than the holder's `last_seen_time`, which a sweep or a census refreshes. An Armis sync compares Armis's own last-seen time, so a holder a sweep touched last can keep the address of the device observed at it. | D7 (`identity_observed_at`) | `ObservedAddressHeld` |
 | `released_seed_stays_live` | resolution | `DeviceWrites.resolve_record_active_ip/7`: a sweep seed that releases its only address to an identified device stays live, an addressless shell that only ephemeral expiry removes. | D8 | `NoAddresslessShell` |
+| `armis_alias_pass_blind` | resolution | `Sync.Aliases.process_alias_conflicts/2` looks for the address's alias under the partition the update's identifiers are filed in, which for a sync naming its integration source is the source's own (`Ids.identifier_partition/2`), while `AliasEvents` records an alias under the device's partition. The pass never finds one, so an identified holder of the alias keeps it after another device is observed at the address. | Open question | `AliasFollowsSyncedDevice` |
+| `foreign_sighting_confirms_alias` | resolution | `AliasEvents.process_alias/5` looks an alias row up by its address alone (`DeviceAliasState.lookup_by_value/3`) and records the sighting on the first row found, whichever device it names; only an address with no row gets one. Another device's sightings at the address confirm the first device's alias, and no later device there gets a row of its own. | Open question | `AliasFollowsSyncedDevice` |
 | `sweep_refreshes_expired_tombstone` | lifecycle | `SweepResultsIngestor.restore_eligible?/1` restores a tombstone only for a discovery source other than the sweep, so an expired sweep-only device never returns; `update_device_statuses_available/3` has no `deleted_at` filter, so the sweep writes to a tombstone it did not restore. | D12 | `ExpiredDeviceReturns` |
 
 Each witness configuration is `<model>_witness_<switch>`. Code paths are relative to
@@ -268,15 +276,41 @@ one-second precision. `DireLifecycleTrace.tla` checks them the same way.
 
 A trace whose defect is still present is also rejected by the model with that defect switch
 turned off (a knockout, `Trace_<name>__knockout.cfg`, written by the test's
-`assert_golden!(demonstrates: switch)`), which proves the defect on the real code. Two
-lifecycle traces have one, for `sweep_refreshes_expired_tombstone`: `expired_sweep_only_returns`
-and `sweep_restores_merged`. Every other trace is a regression trace of a fixed defect.
+`assert_golden!(demonstrates: switch)`), which proves the defect on the real code. A trace that
+reaches a state breaking a property has a witness (`Trace_<name>__witness.cfg`, written by
+`assert_golden!(witness: property)`), whose target expects `violation:<property>`: the
+property fails on the real code.
+
+| Trace | Knockout | Witness |
+|---|---|---|
+| `armis_dhcp` | `armis_alias_pass_blind` | |
+| `armis_moves_onto_sweep_seed` | `released_seed_stays_live` | |
+| `src_rekey_succession` | `foreign_sighting_confirms_alias` | `OneSourceRecordPerDevice` (`retired_source_id_vetoes`) |
+| `expired_sweep_only_returns` (lifecycle) | `sweep_refreshes_expired_tombstone` | |
+| `sweep_restores_merged` (lifecycle) | `sweep_refreshes_expired_tombstone` | |
+
+Every other trace is a regression trace of a fixed defect, and these are regression traces too
+for the fixed paths they take.
+
+The resolution traces of open defects:
+
+- `armis_dhcp` (#4609, #4639): a device's alias of an address is confirmed by three census
+  sightings; it leaves the address and an Armis device is synced there. The Armis device takes
+  the address and the first device keeps its alias, which should go stale
+  (`armis_alias_pass_blind`).
+- `armis_moves_onto_sweep_seed` (#4705, `seed_adopts_existing`): an Armis device synced at a new
+  address a sweep has seeded takes the address, and the conflict is recorded. The seed releases
+  it and stays live (`released_seed_stays_live`).
+- `src_rekey_succession`: Armis re-keys a device. The new id gets its own record, which takes the
+  address, while the old record keeps the MAC and the old id for ever: nothing retires an id the
+  source stopped reporting (`retired_source_id_vetoes`, the witness). Matching hostnames record
+  the pair for de-duplication review. The new record's sightings of the address land on the alias
+  row the old record's sync created and confirm the old record's alias
+  (`foreign_sighting_confirms_alias`, the knockout).
 
 `census_randomized_mac` is a regression trace of `randomized_mac_seeds_uid` (#4760): two census
 sightings of one randomized MAC at different addresses are address-only, each landing on the
-record named by its address. `armis_moves_onto_sweep_seed` is a regression trace of
-`seed_adopts_existing` (#4705): an Armis device synced at a new address a sweep has seeded takes
-the address, the seed releases it and stays live, and the conflict is recorded.
+record named by its address.
 
 The lifecycle regression traces:
 
@@ -334,7 +368,23 @@ still describes the code. The switches today's code has are listed once, in `Cur
   therefore invisible.
 - Provisional topology sightings. `MergeEngine`'s distinct-MAC veto applies only to them, and
   the resolution model does not create them, so it checks the unguarded path.
-- Alias confirmation thresholds. An alias sighting is either confirmed or not.
+- Alias confirmation thresholds. A sighting either reaches the threshold or does not. Under
+  `foreign_sighting_confirms_alias` the model keeps the one alias row an address gets, pending
+  until such a sighting; without the switch every device has its own row, and the model keeps
+  only the confirmed ones.
+- The sweep's fallback to a pending alias. For an address no record holds and no confirmed
+  alias names, the sweep looks up pending aliases and confirms one
+  (`DeviceLookup.lookup_detected_aliases_by_ip`, `confirm_from_sweep`); the model's sweep seeds
+  a record there instead.
+- The sweep reaching a tombstone through an alias. The sweep resolves an address with deleted
+  records included, so a confirmed alias of a deleted record can resolve it there; the
+  resolution model's sweep reads live records only, and the lifecycle model's matches a
+  tombstone only by its address.
+- Partitions. Identifiers, aliases and devices are filed under partitions, and a source's
+  identifiers under the source's own; the model has one partition, so a lookup made under the
+  wrong one is modeled only where a trace found it (`armis_alias_pass_blind`).
+- Hostnames reported by agents and the mapper. The model writes only the source's hostnames
+  (`recFs`), so the hostname agreement it records is the source's.
 - Absorbing a provisional address-only record into an identified device. The goal never merges
   on address evidence, so such a record stays separate; whether it should be absorbed, and how
   that would be recorded, is an open question in

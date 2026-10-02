@@ -446,6 +446,9 @@ These changes go in `formal/dire`. They are specified here as tasks and land bef
   current source ids. This is `DistinctSourceIdsNeverMerge` restated over current ids, which is
   what the amended requirement says.
 - `NoAddresslessShell`: no live record holds neither identifiers nor an address.
+- `AliasFollowsSyncedDevice`, an action property: after a source sync observes a device at an
+  address, every identified record keeping a confirmed alias of the address describes that
+  device. The traces found it broken today (see "The revision the traces made").
 
 **Defect switches for today's code.** Each goes in `KnownBugs` and `CurrentBugs.ResolutionBugs`
 only after its counterexample is confirmed against the Elixir code, as "Known DIRE Defects Have
@@ -456,6 +459,11 @@ Witness Configurations" requires.
 | `retired_source_id_vetoes` | `resolution_witness_retired_source_id_vetoes` (environment `armis_rekey`) | `violation:OneSourceRecordPerDevice` |
 | `stale_holder_keeps_address` | `resolution_witness_stale_holder_keeps_address` | `violation:ObservedAddressHeld` |
 | `released_seed_stays_live` | `resolution_witness_released_seed_stays_live` | `violation:NoAddresslessShell` |
+| `armis_alias_pass_blind` | `resolution_witness_armis_alias_pass_blind` | `violation:AliasFollowsSyncedDevice` |
+| `foreign_sighting_confirms_alias` | `resolution_witness_foreign_sighting_confirms_alias` | `violation:AliasFollowsSyncedDevice` |
+
+The traces found the last two. No decision in this document fixes them yet (see "Open
+questions").
 
 A scratch copy of the model with the re-key action reproduced the split in five steps, with
 abstract constants only:
@@ -616,6 +624,22 @@ The other switches withhold no action and keep knockouts: `armis_moves_onto_swee
 `released_seed_stays_live`, and both `expired_sweep_only_returns` and `sweep_restores_merged`
 for `sweep_refreshes_expired_tombstone`. The fix deletes a trace witness configuration with the
 switch, as it does a knockout.
+
+Recording the traces from today's code also found two defects in the alias pass that the model
+did not express. Each was confirmed against the code and added as a switch with a witness:
+
+- `armis_alias_pass_blind`. A source sync's alias pass (`Sync.Aliases.process_alias_conflicts/2`)
+  looks for the address's alias under the partition the update's identifiers are filed in, the
+  source's own, while `AliasEvents` files the alias under the device's partition. The pass never
+  finds it, so an identified record keeps a confirmed alias of an address at which the source
+  has since synced another device. `armis_dhcp` records it, and its knockout demonstrates it.
+- `foreign_sighting_confirms_alias`. `AliasEvents` looks an alias row up by its address alone
+  (`DeviceAliasState.lookup_by_value/3`) and records a sighting on the first row it finds,
+  whichever device that row names. In `src_rekey_succession` the new id's syncs confirm the
+  address as an alias of the old id's record, and the trace's knockout demonstrates it.
+
+Every goal configuration checks `AliasFollowsSyncedDevice`, which a model that keeps neither
+defect satisfies.
 
 ### D11. Remediation
 
@@ -829,3 +853,27 @@ kept, and the next succession pass then treats it as a predecessor.
   retirement and succession. D13 makes its hold on expiry durable, so such a record stays until
   this is decided. Check classes 1-5 first, then decide whether to restore the identifier row
   from the latest exact collection or to retire the metadata value by the same absence rule.
+- **The two alias defects** (`armis_alias_pass_blind`, `foreign_sighting_confirms_alias`, D10).
+  A confirmed alias of a stale record lets a sweep resolve the address to that record
+  (`DeviceLookup.batch_lookup_by_ip/2` prefers a confirmed alias to the address's holder), so
+  the sweep keeps refreshing it. The candidate fixes are to look the alias up under the device's
+  partition, and to give each device at an address its own alias row, looked up by address and
+  device. The second also changes the sweep's fallback to a pending alias and what the
+  confirmation threshold counts. Whether this change carries either fix, and in which pull
+  request, is open. Until then the switches, their witnesses and the knockouts record them.
+- **Identifier partitions.** A source's identifiers, its MACs included, are filed under the
+  source's partition (`Ids.identifier_partition/2`), and its device rows under the update's.
+  `DuplicateSweep` pairs a device's MAC column only with a MAC filed under the device's own
+  partition, and the unique identifier index keeps any value from having two holders in one
+  partition. Its duplicate pass therefore never pairs two of a source's records today, and
+  D2's `identifier_backfill` refusal is not reached for them. D3's succession pass has to find
+  the shared MAC under the source's partition, not through the duplicate pass. The models have
+  one partition (`formal/dire/README.md`); whether to model partitions is open.
+- **Hostname agreement at ingest.** When a source sync's record agrees by hostname with the
+  address's holder and adoption is refused, the resolver writes the record as its own device and
+  records a `policy_block` decision (`hostname_agreement_not_identity`), which opens a
+  de-duplication task. It emits no telemetry beside it, which `DecisionLog` expects of every
+  caller. A re-key at the same address therefore opens a task today, before D3 or D4 decide
+  anything. PR 5 must decide what D3's merge does to that task and whether D4's
+  `succession_review` replaces the decision. Whether the telemetry lands with PR 2 or PR 5 is
+  open.
