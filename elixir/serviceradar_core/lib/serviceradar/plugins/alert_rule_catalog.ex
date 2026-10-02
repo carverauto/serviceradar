@@ -14,8 +14,10 @@ defmodule ServiceRadar.Plugins.AlertRuleCatalog do
       not been reviewed by anyone, so materializing at import would let unread
       content reach the database.
 
-    * **Re-sync cannot touch operator fields.** The update branch takes only the
-      rule's *definition* — what it watches and what it says. `enabled`,
+    * **Re-sync cannot touch operator fields.** The update branch takes the
+      rule's *definition* (what it watches and what it says) plus
+      `plugin_package_id` (reassigned to the current package version so
+      `disable_package_rules/2` tracks the live owner). `enabled`,
       `threshold`, `window_seconds`, `bucket_seconds`, `cooldown_seconds`,
       `renotify_seconds` and `priority` are structurally excluded, so upgrading
       a plugin can never re-arm a rule an operator disabled, nor undo a
