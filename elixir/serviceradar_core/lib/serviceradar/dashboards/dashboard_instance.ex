@@ -78,12 +78,16 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
     end
 
     read :enabled do
-      filter expr(enabled == true)
+      filter expr(enabled == true and dashboard_package.status == :enabled)
     end
 
     read :by_placement do
       argument :placement, :atom, allow_nil?: false
-      filter expr(placement == ^arg(:placement) and enabled == true)
+
+      filter expr(
+               placement == ^arg(:placement) and enabled == true and
+                 dashboard_package.status == :enabled
+             )
     end
 
     read :policy_editor_audience do
