@@ -244,6 +244,22 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
     assert instance_id == instance.id
   end
 
+  test "disabled package instances are excluded from enabled_instances", %{
+    owner_scope: owner_scope
+  } do
+    {package, instance} = create_instance!(owner_scope, visibility: :public)
+
+    # Instance appears before disabling the package
+    assert instance.id in enabled_ids(owner_scope)
+
+    # Disabling the package hides its instances from the listing
+    package
+    |> Ash.Changeset.for_update(:disable, %{})
+    |> Ash.update!(actor: system_actor())
+
+    refute instance.id in enabled_ids(owner_scope)
+  end
+
   test "scope filters enabled_instances", %{
     owner: owner,
     owner_scope: owner_scope,
@@ -327,6 +343,11 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
       DashboardPackage
       |> Ash.Changeset.for_create(:create, package_attrs())
       |> Ash.create!(actor: system_actor())
+
+    package =
+      package
+      |> Ash.Changeset.for_update(:enable, %{})
+      |> Ash.update!(actor: system_actor())
 
     {:ok, instance} =
       Dashboards.create_instance(
