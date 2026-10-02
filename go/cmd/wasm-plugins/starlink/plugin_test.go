@@ -17,6 +17,9 @@ func TestDispatchInventoryRefreshEmitsDiscovery(t *testing.T) {
 	fake.on(http.MethodGet, "/account", 200, accountFixture())
 	fake.on(http.MethodGet, "/user-terminals?page=0", 200, terminalsPage(0, true, terminalRowA+","+terminalRowB))
 	fake.on(http.MethodGet, "/service-lines?page=0", 200, envelope(serviceLinesPage))
+	fake.on(http.MethodPost, "/data-usage/query", 200, envelope(`{"dataUsages":[]}`))
+	fake.on(http.MethodGet, "/data-pools", 200, envelope(`{"dataPools":[]}`))
+
 
 	result := dispatch(actionConfig(t, actionInventoryRefresh), fake, testObservedAt)
 	if result.Status != sdk.StatusOK || len(result.DeviceDiscovery) != 1 {

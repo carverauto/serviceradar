@@ -74,6 +74,16 @@ func runInventory(client *apiClient, now time.Time) *sdk.Result {
 	}
 	discovery := buildDiscovery(snap, now)
 
+	// Emit data-usage and pool metrics alongside the discovery record.
+	// Best-effort: an error here does not affect the inventory result.
+	instance := sourceInstance(snap.Account.Number)
+	if usageRecords := collectDataUsage(client, snap, instance, now); len(usageRecords) > 0 {
+		_ = sdk.EmitTelemetry(sdk.TelemetryBatch{
+			Source:  sdk.TelemetrySource{SourceType: sourceName, SourceInstance: instance},
+			Records: usageRecords,
+		})
+	}
+
 	routers := len(discovery.Devices) - len(snap.Terminals)
 	summary := fmt.Sprintf("Starlink inventory: %d terminals, %d routers, %d service lines",
 		len(snap.Terminals), routers, len(snap.ServiceLines))

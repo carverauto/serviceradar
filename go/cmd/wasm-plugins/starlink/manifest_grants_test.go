@@ -140,6 +140,7 @@ func TestScheduledRequestsMatchExactlyOneDeclaredGrant(t *testing.T) {
 	fake.on("GET", "/account", 200, accountFixture())
 	fake.on("GET", "/user-terminals?page=0", 200, terminalsPage(0, true, terminalRowA))
 	fake.on("GET", "/service-lines?page=0", 200, envelope(serviceLinesPage))
+	fake.on("POST", "/data-usage/query", 200, envelope(`{"dataUsages":[]}`))
 	rec := &recordingDoer{inner: fake}
 	dispatch(actionConfig(t, actionInventoryRefresh), rec, testObservedAt)
 
