@@ -58,6 +58,8 @@ func initMetricMaps() {
 		"BoresightElevationDeg":              {"starlink_boresight_elevation", "deg"},
 		"EthSpeedMbps":                       {"starlink_eth_speed", "Mbps"},
 		"GpsValidSats":                       {"starlink_gps_valid_sats", "count"},
+		"GpsLatitude":                        {"starlink_gps_latitude", "deg"},
+		"GpsLongitude":                       {"starlink_gps_longitude", "deg"},
 		"ObstructionPercentValid":            {"starlink_obstruction_percent_valid", "percent"},
 	}
 	routerMetrics = map[string]metricSpec{

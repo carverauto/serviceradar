@@ -1,6 +1,6 @@
 id: starlink-cloud
 name: Starlink Cloud
-version: 0.1.4
+version: 0.1.5
 description: >
   Collects Starlink user terminal and router inventory, link telemetry and
   vendor alerts from the Starlink Management API V2 and Telemetry API through
