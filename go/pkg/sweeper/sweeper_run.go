@@ -94,6 +94,24 @@ func (s *NetworkSweeper) handleContextDone(ctx context.Context, resultBatch []mo
 	return ctx.Err()
 }
 
+// drainErrChan collects all errors from the (already-closed) channel and
+// reports the first, along with whether every error was a context cancellation.
+func drainErrChan(errChan <-chan error) (first error, allContext bool) {
+	allContext = true
+
+	for err := range errChan {
+		if first == nil {
+			first = err
+		}
+
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			allContext = false
+		}
+	}
+
+	return first, allContext
+}
+
 func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
@@ -219,21 +237,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	wg.Wait()
 	close(errChan)
 
-	// Separate context-timeout errors (scan cancelled) from real failures.
-	var firstErr error
-	allContext := true
-
-	for err := range errChan {
-		if firstErr == nil {
-			firstErr = err
-		}
-
-		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-			allContext = false
-		}
-	}
-
-	if firstErr != nil {
+	if firstErr, allContext := drainErrChan(errChan); firstErr != nil {
 		if allContext {
 			return s.completeCancelledSweep(ctx, startedAt)
 		}
