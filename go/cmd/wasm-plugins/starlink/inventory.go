@@ -19,18 +19,21 @@ type account struct {
 }
 
 type serviceLine struct {
-	Number       string
-	Nickname     string
-	Product      string
-	Active       bool
-	PublicIP     bool
-	DataPoolID   string
-	StartDate    string
-	EndDate      string
-	AviationIATA string
-	AviationICAO string
-	TailNumber   string
-	SeatCount    int
+	Number             string
+	Nickname           string
+	Product            string
+	Active             bool
+	PublicIP           bool
+	DataPoolID         string
+	StartDate          string
+	EndDate            string
+	AviationIATA       string
+	AviationICAO       string
+	TailNumber         string
+	SeatCount          int
+	AddressReferenceID string
+	Latitude           float64
+	Longitude          float64
 }
 
 type terminal struct {
@@ -133,6 +136,7 @@ func collectInventory(c *apiClient) (*inventorySnapshot, error) {
 	}
 
 	sort.Slice(snap.Terminals, func(i, j int) bool { return snap.Terminals[i].ID < snap.Terminals[j].ID })
+	collectAddresses(c, snap)
 	return snap, nil
 }
 
@@ -182,18 +186,19 @@ func parseTerminal(row gjson.Result) (terminal, bool) {
 
 func parseServiceLine(row gjson.Result) serviceLine {
 	return serviceLine{
-		Number:       trimmed(row, "serviceLineNumber"),
-		Nickname:     trimmed(row, "nickname"),
-		Product:      trimmed(row, "productReferenceId"),
-		Active:       row.Get("active").Bool(),
-		PublicIP:     row.Get("publicIp").Bool(),
-		DataPoolID:   trimmed(row, "dataPoolId"),
-		StartDate:    trimmed(row, "startDate"),
-		EndDate:      trimmed(row, "endDate"),
-		AviationIATA: trimmed(row, "iataCode"),
-		AviationICAO: trimmed(row, "icaoCode"),
-		TailNumber:   trimmed(row, "tailNumber"),
-		SeatCount:    int(row.Get("seatCount").Int()),
+		Number:             trimmed(row, "serviceLineNumber"),
+		Nickname:           trimmed(row, "nickname"),
+		Product:            trimmed(row, "productReferenceId"),
+		Active:             row.Get("active").Bool(),
+		PublicIP:           row.Get("publicIp").Bool(),
+		DataPoolID:         trimmed(row, "dataPoolId"),
+		StartDate:          trimmed(row, "startDate"),
+		EndDate:            trimmed(row, "endDate"),
+		AviationIATA:       trimmed(row, "iataCode"),
+		AviationICAO:       trimmed(row, "icaoCode"),
+		TailNumber:         trimmed(row, "tailNumber"),
+		SeatCount:          int(row.Get("seatCount").Int()),
+		AddressReferenceID: trimmed(row, "addressReferenceId"),
 	}
 }
 
@@ -206,6 +211,8 @@ func (s *inventorySnapshot) contentHash() string {
 		parts := []string{
 			t.ID, t.Nickname, t.KitSerial, t.DishSerial, t.ServiceLine,
 			sl.Product, strconv.FormatBool(sl.Active), strings.Join(t.L2VPNCircuitIDs, ","),
+			strconv.FormatFloat(sl.Latitude, 'f', 6, 64),
+			strconv.FormatFloat(sl.Longitude, 'f', 6, 64),
 		}
 		for _, r := range t.Routers {
 			parts = append(parts, r.ID, r.Nickname, r.ConfigID, r.HardwareVersion)

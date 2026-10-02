@@ -66,6 +66,10 @@ func buildDiscovery(snap *inventorySnapshot, observedAt time.Time) *sdk.DeviceDi
 			if sl.SeatCount > 0 {
 				metadata["seat_count"] = sl.SeatCount
 			}
+			if sl.Latitude != 0 || sl.Longitude != 0 {
+				metadata["latitude"] = sl.Latitude
+				metadata["longitude"] = sl.Longitude
+			}
 		}
 		routerIDs := make([]string, 0, len(t.Routers))
 		for _, r := range t.Routers {
@@ -76,7 +80,7 @@ func buildDiscovery(snap *inventorySnapshot, observedAt time.Time) *sdk.DeviceDi
 		}
 
 		status := terminalStatus(t, sl, hasLine)
-		discovery.AddDevice(sdk.DiscoveredDevice{
+		dev := sdk.DiscoveredDevice{
 			DeviceID:    deviceID,
 			Hostname:    t.Nickname,
 			Serial:      t.KitSerial,
@@ -87,7 +91,14 @@ func buildDiscovery(snap *inventorySnapshot, observedAt time.Time) *sdk.DeviceDi
 			IsAvailable: terminalAvailability(status),
 			Labels:      discoveryLabels(instance),
 			Metadata:    compactMetadata(metadata),
-		})
+		}
+		if hasLine && (sl.Latitude != 0 || sl.Longitude != 0) {
+			dev.Location = &sdk.DeviceLocation{
+				Latitude:  sl.Latitude,
+				Longitude: sl.Longitude,
+			}
+		}
+		discovery.AddDevice(dev)
 
 		for _, r := range t.Routers {
 			routerID := routerIDPrefix + stripRouterPrefix(r.ID)
