@@ -83,18 +83,18 @@ type Duration time.Duration
 
 // SweepConfig defines configuration parameters for network sweep operations.
 type SweepConfig struct {
-	MaxTargets    int
-	MaxGoroutines int
-	BatchSize     int
-	MemoryLimit   int64
-	Networks      []string              `json:"networks"`
-	Ports         []int                 `json:"ports"`
-	SweepModes    []models.SweepMode    `json:"sweep_modes"`
-	DeviceTargets []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
-	BannerGrab    BannerGrabConfig      `json:"banner_grab,omitempty"`    // Optional active banner-grab phase
-	Interval      Duration              `json:"interval"`
-	Concurrency   int                   `json:"concurrency"`
-	Timeout       Duration              `json:"timeout"`
+	MaxTargets      int
+	MaxGoroutines   int
+	BatchSize       int
+	MemoryLimit     int64
+	Networks        []string              `json:"networks"`
+	Ports           []int                 `json:"ports"`
+	SweepModes      []models.SweepMode    `json:"sweep_modes"`
+	DeviceTargets   []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	BannerGrab      BannerGrabConfig      `json:"banner_grab,omitempty"`    // Optional active banner-grab phase
+	Interval        Duration              `json:"interval"`
+	Concurrency     int                   `json:"concurrency"`
+	Timeout         Duration              `json:"timeout"`
 	SweepGroupID    string                `json:"sweep_group_id,omitempty"`    // Sweep group UUID for result tracking
 	ConfigHash      string                `json:"config_hash,omitempty"`       // Hash of config for change detection
 	MaxScanDuration Duration              `json:"max_scan_duration,omitempty"` // Wall-clock scan timeout; 0 means use default

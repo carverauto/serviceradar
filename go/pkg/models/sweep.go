@@ -46,7 +46,7 @@ type Config struct {
 	Timeout       time.Duration  `json:"timeout"`
 	ICMPCount     int            `json:"icmp_count"`
 	MaxIdle       int            `json:"max_idle"`
-	MaxLifetime   time.Duration  `json:"max_lifetime"`
+	MaxLifetime   time.Duration  `json:"max_lifetime"` // Wall-clock timeout for a single sweep execution; 0 means use default
 	IdleTimeout   time.Duration  `json:"idle_timeout"`
 	// Agent/Partition information for proper device identification
 	AgentID   string `json:"agent_id,omitempty"`
@@ -293,17 +293,17 @@ type SweepSummary struct {
 
 // SweepConfig defines the network sweep tool configuration.
 type SweepConfig struct {
-	Networks      []string       `json:"networks,omitempty"`
-	Ports         []int          `json:"ports,omitempty"`
-	SweepModes    []string       `json:"sweep_modes,omitempty"`
-	Interval      string         `json:"interval,omitempty"`
-	Concurrency   int            `json:"concurrency,omitempty"`
-	Timeout       string         `json:"timeout,omitempty"`
-	BannerGrab    BannerGrab     `json:"banner_grab,omitempty"`
-	ICMPCount     int            `json:"icmp_count,omitempty"`
-	HighPerfICMP  bool           `json:"high_perf_icmp,omitempty"`
-	ICMPRateLimit int            `json:"icmp_rate_limit,omitempty"`
-	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	Networks        []string       `json:"networks,omitempty"`
+	Ports           []int          `json:"ports,omitempty"`
+	SweepModes      []string       `json:"sweep_modes,omitempty"`
+	Interval        string         `json:"interval,omitempty"`
+	Concurrency     int            `json:"concurrency,omitempty"`
+	Timeout         string         `json:"timeout,omitempty"`
+	BannerGrab      BannerGrab     `json:"banner_grab,omitempty"`
+	ICMPCount       int            `json:"icmp_count,omitempty"`
+	HighPerfICMP    bool           `json:"high_perf_icmp,omitempty"`
+	ICMPRateLimit   int            `json:"icmp_rate_limit,omitempty"`
+	DeviceTargets   []DeviceTarget `json:"device_targets,omitempty"`    // Per-device sweep configuration
 	SweepGroupID    string         `json:"sweep_group_id,omitempty"`    // Sweep group UUID for result tracking
 	ConfigHash      string         `json:"config_hash,omitempty"`       // Hash of config for change detection
 	MaxScanDuration string         `json:"max_scan_duration,omitempty"` // Wall-clock scan timeout (e.g. "10m"); 0 means use default
