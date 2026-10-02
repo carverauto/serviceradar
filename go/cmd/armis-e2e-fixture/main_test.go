@@ -123,7 +123,7 @@ func TestProduceFixtureUsesRealArmisDriverPaginationAndNormalization(t *testing.
 			"duplicate_occurrences":     0,
 			"conflicting_duplicate_ids": 0,
 		} {
-			require.Equal(t, want, population[key], "run %d %s", page.Run, key)
+			require.InDelta(t, want, population[key], 1e-9, "run %d %s", page.Run, key)
 		}
 	}
 }
