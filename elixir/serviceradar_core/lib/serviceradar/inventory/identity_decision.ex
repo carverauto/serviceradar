@@ -2,9 +2,10 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
   @moduledoc """
   Persisted record of an identity decision DIRE made without merging.
 
-  Every time identity reconciliation blocks, declines or overrides a merge it writes one of
-  these rows, in addition to its telemetry, so an operator can review the decision later
-  (requirement "Identity Decisions Are Never Silent"). The kinds:
+  Every time identity reconciliation blocks, declines or overrides a merge, or retires or
+  returns a source-authoritative identifier, it writes one of these rows, in addition to its
+  telemetry, so an operator can review the decision later (requirement "Identity Decisions Are
+  Never Silent"). The kinds:
 
     * `:policy_block` - `MergePolicy` refused a match set (agent-id-only, randomized-MAC-only), or
       a record linked to an allowed conflict only through randomized MACs was left out of the
@@ -23,15 +24,24 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
       conflicting MAC or address evidence.
     * `:component_block` - the scheduled duplicate sweep found devices joined only
       transitively (an ambiguous component) and did not merge them.
+    * `:source_id_retired` - a source-authoritative identifier its source stopped reporting
+      was moved to the identifier archive (`SourceRetirement`); the subject is the identifier.
+    * `:source_id_reactivated` - a retired identifier the source reported again was returned
+      to the record that held it.
+    * `:source_id_reissued` - a retired identifier the source reported again was written as a
+      new record, because no record could take it back.
+    * `:succession_review` - a retired identifier and a new one may be one device, on evidence
+      too weak to merge them automatically.
 
-  Every decision naming two or more devices also opens or updates the de-duplication task for
-  that device set (`ServiceRadar.Inventory.Identity.Deduplication`).
+  Every decision naming two or more devices, other than a retirement or a reactivation, also
+  opens or updates the de-duplication task for that device set
+  (`ServiceRadar.Inventory.Identity.Deduplication`).
 
-  One row per decision: kind, reason, the sorted device set and the subject (an address, when
-  the decision is about one). A decision that repeats updates its row -- `occurrence_count`,
-  `last_decided_at` and the latest evidence -- rather than adding a row per sync batch, so the
-  table grows with the number of distinct decisions, not with ingest volume. The identifying
-  columns are never rewritten.
+  One row per decision: kind, reason, the sorted device set and the subject (an address or an
+  identifier, when the decision is about one). A decision that repeats updates its row --
+  `occurrence_count`, `last_decided_at` and the latest evidence -- rather than adding a row per
+  sync batch, so the table grows with the number of distinct decisions, not with ingest volume.
+  The identifying columns are never rewritten.
   """
 
   use Ash.Resource,
@@ -46,7 +56,11 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
     :alias_invalidated,
     :ip_conflict,
     :source_override,
-    :component_block
+    :component_block,
+    :source_id_retired,
+    :source_id_reactivated,
+    :source_id_reissued,
+    :succession_review
   ]
 
   postgres do
@@ -118,7 +132,7 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
 
     attribute :subject, :string do
       public? true
-      description "The address the decision is about, when it is about one"
+      description "The address or identifier the decision is about, when it is about one"
     end
 
     attribute :decision_key, :string do

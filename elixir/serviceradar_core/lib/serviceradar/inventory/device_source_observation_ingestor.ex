@@ -10,6 +10,8 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.SourceRetirement
+  alias ServiceRadar.Inventory.Identity.SourceRetirementWorker
   alias ServiceRadar.Repo
 
   require Logger
@@ -381,10 +383,17 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
 
   defp activate_snapshot(snapshot, observations) do
     case Repo.transaction(fn -> do_activate_snapshot(snapshot, observations) end) do
-      {:ok, _stats} -> :ok
+      {:ok, stats} -> maybe_enqueue_retirement(snapshot, stats)
       {:error, reason} -> {:error, reason}
     end
   end
+
+  # Retirement runs once the collection that proved the absences has committed, never during
+  # ingest (`SourceRetirement`).
+  defp maybe_enqueue_retirement(snapshot, %{source_retirement: {:ok, _counts}}),
+    do: SourceRetirementWorker.enqueue(snapshot)
+
+  defp maybe_enqueue_retirement(_snapshot, _stats), do: :ok
 
   defp check_snapshot(snapshot) do
     current =
@@ -510,7 +519,13 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
           conflict_target: [:partition, :source, :source_instance]
         )
 
-        %{status: :activated, absent_count: absent_count}
+        %{
+          status: :activated,
+          absent_count: absent_count,
+          # Counted under the activation's lock and in its transaction: an exact collection's
+          # absences count only if it activates.
+          source_retirement: SourceRetirement.record_collection(snapshot)
+        }
 
       {:reject, reason} ->
         Repo.rollback(reason)

@@ -1064,20 +1064,23 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     Enum.any?(pairs, fn {type, _value, _partition} -> type in types end)
   end
 
-  # Holders with a source-authoritative identifier row. The holder map's
-  # metadata may not carry the identifier the row does.
+  # Holders with a source-authoritative identifier row, current or archived: a
+  # retired id still decides its record's identity (`SourceAuthorityGuard`). The
+  # holder map's metadata may not carry the identifier the row does.
   defp load_source_authoritative_holders(existing_by_ip) do
     uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
 
-    DeviceIdentifier
-    |> where(
-      [i],
-      i.device_id in ^uids and i.identifier_type in ^@source_authoritative_types
-    )
-    |> select([i], i.device_id)
-    |> distinct(true)
-    |> Repo.all()
-    |> MapSet.new()
+    live =
+      DeviceIdentifier
+      |> where(
+        [i],
+        i.device_id in ^uids and i.identifier_type in ^@source_authoritative_types
+      )
+      |> select([i], i.device_id)
+      |> distinct(true)
+      |> Repo.all()
+
+    MapSet.new(live ++ archived_identifier_holders(uids, @source_authoritative_types))
   end
 
   defp record_hostname_agreement(record, holder, holder_uid, refusal) do
@@ -1086,6 +1089,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     Logger.info(
       "SyncIngestor: not adopting active IP #{ip} holder #{holder_uid} for device " <>
         "#{record.uid} on hostname agreement (#{refusal}); recording a de-duplication decision"
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :hostname_agreement, :refused],
+      %{count: 1},
+      %{incoming_device_uid: record.uid, existing_device_uid: holder_uid, refusal: refusal}
     )
 
     DecisionLog.record(:policy_block, "hostname_agreement_not_identity", [record.uid, holder_uid],
@@ -1143,19 +1152,39 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   defp ensure_anchored_uids(%MapSet{} = set, _existing_by_ip), do: {set, set}
 
+  # Archived identifier rows anchor as live ones do. A record whose only source id
+  # retired is not an anchorless seed: adopting it for a new record of another
+  # device's id would make one record describe two devices.
   defp anchored_device_uids(existing_by_ip) do
     uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
 
     if uids == [] do
       MapSet.new()
     else
-      DeviceIdentifier
-      |> where([identifier], identifier.device_id in ^uids)
-      |> where([identifier], identifier.identifier_type in ^@identity_anchor_types)
-      |> select([identifier], identifier.device_id)
-      |> Repo.all()
-      |> MapSet.new()
+      live =
+        DeviceIdentifier
+        |> where([identifier], identifier.device_id in ^uids)
+        |> where([identifier], identifier.identifier_type in ^@identity_anchor_types)
+        |> select([identifier], identifier.device_id)
+        |> Repo.all()
+
+      MapSet.new(live ++ archived_identifier_holders(uids, @identity_anchor_types))
     end
+  end
+
+  # The devices among `uids` with an archived identifier row of one of `types`
+  # (`platform.device_identifier_archive`, where a retired identifier moves).
+  defp archived_identifier_holders(uids, types) do
+    types = Enum.map(types, &Atom.to_string/1)
+
+    Repo.all(
+      from(archived in "device_identifier_archive",
+        where: archived.device_id in ^uids and archived.identifier_type in ^types,
+        select: archived.device_id,
+        distinct: true
+      ),
+      prefix: "platform"
+    )
   end
 
   # An unanchored holder is a provisional IP seed in two cases:

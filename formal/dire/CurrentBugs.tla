@@ -13,9 +13,8 @@
 (* knockout is deleted.                                                     *)
 (***************************************************************************)
 
-ResolutionBugs == {"retired_source_id_vetoes", "stale_holder_keeps_address",
-                   "released_seed_stays_live", "armis_alias_pass_blind",
-                   "foreign_sighting_confirms_alias"}
+ResolutionBugs == {"stale_holder_keeps_address", "released_seed_stays_live",
+                   "armis_alias_pass_blind", "foreign_sighting_confirms_alias"}
 
 LifecycleBugs == {"sweep_refreshes_expired_tombstone"}
 

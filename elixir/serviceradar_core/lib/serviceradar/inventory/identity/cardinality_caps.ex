@@ -13,11 +13,19 @@ defmodule ServiceRadar.Inventory.Identity.CardinalityCaps do
       config :serviceradar, ServiceRadar.Inventory.Identity.CardinalityCaps,
         mac: 64,
         default: 8
+
+  Source-authoritative identifiers
+  (`ServiceRadar.Inventory.Identity.SourceAuthorityGuard.source_identifier_types/0`) are
+  never capped. One leaves the identifier table only by retirement, merge or unmerge:
+  retirement (`ServiceRadar.Inventory.Identity.SourceRetirement`) archives it once the
+  source has proved it stopped reporting it, and a cap would delete it without that proof
+  or an archive row.
   """
 
   import Ecto.Query
 
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Repo
 
   require Logger
@@ -40,12 +48,15 @@ defmodule ServiceRadar.Inventory.Identity.CardinalityCaps do
   Intended to run after identifier writes with the pairs that were touched;
   one query per distinct type finds devices over cap, one batched delete
   per device retires the overflow (oldest `last_seen` first; `verified`
-  identifiers are never retired).
+  identifiers are never retired). Pairs of a source-authoritative type are skipped.
   """
   @spec enforce([{String.t(), atom()}]) :: :ok
   def enforce(pairs) when is_list(pairs) do
+    exempt = Enum.map(SourceAuthorityGuard.source_identifier_types(), &Atom.to_string/1)
+
     pairs
     |> Enum.uniq()
+    |> Enum.reject(fn {_device_id, type} -> to_string(type) in exempt end)
     |> Enum.group_by(fn {_device_id, type} -> type end, fn {device_id, _} -> device_id end)
     |> Enum.each(fn {type, device_ids} ->
       enforce_type(type, Enum.uniq(device_ids), cap_for(type))

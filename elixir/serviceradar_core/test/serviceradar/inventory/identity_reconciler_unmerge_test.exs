@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.IdentifierArchiveFixtures
 
   require Ash.Query
 
@@ -194,6 +195,56 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
     end
   end
 
+  # A retired source id keeps deciding for the record that carries the identity it retired
+  # from, so a merge moves the merged-away record's archived identifiers to the survivor, and
+  # its unmerge moves back exactly the rows the merge moved.
+  describe "archived identifiers moved by a merge" do
+    test "the merge moves the source's archive and the unmerge moves only that back",
+         %{actor: actor} do
+      {:ok, survivor} = create_device(actor, unique("survivor"), nil)
+      {:ok, source} = create_device(actor, unique("source"), nil)
+
+      survivor_retired = unique("retired-survivor")
+      source_retired = unique("retired-source")
+
+      for {device, value} <- [{survivor, survivor_retired}, {source, source_retired}] do
+        assert {:ok, _} = register_identifier(actor, device.uid, :armis_device_id, value)
+        IdentifierArchiveFixtures.archive!(:armis_device_id, value)
+      end
+
+      # Both records held an Armis id in one scope, so only a manual merge joins them.
+      assert :ok =
+               IdentityReconciler.merge_devices(source.uid, survivor.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      assert archive_owners([survivor_retired, source_retired]) == %{
+               survivor_retired => survivor.uid,
+               source_retired => survivor.uid
+             }
+
+      assert [
+               %{
+                 "type" => "armis_device_id",
+                 "value" => ^source_retired,
+                 "partition" => "default"
+               }
+             ] =
+               merge_details(actor, source.uid, "manual_merge")["source_archived_identifiers"]
+
+      assert :ok = IdentityReconciler.unmerge_device(source.uid, actor: actor)
+
+      assert archive_owners([survivor_retired, source_retired]) == %{
+               survivor_retired => survivor.uid,
+               source_retired => source.uid
+             }
+
+      assert [%{"value" => ^source_retired}] =
+               unmerge_details(actor, source.uid)["restored_archived_identifiers"]
+    end
+  end
+
   test "unmerge returns error when no merge audit exists", %{actor: actor} do
     fake_device_id = "sr:" <> Ecto.UUID.generate()
 
@@ -250,6 +301,19 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
     |> Ash.Query.filter(identifier_value in ^values)
     |> Ash.read!(actor: actor)
     |> Map.new(&{&1.identifier_value, &1.device_id})
+  end
+
+  defp archive_owners(values),
+    do: Map.new(values, &{&1, IdentifierArchiveFixtures.archive_owner(:armis_device_id, &1)})
+
+  defp merge_details(actor, device_uid, merge_reason) do
+    MergeAudit
+    |> Ash.Query.filter(from_device_id == ^device_uid and reason == ^merge_reason)
+    |> Ash.read!(actor: actor)
+    |> case do
+      [%MergeAudit{details: details}] -> details
+      other -> flunk("expected one #{merge_reason} row for #{device_uid}, got #{inspect(other)}")
+    end
   end
 
   defp unmerge_details(actor, device_uid) do

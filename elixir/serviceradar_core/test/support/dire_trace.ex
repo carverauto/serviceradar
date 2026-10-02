@@ -30,8 +30,10 @@ defmodule ServiceRadar.DireTrace do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
+  alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
@@ -46,8 +48,10 @@ defmodule ServiceRadar.DireTrace do
     [:serviceradar, :identity_reconciler, :merge, :blocked],
     [:serviceradar, :identity_reconciler, :merge, :guard_blocked],
     [:serviceradar, :identity_reconciler, :alias, :invalidated],
+    [:serviceradar, :identity_reconciler, :hostname_agreement, :refused],
     [:serviceradar, :identity_reconciler, :source_identity, :active_ip_conflict],
-    [:serviceradar, :identity_reconciler, :source_identity, :source_override]
+    [:serviceradar, :identity_reconciler, :source_identity, :source_override],
+    [:serviceradar, :inventory, :source_retirement, :retired]
   ]
 
   defstruct [
@@ -393,6 +397,30 @@ defmodule ServiceRadar.DireTrace do
   end
 
   @doc """
+  The retirement pass a collection queues (`SourceRetirementWorker`), run once T has passed: one
+  `SourceRetirement.run/2` pass over the trace's source instance, with the settings the worker
+  reads and a clock T past now, so the exact collections alone decide what retires (a Retire
+  step).
+  """
+  def retire(trace) do
+    settings =
+      case DeviceCleanupSettings.get_settings(actor: trace.actor) do
+        {:ok, %DeviceCleanupSettings{} = settings} -> settings
+        _ -> DeviceCleanupSettings.create_settings!(%{}, actor: trace.actor)
+      end
+
+    instance = %{partition: "default", source: "armis", source_instance: trace.source}
+
+    now =
+      DateTime.add(DateTime.utc_now(), settings.source_retirement_min_absence_hours + 1, :hour)
+
+    step(trace, "Retire", nil, nil, [], fn ->
+      assert {:ok, %{status: :completed}} =
+               SourceRetirement.run(instance, settings: settings, now: now, actor: trace.actor)
+    end)
+  end
+
+  @doc """
   The reconciler's scheduled duplicate pass (`IdentityReconciler.reconcile_duplicates/1`). The
   pass scans the whole inventory; only what it does to the trace's records counts, and the model
   has no step for it. It pairs a record with the owner of the MAC in its MAC column only when
@@ -733,6 +761,16 @@ defmodule ServiceRadar.DireTrace do
       {[_, _, :merge, :guard_blocked], _m, %{guard: :source_authority_conflict} = meta} ->
         %{kind: "source_block", recs: names_in(trace, meta)}
 
+      {[_, _, :hostname_agreement, :refused], _m, meta} ->
+        %{
+          kind: "policy_block",
+          recs:
+            Enum.sort([
+              name_of!(trace, meta.incoming_device_uid),
+              name_of!(trace, meta.existing_device_uid)
+            ])
+        }
+
       {[_, _, :source_identity, :active_ip_conflict], _m, meta} ->
         %{
           kind: "ip_conflict",
@@ -760,6 +798,9 @@ defmodule ServiceRadar.DireTrace do
             Enum.sort([name_of!(trace, meta.alias_device_id), name_of!(trace, meta.device_id)])
         }
 
+      {[_, _, :source_retirement, :retired], _m, meta} ->
+        %{kind: "source_id_retired", recs: [name_of!(trace, meta.device_uid)]}
+
       {event, _m, meta} ->
         flunk("DIRE trace #{trace.name}: unmodeled decision #{inspect(event)} #{inspect(meta)}")
     end)
@@ -776,7 +817,8 @@ defmodule ServiceRadar.DireTrace do
     source_block: "source_block",
     alias_invalidated: "alias_invalidated",
     ip_conflict: "ip_conflict",
-    source_override: "source_override"
+    source_override: "source_override",
+    source_id_retired: "source_id_retired"
   }
 
   defp recorded_since(trace, before) do

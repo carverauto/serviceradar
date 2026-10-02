@@ -11,6 +11,12 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorker do
     * `agent_id` identifiers belonging to an agent that still exists in
       `ocsf_agents` are never deleted, regardless of age. Their placement is
       maintained by `ServiceRadar.Inventory.AgentLinkRepairWorker`.
+    * Source-authoritative identifiers
+      (`ServiceRadar.Inventory.Identity.SourceAuthorityGuard.source_identifier_types/0`)
+      are never collected by age. One leaves the identifier table only by
+      retirement, merge or unmerge: retirement
+      (`ServiceRadar.Inventory.Identity.SourceRetirement`) archives it once the
+      source has proved it stopped reporting it, and an age alone proves nothing.
     * Deletes are batched (`batch_size` rows per delete, at most
       `max_batches` batches per run) so a backlogged table cannot wedge the
       maintenance queue.
@@ -36,6 +42,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorker do
 
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -161,9 +168,12 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorker do
   end
 
   defp victim_batch(cutoff, protected_agent_uids, batch_size) do
+    source_types = Enum.map(SourceAuthorityGuard.source_identifier_types(), &Atom.to_string/1)
+
     query =
       from(di in "device_identifiers",
         where: di.last_seen < ^cutoff,
+        where: di.identifier_type not in ^source_types,
         where:
           di.identifier_type != "agent_id" or
             di.identifier_value not in ^protected_agent_uids,

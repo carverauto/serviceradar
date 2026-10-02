@@ -12,6 +12,10 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLog do
   be written would drop the device update as well. A failed write is logged and counted
   (`[:serviceradar, :identity_reconciler, :decision, :record_failed]`), so the failure is not
   silent either.
+
+  A change that can wait for a later pass, such as an identifier retirement, records its
+  decision with `record_many_strict/1` inside its own transaction instead, and rolls back
+  when the decision cannot be written: the change never stands without its record.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -52,23 +56,41 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLog do
   @doc "Records several decisions in one bulk write."
   @spec record_many([decision()]) :: :ok
   def record_many(decisions) when is_list(decisions) do
-    inputs =
-      decisions
-      |> Enum.map(&to_input/1)
-      |> Enum.reject(&is_nil/1)
-      # One row per key: a batch naming the same decision twice would otherwise ask the
-      # upsert to touch one row twice in one statement.
-      |> Enum.uniq_by(&input_key/1)
-
-    case inputs do
+    case inputs(decisions) do
       [] ->
         :ok
 
       inputs ->
-        write(inputs)
+        _ = write(inputs)
         # The operator's side of the same decisions: one de-duplication task per device set.
         Deduplication.open_for_decisions(inputs)
     end
+  end
+
+  @doc """
+  Records several decisions like `record_many/1`, but returns a failed write as
+  `{:error, reason}`, so a caller recording inside its transaction rolls back with it.
+  """
+  @spec record_many_strict([decision()]) :: :ok | {:error, term()}
+  def record_many_strict(decisions) when is_list(decisions) do
+    case inputs(decisions) do
+      [] ->
+        :ok
+
+      inputs ->
+        with :ok <- write(inputs) do
+          Deduplication.open_for_decisions(inputs)
+        end
+    end
+  end
+
+  defp inputs(decisions) do
+    decisions
+    |> Enum.map(&to_input/1)
+    |> Enum.reject(&is_nil/1)
+    # One row per key: a batch naming the same decision twice would otherwise ask the
+    # upsert to touch one row twice in one statement.
+    |> Enum.uniq_by(&input_key/1)
   end
 
   defp write(inputs) do
@@ -103,7 +125,7 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLog do
       %{kinds: inputs |> Enum.map(& &1.decision_kind) |> Enum.uniq()}
     )
 
-    :ok
+    {:error, {:identity_decision_not_recorded, error}}
   end
 
   defp to_input(%{kind: kind, reason: reason, device_uids: uids} = decision)

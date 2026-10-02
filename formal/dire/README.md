@@ -37,7 +37,9 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   - `RetireAbsent` moves a stale id a record still holds into the archive
     (`device_identifier_archive`, the variable `archive`), remembering the record it held. Ingest
     reads the archive: a retired id keeps its veto against another id, anchors its record against
-    seed adoption, and returns to its record only by reactivation.
+    seed adoption, and returns to its record only by reactivation. The code moves the record's
+    `integration_id` derived from the retired id with it, so the model's one source id stands
+    for both.
   - `Succeed` is the reconciler's succession merge. A predecessor holding only retired ids
     merges with the successor holding the current one only when a MAC links them, their
     observations corroborate, and the pairing is one-to-one in both directions. The ghost
@@ -142,7 +144,6 @@ listed there as an open question until one is made; a new defect gets a row here
 
 | Switch | Model | Code path | Fix | Witness property |
 |---|---|---|---|---|
-| `retired_source_id_vetoes` | resolution | Nothing retires a source id its source stopped reporting: `Inventory.Remediation.ArmisSourceIdentityRepair` only classifies, in a dry run. The old record keeps the id, and with it the veto (`SourceAuthorityGuard.source_mismatch?/3`) against the device's new id, so a re-keyed device keeps a second record. | D1 | `OneSourceRecordPerDevice`, in environment `armis_rekey` |
 | `stale_holder_keeps_address` | resolution | `DeviceWrites.claim_address_from_holder/4` releases a holder only to a write `observed_after?/2` finds newer than the holder's `last_seen_time`, which a sweep or a census refreshes. An Armis sync compares Armis's own last-seen time, so a holder a sweep touched last can keep the address of the device observed at it. | D7 (`identity_observed_at`) | `ObservedAddressHeld` |
 | `released_seed_stays_live` | resolution | `DeviceWrites.resolve_record_active_ip/7`: a sweep seed that releases its only address to an identified device stays live, an addressless shell that only ephemeral expiry removes. | D8 | `NoAddresslessShell` |
 | `armis_alias_pass_blind` | resolution | `Sync.Aliases.process_alias_conflicts/2` looks for the address's alias under the partition the update's identifiers are filed in, which for a sync naming its integration source is the source's own (`Ids.identifier_partition/2`), while `AliasEvents` records an alias under the device's partition. The pass never finds one, so an identified holder of the alias keeps it after another device is observed at the address. | Open question | `AliasFollowsSyncedDevice` |
@@ -172,6 +173,7 @@ Each witness configuration is `<model>_witness_<switch>`. Code paths are relativ
 | `mac_only_conflicts_blocked` | #4612 (`MergePolicy.merge_allowed_for_matches?/1` accepts a match set holding a globally-unique MAC; an all-randomized set stays blocked, and a record linked only through a randomized MAC drops out of the merge as a recorded `randomized_mac_link` policy block) | `EvidenceConverges` in every `resolution_goal_*`; traces `router_mac_only`, `agent_mac_split` |
 | `randomized_mac_seeds_uid` | #4760 (`Ids.has_strong_identifier?/1` counts a MAC only when it is universally administered, and `Ids.generate_deterministic_device_id/1` names an update with no strong identifier by its address, so a census sighting of a randomized MAC is address-only) | `RandomizedMacsNeverIdentify` in every `resolution_goal_*`; trace `census_randomized_mac` |
 | `seed_adopts_existing` | #4705 (`DeviceWrites.resolve_record_active_ip/7` adopts an anchorless provisional seed only for a record that is not yet a device; an existing device at a seeded address takes it under the #4639 rule, the seed releases it and stays live, and the conflict is recorded) | `ObservedAddressHeld`, `NoSilentDecision` in every `resolution_goal_*`; trace `armis_moves_onto_sweep_seed` |
+| `retired_source_id_vetoes` | #5075 (`Identity.SourceRetirement.run/2`, which `SourceRetirementWorker` runs after an exact Armis collection activates, moves an Armis device id absent from N consecutive exact collections and unreported for T into `device_identifier_archive`, with the `integration_id` derived from it, and records a `source_id_retired` decision naming the proving collections; `SourceAuthorityGuard` reads the archive, so the retired id still vetoes another id and blocks automatic merges) | `OneSourceRecordPerDevice` in every `resolution_goal_*`; traces `src_attach_shared_mac`, `src_rekey_succession` (their `Retire` step) |
 
 `stale_holder_keeps_address` appears in both tables. #4639 fixed a holder that never released
 the address. The active switch of the same name (Defect switches) is a narrower defect left in
@@ -263,9 +265,12 @@ the identifier archive, which devices only the sweep discovered, and the devices
 `identity_revision` moved. A sweep is logged as the model's step for what it did:
 `SweepCreate`, `SweepRestore`, `SweepRefresh` (it wrote its sighting to the record it found) or
 `SweepSkip`. Whether a sweep wrote a row is read from the row's version, since a sighting's
-one-second timestamps can equal an earlier step's. No code writes the mark or the archive
-before D5 and D1 land, so those entries are empty in every trace recorded today; the tamper
-variants still prove both are pinned. An ingest is logged as the model's `StartWork` and `Commit`; the code
+one-second timestamps can equal an earlier step's. No code writes the mark before D5 lands,
+and no lifecycle trace recorded today retires an id, so those entries are empty in every one;
+the tamper variants still prove both are pinned. The recorder writes the archive empty rather
+than reading `device_identifier_archive`: the code moves an archived row to the merge survivor,
+where the model keeps the device the id retired from and follows the merge, so the first trace
+that retires an id must map one onto the other. An ingest is logged as the model's `StartWork` and `Commit`; the code
 runs them in one call, so `work` is never stale in a recorded trace: a black-box trace cannot
 place a transition between the pin and the write. The enforced fence (#4618) is proven instead by
 `elixir/serviceradar_core/test/serviceradar/inventory/identity/fence_enforcement_test.exs`, which
@@ -279,15 +284,15 @@ turned off (a knockout, `Trace_<name>__knockout.cfg`, written by the test's
 `assert_golden!(demonstrates: switch)`), which proves the defect on the real code. A trace that
 reaches a state breaking a property has a witness (`Trace_<name>__witness.cfg`, written by
 `assert_golden!(witness: property)`), whose target expects `violation:<property>`: the
-property fails on the real code.
+property fails on the real code. No trace recorded today has one.
 
-| Trace | Knockout | Witness |
-|---|---|---|
-| `armis_dhcp` | `armis_alias_pass_blind` | |
-| `armis_moves_onto_sweep_seed` | `released_seed_stays_live` | |
-| `src_rekey_succession` | `foreign_sighting_confirms_alias` | `OneSourceRecordPerDevice` (`retired_source_id_vetoes`) |
-| `expired_sweep_only_returns` (lifecycle) | `sweep_refreshes_expired_tombstone` | |
-| `sweep_restores_merged` (lifecycle) | `sweep_refreshes_expired_tombstone` | |
+| Trace | Knockout |
+|---|---|
+| `armis_dhcp` | `armis_alias_pass_blind` |
+| `armis_moves_onto_sweep_seed` | `released_seed_stays_live` |
+| `src_rekey_succession` | `foreign_sighting_confirms_alias` |
+| `expired_sweep_only_returns` (lifecycle) | `sweep_refreshes_expired_tombstone` |
+| `sweep_restores_merged` (lifecycle) | `sweep_refreshes_expired_tombstone` |
 
 Every other trace is a regression trace of a fixed defect, and these are regression traces too
 for the fixed paths they take.
@@ -302,11 +307,13 @@ The resolution traces of open defects:
   address a sweep has seeded takes the address, and the conflict is recorded. The seed releases
   it and stays live (`released_seed_stays_live`).
 - `src_rekey_succession`: Armis re-keys a device. The new id gets its own record, which takes the
-  address, while the old record keeps the MAC and the old id for ever: nothing retires an id the
-  source stopped reporting (`retired_source_id_vetoes`, the witness). Matching hostnames record
-  the pair for de-duplication review. The new record's sightings of the address land on the alias
-  row the old record's sync created and confirm the old record's alias
-  (`foreign_sighting_confirms_alias`, the knockout).
+  address, while the old record keeps the MAC. Matching hostnames record the pair for
+  de-duplication review. The new record's sightings of the address land on the alias row the old
+  record's sync created and confirm the old record's alias (`foreign_sighting_confirms_alias`,
+  the knockout). Three exact collections without the old id retire it from the old record, which
+  keeps it as history, so the new record is the one record holding a current id of the device
+  (the regression path of `retired_source_id_vetoes`). Nothing joins the two records until
+  corroborated succession (D3) lands.
 
 `census_randomized_mac` is a regression trace of `randomized_mac_seeds_uid` (#4760): two census
 sightings of one randomized MAC at different addresses are address-only, each landing on the

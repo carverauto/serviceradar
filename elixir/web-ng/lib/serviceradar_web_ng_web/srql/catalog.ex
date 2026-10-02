@@ -492,7 +492,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
           "alias_invalidated",
           "ip_conflict",
           "source_override",
-          "component_block"
+          "component_block",
+          "source_id_retired",
+          "source_id_reactivated",
+          "source_id_reissued",
+          "succession_review"
         ]
       },
       downsample: false
@@ -525,7 +529,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
           "alias_invalidated",
           "ip_conflict",
           "source_override",
-          "component_block"
+          "component_block",
+          "source_id_reissued",
+          "succession_review"
         ]
       },
       downsample: false

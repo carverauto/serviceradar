@@ -61,6 +61,22 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionSitesTest do
              "enforce/1 runs after every identifier write; a bump on the no-op path " <>
                "would make every pinned revision stale within seconds"
     end
+
+    test "a source-authoritative type is never capped", %{actor: actor} do
+      {:ok, device} = create_device(actor)
+      n = System.unique_integer([:positive])
+      cap = CardinalityCaps.cap_for(:armis_device_id)
+      values = for i <- 1..(cap + 1), do: "cap-armis-#{n}-#{i}"
+
+      for value <- values, do: register_identifier(actor, device.uid, :armis_device_id, value)
+
+      before = revision(actor, device.uid)
+      assert :ok = CardinalityCaps.enforce([{device.uid, :armis_device_id}])
+
+      # Only retirement removes a source id, once the source proved it stopped reporting it.
+      assert held_values(actor, device.uid, :armis_device_id) == Enum.sort(values)
+      assert revision(actor, device.uid) == before
+    end
   end
 
   describe "AliasGuard.invalidate_ip_alias/5" do
@@ -120,19 +136,30 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionSitesTest do
 
   defp register_mac(actor, device_uid) do
     mac = 6 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :upper)
+    register_identifier(actor, device_uid, :mac, mac)
+  end
 
+  defp register_identifier(actor, device_uid, type, value) do
     {:ok, _} =
       DeviceIdentifier
       |> Ash.Changeset.for_create(:register, %{
         device_id: device_uid,
-        identifier_type: :mac,
-        identifier_value: mac,
+        identifier_type: type,
+        identifier_value: value,
         partition: "default",
         source: "test"
       })
       |> Ash.create(actor: actor)
 
-    mac
+    value
+  end
+
+  defp held_values(actor, device_uid, type) do
+    DeviceIdentifier
+    |> Ash.Query.filter(device_id == ^device_uid and identifier_type == ^type)
+    |> Ash.read!(actor: actor)
+    |> Enum.map(& &1.identifier_value)
+    |> Enum.sort()
   end
 
   defp create_alias_state(actor, device_uid, ip) do

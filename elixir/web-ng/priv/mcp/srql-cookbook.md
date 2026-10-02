@@ -84,8 +84,10 @@ to see why.
 `in:identity_decisions` records every merge identity reconciliation refused,
 declined or overrode instead of merging (`decision_kind` is `policy_block`,
 `guard_block`, `source_block`, `alias_invalidated`, `ip_conflict`,
-`source_override` or `component_block`; `reason` says which rule applied). One
-row per distinct decision; `occurrence_count` counts repeats.
+`source_override`, `component_block`, `source_id_reissued` or
+`succession_review`; `reason` says which rule applied), and every source id it
+retired or brought back (`source_id_retired`, `source_id_reactivated`). One row
+per distinct decision; `occurrence_count` counts repeats.
 
 Each decision naming two or more devices opens or counts on one
 `in:deduplication_tasks` row for that device set. `status` is `open` until an

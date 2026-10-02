@@ -55,8 +55,8 @@ CONSTANTS
     Bugs,
     Unsafe         \* design alternatives rejected for identity safety (negative configurations)
 
-KnownBugs == {"retired_source_id_vetoes", "stale_holder_keeps_address", "released_seed_stays_live",
-              "armis_alias_pass_blind", "foreign_sighting_confirms_alias"}
+KnownBugs == {"stale_holder_keeps_address", "released_seed_stays_live", "armis_alias_pass_blind",
+              "foreign_sighting_confirms_alias"}
 ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
@@ -338,8 +338,8 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* A source write whose hostname agrees with a rival's: agreement may attach only a record
         \* that is not yet a device and carries no source-authoritative identifier, and a source
         \* write carries one, so adoption is refused and the pair is recorded for de-duplication
-        \* review (DeviceWrites.adopt_on_hostname_agreement?/4). The refusal emits no telemetry: it
-        \* is recorded but not reported. The model writes only the source's hostnames (recFs).
+        \* review (DeviceWrites.adopt_on_hostname_agreement?/4), with telemetry beside the record.
+        \* The model writes only the source's hostnames (recFs).
         hostRivals == IF kind = "Armis" THEN {y \in rivals : HostOf[h] \in HostsOf(recFs[y])} ELSE {}
         staleHeld == IF stale THEN {r \in rivals : addrFresh[r]} ELSE {}
         holders   == rivals \ staleHeld
@@ -391,6 +391,7 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
                   THEN {[kind |-> "source_override", recs |-> (allM \ M) \cup {target0}]}
                   ELSE {})
             \cup (IF ipConflict THEN {[kind |-> "ip_conflict", recs |-> {target} \cup rivals]} ELSE {})
+            \cup {[kind |-> "policy_block", recs |-> {target, y}] : y \in hostRivals}
             \cup (IF reactivated # {}
                   THEN {[kind |-> "source_id_reactivated", recs |-> reactivated \cup {target}]}
                   ELSE {})
@@ -398,7 +399,6 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
                   ELSE {})
         \* Every decision leaves a persisted identity decision (DecisionLog.record/4, #4613).
         recorded == decisions
-                    \cup {[kind |-> "policy_block", recs |-> {target, y}] : y \in hostRivals}
         into2   == [r \in Recs |-> IF r \in step1Merged THEN target0
                                ELSE IF r \in step2Merged THEN target
                                ELSE into[r]]
@@ -578,14 +578,12 @@ Collect ==
     /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, srcOf,
                    archive, recFs, addrFresh, seenWith>>
 
-\* The retirement job an activation enqueues (D1): a stale id leaves device_identifiers for the
-\* archive, remembering the record that held it, and the decision is recorded.
-\*   Bug retired_source_id_vetoes: nothing retires an id the source stopped reporting, so the
-\*       old record keeps it, and with it the veto against the device's new id, for ever.
+\* The retirement job an activation enqueues (D1, Identity.SourceRetirement.run/2): a stale id
+\* leaves device_identifiers for the archive, remembering the record that held it, and the
+\* decision is recorded.
 \*   Unsafe retired_ids_forgotten: retirement drops the identifier without archiving it, so
 \*       nothing remembers that the record held it.
 RetireAbsent(a) ==
-    /\ ~Bug("retired_source_id_vetoes")
     /\ absence[a] = "Stale" /\ owner[a] # NoRec
     /\ owner' = [owner EXCEPT ![a] = NoRec]
     /\ archive' = IF "retired_ids_forgotten" \in Unsafe THEN archive
@@ -729,7 +727,7 @@ NoSilentDecision == [][act'.decisions \subseteq act'.recorded]_vars
 \* Source ids a record still holds that the source no longer reports.
 AbsentHeld == {a \in SrcIds : owner[a] # NoRec /\ a \notin CurrentIds}
 \* A retirement the next job would still make, and a succession the reconciler would still make.
-PendingRetirement == ~Bug("retired_source_id_vetoes") /\ AbsentHeld # {}
+PendingRetirement == \E a \in AbsentHeld : absence[a] = "Stale"
 PendingSuccession == \E pr, sc \in Recs : Succession(pr, sc)
 \* At rest: every id the source stopped reporting has been absent long enough to retire, and
 \* neither the retirement job nor the reconciler would change anything.

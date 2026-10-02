@@ -159,9 +159,10 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # Steps: A (a1, m1) is synced at p1; B (a2, m1) is synced at p2, twice. Expected: B gets its
   # own record, since its Armis id decides; m1 stays with A; each sync of B records the override.
   # Then the source stops reporting A: one collection reports both, three more report B alone,
-  # and the reconciler runs. Expected: the two are different devices, so they never merge. The
-  # reconciler leaves both alone: B's record carries m1 in its MAC column, but m1 is filed under
-  # the source's partition, which the duplicate pass never pairs a device row with.
+  # the retirement pass retires a1 from A's record, and the reconciler runs. Expected: the two
+  # are different devices, so they never merge. The reconciler leaves both alone: B's record
+  # carries m1 in its MAC column, but m1 is filed under the source's partition, which the
+  # duplicate pass never pairs a device row with.
   test "src_attach_shared_mac", %{actor: actor} do
     world =
       two_devices(%{
@@ -185,22 +186,22 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.collect()
     |> DireTrace.collect()
     |> DireTrace.collect()
+    |> DireTrace.retire()
     |> DireTrace.reconcile()
     |> DireTrace.assert_golden!()
   end
 
   # The source re-identifies a device (a source-side merge or re-identification): Armis reports
   # A (m1) under a1, then under a2. Steps: a collection reports A under a1 at p1; Armis re-keys
-  # A to a2; three collections report A under a2 alone; the reconciler runs. Today: the first a2
-  # sync gets its own record, since its Armis id decides, and takes p1; m1 stays with a1's
-  # record, which keeps a1 for ever, because nothing retires an id the source stopped reporting.
-  # The hostnames agree, so that sync also records the pair for de-duplication review
-  # (policy_block). The a2 syncs' sightings of p1 land on the alias row a1's sync created, so the
-  # second confirms p1 as an alias of a1's record and a2's record never gets one
-  # (foreign_sighting_confirms_alias). The reconciler leaves both alone, as in
-  # src_attach_shared_mac. The witness: the trace reaches a state where, with every absent id
-  # stale and nothing left to retire or merge, two records holding source ids describe A
-  # (OneSourceRecordPerDevice).
+  # A to a2; three collections report A under a2 alone; the retirement pass and then the
+  # reconciler run. Today: the first a2 sync gets its own record, since its Armis id decides,
+  # and takes p1; m1 stays with a1's record. The hostnames agree, so that sync also records the
+  # pair for de-duplication review (policy_block). The a2 syncs' sightings of p1 land on the
+  # alias row a1's sync created, so the second confirms p1 as an alias of a1's record and a2's
+  # record never gets one (foreign_sighting_confirms_alias). The three absences retire a1 from
+  # its record, which keeps it as history, so a2's record is the one record holding a source id
+  # that describes A. Nothing joins the two yet (corroborated succession, D3): the reconciler
+  # leaves both alone, as in src_attach_shared_mac.
   test "src_rekey_succession", %{actor: actor} do
     world = %{
       phys: ["h1"],
@@ -223,11 +224,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.collect()
     |> DireTrace.collect()
     |> DireTrace.collect()
+    |> DireTrace.retire()
     |> DireTrace.reconcile()
-    |> DireTrace.assert_golden!(
-      witness: "OneSourceRecordPerDevice",
-      demonstrates: "foreign_sighting_confirms_alias"
-    )
+    |> DireTrace.assert_golden!(demonstrates: "foreign_sighting_confirms_alias")
   end
 
   # #4612 (fixed): a router's interfaces are sighted one MAC at a time, then the mapper polls it.
