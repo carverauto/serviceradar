@@ -651,6 +651,9 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
   defp reason_class(nil), do: "none"
   defp reason_class("merged"), do: "merged"
+  defp reason_class("stale_ephemeral"), do: "expired"
+  defp reason_class("source_retired"), do: "source_retired"
+  defp reason_class("seed_released"), do: "seed_released"
   defp reason_class(_other), do: "other"
 
   defp ip_of(trace, raw, d) do
@@ -996,6 +999,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
       MaxAudit = #{max(max_audit, 1)}
       MaxWork = 1
       FollowDepth = #{@follow_depth}
+      ExpiryEnabled = TRUE
       TraceLog <- TheLog
     INIT TraceInit
     NEXT TraceNext

@@ -54,6 +54,19 @@ tlc_test(
     ],
 )
 
+# The goal does not rest on ephemeral expiry running.
+tlc_test(
+    name = "lifecycle_goal_no_expiry_test",
+    size = "medium",
+    cfg = "lifecycle_goal_no_expiry.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
 # ---- Resolution model ----
 
 tlc_test(

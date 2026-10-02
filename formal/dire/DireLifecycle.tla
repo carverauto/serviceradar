@@ -2,7 +2,8 @@
 (***************************************************************************)
 (* The DIRE device lifecycle as the Elixir code implements it today.        *)
 (* See openspec/specs/dire-formal-model; the design is D1-D8 in             *)
-(* openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md.     *)
+(* openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md, and *)
+(* D5, D10 and D12 in openspec/changes/add-source-id-succession/design.md.  *)
 (*                                                                          *)
 (* Every action names the function it models. Known defects are switches in *)
 (* Bugs: an action takes its defective branch only when its switch is on.   *)
@@ -26,7 +27,8 @@ CONSTANTS
     Bugs,         \* enabled defect switches, a subset of KnownBugs
     MaxAudit,     \* bound on merge_audit rows
     MaxWork,      \* bound on in-flight resolve->write items
-    FollowDepth   \* Resolver @max_canonical_follow_depth
+    FollowDepth,  \* Resolver @max_canonical_follow_depth
+    ExpiryEnabled \* DeviceCleanupSettings ephemeral_expiry_enabled
 
 KnownBugs == {
 }
@@ -34,11 +36,17 @@ KnownBugs == {
 ASSUME Bugs \subseteq KnownBugs
 ASSUME NoDev \notin Devices /\ NoIp \notin Ips
 ASSUME FollowDepth \in Nat /\ MaxAudit \in Nat /\ MaxWork \in Nat
+ASSUME ExpiryEnabled \in BOOLEAN
 
 Bug(b) == b \in Bugs
 
 Statuses == {"absent", "live", "tomb", "purged"}
-Reasons  == {"none", "merged", "other"}
+\* deleted_reason classes: "merged" (MergeEngine), "expired" (EphemeralDeviceExpiry's
+\* "stale_ephemeral"), "source_retired" (the grace delete of a record whose source ids all
+\* retired), "seed_released" (a seed whose only address an identified record took; the
+\* resolution model checks that path, and no lifecycle action writes it), and "other"
+\* (administrative and remediation deletes).
+Reasons  == {"none", "merged", "other", "expired", "source_retired", "seed_released"}
 \* Merge callers, by how they fill merge_audit.details.identifiers (ids):
 \*   "conflict" -> MergeEngine.merge_conflicting_devices/4: a list of BOTH sides' matches
 \*   "auto"     -> Registrar (a map), AliasGuard, Resolver/BatchResolver MAC sibling,
@@ -230,12 +238,13 @@ SoftDelete(u) ==
 \* MACs and addresses are evidence and are not in Ids), so only a device owning none is
 \* eligible. The check is platform.device_holds_strong_identifier/1 inside the soft delete's
 \* UPDATE ... WHERE, so selection and delete are one step. Last-seen time is not modeled: any
-\* eligible live device may expire.
+\* eligible live device may expire. The pass runs only when ephemeral_expiry_enabled is set.
 Expire(u) ==
+    /\ ExpiryEnabled
     /\ Live(u)
     /\ Owned(u) = {}
     /\ status' = [status EXCEPT ![u] = "tomb"]
-    /\ reason' = [reason EXCEPT ![u] = "other"]
+    /\ reason' = [reason EXCEPT ![u] = "expired"]
     /\ work' = MarkStale(work, {u})
     /\ act' = MkAct("Expire", u, NoDev, 0, FALSE, {u})
     /\ UNCHANGED <<owner, ipOf, audit>>
@@ -318,7 +327,7 @@ MergeGraphAcyclic ==
 MergedRedirectsSomewhere == \A u \in Devices : MergedTomb(u) => Follow(u) # u
 
 NoStaleRedirect ==
-    \A u \in Devices : (status[u] = "tomb" /\ reason[u] = "other") => Follow(u) = u
+    \A u \in Devices : (status[u] = "tomb" /\ reason[u] # "merged") => Follow(u) = u
 
 (* Action properties *)
 
