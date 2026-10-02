@@ -324,6 +324,103 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
     end
   end
 
+  @batch_max 1000
+
+  @doc """
+  Writes facts to multiple devices in a single request.
+
+  Processes each device independently — a failure on one uid does not fail
+  others. Always returns HTTP 200; per-device errors are reported inline.
+  """
+  def batch_update_metadata(conn, params) do
+    scope = get_scope(conn)
+
+    case parse_batch_params(params) do
+      {:error, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{"error" => reason})
+
+      {:ok, entries} ->
+        results = Enum.map(entries, &process_batch_entry(&1, scope))
+        json(conn, %{"results" => results})
+    end
+  end
+
+  defp parse_batch_params(%{"devices" => devices}) when is_list(devices) do
+    if length(devices) > @batch_max do
+      {:error, "batch size exceeds maximum of #{@batch_max}"}
+    else
+      {:ok, devices}
+    end
+  end
+
+  defp parse_batch_params(%{"devices" => _}), do: {:error, "devices must be an array"}
+
+  defp parse_batch_params(_), do: {:error, "missing required key: devices"}
+
+  defp process_batch_entry(%{"uid" => uid, "facts" => raw_facts}, scope) do
+    with {:ok, parsed_uid} <- parse_uid(uid),
+         {:ok, facts} <- parse_facts(raw_facts),
+         {:ok, device} <- fetch_device(parsed_uid, scope) do
+      apply_batch_facts(uid, device, facts, scope)
+    else
+      {:error, :not_found} ->
+        %{"uid" => uid, "status" => "error", "code" => "device_not_found"}
+
+      {:error, reason} when is_binary(reason) ->
+        %{"uid" => uid, "status" => "error", "code" => "invalid_request", "detail" => reason}
+    end
+  end
+
+  defp process_batch_entry(%{"uid" => uid}, _scope) do
+    %{
+      "uid" => uid,
+      "status" => "error",
+      "code" => "invalid_request",
+      "detail" => "facts must be an object"
+    }
+  end
+
+  defp process_batch_entry(entry, _scope) when is_map(entry) do
+    %{
+      "uid" => Map.get(entry, "uid", ""),
+      "status" => "error",
+      "code" => "invalid_request",
+      "detail" => "missing uid or facts"
+    }
+  end
+
+  defp process_batch_entry(_entry, _scope) do
+    %{
+      "uid" => "",
+      "status" => "error",
+      "code" => "invalid_request",
+      "detail" => "entry must be an object"
+    }
+  end
+
+  defp apply_batch_facts(uid, device, facts, scope) do
+    device
+    |> Ash.Changeset.for_update(:write_facts, %{facts: facts}, scope: scope)
+    |> Ash.update()
+    |> case do
+      {:ok, _updated} ->
+        %{"uid" => uid, "status" => "ok"}
+
+      {:error, %Forbidden{}} ->
+        %{"uid" => uid, "status" => "error", "code" => "forbidden"}
+
+      {:error, error} ->
+        %{
+          "uid" => uid,
+          "status" => "error",
+          "code" => "write_failed",
+          "detail" => Exception.message(error)
+        }
+    end
+  end
+
   defp fetch_device(uid, scope) do
     case Device.get_by_uid(uid, false, scope: scope) do
       {:ok, device} -> {:ok, device}
