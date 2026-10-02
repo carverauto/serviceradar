@@ -551,7 +551,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             variant="primary"
             size="xs"
           >
-            <.icon name="hero-plus" class="size-3.5" /> Create event rule
+            <.icon name="hero-plus" class="size-3.5" /> Create Event Rule
           </.ui_button>
         </div>
       </div>

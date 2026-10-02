@@ -1753,7 +1753,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
       SET status = 'active', completed_at = NULL
       WHERE rollout_id = $1
       """,
-      [rollout.id]
+      [Ecto.UUID.dump!(rollout.id)]
     )
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
