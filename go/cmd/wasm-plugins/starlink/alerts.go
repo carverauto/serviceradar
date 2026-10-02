@@ -10,29 +10,83 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// alertSeverity is ServiceRadar's classification; the vendor publishes none.
-// Names not listed default to warning so a new vendor alert is visible
-// without being paged as critical.
-var alertSeverity = map[string]sdk.Severity{
-	"thermal_shutdown":          sdk.SeverityCritical,
-	"actuator_motor_stuck":      sdk.SeverityCritical,
-	"mast_not_vertical":         sdk.SeverityWarning,
-	"unable_to_align":           sdk.SeverityWarning,
-	"high_time_obstruction":     sdk.SeverityWarning,
-	"psu_otp_throttling":        sdk.SeverityWarning,
-	"ethernet_slow_link10":      sdk.SeverityWarning,
-	"ethernet_slow_link100":     sdk.SeverityWarning,
-	"data_overage_rate_limited": sdk.SeverityWarning,
-	"pop_change":                sdk.SeverityInfo,
-	// The vendor currently reports this one unreliably; it is surfaced as
-	// information only.
-	"software_update_reboot_pending": sdk.SeverityInfo,
-	"sandbox_disabled":               sdk.SeverityWarning,
-	"offline_networks_disabled":      sdk.SeverityWarning,
-	"only_overflight_blocked":        sdk.SeverityInfo,
+// alertSeverity and alertDescription are ServiceRadar's classification and
+// human-readable descriptions; the vendor publishes neither. Both are declared
+// nil and populated lazily — the TinyGo wasi target suppresses _start, so
+// package-level map literals are never allocated.
+var alertSeverity map[string]sdk.Severity
+var alertDescription map[string]string
+
+func initAlertMaps() {
+	if alertSeverity != nil {
+		return
+	}
+	alertSeverity = map[string]sdk.Severity{
+		"thermal_shutdown":                sdk.SeverityCritical,
+		"actuator_motor_stuck":            sdk.SeverityCritical,
+		"actuator_motor_stuck_after_tilt": sdk.SeverityCritical,
+		"disabled_no_active_service_line": sdk.SeverityCritical,
+		"disabled_roam_restricted":        sdk.SeverityCritical,
+		"mast_not_vertical":               sdk.SeverityWarning,
+		"unable_to_align":                 sdk.SeverityWarning,
+		"high_time_obstruction":           sdk.SeverityWarning,
+		"psu_otp_throttling":              sdk.SeverityWarning,
+		"ethernet_slow_link10":            sdk.SeverityWarning,
+		"ethernet_slow_link100":           sdk.SeverityWarning,
+		"data_overage_rate_limited":       sdk.SeverityWarning,
+		"sandbox_disabled":                sdk.SeverityWarning,
+		"offline_networks_disabled":       sdk.SeverityWarning,
+		"motor_heating":                   sdk.SeverityWarning,
+		"slow_ethernet_speeds":            sdk.SeverityWarning,
+		"obstruction_near_sun":            sdk.SeverityWarning,
+		"speed_limit_active":              sdk.SeverityWarning,
+		"low_motor_current":               sdk.SeverityWarning,
+		"moving_while_not_mobile":         sdk.SeverityWarning,
+		"unexpected_location":             sdk.SeverityWarning,
+		"tilt_overflow":                   sdk.SeverityWarning,
+		"unexpected_tilt":                 sdk.SeverityWarning,
+		"cell_overflow":                   sdk.SeverityWarning,
+		"bootloop_notice":                 sdk.SeverityWarning,
+		"pop_change":                      sdk.SeverityInfo,
+		// The vendor currently reports this one unreliably; it is surfaced as
+		// information only.
+		"software_update_reboot_pending": sdk.SeverityInfo,
+		"only_overflight_blocked":        sdk.SeverityInfo,
+	}
+	alertDescription = map[string]string{
+		"thermal_shutdown":                "Terminal overheating caused a protective thermal shutdown",
+		"actuator_motor_stuck":            "Dish actuator motor is stuck; physical inspection required",
+		"actuator_motor_stuck_after_tilt": "Actuator motor stuck following tilt operation",
+		"disabled_no_active_service_line": "Service disabled: no active service line is assigned to this terminal",
+		"disabled_roam_restricted":        "Service disabled: roaming is restricted for this terminal in this region",
+		"mast_not_vertical":               "Dish mast is not vertical; alignment may be degraded",
+		"unable_to_align":                 "Dish cannot align to satellite signal",
+		"high_time_obstruction":           "Significant signal obstruction detected; clear dish field of view",
+		"psu_otp_throttling":              "Power supply over-temperature is throttling performance",
+		"ethernet_slow_link10":            "Ethernet link speed limited to 10 Mbps due to cable or port issue",
+		"ethernet_slow_link100":           "Ethernet link speed limited to 100 Mbps; gigabit capability reduced",
+		"data_overage_rate_limited":       "Data usage has exceeded plan allowance; connection speeds are reduced",
+		"sandbox_disabled":                "Sandbox mode has been disabled on this terminal",
+		"offline_networks_disabled":       "Offline DNS and local network services are disabled",
+		"motor_heating":                   "Dish motor is heating above normal operating temperature",
+		"slow_ethernet_speeds":            "Ethernet speeds are below expected levels",
+		"obstruction_near_sun":            "Obstruction detected near sun position; pointing may be affected",
+		"speed_limit_active":              "Speed limit is currently active on this service line",
+		"low_motor_current":               "Motor current is below expected operating level",
+		"moving_while_not_mobile":         "Terminal is moving but is not configured for mobile operation",
+		"unexpected_location":             "Terminal is operating outside its expected geographic area",
+		"tilt_overflow":                   "Dish tilt angle exceeds operational safety limit",
+		"unexpected_tilt":                 "Unexpected tilt detected during normal operation",
+		"cell_overflow":                   "Cell overflow condition detected",
+		"bootloop_notice":                 "Terminal has entered a bootloop; contact support if persistent",
+		"pop_change":                      "Network point-of-presence changed",
+		"software_update_reboot_pending":  "Software update installed and waiting for a scheduled reboot",
+		"only_overflight_blocked":         "Only overflight satellite access is available in this region",
+	}
 }
 
 func severityFor(name string) sdk.Severity {
+	initAlertMaps()
 	if s, ok := alertSeverity[name]; ok {
 		return s
 	}

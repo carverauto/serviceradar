@@ -89,6 +89,30 @@ producer_schedules:
                 - /api/public/v2/account
                 - /api/public/v2/user-terminals
                 - /api/public/v2/service-lines
+                - /api/public/v2/addresses/*
+                - /api/public/v2/data-pools
+                - /api/public/v2/data-pools/*
+            inject:
+              type: oauth2_client_credentials
+              token_method: POST
+              token_host: starlink.com
+              token_port: "443"
+              token_path: /api/auth/connect/token
+              field_client_id: client_id
+              field_client_secret: client_secret
+              fixed_grant_type: client_credentials
+          - name: management_data_usage
+            grant_type: oauth2_client_credentials
+            purpose: inventory_telemetry
+            allow:
+              methods:
+                - POST
+              hosts:
+                - starlink.com
+              ports:
+                - 443
+              paths:
+                - /api/public/v2/data-usage/query
             inject:
               type: oauth2_client_credentials
               token_method: POST
@@ -156,6 +180,7 @@ producer_schedules:
               paths:
                 - /api/public/v2/account
                 - /api/public/v2/user-terminals
+                - /api/public/v2/service-lines
             inject:
               type: oauth2_client_credentials
               token_method: POST
@@ -178,6 +203,27 @@ producer_schedules:
               paths:
                 - /api/public/v2/telemetry/stream
                 - /api/public/v2/telemetry/query
+            inject:
+              type: oauth2_client_credentials
+              token_method: POST
+              token_host: starlink.com
+              token_port: "443"
+              token_path: /api/auth/connect/token
+              field_client_id: client_id
+              field_client_secret: client_secret
+              fixed_grant_type: client_credentials
+          - name: flight_status_read
+            grant_type: oauth2_client_credentials
+            purpose: inventory_telemetry
+            allow:
+              methods:
+                - POST
+              hosts:
+                - starlink.com
+              ports:
+                - 443
+              paths:
+                - /api/public/v2/flights/status
             inject:
               type: oauth2_client_credentials
               token_method: POST
@@ -250,6 +296,18 @@ integrations:
           label: Hardware version
         - key: attached_terminal_device_id
           label: Attached terminal
+        - key: aviation_iata
+          label: IATA code
+        - key: aviation_icao
+          label: ICAO code
+        - key: tail_number
+          label: Tail number
+        - key: seat_count
+          label: Seat count
+        - key: latitude
+          label: Latitude
+        - key: longitude
+          label: Longitude
 alert_rules:
   # Created disabled on package approval; an operator enables and tunes it.
   - name: starlink_terminal_critical_alert

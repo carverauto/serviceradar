@@ -140,6 +140,7 @@ func TestScheduledRequestsMatchExactlyOneDeclaredGrant(t *testing.T) {
 	fake.on("GET", "/account", 200, accountFixture())
 	fake.on("GET", "/user-terminals?page=0", 200, terminalsPage(0, true, terminalRowA))
 	fake.on("GET", "/service-lines?page=0", 200, envelope(serviceLinesPage))
+	fake.on("POST", "/data-usage/query", 200, envelope(`{"dataUsages":[]}`))
 	rec := &recordingDoer{inner: fake}
 	dispatch(actionConfig(t, actionInventoryRefresh), rec, testObservedAt)
 
@@ -147,6 +148,9 @@ func TestScheduledRequestsMatchExactlyOneDeclaredGrant(t *testing.T) {
 	cache := &cacheHTTP{fakeHTTP: newFakeHTTP(t), wantBody: cacheQueryPage0, status: 200}
 	cache.on("GET", "/account", 200, accountFixture())
 	cache.on("GET", "/user-terminals?page=0", 200, terminalsPage(0, true, terminalRowA))
+	// collectFlightStatus fetches service-lines during telemetry; fixture has
+	// no tail numbers so it short-circuits after this page.
+	cache.on("GET", "/service-lines?page=0", 200, envelope(serviceLinesPage))
 	telemetryRec := &recordingDoer{inner: &streamThenFake{inner: cache, bodies: []string{streamBody(terminalColumns, row)}}}
 	cfg := actionConfig(t, actionTelemetryCollect)
 	runTelemetry(newAPIClient(telemetryRec, cfg), cfg, func(string) func([]sdk.TelemetryRecord) error {

@@ -52,6 +52,13 @@ func initMetricMaps() {
 		"SignalQuality":                      {"starlink_signal_quality", "ratio"},
 		"Uptime":                             {"starlink_uptime", "s"},
 		"SecondsUntilSwupdateRebootPossible": {"starlink_swupdate_reboot_possible_in", "s"},
+		"PowerInputVoltage":                  {"starlink_power_input_voltage", "V"},
+		"TiltAngleDeg":                       {"starlink_tilt_angle", "deg"},
+		"BoresightAzimuthDeg":                {"starlink_boresight_azimuth", "deg"},
+		"BoresightElevationDeg":              {"starlink_boresight_elevation", "deg"},
+		"EthSpeedMbps":                       {"starlink_eth_speed", "Mbps"},
+		"GpsValidSats":                       {"starlink_gps_valid_sats", "count"},
+		"ObstructionPercentValid":            {"starlink_obstruction_percent_valid", "percent"},
 	}
 	routerMetrics = map[string]metricSpec{
 		"WifiUptimeS":                  {"starlink_router_uptime", "s"},

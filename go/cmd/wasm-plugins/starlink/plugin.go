@@ -74,6 +74,16 @@ func runInventory(client *apiClient, now time.Time) *sdk.Result {
 	}
 	discovery := buildDiscovery(snap, now)
 
+	// Emit data-usage and pool metrics alongside the discovery record.
+	// Best-effort: an error here does not affect the inventory result.
+	instance := sourceInstance(snap.Account.Number)
+	if usageRecords := collectDataUsage(client, snap, instance, now); len(usageRecords) > 0 {
+		_ = sdk.EmitTelemetry(sdk.TelemetryBatch{
+			Source:  sdk.TelemetrySource{SourceType: sourceName, SourceInstance: instance},
+			Records: usageRecords,
+		})
+	}
+
 	routers := len(discovery.Devices) - len(snap.Terminals)
 	summary := fmt.Sprintf("Starlink inventory: %d terminals, %d routers, %d service lines",
 		len(snap.Terminals), routers, len(snap.ServiceLines))
@@ -125,6 +135,17 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 		}
 	}
 
+	// Flight status for aviation terminals (best-effort; skips non-aviation).
+	flightRecords, flightDiscovery := collectFlightStatus(client, instance, time.Now().UTC())
+	flightEmitErr := ""
+	for start := 0; start < len(flightRecords); start += maxRecordsPerEmit {
+		end := min(start+maxRecordsPerEmit, len(flightRecords))
+		if err := emit(flightRecords[start:end]); err != nil {
+			flightEmitErr = "starlink_flight_emit_failed"
+			break
+		}
+	}
+
 	active := 0
 	for _, d := range alerts.Devices {
 		active += len(d.Active)
@@ -140,6 +161,9 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 	if alertEmitErr != "" {
 		problems = append(problems, alertEmitErr)
 	}
+	if flightEmitErr != "" {
+		problems = append(problems, flightEmitErr)
+	}
 	if run.Err == nil && run.Rows == 0 {
 		// Either every device is offline, or another consumer shares this
 		// service account and is reading the stream (each client ID has one
@@ -150,6 +174,9 @@ func runTelemetry(client *apiClient, cfg Config, emitter func(string) func([]sdk
 	result := sdk.Ok(summary)
 	if len(problems) > 0 {
 		result = sdk.Warning(summary + " (" + strings.Join(problems, ", ") + ")")
+	}
+	if flightDiscovery != nil {
+		result.AddDeviceDiscovery(*flightDiscovery)
 	}
 	details, _ := json.Marshal(map[string]any{
 		"stream_iterations": run.Iterations,

@@ -68,7 +68,7 @@ func buildScopedAlertRecords(snap alertSnapshot, scope, instance, producerID str
 			// device.uid is the same reference the discovery record uses as its
 			// integration identifier; core resolves it to the canonical device.
 			event.Device = map[string]any{"uid": device.DeviceRef, "type": device.Kind}
-			event.Unmapped = map[string]any{
+			unmapped := map[string]any{
 				"condition_key":   key,
 				"condition_scope": scope,
 				"level":           conditionLevel(severity),
@@ -76,6 +76,10 @@ func buildScopedAlertRecords(snap alertSnapshot, scope, instance, producerID str
 				"starlink_kind":   device.Kind,
 				"source_instance": instance,
 			}
+			if desc := alertDescription[alert]; desc != "" {
+				unmapped["alert_description"] = desc
+			}
+			event.Unmapped = unmapped
 			records = append(records, sdk.NewOCSFTelemetryRecord(event).WithSignalSchemaRef(ref))
 		}
 	}
