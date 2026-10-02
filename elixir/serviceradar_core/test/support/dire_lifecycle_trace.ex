@@ -1000,6 +1000,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
       MaxWork = 1
       FollowDepth = #{@follow_depth}
       ExpiryEnabled = TRUE
+      RetirementEnabled = TRUE
       TraceLog <- TheLog
     INIT TraceInit
     NEXT TraceNext

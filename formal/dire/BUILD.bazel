@@ -43,6 +43,32 @@ tlc_test(
 )
 
 tlc_test(
+    name = "lifecycle_vacuity_grace_delete_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_grace_delete.cfg",
+    expect = "violation:NeverGraceDeletes",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
+    name = "lifecycle_vacuity_reactivate_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_reactivate.cfg",
+    expect = "violation:NeverReactivatesRetired",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
     name = "lifecycle_goal_test",
     size = "medium",
     cfg = "lifecycle_goal.cfg",
@@ -59,6 +85,33 @@ tlc_test(
     name = "lifecycle_goal_no_expiry_test",
     size = "medium",
     cfg = "lifecycle_goal_no_expiry.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# Retirement, the grace delete and reactivation (add-source-id-succession D5, D6), split from
+# the goal so each check stays inside its budget: two devices with two identifiers, and a
+# three-device merge chain with one.
+tlc_test(
+    name = "lifecycle_goal_retirement_test",
+    size = "medium",
+    cfg = "lifecycle_goal_retirement.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
+    name = "lifecycle_goal_retirement_chain_test",
+    size = "medium",
+    cfg = "lifecycle_goal_retirement_chain.cfg",
     spec = "MCDireLifecycle.tla",
     workers = 8,
     deps = [

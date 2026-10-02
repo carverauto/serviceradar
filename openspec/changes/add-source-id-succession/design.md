@@ -191,6 +191,8 @@ The merge itself:
   - Facts carrying provenance merge per key, newest `updated_at` first.
   - Every other attribute keeps today's survivor-wins rule (`preserve_survivor_attributes`).
   - The survivor takes the successor's address when the successor holds one.
+- **Mark.** A predecessor that survives is often marked `source_retired` (D5). The merge clears
+  the mark in the same transaction, because the survivor now holds the current id.
 - **Recording.**
   - Reason `source_succession`.
   - `merge_audit` details carry the shared MAC, the corroborating field, the retired and
@@ -260,6 +262,13 @@ Behavior while marked:
   restore.
 - **Event-driven.** Marking happens when a retirement event occurs. After an operator restores a
   record, it is not marked again until another id of its own is retired.
+- **Cleared by identity.** A marked record that gains an agent identifier or a
+  source-authoritative id is no longer retired-only, so the transaction that registers the
+  identifier clears the mark. That covers a reactivation (D6), a `source_succession` merge into
+  the record (D3), and an ingest that registers such an identifier on it. MAC and address
+  evidence registers neither, so evidence still never clears the mark. The grace delete
+  therefore never deletes a record holding one of these identifiers; the lifecycle model checks
+  this as `MarkedHoldsNoIdentifier`.
 
 The mark comes before deletion, rather than deleting at once, for two reasons. The revival paths
 make a deletion that is undone silently worse than no deletion. A grace period also leaves room
@@ -458,12 +467,17 @@ trace configuration ever sets it. Each alternative has a negative configuration:
 - Each record carries a sweep-only discovery flag. `SweepRestore` follows the code's rule: it
   restores a tombstone that has a non-sweep discovery source, or (once D12 lands) an `expired`
   one. A new `SweepRefresh` action stands for the sweep's availability write.
-- New actions:
-  - `MarkRetired`;
+- New actions, gated by a new constant, `RetirementEnabled`:
+  - `Retire(u, R)` archives the ids `R` (D1) and marks the record when `R` is every id it
+    holds (D5), so it is also the design's `MarkRetired`;
   - `GraceDelete`;
-  - an evidence sighting of a `source_retired` tombstone.
+  - an evidence sighting of a `source_retired` or `seed_released` tombstone, a `CommitWork`
+    branch that drops the write;
+  - reactivation, a `CommitWork` that reports a retired id of the record or of a record merged
+    into it (D6).
 - Properties:
   - `RetiredTombstoneStaysDeleted`: no evidence path restores a `source_retired` tombstone.
+  - `MarkedHoldsNoIdentifier`: a marked record is live and holds no identifier.
   - `SweepWritesOnlyLiveRecords`, an action property: a sweep write changes only a record that
     is live after the step.
   - `ExpiredDeviceReturns`, an action property: a sweep that matches an `expired` tombstone
@@ -471,6 +485,11 @@ trace configuration ever sets it. Each alternative has a negative configuration:
   - `lifecycle_goal_no_expiry` sets `ExpiryEnabled = FALSE` and must pass, so the goal does not
     rest on expiry silently.
   - `lifecycle_vacuity_grace_delete` expects `violation:NeverGraceDeletes`.
+  - `lifecycle_vacuity_reactivate` expects `violation:NeverReactivatesRetired`.
+  - Retirement is checked by two goal configurations of its own, `lifecycle_goal_retirement`
+    (two devices, two identifiers) and `lifecycle_goal_retirement_chain` (a three-device merge
+    chain, one identifier). The three-device goal and `lifecycle_goal_no_expiry` keep
+    `RetirementEnabled = FALSE`, so each check stays inside its budget.
 - Defect switch, under the same confirmation rule as the resolution switches:
 
   | Switch | Witness | Expected |
@@ -513,6 +532,15 @@ counterexamples. Each was fixed in this document before any code:
 
 With the archive, two records can carry the same value of a type, so the source conflict test
 also changed from "different values" to "both records have a history of the type" (D2).
+
+**The revision the lifecycle model made.** Writing the lifecycle model exposed one gap in D5,
+confirmed by knocking the fix back out: a marked predecessor that survived a
+`source_succession` merge kept its mark, so the grace delete would have deleted the record that
+now held the device's current id. With the mark cleared only by reactivation, both a merge into
+a marked record and an ingest that registers an identifier on one violate
+`MarkedHoldsNoIdentifier`. D5 now clears the mark whenever the record gains an identifier, and
+D3 says so for the merge. Knocking out the evidence branch instead makes `Commit` revive a
+`source_retired` tombstone, which `RetiredTombstoneStaysDeleted` reports.
 
 ### D11. Remediation
 
@@ -674,18 +702,28 @@ that then disables the guard for good.
 
 ### D15. Delivery order
 
+The order puts the changes that shrink the visible inventory first, so the default device count
+drops as early as possible:
+
 1. Formal model and traces (D10), as a model-only pull request that records today's defects.
 2. Schema, settings, retirement and the veto split (D1, D2), including the archive-aware guard.
-3. Succession and review (D3, D4).
-4. The retired mark, the hidden reads and the grace delete (D5), and reactivation (D6).
-5. Address claims and released seeds (D7, D8).
+3. The retired mark, the hidden reads and counts, and reactivation (D5, D6), with the grace
+   delete enabled.
+4. Released seeds and address claims (D7, D8).
+5. Succession and review (D3, D4).
 6. Blocked-component accounting (D9), the guardrails and the reserved keys.
 7. Sweep restore of expired devices and the expiry hold and counters (D12-D14). These do not
    depend on 2-6 and may land in any order with them.
-8. Remediation and the runbook (D11), run by an operator after 2-7 are deployed.
+8. Remediation, the runbook and the end-to-end test (D11), run by an operator after 2-7 are
+   deployed.
 
 Each fix pull request removes its switch, promotes its property and regenerates its traces, as
 "Fixing a Modeled Defect Promotes Its Invariant" requires.
+
+Shipping the grace delete before succession has a cost: a predecessor whose grace period ends
+before step 5 is deployed is soft-deleted as `source_retired` instead of being merged with its
+successor. That is reversible. `Device :restore` brings the record back, its archive rows are
+kept, and the next succession pass then treats it as a predecessor.
 
 ## Risks and trade-offs
 

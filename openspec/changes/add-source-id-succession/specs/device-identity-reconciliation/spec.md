@@ -300,7 +300,10 @@ a succession and reactivation candidate. A marked record named by an open de-dup
 SHALL NOT be deleted while the task is open. A sweep, address-only or MAC-only sighting SHALL NOT
 clear the mark, extend the grace period or restore the tombstone. The grace deletion pass SHALL
 be bounded by the same mass guard as retirement. A record that an operator restores SHALL NOT be
-marked again until another of its source-authoritative identifiers is retired.
+marked again until another of its source-authoritative identifiers is retired. When a marked
+record comes to hold an agent identifier or a source-authoritative identifier, by reactivation,
+by a succession merge into it or by any ingest, the transaction that registers the identifier
+SHALL clear the mark.
 
 #### Scenario: A retired-only record is marked at once
 - **GIVEN** device X holds only Armis device id 1001 and no other strong identifier from a current source
@@ -327,6 +330,19 @@ marked again until another of its source-authoritative identifiers is retired.
 - **GIVEN** device X is marked `source_retired` and holds address `192.0.2.10`
 - **WHEN** a sweep finds `192.0.2.10` answering, every hour until the grace period ends
 - **THEN** device X SHALL still be soft-deleted when its grace period ends
+
+#### Scenario: A new identifier clears the mark
+- **GIVEN** device X is marked `source_retired`
+- **WHEN** an ingest registers agent identifier `agent-01` on device X
+- **THEN** device X SHALL NOT be marked `source_retired`
+- **AND** the device cleanup pass SHALL NOT delete device X when the grace period ends
+
+#### Scenario: A succession merge clears the survivor's mark
+- **GIVEN** device X is marked `source_retired` after its Armis device id 1001 was retired
+- **AND** device Y, created after X, holds the current Armis device id 2002 and passes the succession conditions with X
+- **WHEN** the succession pass merges Y into X
+- **THEN** device X SHALL hold Armis device id 2002
+- **AND** device X SHALL NOT be marked `source_retired`
 
 ### Requirement: Retired Holders Do Not Keep An Address
 A record holding a current source-authoritative identifier SHALL take an address from a holder that is marked `source_retired`, or whose source-authoritative identifiers are all retired, whatever their observation times. Between two identified records, the newer-observation rule SHALL compare the time of each record's last identity-bearing observation, which a sweep, an ARP or census sighting, or an address-only sighting SHALL NOT advance.
