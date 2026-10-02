@@ -19,14 +19,18 @@ type account struct {
 }
 
 type serviceLine struct {
-	Number     string
-	Nickname   string
-	Product    string
-	Active     bool
-	PublicIP   bool
-	DataPoolID string
-	StartDate  string
-	EndDate    string
+	Number       string
+	Nickname     string
+	Product      string
+	Active       bool
+	PublicIP     bool
+	DataPoolID   string
+	StartDate    string
+	EndDate      string
+	AviationIATA string
+	AviationICAO string
+	TailNumber   string
+	SeatCount    int
 }
 
 type terminal struct {
@@ -178,14 +182,18 @@ func parseTerminal(row gjson.Result) (terminal, bool) {
 
 func parseServiceLine(row gjson.Result) serviceLine {
 	return serviceLine{
-		Number:     trimmed(row, "serviceLineNumber"),
-		Nickname:   trimmed(row, "nickname"),
-		Product:    trimmed(row, "productReferenceId"),
-		Active:     row.Get("active").Bool(),
-		PublicIP:   row.Get("publicIp").Bool(),
-		DataPoolID: trimmed(row, "dataPoolId"),
-		StartDate:  trimmed(row, "startDate"),
-		EndDate:    trimmed(row, "endDate"),
+		Number:       trimmed(row, "serviceLineNumber"),
+		Nickname:     trimmed(row, "nickname"),
+		Product:      trimmed(row, "productReferenceId"),
+		Active:       row.Get("active").Bool(),
+		PublicIP:     row.Get("publicIp").Bool(),
+		DataPoolID:   trimmed(row, "dataPoolId"),
+		StartDate:    trimmed(row, "startDate"),
+		EndDate:      trimmed(row, "endDate"),
+		AviationIATA: trimmed(row, "iataCode"),
+		AviationICAO: trimmed(row, "icaoCode"),
+		TailNumber:   trimmed(row, "tailNumber"),
+		SeatCount:    int(row.Get("seatCount").Int()),
 	}
 }
 

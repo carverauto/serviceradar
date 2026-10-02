@@ -54,6 +54,18 @@ func buildDiscovery(snap *inventorySnapshot, observedAt time.Time) *sdk.DeviceDi
 			metadata["product_reference_id"] = sl.Product
 			metadata["public_ip_enabled"] = sl.PublicIP
 			metadata["data_pool_id"] = sl.DataPoolID
+			if sl.AviationIATA != "" {
+				metadata["aviation_iata"] = sl.AviationIATA
+			}
+			if sl.AviationICAO != "" {
+				metadata["aviation_icao"] = sl.AviationICAO
+			}
+			if sl.TailNumber != "" {
+				metadata["tail_number"] = sl.TailNumber
+			}
+			if sl.SeatCount > 0 {
+				metadata["seat_count"] = sl.SeatCount
+			}
 		}
 		routerIDs := make([]string, 0, len(t.Routers))
 		for _, r := range t.Routers {
@@ -63,16 +75,18 @@ func buildDiscovery(snap *inventorySnapshot, observedAt time.Time) *sdk.DeviceDi
 			metadata["router_device_ids"] = routerIDs
 		}
 
+		status := terminalStatus(t, sl, hasLine)
 		discovery.AddDevice(sdk.DiscoveredDevice{
-			DeviceID:   deviceID,
-			Hostname:   t.Nickname,
-			Serial:     t.KitSerial,
-			VendorName: vendorName,
-			Model:      terminalModel,
-			Type:       "satellite_terminal",
-			Status:     terminalStatus(t, sl, hasLine),
-			Labels:     discoveryLabels(instance),
-			Metadata:   compactMetadata(metadata),
+			DeviceID:    deviceID,
+			Hostname:    t.Nickname,
+			Serial:      t.KitSerial,
+			VendorName:  vendorName,
+			Model:       terminalModel,
+			Type:        "satellite_terminal",
+			Status:      status,
+			IsAvailable: terminalAvailability(status),
+			Labels:      discoveryLabels(instance),
+			Metadata:    compactMetadata(metadata),
 		})
 
 		for _, r := range t.Routers {
@@ -104,6 +118,16 @@ func buildDiscovery(snap *inventorySnapshot, observedAt time.Time) *sdk.DeviceDi
 		}
 	}
 	return discovery
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+// terminalAvailability returns nil for unknown states, true only when the
+// service line reports active.
+func terminalAvailability(status string) *bool {
+	return boolPtr(status == "active")
 }
 
 // terminalStatus is display state from the service line, not reachability:
