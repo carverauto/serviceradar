@@ -16,11 +16,29 @@ import {normalizeInstanceUrl} from "../auth/credentials.js"
 import {resolveCredentialToken} from "../auth/index.js"
 import {formatFetchFailure} from "../tls_ca.js"
 import {readLineFromStdin, relativePath} from "../utils.js"
-import {loadManifest, readWasm, sha256} from "./manifest.js"
+import {loadManifest, loadManifestFromBundle, readWasm, sha256} from "./manifest.js"
+import type {PluginProject} from "./manifest.js"
 
 export async function publishCommand(options: Record<string, any>): Promise<void> {
-  const projectDir = resolve(options.cwd || process.cwd())
-  const project = loadManifest(projectDir, options)
+  let project: PluginProject
+  let bundleCleanup: (() => void) | undefined
+
+  if (options.bundle) {
+    const result = loadManifestFromBundle(String(options.bundle))
+    project = result.project
+    bundleCleanup = result.cleanup
+  } else {
+    project = loadManifest(resolve(options.cwd || process.cwd()), options)
+  }
+
+  try {
+    await runPublish(project, options)
+  } finally {
+    bundleCleanup?.()
+  }
+}
+
+async function runPublish(project: PluginProject, options: Record<string, any>): Promise<void> {
   const manifest = project.manifest
 
   const instance = normalizeInstanceUrl(options.instance)
@@ -48,7 +66,7 @@ export async function publishCommand(options: Record<string, any>): Promise<void
   console.log("Publish summary:")
   console.log(`  instance: ${instance}`)
   console.log(`  plugin:   ${manifest.id}@${manifest.version}`)
-  console.log(`  wasm:     ${relativePath(projectDir, project.wasmPath)} (${wasmBytes.length} bytes, ${contentHash.slice(0, 12)}…)`)
+  console.log(`  wasm:     ${relativePath(project.projectDir, project.wasmPath)} (${wasmBytes.length} bytes, ${contentHash.slice(0, 12)}…)`)
   console.log(`  auth:     ${credential.source}${credential.user ? ` (${credential.user})` : ""}`)
   if (capabilities.length > 0) {
     console.log(`  requests: ${capabilities.join(", ")}`)

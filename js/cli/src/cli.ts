@@ -102,7 +102,7 @@ Notification subcommands:
 Plugin subcommands:
   serviceradar-cli plugin init <name> [--template go|rust] [--plugin-id my-plugin] [--force]
   serviceradar-cli plugin validate [--manifest plugin.yaml] [--wasm plugin.wasm]
-  serviceradar-cli plugin publish --instance <url> [--token <bearer>] [--wasm plugin.wasm] [--yes]
+  serviceradar-cli plugin publish --instance <url> [--token <bearer>] [--wasm plugin.wasm] [--bundle path/to/bundle.zip] [--yes]
   serviceradar-cli plugin status --instance <url> --id <package-id>
   serviceradar-cli plugin assignments|secrets|rules|controllers <list|get|create|update|enable|disable> --instance <url>
   serviceradar-cli plugin apply --instance <url> --file playbooks/demo-plugins.yaml [--dry-run]
@@ -145,7 +145,10 @@ Plugin commands:
             built plugin.wasm if present. No build, no network.
   publish   Stage the built plugin on an instance and upload its bundle. The
             package lands staged; an administrator approves it before agents run
-            it. Needs a token carrying the \`plugin.publish\` scope.
+            it. Needs a token carrying the \`plugin.publish\` scope. Pass
+            --bundle <zip> to publish directly from a Bazel-produced zip (it
+            contains plugin.yaml and plugin.wasm); otherwise --wasm and the
+            manifest are read from the project directory.
   status    Read a staged package back to see whether it has been approved, and
             which capabilities were approved.
   apply     Idempotent gitops apply of plugin assignments, credential secrets,

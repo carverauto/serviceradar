@@ -191,6 +191,14 @@ serviceradar-cli plugin publish --instance https://serviceradar.example.com
 serviceradar-cli plugin status --instance https://serviceradar.example.com --id <package-id>
 ```
 
+From a Bazel workspace, pass `--bundle` to publish directly from the zip artifact
+without needing the source directory checked out:
+
+```bash
+serviceradar-cli plugin publish --instance https://serviceradar.example.com \
+  --bundle bazel-bin/build/wasm_plugins/my-probe_bundle.zip
+```
+
 `init` scaffolds against the language SDKs — the Go template builds with TinyGo
 against `serviceradar-sdk-go`, the Rust template targets `wasm32-wasip1` against
 `serviceradar-sdk-rust`. Neither SDK needs a CLI of its own: publishing acts on
