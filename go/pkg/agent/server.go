@@ -123,18 +123,19 @@ func sweepGroupConfigFromSweepConfig(sweepConfig *SweepConfig) SweepGroupConfig 
 	}
 
 	return SweepGroupConfig{
-		ID:            groupID,
-		SweepGroupID:  groupID,
-		Networks:      sweepConfig.Networks,
-		Ports:         sweepConfig.Ports,
-		SweepModes:    sweepConfig.SweepModes,
-		DeviceTargets: sweepConfig.DeviceTargets,
-		BannerGrab:    sweepConfig.BannerGrab,
-		Interval:      sweepConfig.Interval,
-		Concurrency:   sweepConfig.Concurrency,
-		Timeout:       sweepConfig.Timeout,
-		ScheduleType:  intervalLiteral,
-		ConfigHash:    sweepConfig.ConfigHash,
+		ID:              groupID,
+		SweepGroupID:    groupID,
+		Networks:        sweepConfig.Networks,
+		Ports:           sweepConfig.Ports,
+		SweepModes:      sweepConfig.SweepModes,
+		DeviceTargets:   sweepConfig.DeviceTargets,
+		BannerGrab:      sweepConfig.BannerGrab,
+		Interval:        sweepConfig.Interval,
+		Concurrency:     sweepConfig.Concurrency,
+		Timeout:         sweepConfig.Timeout,
+		MaxScanDuration: sweepConfig.MaxScanDuration,
+		ScheduleType:    intervalLiteral,
+		ConfigHash:      sweepConfig.ConfigHash,
 	}
 }
 
@@ -162,6 +163,7 @@ func buildSweepModelConfigFromGroup(cfg *ServerConfig, group SweepGroupConfig, l
 		Interval:      time.Duration(group.Interval),
 		Concurrency:   group.Concurrency,
 		Timeout:       time.Duration(group.Timeout),
+		MaxLifetime:   time.Duration(group.MaxScanDuration),
 		AgentID:       cfg.AgentID,
 		GatewayID:     cfg.AgentID,
 		Partition:     partition,

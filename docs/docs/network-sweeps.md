@@ -100,7 +100,11 @@ Profiles define reusable scan settings:
 - **Ports**: List of TCP ports to scan.
 - **Sweep modes**: One or more of the three supported modes (see below).
 - **Concurrency**: Parallel scan worker count.
-- **Timeouts**: Per-target scan timeout.
+- **Timeout**: Per-target scan timeout.
+- **Scan timeout**: Total wall-clock limit for a single sweep execution (e.g.
+  `10m`, `1h`). When a sweep reaches this limit it is marked `cancelled` rather
+  than `completed`. Unset means no clamp beyond the default 20-minute fallback
+  built into the agent.
 
 Groups can either reference a profile or define settings inline.
 

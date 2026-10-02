@@ -83,20 +83,21 @@ type Duration time.Duration
 
 // SweepConfig defines configuration parameters for network sweep operations.
 type SweepConfig struct {
-	MaxTargets    int
-	MaxGoroutines int
-	BatchSize     int
-	MemoryLimit   int64
-	Networks      []string              `json:"networks"`
-	Ports         []int                 `json:"ports"`
-	SweepModes    []models.SweepMode    `json:"sweep_modes"`
-	DeviceTargets []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
-	BannerGrab    BannerGrabConfig      `json:"banner_grab,omitempty"`    // Optional active banner-grab phase
-	Interval      Duration              `json:"interval"`
-	Concurrency   int                   `json:"concurrency"`
-	Timeout       Duration              `json:"timeout"`
-	SweepGroupID  string                `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
-	ConfigHash    string                `json:"config_hash,omitempty"`    // Hash of config for change detection
+	MaxTargets      int
+	MaxGoroutines   int
+	BatchSize       int
+	MemoryLimit     int64
+	Networks        []string              `json:"networks"`
+	Ports           []int                 `json:"ports"`
+	SweepModes      []models.SweepMode    `json:"sweep_modes"`
+	DeviceTargets   []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	BannerGrab      BannerGrabConfig      `json:"banner_grab,omitempty"`    // Optional active banner-grab phase
+	Interval        Duration              `json:"interval"`
+	Concurrency     int                   `json:"concurrency"`
+	Timeout         Duration              `json:"timeout"`
+	SweepGroupID    string                `json:"sweep_group_id,omitempty"`    // Sweep group UUID for result tracking
+	ConfigHash      string                `json:"config_hash,omitempty"`       // Hash of config for change detection
+	MaxScanDuration Duration              `json:"max_scan_duration,omitempty"` // Wall-clock scan timeout; 0 means use default
 }
 
 // BannerGrabConfig controls the optional active banner-grab phase.
@@ -119,19 +120,20 @@ type BannerGrabConfig struct {
 
 // SweepGroupConfig represents a single sweep group config parsed from gateway payloads.
 type SweepGroupConfig struct {
-	ID             string
-	SweepGroupID   string
-	Networks       []string
-	Ports          []int
-	SweepModes     []models.SweepMode
-	DeviceTargets  []models.DeviceTarget
-	BannerGrab     BannerGrabConfig
-	Interval       Duration
-	Concurrency    int
-	Timeout        Duration
-	ScheduleType   string
-	CronExpression string
-	ConfigHash     string
+	ID              string
+	SweepGroupID    string
+	Networks        []string
+	Ports           []int
+	SweepModes      []models.SweepMode
+	DeviceTargets   []models.DeviceTarget
+	BannerGrab      BannerGrabConfig
+	Interval        Duration
+	Concurrency     int
+	Timeout         Duration
+	MaxScanDuration Duration
+	ScheduleType    string
+	CronExpression  string
+	ConfigHash      string
 }
 
 // SweepGroupsConfig bundles multiple sweep group configs with a shared config hash.

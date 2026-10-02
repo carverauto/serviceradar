@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -90,7 +91,25 @@ func (s *NetworkSweeper) handleContextDone(ctx context.Context, resultBatch []mo
 
 	s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - timeout reached")
 
-	return nil
+	return ctx.Err()
+}
+
+// drainErrChan collects all errors from the (already-closed) channel and
+// reports the first, along with whether every error was a context cancellation.
+func drainErrChan(errChan <-chan error) (first error, allContext bool) {
+	allContext = true
+
+	for err := range errChan {
+		if first == nil {
+			first = err
+		}
+
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			allContext = false
+		}
+	}
+
+	return first, allContext
 }
 
 func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
@@ -107,6 +126,10 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	targetEstimate := estimateTargetCount(s.config)
 	if targetEstimate > defaultTargetBatch {
 		if err := s.runBatchedSweep(ctx, targetEstimate); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return s.completeCancelledSweep(ctx, startedAt)
+			}
+
 			return err
 		}
 
@@ -133,8 +156,6 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		case models.ModeTCPConnect:
 			tcpConnectTargets = append(tcpConnectTargets, t)
 		case models.ModeMTR:
-			// MTR is handled by the agent's ad-hoc scan path, not this persistent
-			// sweeper run.
 		}
 	}
 
@@ -216,9 +237,12 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	wg.Wait()
 	close(errChan)
 
-	// Check for any errors
-	for err := range errChan {
-		return err
+	if firstErr, allContext := drainErrChan(errChan); firstErr != nil {
+		if allContext {
+			return s.completeCancelledSweep(ctx, startedAt)
+		}
+
+		return firstErr
 	}
 
 	err = s.finishBannerGrabPhase(bannerPhase)
@@ -235,9 +259,30 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	return s.completeSuccessfulSweep(ctx, startedAt)
 }
 
+// completeCancelledSweep commits whatever partial results were gathered when
+// the scan hit its wall-clock timeout, and marks the run as cancelled so
+// callers can report the correct execution status.
+func (s *NetworkSweeper) completeCancelledSweep(ctx context.Context, startedAt time.Time) error {
+	s.mu.Lock()
+	s.lastSweepCancelled = true
+	s.mu.Unlock()
+
+	return s.completeSuccessfulSweep(ctx, startedAt)
+}
+
+// WasCancelledSweep returns true when the most-recently-completed sweep was
+// cut short by the configured scan timeout.
+func (s *NetworkSweeper) WasCancelledSweep() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.lastSweepCancelled
+}
+
 func (s *NetworkSweeper) markSweepStarted() {
 	s.mu.Lock()
 	s.sweepInProgress = true
+	s.lastSweepCancelled = false
 	s.mu.Unlock()
 }
 

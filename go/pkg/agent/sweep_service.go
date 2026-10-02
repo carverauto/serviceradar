@@ -409,6 +409,12 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		"sweep_group_id":  sweepGroupID,
 	}
 
+	// Signal a scan-timeout cancellation so the server can record the correct
+	// execution status (cancelled rather than completed).
+	if wasCancelled, ok := s.sweeper.(interface{ WasCancelledSweep() bool }); ok && wasCancelled.WasCancelledSweep() {
+		resultPayload["cancelled"] = true
+	}
+
 	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
 		resultPayload["scanner_stats"] = scannerStats
 	}

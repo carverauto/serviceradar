@@ -742,12 +742,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   defp compile_settings(profile, group) do
     base_settings =
       if profile do
-        %{
+        settings = %{
           "concurrency" => profile.concurrency,
           "timeout" => profile.timeout,
           "icmp_settings" => profile.icmp_settings || %{},
           "tcp_settings" => profile.tcp_settings || %{}
         }
+
+        if profile.scan_timeout do
+          Map.put(settings, "scan_timeout", profile.scan_timeout)
+        else
+          settings
+        end
       else
         %{
           "concurrency" => 50,

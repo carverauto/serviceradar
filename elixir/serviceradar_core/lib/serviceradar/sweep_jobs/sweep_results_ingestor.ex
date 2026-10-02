@@ -1913,6 +1913,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, actor, opts) do
     expected_total_hosts = Keyword.get(opts, :expected_total_hosts)
     is_final = Keyword.get(opts, :is_final, true)
+    is_cancelled = Keyword.get(opts, :is_cancelled, false)
     banner_grab_summary = Keyword.get(opts, :banner_grab_summary)
     request_id = Keyword.get(opts, :request_id)
     reporter_context = Keyword.fetch!(opts, :reporter_context)
@@ -1924,7 +1925,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     set_fields =
       updated_at
       |> execution_set_fields(scanner_metrics)
-      |> maybe_mark_execution_complete(is_final, completed_at, duration_ms)
+      |> maybe_mark_execution_complete(is_final, is_cancelled, completed_at, duration_ms)
 
     update_execution_row(execution_id, inc_fields, set_fields)
     maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
@@ -2187,10 +2188,22 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp maybe_mark_execution_complete(set_fields, false, _completed_at, _duration_ms),
-    do: set_fields
+  defp maybe_mark_execution_complete(
+         set_fields,
+         false,
+         _is_cancelled,
+         _completed_at,
+         _duration_ms
+       ), do: set_fields
 
-  defp maybe_mark_execution_complete(set_fields, true, completed_at, duration_ms) do
+  defp maybe_mark_execution_complete(set_fields, true, true, completed_at, duration_ms) do
+    set_fields
+    |> Keyword.put(:status, :cancelled)
+    |> Keyword.put(:completed_at, completed_at)
+    |> Keyword.put(:duration_ms, duration_ms)
+  end
+
+  defp maybe_mark_execution_complete(set_fields, true, _is_cancelled, completed_at, duration_ms) do
     set_fields
     |> Keyword.put(:status, :completed)
     |> Keyword.put(:completed_at, completed_at)

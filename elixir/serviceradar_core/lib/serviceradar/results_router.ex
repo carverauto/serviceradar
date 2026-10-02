@@ -445,6 +445,7 @@ defmodule ServiceRadar.ResultsRouter do
       expected_total_hosts = parse_total_hosts(payload)
       scanner_metrics = parse_scanner_metrics(payload)
       banner_grab_summary = parse_banner_grab_summary(payload)
+      is_cancelled = parse_cancelled_flag(payload)
 
       opts =
         Enum.reject(
@@ -460,7 +461,8 @@ defmodule ServiceRadar.ResultsRouter do
             request_id: status[:request_id],
             chunk_index: status[:chunk_index],
             total_chunks: status[:total_chunks],
-            is_final: status[:is_final]
+            is_final: status[:is_final],
+            is_cancelled: is_cancelled
           ],
           fn {_key, value} -> is_nil(value) or value == "" end
         )
@@ -679,6 +681,12 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp parse_banner_grab_summary(_payload), do: nil
+
+  defp parse_cancelled_flag(payload) when is_map(payload) do
+    if payload["cancelled"] == true, do: true
+  end
+
+  defp parse_cancelled_flag(_payload), do: nil
 
   defp build_sweep_result(host, last_sweep_time, network) when is_map(host) do
     case host_ip(host) do

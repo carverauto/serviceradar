@@ -82,6 +82,7 @@ type gatewaySweepSchedule struct {
 type gatewaySweepSettings struct {
 	Concurrency int    `json:"concurrency"`
 	Timeout     string `json:"timeout"`
+	ScanTimeout string `json:"scan_timeout,omitempty"`
 }
 
 func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroupsConfig, error) {
@@ -141,6 +142,12 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroups
 			groupConfig.Timeout = timeout
 		} else if group.Settings.Timeout != "" {
 			log.Warn().Err(err).Str("timeout", group.Settings.Timeout).Msg("Invalid sweep timeout")
+		}
+
+		if scanTimeout, err := parseDurationValue(group.Settings.ScanTimeout); err == nil {
+			groupConfig.MaxScanDuration = scanTimeout
+		} else if group.Settings.ScanTimeout != "" {
+			log.Warn().Err(err).Str("scan_timeout", group.Settings.ScanTimeout).Msg("Invalid sweep scan_timeout")
 		}
 
 		config.Groups = append(config.Groups, groupConfig)

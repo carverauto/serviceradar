@@ -184,7 +184,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       allow_nil? false
       public? true
       default :pending
-      constraints one_of: [:pending, :running, :completed, :failed]
+      constraints one_of: [:pending, :running, :completed, :failed, :cancelled]
       description "Current execution status"
     end
 

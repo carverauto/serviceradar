@@ -41,15 +41,16 @@ type NetworkSweeper struct {
 	stopped           bool
 	lastSweep         time.Time
 	// Device result aggregation for multi-IP devices
-	deviceResults   map[string]*DeviceResultAggregator
-	resultsMu       sync.Mutex
-	tickerReset     chan struct{}
-	bannerMu        sync.RWMutex
-	bannerPhase     *banner_grab.Engine
-	lastBannerStats *models.BannerGrabStats
-	bannerHandler   BannerObservationHandler
-	sweepInProgress bool
-	lastSummary     *models.SweepSummary
+	deviceResults      map[string]*DeviceResultAggregator
+	resultsMu          sync.Mutex
+	tickerReset        chan struct{}
+	bannerMu           sync.RWMutex
+	bannerPhase        *banner_grab.Engine
+	lastBannerStats    *models.BannerGrabStats
+	bannerHandler      BannerObservationHandler
+	sweepInProgress    bool
+	lastSweepCancelled bool
+	lastSummary        *models.SweepSummary
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs
