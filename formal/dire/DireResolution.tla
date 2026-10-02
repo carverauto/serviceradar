@@ -18,6 +18,12 @@
 (* devices" is checkable. The shape of every action was checked against    *)
 (* traces recorded from the real code (formal/dire/traces).                 *)
 (*                                                                          *)
+(* A source can re-identify a device (Rekey): the source id is a variable, *)
+(* and every environment without the Rekeys constant keeps it constant.    *)
+(* The source's exact collections (Collect) age the ids it stops reporting *)
+(* on a coarse absence clock, and a stale id retires into the archive      *)
+(* (RetireAbsent), which ingest still consults.                            *)
+(*                                                                          *)
 (* Merge lifecycle (tombstones, revival, purge, the fence) is modeled in   *)
 (* DireLifecycle.tla; here a merged record simply redirects to its target.  *)
 (* Paths are relative to elixir/serviceradar_core/lib/serviceradar/.        *)
@@ -29,28 +35,42 @@ CONSTANTS
     Ifaces,        \* physical interfaces
     IfPhys,        \* [Ifaces -> Phys]: the device an interface belongs to
     IfMac,         \* [Ifaces -> MacIds \cup {NoId}]: the interface's true MAC
-    SrcOf,         \* [Phys -> SrcIds \cup {NoId}]: the Armis device id, if Armis knows it
+    SrcOf0,        \* [Phys -> SrcIds \cup {NoId}]: the Armis device id at Init, if Armis knows it
+    Rekeys,        \* whether the source may re-identify a device under another id (Rekey)
+    FreshIds,      \* whether a re-key always uses an id the source never issued before
     AgentOf,       \* [Phys -> AgentIds \cup {NoId}]: the agent running on the device, if any
     ArmisMacs,     \* whether Armis reports the device's MACs with its id
+    HostOf,        \* [Phys -> hostnames]: the hostname Armis reports for the device; cloned
+                   \* machines share one
+    NewFirstSeenIds, \* source ids Armis reports with a new first-seen time; under any other id it
+                     \* reports the device's original one
     AgentIds,      \* agent ids (agent_id identifiers)
     SrcIds,        \* source-authoritative identifiers (one source)
     HwIds,         \* globally-unique MACs
     LaaIds,        \* locally-administered (randomized) MACs
     Ips,
     Observers,     \* which observers exist in this environment
+    Spare,         \* record names a write may use for a record no identifier is named for
     NoId, NoIp, NoRec,
-    Bugs
+    Bugs,
+    Unsafe         \* design alternatives rejected for identity safety (negative configurations)
 
-KnownBugs == {}
+KnownBugs == {"retired_source_id_vetoes", "stale_holder_keeps_address", "released_seed_stays_live",
+              "armis_alias_pass_blind", "foreign_sighting_confirms_alias"}
 ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
+
+UnsafeAlternatives == {"mac_only_succession", "retired_ids_forgotten",
+                       "overlapping_hostname_corroborates"}
+ASSUME Unsafe \subseteq UnsafeAlternatives
+ASSUME NewFirstSeenIds \subseteq SrcIds
 
 MacIds == HwIds \cup LaaIds
 Ids    == AgentIds \cup SrcIds \cup MacIds
 \* A record is named by the seed its uid was derived from: the highest-priority identifier
 \* (Ids.generate_deterministic_device_id/1) or, for an identifier-less update, the address.
-Recs   == Ids \cup Ips
+Recs   == Ids \cup Ips \cup Spare
 
 \* Ids @identifier_priority: agent_id, armis_device_id / integration_id, ..., mac.
 Prio(i) == IF i \in AgentIds THEN 0 ELSE IF i \in SrcIds THEN 1 ELSE IF i \in HwIds THEN 2 ELSE 3
@@ -65,14 +85,31 @@ VARIABLES
     owner,    \* device_identifiers: identifier -> record
     recIp,    \* ocsf_devices.ip
     alias,    \* confirmed IP aliases: address -> records
+    aliasRow, \* under foreign_sighting_confirms_alias, the address's alias row: the record it names
+              \* and whether it is still pending (detected, never confirmed)
     phys,     \* ghost: physical devices whose identity-bearing observations built the record
     ifClaims, \* InterfaceMacs: interface MACs a record's own interface table claims
-    act       \* the last step: observer, reported ids, address, decisions, address merges
+    act,      \* the last step: observer, reported ids, address, decisions, address merges
+    srcOf,    \* the source id the source currently reports for each device
+    absence,  \* per source id: Unissued, Present in the last collection, or absent (Fresh, Stale)
+    archive,  \* device_identifier_archive: source id -> the records it was retired from
+    recFs,    \* ghost: the source first-seen times a record carries (FsOf), each naming the
+              \* device whose hostname and MACs come with it
+    addrFresh, \* last_seen_time is newer than identity_observed_at: a sighting that is not
+               \* identity-bearing (a sweep, a census, an address-only poll) touched it last
+    seenWith  \* ghost: the source ids first seen no later than the source last saw the record's
+              \* device, that is, already issued at its last source sighting
 
-vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act>>
+vars == <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, act, srcOf, absence,
+          archive, recFs, addrFresh, seenWith>>
+
+\* The coarse absence clock: Fresh is absent from fewer than N exact collections or for less than
+\* T; Stale is absent from N consecutive exact collections and for at least T.
+Absences == {"Unissued", "Present", "Fresh", "Stale"}
 
 DecisionKinds == {"policy_block", "source_block", "alias_invalidated", "source_override",
-                  "ip_conflict"}
+                  "ip_conflict", "source_id_retired", "source_id_reactivated", "source_id_reissued",
+                  "succession_review"}
 Decision == [kind: DecisionKinds, recs: SUBSET Recs]
 
 TypeOK ==
@@ -82,11 +119,18 @@ TypeOK ==
     /\ owner \in [Ids -> Recs \cup {NoRec}]
     /\ recIp \in [Recs -> Ips \cup {NoIp}]
     /\ alias \in [Ips -> SUBSET Recs]
+    /\ aliasRow \in [Ips -> (Recs \cup {NoRec}) \X BOOLEAN]
     /\ phys \in [Recs -> SUBSET Phys]
     /\ ifClaims \in [Recs -> SUBSET MacIds]
     /\ act \in [name: STRING, ids: SUBSET Ids, ip: Ips \cup {NoIp},
                 decisions: SUBSET Decision, recorded: SUBSET Decision,
                 addressMerged: SUBSET Recs]
+    /\ srcOf \in [Phys -> SrcIds \cup {NoId}]
+    /\ absence \in [SrcIds -> Absences]
+    /\ archive \in [SrcIds -> SUBSET Recs]
+    /\ recFs \in [Recs -> SUBSET (Phys \X (SrcIds \cup {NoId}))]
+    /\ addrFresh \in [Recs -> BOOLEAN]
+    /\ seenWith \in [Recs -> SUBSET SrcIds]
 
 Live(r) == created[r] /\ into[r] = NoRec
 
@@ -103,11 +147,27 @@ MacsHeld(r) == HeldIn(owner, r, MacIds)
 IdsHeldIn(o, r) == HeldIn(o, r, Ids)
 IdsHeld(r) == IdsHeldIn(owner, r)
 
-\* SourceAuthorityGuard.conflict_from_rows/2: two records holding disjoint, non-empty sets
-\* of the same source's identifiers. Recorded (record_blocked/3).
-SrcConflictIn(o, M) == \E a, b \in M : a # b /\ SrcHeldIn(o, a) # {} /\ SrcHeldIn(o, b) # {}
-                                        /\ SrcHeldIn(o, a) \cap SrcHeldIn(o, b) = {}
-SrcConflict(M) == SrcConflictIn(owner, M)
+\* The source ids a record held and that were retired from it, or from a record merged into it,
+\* on archive ar and merge redirects i.
+ArchivedIn(ar, i, r) == {a \in SrcIds : \E q \in ar[a] : CanonIn(i, q, Cardinality(Recs)) = r}
+ArchivedOf(r) == ArchivedIn(archive, into, r)
+\* The source ids a record holds or held (D2: SourceAuthorityGuard reads both tables).
+SrcHistIn(o, ar, i, r) == SrcHeldIn(o, r) \cup ArchivedIn(ar, i, r)
+SrcHist(r) == SrcHistIn(owner, archive, into, r)
+
+\* SourceAuthorityGuard.conflict_from_rows/2: two records each holding or having held identifiers
+\* of the same source. Recorded (record_blocked/3). A value has one holder at a time, so two
+\* records' current values are always the disjoint sets the guard tests for; a value the archive
+\* keeps for one record and another record holds now was re-issued (D6), and never joins them
+\* either.
+SrcConflictIn(o, ar, i, M) ==
+    \E a, b \in M : /\ a # b /\ SrcHistIn(o, ar, i, a) # {} /\ SrcHistIn(o, ar, i, b) # {}
+SrcConflict(M) == SrcConflictIn(owner, archive, into, M)
+
+\* The ids the source reported in its last collection, and reports now.
+CurrentIds == {srcOf[h] : h \in Phys} \ {NoId}
+\* The ids the source has issued: first seen by now.
+Issued == {a \in SrcIds : absence[a] # "Unissued"}
 
 \* AliasGuard.distinct_agent_identity_conflict?/3; MergeEngine refuses every automatic merge of
 \* such a pair (merge_guard_violation/4).
@@ -124,6 +184,28 @@ DistinctIdentifiedIn(o, a, b) == IdsHeldIn(o, a) # {} /\ IdsHeldIn(o, b) # {} /\
 \* set.
 PolicyAllows(matched) == matched \cap (AgentIds \cup SrcIds \cup HwIds) # {}
 
+\* The globally-unique MACs a record reports (D3): its identifier rows, its own interface table,
+\* and the source's observations of the devices it describes, which carry their MACs when the
+\* source reports MACs. The archived observation of a retired id is the record's.
+SrcMacs(r) == IF ArmisMacs THEN UNION {MacsOf(v[1]) : v \in recFs[r]} ELSE {}
+MacEv(r) == (MacsHeld(r) \cup ifClaims[r] \cup SrcMacs(r)) \cap HwIds
+
+\* The first-seen time the source reports for device h under id a: the device's original one, or a
+\* new one for an id in NewFirstSeenIds. Two devices never share one.
+FsOf(h, a) == <<h, IF a \in NewFirstSeenIds THEN a ELSE NoId>>
+HostsOf(fs) == {HostOf[v[1]] : v \in fs}
+
+\* D3 corroboration of record r by the source's observations with first-seen times fs, under ids.
+\* The first-seen times agree; the ghost makes that exact (README, "What the models do not
+\* express"). Or the hostnames agree, and none of ids was first seen before the source last saw
+\* r's device: cloned machines share a hostname while both are in the source, but a re-keyed
+\* device appears under its new id only after its old one was last seen.
+\*   Unsafe overlapping_hostname_corroborates: a shared hostname corroborates on its own.
+CorroboratedBy(r, fs, ids) ==
+    \/ recFs[r] \cap fs # {}
+    \/ /\ HostsOf(recFs[r]) \cap HostsOf(fs) # {}
+       /\ "overlapping_hostname_corroborates" \in Unsafe \/ ids \cap seenWith[r] = {}
+
 ---------------------------------------------------------------------------
 Init ==
     /\ ipAt = [x \in Ifaces |-> NoIp]
@@ -132,10 +214,17 @@ Init ==
     /\ owner = [i \in Ids |-> NoRec]
     /\ recIp = [r \in Recs |-> NoIp]
     /\ alias = [p \in Ips |-> {}]
+    /\ aliasRow = [p \in Ips |-> <<NoRec, FALSE>>]
     /\ phys = [r \in Recs |-> {}]
     /\ ifClaims = [r \in Recs |-> {}]
     /\ act = [name |-> "Init", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
               addressMerged |-> {}]
+    /\ srcOf = SrcOf0
+    /\ absence = [a \in SrcIds |-> IF \E h \in Phys : SrcOf0[h] = a THEN "Present" ELSE "Unissued"]
+    /\ archive = [a \in SrcIds |-> {}]
+    /\ recFs = [r \in Recs |-> {}]
+    /\ addrFresh = [r \in Recs |-> FALSE]
+    /\ seenWith = [r \in Recs |-> {}]
 
 \* DHCP: an interface leases a free address or releases its lease.
 Lease(x, p) ==
@@ -144,7 +233,8 @@ Lease(x, p) ==
     /\ ipAt' = [ipAt EXCEPT ![x] = p]
     /\ act' = [name |-> "Lease", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims>>
+    /\ UNCHANGED <<created, into, owner, recIp, alias, aliasRow, phys, ifClaims, srcOf, absence,
+                   archive, recFs, addrFresh, seenWith>>
 
 \* The phys ghost after a step: merged records' devices join the record they were merged into
 \* (m1 into t1, m2 into t2), and an identity-bearing observation joins the record it landed on --
@@ -176,16 +266,37 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* registers. A randomized MAC is never one (Ids.has_strong_identifier?/1, #4760).
         strong  == S
         srcS    == S \cap SrcIds
-        \* A matched record holding a different source-authoritative identifier than the one
-        \* this update carries is not a match: the source-authoritative identifier decides, and
-        \* the override is recorded (SourceAuthorityGuard.source_mismatch?/3, applied by
-        \* BatchResolver.strong_match/2 and Resolver.lookup_governed_matches/3; #4611).
-        srcMismatch(r) == srcS # {} /\ SrcHeld(r) # {} /\ SrcHeld(r) \cap srcS = {}
+        \* D6: a retired id presented again. Resolution consults the archive: the id returns to the
+        \* record it was retired from, or that record's merge survivor, when exactly one such
+        \* record holds no current (unretired) id of the source, the update agrees with its archived
+        \* observation on a globally-unique MAC, and their first-seen times or hostnames agree
+        \* (CorroboratedBy). That is a reactivation; the archive row moves back. Otherwise the id is
+        \* re-issued: the update never joins the old record, and a record already named by the
+        \* id's uid, live or merged away, makes it a new record. (A record holding an archived id
+        \* is never deleted here; the grace delete and its restore are in DireLifecycle.)
+        retiredS == {a \in srcS : owner[a] = NoRec /\ archive[a] # {}}
+        heldBy  == UNION {{Canon(q) : q \in archive[a]} : a \in retiredS}
+        revivable == {c \in heldBy : /\ SrcHeld(c) = {} /\ S \cap MacEv(c) # {}
+                                     /\ CorroboratedBy(c, {FsOf(h, a) : a \in srcS}, retiredS)}
+        reactivated == IF Cardinality(revivable) = 1 THEN revivable ELSE {}
+        reissued == retiredS # {} /\ reactivated = {}
+        \* A matched record holding, or having held, a different source-authoritative identifier
+        \* than the one this update carries is not a match: the source-authoritative identifier
+        \* decides, and the override is recorded (SourceAuthorityGuard.source_mismatch?/3, applied
+        \* by BatchResolver.strong_match/2 and Resolver.lookup_governed_matches/3; #4611). A
+        \* retired id keeps this veto (D2), so a MAC never attaches a new id to an old record, and
+        \* the record a reported id was retired from is a match only by reactivation, which
+        \* resolves the id as if that record still held it.
+        srcMismatch(r) == srcS # {} /\ SrcHist(r) # {} /\ SrcHeld(r) \cap srcS = {}
         allM    == {Canon(owner[i]) : i \in {j \in S : owner[j] # NoRec}}
-        M       == {r \in allM : ~srcMismatch(r)}
+        M       == {r \in allM : ~srcMismatch(r)} \cup reactivated
         matched == {i \in S : owner[i] # NoRec /\ Canon(owner[i]) \in M}
+                   \cup (IF reactivated # {} THEN retiredS ELSE {})
+        named   == reissued /\ M = {} /\ created[Seed(strong)]
     IN
-    \E X \in (IF M # {} THEN M ELSE {NoRec}) :
+    \E X \in (IF M # {} THEN M ELSE {NoRec}),
+       stale \in (IF Bug("stale_holder_keeps_address") /\ kind = "Armis" THEN BOOLEAN ELSE {FALSE}),
+       fresh \in (IF named THEN {n \in Spare : ~created[n]} ELSE {NoRec}) :
     LET \* --- Step 1: strong-identifier conflict (merge_conflicting_devices/4) ---
         others     == M \ {X}
         conflictOk == others # {} /\ ~SrcConflict(M) /\ PolicyAllows(matched)
@@ -194,6 +305,7 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         holderAt == {r \in Recs : Live(r) /\ r \notin step1Merged /\ recIp[r] = p}
         target0 ==
             IF M # {} THEN X
+            ELSE IF fresh # NoRec THEN fresh
             ELSE IF strong # {} THEN Canon(Seed(strong))
             ELSE LET weak == holderAt \cup {r \in alias[p] : Live(r)}
                  IN IF weak # {} THEN CHOOSE r \in weak : TRUE ELSE Canon(p)
@@ -201,22 +313,49 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \*     (DeviceWrites.resolve_record_active_ip/7; for an existing device the mapper
         \*     polled, MapperResultsIngestor.move_device_address/4) ---
         others0   == holderAt \ {target0}
-        seedHold  == {r \in others0 : IdsHeld(r) = {}}
+        seedHold  == {r \in others0 : IdsHeld(r) = {} /\ ArchivedOf(r) = {}}
         \* A strong write creating a new record onto an address held by an anchorless provisional
         \* seed adopts the seed. An existing record never does (#4705): it takes the address below
-        \* and the seed releases it.
+        \* and the seed releases it. A record holding only retired ids is anchored by them: the
+        \* adoption check reads the archive too (D2), or another device's new id would adopt it.
         adopt     == strong # {} /\ ~created[target0] /\ seedHold # {}
         target    == IF adopt THEN CHOOSE r \in seedHold : TRUE ELSE target0
         \* An existing result whose address is still one of its own keeps it, and this write
         \* claims no address at all.
         keepAddr  == created[target] /\ recIp[target] \in keepIps
         \* An identity-bearing write at an address another live record holds: the address follows
-        \* the device observed at it, so the holder releases it (its address is cleared, it stays
-        \* live) and the decision is recorded (DeviceWrites.claim_address_from_holder/4; #4639).
-        \* The code releases only for an observation newer than the holder's last_seen_time; the
-        \* model has no clock, so every observation here is the newer one.
-        holders   == IF keepAddr THEN {} ELSE holderAt \ {target}
-        ipConflict == strong # {} /\ holders # {}
+        \* the device observed at it, so the holder releases it (its address is cleared) and the
+        \* decision is recorded (DeviceWrites.claim_address_from_holder/4; #4639). The rule
+        \* releases only for an observation newer than the holder's. The model has no clock: the
+        \* incoming observation is the newest identity-bearing one, and D7 compares it with the
+        \* holder's identity_observed_at, which only identity-bearing observations advance.
+        \*   Bug stale_holder_keeps_address: an Armis sync compares Armis's own last-seen time
+        \*       for the device with the holder's last_seen_time, which a sweep or a census
+        \*       refreshes (observed_after?/2), so a holder one of them touched last may keep
+        \*       the address. The write then claims no address and the holder keeps it. An agent
+        \*       check-in or a mapper poll compares the current time, and always wins.
+        rivals    == IF keepAddr THEN {} ELSE holderAt \ {target}
+        \* A source write whose hostname agrees with a rival's: agreement may attach only a record
+        \* that is not yet a device and carries no source-authoritative identifier, and a source
+        \* write carries one, so adoption is refused and the pair is recorded for de-duplication
+        \* review (DeviceWrites.adopt_on_hostname_agreement?/4). The refusal emits no telemetry: it
+        \* is recorded but not reported. The model writes only the source's hostnames (recFs).
+        hostRivals == IF kind = "Armis" THEN {y \in rivals : HostOf[h] \in HostsOf(recFs[y])} ELSE {}
+        staleHeld == IF stale THEN {r \in rivals : addrFresh[r]} ELSE {}
+        holders   == rivals \ staleHeld
+        ipConflict == strong # {} /\ rivals # {}
+        \* D8: an anchorless provisional seed (no identifier, current or retired) that releases its
+        \* only address to an identified device is soft-deleted in the same transaction, reason
+        \* seed_released; the model writes that as the record no longer existing, so a later
+        \* sweep of the address with no holder brings it back as a new seed. In every environment
+        \* with a strong writer an anchorless record is a sweep seed: an address-only Arp or
+        \* Discovery record needs a device with no globally-unique MAC (the phones environment,
+        \* which has no strong writer).
+        \*   Bug released_seed_stays_live: the seed releases the address and stays live, an
+        \*       addressless shell with nothing that ever removes it but ephemeral expiry.
+        released  == IF strong # {} /\ ~Bug("released_seed_stays_live")
+                     THEN {r \in holders : IdsHeld(r) = {} /\ ArchivedOf(r) = {}}
+                     ELSE {}
         owner1 == [i \in Ids |->
                      IF owner[i] \in step1Merged THEN target0
                      ELSE IF i \in S /\ owner[i] = NoRec THEN target
@@ -236,10 +375,11 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         mergeTry(y) ==
             /\ ~invalidate(y)
             /\ syncRuns /\ IdsHeldIn(owner1, y) = {}
-        mergeOk(y) == mergeTry(y) /\ ~SrcConflictIn(owner1, {y, target}) /\ ~DistinctAgents(y, target)
+        srcConflict2(y) == SrcConflictIn(owner1, archive, into, {y, target})
+        mergeOk(y) == mergeTry(y) /\ ~srcConflict2(y) /\ ~DistinctAgents(y, target)
         step2Inval  == {y \in aliasY : invalidate(y)}
         step2Merged == {y \in aliasY : mergeOk(y)}
-        srcRefused  == {y \in aliasY : mergeTry(y) /\ SrcConflictIn(owner1, {y, target})}
+        srcRefused  == {y \in aliasY : mergeTry(y) /\ srcConflict2(y)}
         merged == step1Merged \cup step2Merged
         decisions ==
             (IF others # {} /\ ~conflictOk
@@ -250,19 +390,43 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
             \cup (IF allM \ M # {}
                   THEN {[kind |-> "source_override", recs |-> (allM \ M) \cup {target0}]}
                   ELSE {})
-            \cup (IF ipConflict THEN {[kind |-> "ip_conflict", recs |-> {target} \cup holders]} ELSE {})
+            \cup (IF ipConflict THEN {[kind |-> "ip_conflict", recs |-> {target} \cup rivals]} ELSE {})
+            \cup (IF reactivated # {}
+                  THEN {[kind |-> "source_id_reactivated", recs |-> reactivated \cup {target}]}
+                  ELSE {})
+            \cup (IF reissued THEN {[kind |-> "source_id_reissued", recs |-> heldBy \cup {target}]}
+                  ELSE {})
         \* Every decision leaves a persisted identity decision (DecisionLog.record/4, #4613).
         recorded == decisions
+                    \cup {[kind |-> "policy_block", recs |-> {target, y}] : y \in hostRivals}
         into2   == [r \in Recs |-> IF r \in step1Merged THEN target0
                                ELSE IF r \in step2Merged THEN target
                                ELSE into[r]]
+        \* --- The alias sighting (AliasEvents.process_and_persist/2), after the alias pass ---
+        \* A source sync and a census record a sighting of the address on an alias row
+        \* (Sync.Aliases.process_alias_updates/2, which SyncIngestor runs after the alias
+        \* conflicts), as a mapper result does for the address it polled. recordAlias is a sighting
+        \* that reaches the confirmation threshold and confirms its row, the result's own.
+        \*   Bug foreign_sighting_confirms_alias: rows are looked up by the address alone
+        \*       (AliasEvents.process_alias/5, DeviceAliasState.lookup_by_value/3), so a sighting
+        \*       is recorded on the row the address already has, whichever record it names, and
+        \*       only an address with no row gets one, naming the result. Another device observed
+        \*       at the address confirms that row's alias, and no later device there gets a row of
+        \*       its own. A row confirmed once, or staled by the alias pass, confirms nothing again.
+        foreign  == Bug("foreign_sighting_confirms_alias")
+        sights   == kind \in {"Armis", "Arp"} \/ recordAlias
+        rowOf    == aliasRow[p][1]
+        confirms == IF ~recordAlias THEN {}
+                    ELSE IF ~foreign \/ rowOf = NoRec THEN {target}
+                    ELSE IF aliasRow[p][2] THEN {CanonIn(into2, rowOf, Cardinality(Recs))}
+                    ELSE {}
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->
-                      IF r = target THEN (IF keepAddr THEN recIp[r] ELSE p)
+                      IF r = target THEN (IF keepAddr \/ staleHeld # {} THEN recIp[r] ELSE p)
                       ELSE IF r \in holders THEN NoIp
                       ELSE recIp[r]]
     IN
-    /\ created' = [r \in Recs |-> created[r] \/ r = target]
+    /\ created' = [r \in Recs |-> (created[r] \/ r = target) /\ r \notin released]
     /\ into' = into2
     /\ owner' = owner2
     /\ recIp' = recIp2
@@ -270,7 +434,11 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
                    LET kept == (alias[q] \ merged) \ (IF q = p THEN step2Inval ELSE {}) IN
                    kept \cup (IF alias[q] \cap step1Merged # {} THEN {target0} ELSE {})
                         \cup (IF alias[q] \cap step2Merged # {} THEN {target} ELSE {})
-                   \cup (IF recordAlias /\ q = p THEN {target} ELSE {})]
+                   \cup (IF q = p THEN confirms ELSE {})]
+    /\ aliasRow' = IF foreign /\ sights /\ (rowOf = NoRec \/ recordAlias)
+                   THEN [aliasRow EXCEPT ![p] = IF rowOf = NoRec THEN <<target, ~recordAlias>>
+                                                ELSE <<rowOf, FALSE>>]
+                   ELSE aliasRow
     /\ ifClaims' = [r \in Recs |->
                       ifClaims[r]
                       \cup (IF r = target0 THEN UNION {ifClaims[m] : m \in step1Merged} ELSE {})
@@ -280,15 +448,40 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     /\ phys' = PhysAfter(h, S, p, step1Merged, target0, step2Merged, target, owner2, into2, recIp2)
     /\ act' = [name |-> kind, ids |-> S, ip |-> p, decisions |-> decisions,
                recorded |-> recorded, addressMerged |-> step2Merged]
-    /\ UNCHANGED ipAt
+    \* A source sync writes the device's first-seen time and hostname to the record it lands on;
+    \* a merge keeps both records' values.
+    /\ recFs' = [r \in Recs |->
+                   recFs[r]
+                   \cup (IF kind = "Armis" /\ r = target THEN {FsOf(h, a) : a \in srcS} ELSE {})
+                   \cup (IF r = target0 THEN UNION {recFs[m] : m \in step1Merged} ELSE {})
+                   \cup (IF r = target THEN UNION {recFs[m] : m \in step2Merged} ELSE {})]
+    \* The sync is the source's latest sighting of the record's device, and every id the source has
+    \* issued was first seen no later. A merged record was last seen at the later of the two.
+    /\ seenWith' = [r \in Recs |->
+                      seenWith[r]
+                      \cup (IF kind = "Armis" /\ r = target THEN Issued ELSE {})
+                      \cup (IF r = target0 THEN UNION {seenWith[m] : m \in step1Merged} ELSE {})
+                      \cup (IF r = target THEN UNION {seenWith[m] : m \in step2Merged} ELSE {})]
+    \* The write advances the record's last_seen_time, and its identity_observed_at only when it
+    \* is the device's own identity-bearing report (D7): never a census or an address-only poll.
+    /\ addrFresh' = [r \in Recs |-> IF r = target THEN kind = "Arp" \/ S = {} ELSE addrFresh[r]]
+    /\ archive' = [a \in SrcIds |->
+                     IF a \in retiredS THEN {q \in archive[a] : Canon(q) \notin reactivated}
+                     ELSE archive[a]]
+    /\ UNCHANGED <<ipAt, srcOf, absence>>
 
 \* Armis sync: the Armis device id, plus the device's MACs when Armis reports them. Its update
 \* carries a non-MAC identifier, so Sync.Aliases.process_alias_conflicts/2 runs.
+\*   Bug armis_alias_pass_blind: the pass looks for the address's alias under the partition the
+\*       update's identifiers are filed in, which for a sync naming its integration source is
+\*       the source's own (Ids.identifier_partition/2), while an alias is recorded under the
+\*       device's partition (AliasEvents). It never finds one, so an identified holder of the
+\*       alias keeps it after another device is observed at the address.
 ArmisObserve(h, x) ==
-    /\ SrcOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
+    /\ srcOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
     /\ \E ra \in BOOLEAN :
-         Resolve(h, x, {SrcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra, "sync",
-                 "Armis", {}, {})
+         Resolve(h, x, {srcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra,
+                 IF Bug("armis_alias_pass_blind") THEN "none" ELSE "sync", "Armis", {}, {})
 
 \* netprobe census: one interface's MAC and address, through SyncIngestor. A census update is an
 \* observer source with no non-MAC identifier, so Sync.Aliases never merges on it. A randomized
@@ -321,15 +514,149 @@ MapperObserve(h, x) ==
        THEN \E ra \in BOOLEAN : Resolve(h, x, ids, ra, "guard", "Discovery", ids, OwnIps(h))
        ELSE Resolve(h, x, {}, FALSE, "none", "Discovery", {}, {})
 
-\* Sweep: an address answered. SweepResultsIngestor attaches it to the live holder or alias
-\* holder of the address, and otherwise creates a provisional record seeded from the address
-\* (create_available_unknown_devices/5).
+\* Sweep: an address answered (SweepResultsIngestor.process_batch/4). The lookup prefers a
+\* confirmed alias holder of the address, then the record holding it
+\* (DeviceLookup.batch_lookup_by_ip/2), and the sighting refreshes that record's last_seen_time
+\* and availability and nothing else: a sweep never writes or moves an address and never merges.
+\* An address nothing holds gets a provisional record seeded from it
+\* (create_available_unknown_devices/5); its uid derives from the address, so a record already
+\* named by the address that holds it no longer -- merged away, or a shell that released it --
+\* makes the create a duplicate, which is skipped.
 SweepObserve(h, x) ==
-    /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ Resolve(h, x, {}, FALSE, "none", "Sweep", {}, {})
+    LET p        == ipAt[x]
+        aliasAt  == {r \in alias[p] : Live(r)}
+        holderAt == {r \in Recs : Live(r) /\ recIp[r] = p}
+        seen     == IF aliasAt # {} THEN aliasAt ELSE holderAt
+    IN
+    /\ IfPhys[x] = h /\ p # NoIp
+    /\ \/ \E r \in seen :
+            /\ addrFresh' = [addrFresh EXCEPT ![r] = TRUE]
+            /\ UNCHANGED <<created, recIp>>
+       \/ /\ seen = {} /\ ~created[p]
+          /\ created' = [created EXCEPT ![p] = TRUE]
+          /\ recIp' = [recIp EXCEPT ![p] = p]
+          /\ addrFresh' = [addrFresh EXCEPT ![p] = TRUE]
+    /\ act' = [name |-> "Sweep", ids |-> {}, ip |-> p, decisions |-> {}, recorded |-> {},
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, into, owner, alias, aliasRow, phys, ifClaims, srcOf, absence, archive,
+                   recFs, seenWith>>
+
+\* The source re-identifies device h: it reports h under id a from now on (a source-side merge or
+\* re-identification), joins the source (from NoId) or leaves it (to NoId). No other device is
+\* reported with a. Under FreshIds the source never issued a before; otherwise it may also
+\* re-issue an id DIRE has retired. (An id re-issued while DIRE still holds it as current is
+\* indistinguishable from the same asset, and is outside the model.)
+Rekey(h, a) ==
+    /\ Rekeys
+    /\ a # srcOf[h]
+    /\ a # NoId => /\ \A k \in Phys : srcOf[k] # a
+                   /\ \/ absence[a] = "Unissued"
+                      \/ ~FreshIds /\ absence[a] = "Stale" /\ owner[a] = NoRec
+    /\ srcOf' = [srcOf EXCEPT ![h] = a]
+    /\ absence' = IF a = NoId THEN absence ELSE [absence EXCEPT ![a] = "Present"]
+    \* An id issued now is first seen after every record's last sighting, a re-issued one too.
+    /\ seenWith' = IF a = NoId THEN seenWith ELSE [r \in Recs |-> seenWith[r] \ {a}]
+    /\ act' = [name |-> "Rekey", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, archive,
+                   recFs, addrFresh>>
+
+\* An exact collection of the source activates (ArmisSourceSnapshot.activate/3). Every id it
+\* reports is Present. An id it does not report ages: absent once it is Fresh, and it turns Stale
+\* after N consecutive exact collections and T, which this coarse clock reaches on any later
+\* collection. One absence never retires an id.
+Collect ==
+    /\ Rekeys
+    /\ \E aged \in [SrcIds -> {"Fresh", "Stale"}] :
+         absence' = [a \in SrcIds |->
+                       IF a \in CurrentIds THEN "Present"
+                       ELSE CASE absence[a] = "Present" -> "Fresh"
+                              [] absence[a] = "Fresh" -> aged[a]
+                              [] OTHER -> absence[a]]
+    /\ act' = [name |-> "Collect", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, srcOf,
+                   archive, recFs, addrFresh, seenWith>>
+
+\* The retirement job an activation enqueues (D1): a stale id leaves device_identifiers for the
+\* archive, remembering the record that held it, and the decision is recorded.
+\*   Bug retired_source_id_vetoes: nothing retires an id the source stopped reporting, so the
+\*       old record keeps it, and with it the veto against the device's new id, for ever.
+\*   Unsafe retired_ids_forgotten: retirement drops the identifier without archiving it, so
+\*       nothing remembers that the record held it.
+RetireAbsent(a) ==
+    /\ ~Bug("retired_source_id_vetoes")
+    /\ absence[a] = "Stale" /\ owner[a] # NoRec
+    /\ owner' = [owner EXCEPT ![a] = NoRec]
+    /\ archive' = IF "retired_ids_forgotten" \in Unsafe THEN archive
+                  ELSE [archive EXCEPT ![a] = @ \cup {owner[a]}]
+    /\ LET d == {[kind |-> "source_id_retired", recs |-> {owner[a]}]} IN
+       act' = [name |-> "Retire", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, created, into, recIp, alias, aliasRow, phys, ifClaims, srcOf, absence,
+                   recFs, addrFresh, seenWith>>
+
+\* The reconciler's succession pass. A predecessor holds only retired source ids; a successor
+\* holds a current one (D3).
+Pred(r) == Live(r) /\ SrcHeld(r) = {} /\ ArchivedOf(r) # {}
+Succ(r) == Live(r) /\ SrcHeld(r) # {}
+\* MACs both records report that link the predecessor to no other current record.
+LinkMacs(pr, sc) ==
+    {m \in MacEv(pr) \cap MacEv(sc) : \A r \in Recs \ {sc} : Succ(r) => m \notin MacEv(r)}
+\* The predecessor's last source observation and the successor's current one corroborate.
+Corroborated(pr, sc) == CorroboratedBy(pr, recFs[sc], SrcHeld(sc))
+\* A pair the evidence names: a linking MAC and, when corr, corroboration.
+Paired(pr, sc, corr) ==
+    Pred(pr) /\ Succ(sc) /\ LinkMacs(pr, sc) # {} /\ (corr => Corroborated(pr, sc))
+\* D3: the pairing is one-to-one in both directions, and no distinct assertion covers it (distinct
+\* agents: MergeEngine.merge_guard_violation/4).
+Successive(pr, sc, corr) ==
+    /\ Paired(pr, sc, corr)
+    /\ \A r \in Recs \ {sc} : ~Paired(pr, r, corr)
+    /\ \A q \in Recs \ {pr} : ~Paired(q, sc, corr)
+    /\ ~DistinctAgents(pr, sc)
+\*   Unsafe mac_only_succession: a linking MAC alone converges the pair.
+Succession(pr, sc) == Successive(pr, sc, "mac_only_succession" \notin Unsafe)
+
+\* The succession merge, reason source_succession. The record created first survives, usually the
+\* predecessor; the model does not order creation, so either may. The survivor holds the current
+\* id and takes the successor's address when the successor holds one, and the merged record's
+\* alias rows (DeviceAliasState.reassign_device). The merge is not an identity decision.
+Succeed(pr, sc) ==
+    /\ Succession(pr, sc)
+    /\ \E s \in {pr, sc} :
+         LET m == IF s = pr THEN sc ELSE pr IN
+         /\ into' = [into EXCEPT ![m] = s]
+         /\ owner' = [i \in Ids |-> IF owner[i] = m THEN s ELSE owner[i]]
+         /\ recIp' = [recIp EXCEPT ![s] = IF recIp[sc] # NoIp THEN recIp[sc] ELSE recIp[s]]
+         /\ alias' = [q \in Ips |-> IF m \in alias[q] THEN (alias[q] \ {m}) \cup {s} ELSE alias[q]]
+         /\ phys' = [phys EXCEPT ![s] = @ \cup phys[m]]
+         /\ ifClaims' = [ifClaims EXCEPT ![s] = @ \cup ifClaims[m]]
+         /\ recFs' = [recFs EXCEPT ![s] = @ \cup recFs[m]]
+         /\ seenWith' = [seenWith EXCEPT ![s] = @ \cup seenWith[m]]
+    /\ act' = [name |-> "Succession", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, created, aliasRow, srcOf, absence, archive, addrFresh>>
+
+\* D4: weaker evidence never merges. The pair gets a succession_review decision, which opens a
+\* de-duplication task: corroborated without a MAC, a MAC only, a MAC linking the predecessor to
+\* another current record, or a pairing that is not one-to-one.
+Review(pr, sc) ==
+    /\ Pred(pr) /\ Succ(sc)
+    /\ MacEv(pr) \cap MacEv(sc) # {} \/ Corroborated(pr, sc)
+    /\ ~Succession(pr, sc)
+    /\ LET d == {[kind |-> "succession_review", recs |-> {pr, sc}]} IN
+       act' = [name |-> "Review", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, srcOf,
+                   absence, archive, recFs, addrFresh, seenWith>>
 
 Next ==
     \/ \E x \in Ifaces, p \in Ips \cup {NoIp} : Lease(x, p)
+    \/ \E h \in Phys, a \in SrcIds \cup {NoId} : Rekey(h, a)
+    \/ Collect
+    \/ \E a \in SrcIds : RetireAbsent(a)
+    \/ \E pr, sc \in Recs : Succeed(pr, sc) \/ Review(pr, sc)
     \/ \E h \in Phys, x \in Ifaces :
          \/ "Armis" \in Observers /\ ArmisObserve(h, x)
          \/ "Arp" \in Observers /\ ArpObserve(h, x)
@@ -362,7 +689,7 @@ DistinctSourceIdsNeverMerge == \A r \in Recs : Live(r) => Cardinality(SrcHeld(r)
 OwnersAfter(I) == {CanonIn(into', owner'[i], Cardinality(Recs)) : i \in {j \in I : owner'[j] # NoRec}}
 EvidenceConverges ==
     [][Cardinality(OwnersAfter(act'.ids)) <= 1
-       \/ SrcConflictIn(owner', OwnersAfter(act'.ids))
+       \/ SrcConflictIn(owner', archive', into', OwnersAfter(act'.ids))
        \/ \E a, b \in OwnersAfter(act'.ids) :
             /\ HeldIn(owner', a, AgentIds) # {} /\ HeldIn(owner', b, AgentIds) # {}
             /\ HeldIn(owner', a, AgentIds) \cap HeldIn(owner', b, AgentIds) = {}]_vars
@@ -377,11 +704,71 @@ ObservedAddressHeld ==
          \E r \in Recs : created'[r] /\ into'[r] = NoRec /\ recIp'[r] = act'.ip
                          /\ act'.ids \cap HeldIn(owner', r, Ids) # {}]_vars
 
+\* IP Alias Resolution; IP Alias Sightings and Promotion: after a source sync observes a device at
+\* an address, every identified record keeping a confirmed alias of the address describes that
+\* device. Another device's identified record has the alias invalidated, and no other device's
+\* sighting confirms one. Checked after source syncs only: a census runs no alias pass, and
+\* AliasGuard runs only on the resolver's strong-match branch.
+AliasFollowsSyncedDevice ==
+    [][act'.name = "Armis" =>
+         \A x \in Ifaces, y \in Recs :
+           (/\ ipAt'[x] = act'.ip /\ y \in alias'[act'.ip]
+            /\ created'[y] /\ into'[y] = NoRec /\ HeldIn(owner', y, Ids) # {})
+           => IfPhys[x] \in phys'[y]]_vars
+
 \* Randomized MACs Are Evidence Only: no record is identified by a randomized MAC. A record is
 \* named by the identifier its uid was derived from, so a record named by one is identified by it.
 RandomizedMacsNeverIdentify == \A m \in LaaIds : ~created[m]
 
 \* Identity Decisions Are Never Silent.
 NoSilentDecision == [][act'.decisions \subseteq act'.recorded]_vars
+
+---------------------------------------------------------------------------
+(* Properties -- source identifier change (add-source-id-succession) *)
+
+\* Source ids a record still holds that the source no longer reports.
+AbsentHeld == {a \in SrcIds : owner[a] # NoRec /\ a \notin CurrentIds}
+\* A retirement the next job would still make, and a succession the reconciler would still make.
+PendingRetirement == ~Bug("retired_source_id_vetoes") /\ AbsentHeld # {}
+PendingSuccession == \E pr, sc \in Recs : Succession(pr, sc)
+\* At rest: every id the source stopped reporting has been absent long enough to retire, and
+\* neither the retirement job nor the reconciler would change anything.
+AtRest ==
+    /\ \A a \in AbsentHeld : absence[a] = "Stale"
+    /\ ~PendingRetirement
+    /\ ~PendingSuccession
+
+\* Source Identifiers Retire When Their Source Stops Reporting Them: at rest, at most one live
+\* record holding a source id describes each physical device.
+OneSourceRecordPerDevice ==
+    AtRest => \A h \in Phys :
+                Cardinality({r \in Recs : Live(r) /\ h \in phys[r] /\ SrcHeld(r) # {}}) <= 1
+
+\* A device's current source id, once owned, is owned by the record describing the device.
+CurrentSourceIdResolves ==
+    \A h \in Phys : srcOf[h] # NoId /\ owner[srcOf[h]] # NoRec =>
+                     h \in phys[Canon(owner[srcOf[h]])]
+
+\* Source-Authoritative Identifiers Govern Identity, over current ids: no merge joins two records
+\* holding distinct current source ids.
+NoMergeOfCurrentSourceIds ==
+    [][\A r \in Recs :
+         into[r] = NoRec /\ into'[r] # NoRec =>
+           LET cr == SrcHeld(r) \cap CurrentIds
+               ct == SrcHeld(CanonIn(into', r, Cardinality(Recs))) \cap CurrentIds
+           IN cr = {} \/ ct = {} \/ cr \cap ct # {}]_vars
+
+\* Retired Source Identifiers Converge Only With Corroboration: every source_succession merge
+\* joined a pair linked by a MAC, corroborated and paired one-to-one. A MAC alone never merges.
+SuccessionIsCorroborated ==
+    [][act'.name = "Succession" =>
+         \A r \in Recs : into[r] = NoRec /\ into'[r] # NoRec =>
+           \E pr, sc \in {r, into'[r]} : pr # sc /\ Successive(pr, sc, TRUE)]_vars
+
+\* No live record holds neither an identifier nor an address. A record holding only retired ids is
+\* marked source_retired by its retirement and deleted after the grace period (D5, modeled in
+\* DireLifecycle), so it is not a shell here.
+NoAddresslessShell ==
+    \A r \in Recs : Live(r) /\ ArchivedOf(r) = {} => IdsHeld(r) # {} \/ recIp[r] # NoIp
 
 =============================================================================

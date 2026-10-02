@@ -4,7 +4,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
   A trace test declares a synthetic world (model device names, typed identifiers, addresses),
   drives the real lifecycle entry points step by step -- ingest, merge, unmerge, soft delete,
-  sweep restore, agent check-in, purge -- and after every step records the full model state,
+  sweep, expiry, agent check-in, purge -- and after every step records the full model state,
   read from the database:
 
     * `status`/`reason`: whether each device row is absent, live, tombstoned or purged, and the
@@ -13,6 +13,13 @@ defmodule ServiceRadar.DireLifecycleTrace do
     * `ipOf`: each device's address;
     * `audit`: the `merge_audit` rows, oldest first;
     * `work`: the in-flight ingest item between an ingest's resolve and its write;
+    * `marked`: the live devices marked `source_retired` (add-source-id-succession D5). No code
+      writes the mark before D5 lands; until its `source_retired_at` column does, the
+      recorder reads the mark's metadata mirror (`identity_state`);
+    * `arch`: the devices each world identifier retired from. The archive table arrives with
+      D1, so every entry is empty until then;
+    * `sweepOnly`: the devices with no discovery source but the sweep, by the test
+      `SweepResultsIngestor.restore_eligible?/1` applies;
     * `act`: the step, with the devices whose `identity_revision` it moved (`bumped`).
 
   An ingest is logged as the model's two steps: `StartWork` (the uid the source reached and
@@ -44,6 +51,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
   alias ServiceRadar.Inventory.Identity.Resolver
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
@@ -447,20 +455,31 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
   @doc """
   An available sweep result for address `p`, reported by an authenticated agent for a sweep
-  group (`SweepResultsIngestor.ingest_results/3`). A sweep that restores a tombstone is the
-  model's `SweepRestore`. One that restores nothing (a merged-away tombstone at `p`) changes
-  no modeled state, and the model has no step for it, so none is logged; the recorder checks
-  that nothing it reads changed.
+  group (`SweepResultsIngestor.ingest_results/3`), logged as the model's step for what the
+  sweep did:
+
+    * `SweepCreate`: no row held `p`, and the sweep seeded one;
+    * `SweepRestore`: it restored the tombstone it found at `p`;
+    * `SweepRefresh`: it wrote the sighting to the one record it found, live or tombstoned;
+    * `SweepSkip`: it wrote nothing, and the only row at `p` is a tombstone.
+
+  A sighting stamps timestamps of one-second precision, which an earlier step can already have
+  written, so whether the sweep wrote a row is read from the row's version, not its values.
   """
   def sweep(trace, p) do
     before = raw(trace)
     agent_id = "trace-lifecycle-sweeper-#{trace.name}"
 
+    # Group names are unique, and a trace may sweep one address more than once.
     {:ok, group} =
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "DIRE lifecycle trace #{trace.name} #{p}", partition: "default", agent_ids: []},
+        %{
+          name: "DIRE lifecycle trace #{trace.name} #{p} #{System.unique_integer([:positive])}",
+          partition: "default",
+          agent_ids: []
+        },
         actor: trace.actor
       )
       |> Ash.create()
@@ -480,28 +499,56 @@ defmodule ServiceRadar.DireLifecycleTrace do
                  )
       end)
 
+    created = Map.keys(after_.devices) -- Map.keys(before.devices)
+
     restored =
       for {uid, d} <- before.devices, not is_nil(d.deleted_at), live?(after_, uid), do: uid
 
-    case restored do
-      [uid] ->
-        log(
-          trace,
-          after_,
-          [],
-          act("SweepRestore", name_of!(trace, uid), "NoDev", 0, bumped(trace, before, after_))
-        )
+    written =
+      for {uid, d} <- before.devices, Map.get(after_.devices, uid)[:version] != d.version, do: uid
 
-      [] when before == after_ ->
-        trace
+    {name, uid} =
+      case {created, restored, written} do
+        {[uid], [], []} ->
+          {"SweepCreate", uid}
 
-      [] ->
+        {[], [uid], [uid]} ->
+          {"SweepRestore", uid}
+
+        {[], [], [uid]} ->
+          {"SweepRefresh", uid}
+
+        {[], [], []} ->
+          {"SweepSkip", sole_tombstone!(trace, before, p)}
+
+        _ ->
+          flunk(
+            "DIRE lifecycle trace #{trace.name}: sweep at #{p} created #{inspect(created)}, " <>
+              "restored #{inspect(restored)} and wrote #{inspect(written)}"
+          )
+      end
+
+    log(
+      trace,
+      after_,
+      [],
+      act(name, name_of!(trace, uid), "NoDev", 0, bumped(trace, before, after_))
+    )
+  end
+
+  # A sweep that wrote nothing: the row it found must be the only one at `p`, a tombstone.
+  defp sole_tombstone!(trace, raw, p) do
+    ip = trace.real.ip[p]
+
+    case for({uid, %{ip: ^ip} = d} <- raw.devices, do: {uid, d}) do
+      [{uid, %{deleted_at: %_{}}}] ->
+        uid
+
+      rows ->
         flunk(
-          "DIRE lifecycle trace #{trace.name}: sweep at #{p} restored nothing yet changed state"
+          "DIRE lifecycle trace #{trace.name}: sweep at #{p} wrote nothing, with " <>
+            "#{inspect(rows)} at #{p}"
         )
-
-      other ->
-        flunk("DIRE lifecycle trace #{trace.name}: sweep at #{p} restored #{inspect(other)}")
     end
   end
 
@@ -620,8 +667,36 @@ defmodule ServiceRadar.DireLifecycleTrace do
       ipOf: Map.new(devices, &{&1, ip_of(trace, raw, &1)}),
       audit: Enum.map(trace.audit_order, &audit_row(trace, raw.audit[&1])),
       work: Enum.map(work, &%{target: &1, stale: false}),
+      marked:
+        Enum.filter(devices, fn d ->
+          match?(%{deleted_at: nil, identity_state: "source_retired"}, row(trace, raw, d))
+        end),
+      arch: Map.new(Map.keys(trace.world.ids), &{&1, []}),
+      sweepOnly:
+        Enum.filter(devices, fn d ->
+          case row(trace, raw, d) do
+            nil -> false
+            row -> not restore_source?(row.discovery_sources)
+          end
+        end),
       act: act
     }
+  end
+
+  defp row(trace, raw, d) do
+    case uid_of(trace, d) do
+      nil -> nil
+      uid -> Map.get(raw.devices, uid)
+    end
+  end
+
+  # SweepResultsIngestor.restore_eligible?/1: a discovery source other than the sweep.
+  defp restore_source?(sources) do
+    sources
+    |> List.wrap()
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&to_string/1)
+    |> Enum.any?(&(String.downcase(&1) != "sweep" and &1 != ""))
   end
 
   defp status(trace, raw, d) do
@@ -651,6 +726,9 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
   defp reason_class(nil), do: "none"
   defp reason_class("merged"), do: "merged"
+  defp reason_class("stale_ephemeral"), do: "expired"
+  defp reason_class("source_retired"), do: "source_retired"
+  defp reason_class("seed_released"), do: "seed_released"
   defp reason_class(_other), do: "other"
 
   defp ip_of(trace, raw, d) do
@@ -771,17 +849,24 @@ defmodule ServiceRadar.DireLifecycleTrace do
   # Every device the world can have produced (named, owning a world identifier, or holding a
   # world address), its merge_audit rows, and the owner of each world identifier.
   defp raw(trace) do
-    devices =
+    rows =
       trace
       |> read_devices()
       |> Enum.reject(&MapSet.member?(trace.pre_uids, &1.uid))
-      |> Map.new(fn d ->
+
+    versions = row_versions(Enum.map(rows, & &1.uid))
+
+    devices =
+      Map.new(rows, fn d ->
         {d.uid,
          %{
            deleted_at: d.deleted_at,
            deleted_reason: d.deleted_reason,
            ip: d.ip,
-           identity_revision: d.identity_revision
+           identity_revision: d.identity_revision,
+           discovery_sources: d.discovery_sources,
+           identity_state: (d.metadata || %{})["identity_state"],
+           version: Map.fetch!(versions, d.uid)
          }}
       end)
 
@@ -823,6 +908,22 @@ defmodule ServiceRadar.DireLifecycleTrace do
         )
 
     devices
+  end
+
+  # Each row's version, which moves on every write, including one that rewrites equal values:
+  # PostgreSQL writes a new row version, with the writing transaction's id (xmin) at a new
+  # tuple position (ctid). A test's sandbox runs every write in one transaction, so xmin alone
+  # can stay the same; the old version holds its position until that transaction ends.
+  defp row_versions([]), do: %{}
+
+  defp row_versions(uids) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT uid, xmin::text, ctid::text FROM platform.ocsf_devices WHERE uid = ANY($1)",
+        [uids]
+      )
+
+    Map.new(rows, fn [uid, xmin, ctid] -> {uid, {xmin, ctid}} end)
   end
 
   # Each world identifier's owner. A source identifier is two rows (armis_device_id and its
@@ -923,7 +1024,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
     :ok
   end
 
-  @variables [:status, :reason, :owner, :ipOf, :audit, :work, :act]
+  @variables [:status, :reason, :owner, :ipOf, :audit, :work, :marked, :arch, :sweepOnly, :act]
 
   defp tampered(trace) do
     {earlier, [last]} = Enum.split(trace.states, -1)
@@ -945,6 +1046,11 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
   defp tamper_value(:audit, [row | rest], _trace), do: [%{row | recent: not row.recent} | rest]
 
+  defp tamper_value(var, [], trace) when var in [:marked, :sweepOnly],
+    do: [hd(trace.world.devices)]
+
+  defp tamper_value(var, _devices, _trace) when var in [:marked, :sweepOnly], do: []
+
   defp tamper_value(var, fun, trace) when is_map(fun) do
     [key | _] = fun |> Map.keys() |> Enum.sort()
     Map.update!(fun, key, &tamper_entry(var, &1, trace))
@@ -958,6 +1064,8 @@ defmodule ServiceRadar.DireLifecycleTrace do
   defp tamper_entry(:owner, _d, _trace), do: "NoDev"
   defp tamper_entry(:ipOf, "NoIp", trace), do: hd(trace.world.ips)
   defp tamper_entry(:ipOf, _p, _trace), do: "NoIp"
+  defp tamper_entry(:arch, [], trace), do: [hd(trace.world.devices)]
+  defp tamper_entry(:arch, _devices, _trace), do: []
 
   def to_tla(trace) do
     states = Enum.map_join(trace.states, ",\n", &("  " <> tla_state(&1)))
@@ -996,6 +1104,8 @@ defmodule ServiceRadar.DireLifecycleTrace do
       MaxAudit = #{max(max_audit, 1)}
       MaxWork = 1
       FollowDepth = #{@follow_depth}
+      ExpiryEnabled = TRUE
+      RetirementEnabled = TRUE
       TraceLog <- TheLog
     INIT TraceInit
     NEXT TraceNext
@@ -1012,6 +1122,9 @@ defmodule ServiceRadar.DireLifecycleTrace do
       "ipOf |-> #{fun_map(s.ipOf, &marker/1)}, " <>
       "audit |-> <<#{Enum.map_join(s.audit, ", ", &tla_row/1)}>>, " <>
       "work |-> {#{Enum.map_join(s.work, ", ", &"[target |-> #{str(&1.target)}, stale |-> #{tla_bool(&1.stale)}]")}}, " <>
+      "marked |-> #{set(s.marked)}, " <>
+      "arch |-> #{fun_map(s.arch, &set/1)}, " <>
+      "sweepOnly |-> #{set(s.sweepOnly)}, " <>
       "act |-> [name |-> #{str(a.name)}, u |-> #{marker(a.u)}, v |-> #{marker(a.v)}, " <>
       "row |-> #{a.row}, stale |-> #{tla_bool(a.stale)}, bumped |-> #{set(a.bumped)}]]"
   end

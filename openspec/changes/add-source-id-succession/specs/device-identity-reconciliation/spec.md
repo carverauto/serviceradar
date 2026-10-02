@@ -57,9 +57,10 @@ The system SHALL NOT use an IP address, or a confirmed IP alias, as a device's i
 An address-only sighting attaches to the device that currently holds that address. DHCP moves
 addresses between devices, so "same address" never implies "same device". Only a record that is
 not yet a device may adopt an anchorless provisional seed (a sweep-created row) that holds its
-address; an existing device takes the address by the newer-observation rule instead. When an
+address; an existing device takes the address by the newer-observation rule instead. A record
+with archived identifier rows is anchored by them. When an
 existing device takes the only address of an anchorless provisional seed -- one with no
-identifier rows, discovered only by sweeps and holding no other address -- the seed SHALL be
+identifier rows, current or archived, discovered only by sweeps and holding no other address -- the seed SHALL be
 soft-deleted with `deleted_reason` `seed_released` in the same transaction, so a released seed
 never stays live without an address.
 
@@ -187,7 +188,7 @@ cardinality cap.
 - **THEN** Armis device id 1001 SHALL remain in the live identifier table unless it was retired
 
 ### Requirement: Corroborated Source Identifier Succession
-The scheduled reconciliation SHALL converge a record whose source-authoritative identifiers of a type are all retired (the predecessor) with the record holding a current identifier of that type in the same scope (the successor) when, and only when, all of the following hold: both report a universally administered, unicast MAC that is not all-zero or broadcast and that links the predecessor to no other record holding a current identifier of that type; their source observations agree on the source first-seen time or on the normalized hostname; the pairing is one-to-one in both directions; and no distinct assertion or merge cooldown forbids the pair.
+The scheduled reconciliation SHALL converge a record whose source-authoritative identifiers of a type are all retired (the predecessor) with the record holding a current identifier of that type in the same scope (the successor) when, and only when, all of the following hold: both report a universally administered, unicast MAC that is not all-zero or broadcast and that links the predecessor to no other record holding a current identifier of that type; their source observations agree on the source first-seen time, or on the normalized hostname when the source first saw the successor no earlier than it last saw the predecessor; the pairing is one-to-one in both directions; and no distinct assertion or merge cooldown forbids the pair.
 The record created first SHALL survive and SHALL take the current identifier. Source-owned
 metadata SHALL come from the successor, facts carrying provenance SHALL merge per key by newest
 provenance, and the survivor SHALL take the successor's address. The merge SHALL use reason
@@ -196,16 +197,19 @@ audit row carrying the shared MAC, the corroborating field, the retired and curr
 identifiers and the collections that proved the retirement. An administrative unmerge of a
 succession SHALL restore both records and SHALL record a distinct assertion for the pair.
 Succession SHALL NOT run at ingest. A shared MAC alone SHALL NOT converge two records. Hostname
-agreement only corroborates, and a hostname held by more than one current record of the source
-SHALL NOT corroborate. Where the evidence is weaker, the system SHALL record a
-`succession_review` identity decision, which opens a de-duplication task, instead of merging:
-an equal hostname and first-seen time without a shared MAC, a shared MAC without agreement on
-either field, a MAC shared with another current record, or a pairing that is not one-to-one.
+agreement only corroborates, a hostname held by more than one current record of the source
+SHALL NOT corroborate, and a hostname SHALL NOT corroborate when either time is missing. Where
+the evidence is weaker, the system SHALL record a `succession_review` identity decision, which
+opens a de-duplication task, instead of merging: an equal hostname and first-seen time without a
+shared MAC, a shared MAC without agreement on either field, a shared MAC and hostname whose
+source times fail the guard, a MAC shared with another current record, or a pairing that is not
+one-to-one.
 
 #### Scenario: MAC and hostname converge a re-identified asset
 - **GIVEN** device X, created first, holds only the retired Armis device id 1001
 - **AND** device Y holds the current Armis device id 2002
 - **AND** both report MAC `00:00:5e:00:53:01` and hostname `host01.example.com`, and no other record shares either
+- **AND** Armis first saw id 2002 after it last saw id 1001
 - **WHEN** the scheduled reconciliation runs
 - **THEN** device Y SHALL be merged into device X with reason `source_succession`
 - **AND** device X SHALL hold Armis device id 2002
@@ -230,6 +234,22 @@ either field, a MAC shared with another current record, or a pairing that is not
 - **WHEN** the scheduled reconciliation runs
 - **THEN** devices X and Y SHALL NOT be merged
 - **AND** a `succession_review` identity decision with reason `corroborated_without_mac` SHALL open a de-duplication task naming both
+
+#### Scenario: Cloned machines sharing a MAC and a hostname do not converge
+- **GIVEN** devices X and Y run copies of one image, and Armis reports both with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`, X under id 1001 and Y under id 2002
+- **AND** Armis stops reporting id 1001, which retires
+- **AND** their first-seen times differ, and Armis first saw id 2002 before it last saw id 1001
+- **WHEN** the scheduled reconciliation runs
+- **THEN** devices X and Y SHALL NOT be merged
+- **AND** a `succession_review` identity decision with reason `overlapping_hostname` SHALL open a de-duplication task naming both
+
+#### Scenario: A hostname without source times does not corroborate
+- **GIVEN** device X holds only a retired Armis device id and device Y holds a current one
+- **AND** they share MAC `00:00:5e:00:53:01` and hostname `host01.example.com`, and their first-seen times differ
+- **AND** the archived observation of device X carries no last-seen time
+- **WHEN** the scheduled reconciliation runs
+- **THEN** devices X and Y SHALL NOT be merged
+- **AND** a `succession_review` identity decision with reason `overlapping_hostname` SHALL open a de-duplication task naming both
 
 #### Scenario: A MAC shared by cloned machines does not converge
 - **GIVEN** device X holds only a retired Armis device id
@@ -266,8 +286,8 @@ either field, a MAC shared with another current record, or a pairing that is not
 - **AND** no later scheduled run SHALL merge them again
 
 ### Requirement: Retired Source Identifiers Are Reserved
-The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when that record holds no current identifier of that type and the update agrees with the archived observation on a universally administered MAC and on the source first-seen time or the hostname; otherwise it SHALL write the update as a new record and record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
-Returning an identifier SHALL move its archive row back to the live identifier table, SHALL
+The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when exactly one such record qualifies, that record holds no unretired identifier of that type, whether or not the source still reports it, and the update agrees with the archived observation on a universally administered MAC and on the source first-seen time, or on the hostname when the update's first-seen time is no earlier than the archived observation's last-seen time; otherwise it SHALL write the update as a new record and record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
+Returning an identifier SHALL resolve the update to that record, SHALL move its archive row back to the live identifier table, SHALL
 clear a `source_retired` mark, SHALL restore a `source_retired` tombstone through the audited
 restore path, and SHALL record a `source_id_reactivated` identity decision. Returning an
 identifier SHALL NOT merge two live records.
@@ -275,7 +295,7 @@ identifier SHALL NOT merge two live records.
 #### Scenario: A retired id returns to its holder
 - **GIVEN** device X held Armis device id 1001, retired, with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`
 - **AND** device X holds no current Armis device id
-- **WHEN** Armis reports id 1001 again with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`
+- **WHEN** Armis reports id 1001 again with MAC `00:00:5e:00:53:01`, hostname `host01.example.com` and the first-seen time it reported before
 - **THEN** device X SHALL hold Armis device id 1001 in the live identifier table
 - **AND** a `source_id_reactivated` identity decision SHALL be recorded
 
@@ -287,7 +307,7 @@ identifier SHALL NOT merge two live records.
 - **AND** a `source_id_reissued` identity decision SHALL open a de-duplication task naming both records
 
 #### Scenario: A retired id whose holder now holds a current id
-- **GIVEN** device X held Armis device id 1001, retired, and now holds the current Armis device id 2002 after a succession
+- **GIVEN** device X held Armis device id 1001, retired, and now holds Armis device id 2002 in the live identifier table after a succession
 - **WHEN** Armis reports id 1001 again
 - **THEN** device X SHALL NOT receive Armis device id 1001
 - **AND** a new record SHALL be created and a `source_id_reissued` identity decision SHALL name both records
@@ -299,7 +319,10 @@ a succession and reactivation candidate. A marked record named by an open de-dup
 SHALL NOT be deleted while the task is open. A sweep, address-only or MAC-only sighting SHALL NOT
 clear the mark, extend the grace period or restore the tombstone. The grace deletion pass SHALL
 be bounded by the same mass guard as retirement. A record that an operator restores SHALL NOT be
-marked again until another of its source-authoritative identifiers is retired.
+marked again until another of its source-authoritative identifiers is retired. When a marked
+record comes to hold an agent identifier or a source-authoritative identifier, by reactivation,
+by a succession merge into it or by any ingest, the transaction that registers the identifier
+SHALL clear the mark.
 
 #### Scenario: A retired-only record is marked at once
 - **GIVEN** device X holds only Armis device id 1001 and no other strong identifier from a current source
@@ -326,6 +349,19 @@ marked again until another of its source-authoritative identifiers is retired.
 - **GIVEN** device X is marked `source_retired` and holds address `192.0.2.10`
 - **WHEN** a sweep finds `192.0.2.10` answering, every hour until the grace period ends
 - **THEN** device X SHALL still be soft-deleted when its grace period ends
+
+#### Scenario: A new identifier clears the mark
+- **GIVEN** device X is marked `source_retired`
+- **WHEN** an ingest registers agent identifier `agent-01` on device X
+- **THEN** device X SHALL NOT be marked `source_retired`
+- **AND** the device cleanup pass SHALL NOT delete device X when the grace period ends
+
+#### Scenario: A succession merge clears the survivor's mark
+- **GIVEN** device X is marked `source_retired` after its Armis device id 1001 was retired
+- **AND** device Y, created after X, holds the current Armis device id 2002 and passes the succession conditions with X
+- **WHEN** the succession pass merges Y into X
+- **THEN** device X SHALL hold Armis device id 2002
+- **AND** device X SHALL NOT be marked `source_retired`
 
 ### Requirement: Retired Holders Do Not Keep An Address
 A record holding a current source-authoritative identifier SHALL take an address from a holder that is marked `source_retired`, or whose source-authoritative identifiers are all retired, whatever their observation times. Between two identified records, the newer-observation rule SHALL compare the time of each record's last identity-bearing observation, which a sweep, an ARP or census sighting, or an address-only sighting SHALL NOT advance.

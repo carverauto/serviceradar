@@ -43,9 +43,102 @@ tlc_test(
 )
 
 tlc_test(
+    name = "lifecycle_vacuity_grace_delete_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_grace_delete.cfg",
+    expect = "violation:NeverGraceDeletes",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
+    name = "lifecycle_vacuity_reactivate_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_reactivate.cfg",
+    expect = "violation:NeverReactivatesRetired",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
     name = "lifecycle_goal_test",
     size = "medium",
     cfg = "lifecycle_goal.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# The goal does not rest on ephemeral expiry running.
+tlc_test(
+    name = "lifecycle_goal_no_expiry_test",
+    size = "medium",
+    cfg = "lifecycle_goal_no_expiry.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# Retirement, the grace delete and reactivation (add-source-id-succession D5, D6), split from
+# the goal so each check stays inside its budget: two devices with two identifiers, and a
+# three-device merge chain with one.
+tlc_test(
+    name = "lifecycle_goal_retirement_test",
+    size = "medium",
+    cfg = "lifecycle_goal_retirement.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
+    name = "lifecycle_goal_retirement_chain_test",
+    size = "medium",
+    cfg = "lifecycle_goal_retirement_chain.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
+    name = "lifecycle_vacuity_expired_returns_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_expired_returns.cfg",
+    expect = "violation:NeverRestoresExpired",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# The defect switch today's sweep has violates the property its fix (D12) restores.
+tlc_test(
+    name = "lifecycle_witness_sweep_refreshes_expired_tombstone_test",
+    size = "medium",
+    cfg = "lifecycle_witness_sweep_refreshes_expired_tombstone.cfg",
+    expect = "violation:ExpiredDeviceReturns",
     spec = "MCDireLifecycle.tla",
     workers = 8,
     deps = [
@@ -129,6 +222,60 @@ tlc_test(
 )
 
 tlc_test(
+    name = "resolution_goal_armis_rekey_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_rekey.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_rekey_new_first_seen_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_rekey_new_first_seen.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_rekey_shared_mac_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_rekey_shared_mac.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_clones_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_clones.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_reissued_ids_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_reissued_ids.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_reissued_ids_one_device_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_reissued_ids_one_device.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
     name = "resolution_vacuity_router_merges_test",
     cfg = "resolution_vacuity_router_merges.cfg",
     expect = "violation:NeverMerged",
@@ -152,8 +299,101 @@ tlc_test(
     deps = ["DireResolution.tla"],
 )
 
+tlc_test(
+    name = "resolution_vacuity_succession_test",
+    cfg = "resolution_vacuity_succession.cfg",
+    expect = "violation:NeverSucceeds",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_vacuity_hostname_succession_test",
+    cfg = "resolution_vacuity_hostname_succession.cfg",
+    expect = "violation:NeverSucceeds",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+# ---- Rejected alternatives: each design alternative in Unsafe merges two devices ----
+
+tlc_test(
+    name = "resolution_unsafe_mac_only_succession_test",
+    size = "medium",
+    cfg = "resolution_unsafe_mac_only_succession.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_unsafe_retired_ids_forgotten_test",
+    size = "medium",
+    cfg = "resolution_unsafe_retired_ids_forgotten.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_unsafe_overlapping_hostname_corroborates_test",
+    size = "medium",
+    cfg = "resolution_unsafe_overlapping_hostname_corroborates.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+# ---- Witnesses: each defect switch today's code has violates the property its fix restores ----
+
+tlc_test(
+    name = "resolution_witness_retired_source_id_vetoes_test",
+    cfg = "resolution_witness_retired_source_id_vetoes.cfg",
+    expect = "violation:OneSourceRecordPerDevice",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_stale_holder_keeps_address_test",
+    cfg = "resolution_witness_stale_holder_keeps_address.cfg",
+    expect = "violation:ObservedAddressHeld",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_armis_alias_pass_blind_test",
+    cfg = "resolution_witness_armis_alias_pass_blind.cfg",
+    expect = "violation:AliasFollowsSyncedDevice",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_foreign_sighting_confirms_alias_test",
+    cfg = "resolution_witness_foreign_sighting_confirms_alias.cfg",
+    expect = "violation:AliasFollowsSyncedDevice",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_released_seed_stays_live_test",
+    cfg = "resolution_witness_released_seed_stays_live.cfg",
+    expect = "violation:NoAddresslessShell",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
 # ---- Traces recorded from the real code (a matched trace reaches its last state) ----
 # A __tamper_<var> variant alters one variable in the final state and must NOT be matched.
+# A __knockout configuration checks a trace without the defect switch it demonstrates and must
+# NOT be matched either. A __witness configuration checks a trace against the property its defect
+# breaks, which the trace must violate.
 
 tlc_test(
     name = "trace_agent_alias_unknown_mac_test",
@@ -183,6 +423,17 @@ tlc_test(
     name = "trace_armis_dhcp_test",
     cfg = "traces/Trace_armis_dhcp.cfg",
     expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_armis_dhcp.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__knockout_test",
+    cfg = "traces/Trace_armis_dhcp__knockout.cfg",
     spec = "traces/Trace_armis_dhcp.tla",
     deps = [
         "CurrentBugs.tla",
@@ -314,6 +565,17 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_conflict_unmerge__tamper_arch_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_arch.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_arch.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_conflict_unmerge__tamper_audit_test",
     cfg = "traces/Trace_conflict_unmerge__tamper_audit.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_audit.tla",
@@ -328,6 +590,17 @@ tlc_test(
     name = "trace_conflict_unmerge__tamper_ipOf_test",
     cfg = "traces/Trace_conflict_unmerge__tamper_ipOf.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_ipOf.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_marked_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_marked.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_marked.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",
@@ -369,6 +642,17 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_conflict_unmerge__tamper_sweepOnly_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_sweepOnly.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_sweepOnly.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_conflict_unmerge__tamper_work_test",
     cfg = "traces/Trace_conflict_unmerge__tamper_work.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_work.tla",
@@ -384,6 +668,29 @@ tlc_test(
     cfg = "traces/Trace_expire_ephemeral.cfg",
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_expire_ephemeral.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_expired_sweep_only_returns_test",
+    cfg = "traces/Trace_expired_sweep_only_returns.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_expired_sweep_only_returns.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_expired_sweep_only_returns__knockout_test",
+    cfg = "traces/Trace_expired_sweep_only_returns__knockout.cfg",
+    spec = "traces/Trace_expired_sweep_only_returns.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",
@@ -488,6 +795,41 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_src_rekey_succession_test",
+    cfg = "traces/Trace_src_rekey_succession.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_rekey_succession.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_rekey_succession__knockout_test",
+    cfg = "traces/Trace_src_rekey_succession__knockout.cfg",
+    spec = "traces/Trace_src_rekey_succession.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_rekey_succession__witness_test",
+    cfg = "traces/Trace_src_rekey_succession__witness.cfg",
+    expect = "violation:OneSourceRecordPerDevice",
+    spec = "traces/Trace_src_rekey_succession.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_stale_redirect_test",
     cfg = "traces/Trace_stale_redirect.cfg",
     expect = "violation:TraceIncomplete",
@@ -512,9 +854,31 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_sweep_restores_merged__knockout_test",
+    cfg = "traces/Trace_sweep_restores_merged__knockout.cfg",
+    spec = "traces/Trace_sweep_restores_merged.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_armis_moves_onto_sweep_seed_test",
     cfg = "traces/Trace_armis_moves_onto_sweep_seed.cfg",
     expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_armis_moves_onto_sweep_seed.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_moves_onto_sweep_seed__knockout_test",
+    cfg = "traces/Trace_armis_moves_onto_sweep_seed__knockout.cfg",
     spec = "traces/Trace_armis_moves_onto_sweep_seed.tla",
     deps = [
         "CurrentBugs.tla",

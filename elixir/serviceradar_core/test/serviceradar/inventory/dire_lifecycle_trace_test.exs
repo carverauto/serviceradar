@@ -2,8 +2,8 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
   @moduledoc """
   Trace validation for `formal/dire/DireLifecycle.tla`.
 
-  Each test drives the real lifecycle entry points (ingest, merge, unmerge, soft delete, sweep
-  restore, agent check-in, purge) step by step through `ServiceRadar.DireLifecycleTrace`, and
+  Each test drives the real lifecycle entry points (ingest, merge, unmerge, soft delete, sweep,
+  expiry, agent check-in, purge) step by step through `ServiceRadar.DireLifecycleTrace`, and
   requires the recorded trace to equal the committed `formal/dire/traces/Trace_<name>.{tla,cfg}`.
   `//formal/dire` model-checks those files against the lifecycle model with the defect switches
   that match today's code. When the code changes behavior, the comparison here fails;
@@ -73,8 +73,11 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
   end
 
   # #4617 (fixed): a sweep that finds a merged-away device's old address leaves it deleted.
-  # The sweep changes no modeled state, so the trace ends at the merge; a regression that
-  # restores the device again would log a SweepRestore step and fail the golden comparison.
+  # The sweep still writes its sighting to the tombstone (SweepRefresh), which the defect
+  # switch sweep_refreshes_expired_tombstone allows until add-source-id-succession D12 lands; a
+  # regression that restores the device again would log SweepRestore and fail the comparison.
+  # The knockout checks the trace without the switch, under which the model leaves the
+  # tombstone alone (SweepSkip), and requires TLC to reject it.
   test "sweep_restores_merged", %{actor: actor} do
     "sweep_restores_merged"
     |> Trace.start(world(["d1", "d2"], %{"i1" => :src, "i2" => :mac}, ["p1", "p2"]), actor)
@@ -82,7 +85,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.census("i2", "p2")
     |> Trace.merge("d1", "d2", :auto)
     |> Trace.sweep("p1")
-    |> Trace.assert_golden!()
+    |> Trace.assert_golden!(demonstrates: "sweep_refreshes_expired_tombstone")
   end
 
   # #4615 (fixed): an agent check-in restores its soft-deleted device, and the restore bumps
@@ -121,5 +124,20 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.expire("d2")
     |> Trace.sweep("p2")
     |> Trace.assert_golden!()
+  end
+
+  # add-source-id-succession D12: a host only a sweep knows is seeded from its address, expires
+  # once unseen past the window, and then answers a sweep again. The sweep finds its tombstone,
+  # does not restore it (restore_eligible?/1 wants a discovery source other than the sweep) and
+  # writes the sighting to it, so the host stays deleted. The knockout checks the trace without
+  # the switch, under which the model restores the device, and requires TLC to reject it. The
+  # identifier is never reported: the seed must not own one.
+  test "expired_sweep_only_returns", %{actor: actor} do
+    "expired_sweep_only_returns"
+    |> Trace.start(world(["d1"], %{"i1" => :mac}, ["p1"]), actor)
+    |> Trace.sweep("p1")
+    |> Trace.expire("d1")
+    |> Trace.sweep("p1")
+    |> Trace.assert_golden!(demonstrates: "sweep_refreshes_expired_tombstone")
   end
 end

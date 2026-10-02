@@ -26,10 +26,14 @@ defmodule ServiceRadar.DireTrace do
   alias ServiceRadar.DireTrace.Golden
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.IdentityDecision
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
@@ -53,8 +57,11 @@ defmodule ServiceRadar.DireTrace do
     :real,
     :pre_uids,
     :handler,
+    :source,
     demonstrates: nil,
+    witness: nil,
     ip_at: %{},
+    src_of: %{},
     names: %{},
     phys: %{},
     states: []
@@ -75,6 +82,10 @@ defmodule ServiceRadar.DireTrace do
         ips: ["p1", "p2"],
         observers: ["Armis", "Discovery", "Arp", "Sweep"]
       }
+
+  Optional keys: `host_of`, the hostname model value Armis reports for each device (by default
+  the device's own name; cloned machines share one), and the model's `rekeys`, `fresh_ids`,
+  `spare`, `agent_ids` and `agent_of`.
 
   The defect switches the trace is checked with are not part of the world: every trace reads
   `ResolutionBugs` from `formal/dire/CurrentBugs.tla`.
@@ -119,19 +130,14 @@ defmodule ServiceRadar.DireTrace do
       real: real,
       pre_uids: MapSet.new(),
       handler: handler,
-      ip_at: Map.new(Map.keys(world.ifaces), &{&1, "NoIp"})
+      ip_at: Map.new(Map.keys(world.ifaces), &{&1, "NoIp"}),
+      src_of: world.src_of
     }
 
+    trace = if world.src_ids == [], do: trace, else: create_source(trace)
     trace = %{trace | pre_uids: trace |> scoped_devices() |> MapSet.new(& &1.uid)}
 
-    record(trace, %{
-      name: "Init",
-      ids: [],
-      ip: "NoIp",
-      decisions: [],
-      recorded: [],
-      address_merged: []
-    })
+    record(trace, quiet_act("Init"))
   end
 
   @doc "Detaches telemetry. Call from on_exit or at the end of the test."
@@ -142,32 +148,41 @@ defmodule ServiceRadar.DireTrace do
 
   @doc "DHCP: interface `x` leases model address `p`, or releases with `\"NoIp\"`."
   def lease(trace, x, p) do
-    trace = %{trace | ip_at: Map.put(trace.ip_at, x, p)}
-
-    record(trace, %{
-      name: "Lease",
-      ids: [],
-      ip: "NoIp",
-      decisions: [],
-      recorded: [],
-      address_merged: []
-    })
+    record(%{trace | ip_at: Map.put(trace.ip_at, x, p)}, quiet_act("Lease"))
   end
 
   @doc """
-  Armis sync of physical device `h`, seen at interface `x`'s address. The sync is stamped a
-  minute ahead of now, so it is the newest observation of the address; `seen_offset: seconds`
-  moves the stamp, for a sync that a later observation must outrank.
+  Armis sync of physical device `h` under its current source id, seen at interface `x`'s address.
+  The sync is stamped a minute ahead of now, so it is the newest observation of the address;
+  `seen_offset: seconds` moves the stamp, for a sync that a later observation must outrank.
   """
   def armis(trace, h, x, opts \\ []) do
-    src = Map.fetch!(trace.world.src_of, h)
+    sync_meta = %{"sync_service_id" => trace.source, "sync_run_id" => Ash.UUID.generate()}
+    {ids, update} = armis_update(trace, h, x, opts, sync_meta)
+    armis_step(trace, h, x, ids, update)
+  end
+
+  defp armis_step(trace, h, x, ids, update) do
+    step(trace, "Armis", h, x, ids, fn ->
+      assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor)
+    end)
+  end
+
+  # The sync's identifiers and the update the sync service delivers for it. As the agent does, the
+  # update names its integration source in `sync_meta` and scopes its integration id to it, so the
+  # code files its identifiers under the source's own partition (`Ids.identifier_partition/2`).
+  defp armis_update(trace, h, x, opts, sync_meta) do
+    src =
+      Map.get(trace.src_of, h) ||
+        flunk("DIRE trace #{trace.name}: the source does not report #{h}")
+
     macs = if trace.world.armis_macs, do: macs_of(trace, h), else: []
     ip = real_ip!(trace, x)
 
     metadata = %{
       "integration_type" => "armis",
       "armis_device_id" => trace.real.src[src],
-      "integration_id" => "armis:source-trace:device:#{trace.real.src[src]}",
+      "integration_id" => integration_id(trace, src),
       "_alias_last_seen_ip" => ip
     }
 
@@ -177,20 +192,17 @@ defmodule ServiceRadar.DireTrace do
       )
 
     update =
-      maybe_put_macs(
-        %{
-          "ip" => ip,
-          "hostname" => "trace-#{h}",
-          "source" => "armis",
-          "last_seen_time" => seen_at,
-          "metadata" => metadata
-        },
-        Enum.map(macs, &trace.real.mac[&1])
-      )
+      %{
+        "ip" => ip,
+        "hostname" => "trace-#{host_of(trace.world, h)}",
+        "source" => "armis",
+        "last_seen_time" => seen_at,
+        "metadata" => metadata
+      }
+      |> maybe_put_macs(Enum.map(macs, &trace.real.mac[&1]))
+      |> Map.put("sync_meta", sync_meta)
 
-    step(trace, "Armis", h, x, [src | macs], fn ->
-      assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor)
-    end)
+    {[src | macs], update}
   end
 
   @doc """
@@ -326,12 +338,147 @@ defmodule ServiceRadar.DireTrace do
   end
 
   # ---------------------------------------------------------------------------------------
+  # The source and the reconciler
+
+  @doc """
+  The source re-identifies physical device `h`: it reports `h` under model id `a` from now on, or
+  stops reporting it with `"NoId"`. Nothing is ingested; the next sync or collection carries the
+  change.
+  """
+  def rekey(trace, h, a) do
+    src_of = if a == "NoId", do: Map.delete(trace.src_of, h), else: Map.put(trace.src_of, h, a)
+    record(%{trace | src_of: src_of}, quiet_act("Rekey"))
+  end
+
+  @doc """
+  An exact collection of the source, delivered as the sync service delivers one: every device the
+  source reports now is synced at its first leased interface, stamped with one collection run (an
+  Armis step each), and then the collection activates (a Collect step), as `SyncIngestorQueue`
+  activates it after a run's final chunk (`ArmisSourceSnapshot.activate/3`). The run accounts for
+  its population exactly: one row per reported device, none excluded, invalid or duplicated.
+  """
+  def collect(trace) do
+    reported = Enum.sort(trace.src_of)
+    count = length(reported)
+
+    sync_meta = %{
+      "sync_service_id" => trace.source,
+      "sync_run_id" => Ash.UUID.generate(),
+      "chunk_index" => 0,
+      "total_chunks" => 1,
+      "total_devices" => count,
+      "is_final" => true,
+      "population" => %{
+        "raw_rows" => count,
+        "excluded_rows" => 0,
+        "invalid_rows" => 0,
+        "valid_occurrences" => count,
+        "distinct_source_ids" => count,
+        "duplicate_occurrences" => 0,
+        "conflicting_duplicate_ids" => 0
+      }
+    }
+
+    {trace, updates} =
+      Enum.reduce(reported, {trace, []}, fn {h, _a}, {acc, updates} ->
+        x = leased_iface!(acc, h)
+        {ids, update} = armis_update(acc, h, x, [], sync_meta)
+        {armis_step(acc, h, x, ids, update), [update | updates]}
+      end)
+
+    step(trace, "Collect", nil, nil, [], fn ->
+      assert :ok =
+               ArmisSourceSnapshot.activate(Enum.reverse(updates), sync_meta, actor: trace.actor)
+    end)
+  end
+
+  @doc """
+  The reconciler's scheduled duplicate pass (`IdentityReconciler.reconcile_duplicates/1`). The
+  pass scans the whole inventory; only what it does to the trace's records counts, and the model
+  has no step for it. It pairs a record with the owner of the MAC in its MAC column only when
+  that identifier sits in the record's own partition, and a source sync files its identifiers
+  under the source's partition (`Ids.identifier_partition/2`). A merge it performs, a decision it
+  records or an event it emits about the trace's records fails the trace; otherwise it records no
+  step.
+  """
+  def reconcile(trace) do
+    decisions_before = decision_counts(trace)
+    audits_before = merge_rows(trace)
+
+    assert {:ok, _stats} =
+             IdentityReconciler.reconcile_duplicates(actor: trace.actor, trigger: :manual)
+
+    trace = settle(trace)
+
+    case merge_rows(trace) -- audits_before do
+      [] ->
+        :ok
+
+      merges ->
+        flunk("DIRE trace #{trace.name}: reconciler merged #{inspect(merges)}, not modeled")
+    end
+
+    case recorded_since(trace, decisions_before) do
+      [] -> :ok
+      recorded -> flunk("DIRE trace #{trace.name}: reconciler recorded #{inspect(recorded)}")
+    end
+
+    Enum.each(drain_events(), &refute_trace_event!(trace, &1))
+    trace
+  end
+
+  defp refute_trace_event!(trace, {event, _m, meta}) do
+    involved = meta |> Map.values() |> List.flatten() |> Enum.any?(&Map.has_key?(trace.names, &1))
+
+    if involved do
+      flunk("DIRE trace #{trace.name}: reconciler event #{inspect(event)} #{inspect(meta)}")
+    end
+  end
+
+  # The Armis integration source the trace's syncs and collections are attributed to.
+  defp create_source(trace) do
+    agent = "dire-trace-source-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(:register_connected, %{uid: agent, name: agent},
+      actor: trace.actor
+    )
+    |> Ash.create!(actor: trace.actor)
+
+    source =
+      IntegrationSource
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "DIRE trace #{trace.name} #{agent}",
+          source_type: :armis,
+          endpoint: "https://dire-trace.test",
+          agent_id: agent
+        },
+        actor: trace.actor
+      )
+      |> Ash.create!(actor: trace.actor)
+
+    %{trace | source: to_string(source.id)}
+  end
+
+  # The agent's scoped integration id (`syncsources.ScopedIntegrationID`) of model id `a`.
+  defp integration_id(trace, a), do: "armis:#{trace.source}:device:#{trace.real.src[a]}"
+
+  # The interface a sync of `h` is seen at: its first one holding a lease.
+  defp leased_iface!(trace, h) do
+    Enum.find_value(Enum.sort(trace.world.ifaces), fn {x, iface} ->
+      if iface.phys == h and trace.ip_at[x] != "NoIp", do: x
+    end) || flunk("DIRE trace #{trace.name}: #{h} holds no lease")
+  end
+
+  # ---------------------------------------------------------------------------------------
   # Recording
 
   # `ids` are the identifiers the step reports: the ones the code looks up and registers, and
   # the ones a new record's uid is derived from, which name it.
   defp step(trace, name, h, x, ids, fun) do
-    observed_ip = trace.ip_at[x]
+    observed_ip = if x, do: trace.ip_at[x], else: "NoIp"
     decisions_before = decision_counts(trace)
     audits_before = merge_rows(trace)
     fun.()
@@ -381,6 +528,10 @@ defmodule ServiceRadar.DireTrace do
     state = snapshot(trace, act)
     %{trace | states: trace.states ++ [state]}
   end
+
+  # A step that observes nothing and decides nothing.
+  defp quiet_act(name),
+    do: %{name: name, ids: [], ip: "NoIp", decisions: [], recorded: [], address_merged: []}
 
   # Re-read until two consecutive snapshots agree, so asynchronous work has landed.
   defp settle(trace, attempts \\ 20) do
@@ -468,7 +619,7 @@ defmodule ServiceRadar.DireTrace do
         owners =
           [
             owner_uid(trace, :armis_device_id, trace.real.src[a]),
-            owner_uid(trace, :integration_id, "armis:source-trace:device:#{trace.real.src[a]}")
+            owner_uid(trace, :integration_id, integration_id(trace, a))
           ]
           |> Enum.reject(&is_nil/1)
           |> Enum.uniq()
@@ -797,7 +948,7 @@ defmodule ServiceRadar.DireTrace do
           do: mac |> String.replace(":", "") |> String.upcase()
 
     src
-    |> Enum.concat(Enum.map(src, &"armis:source-trace:device:#{&1}"))
+    |> Enum.concat(Enum.map(trace.world.src_ids, &integration_id(trace, &1)))
     |> Enum.concat(macs)
     |> Enum.concat(Map.values(trace.real.agent))
   end
@@ -833,17 +984,37 @@ defmodule ServiceRadar.DireTrace do
   to. Once the switch leaves `CurrentBugs.tla` the knockout equals the trace, TLC matches it, and
   its target fails until the knockout is deleted with the switch.
 
+  `witness: property` also writes `Trace_<name>__witness.cfg`: the same trace checked against the
+  model invariant `property` instead of `TraceIncomplete`. `//formal/dire` requires TLC to find a
+  state of the trace that violates it, which proves the real code reaches a state the requirement
+  forbids. A witness shows a defect no single step does, one the model allows step by step and
+  whose harm is the state it leaves. Once the defect is fixed the trace no longer reaches that
+  state, TLC reaches its end instead, and the target fails until the witness is deleted.
+
   `tamper: true` also emits one self-test variant per model variable, each altering that one
   variable in the final state. `//formal/dire` requires TLC to reject every variant, which is
   the proof that no variable is left unchecked.
   """
   def assert_golden!(trace, opts \\ []) do
     stop(trace)
-    trace = %{trace | demonstrates: Keyword.get(opts, :demonstrates)}
+
+    trace = %{
+      trace
+      | demonstrates: Keyword.get(opts, :demonstrates),
+        witness: Keyword.get(opts, :witness)
+    }
+
     Golden.golden!(trace.name, to_tla(trace), to_cfg(trace))
 
     if trace.demonstrates,
       do: Golden.golden_file!("Trace_#{trace.name}__knockout.cfg", to_cfg(trace, "KnockoutBugs"))
+
+    if trace.witness,
+      do:
+        Golden.golden_file!(
+          "Trace_#{trace.name}__witness.cfg",
+          to_cfg(trace, "ResolutionBugs", trace.witness)
+        )
 
     if Keyword.get(opts, :tamper, false) do
       Enum.each(tampered(trace), fn {var, tampered_trace} ->
@@ -911,7 +1082,7 @@ defmodule ServiceRadar.DireTrace do
   defp knockout_tla(%{demonstrates: switch}),
     do: "\n\nKnockoutBugs == ResolutionBugs \\ {#{str(switch)}}"
 
-  def to_cfg(trace, bugs \\ "ResolutionBugs") do
+  def to_cfg(trace, bugs \\ "ResolutionBugs", invariant \\ "TraceIncomplete") do
     w = trace.world
 
     """
@@ -920,8 +1091,13 @@ defmodule ServiceRadar.DireTrace do
       Ifaces = #{set(Map.keys(w.ifaces))}
       IfPhys <- TraceIfPhys
       IfMac <- TraceIfMac
-      SrcOf <- TraceSrcOf
+      SrcOf0 <- TraceSrcOf
+      Rekeys = #{tla_bool(Map.get(w, :rekeys, false))}
+      FreshIds = #{tla_bool(Map.get(w, :fresh_ids, true))}
+      Spare = #{set(Map.get(w, :spare, []))}
       ArmisMacs = #{tla_bool(w.armis_macs)}
+      HostOf <- TraceHostOf
+      NewFirstSeenIds = {}
       AgentIds = #{set(Map.get(w, :agent_ids, []))}
       AgentOf <- TraceAgentOf
       SrcIds = #{set(w.src_ids)}
@@ -933,10 +1109,11 @@ defmodule ServiceRadar.DireTrace do
       NoIp = NoIp
       NoRec = NoRec
       Bugs <- #{bugs}
+      Unsafe = {}
       TraceLog <- TheLog
     INIT TraceInit
     NEXT TraceNext
-    INVARIANT TraceIncomplete
+    INVARIANT #{invariant}
     """
   end
 
@@ -947,6 +1124,7 @@ defmodule ServiceRadar.DireTrace do
     TraceIfPhys == #{fun(ifaces, fn x -> str(w.ifaces[x].phys) end)}
     TraceIfMac == #{fun(ifaces, fn x -> if(w.ifaces[x].mac, do: str(w.ifaces[x].mac), else: "NoId") end)}
     TraceSrcOf == #{fun(w.phys, fn h -> if(a = w.src_of[h], do: str(a), else: "NoId") end)}
+    TraceHostOf == #{fun(w.phys, &str(host_of(w, &1)))}
     TraceAgentOf == #{fun(w.phys, fn h -> if(g = Map.get(w, :agent_of, %{})[h], do: str(g), else: "NoId") end)}\
     """
   end
@@ -971,6 +1149,9 @@ defmodule ServiceRadar.DireTrace do
     do:
       "{" <>
         Enum.map_join(ds, ", ", &"[kind |-> #{str(&1.kind)}, recs |-> #{set(&1.recs)}]") <> "}"
+
+  # The hostname Armis reports for device `h`: its own name unless the world says otherwise.
+  defp host_of(world, h), do: Map.get(Map.get(world, :host_of, %{}), h, h)
 
   # Model "none" markers are model values, not strings.
   defp atom_or_str(v) when v in ["NoIp", "NoRec", "NoId"], do: v

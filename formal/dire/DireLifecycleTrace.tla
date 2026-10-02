@@ -25,6 +25,9 @@ Logged(i) ==
     /\ ipOf = TraceLog[i].ipOf
     /\ audit = TraceLog[i].audit
     /\ work = TraceLog[i].work
+    /\ marked = TraceLog[i].marked
+    /\ arch = TraceLog[i].arch
+    /\ sweepOnly = TraceLog[i].sweepOnly
     /\ act = TraceLog[i].act
 
 LoggedNext(i) ==
@@ -34,6 +37,9 @@ LoggedNext(i) ==
     /\ ipOf' = TraceLog[i].ipOf
     /\ audit' = TraceLog[i].audit
     /\ work' = TraceLog[i].work
+    /\ marked' = TraceLog[i].marked
+    /\ arch' = TraceLog[i].arch
+    /\ sweepOnly' = TraceLog[i].sweepOnly
     /\ act' = TraceLog[i].act
 
 TraceInit ==

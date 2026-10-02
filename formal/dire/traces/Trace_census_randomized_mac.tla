@@ -6,6 +6,7 @@ EXTENDS DireResolutionTrace, CurrentBugs
 TraceIfPhys == ("x1" :> "h1")
 TraceIfMac == ("x1" :> "r1")
 TraceSrcOf == ("h1" :> NoId)
+TraceHostOf == ("h1" :> "h1")
 TraceAgentOf == ("h1" :> NoId)
 
 TheLog == <<
