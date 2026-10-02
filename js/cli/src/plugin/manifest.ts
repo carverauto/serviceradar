@@ -103,7 +103,7 @@ export function loadManifestFromBundle(zipPath: string): {project: PluginProject
   const extract = (entry: string, destPath: string, maxBytes: number): void => {
     const result = spawnSync("unzip", ["-p", resolved, entry], {maxBuffer: maxBytes})
     if (result.status !== 0 || result.stdout == null || result.stdout.length === 0) {
-      const msg = result.stderr ? result.stderr.toString().trim() : `exit ${result.status}`
+      const msg = result.error?.message ?? (result.stderr ? result.stderr.toString().trim() : `exit ${result.status}`)
       throw new Error(`could not extract ${entry} from ${resolved}: ${msg}`)
     }
     writeFileSync(destPath, result.stdout)
