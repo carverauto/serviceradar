@@ -28,40 +28,55 @@ type metricSpec struct {
 // Columns are matched by name on every response because the vendor may
 // reorder or add them; unknown columns are ignored. Several router columns
 // have alternate names in the vendor's own examples, so both are listed.
-var terminalMetrics = map[string]metricSpec{
-	"DownlinkThroughput":                 {"starlink_downlink_throughput", "Mbps"},
-	"UplinkThroughput":                   {"starlink_uplink_throughput", "Mbps"},
-	"PingDropRateAvg":                    {"starlink_pop_ping_drop_ratio", "ratio"},
-	"PingLatencyMsAvg":                   {"starlink_pop_ping_latency", "ms"},
-	"ObstructionPercentTime":             {"starlink_obstruction_time", "percent"},
-	"SignalQuality":                      {"starlink_signal_quality", "ratio"},
-	"Uptime":                             {"starlink_uptime", "s"},
-	"SecondsUntilSwupdateRebootPossible": {"starlink_swupdate_reboot_possible_in", "s"},
-}
+//
+// Declared without initializers so the zero value (nil) is the initial state.
+// The TinyGo wasi target compiles to a WASM command whose global heap
+// allocations (maps) are initialized inside _start; the agent host calls
+// WithStartFunctions() with no arguments to suppress _start (preventing
+// proc_exit(0) from closing the module), so package-level map literals are
+// never allocated. initMetricMaps(), called from decodeTelemetryStream, fills
+// them on the first invocation. Standard Go callers get the same lazy path.
+var terminalMetrics map[string]metricSpec
+var routerMetrics map[string]metricSpec
 
-var routerMetrics = map[string]metricSpec{
-	"WifiUptimeS":                  {"starlink_router_uptime", "s"},
-	"Uptime":                       {"starlink_router_uptime", "s"},
-	"InternetPingDropRate":         {"starlink_router_internet_ping_drop_ratio", "ratio"},
-	"InternetPingLatencyMs":        {"starlink_router_internet_ping_latency", "ms"},
-	"PingLatencyMs":                {"starlink_router_internet_ping_latency", "ms"},
-	"WifiPopPingDropRate":          {"starlink_router_pop_ping_drop_ratio", "ratio"},
-	"WifiPopPingLatencyMs":         {"starlink_router_pop_ping_latency", "ms"},
-	"DishPingDropRate":             {"starlink_router_dish_ping_drop_ratio", "ratio"},
-	"DishPingLatencyMs":            {"starlink_router_dish_ping_latency", "ms"},
-	"Clients":                      {"starlink_router_clients", "count"},
-	"Clients2Ghz":                  {"starlink_router_clients_2ghz", "count"},
-	"Clients5Ghz":                  {"starlink_router_clients_5ghz", "count"},
-	"ClientsEth":                   {"starlink_router_clients_ethernet", "count"},
-	"WifiHopsFromController":       {"starlink_router_mesh_hops", "count"},
-	"WanTxBytes":                   {"starlink_router_wan_tx", "bytes"},
-	"WanRxBytes":                   {"starlink_router_wan_rx", "bytes"},
-	"Clients2GhzSignalStrengthAvg": {"starlink_router_clients_2ghz_rssi_avg", "dBm"},
-	"Clients5GhzSignalStrengthAvg": {"starlink_router_clients_5ghz_rssi_avg", "dBm"},
-	"Clients2GhzRxRateMbpsAvg":     {"starlink_router_clients_2ghz_rx_rate_avg", "Mbps"},
-	"Clients5GhzRxRateMbpsAvg":     {"starlink_router_clients_5ghz_rx_rate_avg", "Mbps"},
-	"Clients2GhzTxRateMbpsAvg":     {"starlink_router_clients_2ghz_tx_rate_avg", "Mbps"},
-	"Clients5GhzTxRateMbpsAvg":     {"starlink_router_clients_5ghz_tx_rate_avg", "Mbps"},
+func initMetricMaps() {
+	if terminalMetrics != nil {
+		return
+	}
+	terminalMetrics = map[string]metricSpec{
+		"DownlinkThroughput":                 {"starlink_downlink_throughput", "Mbps"},
+		"UplinkThroughput":                   {"starlink_uplink_throughput", "Mbps"},
+		"PingDropRateAvg":                    {"starlink_pop_ping_drop_ratio", "ratio"},
+		"PingLatencyMsAvg":                   {"starlink_pop_ping_latency", "ms"},
+		"ObstructionPercentTime":             {"starlink_obstruction_time", "percent"},
+		"SignalQuality":                      {"starlink_signal_quality", "ratio"},
+		"Uptime":                             {"starlink_uptime", "s"},
+		"SecondsUntilSwupdateRebootPossible": {"starlink_swupdate_reboot_possible_in", "s"},
+	}
+	routerMetrics = map[string]metricSpec{
+		"WifiUptimeS":                  {"starlink_router_uptime", "s"},
+		"Uptime":                       {"starlink_router_uptime", "s"},
+		"InternetPingDropRate":         {"starlink_router_internet_ping_drop_ratio", "ratio"},
+		"InternetPingLatencyMs":        {"starlink_router_internet_ping_latency", "ms"},
+		"PingLatencyMs":                {"starlink_router_internet_ping_latency", "ms"},
+		"WifiPopPingDropRate":          {"starlink_router_pop_ping_drop_ratio", "ratio"},
+		"WifiPopPingLatencyMs":         {"starlink_router_pop_ping_latency", "ms"},
+		"DishPingDropRate":             {"starlink_router_dish_ping_drop_ratio", "ratio"},
+		"DishPingLatencyMs":            {"starlink_router_dish_ping_latency", "ms"},
+		"Clients":                      {"starlink_router_clients", "count"},
+		"Clients2Ghz":                  {"starlink_router_clients_2ghz", "count"},
+		"Clients5Ghz":                  {"starlink_router_clients_5ghz", "count"},
+		"ClientsEth":                   {"starlink_router_clients_ethernet", "count"},
+		"WifiHopsFromController":       {"starlink_router_mesh_hops", "count"},
+		"WanTxBytes":                   {"starlink_router_wan_tx", "bytes"},
+		"WanRxBytes":                   {"starlink_router_wan_rx", "bytes"},
+		"Clients2GhzSignalStrengthAvg": {"starlink_router_clients_2ghz_rssi_avg", "dBm"},
+		"Clients5GhzSignalStrengthAvg": {"starlink_router_clients_5ghz_rssi_avg", "dBm"},
+		"Clients2GhzRxRateMbpsAvg":     {"starlink_router_clients_2ghz_rx_rate_avg", "Mbps"},
+		"Clients5GhzRxRateMbpsAvg":     {"starlink_router_clients_5ghz_rx_rate_avg", "Mbps"},
+		"Clients2GhzTxRateMbpsAvg":     {"starlink_router_clients_2ghz_tx_rate_avg", "Mbps"},
+		"Clients5GhzTxRateMbpsAvg":     {"starlink_router_clients_5ghz_tx_rate_avg", "Mbps"},
+	}
 }
 
 // telemetrySample is one decoded stream row.
@@ -82,6 +97,7 @@ type streamDecodeStats struct {
 // mapped only through the enum table carried in the same response: the
 // vendor reassigns codes, so a code is meaningless outside its response.
 func decodeTelemetryStream(body gjson.Result) ([]telemetrySample, streamDecodeStats) {
+	initMetricMaps()
 	var stats streamDecodeStats
 	columns := map[string][]string{}
 	body.Get("data.columnNamesByDeviceType").ForEach(func(key, value gjson.Result) bool {
@@ -164,6 +180,7 @@ func decodeRow(deviceType string, names []string, cells []gjson.Result, alertEnu
 
 // metricUnits resolves a metric name's unit from either table.
 func metricUnit(name string) string {
+	initMetricMaps()
 	for _, table := range []map[string]metricSpec{terminalMetrics, routerMetrics} {
 		for _, spec := range table {
 			if spec.name == name {

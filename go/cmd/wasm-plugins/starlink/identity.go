@@ -31,14 +31,33 @@ func normalizeTerminalID(raw string) string {
 	return id
 }
 
-// normalizeRouterID returns the canonical vendor router ID ("Router-" plus hex).
+// normalizeRouterID returns the canonical vendor router ID (bare lowercase hex).
+// The Management API reports IDs as bare hex; the telemetry stream prefixes
+// them with "Router-". Both forms are accepted and normalized to bare hex.
 func normalizeRouterID(raw string) string {
 	id := strings.TrimSpace(raw)
-	suffix, ok := cutPrefixFold(id, "router-")
-	if !ok || isPlaceholderID(suffix) {
+	// Strip optional "Router-" prefix (case-insensitive) from the telemetry stream form.
+	if suffix, ok := cutPrefixFold(id, "router-"); ok {
+		id = suffix
+	}
+	id = strings.ToLower(id)
+	if isPlaceholderID(id) || !isHex(id) {
 		return ""
 	}
-	return "Router-" + strings.ToLower(suffix)
+	return id
+}
+
+// isHex reports whether s is a non-empty hex string (digits 0-9, a-f).
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func terminalDeviceID(rawTerminalID string) string {
@@ -54,7 +73,7 @@ func routerDeviceID(rawRouterID string) string {
 	if id == "" {
 		return ""
 	}
-	return routerIDPrefix + strings.TrimPrefix(id, "Router-")
+	return routerIDPrefix + id
 }
 
 // normalizeSerial drops blank and placeholder serials so they never become a

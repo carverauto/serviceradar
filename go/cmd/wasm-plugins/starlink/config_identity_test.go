@@ -48,14 +48,21 @@ func TestTerminalIDFormsConverge(t *testing.T) {
 }
 
 func TestRouterDeviceID(t *testing.T) {
-	if got, want := routerDeviceID(testRouterA), "starlink:router:0000000000000000000000a1"; got != want {
+	const want = "starlink:router:0000000000000000000000a1"
+	// "Router-" prefix form (telemetry stream).
+	if got := routerDeviceID(testRouterA); got != want {
 		t.Fatalf("routerDeviceID = %q, want %q", got, want)
 	}
-	if got := routerDeviceID("router-0000000000000000000000A1"); got != routerDeviceID(testRouterA) {
-		t.Fatalf("case variants diverge: %q", got)
+	// Case-insensitive prefix form.
+	if got := routerDeviceID("router-0000000000000000000000A1"); got != want {
+		t.Fatalf("case variant diverges: %q", got)
+	}
+	// Bare hex form (Management API).
+	if got := routerDeviceID("0000000000000000000000a1"); got != want {
+		t.Fatalf("bare hex form = %q, want %q", got, want)
 	}
 	if routerDeviceID("not-a-router") != "" {
-		t.Fatal("non-router id accepted")
+		t.Fatal("non-hex id accepted")
 	}
 }
 
