@@ -137,6 +137,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			tcpTargets = append(tcpTargets, t)
 		case models.ModeTCPConnect:
 			tcpConnectTargets = append(tcpConnectTargets, t)
+		case models.ModeMTR:
 		}
 	}
 
