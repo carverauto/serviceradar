@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
   alias ServiceRadar.Observability.ApiEvent
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Plugins.AlertRuleCatalog
+  alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Security.AuditHistory
 
@@ -89,6 +90,126 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
     |> Ash.read!(actor: @system)
   end
 
+  test "approving an upgraded package version updates the existing rule instead of failing the unique constraint" do
+    # Regression: find_existing previously queried by (plugin_package_id AND name).
+    # A new package version has a new UUID, so the old rule was never found — the
+    # create path hit the :unique_name constraint with 'has already been taken'.
+    plugin_id = "upgrade-catalog-#{System.unique_integer([:positive])}"
+
+    declaration = %{
+      "name" => "upgrade-rule",
+      "signal" => "metric",
+      "match" => %{"metric_name" => "test.upgrade"},
+      "group_by" => ["host"],
+      "description" => "v1 definition"
+    }
+
+    Plugin
+    |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Upgrade Plugin"},
+      actor: @system
+    )
+    |> Ash.create!()
+
+    v1_package =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "Upgrade Plugin",
+          version: "0.1.0",
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: %{
+            "id" => plugin_id,
+            "name" => "Upgrade Plugin",
+            "version" => "0.1.0",
+            "entrypoint" => "run_check",
+            "runtime" => "wasi-preview1",
+            "capabilities" => ["submit_result"],
+            "outputs" => "serviceradar.plugin_result.v1",
+            "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100},
+            "alert_rules" => [declaration]
+          },
+          alert_rules: [declaration],
+          config_schema: %{},
+          display_contract: %{},
+          content_hash: "sha256:upgrade-v1-#{plugin_id}",
+          signature: %{},
+          source_type: :upload
+        },
+        actor: @system
+      )
+      |> Ash.create!()
+
+    assert :ok = AlertRuleCatalog.sync_package(v1_package)
+
+    [rule_v1] =
+      StatefulAlertRule
+      |> Ash.Query.filter(plugin_package_id == ^v1_package.id)
+      |> Ash.read!(actor: @system)
+
+    assert rule_v1.plugin_package_id == v1_package.id
+
+    # Create v2 — a fresh package row with a new UUID, same plugin_id and rule name.
+    v2_declaration = Map.put(declaration, "description", "v2 definition")
+
+    v2_package =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "Upgrade Plugin",
+          version: "0.2.0",
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: %{
+            "id" => plugin_id,
+            "name" => "Upgrade Plugin",
+            "version" => "0.2.0",
+            "entrypoint" => "run_check",
+            "runtime" => "wasi-preview1",
+            "capabilities" => ["submit_result"],
+            "outputs" => "serviceradar.plugin_result.v1",
+            "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100},
+            "alert_rules" => [v2_declaration]
+          },
+          alert_rules: [v2_declaration],
+          config_schema: %{},
+          display_contract: %{},
+          content_hash: "sha256:upgrade-v2-#{plugin_id}",
+          signature: %{},
+          source_type: :upload
+        },
+        actor: @system
+      )
+      |> Ash.create!()
+
+    refute v1_package.id == v2_package.id
+
+    # Before the fix this returned {:error, ...} with 'has already been taken'.
+    assert :ok = AlertRuleCatalog.sync_package(v2_package)
+
+    # The existing rule row was updated in place — no duplicate row was created.
+    all_rules =
+      StatefulAlertRule
+      |> Ash.Query.filter(name == ^"plugin:Upgrade Plugin:upgrade-rule")
+      |> Ash.read!(actor: @system)
+
+    assert length(all_rules) == 1, "expected exactly one rule row, got #{length(all_rules)}"
+    [rule_updated] = all_rules
+
+    # Same DB row, plugin_package_id reassigned to the new package.
+    assert rule_updated.id == rule_v1.id
+    assert rule_updated.plugin_package_id == v2_package.id
+
+    # Operator-owned field untouched (enabled stays false; no override from manifest).
+    refute rule_updated.enabled
+  end
+
   test "catalog sync attributes create and update events to its system actor" do
     plugin_id = "audit-catalog-#{System.unique_integer([:positive])}"
 
@@ -112,7 +233,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
       "alert_rules" => [declaration]
     }
 
-    ServiceRadar.Plugins.Plugin
+    Plugin
     |> Ash.Changeset.for_create(
       :create,
       %{plugin_id: plugin_id, name: "Audit Catalog"},
