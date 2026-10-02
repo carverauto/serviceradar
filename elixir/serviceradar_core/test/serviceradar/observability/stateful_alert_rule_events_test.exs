@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
   alias ServiceRadar.Observability.ApiEvent
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Plugins.AlertRuleCatalog
+  alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Security.AuditHistory
 
@@ -103,8 +104,10 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
       "description" => "v1 definition"
     }
 
-    ServiceRadar.Plugins.Plugin
-    |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Upgrade Plugin"}, actor: @system)
+    Plugin
+    |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Upgrade Plugin"},
+      actor: @system
+    )
     |> Ash.create!()
 
     v1_package =
@@ -118,12 +121,17 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
           entrypoint: "run_check",
           runtime: "wasi-preview1",
           outputs: "serviceradar.plugin_result.v1",
-          manifest: %{"id" => plugin_id, "name" => "Upgrade Plugin", "version" => "0.1.0",
-                      "entrypoint" => "run_check", "runtime" => "wasi-preview1",
-                      "capabilities" => ["submit_result"],
-                      "outputs" => "serviceradar.plugin_result.v1",
-                      "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100},
-                      "alert_rules" => [declaration]},
+          manifest: %{
+            "id" => plugin_id,
+            "name" => "Upgrade Plugin",
+            "version" => "0.1.0",
+            "entrypoint" => "run_check",
+            "runtime" => "wasi-preview1",
+            "capabilities" => ["submit_result"],
+            "outputs" => "serviceradar.plugin_result.v1",
+            "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100},
+            "alert_rules" => [declaration]
+          },
           alert_rules: [declaration],
           config_schema: %{},
           display_contract: %{},
@@ -158,12 +166,17 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
           entrypoint: "run_check",
           runtime: "wasi-preview1",
           outputs: "serviceradar.plugin_result.v1",
-          manifest: %{"id" => plugin_id, "name" => "Upgrade Plugin", "version" => "0.2.0",
-                      "entrypoint" => "run_check", "runtime" => "wasi-preview1",
-                      "capabilities" => ["submit_result"],
-                      "outputs" => "serviceradar.plugin_result.v1",
-                      "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100},
-                      "alert_rules" => [v2_declaration]},
+          manifest: %{
+            "id" => plugin_id,
+            "name" => "Upgrade Plugin",
+            "version" => "0.2.0",
+            "entrypoint" => "run_check",
+            "runtime" => "wasi-preview1",
+            "capabilities" => ["submit_result"],
+            "outputs" => "serviceradar.plugin_result.v1",
+            "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100},
+            "alert_rules" => [v2_declaration]
+          },
           alert_rules: [v2_declaration],
           config_schema: %{},
           display_contract: %{},
@@ -220,7 +233,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
       "alert_rules" => [declaration]
     }
 
-    ServiceRadar.Plugins.Plugin
+    Plugin
     |> Ash.Changeset.for_create(
       :create,
       %{plugin_id: plugin_id, name: "Audit Catalog"},
