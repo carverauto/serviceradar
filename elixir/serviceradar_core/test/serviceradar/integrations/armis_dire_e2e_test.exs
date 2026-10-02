@@ -11,12 +11,15 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.ArmisNorthboundPopulation
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
+  alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.SyncIngestor
@@ -232,7 +235,23 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
     identity_conflicts = Map.get(run.metadata, "identity_conflicts", %{})
     categories = Map.get(identity_conflicts, "categories", %{})
 
-    assert Map.keys(categories) -- ["active_ip_conflict"] == []
+    # Only the sync-side review signals, and neither withholds a device. The faker generates
+    # each device's MAC history from that device's own seed, so a few MACs land on two devices:
+    # the Armis id decides each such device's identity, and the decision stays open for review
+    # as a source_authoritative_override. Every MAC an override refused is one of those.
+    assert Map.keys(categories) -- ["active_ip_conflict", "source_authoritative_override"] == []
+
+    overrides = open_override_matches!(source.id)
+    assert length(overrides) == Map.get(categories, "source_authoritative_override", 0)
+
+    contested = contested_mac_stations(pages)
+
+    unexplained =
+      overrides
+      |> List.flatten()
+      |> Enum.reject(fn {type, value} -> type == "mac" and mac_station(value) in contested end)
+
+    assert unexplained == []
 
     write_debug_artifact!("clean-run.json", %{
       "source_id" => source.id,
@@ -252,12 +271,15 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   } do
     source_b = create_source!(actor, endpoint, source.agent_id)
 
-    ingest_sync_update!(actor, source.id, "192.0.2.101", "91001", true)
-    ingest_sync_update!(actor, source.id, "192.0.2.102", "91002", true)
-    ingest_sync_update!(actor, source.id, "192.0.2.103", "91004", true)
-    ingest_sync_update!(actor, source.id, "192.0.2.104", "91005", true)
-    ingest_sync_update!(actor, source.id, "192.0.2.105", "91006", true)
-    ingest_sync_update!(actor, source_b.id, "192.0.2.201", "91001", true)
+    ingest_collection!(actor, source.id, [
+      {"192.0.2.101", "91001"},
+      {"192.0.2.102", "91002"},
+      {"192.0.2.103", "91004"},
+      {"192.0.2.104", "91005"},
+      {"192.0.2.105", "91006"}
+    ])
+
+    ingest_collection!(actor, source_b.id, [{"192.0.2.201", "91001"}])
 
     {:ok, stale_device_page} = Device.get_by_ip("192.0.2.102", false, actor: actor)
     stale_device = single_result(stale_device_page)
@@ -368,6 +390,28 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
     assert {:ok, source_b_candidates} = ArmisNorthboundRunner.load_candidates(source_b)
     assert MapSet.new(source_b_candidates, & &1.armis_device_id) == MapSet.new(["91001"])
 
+    # A northbound run reads its source's activated collection, not the candidate query above.
+    # Each id the collection reported is classified once, against the record that holds it
+    # now. The records created above outside a sync run belong to no collection, so the run
+    # never considers them, and 91004's typed owner stays eligible beside its generic bridge.
+    assert {:ok, population} = ArmisNorthboundPopulation.load(source)
+    assert eligible_ids(population) == MapSet.new(["91001", "91004", "91005"])
+
+    assert withheld_reasons(population) == %{
+             "91002" => "metadata_identifier_disagreement",
+             "91006" => "multiple_typed_ids_per_device"
+           }
+
+    legacy_records = MapSet.new([generic_only.uid, split_generic.uid, duplicate_device.uid])
+    assert population.candidates |> MapSet.new(& &1.device_id) |> MapSet.disjoint?(legacy_records)
+
+    # The other source's 91001 is its own device.
+    assert {:ok, source_b_population} = ArmisNorthboundPopulation.load(source_b)
+    assert eligible_ids(source_b_population) == MapSet.new(["91001"])
+    assert source_b_population.withheld == []
+    assert [%{device_id: source_b_device}] = source_b_population.candidates
+    refute source_b_device == candidate_device(population, "91001")
+
     repair =
       SourceIdentityDrift.repair_armis(apply: true, source_id: source.id, actor: "armis-e2e")
 
@@ -378,10 +422,24 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
     refute Enum.any?(repaired_candidates, &(&1.armis_device_id == "91004"))
     refute Enum.any?(repaired_candidates, &(&1.armis_device_id == "91006"))
 
+    # The repair makes 91002 eligible; the device holding two typed ids stays withheld.
+    assert {:ok, repaired_population} = ArmisNorthboundPopulation.load(source)
+
+    assert eligible_ids(repaired_population) ==
+             MapSet.new(["91001", "91002", "91004", "91005"])
+
+    assert withheld_reasons(repaired_population) == %{
+             "91006" => "multiple_typed_ids_per_device"
+           }
+
+    test_pid = self()
+
     assert {:ok, %{result: result}} =
              ArmisNorthboundRunner.run_for_source(source,
                actor: actor,
                execute_batches: fn _source, candidates, _opts ->
+                 send(test_pid, {:northbound_ids, Enum.map(candidates, & &1.armis_device_id)})
+
                  {:ok,
                   %{
                     device_count: length(candidates),
@@ -394,13 +452,15 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
                end
              )
 
-    assert result.updated_count ==
-             repaired_candidates
-             |> ArmisNorthboundRunner.collapse_candidates()
-             |> length()
+    # One update for each eligible id, and none for a withheld one.
+    assert_received {:northbound_ids, sent_ids}
+    assert length(sent_ids) == repaired_population.eligible_count
+    assert MapSet.new(sent_ids) == eligible_ids(repaired_population)
 
+    assert result.updated_count == repaired_population.eligible_count
+    assert result.skipped_count == repaired_population.withheld_count
+    assert result.withheld_reason_counts == %{"multiple_typed_ids_per_device" => 1}
     assert result.error_count == 0
-    assert result.skipped_count >= 2
     assert result.device_count == result.updated_count + result.skipped_count
 
     write_debug_artifact!("identity-conflict-matrix.json", %{
@@ -410,7 +470,8 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
       "candidate_count_after_repair" => length(repaired_candidates),
       "updated_count" => result.updated_count,
       "skipped_count" => result.skipped_count,
-      "error_count" => result.error_count
+      "error_count" => result.error_count,
+      "withheld_reason_counts" => result.withheld_reason_counts
     })
   end
 
@@ -447,22 +508,62 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
     |> Ash.create!(actor: actor)
   end
 
-  defp ingest_sync_update!(actor, source_id, ip, armis_id, is_available) do
-    update = %{
-      "ip" => ip,
-      "mac" => unique_mac!(armis_id),
-      "hostname" => "armis-#{armis_id}",
-      "source" => "armis",
-      "is_available" => is_available,
-      "metadata" => %{
-        "armis_device_id" => armis_id,
-        "integration_id" => armis_id,
-        "integration_type" => "armis"
-      },
-      "sync_meta" => %{"sync_service_id" => source_id}
+  # One sync run of the source that reports each `{ip, armis_id}` in `devices`. The updates are
+  # ingested one at a time, and then the run's collection activates with exact accounting, as
+  # SyncIngestorQueue activates a run after its final chunk.
+  defp ingest_collection!(actor, source_id, devices) do
+    count = length(devices)
+
+    sync_meta = %{
+      "sync_service_id" => source_id,
+      "sync_run_id" => Ash.UUID.generate(),
+      "chunk_index" => 0,
+      "total_chunks" => 1,
+      "total_devices" => count,
+      "is_final" => true,
+      "population" => %{
+        "raw_rows" => count,
+        "excluded_rows" => 0,
+        "invalid_rows" => 0,
+        "valid_occurrences" => count,
+        "distinct_source_ids" => count,
+        "duplicate_occurrences" => 0,
+        "conflicting_duplicate_ids" => 0
+      }
     }
 
-    :ok = SyncIngestor.ingest_updates([update], actor: actor)
+    updates =
+      Enum.map(devices, fn {ip, armis_id} ->
+        update = %{
+          "ip" => ip,
+          "mac" => unique_mac!(armis_id),
+          "hostname" => "armis-#{armis_id}",
+          "source" => "armis",
+          "is_available" => true,
+          "metadata" => %{
+            "armis_device_id" => armis_id,
+            "integration_id" => armis_id,
+            "integration_type" => "armis"
+          },
+          "sync_meta" => sync_meta
+        }
+
+        :ok = SyncIngestor.ingest_updates([update], actor: actor)
+        update
+      end)
+
+    :ok = ArmisSourceSnapshot.activate(updates, sync_meta, actor: actor)
+  end
+
+  defp eligible_ids(population), do: MapSet.new(population.eligible, & &1.source_object_id)
+
+  defp withheld_reasons(population),
+    do: Map.new(population.withheld, &{&1.source_object_id, &1.reason})
+
+  defp candidate_device(population, armis_id) do
+    Enum.find_value(population.candidates, fn candidate ->
+      if candidate.armis_device_id == armis_id, do: candidate.device_id
+    end)
   end
 
   defp create_device!(actor, attrs) do
@@ -632,6 +733,48 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
     %{rows: [[value]]} = Repo.query!(sql)
     value
   end
+
+  # The identifiers each open source_authoritative_override row of the source refused, as
+  # `{identifier_type, identifier_value}` pairs.
+  defp open_override_matches!(source_id) do
+    Enum.map(
+      Repo.query!(
+        """
+        SELECT conflicting_identifiers->'matched_identifiers'
+        FROM platform.source_identity_conflicts
+        WHERE status = 'open'
+          AND source_type = 'armis'
+          AND source_id = $1
+          AND conflict_category = 'source_authoritative_override'
+        """,
+        [source_id]
+      ).rows,
+      fn [matches] ->
+        Enum.map(matches, &{&1["identifier_type"], &1["identifier_value"]})
+      end
+    )
+  end
+
+  # The MAC stations two or more of the fixture's Armis devices report. A station is a MAC
+  # together with its universal/local sibling, which identity resolution also matches on.
+  defp contested_mac_stations(pages) do
+    pages
+    |> Enum.flat_map(& &1["updates"])
+    |> Enum.flat_map(fn update ->
+      metadata = update["metadata"] || %{}
+
+      Enum.map(
+        Mac.normalize_mac_list(update["mac"]) ++ Mac.normalize_mac_list(metadata["mac_addresses"]),
+        &{mac_station(&1), metadata["armis_device_id"]}
+      )
+    end)
+    |> Enum.uniq()
+    |> Enum.frequencies_by(&elem(&1, 0))
+    |> Enum.filter(fn {_station, devices} -> devices > 1 end)
+    |> MapSet.new(&elem(&1, 0))
+  end
+
+  defp mac_station(mac), do: Enum.min([Mac.normalize_mac(mac), Mac.hardware_mac_sibling(mac)])
 
   defp typed_device_map! do
     Map.new(

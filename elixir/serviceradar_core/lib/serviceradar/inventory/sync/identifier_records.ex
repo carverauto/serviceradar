@@ -15,6 +15,9 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
 
   require Logger
 
+  # Postgres's wire protocol hard limit (int16) on bound parameters in one query.
+  @max_bound_parameters 65_535
+
   # Build identifier records for bulk upsert
   def build_identifier_records(resolved_updates) do
     resolved_updates
@@ -109,12 +112,26 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
       # re-pointing an identifier's device_id collapsed distinct devices
       # (500-per-batch integration_id pile-ups, agent identity theft).
       # Identifier ownership changes only via audited merges/rebinds.
-      Repo.insert_all(
-        DeviceIdentifier,
-        insert_records,
-        on_conflict: {:replace, [:last_seen, :metadata]},
-        conflict_target: [:identifier_type, :identifier_value, :partition]
-      )
+      #
+      # A device gets one row per MAC, so a batch of devices that each report
+      # dozens of MACs can carry more rows than one statement can bind, and
+      # insert_all/3 does not chunk on its own: past the limit Postgrex rejects
+      # the statement and the whole batch fails. Chunk by the rows' field count.
+      # The chunks run in the caller's transaction (SyncIngestor's fenced
+      # write), so a batch still lands whole or not at all.
+      field_count = insert_records |> Enum.map(&map_size/1) |> Enum.max()
+      chunk_size = max(div(@max_bound_parameters, field_count), 1)
+
+      insert_records
+      |> Enum.chunk_every(chunk_size)
+      |> Enum.each(fn chunk ->
+        Repo.insert_all(
+          DeviceIdentifier,
+          chunk,
+          on_conflict: {:replace, [:last_seen, :metadata]},
+          conflict_target: [:identifier_type, :identifier_value, :partition]
+        )
+      end)
 
       CardinalityCaps.enforce(
         Enum.map(insert_records, fn r -> {r.device_id, r.identifier_type} end)
