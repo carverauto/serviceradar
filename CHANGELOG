@@ -1,3 +1,95 @@
+# ServiceRadar v1.4.79
+
+This release restores radial topology through bounded tiles, adds Starlink
+plugins and extension fleet queries, and improves telemetry delivery,
+retention, audit browsing, and operator authentication.
+
+## Upgrade Notes
+
+- Helm `core.migrations.expectedVersion` is `20261004120000`.
+  New migrations add a concurrent partial index for active device type and
+  hostname queries, and `platform.admin_secret_markers` for bootstrap
+  password rotation tracking. The device index builds outside a transaction.
+  Additional migrations index security-event browsing and track topology
+  relation eligibility and stale evidence.
+- Operator-set admin passwords survive restarts with force-sync enabled.
+  Rotating the bootstrap secret resets the password; the first start with
+  no rotation marker records the secret fingerprint without replacing an
+  existing password (PR #5056).
+- Upgrade both agent and gateway to deliver host-interface MAC evidence
+  for identity reconciliation (PR #5042).
+- CNPG hourly rollup retention is configurable through
+  `core.observabilityRetention.hourlyRollupDays` (default 395 days, minimum
+  7 days). Nightly reconciliation configures one-day chunks and compression
+  after seven days. Raw timeseries retention is configurable through
+  `core.observabilityRetention.timeseriesMetricsDays` (PR #4992).
+- New installations using the NATS small profile receive a 36Gi volume
+  and 36G file-store limit. Demo retains its existing 30Gi/30G overrides
+  (PR #5003).
+
+## Whats New
+
+**1.4.79**
+- Topology: restore ELK radial geometry through bounded tiles, preserve
+  canonical physical links across tile boundaries, expand clusters on
+  click, and make popups dismissible. Last-known attachments remain
+  visibly stale and do not animate as current traffic. Live traffic and
+  health overlays accept tile receipts containing stale links
+  (PR #4991, PR #5048).
+- Starlink: add cloud and local WASM plugins. The cloud plugin collects
+  inventory, telemetry, and alerts using brokered OAuth2 credentials;
+  the local plugin reads dish diagnostics through host gRPC. Management
+  actions remain excluded from the manifest (PR #4997).
+- Plugins: management actions retain package-owned integration context
+  and use unified credential rules or existing assignment bindings.
+  Required credentials and target scope are validated before dispatch
+  (PR #4998).
+- SRQL: add `plugin_fleet` and extend `addon_fleet` for assignments,
+  observed health, freshness, and desired-versus-observed drift. Device
+  queries support primary and secondary hostname ordering with a stable
+  UID tie-breaker and a matching active-device index (PR #5046,
+  PR #5004, PR #5055).
+- Inventory facts: add `DELETE /api/devices/:uid/metadata/facts/:key`.
+  Authorized callers can retract their own facts and provenance
+  atomically without deleting another source's facts or non-fact metadata
+  (PR #5054).
+- Event rules: expose CRUD at `/api/v2/event-rules`, including active
+  listing and cache invalidation after mutations. Custom RBAC profiles
+  govern view, create, update, and delete independently (PR #5005,
+  PR #5057).
+- Audit events: add keyset pagination, UTC time ranges, actor/IP/route/
+  correlation filters, and substring search. The first page refreshes on
+  matching notifications; older pages pause updates. Authorized SRQL
+  queries can read `security_events` (PR #5008).
+- Web UI: restore light, dark, and system theme choices with cross-tab
+  preference synchronization. Full agent release notes open in an
+  accessible modal with safe Markdown rendering and keyboard focus
+  containment (PR #5007, PR #5058).
+- Authentication: CLI policy saves create missing authorization settings
+  and preserve existing default-role and IdP mappings (PR #5045).
+- Telemetry: the gateway splits oversized sweep metric batches below
+  the advertised NATS payload limit, preserving envelopes and attestation.
+  Each part has a deterministic deduplication ID; individually oversized
+  points produce explicit errors (PR #5043).
+- OTEL: bound span-derived Prometheus label cardinality and route rejected
+  tuples to a fixed overflow series while preserving counts and duration
+  observations (PR #5044).
+- MTR: add freshness-gated StarRocks hourly hop and destination rollups,
+  raw fallback for unsupported or stale rollups, and warehouse retention
+  reporting (PR #4986).
+- Cold tier: keep archival CNPG-only and report StarRocks archival as
+  unavailable per dataset. Historical CNPG backfill retains its retention
+  fences until drained or explicitly waived (PR #5047).
+- Identity: agents send eligible local host-interface MAC evidence;
+  expected reconciliation merge-guard blocks log at info rather than
+  warning (PR #5042, PR #5050).
+- Native prefix tagging: Mix builds emit a loadable `cdylib` rather than
+  selecting an archive as the NIF artifact (PR #4994).
+- Build and tests: isolate workflow-runner disk caches, avoid hosted-Bazel
+  root writes into shared caches, isolate test control-session config
+  pushes, and correct web database lane counts (PR #4985, PR #5002,
+  PR #4987, PR #5049). Update CLI `fast-uri` to 3.1.8 (PR #5000).
+
 # ServiceRadar v1.4.78
 
 Sweep overlap records the targets a group compiled, and those records

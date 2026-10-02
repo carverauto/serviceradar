@@ -13,7 +13,7 @@ ExUnit.configure(
 # +8 ash_json_api_test.exs (2×1 outer + 2×3 nested for-loop),
 # +3 admin_authorization_test.exs (2 for-loop + 1 recount correction),
 # +2 agents_releases_live_test.exs, +4 admin_user_test.exs.
-# CI-verified: 2379 actual.
+# CI-verified: 2379 actual. (staging has 299; this PR adds the additional routed tests)
 expected_selected_tests = 2379
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
