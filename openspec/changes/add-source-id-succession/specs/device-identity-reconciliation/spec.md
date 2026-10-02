@@ -57,9 +57,10 @@ The system SHALL NOT use an IP address, or a confirmed IP alias, as a device's i
 An address-only sighting attaches to the device that currently holds that address. DHCP moves
 addresses between devices, so "same address" never implies "same device". Only a record that is
 not yet a device may adopt an anchorless provisional seed (a sweep-created row) that holds its
-address; an existing device takes the address by the newer-observation rule instead. When an
+address; an existing device takes the address by the newer-observation rule instead. A record
+with archived identifier rows is anchored by them. When an
 existing device takes the only address of an anchorless provisional seed -- one with no
-identifier rows, discovered only by sweeps and holding no other address -- the seed SHALL be
+identifier rows, current or archived, discovered only by sweeps and holding no other address -- the seed SHALL be
 soft-deleted with `deleted_reason` `seed_released` in the same transaction, so a released seed
 never stays live without an address.
 
@@ -266,8 +267,8 @@ either field, a MAC shared with another current record, or a pairing that is not
 - **AND** no later scheduled run SHALL merge them again
 
 ### Requirement: Retired Source Identifiers Are Reserved
-The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when that record holds no current identifier of that type and the update agrees with the archived observation on a universally administered MAC and on the source first-seen time or the hostname; otherwise it SHALL write the update as a new record and record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
-Returning an identifier SHALL move its archive row back to the live identifier table, SHALL
+The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when exactly one such record qualifies, that record holds no unretired identifier of that type, whether or not the source still reports it, and the update agrees with the archived observation on a universally administered MAC and on the source first-seen time or the hostname; otherwise it SHALL write the update as a new record and record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
+Returning an identifier SHALL resolve the update to that record, SHALL move its archive row back to the live identifier table, SHALL
 clear a `source_retired` mark, SHALL restore a `source_retired` tombstone through the audited
 restore path, and SHALL record a `source_id_reactivated` identity decision. Returning an
 identifier SHALL NOT merge two live records.
@@ -287,7 +288,7 @@ identifier SHALL NOT merge two live records.
 - **AND** a `source_id_reissued` identity decision SHALL open a de-duplication task naming both records
 
 #### Scenario: A retired id whose holder now holds a current id
-- **GIVEN** device X held Armis device id 1001, retired, and now holds the current Armis device id 2002 after a succession
+- **GIVEN** device X held Armis device id 1001, retired, and now holds Armis device id 2002 in the live identifier table after a succession
 - **WHEN** Armis reports id 1001 again
 - **THEN** device X SHALL NOT receive Armis device id 1001
 - **AND** a new record SHALL be created and a `source_id_reissued` identity decision SHALL name both records

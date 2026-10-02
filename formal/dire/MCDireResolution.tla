@@ -22,14 +22,18 @@ SharedMac   == [x \in {"x1", "x2"} |-> "m1"]
 OneIfPhys   == [x \in {"x1"} |-> "h1"]
 OneHwMac    == [x \in {"x1"} |-> "m1"]
 ArmisA1     == [h \in {"h1"} |-> "a1"]
-\* act is a history variable Next never reads, recFs is a ghost Next never reads, and Next reads
-\* addrFresh only under stale_holder_keeps_address; leaving them out of the fingerprint is sound
+\* act is a history variable Next never reads. Next reads recFs only for a record holding a
+\* retired id, and the archive stays empty unless Rekeys; it reads addrFresh only under
+\* stale_holder_keeps_address. Leaving them out of the fingerprint otherwise is sound.
 StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive,
+               IF Rekeys THEN recFs ELSE <<>>,
                IF Bug("stale_holder_keeps_address") THEN addrFresh ELSE <<>>>>
 \* vacuity: nothing is ever merged
 NeverMerged == \A r \in Recs : into[r] = NoRec
 \* vacuity: no identity decision is ever made
 NeverDecides == [][act'.decisions = {}]_vars
+\* vacuity: the reconciler never merges a re-keyed pair
+NeverSucceeds == [][act'.name # "Succession"]_vars
 \* vacuity: Armis and discovery never converge on one record
 NeverConverged == ~\E r \in Recs : owner["a1"] = r /\ owner["m1"] = r
 =============================================================================

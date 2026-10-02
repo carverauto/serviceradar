@@ -132,6 +132,19 @@ silently would drop its veto with no record and no archive.
 The guard therefore consults the archive as well as `device_identifiers`. A record holds or held
 a value of type `t` if either table has a row for it in that scope.
 
+Model checking (D10) added two consequences:
+
+- **Equal values still conflict.** Two records conflict when each holds or held a value of type
+  `t`, even the same value. A value has one holder at a time, so two records' current values
+  always differ. A value that the archive keeps for one record while another record holds it now
+  was re-issued to another asset (D6). The guard's test is therefore "both records have a history
+  of the type", not "their values differ".
+- **Archived rows anchor.** Every check that asks whether a record is anchored by an identifier
+  counts archived rows: the seed adoption in `DeviceWrites` (`anchored_device_uids/1`, read by
+  `provisional_ip_seed?/2`) and D8's released-seed rule. A record holding only retired ids is not
+  an anchorless seed. Otherwise a new record for another device's id adopts it, and one record
+  describes two devices.
+
 Two simpler alternatives were rejected:
 
 - **Letting retirement simply drop the veto.** After retirement the old record no longer holds
@@ -187,6 +200,9 @@ The merge itself:
 - **Reversal.** An administrative unmerge of a `source_succession` merge restores both records.
   It also records a distinct assertion for the pair, so the next run does not merge them again.
 - **Cap.** `max_successions_per_run`, default 200, alongside the existing merge cap.
+- **Re-validation.** Each pair is re-checked inside its merge transaction. The model merges one
+  pair per step, and a list computed at the start of a run can be stale after the run's first
+  merge.
 
 Hostname agreement only corroborates. It never merges on its own, so "Hostname Agreement Is Not
 Identity" stands.
@@ -256,15 +272,25 @@ consults it. When a source reports a retired id again:
 
 - **Reactivation.** The id returns to the record that held it when it was retired, or to that
   record's merge survivor. This needs all of the following:
-  - the record holds no current id of that type;
+  - exactly one such record qualifies;
+  - the record holds no unretired id of that type, that is, no `device_identifiers` row of the
+    type. Whether the source still reports that id does not matter. A record that took a
+    device's new id by succession still holds it after the source switches back to the old one,
+    and reactivating the old id there would leave one record holding two ids of the type;
   - the update agrees with the archived observation on a universal MAC;
   - the update agrees on the first-seen time or the hostname.
+
+  The reactivated record is the update's match, as if it had never lost the id. Resolution must
+  not fall back to the uid the id derives: that uid names the record that first held the id,
+  which after a re-issue is another device's record.
 
   The archive row is moved back. A `source_retired` mark is cleared, and a tombstone is
   restored through the audited restore path. The decision is recorded as `source_id_reactivated`.
 - **Re-issue.** Otherwise the update is written as a new record, and a `source_id_reissued`
   decision names both records and opens a review task. The new record never joins the old one
-  automatically.
+  automatically. When a record already carries the uid the id derives, live or merged away, the
+  new record gets a fresh uid; writing to the derived uid would land the update on the old
+  record.
 
 The archive never merges two live records. This pins the model's `FreshIds = FALSE` case: a
 source that re-issues an old id to a different asset produces a review task, not a false merge.
@@ -295,7 +321,7 @@ When an identified device takes the only address of an anchorless provisional se
 soft-deleted in the same transaction with `deleted_reason = "seed_released"`. The seed qualifies
 when all of these hold:
 
-- it has no identifier rows;
+- it has no identifier rows, current or archived (D2);
 - its discovery sources are only `sweep`;
 - it holds no other address.
 
@@ -362,7 +388,7 @@ These changes go in `formal/dire`. They are specified here as tasks and land bef
   `Fresh | Stale`. One `Stale` value stands for "N collections and T elapsed", so the clock
   does not blow up the state space.
 - `RetireAbsent(a)` archives a stale absent id.
-- `Reconcile` performs D3's succession, with D4's cases recorded as decisions.
+- The reconciler's `Succeed` and `Review` actions perform D3's succession and record D4's cases.
 - Ingest consults the archive (D2).
 - Each record carries an identity-observation freshness value, which the sweep never refreshes
   (D7).
@@ -371,7 +397,7 @@ These changes go in `formal/dire`. They are specified here as tasks and land bef
 
 - `OneSourceRecordPerDevice`: at most one live record holding a source id describes each
   physical device. It is checked **at rest**, in states where neither `RetireAbsent` nor
-  `Reconcile` can change anything. Resolve-time succession cannot satisfy it alone: a scratch
+  the reconciler can change anything. Resolve-time succession cannot satisfy it alone: a scratch
   run of a shared-MAC re-key showed that only absence-based retirement converges there.
 - `CurrentSourceIdResolves`: a device's current source id, once owned, is owned by the device's
   canonical record.
@@ -471,6 +497,22 @@ Until each fix lands, each of these traces demonstrates its switch with a knocko
 
 **The gate.** If TLC finds a counterexample to a goal property in the new goal configurations,
 the design returns to this document for revision before any code is written.
+
+**Revisions the gate made.** The first runs of the new goal configurations found three
+counterexamples. Each was fixed in this document before any code:
+
+- `armis_rekey_shared_mac`, `NoFalseMerge`: a record whose only source id had retired held no
+  identifier rows, so a new record for the other device's new id adopted it as a provisional
+  seed. Archived rows now anchor (D2).
+- `armis_reissued_ids`, `DistinctSourceIdsNeverMerge`: reactivation conditioned on "holds no id
+  the source reports" put a retired id back on a record that still held the device's newer id
+  after a succession. The condition is now "holds no unretired id" (D6).
+- `armis_reissued_ids`, `NoFalseMerge`: a reactivated record that was not the update's match let
+  the write fall back to the uid the id derives, which named the other device's record. The
+  reactivated record is now the match (D6).
+
+With the archive, two records can carry the same value of a type, so the source conflict test
+also changed from "different values" to "both records have a history of the type" (D2).
 
 ### D11. Remediation
 
