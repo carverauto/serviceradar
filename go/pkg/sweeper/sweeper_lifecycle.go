@@ -37,7 +37,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 	s.ensureScannersInitialized()
 
-	initialCtx, initialCancel := context.WithTimeout(ctx, scanTimeout)
+	initialCtx, initialCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
 	if err := s.runSweepWithLock(initialCtx); err != nil {
 		initialCancel()
 
@@ -72,7 +72,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 		case t := <-ticker.C:
 			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
 
-			sweepCtx, sweepCancel := context.WithTimeout(ctx, scanTimeout)
+			sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
 			if err := s.runSweepWithLock(sweepCtx); err != nil {
 				s.logger.Error().Err(err).Msg("Periodic sweep failed")
 			} else {
@@ -97,7 +97,7 @@ func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
 
 	s.ensureScannersInitialized()
 
-	sweepCtx, sweepCancel := context.WithTimeout(ctx, scanTimeout)
+	sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
 	defer sweepCancel()
 
 	if err := s.runSweepWithLock(sweepCtx); err != nil {

@@ -48,8 +48,9 @@ type NetworkSweeper struct {
 	bannerPhase     *banner_grab.Engine
 	lastBannerStats *models.BannerGrabStats
 	bannerHandler   BannerObservationHandler
-	sweepInProgress bool
-	lastSummary     *models.SweepSummary
+	sweepInProgress     bool
+	lastSweepCancelled  bool
+	lastSummary         *models.SweepSummary
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs

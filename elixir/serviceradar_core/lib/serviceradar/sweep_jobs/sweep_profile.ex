@@ -49,6 +49,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
     :sweep_modes,
     :concurrency,
     :timeout,
+    :scan_timeout,
     :icmp_settings,
     :tcp_settings,
     :banner_grab,
@@ -145,6 +146,12 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
       public? true
       default "3s"
       description "Per-host scan timeout"
+    end
+
+    attribute :scan_timeout, :string do
+      allow_nil? true
+      public? true
+      description "Total wall-clock scan timeout (e.g. \"10m\"); nil means no clamp"
     end
 
     attribute :icmp_settings, :map do

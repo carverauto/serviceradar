@@ -304,8 +304,9 @@ type SweepConfig struct {
 	HighPerfICMP  bool           `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit int            `json:"icmp_rate_limit,omitempty"`
 	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
-	SweepGroupID  string         `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
-	ConfigHash    string         `json:"config_hash,omitempty"`    // Hash of config for change detection
+	SweepGroupID    string         `json:"sweep_group_id,omitempty"`    // Sweep group UUID for result tracking
+	ConfigHash      string         `json:"config_hash,omitempty"`       // Hash of config for change detection
+	MaxScanDuration string         `json:"max_scan_duration,omitempty"` // Wall-clock scan timeout (e.g. "10m"); 0 means use default
 }
 
 // BannerGrab defines optional active banner-grab sweep behaviour.

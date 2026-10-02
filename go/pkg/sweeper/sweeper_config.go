@@ -45,12 +45,22 @@ func WithBannerObservationHandler(handler BannerObservationHandler) Option {
 
 const (
 	defaultInterval      = 5 * time.Minute
-	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
+	defaultScanTimeout   = 20 * time.Minute // Fallback when no MaxLifetime is configured
 	defaultResultTimeout = 500 * time.Millisecond
 	defaultTargetBatch   = 100000
 	intSizeBits          = 32 << (^uint(0) >> 63)
 	maxInt               = int(^uint(0) >> 1)
 )
+
+// effectiveScanTimeout returns the per-execution wall-clock timeout from the
+// config when set, or falls back to defaultScanTimeout.
+func effectiveScanTimeout(c *models.Config) time.Duration {
+	if c != nil && c.MaxLifetime > 0 {
+		return c.MaxLifetime
+	}
+
+	return defaultScanTimeout
+}
 
 const (
 	metadataAddressFamily        = "address_family"

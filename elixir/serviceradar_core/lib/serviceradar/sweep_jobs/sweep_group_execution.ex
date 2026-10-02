@@ -135,6 +135,28 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       end
     end
 
+    update :cancel do
+      description "Mark execution as cancelled (scan-timeout cutoff)"
+      require_atomic? false
+
+      accept @execution_result_fields
+
+      change set_attribute(:status, :cancelled)
+      change set_attribute(:completed_at, &DateTime.utc_now/0)
+
+      change fn changeset, _context ->
+        started_at = changeset.data.started_at
+        completed_at = DateTime.utc_now()
+
+        if started_at do
+          duration_ms = DateTime.diff(completed_at, started_at, :millisecond)
+          Ash.Changeset.change_attribute(changeset, :duration_ms, duration_ms)
+        else
+          changeset
+        end
+      end
+    end
+
     update :update_progress do
       description "Update execution progress"
 
@@ -184,7 +206,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       allow_nil? false
       public? true
       default :pending
-      constraints one_of: [:pending, :running, :completed, :failed]
+      constraints one_of: [:pending, :running, :completed, :failed, :cancelled]
       description "Current execution status"
     end
 

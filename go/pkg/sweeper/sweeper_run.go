@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -90,7 +91,7 @@ func (s *NetworkSweeper) handleContextDone(ctx context.Context, resultBatch []mo
 
 	s.logger.Info().Str("scanType", scanType).Int("totalResults", count).Int("successful", success).Msg("Scan complete - timeout reached")
 
-	return nil
+	return ctx.Err()
 }
 
 func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
@@ -216,9 +217,26 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	wg.Wait()
 	close(errChan)
 
-	// Check for any errors
+	// Separate context-timeout errors (scan cancelled) from real failures.
+	var firstErr error
+	allContext := true
+
 	for err := range errChan {
-		return err
+		if firstErr == nil {
+			firstErr = err
+		}
+
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			allContext = false
+		}
+	}
+
+	if firstErr != nil {
+		if allContext {
+			return s.completeCancelledSweep(ctx, startedAt)
+		}
+
+		return firstErr
 	}
 
 	err = s.finishBannerGrabPhase(bannerPhase)
@@ -235,9 +253,30 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	return s.completeSuccessfulSweep(ctx, startedAt)
 }
 
+// completeCancelledSweep commits whatever partial results were gathered when
+// the scan hit its wall-clock timeout, and marks the run as cancelled so
+// callers can report the correct execution status.
+func (s *NetworkSweeper) completeCancelledSweep(ctx context.Context, startedAt time.Time) error {
+	s.mu.Lock()
+	s.lastSweepCancelled = true
+	s.mu.Unlock()
+
+	return s.completeSuccessfulSweep(ctx, startedAt)
+}
+
+// WasCancelledSweep returns true when the most-recently-completed sweep was
+// cut short by the configured scan timeout.
+func (s *NetworkSweeper) WasCancelledSweep() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.lastSweepCancelled
+}
+
 func (s *NetworkSweeper) markSweepStarted() {
 	s.mu.Lock()
 	s.sweepInProgress = true
+	s.lastSweepCancelled = false
 	s.mu.Unlock()
 }
 
