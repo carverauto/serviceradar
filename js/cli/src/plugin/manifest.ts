@@ -4,9 +4,11 @@
 // looser subset, which is what keeps "validate passed but publish 422'd" from
 // happening.
 
-import {existsSync, readFileSync} from "node:fs"
+import {spawnSync} from "node:child_process"
+import {existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs"
 import {createHash} from "node:crypto"
-import {resolve} from "node:path"
+import {tmpdir} from "node:os"
+import {join, resolve} from "node:path"
 
 import {parse as parseYaml} from "yaml"
 
@@ -84,6 +86,46 @@ export function loadManifest(projectDir: string, options: Record<string, any> = 
     manifest: record as unknown as PluginManifest,
     raw: record,
   }
+}
+
+// Extracts plugin.yaml and plugin.wasm from a Bazel-produced zip bundle,
+// loads the manifest from a temp dir, and returns both the project and a
+// cleanup function the caller must invoke when the bundle is no longer needed.
+export function loadManifestFromBundle(zipPath: string): {project: PluginProject; cleanup: () => void} {
+  const resolved = resolve(zipPath)
+  if (!existsSync(resolved)) {
+    throw new Error(`bundle zip does not exist: ${resolved}`)
+  }
+
+  const tmpDir = mkdtempSync(join(tmpdir(), "serviceradar-plugin-"))
+  const cleanup = () => rmSync(tmpDir, {recursive: true, force: true})
+
+  const extract = (entry: string, destPath: string, maxBytes: number): void => {
+    const result = spawnSync("unzip", ["-p", resolved, entry], {maxBuffer: maxBytes})
+    if (result.status !== 0 || result.stdout == null || result.stdout.length === 0) {
+      const msg = result.stderr ? result.stderr.toString().trim() : `exit ${result.status}`
+      throw new Error(`could not extract ${entry} from ${resolved}: ${msg}`)
+    }
+    writeFileSync(destPath, result.stdout)
+  }
+
+  try {
+    extract(DEFAULT_MANIFEST_FILE, join(tmpDir, DEFAULT_MANIFEST_FILE), 512 * 1024)
+    extract(DEFAULT_WASM_ARTIFACT, join(tmpDir, DEFAULT_WASM_ARTIFACT), 32 * 1024 * 1024)
+  } catch (error) {
+    cleanup()
+    throw error
+  }
+
+  let project: PluginProject
+  try {
+    project = loadManifest(tmpDir)
+  } catch (error) {
+    cleanup()
+    throw error
+  }
+
+  return {project, cleanup}
 }
 
 export function manifestErrors(manifest: Record<string, unknown>): string[] {
