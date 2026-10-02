@@ -1,3 +1,25 @@
+# ServiceRadar v1.4.80
+
+Release publication repair for the unavailable Alpine OpenSSL package pins
+that blocked v1.4.79 before container and Helm chart publication.
+
+## Upgrade Notes
+
+- Includes the product changes and upgrade requirements documented under
+  v1.4.79 below. No additional database migrations are introduced.
+- Publish this version from its own merged, LargeIngestionGate-qualified
+  commit; rerunning the v1.4.79 tag still uses the old package pins.
+
+## Whats New
+
+**1.4.80**
+- Container dependencies: update Alpine 3.24 `openssl`, `libssl3`, and
+  `libcrypto3` from 3.5.8-r0 to 3.5.9-r0 for both x86_64 and aarch64,
+  with checksums verified against downloaded packages. This replaces the
+  unavailable libssl3 pin that stopped v1.4.79 publication.
+- CI: align shared-fixture database lane selected-test counts with the
+  merged test registrations (PR #5060).
+
 # ServiceRadar v1.4.79
 
 This release restores radial topology through bounded tiles, adds Starlink
