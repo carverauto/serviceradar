@@ -77,6 +77,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
 
     action :run_cleanup do
       description "Enqueue an immediate device cleanup run"
+      returns :map
 
       run fn _input, context ->
         actor = context.actor

@@ -68,6 +68,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     manual? = Map.get(args, "manual", false)
     actor = SystemActor.system(:device_cleanup_worker)
 
+    if manual?, do: Logger.info("DeviceCleanupWorker: manual run triggered by operator")
+
     settings = load_settings(actor)
 
     if not settings.enabled and not manual? do

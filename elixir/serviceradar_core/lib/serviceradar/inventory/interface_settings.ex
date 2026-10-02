@@ -169,6 +169,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       description "Bulk update favorite status for multiple interfaces"
       argument :interface_uids, {:array, :string}, allow_nil?: false
       argument :favorited, :boolean, allow_nil?: false
+      returns :map
 
       run fn input, _context ->
         interface_uids = input.arguments.interface_uids

@@ -68,6 +68,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
     action :preview do
       argument :id, :uuid, allow_nil?: false
       argument :sample_limit, :integer, allow_nil?: true, default: 10
+      returns :map
 
       run fn input, context ->
         PluginTargetPolicyOps.preview_by_id(
@@ -80,6 +81,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
 
     action :reconcile_now do
       argument :id, :uuid, allow_nil?: false
+      returns :map
 
       run fn input, context ->
         PluginTargetPolicyOps.reconcile_by_id(
