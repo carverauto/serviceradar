@@ -920,7 +920,9 @@ defmodule ServiceRadar.DireTrace do
       Ifaces = #{set(Map.keys(w.ifaces))}
       IfPhys <- TraceIfPhys
       IfMac <- TraceIfMac
-      SrcOf <- TraceSrcOf
+      SrcOf0 <- TraceSrcOf
+      Rekeys = #{tla_bool(Map.get(w, :rekeys, false))}
+      FreshIds = #{tla_bool(Map.get(w, :fresh_ids, true))}
       ArmisMacs = #{tla_bool(w.armis_macs)}
       AgentIds = #{set(Map.get(w, :agent_ids, []))}
       AgentOf <- TraceAgentOf

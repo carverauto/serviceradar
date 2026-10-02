@@ -18,8 +18,9 @@ NoAgents1   == [h \in {"h1"} |-> NoId]
 AgentOnH1   == [h \in {"h1"} |-> "g1"]
 \* two Armis devices reporting the same MAC (cloned VMs, a swapped NIC)
 SharedMac   == [x \in {"x1", "x2"} |-> "m1"]
-\* act is a history variable Next never reads; leaving it out of the fingerprint is sound
-StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims>>
+\* act is a history variable Next never reads, and recFs is a ghost Next never reads; leaving
+\* them out of the fingerprint is sound
+StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence>>
 \* vacuity: nothing is ever merged
 NeverMerged == \A r \in Recs : into[r] = NoRec
 \* vacuity: no identity decision is ever made

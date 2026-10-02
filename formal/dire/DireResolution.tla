@@ -18,6 +18,9 @@
 (* devices" is checkable. The shape of every action was checked against    *)
 (* traces recorded from the real code (formal/dire/traces).                 *)
 (*                                                                          *)
+(* A source can re-identify a device (Rekey): the source id is a variable, *)
+(* and every environment without the Rekeys constant keeps it constant.    *)
+(*                                                                          *)
 (* Merge lifecycle (tombstones, revival, purge, the fence) is modeled in   *)
 (* DireLifecycle.tla; here a merged record simply redirects to its target.  *)
 (* Paths are relative to elixir/serviceradar_core/lib/serviceradar/.        *)
@@ -29,7 +32,9 @@ CONSTANTS
     Ifaces,        \* physical interfaces
     IfPhys,        \* [Ifaces -> Phys]: the device an interface belongs to
     IfMac,         \* [Ifaces -> MacIds \cup {NoId}]: the interface's true MAC
-    SrcOf,         \* [Phys -> SrcIds \cup {NoId}]: the Armis device id, if Armis knows it
+    SrcOf0,        \* [Phys -> SrcIds \cup {NoId}]: the Armis device id at Init, if Armis knows it
+    Rekeys,        \* whether the source may re-identify a device under another id (Rekey)
+    FreshIds,      \* whether a re-key always uses an id the source never issued before
     AgentOf,       \* [Phys -> AgentIds \cup {NoId}]: the agent running on the device, if any
     ArmisMacs,     \* whether Armis reports the device's MACs with its id
     AgentIds,      \* agent ids (agent_id identifiers)
@@ -67,9 +72,14 @@ VARIABLES
     alias,    \* confirmed IP aliases: address -> records
     phys,     \* ghost: physical devices whose identity-bearing observations built the record
     ifClaims, \* InterfaceMacs: interface MACs a record's own interface table claims
-    act       \* the last step: observer, reported ids, address, decisions, address merges
+    act,      \* the last step: observer, reported ids, address, decisions, address merges
+    srcOf,    \* the source id the source currently reports for each device
+    absence,  \* per source id: Unissued, or Present in the source's collections
+    recFs     \* ghost: the devices whose source first-seen time and hostname a record carries
 
-vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act>>
+vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act, srcOf, absence, recFs>>
+
+Absences == {"Unissued", "Present"}
 
 DecisionKinds == {"policy_block", "source_block", "alias_invalidated", "source_override",
                   "ip_conflict"}
@@ -87,6 +97,9 @@ TypeOK ==
     /\ act \in [name: STRING, ids: SUBSET Ids, ip: Ips \cup {NoIp},
                 decisions: SUBSET Decision, recorded: SUBSET Decision,
                 addressMerged: SUBSET Recs]
+    /\ srcOf \in [Phys -> SrcIds \cup {NoId}]
+    /\ absence \in [SrcIds -> Absences]
+    /\ recFs \in [Recs -> SUBSET Phys]
 
 Live(r) == created[r] /\ into[r] = NoRec
 
@@ -136,6 +149,9 @@ Init ==
     /\ ifClaims = [r \in Recs |-> {}]
     /\ act = [name |-> "Init", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
               addressMerged |-> {}]
+    /\ srcOf = SrcOf0
+    /\ absence = [a \in SrcIds |-> IF \E h \in Phys : SrcOf0[h] = a THEN "Present" ELSE "Unissued"]
+    /\ recFs = [r \in Recs |-> {}]
 
 \* DHCP: an interface leases a free address or releases its lease.
 Lease(x, p) ==
@@ -144,7 +160,7 @@ Lease(x, p) ==
     /\ ipAt' = [ipAt EXCEPT ![x] = p]
     /\ act' = [name |-> "Lease", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims>>
+    /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, recFs>>
 
 \* The phys ghost after a step: merged records' devices join the record they were merged into
 \* (m1 into t1, m2 into t2), and an identity-bearing observation joins the record it landed on --
@@ -280,14 +296,21 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     /\ phys' = PhysAfter(h, S, p, step1Merged, target0, step2Merged, target, owner2, into2, recIp2)
     /\ act' = [name |-> kind, ids |-> S, ip |-> p, decisions |-> decisions,
                recorded |-> recorded, addressMerged |-> step2Merged]
-    /\ UNCHANGED ipAt
+    \* A source sync writes the device's first-seen time and hostname to the record it lands on;
+    \* a merge keeps both records' values.
+    /\ recFs' = [r \in Recs |->
+                   recFs[r]
+                   \cup (IF kind = "Armis" /\ r = target THEN {h} ELSE {})
+                   \cup (IF r = target0 THEN UNION {recFs[m] : m \in step1Merged} ELSE {})
+                   \cup (IF r = target THEN UNION {recFs[m] : m \in step2Merged} ELSE {})]
+    /\ UNCHANGED <<ipAt, srcOf, absence>>
 
 \* Armis sync: the Armis device id, plus the device's MACs when Armis reports them. Its update
 \* carries a non-MAC identifier, so Sync.Aliases.process_alias_conflicts/2 runs.
 ArmisObserve(h, x) ==
-    /\ SrcOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
+    /\ srcOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
     /\ \E ra \in BOOLEAN :
-         Resolve(h, x, {SrcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra, "sync",
+         Resolve(h, x, {srcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra, "sync",
                  "Armis", {}, {})
 
 \* netprobe census: one interface's MAC and address, through SyncIngestor. A census update is an
@@ -328,8 +351,23 @@ SweepObserve(h, x) ==
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp
     /\ Resolve(h, x, {}, FALSE, "none", "Sweep", {}, {})
 
+\* The source re-identifies device h: it reports h under id a from now on (a source-side merge or
+\* re-identification), joins the source (from NoId) or leaves it (to NoId). No other device is
+\* reported with a. Under FreshIds the source never issued a before.
+Rekey(h, a) ==
+    /\ Rekeys
+    /\ a # srcOf[h]
+    /\ a # NoId => /\ \A k \in Phys : srcOf[k] # a
+                   /\ FreshIds => absence[a] = "Unissued"
+    /\ srcOf' = [srcOf EXCEPT ![h] = a]
+    /\ absence' = IF a = NoId THEN absence ELSE [absence EXCEPT ![a] = "Present"]
+    /\ act' = [name |-> "Rekey", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, recFs>>
+
 Next ==
     \/ \E x \in Ifaces, p \in Ips \cup {NoIp} : Lease(x, p)
+    \/ \E h \in Phys, a \in SrcIds \cup {NoId} : Rekey(h, a)
     \/ \E h \in Phys, x \in Ifaces :
          \/ "Armis" \in Observers /\ ArmisObserve(h, x)
          \/ "Arp" \in Observers /\ ArpObserve(h, x)
