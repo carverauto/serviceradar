@@ -2,9 +2,11 @@
 
 Two TLA+ models check DIRE (the Device Identity and Reconciliation Engine) against the
 requirements in `openspec/specs/device-identity-reconciliation`: one canonical device
-record per physical device, whatever its address. The verification requirements are
-`openspec/specs/dire-formal-model`; the design is
-`openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md`.
+record per physical device, whatever its address, and whatever id its source reports it
+under. The verification requirements are `openspec/specs/dire-formal-model`; the design is
+`openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md`, and the source id
+change (re-keying, retirement, succession, the grace delete and the sweep's restore) is D10 of
+`openspec/changes/add-source-id-succession/design.md`.
 
 Run them all with `bazel test --config=remote //formal/dire/...`; `make test` runs them too.
 
@@ -23,6 +25,26 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   Each observation is resolved following `Resolver.do_resolve_device_id/2`, the sync ingestor
   and `Sync.Aliases`. A ghost variable, `phys`, tracks which physical devices built each
   record, so "one record describes two devices" is a checkable invariant.
+
+  The id the source reports each device under is a variable, `srcOf`:
+  - `Rekey` makes the source report a device under another id, or join or leave the source.
+    Only an environment that sets `Rekeys` re-keys, so every other environment keeps its
+    state space. Under `FreshIds` a new id is one the source never issued; otherwise it may
+    re-issue an id DIRE has retired.
+  - `Collect` activates an exact source collection. Each id it does not report ages on a
+    coarse absence clock (`absence`): `Fresh`, then `Stale`, which stands for "absent from N
+    consecutive exact collections and for at least T". One absence never retires an id.
+  - `RetireAbsent` moves a stale id a record still holds into the archive
+    (`device_identifier_archive`, the variable `archive`), remembering the record it held. Ingest
+    reads the archive: a retired id keeps its veto against another id, anchors its record against
+    seed adoption, and returns to its record only by reactivation.
+  - `Succeed` is the reconciler's succession merge. A predecessor holding only retired ids
+    merges with the successor holding the current one only when a MAC links them, their
+    first-seen time or hostname agrees (the ghost `recFs`), and the pairing is one-to-one in
+    both directions. `Review` records every weaker pairing as a `succession_review` decision
+    and merges nothing.
+  - `addrFresh` records that a sighting carrying no identity (a sweep, a census, an address-only
+    poll) touched a record last. Only `stale_holder_keeps_address` reads it.
 - `DireLifecycle.tla` models the merge lifecycle: merge, unmerge, soft delete, ephemeral
   expiry, the revival paths, purge, and the identity fence. Its identifiers are the strong
   ones; randomized MACs and addresses are evidence and are not in `Ids`, so `Expire` applies
@@ -30,9 +52,30 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   `lifecycle_vacuity_expire` expects `NeverExpires` to fail, so that property cannot pass
   vacuously.
 
+  It also models the end of a record whose source ids all retired, and the sweep:
+  - `Retire` archives ids a live record holds (the variable `arch`). When they are all it
+    holds, the same step marks the record (`marked`, `source_retired_at`); this is the design's
+    `MarkRetired`. A record that gains an identifier loses the mark.
+  - `GraceDelete` soft-deletes a marked record with reason `source_retired` and releases its
+    address.
+  - A write reporting one of a record's retired ids, or one of a record merged into it, moves the
+    archive rows back. This step, `Reactivate`, is the only write that restores a
+    `source_retired` tombstone. Any other sighting of a `source_retired` or `seed_released`
+    tombstone is dropped, as the write to a merged-away row is.
+  - `Sweep` matches the live holder of the address, or else a tombstone. It restores the
+    tombstone (`SweepRestore`) by `restore_eligible?/1`'s rule, and otherwise writes the
+    sighting (`SweepRefresh`) or, for a tombstone once D12 lands, leaves it alone (`SweepSkip`).
+    `SweepCreate` seeds a row that never existed at an address no row holds, and marks it
+    sweep-only (`sweepOnly`). Three things clear that flag: a write from any other source, an
+    agent check-in, and merging in a record another source found.
+  - `ExpiryEnabled` and `RetirementEnabled` turn expiry and retirement on and off, as
+    `DeviceCleanupSettings` does.
+
 Every action names the Elixir function it models. Each model describes the code as it is.
 Known defects are switches in a `Bugs` constant, and an action takes its defective branch only
-when its switch is on.
+when its switch is on. Design alternatives rejected for identity safety are a separate
+constant of the resolution model, `Unsafe` (see Rejected alternatives); no goal or trace
+configuration sets it.
 
 ## Configurations
 
@@ -41,7 +84,20 @@ when its switch is on.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still merges, converges, records decisions and expires. A goal model that never merges, never decides, or never expires, would pass vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, expires, grace-deletes, reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
+| `resolution_unsafe_<alternative>` | none; one `Unsafe` alternative | `violation:NoFalseMerge` | The rejected alternative still merges two physical devices. If TLC finds no violation, or a different one, the target fails. |
+
+The lifecycle goal is split so that each check stays inside its budget. `lifecycle_goal` (three
+devices) and `lifecycle_goal_no_expiry` run with `RetirementEnabled = FALSE`. Two
+configurations of their own check retirement, the grace delete and reactivation:
+`lifecycle_goal_retirement` (two devices, two identifiers) and `lifecycle_goal_retirement_chain`
+(a three-device merge chain, one identifier). `lifecycle_current` turns both expiry and
+retirement on, so today's switches are checked against every action.
+
+`lifecycle_goal_no_expiry` sets `ExpiryEnabled = FALSE`. Every property the models check is a
+safety property, and turning an action off only removes behaviors, so today the configuration
+cannot fail where `lifecycle_goal` passes. It guards against a later property that would rest
+on expiry running.
 
 `resolution_vacuity_shared_mac_override` checks `NeverDecides` in the `armis_shared_mac`
 environment: the goal overrides the source-authoritative id's rival record and records that
@@ -52,16 +108,36 @@ caused by address or IP-alias evidence. No address-only record in the model ever
 (sweep-created records get no alias sightings, as in the code), so absorbing one is unreachable
 either way; the property guards against any change that lets address evidence merge records.
 
+Every `resolution_goal_*` configuration also checks the source id change properties:
+- `OneSourceRecordPerDevice`: at rest, at most one live record holding a source id describes
+  each physical device. At rest means every id the source stopped reporting has been absent
+  long enough to retire, and neither the retirement job nor the reconciler would change anything.
+- `CurrentSourceIdResolves`
+- `NoMergeOfCurrentSourceIds`
+- `SuccessionIsCorroborated`
+- `NoAddresslessShell`
+
+Without `Rekeys` the source id never changes, so in those environments they guard the existing
+paths.
+
 `MC*.tla` modules hold TLC-only definitions: environments, symmetry, views, vacuity predicates.
 
 ## Defect switches
 
-None: every known defect is fixed (see below). A new defect gets a row here:
+Each switch is a defect today's code has, confirmed against the code before it was added.
+`CurrentBugs.tla` lists them for every configuration and trace that describes today's code.
+Each is fixed by a decision in `openspec/changes/add-source-id-succession/design.md`; a new
+defect gets a row here.
 
-| Switch | Model | Code path | Witness property |
-|---|---|---|---|
+| Switch | Model | Code path | Fix | Witness property |
+|---|---|---|---|---|
+| `retired_source_id_vetoes` | resolution | Nothing retires a source id its source stopped reporting: `Inventory.Remediation.ArmisSourceIdentityRepair` only classifies, in a dry run. The old record keeps the id, and with it the veto (`SourceAuthorityGuard.source_mismatch?/3`) against the device's new id, so a re-keyed device keeps a second record. | D1 | `OneSourceRecordPerDevice`, in environment `armis_rekey` |
+| `stale_holder_keeps_address` | resolution | `DeviceWrites.claim_address_from_holder/4` releases a holder only to a write `observed_after?/2` finds newer than the holder's `last_seen_time`, which a sweep or a census refreshes. An Armis sync compares Armis's own last-seen time, so a holder a sweep touched last can keep the address of the device observed at it. | D7 (`identity_observed_at`) | `ObservedAddressHeld` |
+| `released_seed_stays_live` | resolution | `DeviceWrites.resolve_record_active_ip/7`: a sweep seed that releases its only address to an identified device stays live, an addressless shell that only ephemeral expiry removes. | D8 | `NoAddresslessShell` |
+| `sweep_refreshes_expired_tombstone` | lifecycle | `SweepResultsIngestor.restore_eligible?/1` restores a tombstone only for a discovery source other than the sweep, so an expired sweep-only device never returns; `update_device_statuses_available/3` has no `deleted_at` filter, so the sweep writes to a tombstone it did not restore. | D12 | `ExpiredDeviceReturns` |
 
-Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
+Each witness configuration is `<model>_witness_<switch>`. Code paths are relative to
+`elixir/serviceradar_core/lib/serviceradar/`.
 
 ## Fixed defects
 
@@ -83,6 +159,10 @@ Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 | `mac_only_conflicts_blocked` | #4612 (`MergePolicy.merge_allowed_for_matches?/1` accepts a match set holding a globally-unique MAC; an all-randomized set stays blocked, and a record linked only through a randomized MAC drops out of the merge as a recorded `randomized_mac_link` policy block) | `EvidenceConverges` in every `resolution_goal_*`; traces `router_mac_only`, `agent_mac_split` |
 | `randomized_mac_seeds_uid` | #4760 (`Ids.has_strong_identifier?/1` counts a MAC only when it is universally administered, and `Ids.generate_deterministic_device_id/1` names an update with no strong identifier by its address, so a census sighting of a randomized MAC is address-only) | `RandomizedMacsNeverIdentify` in every `resolution_goal_*`; trace `census_randomized_mac` |
 | `seed_adopts_existing` | #4705 (`DeviceWrites.resolve_record_active_ip/7` adopts an anchorless provisional seed only for a record that is not yet a device; an existing device at a seeded address takes it under the #4639 rule, the seed releases it and stays live, and the conflict is recorded) | `ObservedAddressHeld`, `NoSilentDecision` in every `resolution_goal_*`; trace `armis_moves_onto_sweep_seed` |
+
+`stale_holder_keeps_address` appears in both tables. #4639 fixed a holder that never released
+the address. The active switch of the same name (Defect switches) is a narrower defect left in
+the rule #4639 added: the time the rule compares is one a sweep or a census refreshes.
 
 #4664 had no switch. The model already let a write adopt the holder of its address only when that
 holder is an anchorless seed and the write creates a new record, and it never adopts for an
@@ -112,6 +192,27 @@ Each environment stands for a real situation:
 | `agents` | An Armis device (no MACs reported) and a device running an agent; the agent's check-ins go through the Resolver and AliasGuard. |
 | `router_agent` | A router running an agent; its interfaces are sighted one MAC at a time before the agent reports them all. |
 | `armis_shared_mac` | Two Armis devices reporting the same MAC (cloned VMs, a swapped NIC). Observers are limited to Armis until the quarantine question in the goal design is decided. |
+| `armis_rekey` | One Armis device with one MAC, seen by Armis and the sweep. Armis may re-key it to an id it never issued, and stop reporting the old one. |
+| `armis_rekey_shared_mac` | Two Armis devices reporting the same MAC, each of which Armis may re-key: a linking MAC alone must not make them one device. |
+| `armis_reissued_ids` | Two Armis devices with their own MACs. Armis may re-issue an id DIRE has retired, to either device (`FreshIds = FALSE`). |
+| `armis_reissued_ids_one_device` | One Armis device that Armis may re-key and later report again under an id DIRE retired from it. |
+
+The `Spare` constant holds record names that no identifier or address names. A re-issued id
+whose own uid already names an old record creates a record under one of them.
+
+## Rejected alternatives
+
+A design alternative rejected for identity safety is a member of `Unsafe`, which
+`ASSUME Unsafe \subseteq UnsafeAlternatives` bounds. Each alternative has one negative
+configuration that enables it alone and expects `violation:NoFalseMerge`, because the
+alternative merges two physical devices.
+
+| Alternative | Configuration | Environment | The false merge |
+|---|---|---|---|
+| `mac_only_succession` | `resolution_unsafe_mac_only_succession` | `armis_rekey_shared_mac` | Succession on a linking MAC alone, without corroboration: once one of two devices sharing a MAC leaves Armis, its record merges into the other's. |
+| `retired_ids_forgotten` | `resolution_unsafe_retired_ids_forgotten` | `armis_reissued_ids` | Retirement without the archive: when Armis re-issues a retired id to another device, nothing remembers the record that held it, and the write lands on that record, which its uid still names. |
+
+An alternative is never fixed, so its configuration stays when switches come and go.
 
 ## Traces recorded from the real code
 
@@ -219,6 +320,35 @@ still describes the code. The switches today's code has are listed once, in `Cur
   `openspec/changes/archive/2026-09-27-update-dire-strong-identity-goal/design.md`.
 - Merge policy details beyond identifier classes. Agent-identity guards and the cooldown are
   in the lifecycle model or left nondeterministic.
+- The retirement thresholds. The absence clock is coarse: an id absent from one exact
+  collection is `Fresh`, and any later collection may make it `Stale`. The model cannot count N
+  collections or measure T, and every collection it has is exact, so the rules that a
+  collection which is not exact counts neither way and that a changed query hash restarts the
+  count are left to the tests.
+- Agent-id rotation, a second source and telemetry. `SrcIds` belong to one source, and agents
+  never re-key. Telemetry rows are not state, so neither is re-keying them to a merge survivor.
+  Agent-id rotation and moving telemetry are non-goals of the source id change.
+- Collisions in the succession evidence. Corroboration is exact: the ghost `recFs` says whose
+  first-seen time and hostname a record carries, so two devices never agree. A device's MACs
+  never change either, and the archived observation of a retired id carries the MACs of the
+  devices its record describes (`SrcMacs`). Real devices can share a universal MAC and a
+  hostname, clones of one image for example. Once one of them leaves the source, such a pair
+  meets every condition of D3, and the model cannot produce it.
+- Creation order. A succession merge keeps the record created first; the model has no creation
+  order and lets either record survive, which checks both.
+- A sweep re-creating a purged record. `SweepCreate` seeds only a row that never existed. A
+  seed's uid comes from its address, so a sweep at the address of a purged merged-away seed may
+  create a row under that uid, outside the redirect #4620 follows. Whether the code can is a
+  task of the change (tasks.md 9.7).
+- Retirement conditions and elapsed time in the lifecycle model. Any identifier a live record
+  holds may retire, and any marked record may be grace-deleted. The absence rules, the mass
+  guard, the mark's conditions and the open-review hold only ever withhold a step, so the model
+  checks every path they allow.
+- Availability and `last_seen_time`. A sweep's write to a record changes no modeled variable;
+  only the step's name (`SweepRefresh` or `SweepSkip`) tells a write from none.
+- The reconciler's duplicate pass (`DuplicateSweep` merges with reason `identifier_backfill`).
+  D2 requires it to refuse a pair whose records each hold or held a source id; the model checks
+  that refusal on the resolver's conflict merge only.
 
 ## Running deeper
 

@@ -66,6 +66,14 @@ The DIRE lifecycle model SHALL record whether each record was discovered only by
 
 ### Requirement: Regression Traces Cover Source Identifier Change
 The committed DIRE traces SHALL include a source-identifier re-key followed by sustained absence and reconciliation, a shared-MAC pair whose first device leaves its source, an identified device taking the only address of a sweep seed, and an expired sweep-only device that answers a sweep again. Each SHALL be model-checked with exactly the defect switches that the code it was recorded from still has, as listed in `formal/dire/CurrentBugs.tla`.
+A trace that demonstrates a defect switch which only withholds a step, so that no knockout
+configuration can reject it, SHALL instead have a configuration that checks it with those
+switches against the property the defect violates and expects that violation. The fix deletes
+that configuration with the switch, as it deletes a knockout configuration.
+
+#### Scenario: A trace proves a defect that only withholds a step
+- **WHEN** the re-key trace recorded from today's code is model checked with today's defect switches against the one-source-record-per-device property
+- **THEN** TLC reports a violation of that property, so the real code exhibits the defect
 
 #### Scenario: A re-keyed device is recorded converging
 - **WHEN** the re-key trace runs against the real code after the fix

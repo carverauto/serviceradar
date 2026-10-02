@@ -5,51 +5,88 @@ ids such as 1001 and 2002, `00:00:5e:00:53:xx` MACs, `192.0.2.0/24` and `198.51.
 addresses and `example.com` hostnames. Load the `test-audit` skill before writing or changing
 any test.
 
+## Delivery order (D15)
+
+Eight pull requests, each green and safe on its own:
+
+| PR | Decisions | Tasks |
+| --- | --- | --- |
+| 1 | D10 | 1 |
+| 2 | D1, D2 | 2, 3, 4 (4.2's `source_succession` exception goes with PR 5) |
+| 3 | D5, D6 | 6, 7 |
+| 4 | D7, D8 | 8 |
+| 5 | D3, D4 | 5 |
+| 6 | D9 | 10, 11 |
+| 7 | D12, D13, D14 | 9 |
+| 8 | D11 | 13, 14.11 |
+
+Each fix pull request carries its part of 12.1 and its tests: 14.1 and 14.2 go with PR 2
+(14.2's corroborated succession with PR 5), 14.4 and 14.5 with PR 3, 14.6 with PR 4, 14.3 with
+PR 5, 14.9 with PR 6, 14.7 and 14.8 with PR 7, and 14.10 with PR 8. 14.12 and 14.13 apply to
+every pull request, and 2.4 to every one that adds a migration.
+
 ## 1. Formal model first (D10)
 
 This section lands as its own pull request, before any code. If TLC finds a counterexample to a
 goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
-- [ ] 1.1 `DireResolution.tla`: make the source id a variable (`srcOf`, initialized from
+- [x] 1.1 `DireResolution.tla`: make the source id a variable (`srcOf`, initialized from
       `SrcOf0`); add `Rekey(h, a)` gated by a `Rekeys` constant, and `FreshIds`; add the
       `recFs` ghost for first-seen and hostname corroboration.
-- [ ] 1.2 Add `Collect`, the `Fresh | Stale` absence clock and `RetireAbsent(a)`; make ingest
-      consult the archive; add `Reconcile` with D3's succession and D4's review decisions; add a
-      per-record identity-observation freshness value that the sweep never refreshes.
-- [ ] 1.3 Add the properties `OneSourceRecordPerDevice` (at rest), `CurrentSourceIdResolves`,
+- [x] 1.2 Add `Collect`, the `Fresh | Stale` absence clock and `RetireAbsent(a)`; make ingest
+      consult the archive; add the reconciler's `Succeed` and `Review` with D3's succession and
+      D4's review decisions; add `addrFresh`, a per-record flag that a sighting which is not
+      identity-bearing touched the record last, standing for the identity-observation
+      freshness the sweep never refreshes.
+- [x] 1.3 Add the properties `OneSourceRecordPerDevice` (at rest), `CurrentSourceIdResolves`,
       `SuccessionIsCorroborated`, `NoMergeOfCurrentSourceIds` and `NoAddresslessShell`, and the
       `NeverSucceeds` helper for the vacuity check.
-- [ ] 1.4 Add the environments `armis_rekey`, `armis_rekey_shared_mac` and `armis_reissued_ids`
+- [x] 1.4 Add the environments `armis_rekey`, `armis_rekey_shared_mac` and `armis_reissued_ids`
       to `MCDireResolution.tla`, a `resolution_goal_*` configuration for each, and
       `resolution_vacuity_succession` (expects `violation:NeverSucceeds`). Every existing goal
-      configuration still passes unchanged.
-- [ ] 1.5 Add the `Unsafe` constant with `ASSUME Unsafe \subseteq UnsafeAlternatives`, and the
+      configuration still passes unchanged. `armis_reissued_ids` is split, with
+      `armis_reissued_ids_one_device`, to stay inside the runtime budget.
+- [x] 1.5 Add the `Unsafe` constant with `ASSUME Unsafe \subseteq UnsafeAlternatives`, and the
       negative configurations `resolution_unsafe_mac_only_succession` (environment
       `armis_rekey_shared_mac`) and `resolution_unsafe_retired_ids_forgotten` (environment
       `armis_reissued_ids`), each expecting `violation:NoFalseMerge`. No goal or trace
       configuration sets `Unsafe`.
-- [ ] 1.6 Confirm each of today's defects against the Elixir code, then add the switches
+- [x] 1.6 Confirm each of today's defects against the Elixir code, then add the switches
       `retired_source_id_vetoes`, `stale_holder_keeps_address` and `released_seed_stays_live` to
       `KnownBugs` and `CurrentBugs.ResolutionBugs`, with witnesses expecting
       `violation:OneSourceRecordPerDevice`, `violation:ObservedAddressHeld` and
       `violation:NoAddresslessShell`.
-- [ ] 1.7 `DireLifecycle.tla`: gate `Expire` by `ExpiryEnabled`; add the reasons `expired`,
-      `source_retired` and `seed_released`; add `MarkRetired`, `GraceDelete` and an evidence
-      sighting of a `source_retired` tombstone; add `RetiredTombstoneStaysDeleted`; add
-      `lifecycle_goal_no_expiry` and `lifecycle_vacuity_grace_delete` (expects
-      `violation:NeverGraceDeletes`).
-- [ ] 1.8 `DireLifecycle.tla`: add a per-record sweep-only discovery flag; make `SweepRestore`
-      follow `SweepResultsIngestor.restore_eligible?/1`; add `SweepRefresh`; add
-      `SweepWritesOnlyLiveRecords` and `ExpiredDeviceReturns`; confirm the defect against the
-      code and add the switch `sweep_refreshes_expired_tombstone` to `KnownBugs` and
-      `CurrentBugs.LifecycleBugs`, with a witness expecting `violation:ExpiredDeviceReturns`.
+- [x] 1.7 `DireLifecycle.tla`: gate `Expire` by `ExpiryEnabled`; add the reasons `expired`,
+      `source_retired` and `seed_released`; add `Retire` (which is also `MarkRetired`) and
+      `GraceDelete`, gated by `RetirementEnabled`, an evidence sighting of a `source_retired`
+      tombstone, and reactivation; add `RetiredTombstoneStaysDeleted` and
+      `MarkedHoldsNoIdentifier`; add `lifecycle_goal_no_expiry`, `lifecycle_goal_retirement`,
+      `lifecycle_goal_retirement_chain`, `lifecycle_vacuity_grace_delete` (expects
+      `violation:NeverGraceDeletes`) and `lifecycle_vacuity_reactivate` (expects
+      `violation:NeverReactivatesRetired`).
+- [x] 1.8 `DireLifecycle.tla`: add a per-record sweep-only discovery flag and `SweepCreate`;
+      make `Sweep(p, d)` match the live holder or a tombstone and restore it (`SweepRestore`)
+      by `SweepResultsIngestor.restore_eligible?/1`; add `SweepRefresh` and `SweepSkip`; add
+      `SweepWritesOnlyLiveRecords`, `ExpiredDeviceReturns` and
+      `lifecycle_vacuity_expired_returns` (expects `violation:NeverRestoresExpired`); confirm the
+      defect against the code and add the switch `sweep_refreshes_expired_tombstone` to
+      `KnownBugs` and `CurrentBugs.LifecycleBugs`, with a witness expecting
+      `violation:ExpiredDeviceReturns`.
 - [ ] 1.9 Traces in `dire_resolution_trace_test.exs`: extend `src_attach_shared_mac` so the
       first device leaves Armis for N exact collections; add `src_rekey_succession`; keep
       `armis_moves_onto_sweep_seed`. Record each from today's code with
-      `DIRE_TRACE_WRITE=1`, and add a knockout configuration
-      (`assert_golden!(demonstrates: ...)`) for the switch each one shows.
+      `DIRE_TRACE_WRITE=1`. `armis_moves_onto_sweep_seed` demonstrates
+      `released_seed_stays_live` with a knockout configuration
+      (`assert_golden!(demonstrates: ...)`). `retired_source_id_vetoes` only withholds
+      retirement, so with it knocked out the model allows more, never less, and no knockout can
+      reject a trace. `src_rekey_succession` demonstrates it with a trace witness configuration
+      instead (`assert_golden!(witness: ...)`, expects `violation:OneSourceRecordPerDevice`).
+      The extended `src_attach_shared_mac` violates nothing today and is the fix's regression
+      trace.
 - [ ] 1.10 Trace in `dire_lifecycle_trace_test.exs`: add `expired_sweep_only_returns`, with its
-      knockout for `sweep_refreshes_expired_tombstone`.
+      knockout for `sweep_refreshes_expired_tombstone`. `sweep_restores_merged` now records the
+      sweep's write to the merged tombstone (`SweepRefresh`) and gets a knockout for the same
+      switch.
 - [ ] 1.11 Wire every new configuration and trace into `formal/dire/BUILD.bazel` as
       `tlc_test` targets selected by `make test`, with `expect = "pass"`,
       `"violation:<Prop>"` as above. Bump the selected-test counts in
@@ -172,6 +209,11 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       telemetry; make the refusal message print the eligible and live counts and say the
       override stays set until cleared.
 - [ ] 9.6 Update callers, dashboards and docs that read the old `excluded` counter.
+- [ ] 9.7 Confirm against the code whether a sweep re-creates a purged merged-away seed. The
+      seed's uid derives from its address (`create_available_unknown_device/3`), so a sweep at
+      that address after the purge may write a row under the merged-away uid, outside the
+      redirect #4620 follows. If it does, add a switch and witness to the lifecycle model first
+      (`SweepCreate` creates only a row that never existed), then fix it here.
 
 ## 10. Blocked-component accounting (D9)
 
@@ -193,8 +235,9 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 ## 12. Promote the model as each fix lands
 
 - [ ] 12.1 In each fix pull request, remove its switch from `KnownBugs` and `CurrentBugs.tla`,
-      delete its witness and knockout configurations, regenerate the affected traces with
-      `DIRE_TRACE_WRITE=1`, model-check them, and make the property must-pass.
+      delete its witness configuration and the knockout and trace witness configurations of the
+      traces that demonstrate it, regenerate the affected traces with `DIRE_TRACE_WRITE=1`,
+      model-check them, and make the property must-pass.
 - [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`.
 

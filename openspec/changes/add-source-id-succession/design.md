@@ -519,7 +519,8 @@ trace configuration ever sets it. Each alternative has a negative configuration:
   row and a bumped revision.
 
 Until each fix lands, each of these traces demonstrates its switch with a knockout configuration
-(`assert_golden!(demonstrates: ...)`). The fix pull request regenerates it.
+(`assert_golden!(demonstrates: ...)`), unless the switch only withholds an action (see "The
+revision the traces made" below). The fix pull request regenerates it.
 
 **The gate.** If TLC finds a counterexample to a goal property in the new goal configurations,
 the design returns to this document for revision before any code is written.
@@ -548,6 +549,25 @@ a marked record and an ingest that registers an identifier on one violate
 `MarkedHoldsNoIdentifier`. D5 now clears the mark whenever the record gains an identifier, and
 D3 says so for the merge. Knocking out the evidence branch instead makes `Commit` revive a
 `source_retired` tombstone, which `RetiredTombstoneStaysDeleted` reports.
+
+**The revision the traces made.** A knockout checks a trace with its switch turned off and
+requires TLC to reject it. `retired_source_id_vetoes` only withholds `RetireAbsent`: with it off,
+the model allows every step it allowed before, and more, so it can reject no trace recorded
+from today's code. `src_rekey_succession` demonstrates that switch with a trace witness
+configuration instead, written by `assert_golden!(witness: ...)`:
+
+- the same trace, checked with today's switches;
+- `OneSourceRecordPerDevice` in place of `TraceIncomplete`;
+- expecting `violation:OneSourceRecordPerDevice`.
+
+The recorded trace reaches a state in which the re-keyed device's old record still holds its
+stale id beside the record for the new id, and neither retirement nor the reconciler would
+change anything. The extended `src_attach_shared_mac` keeps two records for two devices today,
+which violates nothing, so it has neither configuration and is the fix's regression trace.
+The other switches withhold no action and keep knockouts: `armis_moves_onto_sweep_seed` for
+`released_seed_stays_live`, and both `expired_sweep_only_returns` and `sweep_restores_merged`
+for `sweep_refreshes_expired_tombstone`. The fix deletes a trace witness configuration with the
+switch, as it does a knockout.
 
 ### D11. Remediation
 
