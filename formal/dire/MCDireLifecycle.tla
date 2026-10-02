@@ -2,7 +2,7 @@
 (* TLC harness: symmetry and a view that drops the act history variable. *)
 EXTENDS DireLifecycle, CurrentBugs, TLC
 Symmetry == Permutations(Devices) \cup Permutations(Ids) \cup Permutations(Ips)
-StateView == <<status, reason, owner, ipOf, audit, work, marked, arch>>
+StateView == <<status, reason, owner, ipOf, audit, work, marked, arch, sweepOnly>>
 \* Vacuity: the model can expire a device. ExpiryKeepsStrongIdentity would pass vacuously if it
 \* could not (lifecycle_vacuity_expire expects this property to fail).
 NeverExpires == [][act'.name # "Expire"]_vars
@@ -15,4 +15,8 @@ NeverReactivatesRetired ==
     [][~\E u \in Devices :
           /\ status[u] = "tomb" /\ reason[u] = "source_retired" /\ status'[u] = "live"
           /\ act'.name = "Reactivate"]_vars
+\* Vacuity: a sweep restores an expired sweep-only tombstone, the case ExpiredDeviceReturns is
+\* about (lifecycle_vacuity_expired_returns).
+NeverRestoresExpired ==
+    [][~(act'.name = "SweepRestore" /\ reason[act'.u] = "expired" /\ act'.u \in sweepOnly)]_vars
 =============================================================================

@@ -464,9 +464,14 @@ trace configuration ever sets it. Each alternative has a negative configuration:
 - `Expire` is gated by a new constant, `ExpiryEnabled`.
 - `Reasons` gains `expired`, `source_retired` and `seed_released`, so `Expire` no longer records
   the generic `other`.
-- Each record carries a sweep-only discovery flag. `SweepRestore` follows the code's rule: it
-  restores a tombstone that has a non-sweep discovery source, or (once D12 lands) an `expired`
-  one. A new `SweepRefresh` action stands for the sweep's availability write.
+- Each record carries a sweep-only discovery flag. A new `SweepCreate` sets it, for the seed a
+  sweep creates at an address no row holds; any other source's write, a merge with a record
+  that has another source, and an agent check-in clear it.
+- The sweep action, `Sweep(p, d)`, matches the live holder of the address, or else a
+  tombstone, and follows the code's rule: it restores (`SweepRestore`) a tombstone that has a
+  non-sweep discovery source, or (once D12 lands) an `expired` one. Otherwise it writes the
+  sighting (`SweepRefresh`): to a live record, and today to an unrestored tombstone as well.
+  Once D12 lands, an unrestored tombstone is left alone (`SweepSkip`).
 - New actions, gated by a new constant, `RetirementEnabled`:
   - `Retire(u, R)` archives the ids `R` (D1) and marks the record when `R` is every id it
     holds (D5), so it is also the design's `MarkRetired`;
@@ -486,6 +491,8 @@ trace configuration ever sets it. Each alternative has a negative configuration:
     rest on expiry silently.
   - `lifecycle_vacuity_grace_delete` expects `violation:NeverGraceDeletes`.
   - `lifecycle_vacuity_reactivate` expects `violation:NeverReactivatesRetired`.
+  - `lifecycle_vacuity_expired_returns` expects `violation:NeverRestoresExpired`, proving that
+    the goal does restore an expired sweep-only tombstone.
   - Retirement is checked by two goal configurations of its own, `lifecycle_goal_retirement`
     (two devices, two identifiers) and `lifecycle_goal_retirement_chain` (a three-device merge
     chain, one identifier). The three-device goal and `lifecycle_goal_no_expiry` keep

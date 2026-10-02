@@ -120,6 +120,33 @@ tlc_test(
     ],
 )
 
+tlc_test(
+    name = "lifecycle_vacuity_expired_returns_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_expired_returns.cfg",
+    expect = "violation:NeverRestoresExpired",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# The defect switch today's sweep has violates the property its fix (D12) restores.
+tlc_test(
+    name = "lifecycle_witness_sweep_refreshes_expired_tombstone_test",
+    size = "medium",
+    cfg = "lifecycle_witness_sweep_refreshes_expired_tombstone.cfg",
+    expect = "violation:ExpiredDeviceReturns",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
 # ---- Resolution model ----
 
 tlc_test(

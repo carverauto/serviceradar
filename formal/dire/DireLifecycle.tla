@@ -32,6 +32,11 @@ CONSTANTS
     RetirementEnabled \* DeviceCleanupSettings source_retirement_enabled
 
 KnownBugs == {
+    \* SweepResultsIngestor restores a tombstone only when restore_eligible?/1 finds a discovery
+    \* source other than the sweep, so an expired sweep-only device never comes back, and
+    \* update_device_statuses_available/3 has no deleted_at filter, so the sweep writes the
+    \* availability of a tombstone it did not restore (add-source-id-succession D12).
+    "sweep_refreshes_expired_tombstone"
 }
 
 ASSUME Bugs \subseteq KnownBugs
@@ -57,8 +62,10 @@ Reasons  == {"none", "merged", "other", "expired", "source_retired", "seed_relea
 \* srcIds), written by do_merge_devices/5 itself.
 MergeKinds == {"conflict", "auto", "manual"}
 ActNames == {"Init", "StartWork", "Commit", "CommitDropped", "Reactivate", "Merge", "Unmerge",
-             "SoftDelete", "Expire", "SweepRestore", "GatewaySync", "Purge", "Tick",
-             "Retire", "GraceDelete"}
+             "SoftDelete", "Expire", "SweepCreate", "SweepRestore", "SweepRefresh", "SweepSkip",
+             "GatewaySync", "Purge", "Tick", "Retire", "GraceDelete"}
+\* The steps of a sweep that matched an existing row.
+SweepMatchActs == {"SweepRestore", "SweepRefresh", "SweepSkip"}
 \* Tombstones only an operator or the return of a retired source id may restore.
 Retained == {"source_retired", "seed_released"}
 
@@ -71,9 +78,10 @@ VARIABLES
     work,    \* in-flight ingest items: the uid resolved, and whether its revision moved since
     marked,  \* live uids with source_retired_at set: every source id they held has retired
     arch,    \* device_identifier_archive: identifier -> the uids it retired from, a row each
+    sweepOnly, \* uids whose discovery_sources hold only "sweep"
     act      \* the last step, for action properties and trace validation
 
-vars == <<status, reason, owner, ipOf, audit, work, marked, arch, act>>
+vars == <<status, reason, owner, ipOf, audit, work, marked, arch, sweepOnly, act>>
 
 AuditRow == [from: Devices, to: Devices, kind: {"merge", "unmerge"},
              ids: SUBSET Ids, srcIds: SUBSET Ids, recent: BOOLEAN]
@@ -93,6 +101,7 @@ TypeOK ==
     /\ work \subseteq WorkItem /\ Cardinality(work) <= MaxWork
     /\ marked \subseteq Devices
     /\ arch \in [Ids -> SUBSET Devices]
+    /\ sweepOnly \subseteq Devices
     /\ act \in Act
 
 ---------------------------------------------------------------------------
@@ -138,6 +147,7 @@ Init ==
     /\ work = {}
     /\ marked = {}
     /\ arch = [i \in Ids |-> {}]
+    /\ sweepOnly = {}
     /\ act = MkAct("Init", NoDev, NoDev, 0, FALSE, {})
 
 \* Resolver.resolve_device_identity/2: an ingest source carrying uid u resolves it,
@@ -146,7 +156,7 @@ StartWork(u) ==
     /\ Cardinality(work) < MaxWork
     /\ work' = work \cup {[target |-> Follow(u), stale |-> FALSE]}
     /\ act' = MkAct("StartWork", u, Follow(u), 0, FALSE, {})
-    /\ UNCHANGED <<status, reason, owner, ipOf, audit, marked, arch>>
+    /\ UNCHANGED <<status, reason, owner, ipOf, audit, marked, arch, sweepOnly>>
 
 \* DeviceWrites insert_all(on_conflict: device_upsert_update_query(), conflict_target: [:uid])
 \* plus identifier registration for the written uid. Any tombstone other than a merged-away
@@ -157,6 +167,8 @@ StartWork(u) ==
 \* a source_retired tombstone. The corroboration and the one-holder rules are the resolution
 \* model's; here any such write reactivates. A write that registers an identifier on a
 \* marked record clears the mark, because the record is no longer retired-only.
+\* The upsert unions discovery_sources with the source's own, so the record it writes is no
+\* longer sweep-only.
 CommitWork(w, S, p) ==
     LET t     == w.target
         back  == {i \in S : \E d \in arch[i] : Follow(d) = t}
@@ -173,21 +185,21 @@ CommitWork(w, S, p) ==
             \* finds the identity decision stale; the write is withheld and re-resolved.
             /\ work' = work \ {w}
             /\ act' = MkAct("CommitDropped", NoDev, t, 0, w.stale, {})
-            /\ UNCHANGED <<status, reason, owner, ipOf, marked, arch>>
+            /\ UNCHANGED <<status, reason, owner, ipOf, marked, arch, sweepOnly>>
        ELSE IF MergedTomb(t)
        THEN \* A merged-away uid is never written back to life: the update's WHERE skips its
             \* row, and follow_merged_away_uids/2 hands the batch's identifiers to the
             \* survivor, which the model abstracts as a drop the next StartWork re-resolves.
             /\ work' = work \ {w}
             /\ act' = MkAct("CommitDropped", NoDev, t, 0, w.stale, {})
-            /\ UNCHANGED <<status, reason, owner, ipOf, marked, arch>>
+            /\ UNCHANGED <<status, reason, owner, ipOf, marked, arch, sweepOnly>>
        ELSE IF status[t] = "tomb" /\ reason[t] \in Retained /\ back = {}
        THEN \* An evidence sighting of a source_retired or seed_released tombstone (an
             \* address-only or MAC-only match, or a source that reports none of its retired
             \* ids): the upsert's WHERE skips the row, as for a merged-away one (D5).
             /\ work' = work \ {w}
             /\ act' = MkAct("CommitDropped", NoDev, t, 0, w.stale, {})
-            /\ UNCHANGED <<status, reason, owner, ipOf, marked, arch>>
+            /\ UNCHANGED <<status, reason, owner, ipOf, marked, arch, sweepOnly>>
        ELSE
             /\ IpFreeFor(t, newIp)
             /\ ipOf' = [ipOf EXCEPT ![t] = newIp]
@@ -197,6 +209,7 @@ CommitWork(w, S, p) ==
             /\ arch' = [i \in Ids |-> IF i \in back THEN {d \in arch[i] : Follow(d) # t}
                                                  ELSE arch[i]]
             /\ marked' = IF S # {} THEN marked \ {t} ELSE marked
+            /\ sweepOnly' = sweepOnly \ {t}
             /\ work' = MarkStale(work \ {w}, bump)
             /\ act' = MkAct(IF back # {} THEN "Reactivate" ELSE "Commit", NoDev, t, 0, w.stale, bump)
 
@@ -223,6 +236,8 @@ Merge(f, t, kind, S) ==
     \* A merged-away record is no longer marked; a marked survivor that takes the other
     \* record's identifiers (a source_succession merge, D3) is no longer retired-only.
     /\ marked' = marked \ ({f} \cup (IF Owned(f) # {} THEN {t} ELSE {}))
+    \* The survivor takes the union of both records' discovery_sources.
+    /\ sweepOnly' = IF f \in sweepOnly THEN sweepOnly ELSE sweepOnly \ {t}
     /\ work' = MarkStale(work, {f, t})
     /\ act' = MkAct("Merge", f, t, Len(audit) + 1, FALSE, {f, t})
     /\ UNCHANGED <<ipOf, arch>>
@@ -251,7 +266,7 @@ Unmerge(u) ==
     /\ marked' = marked \ {u}
     /\ work' = MarkStale(work, bump)
     /\ act' = MkAct("Unmerge", u, s, k, FALSE, bump)
-    /\ UNCHANGED <<ipOf, arch>>
+    /\ UNCHANGED <<ipOf, arch, sweepOnly>>
 
 \* Device :soft_delete (administrative and remediation deletes; deleted_reason /= "merged").
 SoftDelete(u) ==
@@ -261,7 +276,7 @@ SoftDelete(u) ==
     /\ marked' = marked \ {u}
     /\ work' = MarkStale(work, {u})
     /\ act' = MkAct("SoftDelete", u, NoDev, 0, FALSE, {u})
-    /\ UNCHANGED <<owner, ipOf, audit, arch>>
+    /\ UNCHANGED <<owner, ipOf, audit, arch, sweepOnly>>
 
 \* EphemeralDeviceExpiry.run/3 (DeviceCleanupWorker, #4603): a live device unseen past the
 \* expiry window that holds no strong identifier is soft-deleted (deleted_reason
@@ -282,38 +297,72 @@ Expire(u) ==
     /\ reason' = [reason EXCEPT ![u] = "expired"]
     /\ work' = MarkStale(work, {u})
     /\ act' = MkAct("Expire", u, NoDev, 0, FALSE, {u})
-    /\ UNCHANGED <<owner, ipOf, audit, marked, arch>>
+    /\ UNCHANGED <<owner, ipOf, audit, marked, arch, sweepOnly>>
 
-\* SweepResultsIngestor.ingest_results/3: DeviceLookup (include_deleted: true) prefers a live
-\* holder of the address and otherwise falls back to a tombstone; restore_deleted_devices/2
-\* restores it through :restore (which bumps) when restore_eligible?/1 allows it. A merged-away
-\* tombstone is never restored: eligible_restore_uids/1 skips it and records the skip, and a
-\* sweep that restores nothing changes no modeled state. Which tombstone wins is left
-\* nondeterministic.
+\* SweepResultsIngestor.ingest_results/3 for an address p that answered. DeviceLookup
+\* (include_deleted: true) prefers the live holder of p and otherwise falls back to a tombstone;
+\* which tombstone wins is left nondeterministic. restore_deleted_devices/2 then restores the
+\* match through :restore (which bumps) when the code allows it:
+\*  - a merged-away tombstone never: eligible_restore_uids/1 skips it and records the skip;
+\*  - a source_retired or seed_released tombstone never (D5);
+\*  - otherwise only when restore_eligible?/1 finds a discovery source other than "sweep",
+\*    or, once D12 lands, when the tombstone is an expired one, whatever its sources.
+\* update_device_statuses_available/3 then writes the sighting. A live match takes it
+\* (SweepRefresh). Today the UPDATE has no deleted_at filter, so an unrestored tombstone takes it
+\* too; once D12 lands, it is left exactly as it was (SweepSkip). Availability and
+\* last_seen_time are not state here, so neither step changes a modeled variable, and the
+\* appended "sweep" discovery source changes no record's sweep-only flag.
 \* (event_writer/processors/sweep.ex carries a copy of this path but is not registered as an
 \* EventWriter processor, so it never runs.)
-SweepRestore(p) ==
-    /\ ~\E d \in Devices : Live(d) /\ ipOf[d] = p
-    /\ \E d \in Devices :
-         /\ status[d] = "tomb" /\ ipOf[d] = p
-         /\ reason[d] \notin {"merged"} \cup Retained
-         /\ status' = [status EXCEPT ![d] = "live"]
-         /\ reason' = [reason EXCEPT ![d] = "none"]
-         /\ work' = MarkStale(work, {d})
-         /\ act' = MkAct("SweepRestore", d, NoDev, 0, FALSE, {d})
-    /\ UNCHANGED <<owner, ipOf, audit, marked, arch>>
+SweepMatch(p, d) ==
+    /\ ipOf[d] = p
+    /\ IF \E e \in Devices : Live(e) /\ ipOf[e] = p THEN Live(d) ELSE status[d] = "tomb"
+
+SweepRestorable(d) ==
+    /\ status[d] = "tomb"
+    /\ reason[d] \notin {"merged"} \cup Retained
+    /\ \/ d \notin sweepOnly
+       \/ reason[d] = "expired" /\ ~Bug("sweep_refreshes_expired_tombstone")
+
+Sweep(p, d) ==
+    /\ SweepMatch(p, d)
+    /\ IF SweepRestorable(d)
+       THEN /\ status' = [status EXCEPT ![d] = "live"]
+            /\ reason' = [reason EXCEPT ![d] = "none"]
+            /\ work' = MarkStale(work, {d})
+            /\ act' = MkAct("SweepRestore", d, NoDev, 0, FALSE, {d})
+       ELSE /\ act' = MkAct(IF Live(d) \/ Bug("sweep_refreshes_expired_tombstone")
+                            THEN "SweepRefresh" ELSE "SweepSkip", d, NoDev, 0, FALSE, {})
+            /\ UNCHANGED <<status, reason, work>>
+    /\ UNCHANGED <<owner, ipOf, audit, marked, arch, sweepOnly>>
+
+\* SweepResultsIngestor.create_available_unknown_devices/3: an address no row holds, live or
+\* deleted, gets a new seed with discovery_sources ["sweep"] and no identifier. Its uid comes from
+\* the address (IdentityReconciler.generate_deterministic_device_id/1) and a duplicate create is
+\* skipped, so the model creates only a row that never existed.
+SweepCreate(p, d) ==
+    /\ ~\E e \in Devices : status[e] \in {"live", "tomb"} /\ ipOf[e] = p
+    /\ status[d] = "absent"
+    /\ status' = [status EXCEPT ![d] = "live"]
+    /\ ipOf' = [ipOf EXCEPT ![d] = p]
+    /\ sweepOnly' = sweepOnly \cup {d}
+    /\ work' = MarkStale(work, {d})
+    /\ act' = MkAct("SweepCreate", d, NoDev, 0, FALSE, {d})
+    /\ UNCHANGED <<reason, owner, audit, marked, arch>>
 
 \* AgentGatewaySync.upsert_device_for_agent/4 on the agent's device uid: a soft-deleted device
 \* is restored through Device :gateway_restore, which bumps identity_revision as :restore
 \* does. A merged-away device is never revived: follow_merged_away_device/6 writes the
 \* check-in to the survivor (an ordinary write to a live device, outside this action).
-\* :gateway_restore honors a source_retired or seed_released reason as well (D5).
+\* :gateway_restore honors a source_retired or seed_released reason as well (D5). The agent's
+\* discovery source joins discovery_sources, so the record is no longer sweep-only.
 GatewaySync(u) ==
     /\ status[u] = "tomb" /\ IpFreeFor(u, ipOf[u])
     /\ reason[u] \notin {"merged"} \cup Retained
     /\ status' = [status EXCEPT ![u] = "live"]
     /\ reason' = [reason EXCEPT ![u] = "none"]
     /\ work' = MarkStale(work, {u})
+    /\ sweepOnly' = sweepOnly \ {u}
     /\ act' = MkAct("GatewaySync", u, NoDev, 0, FALSE, {u})
     /\ UNCHANGED <<owner, ipOf, audit, marked, arch>>
 
@@ -326,6 +375,7 @@ Purge(u) ==
     /\ status' = [status EXCEPT ![u] = "purged"]
     /\ owner' = [i \in Ids |-> IF owner[i] = u THEN NoDev ELSE owner[i]]
     /\ ipOf' = [ipOf EXCEPT ![u] = NoIp]
+    /\ sweepOnly' = sweepOnly \ {u}
     /\ work' = MarkStale(work, {u})
     /\ act' = MkAct("Purge", u, NoDev, 0, FALSE, {u})
     /\ UNCHANGED <<reason, audit, marked, arch>>
@@ -335,7 +385,7 @@ Tick ==
     /\ \E k \in 1..Len(audit) : audit[k].recent
     /\ audit' = [k \in 1..Len(audit) |-> [audit[k] EXCEPT !.recent = FALSE]]
     /\ act' = MkAct("Tick", NoDev, NoDev, 0, FALSE, {})
-    /\ UNCHANGED <<status, reason, owner, ipOf, work, marked, arch>>
+    /\ UNCHANGED <<status, reason, owner, ipOf, work, marked, arch, sweepOnly>>
 
 \* The retirement of source ids R that u holds (D1): each row moves to
 \* device_identifier_archive in one transaction. If u then holds no identifier, the same
@@ -352,7 +402,7 @@ Retire(u, R) ==
     /\ arch' = [i \in Ids |-> IF i \in R THEN arch[i] \cup {u} ELSE arch[i]]
     /\ marked' = IF R = Owned(u) THEN marked \cup {u} ELSE marked
     /\ act' = MkAct("Retire", u, NoDev, 0, FALSE, {})
-    /\ UNCHANGED <<status, reason, ipOf, audit, work>>
+    /\ UNCHANGED <<status, reason, ipOf, audit, work, sweepOnly>>
 
 \* DeviceCleanupWorker's grace pass (D5): a record marked for the grace period is soft-deleted
 \* through Device :soft_delete with deleted_reason "source_retired", and the same transaction
@@ -366,7 +416,7 @@ GraceDelete(u) ==
     /\ marked' = marked \ {u}
     /\ work' = MarkStale(work, {u})
     /\ act' = MkAct("GraceDelete", u, NoDev, 0, FALSE, {u})
-    /\ UNCHANGED <<owner, audit, arch>>
+    /\ UNCHANGED <<owner, audit, arch, sweepOnly>>
 
 Next ==
     \/ \E u \in Devices :
@@ -374,7 +424,7 @@ Next ==
          \/ GraceDelete(u) \/ \E R \in SUBSET Ids : Retire(u, R)
     \/ \E w \in work, S \in SUBSET Ids, p \in Ips \cup {NoIp} : CommitWork(w, S, p)
     \/ \E f, t \in Devices, kind \in MergeKinds, S \in SUBSET Ids : Merge(f, t, kind, S)
-    \/ \E p \in Ips : SweepRestore(p)
+    \/ \E p \in Ips, d \in Devices : Sweep(p, d) \/ SweepCreate(p, d)
     \/ Tick
 
 Spec == Init /\ [][Next]_vars
@@ -427,6 +477,16 @@ NoStaleCommit == [][act'.name = "Commit" => ~act'.stale]_vars
 \* a device holding a strong identifier (#4603).
 ExpiryKeepsStrongIdentity ==
     [][act'.name = "Expire" => \A i \in Ids : owner[i] # act'.u]_vars
+
+\* Sweep Restore Of Expired Devices (add-source-id-succession D12): a sweep writes only a record
+\* that is live after the step, and a sweep that matches an expired tombstone restores it.
+SweepWritesOnlyLiveRecords ==
+    [][act'.name \in {"SweepCreate", "SweepRestore", "SweepRefresh"}
+          => status'[act'.u] = "live"]_vars
+
+ExpiredDeviceReturns ==
+    [][(act'.name \in SweepMatchActs /\ status[act'.u] = "tomb" /\ reason[act'.u] = "expired")
+          => status'[act'.u] = "live"]_vars
 
 \* Restore Soft-Deleted Devices (add-source-id-succession D5): a source_retired tombstone is
 \* restored only by the return of one of its retired source ids or by an operator's unmerge;
