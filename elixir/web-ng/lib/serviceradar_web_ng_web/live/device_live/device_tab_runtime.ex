@@ -29,6 +29,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     sysmon
     mtr
     guests
+    events
+    alerts
   )
 
   def normalize_requested_tab(url_tab, fallback_tab) do
