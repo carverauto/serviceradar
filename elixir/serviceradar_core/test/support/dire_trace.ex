@@ -923,6 +923,7 @@ defmodule ServiceRadar.DireTrace do
       SrcOf0 <- TraceSrcOf
       Rekeys = #{tla_bool(Map.get(w, :rekeys, false))}
       FreshIds = #{tla_bool(Map.get(w, :fresh_ids, true))}
+      Spare = #{set(Map.get(w, :spare, []))}
       ArmisMacs = #{tla_bool(w.armis_macs)}
       AgentIds = #{set(Map.get(w, :agent_ids, []))}
       AgentOf <- TraceAgentOf
@@ -935,6 +936,7 @@ defmodule ServiceRadar.DireTrace do
       NoIp = NoIp
       NoRec = NoRec
       Bugs <- #{bugs}
+      Unsafe = {}
       TraceLog <- TheLog
     INIT TraceInit
     NEXT TraceNext

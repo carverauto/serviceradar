@@ -129,6 +129,15 @@ tlc_test(
 )
 
 tlc_test(
+    name = "resolution_goal_armis_rekey_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_rekey.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
     name = "resolution_vacuity_router_merges_test",
     cfg = "resolution_vacuity_router_merges.cfg",
     expect = "violation:NeverMerged",

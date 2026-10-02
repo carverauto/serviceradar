@@ -20,6 +20,9 @@
 (*                                                                          *)
 (* A source can re-identify a device (Rekey): the source id is a variable, *)
 (* and every environment without the Rekeys constant keeps it constant.    *)
+(* The source's exact collections (Collect) age the ids it stops reporting *)
+(* on a coarse absence clock, and a stale id retires into the archive      *)
+(* (RetireAbsent), which ingest still consults.                            *)
 (*                                                                          *)
 (* Merge lifecycle (tombstones, revival, purge, the fence) is modeled in   *)
 (* DireLifecycle.tla; here a merged record simply redirects to its target.  *)
@@ -43,19 +46,24 @@ CONSTANTS
     LaaIds,        \* locally-administered (randomized) MACs
     Ips,
     Observers,     \* which observers exist in this environment
+    Spare,         \* record names a write may use for a record no identifier is named for
     NoId, NoIp, NoRec,
-    Bugs
+    Bugs,
+    Unsafe         \* design alternatives rejected for identity safety (negative configurations)
 
-KnownBugs == {}
+KnownBugs == {"retired_source_id_vetoes"}
 ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
+
+UnsafeAlternatives == {"retired_ids_forgotten"}
+ASSUME Unsafe \subseteq UnsafeAlternatives
 
 MacIds == HwIds \cup LaaIds
 Ids    == AgentIds \cup SrcIds \cup MacIds
 \* A record is named by the seed its uid was derived from: the highest-priority identifier
 \* (Ids.generate_deterministic_device_id/1) or, for an identifier-less update, the address.
-Recs   == Ids \cup Ips
+Recs   == Ids \cup Ips \cup Spare
 
 \* Ids @identifier_priority: agent_id, armis_device_id / integration_id, ..., mac.
 Prio(i) == IF i \in AgentIds THEN 0 ELSE IF i \in SrcIds THEN 1 ELSE IF i \in HwIds THEN 2 ELSE 3
@@ -74,15 +82,19 @@ VARIABLES
     ifClaims, \* InterfaceMacs: interface MACs a record's own interface table claims
     act,      \* the last step: observer, reported ids, address, decisions, address merges
     srcOf,    \* the source id the source currently reports for each device
-    absence,  \* per source id: Unissued, or Present in the source's collections
+    absence,  \* per source id: Unissued, Present in the last collection, or absent (Fresh, Stale)
+    archive,  \* device_identifier_archive: source id -> the records it was retired from
     recFs     \* ghost: the devices whose source first-seen time and hostname a record carries
 
-vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act, srcOf, absence, recFs>>
+vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act, srcOf, absence, archive,
+          recFs>>
 
-Absences == {"Unissued", "Present"}
+\* The coarse absence clock: Fresh is absent from fewer than N exact collections or for less than
+\* T; Stale is absent from N consecutive exact collections and for at least T.
+Absences == {"Unissued", "Present", "Fresh", "Stale"}
 
 DecisionKinds == {"policy_block", "source_block", "alias_invalidated", "source_override",
-                  "ip_conflict"}
+                  "ip_conflict", "source_id_retired"}
 Decision == [kind: DecisionKinds, recs: SUBSET Recs]
 
 TypeOK ==
@@ -99,6 +111,7 @@ TypeOK ==
                 addressMerged: SUBSET Recs]
     /\ srcOf \in [Phys -> SrcIds \cup {NoId}]
     /\ absence \in [SrcIds -> Absences]
+    /\ archive \in [SrcIds -> SUBSET Recs]
     /\ recFs \in [Recs -> SUBSET Phys]
 
 Live(r) == created[r] /\ into[r] = NoRec
@@ -116,11 +129,23 @@ MacsHeld(r) == HeldIn(owner, r, MacIds)
 IdsHeldIn(o, r) == HeldIn(o, r, Ids)
 IdsHeld(r) == IdsHeldIn(owner, r)
 
-\* SourceAuthorityGuard.conflict_from_rows/2: two records holding disjoint, non-empty sets
-\* of the same source's identifiers. Recorded (record_blocked/3).
-SrcConflictIn(o, M) == \E a, b \in M : a # b /\ SrcHeldIn(o, a) # {} /\ SrcHeldIn(o, b) # {}
-                                        /\ SrcHeldIn(o, a) \cap SrcHeldIn(o, b) = {}
-SrcConflict(M) == SrcConflictIn(owner, M)
+\* The source ids a record held and that were retired from it, or from a record merged into it,
+\* on archive ar and merge redirects i.
+ArchivedIn(ar, i, r) == {a \in SrcIds : \E q \in ar[a] : CanonIn(i, q, Cardinality(Recs)) = r}
+ArchivedOf(r) == ArchivedIn(archive, into, r)
+\* The source ids a record holds or held (D2: SourceAuthorityGuard reads both tables).
+SrcHistIn(o, ar, i, r) == SrcHeldIn(o, r) \cup ArchivedIn(ar, i, r)
+SrcHist(r) == SrcHistIn(owner, archive, into, r)
+
+\* SourceAuthorityGuard.conflict_from_rows/2: two records holding or having held disjoint,
+\* non-empty sets of the same source's identifiers. Recorded (record_blocked/3).
+SrcConflictIn(o, ar, i, M) ==
+    \E a, b \in M : /\ a # b /\ SrcHistIn(o, ar, i, a) # {} /\ SrcHistIn(o, ar, i, b) # {}
+                   /\ SrcHistIn(o, ar, i, a) \cap SrcHistIn(o, ar, i, b) = {}
+SrcConflict(M) == SrcConflictIn(owner, archive, into, M)
+
+\* The ids the source reported in its last collection, and reports now.
+CurrentIds == {srcOf[h] : h \in Phys} \ {NoId}
 
 \* AliasGuard.distinct_agent_identity_conflict?/3; MergeEngine refuses every automatic merge of
 \* such a pair (merge_guard_violation/4).
@@ -151,6 +176,7 @@ Init ==
               addressMerged |-> {}]
     /\ srcOf = SrcOf0
     /\ absence = [a \in SrcIds |-> IF \E h \in Phys : SrcOf0[h] = a THEN "Present" ELSE "Unissued"]
+    /\ archive = [a \in SrcIds |-> {}]
     /\ recFs = [r \in Recs |-> {}]
 
 \* DHCP: an interface leases a free address or releases its lease.
@@ -160,7 +186,8 @@ Lease(x, p) ==
     /\ ipAt' = [ipAt EXCEPT ![x] = p]
     /\ act' = [name |-> "Lease", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, recFs>>
+    /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive,
+                   recFs>>
 
 \* The phys ghost after a step: merged records' devices join the record they were merged into
 \* (m1 into t1, m2 into t2), and an identity-bearing observation joins the record it landed on --
@@ -192,11 +219,12 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* registers. A randomized MAC is never one (Ids.has_strong_identifier?/1, #4760).
         strong  == S
         srcS    == S \cap SrcIds
-        \* A matched record holding a different source-authoritative identifier than the one
-        \* this update carries is not a match: the source-authoritative identifier decides, and
-        \* the override is recorded (SourceAuthorityGuard.source_mismatch?/3, applied by
-        \* BatchResolver.strong_match/2 and Resolver.lookup_governed_matches/3; #4611).
-        srcMismatch(r) == srcS # {} /\ SrcHeld(r) # {} /\ SrcHeld(r) \cap srcS = {}
+        \* A matched record holding, or having held, a different source-authoritative identifier
+        \* than the one this update carries is not a match: the source-authoritative identifier
+        \* decides, and the override is recorded (SourceAuthorityGuard.source_mismatch?/3, applied
+        \* by BatchResolver.strong_match/2 and Resolver.lookup_governed_matches/3; #4611). A
+        \* retired id keeps this veto (D2), so a MAC never attaches a new id to an old record.
+        srcMismatch(r) == srcS # {} /\ SrcHist(r) # {} /\ SrcHeld(r) \cap srcS = {}
         allM    == {Canon(owner[i]) : i \in {j \in S : owner[j] # NoRec}}
         M       == {r \in allM : ~srcMismatch(r)}
         matched == {i \in S : owner[i] # NoRec /\ Canon(owner[i]) \in M}
@@ -252,10 +280,11 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         mergeTry(y) ==
             /\ ~invalidate(y)
             /\ syncRuns /\ IdsHeldIn(owner1, y) = {}
-        mergeOk(y) == mergeTry(y) /\ ~SrcConflictIn(owner1, {y, target}) /\ ~DistinctAgents(y, target)
+        srcConflict2(y) == SrcConflictIn(owner1, archive, into, {y, target})
+        mergeOk(y) == mergeTry(y) /\ ~srcConflict2(y) /\ ~DistinctAgents(y, target)
         step2Inval  == {y \in aliasY : invalidate(y)}
         step2Merged == {y \in aliasY : mergeOk(y)}
-        srcRefused  == {y \in aliasY : mergeTry(y) /\ SrcConflictIn(owner1, {y, target})}
+        srcRefused  == {y \in aliasY : mergeTry(y) /\ srcConflict2(y)}
         merged == step1Merged \cup step2Merged
         decisions ==
             (IF others # {} /\ ~conflictOk
@@ -303,7 +332,7 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
                    \cup (IF kind = "Armis" /\ r = target THEN {h} ELSE {})
                    \cup (IF r = target0 THEN UNION {recFs[m] : m \in step1Merged} ELSE {})
                    \cup (IF r = target THEN UNION {recFs[m] : m \in step2Merged} ELSE {})]
-    /\ UNCHANGED <<ipAt, srcOf, absence>>
+    /\ UNCHANGED <<ipAt, srcOf, absence, archive>>
 
 \* Armis sync: the Armis device id, plus the device's MACs when Armis reports them. Its update
 \* carries a non-MAC identifier, so Sync.Aliases.process_alias_conflicts/2 runs.
@@ -353,21 +382,59 @@ SweepObserve(h, x) ==
 
 \* The source re-identifies device h: it reports h under id a from now on (a source-side merge or
 \* re-identification), joins the source (from NoId) or leaves it (to NoId). No other device is
-\* reported with a. Under FreshIds the source never issued a before.
+\* reported with a. Under FreshIds the source never issued a before; otherwise it may also
+\* re-issue an id DIRE has retired. (An id re-issued while DIRE still holds it as current is
+\* indistinguishable from the same asset, and is outside the model.)
 Rekey(h, a) ==
     /\ Rekeys
     /\ a # srcOf[h]
     /\ a # NoId => /\ \A k \in Phys : srcOf[k] # a
-                   /\ FreshIds => absence[a] = "Unissued"
+                   /\ \/ absence[a] = "Unissued"
+                      \/ ~FreshIds /\ absence[a] = "Stale" /\ owner[a] = NoRec
     /\ srcOf' = [srcOf EXCEPT ![h] = a]
     /\ absence' = IF a = NoId THEN absence ELSE [absence EXCEPT ![a] = "Present"]
     /\ act' = [name |-> "Rekey", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, recFs>>
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, archive, recFs>>
+
+\* An exact collection of the source activates (ArmisSourceSnapshot.activate/3). Every id it
+\* reports is Present. An id it does not report ages: absent once it is Fresh, and it turns Stale
+\* after N consecutive exact collections and T, which this coarse clock reaches on any later
+\* collection. One absence never retires an id.
+Collect ==
+    /\ Rekeys
+    /\ \E aged \in [SrcIds -> {"Fresh", "Stale"}] :
+         absence' = [a \in SrcIds |->
+                       IF a \in CurrentIds THEN "Present"
+                       ELSE CASE absence[a] = "Present" -> "Fresh"
+                              [] absence[a] = "Fresh" -> aged[a]
+                              [] OTHER -> absence[a]]
+    /\ act' = [name |-> "Collect", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, archive, recFs>>
+
+\* The retirement job an activation enqueues (D1): a stale id leaves device_identifiers for the
+\* archive, remembering the record that held it, and the decision is recorded.
+\*   Bug retired_source_id_vetoes: nothing retires an id the source stopped reporting, so the
+\*       old record keeps it, and with it the veto against the device's new id, for ever.
+\*   Unsafe retired_ids_forgotten: retirement drops the identifier without archiving it, so
+\*       nothing remembers that the record held it.
+RetireAbsent(a) ==
+    /\ ~Bug("retired_source_id_vetoes")
+    /\ absence[a] = "Stale" /\ owner[a] # NoRec
+    /\ owner' = [owner EXCEPT ![a] = NoRec]
+    /\ archive' = IF "retired_ids_forgotten" \in Unsafe THEN archive
+                  ELSE [archive EXCEPT ![a] = @ \cup {owner[a]}]
+    /\ LET d == {[kind |-> "source_id_retired", recs |-> {owner[a]}]} IN
+       act' = [name |-> "Retire", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, created, into, recIp, alias, phys, ifClaims, srcOf, absence, recFs>>
 
 Next ==
     \/ \E x \in Ifaces, p \in Ips \cup {NoIp} : Lease(x, p)
     \/ \E h \in Phys, a \in SrcIds \cup {NoId} : Rekey(h, a)
+    \/ Collect
+    \/ \E a \in SrcIds : RetireAbsent(a)
     \/ \E h \in Phys, x \in Ifaces :
          \/ "Armis" \in Observers /\ ArmisObserve(h, x)
          \/ "Arp" \in Observers /\ ArpObserve(h, x)
@@ -400,7 +467,7 @@ DistinctSourceIdsNeverMerge == \A r \in Recs : Live(r) => Cardinality(SrcHeld(r)
 OwnersAfter(I) == {CanonIn(into', owner'[i], Cardinality(Recs)) : i \in {j \in I : owner'[j] # NoRec}}
 EvidenceConverges ==
     [][Cardinality(OwnersAfter(act'.ids)) <= 1
-       \/ SrcConflictIn(owner', OwnersAfter(act'.ids))
+       \/ SrcConflictIn(owner', archive', into', OwnersAfter(act'.ids))
        \/ \E a, b \in OwnersAfter(act'.ids) :
             /\ HeldIn(owner', a, AgentIds) # {} /\ HeldIn(owner', b, AgentIds) # {}
             /\ HeldIn(owner', a, AgentIds) \cap HeldIn(owner', b, AgentIds) = {}]_vars
