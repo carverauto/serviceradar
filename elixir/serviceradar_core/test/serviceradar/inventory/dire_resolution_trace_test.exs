@@ -49,8 +49,11 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
 
   # #4609 and #4639 (fixed): a discovered device leaves an address; an Armis device leases it.
   # Steps: A (m1) is seen at p1 three times (alias confirmed); A releases p1; Armis device B
-  # (a2, m2) leases p1 and is synced. Expected: no merge; A's alias on p1 goes stale; B takes
-  # p1 and A, still live, releases it, and the address conflict is recorded.
+  # (a2, m2) leases p1 and is synced. Expected: no merge; B takes p1 and A, still live, releases
+  # it, and the address conflict is recorded. A's alias on p1 should go stale. It stays confirmed,
+  # a defect still open (armis_alias_pass_blind): the sync's alias pass looks for the alias under
+  # the source's partition, where the sync's identifiers are filed, and finds none. The knockout
+  # shows the code exhibits it.
   test "armis_dhcp", %{actor: actor} do
     world = two_devices(%{src_of: %{"h2" => "a2"}, src_ids: ["a2"]})
 
@@ -63,7 +66,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.lease("x1", "NoIp")
     |> DireTrace.lease("x2", "p1")
     |> DireTrace.armis("h2", "x2")
-    |> DireTrace.assert_golden!(tamper: true)
+    |> DireTrace.assert_golden!(tamper: true, demonstrates: "armis_alias_pass_blind")
   end
 
   # #4610: an Armis device reported without MACs leaves an address; a discovered device leases
@@ -155,6 +158,10 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # #4611 (fixed): two Armis devices report the same MAC (cloned VMs, a swapped NIC).
   # Steps: A (a1, m1) is synced at p1; B (a2, m1) is synced at p2, twice. Expected: B gets its
   # own record, since its Armis id decides; m1 stays with A; each sync of B records the override.
+  # Then the source stops reporting A: one collection reports both, three more report B alone,
+  # and the reconciler runs. Expected: the two are different devices, so they never merge. The
+  # reconciler leaves both alone: B's record carries m1 in its MAC column, but m1 is filed under
+  # the source's partition, which the duplicate pass never pairs a device row with.
   test "src_attach_shared_mac", %{actor: actor} do
     world =
       two_devices(%{
@@ -162,7 +169,8 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
         src_of: %{"h1" => "a1", "h2" => "a2"},
         src_ids: ["a1", "a2"],
         hw_ids: ["m1"],
-        observers: ["Armis"]
+        observers: ["Armis"],
+        rekeys: true
       })
 
     "src_attach_shared_mac"
@@ -172,7 +180,54 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.armis("h1", "x1")
     |> DireTrace.armis("h2", "x2")
     |> DireTrace.armis("h2", "x2")
+    |> DireTrace.collect()
+    |> DireTrace.rekey("h1", "NoId")
+    |> DireTrace.collect()
+    |> DireTrace.collect()
+    |> DireTrace.collect()
+    |> DireTrace.reconcile()
     |> DireTrace.assert_golden!()
+  end
+
+  # The source re-identifies a device (a source-side merge or re-identification): Armis reports
+  # A (m1) under a1, then under a2. Steps: a collection reports A under a1 at p1; Armis re-keys
+  # A to a2; three collections report A under a2 alone; the reconciler runs. Today: the first a2
+  # sync gets its own record, since its Armis id decides, and takes p1; m1 stays with a1's
+  # record, which keeps a1 for ever, because nothing retires an id the source stopped reporting.
+  # The hostnames agree, so that sync also records the pair for de-duplication review
+  # (policy_block). The a2 syncs' sightings of p1 land on the alias row a1's sync created, so the
+  # second confirms p1 as an alias of a1's record and a2's record never gets one
+  # (foreign_sighting_confirms_alias). The reconciler leaves both alone, as in
+  # src_attach_shared_mac. The witness: the trace reaches a state where, with every absent id
+  # stale and nothing left to retire or merge, two records holding source ids describe A
+  # (OneSourceRecordPerDevice).
+  test "src_rekey_succession", %{actor: actor} do
+    world = %{
+      phys: ["h1"],
+      ifaces: %{"x1" => %{phys: "h1", mac: "m1"}},
+      src_of: %{"h1" => "a1"},
+      armis_macs: true,
+      rekeys: true,
+      src_ids: ["a1", "a2"],
+      hw_ids: ["m1"],
+      laa_ids: [],
+      ips: ["p1"],
+      observers: ["Armis"]
+    }
+
+    "src_rekey_succession"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.collect()
+    |> DireTrace.rekey("h1", "a2")
+    |> DireTrace.collect()
+    |> DireTrace.collect()
+    |> DireTrace.collect()
+    |> DireTrace.reconcile()
+    |> DireTrace.assert_golden!(
+      witness: "OneSourceRecordPerDevice",
+      demonstrates: "foreign_sighting_confirms_alias"
+    )
   end
 
   # #4612 (fixed): a router's interfaces are sighted one MAC at a time, then the mapper polls it.
@@ -260,6 +315,8 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # sweep finds p2 answering and creates a provisional record there; A is synced at p2, twice.
   # Expected: A takes p2, the seed releases it and stays live, and the conflict is recorded. Each
   # sync used to be written onto the seed, leaving A at its stale address p1 with no decision.
+  # The seed that stays live is a defect still open (released_seed_stays_live): an addressless
+  # shell nothing removes but ephemeral expiry. The knockout shows the code exhibits it.
   test "armis_moves_onto_sweep_seed", %{actor: actor} do
     world = %{
       phys: ["h1"],
@@ -281,7 +338,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.sweep("h1", "x1")
     |> DireTrace.armis("h1", "x1")
     |> DireTrace.armis("h1", "x1")
-    |> DireTrace.assert_golden!()
+    |> DireTrace.assert_golden!(demonstrates: "released_seed_stays_live")
   end
 
   # #4638 (fixed): the mapper resolves a polled device by its interface MACs, not by the address

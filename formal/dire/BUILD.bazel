@@ -366,6 +366,22 @@ tlc_test(
 )
 
 tlc_test(
+    name = "resolution_witness_armis_alias_pass_blind_test",
+    cfg = "resolution_witness_armis_alias_pass_blind.cfg",
+    expect = "violation:AliasFollowsSyncedDevice",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_foreign_sighting_confirms_alias_test",
+    cfg = "resolution_witness_foreign_sighting_confirms_alias.cfg",
+    expect = "violation:AliasFollowsSyncedDevice",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
     name = "resolution_witness_released_seed_stays_live_test",
     cfg = "resolution_witness_released_seed_stays_live.cfg",
     expect = "violation:NoAddresslessShell",
@@ -376,7 +392,8 @@ tlc_test(
 # ---- Traces recorded from the real code (a matched trace reaches its last state) ----
 # A __tamper_<var> variant alters one variable in the final state and must NOT be matched.
 # A __knockout configuration checks a trace without the defect switch it demonstrates and must
-# NOT be matched either.
+# NOT be matched either. A __witness configuration checks a trace against the property its defect
+# breaks, which the trace must violate.
 
 tlc_test(
     name = "trace_agent_alias_unknown_mac_test",
@@ -406,6 +423,17 @@ tlc_test(
     name = "trace_armis_dhcp_test",
     cfg = "traces/Trace_armis_dhcp.cfg",
     expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_armis_dhcp.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__knockout_test",
+    cfg = "traces/Trace_armis_dhcp__knockout.cfg",
     spec = "traces/Trace_armis_dhcp.tla",
     deps = [
         "CurrentBugs.tla",
@@ -767,6 +795,41 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_src_rekey_succession_test",
+    cfg = "traces/Trace_src_rekey_succession.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_rekey_succession.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_rekey_succession__knockout_test",
+    cfg = "traces/Trace_src_rekey_succession__knockout.cfg",
+    spec = "traces/Trace_src_rekey_succession.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_rekey_succession__witness_test",
+    cfg = "traces/Trace_src_rekey_succession__witness.cfg",
+    expect = "violation:OneSourceRecordPerDevice",
+    spec = "traces/Trace_src_rekey_succession.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_stale_redirect_test",
     cfg = "traces/Trace_stale_redirect.cfg",
     expect = "violation:TraceIncomplete",
@@ -805,6 +868,17 @@ tlc_test(
     name = "trace_armis_moves_onto_sweep_seed_test",
     cfg = "traces/Trace_armis_moves_onto_sweep_seed.cfg",
     expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_armis_moves_onto_sweep_seed.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_moves_onto_sweep_seed__knockout_test",
+    cfg = "traces/Trace_armis_moves_onto_sweep_seed__knockout.cfg",
     spec = "traces/Trace_armis_moves_onto_sweep_seed.tla",
     deps = [
         "CurrentBugs.tla",

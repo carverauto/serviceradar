@@ -9,6 +9,8 @@ TraceSrcOf == ("h1" :> "a1")
 TraceHostOf == ("h1" :> "h1")
 TraceAgentOf == ("h1" :> NoId)
 
+KnockoutBugs == ResolutionBugs \ {"released_seed_stays_live"}
+
 TheLog == <<
   [ipAt |-> ("x1" :> NoIp), created |-> ("a1" :> FALSE @@ "p1" :> FALSE @@ "p2" :> FALSE), into |-> ("a1" :> NoRec @@ "p1" :> NoRec @@ "p2" :> NoRec), owner |-> ("a1" :> NoRec), recIp |-> ("a1" :> NoIp @@ "p1" :> NoIp @@ "p2" :> NoIp), alias |-> ("p1" :> {} @@ "p2" :> {}), phys |-> ("a1" :> {} @@ "p1" :> {} @@ "p2" :> {}), ifClaims |-> ("a1" :> {} @@ "p1" :> {} @@ "p2" :> {}), act |-> [name |-> "Init", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {}, addressMerged |-> {}]],
   [ipAt |-> ("x1" :> "p1"), created |-> ("a1" :> FALSE @@ "p1" :> FALSE @@ "p2" :> FALSE), into |-> ("a1" :> NoRec @@ "p1" :> NoRec @@ "p2" :> NoRec), owner |-> ("a1" :> NoRec), recIp |-> ("a1" :> NoIp @@ "p1" :> NoIp @@ "p2" :> NoIp), alias |-> ("p1" :> {} @@ "p2" :> {}), phys |-> ("a1" :> {} @@ "p1" :> {} @@ "p2" :> {}), ifClaims |-> ("a1" :> {} @@ "p1" :> {} @@ "p2" :> {}), act |-> [name |-> "Lease", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {}, addressMerged |-> {}]],
