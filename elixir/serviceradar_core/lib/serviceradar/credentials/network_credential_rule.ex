@@ -131,6 +131,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     action :preview do
       argument :id, :uuid, allow_nil?: false
       argument :sample_limit, :integer, allow_nil?: true, default: 10
+      returns :map
 
       run fn input, context ->
         NetworkCredentialRulePreview.preview_by_id(

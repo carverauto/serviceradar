@@ -545,6 +545,7 @@ defmodule ServiceRadar.Inventory.Device do
     action :resolve_identity do
       description "Resolve device identity from identifiers (MAC, Armis ID, etc.)"
       argument :device_update, :map, allow_nil?: false
+      returns :string
 
       run fn input, _context ->
         update = input.arguments.device_update

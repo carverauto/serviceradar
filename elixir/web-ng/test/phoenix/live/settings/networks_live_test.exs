@@ -1032,4 +1032,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
   defp agent_query?(query) do
     String.contains?(query, ~s(FROM "platform"."ocsf_agents"))
   end
+
+  test "clicking run_cleanup_now shows a success flash", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks")
+
+    lv
+    |> element("button[phx-value-tab='cleanup']")
+    |> render_click()
+
+    lv
+    |> element(~s(button[phx-click="run_cleanup_now"]))
+    |> render_click()
+
+    assert render(lv) =~ "Cleanup job queued"
+  end
 end
