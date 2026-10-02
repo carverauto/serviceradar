@@ -124,7 +124,15 @@ defmodule ServiceRadar.Plugins.AlertRuleCatalog do
         |> Ash.create(actor: actor)
 
       {:ok, rule_row} ->
-        update_rule(rule_row, drop_nils(Map.take(definition, @definition_fields)), actor)
+        # Re-sync updates the definition and reassigns provenance to the current
+        # package version so disable_package_rules tracks the live owner.
+        attrs =
+          definition
+          |> Map.take(@definition_fields)
+          |> Map.put(:plugin_package_id, package.id)
+          |> drop_nils()
+
+        update_rule(rule_row, attrs, actor)
 
       {:error, reason} ->
         {:error, reason}
@@ -155,9 +163,13 @@ defmodule ServiceRadar.Plugins.AlertRuleCatalog do
     end)
   end
 
-  defp find_existing(package_id, name, actor) do
+  defp find_existing(_package_id, name, actor) do
+    # Name is unique (identity :unique_name). Querying by name alone finds the
+    # rule regardless of which package version last owned it, so re-approving an
+    # upgraded package updates the existing row rather than failing the unique
+    # constraint. The update branch reassigns plugin_package_id to the new package.
     StatefulAlertRule
-    |> Ash.Query.filter(plugin_package_id == ^package_id and name == ^name)
+    |> Ash.Query.filter(name == ^name)
     |> Ash.Query.limit(1)
     |> Ash.read(actor: actor)
     |> case do
