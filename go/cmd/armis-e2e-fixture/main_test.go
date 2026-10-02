@@ -104,5 +104,26 @@ func TestProduceFixtureUsesRealArmisDriverPaginationAndNormalization(t *testing.
 			"AABBCCDDEE0"+strconv.Itoa((page.Page%3)+1),
 			update["metadata"].(map[string]interface{})["mac_addresses"],
 		)
+
+		// Only a run's final page carries the population accounting, and core activates the
+		// collection from it.
+		syncMeta := update["sync_meta"].(map[string]interface{})
+		population, hasPopulation := syncMeta["population"].(map[string]interface{})
+		if page.Page != 2 {
+			require.False(t, hasPopulation, "run %d page %d", page.Run, page.Page)
+			continue
+		}
+		require.True(t, hasPopulation, "run %d final page", page.Run)
+		for key, want := range map[string]float64{
+			"raw_rows":                  3,
+			"excluded_rows":             0,
+			"invalid_rows":              0,
+			"valid_occurrences":         3,
+			"distinct_source_ids":       3,
+			"duplicate_occurrences":     0,
+			"conflicting_duplicate_ids": 0,
+		} {
+			require.Equal(t, want, population[key], "run %d %s", page.Run, key)
+		}
 	}
 }

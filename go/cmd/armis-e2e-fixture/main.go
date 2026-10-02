@@ -176,6 +176,7 @@ func produceRun(
 	updates := 0
 	runID := fmt.Sprintf("%s-%d", options.RunID, runIndex)
 	pages := make([]fixturePage, 0)
+	var population *syncsources.PopulationStats
 
 	run := syncsources.RunContext{
 		RunID:     runID,
@@ -202,6 +203,12 @@ func produceRun(
 			updates += len(batch)
 			return nil
 		},
+		// Core activates a collection only from the exact accounting on the run's final
+		// chunk, so the driver's last report has to reach that chunk as the agent runtime
+		// delivers it.
+		ReportPopulation: func(stats syncsources.PopulationStats) {
+			population = &stats
+		},
 	}
 
 	if _, err := armis.NewDriver().Sync(ctx, run); err != nil {
@@ -209,15 +216,20 @@ func produceRun(
 	}
 
 	for pageIndex := range pages {
+		isFinal := pageIndex == len(pages)-1
 		for _, update := range pages[pageIndex].Updates {
-			update["sync_meta"] = map[string]interface{}{
+			syncMeta := map[string]interface{}{
 				"sync_service_id": options.SourceID,
 				"sync_run_id":     runID,
 				"chunk_index":     pageIndex,
 				"total_chunks":    len(pages),
 				"total_devices":   updates,
-				"is_final":        pageIndex == len(pages)-1,
+				"is_final":        isFinal,
 			}
+			if isFinal && population != nil {
+				syncMeta["population"] = populationMeta(*population)
+			}
+			update["sync_meta"] = syncMeta
 		}
 		if err := json.NewEncoder(output).Encode(pages[pageIndex]); err != nil {
 			return runSummary{Run: runIndex, Pages: page, Updates: updates}, err
@@ -225,6 +237,23 @@ func produceRun(
 	}
 
 	return runSummary{Run: runIndex, Pages: page, Updates: updates}, nil
+}
+
+// populationMeta is the population block the agent runtime puts on a run's final chunk
+// (buildSyncMeta in go/pkg/agent/sync_runtime.go), under the keys core validates.
+func populationMeta(stats syncsources.PopulationStats) map[string]interface{} {
+	return map[string]interface{}{
+		"raw_rows":                       stats.RawRows,
+		"excluded_rows":                  stats.ExcludedRows,
+		"invalid_rows":                   stats.InvalidRows,
+		"valid_occurrences":              stats.ValidOccurrences,
+		"distinct_source_ids":            stats.DistinctSourceIDs,
+		"duplicate_occurrences":          stats.DuplicateOccurrences,
+		"duplicate_source_id_examples":   stats.DuplicateSourceIDExamples,
+		"invalid_row_examples":           stats.InvalidRowExamples,
+		"conflicting_duplicate_ids":      len(stats.ConflictingDuplicateIDs),
+		"conflicting_duplicate_examples": stats.ConflictingDuplicateIDs,
+	}
 }
 
 func triggerChurn(ctx context.Context, client *http.Client, endpoint string, swaps int) error {
