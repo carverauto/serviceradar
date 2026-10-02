@@ -1037,6 +1037,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks")
 
     lv
+    |> element("button[phx-value-tab='cleanup']")
+    |> render_click()
+
+    lv
     |> element(~s(button[phx-click="run_cleanup_now"]))
     |> render_click()
 
