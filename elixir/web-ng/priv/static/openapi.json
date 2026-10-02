@@ -6730,6 +6730,46 @@
         },
         "type": "object"
       },
+      "device_cleanup_settings-filter-source_retirement_enabled": {
+        "additionalProperties": false,
+        "description": "Whether a source id its source stopped reporting is retired after sustained absence from exact collections",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "interface-filter-classification_source": {
         "additionalProperties": false,
         "description": "Classification source (rules, manual, etc.)",
@@ -8652,6 +8692,46 @@
       },
       "timeseries_metric_hourly-filter-sample_count": {
         "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "device_cleanup_settings-filter-source_retirement_absent_collections": {
+        "additionalProperties": false,
+        "description": "Consecutive exact collections, under one collection query, a source id must be absent from before it retires",
         "properties": {
           "eq": {
             "type": "integer"
@@ -13347,6 +13427,46 @@
         },
         "type": "object"
       },
+      "device_cleanup_settings-filter-source_retirement_min_absence_hours": {
+        "additionalProperties": false,
+        "description": "Hours since a source id was last reported before it may retire",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "interface-filter-device_ip": {
         "additionalProperties": false,
         "description": "Device IP address",
@@ -16102,6 +16222,46 @@
           "not_eq": {
             "format": "date-time",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "device_cleanup_settings-filter-max_successions_per_run": {
+        "additionalProperties": false,
+        "description": "Most source succession merges one reconciliation run may perform",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -19159,6 +19319,55 @@
         },
         "type": "object"
       },
+      "device_cleanup_settings-filter-source_retirement_max_fraction": {
+        "additionalProperties": false,
+        "description": "Largest fraction of a source instance's live records one retirement pass may affect; a larger pass is refused",
+        "properties": {
+          "eq": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "greater_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "in": {
+            "items": {
+              "format": "float",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than": {
+            "format": "float",
+            "type": "number"
+          },
+          "less_than_or_equal": {
+            "format": "float",
+            "type": "number"
+          },
+          "not_eq": {
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "timeseries_metric-filter-partition": {
         "additionalProperties": false,
         "description": "Partition/segment identifier",
@@ -21126,6 +21335,46 @@
         },
         "type": "object"
       },
+      "device_cleanup_settings-filter-source_retirement_guard_override": {
+        "additionalProperties": false,
+        "description": "Let the next retirement pass exceed source_retirement_max_fraction; the pass it admits clears it",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "device-group-filter-metadata": {
         "additionalProperties": false,
         "description": "Additional metadata",
@@ -21346,6 +21595,9 @@
           "ephemeral_expiry_max_fraction": {
             "$ref": "#/components/schemas/device_cleanup_settings-filter-ephemeral_expiry_max_fraction"
           },
+          "max_successions_per_run": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-max_successions_per_run"
+          },
           "not": {
             "$ref": "#/components/schemas/device_cleanup_settings-filter"
           },
@@ -21358,6 +21610,24 @@
           },
           "retention_days": {
             "$ref": "#/components/schemas/device_cleanup_settings-filter-retention_days"
+          },
+          "source_retired_grace_days": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-source_retired_grace_days"
+          },
+          "source_retirement_absent_collections": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-source_retirement_absent_collections"
+          },
+          "source_retirement_enabled": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-source_retirement_enabled"
+          },
+          "source_retirement_guard_override": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-source_retirement_guard_override"
+          },
+          "source_retirement_max_fraction": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-source_retirement_max_fraction"
+          },
+          "source_retirement_min_absence_hours": {
+            "$ref": "#/components/schemas/device_cleanup_settings-filter-source_retirement_min_absence_hours"
           }
         },
         "type": "deepObject"
@@ -27259,8 +27529,37 @@
                 "format": "float",
                 "type": "number"
               },
+              "max_successions_per_run": {
+                "description": "Most source succession merges one reconciliation run may perform. Field included by default.",
+                "type": "integer"
+              },
               "retention_days": {
                 "description": "Number of days to keep soft-deleted devices before purging. Field included by default.",
+                "type": "integer"
+              },
+              "source_retired_grace_days": {
+                "description": "Days a record left holding only retired source ids stays hidden before it is soft-deleted. Field included by default.",
+                "type": "integer"
+              },
+              "source_retirement_absent_collections": {
+                "description": "Consecutive exact collections, under one collection query, a source id must be absent from before it retires. Field included by default.",
+                "type": "integer"
+              },
+              "source_retirement_enabled": {
+                "description": "Whether a source id its source stopped reporting is retired after sustained absence from exact collections. Field included by default.",
+                "type": "boolean"
+              },
+              "source_retirement_guard_override": {
+                "description": "Let the next retirement pass exceed source_retirement_max_fraction; the pass it admits clears it. Field included by default.",
+                "type": "boolean"
+              },
+              "source_retirement_max_fraction": {
+                "description": "Largest fraction of a source instance's live records one retirement pass may affect; a larger pass is refused. Field included by default.",
+                "format": "float",
+                "type": "number"
+              },
+              "source_retirement_min_absence_hours": {
+                "description": "Hours since a source id was last reported before it may retire. Field included by default.",
                 "type": "integer"
               }
             },
@@ -27272,7 +27571,14 @@
               "ephemeral_expiry_enabled",
               "ephemeral_expiry_days",
               "ephemeral_expiry_max_fraction",
-              "ephemeral_expiry_guard_override"
+              "ephemeral_expiry_guard_override",
+              "source_retirement_enabled",
+              "source_retirement_absent_collections",
+              "source_retirement_min_absence_hours",
+              "source_retirement_max_fraction",
+              "source_retirement_guard_override",
+              "source_retired_grace_days",
+              "max_successions_per_run"
             ],
             "type": "object"
           },
@@ -30218,6 +30524,46 @@
       "interface-filter-if_admin_status": {
         "additionalProperties": false,
         "description": "Administrative status (1=up, 2=down, 3=testing)",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "device_cleanup_settings-filter-source_retired_grace_days": {
+        "additionalProperties": false,
+        "description": "Days a record left holding only retired source ids stays hidden before it is soft-deleted",
         "properties": {
           "eq": {
             "type": "integer"
@@ -35403,12 +35749,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override"
+                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override,source_retirement_enabled,source_retirement_absent_collections,source_retirement_min_absence_hours,source_retirement_max_fraction,source_retirement_guard_override,source_retired_grace_days,max_successions_per_run"
               },
               "properties": {
                 "device_cleanup_settings": {
                   "description": "Comma separated field names for device_cleanup_settings",
-                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override",
+                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override,source_retirement_enabled,source_retirement_absent_collections,source_retirement_min_absence_hours,source_retirement_max_fraction,source_retirement_guard_override,source_retired_grace_days,max_successions_per_run",
                   "type": "string"
                 }
               },
@@ -35518,6 +35864,17 @@
                             ],
                             "description": "Largest fraction of live devices one expiry pass may expire; a larger pass is refused"
                           },
+                          "max_successions_per_run": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Most source succession merges one reconciliation run may perform"
+                          },
                           "retention_days": {
                             "anyOf": [
                               {
@@ -35528,6 +35885,73 @@
                               }
                             ],
                             "description": "Number of days to keep soft-deleted devices before purging"
+                          },
+                          "source_retired_grace_days": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Days a record left holding only retired source ids stays hidden before it is soft-deleted"
+                          },
+                          "source_retirement_absent_collections": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Consecutive exact collections, under one collection query, a source id must be absent from before it retires"
+                          },
+                          "source_retirement_enabled": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Whether a source id its source stopped reporting is retired after sustained absence from exact collections"
+                          },
+                          "source_retirement_guard_override": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Let the next retirement pass exceed source_retirement_max_fraction; the pass it admits clears it"
+                          },
+                          "source_retirement_max_fraction": {
+                            "anyOf": [
+                              {
+                                "format": "float",
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Largest fraction of a source instance's live records one retirement pass may affect; a larger pass is refused"
+                          },
+                          "source_retirement_min_absence_hours": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Hours since a source id was last reported before it may retire"
                           }
                         },
                         "type": "object"
@@ -36521,12 +36945,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override"
+                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override,source_retirement_enabled,source_retirement_absent_collections,source_retirement_min_absence_hours,source_retirement_max_fraction,source_retirement_guard_override,source_retired_grace_days,max_successions_per_run"
               },
               "properties": {
                 "device_cleanup_settings": {
                   "description": "Comma separated field names for device_cleanup_settings",
-                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override",
+                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override,source_retirement_enabled,source_retirement_absent_collections,source_retirement_min_absence_hours,source_retirement_max_fraction,source_retirement_guard_override,source_retired_grace_days,max_successions_per_run",
                   "type": "string"
                 }
               },
@@ -36595,12 +37019,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override"
+                "device_cleanup_settings": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override,source_retirement_enabled,source_retirement_absent_collections,source_retirement_min_absence_hours,source_retirement_max_fraction,source_retirement_guard_override,source_retired_grace_days,max_successions_per_run"
               },
               "properties": {
                 "device_cleanup_settings": {
                   "description": "Comma separated field names for device_cleanup_settings",
-                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override",
+                  "example": "retention_days,cleanup_interval_minutes,batch_size,enabled,ephemeral_expiry_enabled,ephemeral_expiry_days,ephemeral_expiry_exclusion_query,ephemeral_expiry_max_fraction,ephemeral_expiry_guard_override,source_retirement_enabled,source_retirement_absent_collections,source_retirement_min_absence_hours,source_retirement_max_fraction,source_retirement_guard_override,source_retired_grace_days,max_successions_per_run",
                   "type": "string"
                 }
               },
@@ -36710,6 +37134,17 @@
                             ],
                             "description": "Largest fraction of live devices one expiry pass may expire; a larger pass is refused"
                           },
+                          "max_successions_per_run": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Most source succession merges one reconciliation run may perform"
+                          },
                           "retention_days": {
                             "anyOf": [
                               {
@@ -36720,6 +37155,73 @@
                               }
                             ],
                             "description": "Number of days to keep soft-deleted devices before purging"
+                          },
+                          "source_retired_grace_days": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Days a record left holding only retired source ids stays hidden before it is soft-deleted"
+                          },
+                          "source_retirement_absent_collections": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Consecutive exact collections, under one collection query, a source id must be absent from before it retires"
+                          },
+                          "source_retirement_enabled": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Whether a source id its source stopped reporting is retired after sustained absence from exact collections"
+                          },
+                          "source_retirement_guard_override": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Let the next retirement pass exceed source_retirement_max_fraction; the pass it admits clears it"
+                          },
+                          "source_retirement_max_fraction": {
+                            "anyOf": [
+                              {
+                                "format": "float",
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Largest fraction of a source instance's live records one retirement pass may affect; a larger pass is refused"
+                          },
+                          "source_retirement_min_absence_hours": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Hours since a source id was last reported before it may retire"
                           }
                         },
                         "type": "object"

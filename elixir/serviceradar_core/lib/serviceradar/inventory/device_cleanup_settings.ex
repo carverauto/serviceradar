@@ -3,9 +3,11 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
   Instance-level settings for device cleanup retention.
 
   This resource stores the retention window and schedule used by the
-  device cleanup worker to purge tombstoned devices, and the window after
+  device cleanup worker to purge tombstoned devices, the window after
   which ephemeral devices (no strong identifier) are expired
-  (`ServiceRadar.Inventory.EphemeralDeviceExpiry`).
+  (`ServiceRadar.Inventory.EphemeralDeviceExpiry`), and the rules that retire
+  a source-authoritative identifier its source stopped reporting
+  (`ServiceRadar.Inventory.Identity.SourceRetirement`).
   """
 
   use Ash.Resource,
@@ -25,7 +27,14 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
     :ephemeral_expiry_days,
     :ephemeral_expiry_exclusion_query,
     :ephemeral_expiry_max_fraction,
-    :ephemeral_expiry_guard_override
+    :ephemeral_expiry_guard_override,
+    :source_retirement_enabled,
+    :source_retirement_absent_collections,
+    :source_retirement_min_absence_hours,
+    :source_retirement_max_fraction,
+    :source_retirement_guard_override,
+    :source_retired_grace_days,
+    :max_successions_per_run
   ]
 
   postgres do
@@ -177,6 +186,70 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
 
       description "Let one expiry pass exceed ephemeral_expiry_max_fraction (a deliberate " <>
                     "first cleanup); leave off in steady state"
+    end
+
+    attribute :source_retirement_enabled, :boolean do
+      allow_nil? false
+      default true
+      public? true
+
+      description "Whether a source id its source stopped reporting is retired after " <>
+                    "sustained absence from exact collections"
+    end
+
+    attribute :source_retirement_absent_collections, :integer do
+      allow_nil? false
+      default 3
+      public? true
+      constraints min: 2, max: 32
+
+      description "Consecutive exact collections, under one collection query, a source id " <>
+                    "must be absent from before it retires"
+    end
+
+    attribute :source_retirement_min_absence_hours, :integer do
+      allow_nil? false
+      default 24
+      public? true
+      constraints min: 1, max: 8_760
+      description "Hours since a source id was last reported before it may retire"
+    end
+
+    attribute :source_retirement_max_fraction, :float do
+      allow_nil? false
+      default 0.5
+      public? true
+      constraints min: 0.01, max: 1.0
+
+      description "Largest fraction of a source instance's live records one retirement pass " <>
+                    "may affect; a larger pass is refused"
+    end
+
+    attribute :source_retirement_guard_override, :boolean do
+      allow_nil? false
+      default false
+      public? true
+
+      description "Let the next retirement pass exceed source_retirement_max_fraction; the " <>
+                    "pass it admits clears it"
+    end
+
+    attribute :source_retired_grace_days, :integer do
+      allow_nil? false
+      default 7
+      public? true
+      constraints min: 1, max: 365
+
+      description "Days a record left holding only retired source ids stays hidden before it " <>
+                    "is soft-deleted"
+    end
+
+    attribute :max_successions_per_run, :integer do
+      allow_nil? false
+      default 200
+      public? true
+      constraints min: 0, max: 10_000
+      description "Most source succession merges one reconciliation run may perform"
     end
 
     timestamps()

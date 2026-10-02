@@ -74,7 +74,7 @@ A source-authoritative id is **retired** when both of these hold:
 - it was absent from at least `source_retirement_absent_collections` (N, default 3)
   consecutive exact, activated collections of the source instance that owns its scope, all
   under one collection query hash;
-- it was last reported at least `source_retirement_min_absence` (T, default 24 hours) ago.
+- it was last reported at least `source_retirement_min_absence_hours` (T, default 24) hours ago.
 
 Rules:
 
@@ -93,6 +93,20 @@ Rules:
   `archive_reason = "source_absent"`. It records a `source_id_retired` identity decision naming
   the device and the identifier, with the ids of the collections that proved the absence as
   evidence.
+- **The derived integration id moves with it.** The record's `integration_id` derived from the
+  retired id (`IntegrationIdentity.scoped_device_id/3`, in the same scope) is archived in the
+  same transaction and named in the decision's evidence. An integration id governs identity only
+  through the typed id it accompanies; left behind, it would keep matching updates for the
+  retired id and hand it back to the record without D6's checks. Reactivation (D6) moves both
+  rows back. The model's one source id stands for both rows.
+- **Counting.** Absences are counted when an exact collection activates, inside the activation
+  transaction, in `platform.source_identifier_absences`: one row per source object id that a
+  live record holds and the collection did not report, with the count, the query hash and the
+  proving collection ids. Presence in an exact collection deletes the row, and a collection
+  under a different query restarts the count at 1. "Last reported" is the later of the id's
+  source observation and its identifier row's last sighting, so a report on any ingest path
+  holds the id. The retirement pass reads these rows and checks the rule again under the
+  device's locks.
 - **Mass guard.** A pass that would retire more than `source_retirement_max_fraction` (default
   0.5) of the live records holding ids from that source instance is refused. The refusal is
   logged at error level with the counts and emitted as telemetry. An operator override applies
@@ -110,10 +124,11 @@ Rules:
 - **Enabled by default.** The fix is the default, so the failure cannot recur on an
   installation nobody configured. The guard and the dry-run remediation bound the first run.
 
-The classifier is `ArmisSourceIdentityRepair`, generalized into a source-neutral module that
-reads the source-authoritative type map from `SourceAuthorityGuard` (`@source_identifiers`).
-Its `current`, `stale` and `no_current_ids` buckets become retire inputs, with the N and T rules
-added. The existing dry-run output stays available.
+The classifier is `ArmisSourceIdentityRepair`, generalized into a source-neutral module
+(`Remediation.SourceIdentityRepair`) that reads the source-authoritative type map from
+`SourceAuthorityGuard` (`@source_identifiers`). Its `current`, `stale` and `no_current_ids`
+buckets become retire inputs, with the N and T rules added. The existing dry-run output stays
+available.
 
 A source-authoritative id leaves the live identifier table by retirement, merge or unmerge, and
 by nothing else. The identifier TTL garbage collection and the per-type cardinality cap proposed
@@ -265,7 +280,7 @@ Behavior while marked:
   (`include_retired`, and the SRQL equivalent) shows them. Device detail by uid still shows them,
   with the time they will be deleted.
 - **Still a candidate.** They remain succession and reactivation candidates.
-- **Grace delete.** After `source_retired_grace` (default 7 days), a `DeviceCleanupWorker` pass
+- **Grace delete.** After `source_retired_grace_days` (default 7), a `DeviceCleanupWorker` pass
   soft-deletes them through `Device :soft_delete` with `deleted_reason = "source_retired"` and
   `deleted_by = "system:source_retirement"`. The same transaction releases the address. The mass
   guard of D1 applies to the pass.

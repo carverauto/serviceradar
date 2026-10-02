@@ -306,9 +306,13 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            # Read before the reassignment moves them: these are the identifiers
            # an unmerge must give back, and nothing else records them.
            {:ok, source_identifiers} <- source_identifiers(from_device_id, actor),
-           audit_details = merge_audit_details(details, from_device, source_identifiers),
            :ok <- preserve_survivor_attributes(from_device_id, to_device_id),
            :ok <- Reassignments.reassign_device_identifiers(from_device_id, to_device_id, actor),
+           # Returns the rows it moved, which an unmerge moves back.
+           {:ok, archived_identifiers} <-
+             Reassignments.reassign_archived_identifiers(from_device_id, to_device_id),
+           audit_details =
+             merge_audit_details(details, from_device, source_identifiers, archived_identifiers),
            :ok <-
              Reassignments.reassign_source_observations(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_service_checks(from_device_id, to_device_id, actor),
@@ -503,12 +507,17 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   # anything a caller passed: it is the only record an unmerge may restore from
   # (see reassign_original_identifiers/4). A caller's own `identifiers` detail
   # is evidence for the merge decision and is left as the caller wrote it.
-  defp merge_audit_details(details, from_device, source_identifiers) do
+  #
+  # `source_archived_identifiers` is the merged-away device's archived
+  # identifiers, which the merge moved to the survivor; the unmerge moves back
+  # exactly these (restore_archived_identifiers/3).
+  defp merge_audit_details(details, from_device, source_identifiers, archived_identifiers) do
     details
     |> Map.new()
     |> Map.put_new(:from_device_ip, from_device.ip)
     |> Map.put_new(:from_device_hostname, from_device.hostname)
     |> Map.put(:source_identifiers, source_identifiers)
+    |> Map.put(:source_archived_identifiers, archived_identifiers)
   end
 
   defp source_identifiers(device_id, actor) do
@@ -611,6 +620,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            {:ok, _device} <- recreate_device(from_device_id, audit, actor),
            {:ok, restored} <-
              reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
+           {:ok, restored_archived} <-
+             restore_archived_identifiers(from_device_id, to_device_id, audit),
            {:ok, _} <-
              MergeAudit.record(
                %{
@@ -623,7 +634,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                    original_merge_reason: audit.reason,
                    unmerged_by: "admin",
                    restored_identifiers: Enum.sort_by(restored.restored, &{&1.type, &1.value}),
-                   restored_identifiers_source: restored.provenance
+                   restored_identifiers_source: restored.provenance,
+                   restored_archived_identifiers: restored_archived
                  }
                },
                actor: actor
@@ -775,6 +787,46 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
           {:halt, error}
       end
     end)
+  end
+
+  # Give back exactly the archived identifiers the merge moved to the survivor
+  # (`source_archived_identifiers`), of those still archived on it. The survivor's
+  # own archive stays, and so does an identifier that returned to the live table
+  # since. A merge recorded before archive rows moved with merges left them on the
+  # merged-away device, so it records none and none move.
+  defp restore_archived_identifiers(from_device_id, to_device_id, audit) do
+    case archived_ids_to_restore(audit) do
+      [] ->
+        {:ok, []}
+
+      ids ->
+        case Repo.query(
+               """
+               UPDATE platform.device_identifier_archive
+               SET device_id = $1
+               WHERE device_id = $2 AND id = ANY($3::bigint[])
+               RETURNING id, identifier_type, identifier_value, partition
+               """,
+               [from_device_id, to_device_id, ids]
+             ) do
+          {:ok, %{rows: rows}} -> {:ok, Reassignments.archived_identifiers(rows)}
+          {:error, _} = error -> error
+        end
+    end
+  end
+
+  defp archived_ids_to_restore(audit) do
+    case detail(audit.details || %{}, :source_archived_identifiers) do
+      recorded when is_list(recorded) ->
+        for %{} = entry <- recorded,
+            id = detail(entry, :id),
+            is_integer(id),
+            uniq: true,
+            do: id
+
+      _ ->
+        []
+    end
   end
 
   # Which identifiers an unmerge restores, and how that was decided.

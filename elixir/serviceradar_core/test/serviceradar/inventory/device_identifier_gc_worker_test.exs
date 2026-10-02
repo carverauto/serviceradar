@@ -84,6 +84,29 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorkerTest do
     refute identifier_exists?(orphan_agent_uid)
   end
 
+  test "never deletes source-authoritative identifiers by age", %{actor: actor} do
+    {:ok, device} = create_device(actor)
+    suffix = System.unique_integer([:positive, :monotonic])
+
+    armis_id = "gc-armis-#{suffix}"
+    netbox_id = "gc-netbox-#{suffix}"
+    old_mac = "gc-source-mac-#{suffix}"
+
+    {:ok, _} = upsert_identifier(actor, device.uid, :armis_device_id, armis_id)
+    {:ok, _} = upsert_identifier(actor, device.uid, :netbox_device_id, netbox_id)
+    {:ok, _} = upsert_identifier(actor, device.uid, :mac, old_mac)
+
+    age_identifiers([armis_id, netbox_id, old_mac], 400)
+
+    DeviceIdentifierGcWorker.run_gc(ttl_days: 90)
+
+    # Only retirement removes a source id, once the source proved it stopped reporting it;
+    # the MAC aged alongside them is collected.
+    assert identifier_exists?(armis_id)
+    assert identifier_exists?(netbox_id)
+    refute identifier_exists?(old_mac)
+  end
+
   test "emits a run summary with counts by type", %{actor: actor} do
     {:ok, device} = create_device(actor)
     suffix = System.unique_integer([:positive, :monotonic])

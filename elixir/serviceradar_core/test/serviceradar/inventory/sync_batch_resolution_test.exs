@@ -26,6 +26,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.IdentifierArchiveFixtures
 
   require Ash.Query
 
@@ -1547,6 +1548,112 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
       assert device_for_netbox_id(netbox, actor) == armis_device
       assert override_conflicts(armis_device, actor) == []
+    end
+  end
+
+  # A retired source id (moved to `device_identifier_archive`) keeps deciding its record's
+  # identity: a record whose only Armis id retired is not a record without one.
+  describe "a retired source id" do
+    test "a new Armis id for the MAC of a record whose id retired gets its own record", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      retired = "#{n}01"
+      current = "#{n}02"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(retired, doc_ip(n, 1), mac)],
+                 actor: actor
+               )
+
+      holder = device_for_armis_id(retired, actor)
+      assert is_binary(holder)
+      IdentifierArchiveFixtures.archive!(:armis_device_id, retired)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(current, doc_ip(n, 2), mac)],
+                 actor: actor
+               )
+
+      incoming = device_for_armis_id(current, actor)
+      assert is_binary(incoming)
+      assert incoming != holder
+      assert device_for_mac(mac_value(mac), actor) == holder
+      assert device_for_armis_id(retired, actor) == nil
+      assert_source_override_recorded(incoming, holder, actor)
+    end
+
+    test "a retired id blocks an automatic merge with a record holding another", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      retired = "#{n}01"
+      current = "#{n}02"
+
+      x = create_device(actor, doc_ip(n, 1), mac)
+      register_identifier(actor, x.uid, :mac, mac_value(mac))
+      register_identifier(actor, x.uid, :armis_device_id, retired)
+      IdentifierArchiveFixtures.archive!(:armis_device_id, retired)
+
+      y = create_device(actor, doc_ip(n, 2), mac)
+      register_identifier(actor, y.uid, :armis_device_id, current)
+
+      for {from, to} <- [{y, x}, {x, y}] do
+        assert {:error, {:merge_blocked, :source_authority_conflict}} =
+                 IdentityReconciler.merge_devices(from.uid, to.uid,
+                   actor: actor,
+                   reason: "identifier_backfill"
+                 )
+      end
+
+      for device <- [x, y] do
+        assert {:ok, %Device{deleted_at: nil}} =
+                 Device.get_by_uid(device.uid, true, actor: actor)
+      end
+
+      {:ok, decisions} = IdentityDecision.for_device(x.uid, actor: actor)
+
+      assert Enum.any?(decisions, fn decision ->
+               decision.decision_kind == :source_block and
+                 decision.evidence["retired_source_ids"][x.uid] == [retired]
+             end),
+             "no source_block decision names the retired id"
+    end
+
+    test "a retired source id anchors its record against seed adoption", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = doc_ip(n, 1)
+      retired = "#{n}01"
+      integration_id = "archived-anchor-#{n}"
+      holder_uid = "sr:" <> Ecto.UUID.generate()
+
+      # Without its archived id this holder is an IP-only seed, which a strong identity adopts
+      # ("anchorless holder with no identity_state is adopted, not deadlocked" above).
+      {:ok, _holder} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{uid: holder_uid, ip: ip, metadata: %{"source" => "manual"}},
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      register_identifier(actor, holder_uid, :armis_device_id, retired)
+      IdentifierArchiveFixtures.archive!(:armis_device_id, retired)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([integration_update(integration_id, ip, "claimer")],
+                 actor: actor
+               )
+
+      claimer_uid = device_for_integration_id(integration_id, actor)
+      assert is_binary(claimer_uid)
+      assert claimer_uid != holder_uid
+
+      {:ok, holder_row} = Device.get_by_uid(holder_uid, false, actor: actor)
+      assert holder_row.ip == ip
     end
   end
 

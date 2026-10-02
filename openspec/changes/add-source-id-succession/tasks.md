@@ -110,43 +110,46 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 ## 2. Schema and settings (D1, D5, D6, D7)
 
-- [ ] 2.1 Migration: add `source_retired_at` and `identity_observed_at` to `ocsf_devices`, with
+- [x] 2.1 Migration: add `source_retired_at` and `identity_observed_at` to `ocsf_devices`, with
       an index serving the default-read filter and the grace query; add an index on
       `device_identifier_archive (identifier_type, identifier_value, partition)`. The
       migration changes schema only and backfills nothing.
-- [ ] 2.2 Add to `DeviceCleanupSettings` (database-backed, never application env):
+- [x] 2.2 Add to `DeviceCleanupSettings` (database-backed, never application env):
       `source_retirement_enabled` (default true), `source_retirement_absent_collections`
-      (default 3), `source_retirement_min_absence` (default 24 hours),
+      (default 3), `source_retirement_min_absence_hours` (default 24),
       `source_retirement_max_fraction` (default 0.5), a one-pass
-      `source_retirement_guard_override`, `source_retired_grace` (default 7 days) and
+      `source_retirement_guard_override`, `source_retired_grace_days` (default 7) and
       `max_successions_per_run` (default 200). Seed the defaults in the settings seeder.
-- [ ] 2.3 Add the new fields to the Inventory Cleanup settings page in web-ng.
+- [x] 2.3 Add the new fields to the Inventory Cleanup settings page in web-ng.
 - [ ] 2.4 Bump `core.migrations.expectedVersion` in `helm/serviceradar/values.yaml` to the
-      newest migration this change adds, in the same pull request as each migration.
+      newest migration this change adds, in the same pull request as each migration. Done for
+      PR 2's migrations; 9.4's bumps it again.
 
 ## 3. Retirement (D1)
 
-- [ ] 3.1 Generalize `Remediation.ArmisSourceIdentityRepair` into a source-neutral classifier
-      that reads the type map from `SourceAuthorityGuard` and applies the N, T and query-hash
-      rules against exact, activated collections. Keep its dry-run output.
-- [ ] 3.2 Enqueue a retirement job when an exact collection activates
+- [x] 3.1 Generalize `Remediation.ArmisSourceIdentityRepair` into a source-neutral classifier
+      (`Remediation.SourceIdentityRepair`) that reads the type map from `SourceAuthorityGuard`
+      and applies the N, T and query-hash rules against exact, activated collections. Keep its
+      dry-run output.
+- [x] 3.2 Enqueue a retirement job when an exact collection activates
       (`ArmisSourceSnapshot.activate/3`); never retire during ingest; fail closed for a type
       with no exact collections or a scope that maps to more than one source instance.
-- [ ] 3.3 Retire in one transaction: move the identifier row to the archive with
-      `archive_reason = "source_absent"`, and record a `source_id_retired` identity decision with
-      the proving collection ids.
-- [ ] 3.4 Mass guard: refuse a pass over the fraction, log at error level with the counts, emit
+- [x] 3.3 Retire in one transaction: move the identifier row, and the `integration_id` derived
+      from it, to the archive with `archive_reason = "source_absent"`, and record a
+      `source_id_retired` identity decision with the proving collection ids.
+- [x] 3.4 Mass guard: refuse a pass over the fraction, log at error level with the counts, emit
       telemetry, and clear the override after the pass it admits.
-- [ ] 3.5 Coordinate with `refactor-device-identity-reconciliation`: its identifier TTL garbage
+- [x] 3.5 Coordinate with `refactor-device-identity-reconciliation`: its identifier TTL garbage
       collection and cardinality cap exempt source-authoritative types.
 
 ## 4. Veto split (D2)
 
-- [ ] 4.1 `SourceAuthorityGuard` consults the archive as well as `device_identifiers`: a record
+- [x] 4.1 `SourceAuthorityGuard` consults the archive as well as `device_identifiers`: a record
       that holds or held a different value of the type is never an ingest match.
 - [ ] 4.2 `MergeEngine`: every automatic reason keeps refusing a retired rival; only
-      `source_succession` passes when D3 holds; `manual*` and `unmerge` are unchanged.
-- [ ] 4.3 Add the new decision kinds `:source_id_retired`, `:source_id_reactivated`,
+      `source_succession` passes when D3 holds; `manual*` and `unmerge` are unchanged. PR 2
+      did all but the `source_succession` exception, which lands with PR 5.
+- [x] 4.3 Add the new decision kinds `:source_id_retired`, `:source_id_reactivated`,
       `:source_id_reissued` and `:succession_review` to `IdentityDecision`; the last two open a
       de-duplication task.
 
@@ -250,7 +253,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 12.1 In each fix pull request, remove its switch from `KnownBugs` and `CurrentBugs.tla`,
       delete its witness configuration and the knockout and trace witness configurations of the
       traces that demonstrate it, regenerate the affected traces with `DIRE_TRACE_WRITE=1`,
-      model-check them, and make the property must-pass.
+      model-check them, and make the property must-pass. Done in PR 2 for
+      `retired_source_id_vetoes`.
 - [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`.
 
@@ -270,10 +274,11 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 ## 14. Tests
 
-- [ ] 14.1 Retirement: one absence, N within T, sustained absence, presence reset, non-exact
+- [x] 14.1 Retirement: one absence, N within T, sustained absence, presence reset, non-exact
       collection, query change, no exact collections, mass refusal, TTL GC exemption.
 - [ ] 14.2 Veto split: a new id with a known MAC gets its own record; a retired id still blocks
-      the MAC-only backfill; corroborated succession passes the guard.
+      the MAC-only backfill; corroborated succession passes the guard. PR 2 tests the first
+      two; corroborated succession lands with PR 5.
 - [ ] 14.3 Succession: MAC and hostname, MAC and first-seen, MAC only, no MAC, cloned machines
       sharing a MAC and a hostname with overlapping lifetimes, a missing source time, not
       one-to-one, randomized MAC, before retirement, unmerge then rerun.
@@ -297,5 +302,6 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.11 Extend the `add-hermetic-armis-dire-e2e` harness with the re-key scenarios.
 - [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
+      Done for PR 2.
 - [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run.
+      check not run. Done for PR 2.

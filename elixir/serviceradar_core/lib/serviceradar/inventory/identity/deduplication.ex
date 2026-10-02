@@ -4,7 +4,8 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
 
   When DIRE cannot decide -- a merge blocked by `MergePolicy` or a `MergeEngine` guard, a
   source-authority conflict, an IP alias invalidated between two identified devices, an
-  active-IP conflict, a source-authoritative override, an ambiguous duplicate component -- it
+  active-IP conflict, a source-authoritative override, an ambiguous duplicate component, a
+  re-issued source identifier, a source succession too weakly evidenced to merge -- it
   records an identity decision (`ServiceRadar.Inventory.IdentityDecision`) and, through
   `open_for_decisions/1`, opens or updates the one `ServiceRadar.Inventory.DeduplicationTask`
   for that device set. An operator then merges the devices, marks them distinct, or dismisses
@@ -26,8 +27,9 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
   require Ash.Query
   require Logger
 
-  # Every decision kind that leaves two devices unreconciled. All of them today; listed so a
-  # future kind is a deliberate choice.
+  # Every decision kind that leaves two devices unreconciled; listed so a future kind is a
+  # deliberate choice. A retirement and a reactivation name one device and decide its
+  # identity, so they open nothing.
   @taskable_kinds [
     :policy_block,
     :guard_block,
@@ -35,7 +37,9 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
     :alias_invalidated,
     :ip_conflict,
     :source_override,
-    :component_block
+    :component_block,
+    :source_id_reissued,
+    :succession_review
   ]
 
   @merge_reason "manual_dedup_task"

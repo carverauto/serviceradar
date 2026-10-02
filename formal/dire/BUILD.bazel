@@ -350,14 +350,6 @@ tlc_test(
 # ---- Witnesses: each defect switch today's code has violates the property its fix restores ----
 
 tlc_test(
-    name = "resolution_witness_retired_source_id_vetoes_test",
-    cfg = "resolution_witness_retired_source_id_vetoes.cfg",
-    expect = "violation:OneSourceRecordPerDevice",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
     name = "resolution_witness_stale_holder_keeps_address_test",
     cfg = "resolution_witness_stale_holder_keeps_address.cfg",
     expect = "violation:ObservedAddressHeld",
@@ -809,18 +801,6 @@ tlc_test(
 tlc_test(
     name = "trace_src_rekey_succession__knockout_test",
     cfg = "traces/Trace_src_rekey_succession__knockout.cfg",
-    spec = "traces/Trace_src_rekey_succession.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireResolution.tla",
-        "DireResolutionTrace.tla",
-    ],
-)
-
-tlc_test(
-    name = "trace_src_rekey_succession__witness_test",
-    cfg = "traces/Trace_src_rekey_succession__witness.cfg",
-    expect = "violation:OneSourceRecordPerDevice",
     spec = "traces/Trace_src_rekey_succession.tla",
     deps = [
         "CurrentBugs.tla",

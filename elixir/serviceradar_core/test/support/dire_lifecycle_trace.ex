@@ -16,8 +16,10 @@ defmodule ServiceRadar.DireLifecycleTrace do
     * `marked`: the live devices marked `source_retired` (add-source-id-succession D5). No code
       writes the mark before D5 lands; until its `source_retired_at` column does, the
       recorder reads the mark's metadata mirror (`identity_state`);
-    * `arch`: the devices each world identifier retired from. The archive table arrives with
-      D1, so every entry is empty until then;
+    * `arch`: the devices each world identifier retired from. No lifecycle trace retires an id
+      yet, so every entry is written empty. One that does must read `device_identifier_archive`,
+      whose rows move to a merge survivor, while the model keeps the device the id retired from
+      and follows the merge;
     * `sweepOnly`: the devices with no discovery source but the sweep, by the test
       `SweepResultsIngestor.restore_eligible?/1` applies;
     * `act`: the step, with the devices whose `identity_revision` it moved (`bumped`).

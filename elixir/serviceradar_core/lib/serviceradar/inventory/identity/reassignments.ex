@@ -1,8 +1,8 @@
 defmodule ServiceRadar.Inventory.Identity.Reassignments do
   @moduledoc """
-  Bulk reassignment of device-linked records (identifiers, service
-  checks, alerts, agents, alias states, interfaces) to a canonical
-  device during merges.
+  Bulk reassignment of device-linked records (identifiers, archived
+  identifiers, service checks, alerts, agents, alias states, interfaces)
+  to a canonical device during merges.
   """
 
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
@@ -28,6 +29,52 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
       %{device_id: to_id},
       actor
     )
+  end
+
+  @typedoc "An archived identifier row an archive move touched."
+  @type archived_identifier :: %{
+          id: integer(),
+          type: String.t(),
+          value: String.t(),
+          partition: String.t()
+        }
+
+  @doc """
+  Repoint the merged-away device's archived identifiers to the canonical device, as
+  `reassign_device_identifiers/3` repoints its live ones, and return the rows moved.
+
+  A retired source-authoritative identifier keeps deciding for the record that now carries
+  the identity it was retired from (`SourceAuthorityGuard`); left on the tombstone, it would
+  stop vetoing the survivor. An unmerge moves exactly the returned rows back.
+  """
+  @spec reassign_archived_identifiers(String.t(), String.t()) ::
+          {:ok, [archived_identifier()]} | {:error, term()}
+  def reassign_archived_identifiers(from_id, to_id) do
+    case Repo.query(
+           """
+           UPDATE platform.device_identifier_archive
+           SET device_id = $2
+           WHERE device_id = $1
+           RETURNING id, identifier_type, identifier_value, partition
+           """,
+           [from_id, to_id]
+         ) do
+      {:ok, %{rows: rows}} -> {:ok, archived_identifiers(rows)}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc """
+  The archived identifier rows a `RETURNING id, identifier_type, identifier_value, partition`
+  archive update touched, in a stable order.
+  """
+  @spec archived_identifiers([list()]) :: [archived_identifier()]
+  def archived_identifiers(rows) do
+    rows
+    |> Enum.map(fn [id, type, value, partition] ->
+      %{id: id, type: type, value: value, partition: partition}
+    end)
+    |> Enum.sort_by(&{&1.type, &1.value, &1.partition, &1.id})
   end
 
   def reassign_service_checks(from_id, to_id, actor) do

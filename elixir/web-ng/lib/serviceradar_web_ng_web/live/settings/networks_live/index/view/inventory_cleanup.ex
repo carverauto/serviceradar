@@ -94,6 +94,49 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
             type="checkbox"
             label="Allow the next passes to exceed that share"
           />
+          <.input
+            field={@form[:source_retirement_enabled]}
+            type="checkbox"
+            label="Retire source ids their source stopped reporting"
+          />
+          <.input
+            field={@form[:source_retirement_absent_collections]}
+            type="number"
+            label="Retire after missing from consecutive exact collections"
+            min="2"
+            max="32"
+          />
+          <.input
+            field={@form[:source_retirement_min_absence_hours]}
+            type="number"
+            label="And unreported for at least (hours)"
+            min="1"
+          />
+          <.input
+            field={@form[:source_retirement_max_fraction]}
+            type="number"
+            label="Largest share of a source's live devices one pass may retire"
+            min="0.01"
+            max="1"
+            step="0.01"
+          />
+          <.input
+            field={@form[:source_retirement_guard_override]}
+            type="checkbox"
+            label="Allow the next retirement pass to exceed that share"
+          />
+          <.input
+            field={@form[:source_retired_grace_days]}
+            type="number"
+            label="Hide a device left with only retired ids for (days) before deleting it"
+            min="1"
+          />
+          <.input
+            field={@form[:max_successions_per_run]}
+            type="number"
+            label="Most source succession merges per reconciliation run"
+            min="0"
+          />
         </div>
         <div class="flex items-end">
           <div class="space-y-3">
@@ -108,6 +151,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
               hardware serial or a globally-unique MAC, and devices created by hand, never expire.
               Expiry is off until enabled, and a pass that would expire more than the allowed
               share of live devices is refused unless the override is on.
+            </p>
+            <p class="text-sm text-sr-muted">
+              A source id (an Armis device id) retires once the source has left it out of the
+              set number of consecutive exact collections and has not reported it for the set
+              hours. The retired id moves to the identifier archive, where it still keeps its
+              device from being matched to another id through a shared MAC. A retirement pass
+              that would affect more than the allowed share of the source's live devices is
+              refused; the override lets one pass through and then turns itself off.
             </p>
             <div class="flex gap-2">
               <.ui_button type="submit" variant="primary" size="sm">

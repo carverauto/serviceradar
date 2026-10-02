@@ -237,9 +237,25 @@ for dry-run review, execution gates, and device/source allowlists.
 - Per-(device, type) cardinality caps with supersede-by-`last_seen`
   (`Identity.CardinalityCaps`; defaults mac: 64, others: 8; config
   `:serviceradar, ServiceRadar.Inventory.Identity.CardinalityCaps`).
-  Retirements are logged with values and counted in telemetry.
+  Retirements are logged with values and counted in telemetry. Source-authoritative
+  identifiers (Armis and NetBox device ids) are never capped.
 - TTL garbage collection for unseen identifiers (default 90 days;
-  `DeviceIdentifierGcWorker`).
+  `DeviceIdentifierGcWorker`). Source-authoritative identifiers are never collected by age.
+- Source id retirement (`Identity.SourceRetirement`, run by `SourceRetirementWorker` after an
+  exact Armis collection activates; on by default, Settings -> Networks -> Inventory Cleanup):
+  an Armis device id absent from N consecutive exact collections under one collection query
+  (default 3) and unreported for T (default 24 hours) moves from `device_identifiers` to
+  `device_identifier_archive` (reason `source_absent`), together with the `integration_id`
+  derived from it, and a `source_id_retired` identity decision names the device, the id and the
+  collections that proved the absence. A collection that is not exact counts neither way, and
+  a change of collection query restarts the count. The record keeps the retired id as history:
+  `SourceAuthorityGuard` reads the archive, so the record is still no match for an update
+  carrying another Armis id of that source, and it never merges automatically with a record
+  that holds or held one. Archived ids move with a merge and back with an unmerge. A pass that
+  would retire ids from more than `source_retirement_max_fraction` (default 0.5) of the source
+  instance's live records is refused and logged at error level unless the one-pass override is
+  set. Telemetry: `[:serviceradar, :inventory, :source_retirement, :run]`, `:retired` and
+  `:refused`.
 - Ephemeral device expiry (`EphemeralDeviceExpiry`, run by `DeviceCleanupWorker`; off by
   default, Settings -> Networks -> Inventory Cleanup): a live device holding no strong
   identifier -- no agent, source-authoritative id, hardware serial or globally-unique MAC --
@@ -266,6 +282,9 @@ for dry-run review, execution gates, and device/source allowlists.
 | `[:serviceradar, :identity_reconciler, :alias, :invalidated]` | IP alias conflicted with agent identity |
 | `[:serviceradar, :identity_reconciler, :source_identity, :source_override]` | a source-authoritative identifier overrode identifier matches on records holding a different one (also persisted as a `source_authoritative_override` conflict) |
 | `[:serviceradar, :identity_reconciler, :agent_colocation, :refused]` | second agent refused onto an agent-bound device |
+| `[:serviceradar, :identity_reconciler, :hostname_agreement, :refused]` | a sync declined to adopt an address holder whose hostname agrees (also recorded as a `policy_block` decision) |
+| `[:serviceradar, :inventory, :source_retirement, :refused]` | the mass guard refused a source id retirement pass |
+| `[:serviceradar, :inventory, :source_retirement, :retired]` | source ids retired from one record |
 | `[:serviceradar, :identity_reconciler, :decision, :record_failed]` | an identity decision could not be written to `platform.identity_decisions` |
 | `[:serviceradar, :identity_reconciler, :deduplication_task, :open_failed]` | a de-duplication task could not be opened or updated for a recorded decision |
 
@@ -277,7 +296,8 @@ reviewed later instead of living only in telemetry. One row per distinct decisio
 kind (`policy_block`, `guard_block`, `source_block`, `alias_invalidated`, `ip_conflict`,
 `source_override`, `component_block`), the reason, the sorted device set, the address it concerns, the latest
 evidence, and how often and when it was made. A repeat updates the row rather than adding
-one. Administrative merges are not decisions and are not recorded.
+one. Administrative merges are not decisions and are not recorded. Retiring a source id is
+recorded the same way, as a `source_id_retired` decision whose subject is the id.
 
 Read them with SRQL `in:identity_decisions` (for one device, `device:<uid>`), or through the
 `trace_device_identity` MCP tool. Both are read-only.

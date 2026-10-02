@@ -14,6 +14,14 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   identifier in the same scope. The source-authoritative identifier decides,
   the shared identifier is evidence only, and the override is recorded
   (`source_mismatch?/3`, `record_overrides/1`).
+
+  A record's history of a type is the values it holds in `device_identifiers` together with
+  the values it held: the rows moved to `device_identifier_archive` when an identifier
+  retired (`ServiceRadar.Inventory.Identity.SourceRetirement`). A retired identifier keeps
+  deciding. A record that holds or held a value of the type is never an ingest match for an
+  update carrying a value it does not currently hold, and two records that each have a
+  history of one type in one scope never merge automatically, even when the values are equal
+  (change `add-source-id-succession`, design D2).
   """
 
   import Ecto.Query
@@ -28,6 +36,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   require Ash.Query
 
+  @db_prefix "platform"
+  @archive_table "device_identifier_archive"
+
   # Source-authoritative identifier types, with the key each is extracted under
   # (`Ids.extract_strong_identifiers/1`). Two different values of one type in one
   # scope are two different devices, whatever other evidence says. The scope is
@@ -38,10 +49,13 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   @source_identifier_types Keyword.keys(@source_identifiers)
 
   @typedoc """
-  Source-authoritative identifiers per device, as `{identifier_type, partition, value}`
-  triples.
+  The source-authoritative identifier history per device, as
+  `{identifier_type, partition, value, state}` tuples: `:live` for an identifier the device
+  holds, `:archived` for one it held that retired.
   """
-  @type held :: %{String.t() => MapSet.t({atom(), String.t(), String.t()})}
+  @type held :: %{
+          String.t() => MapSet.t({atom(), String.t(), String.t(), :live | :archived})
+        }
 
   @typedoc """
   A resolution that refused identifier matches on records holding a different
@@ -94,13 +108,14 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
         held
 
       pairs ->
-        claims = MapSet.new(pairs, fn {type, value} -> {type, partition, value} end)
+        claims = MapSet.new(pairs, fn {type, value} -> {type, partition, value, :live} end)
         Map.update(held, device_id, claims, &MapSet.union(&1, claims))
     end
   end
 
   @doc """
-  The source-authoritative identifiers each of `device_ids` holds.
+  The source-authoritative identifier history of each of `device_ids`: the identifiers it
+  holds and the retired identifiers it held.
   """
   @spec held_source_ids([String.t()], term()) :: held()
   def held_source_ids(device_ids, actor) do
@@ -111,43 +126,55 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
       device_ids ->
         query_opts = if actor, do: [actor: actor], else: []
 
-        DeviceIdentifier
-        |> Ash.Query.filter(
-          device_id in ^device_ids and identifier_type in ^@source_identifier_types
-        )
-        |> Ash.Query.select([:device_id, :identifier_type, :identifier_value, :partition])
-        |> Page.stream!(query_opts)
-        |> Enum.group_by(
-          & &1.device_id,
-          &{identifier_type(&1.identifier_type), &1.partition, &1.identifier_value}
-        )
-        |> Map.new(fn {device_id, pairs} -> {device_id, MapSet.new(pairs)} end)
+        live =
+          DeviceIdentifier
+          |> Ash.Query.filter(
+            device_id in ^device_ids and identifier_type in ^@source_identifier_types
+          )
+          |> Ash.Query.select([:device_id, :identifier_type, :identifier_value, :partition])
+          |> Page.stream!(query_opts)
+          |> Enum.map(&held_entry(&1, :live))
+
+        archived = device_ids |> archived_rows(false) |> Enum.map(&held_entry(&1, :archived))
+
+        (live ++ archived)
+        |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+        |> Map.new(fn {device_id, entries} -> {device_id, MapSet.new(entries)} end)
     end
+  end
+
+  defp held_entry(row, state) do
+    {row.device_id,
+     {identifier_type(row.identifier_type), row.partition, row.identifier_value, state}}
   end
 
   @doc """
   True when an update carrying `ids` must not resolve onto `device_id`: for some
-  source-authoritative identifier type the update carries, the device holds at least one
-  value of that type in the update's scope (its identifier partition), and none of them is
-  the update's.
+  source-authoritative identifier type the update carries, the device holds or held at least
+  one value of that type in the update's scope (its identifier partition), and it does not
+  currently hold the update's.
 
-  A device holding no source-authoritative identifier of that type is not a mismatch: a
-  discovered record of the same device, found through its MAC, or a record of the same device
-  from a different source, is what the source-authoritative identifier should attach to.
+  A retired value counts: a record whose only identifier of the type retired is not a match
+  for an update carrying a different one. Nor is it a match for an update carrying the
+  retired value itself, which this guard does not return to the record.
+
+  A device with no history of that type is not a mismatch: a discovered record of the same
+  device, found through its MAC, or a record of the same device from a different source, is
+  what the source-authoritative identifier should attach to.
   """
   @spec source_mismatch?(Ids.strong_identifiers(), String.t(), held()) :: boolean()
   def source_mismatch?(ids, device_id, held) do
     partition = Ids.ids_get_partition(ids)
 
     Enum.any?(update_source_ids(ids), fn {type, value} ->
-      scoped = held_values(held, device_id, type, partition)
-      scoped != [] and value not in scoped
+      history = scoped_history(held, device_id, type, partition)
+      history != [] and {value, :live} not in history
     end)
   end
 
   @doc """
-  The source-authoritative identifiers `device_id` holds in the update's scope, of the types
-  the update carries, sorted.
+  The source-authoritative identifiers `device_id` holds or held in the update's scope, of the
+  types the update carries, sorted.
   """
   @spec scoped_source_ids(held(), String.t(), Ids.strong_identifiers()) :: [String.t()]
   def scoped_source_ids(held, device_id, ids) do
@@ -155,19 +182,40 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
     ids
     |> update_source_ids()
-    |> Enum.flat_map(fn {type, _value} -> held_values(held, device_id, type, partition) end)
+    |> Enum.flat_map(fn {type, _value} ->
+      held |> scoped_history(device_id, type, partition) |> Enum.map(&elem(&1, 0))
+    end)
     |> Enum.uniq()
     |> Enum.sort()
   end
 
-  defp held_values(held, device_id, type, partition) do
+  defp scoped_history(held, device_id, type, partition) do
     held
     |> Map.get(device_id, MapSet.new())
     |> Enum.flat_map(fn
-      {^type, ^partition, value} -> [value]
+      {^type, ^partition, value, state} -> [{value, state}]
       _other -> []
     end)
   end
+
+  @doc """
+  The identifier type and partition suffix an exact collection of a source instance accounts
+  for, or `:error` for a source that has no exact collections.
+
+  An exact Armis collection (`ServiceRadar.Inventory.ArmisSourceSnapshot`) is the complete set
+  of Armis device ids one integration source reported in one sync run, and that source's ids
+  live in identifier partitions ending in `:armis:<source id>`
+  (`ServiceRadar.Inventory.Identity.Ids`). No other source-authoritative type has exact
+  collections, so none of its identifiers can be proven absent.
+  """
+  @spec collection_scope(String.t(), String.t()) ::
+          {:ok, %{identifier_type: atom(), partition_suffix: String.t()}} | :error
+  def collection_scope("armis", source_instance)
+      when is_binary(source_instance) and source_instance != "" do
+    {:ok, %{identifier_type: :armis_device_id, partition_suffix: ":armis:" <> source_instance}}
+  end
+
+  def collection_scope(_source, _source_instance), do: :error
 
   @doc """
   Record source-authoritative overrides: one telemetry event, one identity decision and one
@@ -238,39 +286,31 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     end
   end
 
+  # Two or more of `device_ids` with a history of one source-authoritative type in one scope
+  # conflict: their current values (`source_ids`) and their retired ones (`retired_source_ids`,
+  # rows marked `archived: true`) are different devices' identities, or the same identity held
+  # twice, and either way no automatic merge may decide between them.
   @doc false
   def conflict_from_rows(rows, device_ids) when is_list(rows) and is_list(device_ids) do
     rows
-    |> Enum.filter(&(&1.identifier_type in @source_identifier_types))
-    |> Enum.group_by(fn row ->
-      {identifier_type(row.identifier_type), row.partition, source_id(row)}
-    end)
+    |> Enum.map(&Map.put(&1, :identifier_type, identifier_type(&1.identifier_type)))
+    |> Enum.filter(
+      &(&1.identifier_type in @source_identifier_types and &1.device_id in device_ids and
+          &1.identifier_value not in [nil, ""])
+    )
+    |> Enum.group_by(&{&1.identifier_type, &1.partition, source_id(&1)})
     |> Enum.sort()
     |> Enum.find_value(fn {{type, partition, source_id}, scoped_rows} ->
-      sets =
-        Map.new(device_ids, fn device_id ->
-          ids =
-            scoped_rows
-            |> Enum.filter(&(&1.device_id == device_id))
-            |> Enum.map(& &1.identifier_value)
-            |> Enum.reject(&(&1 in [nil, ""]))
-            |> MapSet.new()
+      holders = scoped_rows |> Enum.map(& &1.device_id) |> Enum.uniq()
 
-          {device_id, ids}
-        end)
-
-      nonempty = Enum.reject(sets, fn {_device_id, ids} -> MapSet.size(ids) == 0 end)
-
-      if disjoint_nonempty_sets?(nonempty) do
+      if length(holders) >= 2 do
         %{
           identifier_type: type,
           partition: partition,
           source_id: blank_to_nil(source_id),
           device_ids: Enum.sort(device_ids),
-          source_ids:
-            Map.new(sets, fn {device_id, ids} ->
-              {device_id, ids |> MapSet.to_list() |> Enum.sort()}
-            end)
+          source_ids: scoped_values(scoped_rows, device_ids, false),
+          retired_source_ids: scoped_values(scoped_rows, device_ids, true)
         }
       end
     end)
@@ -278,15 +318,33 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   def conflict_from_rows(_rows, _device_ids), do: nil
 
+  defp scoped_values(rows, device_ids, archived?) do
+    Map.new(device_ids, fn device_id ->
+      values =
+        for row <- rows,
+            row.device_id == device_id,
+            Map.get(row, :archived, false) == archived?,
+            uniq: true,
+            do: row.identifier_value
+
+      {device_id, Enum.sort(values)}
+    end)
+  end
+
   @spec record_blocked(map(), String.t(), map()) :: :ok | {:error, term()}
   def record_blocked(details, reason, evidence \\ %{})
 
   def record_blocked(details, reason, evidence) when is_map(details) do
     now = DateTime.utc_now()
     [first_device | _] = details.device_ids
+    retired = Map.get(details, :retired_source_ids, %{})
 
     source_values =
-      details.source_ids |> Map.values() |> List.flatten() |> Enum.uniq() |> Enum.sort()
+      [details.source_ids, retired]
+      |> Enum.flat_map(&Map.values/1)
+      |> List.flatten()
+      |> Enum.uniq()
+      |> Enum.sort()
 
     DecisionLog.record(:source_block, "source_authority_conflict", details.device_ids,
       source: reason,
@@ -296,6 +354,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
         "source_id" => details.source_id,
         "partition" => details.partition,
         "source_ids" => details.source_ids,
+        "retired_source_ids" => retired,
         "evidence" => evidence
       }
     )
@@ -313,6 +372,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
         conflicting_identifiers: %{
           "device_ids" => details.device_ids,
           "source_ids" => details.source_ids,
+          "retired_source_ids" => retired,
           "partition" => details.partition
         },
         proposed_action: "block_automatic_merge",
@@ -326,6 +386,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   def record_blocked(_details, _reason, _evidence), do: :ok
 
+  # The live rows and the archived rows are read by separate statements: `FOR UPDATE` cannot
+  # lock the rows of a `UNION`.
   defp identifier_rows(device_ids, lock?) do
     query =
       from(identifier in DeviceIdentifier,
@@ -342,7 +404,32 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
       )
 
     query = if lock?, do: lock(query, "FOR UPDATE"), else: query
-    Repo.all(query)
+    Repo.all(query) ++ archived_rows(device_ids, lock?)
+  end
+
+  # The archive has no Ash resource; its rows keep the type as text.
+  defp archived_rows(device_ids, lock?) do
+    types = Enum.map(@source_identifier_types, &Atom.to_string/1)
+
+    query =
+      from(archived in @archive_table,
+        where: archived.device_id in ^device_ids and archived.identifier_type in ^types,
+        select: %{
+          device_id: archived.device_id,
+          identifier_type: archived.identifier_type,
+          identifier_value: archived.identifier_value,
+          partition: archived.partition,
+          metadata: archived.metadata
+        }
+      )
+
+    query = if lock?, do: lock(query, "FOR UPDATE"), else: query
+
+    query
+    |> Repo.all(prefix: @db_prefix)
+    |> Enum.map(
+      &Map.merge(&1, %{identifier_type: identifier_type(&1.identifier_type), archived: true})
+    )
   end
 
   defp maybe_lock_ownership(_device_ids, false), do: :ok
@@ -370,16 +457,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     else
       {:error, :source_authority_lock_requires_transaction}
     end
-  end
-
-  defp disjoint_nonempty_sets?(sets) when length(sets) < 2, do: false
-
-  defp disjoint_nonempty_sets?(sets) do
-    Enum.any?(sets, fn {left_device, left_ids} ->
-      Enum.any?(sets, fn {right_device, right_ids} ->
-        left_device < right_device and MapSet.disjoint?(left_ids, right_ids)
-      end)
-    end)
   end
 
   # Identifier types arrive as atoms from Ash and Ecto, and as strings from raw rows.
