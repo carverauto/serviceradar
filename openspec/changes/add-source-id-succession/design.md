@@ -172,8 +172,15 @@ They converge when all of the following hold:
    holding a current id of type `t`.
 2. **Corroboration.** The predecessor's last source observation and the successor's current
    one agree on either of these:
-   - the source first-seen time, compared at the source's precision;
-   - the normalized hostname: lower-cased, trailing dot removed, the full name compared.
+   - the source first-seen time, compared at the source's precision. Equal first-seen times
+     corroborate on their own;
+   - the normalized hostname (lower-cased, trailing dot removed, the full name compared), when
+     the successor's first-seen time is no earlier than the predecessor's last-seen time.
+
+   The time guard separates a re-key from a clone. A re-keyed device appears under its new id
+   only after the source last saw it under the old one. Cloned machines share a hostname while
+   both are in the source, so the successor was first seen while the predecessor was still
+   being seen. A missing time on either side fails the guard.
 
    A hostname held by more than one current record of the source does not corroborate.
 3. **One-to-one.** The predecessor has exactly one successor satisfying 1 and 2, and the
@@ -209,6 +216,18 @@ The merge itself:
 Hostname agreement only corroborates. It never merges on its own, so "Hostname Agreement Is Not
 Identity" stands.
 
+**Accepted residual.** Some clones look exactly like a re-key, and no rule over these fields can
+tell them apart. Two cases:
+
+- A clone that the source first sees after it last saw its twin: the twin left first, and the
+  clone shares its MAC and hostname.
+- A clone that the source reports under an id it re-issued.
+
+The model's `armis_clones` environment checks the guarded rule on two clones whose lifetimes
+overlap. The residual cases are listed under "What the models do not express" in
+`formal/dire/README.md`. An operator undoes such a merge with an administrative unmerge, which
+records a distinct assertion for the pair.
+
 ### D4. Weaker evidence goes to review
 
 These cases are not merged automatically. Each one records a `succession_review` identity
@@ -219,6 +238,7 @@ puts it in the existing review queue at `/devices/deduplication`:
 | --- | --- |
 | Equal hostname and first-seen time, no shared universal MAC | `corroborated_without_mac` |
 | Shared universal MAC, neither field agrees | `mac_only` |
+| Shared universal MAC and hostname, but the time guard fails: the successor was first seen before the predecessor was last seen, or a time is missing | `overlapping_hostname` |
 | The MAC links the predecessor to more than one current record | `shared_mac` |
 | More than one predecessor or successor (including multi-generation re-keys) | `not_one_to_one` |
 
@@ -287,7 +307,9 @@ consults it. When a source reports a retired id again:
     device's new id by succession still holds it after the source switches back to the old one,
     and reactivating the old id there would leave one record holding two ids of the type;
   - the update agrees with the archived observation on a universal MAC;
-  - the update agrees on the first-seen time or the hostname.
+  - the update agrees on the first-seen time or the hostname. A hostname corroborates under D3's
+    time guard: the update's first-seen time must be no earlier than the archived observation's
+    last-seen time.
 
   The reactivated record is the update's match, as if it had never lost the id. Resolution must
   not fall back to the uid the id derives: that uid names the record that first held the id,
@@ -391,8 +413,16 @@ These changes go in `formal/dire`. They are specified here as tasks and land bef
 - `Rekey(h, a)` gives a device a new id. It is gated by the constant `Rekeys`, so every
   existing environment keeps its state space. Under the constant `FreshIds`, a re-key uses an
   id never issued before.
-- A ghost `recFs` records, per record, the physical device whose source first-seen time it
-  carries. It stands for the first-seen and hostname corroboration.
+- A ghost `recFs` records, per record, the source first-seen times it carries, each naming the
+  physical device whose hostname and MACs come with it. Two devices never share a first-seen
+  time. A new constant, `HostOf`, gives each device its hostname, so cloned machines can share
+  one. Another, `NewFirstSeenIds`, names the ids under which the source reports a device with a
+  new first-seen time, so a re-key can change it; under any other id the source reports the
+  device's original one.
+- A ghost `seenWith` records, per record, the source ids already issued when the source last
+  saw its device. It stands for D3's time guard: a hostname corroborates only when none of the
+  successor's ids is among them. A re-key to an id, new or re-issued, removes that id from every
+  record's set, because the source first sees it after every record's last sighting.
 - `Collect` marks current ids present. Each absent id carries a coarse clock in
   `Fresh | Stale`. One `Stale` value stands for "N collections and T elapsed", so the clock
   does not blow up the state space.
@@ -447,6 +477,7 @@ trace configuration ever sets it. Each alternative has a negative configuration:
 | --- | --- | --- |
 | `mac_only_succession` (no corroboration) | `resolution_unsafe_mac_only_succession`, environment `armis_rekey_shared_mac` | `violation:NoFalseMerge` |
 | `retired_ids_forgotten` (archive not consulted, `FreshIds = FALSE`) | `resolution_unsafe_retired_ids_forgotten`, environment `armis_reissued_ids` | `violation:NoFalseMerge` |
+| `overlapping_hostname_corroborates` (a hostname corroborates without D3's time guard) | `resolution_unsafe_overlapping_hostname_corroborates`, environment `armis_clones` | `violation:NoFalseMerge` |
 
 **New environments and configurations.**
 
@@ -454,10 +485,17 @@ trace configuration ever sets it. Each alternative has a negative configuration:
   - `armis_rekey`: one device, observers Armis and Sweep, re-keys on.
   - `armis_rekey_shared_mac`: two devices sharing a MAC, re-keys on.
   - `armis_reissued_ids`: `FreshIds = FALSE`.
+  - `armis_clones`: two devices cloned from one image, sharing a MAC and a hostname; either may
+    leave the source.
+  - `armis_rekey_new_first_seen`: `armis_rekey`, except that the source reports the device with
+    a new first-seen time under its new id, so only the guarded hostname corroborates the pair.
 - Each environment gets a `resolution_goal_*` configuration that checks every existing goal
   property plus the new ones.
 - `resolution_vacuity_succession` expects `violation:NeverSucceeds`, proving that the goal does
   merge a re-keyed pair.
+- `resolution_vacuity_hostname_succession` expects `violation:NeverSucceeds` in
+  `armis_rekey_new_first_seen`, proving that the guarded hostname alone does merge a re-keyed
+  pair.
 
 **Lifecycle model (`DireLifecycle.tla`).**
 
@@ -540,6 +578,16 @@ counterexamples. Each was fixed in this document before any code:
 
 With the archive, two records can carry the same value of a type, so the source conflict test
 also changed from "different values" to "both records have a history of the type" (D2).
+
+**The revision the clone environment made.** A scratch run of two clones sharing a MAC and a
+hostname found a fourth counterexample to `NoFalseMerge`. One clone left the source and its id
+retired. The shared hostname then corroborated its record with the other clone's, and the
+reconciler merged two devices. D3 now guards the hostname with the first-seen and last-seen
+times. The unguarded rule is the rejected alternative `overlapping_hostname_corroborates`, and
+`armis_clones` checks the guarded rule as a goal environment. The guard must not cost a true
+re-key its merge: when a re-key changes the first-seen time, only the hostname corroborates the
+pair. `armis_rekey_new_first_seen` checks that such a device still converges, and
+`resolution_vacuity_hostname_succession` that the merge happens.
 
 **The revision the lifecycle model made.** Writing the lifecycle model exposed one gap in D5,
 confirmed by knocking the fix back out: a marked predecessor that survived a

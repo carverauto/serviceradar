@@ -5,10 +5,14 @@ The DIRE resolution model SHALL represent a device's source-authoritative identi
 The goal configurations SHALL also check that a device's current source identifier, once
 owned, is owned by its canonical record; that no merge joins two records holding distinct
 current source identifiers; that every succession merge had a shared universally administered
-MAC, an agreeing first-seen time or hostname, and a one-to-one pairing; and that no live record
-holds neither an identifier nor an address. Re-keys SHALL be gated by a constant, so that an
-environment that does not enable them keeps its existing state space. A goal configuration
-that proves succession is reachable SHALL accompany them.
+MAC, an agreeing first-seen time or a hostname that passes the time guard, and a one-to-one
+pairing; and that no live record holds neither an identifier nor an address. Re-keys SHALL be
+gated by a constant, so that an environment that does not enable them keeps its existing state
+space. Devices SHALL be able to share a hostname, and a re-key SHALL be able to give a device a
+new first-seen time; a goal configuration SHALL check each, one with cloned machines sharing a
+MAC and a hostname and one with a re-key to an identifier carrying a new first-seen time.
+Configurations that prove succession is reachable, once on any corroboration and once on the
+hostname alone, SHALL accompany them.
 
 #### Scenario: A re-keyed device converges in the goal configuration
 - **WHEN** a goal configuration whose environment re-keys one device observed by Armis and the sweep is model checked
@@ -22,11 +26,24 @@ that proves succession is reachable SHALL accompany them.
 - **WHEN** the vacuity configuration for succession is model checked
 - **THEN** TLC reports a violation of the property that no succession merge ever happens
 
+#### Scenario: Cloned machines stay separate in the goal configuration
+- **WHEN** a goal configuration whose environment has two devices sharing a MAC and a hostname, either of which may leave its source, is model checked
+- **THEN** every goal property holds, including that no two physical devices share a live record
+
+#### Scenario: A re-key with a new first-seen time converges
+- **WHEN** a goal configuration whose environment re-keys one device to an identifier carrying a new first-seen time is model checked
+- **THEN** every goal property holds, including one source record per device at rest
+
+#### Scenario: Succession on the hostname alone is reachable
+- **WHEN** the vacuity configuration for succession on the hostname alone is model checked
+- **THEN** TLC reports a violation of the property that no succession merge ever happens
+
 ### Requirement: Rejected Identity Alternatives Have Negative Configurations
 The DIRE resolution model SHALL represent each design alternative rejected for identity safety as a member of a constant set of unsafe alternatives, separate from the defect switches, and SHALL have one negative configuration per alternative that enables only it and expects TLC to report a violation of the property that no two physical devices share a live record.
-The alternatives SHALL include succession on a shared MAC without corroboration, and
-resolution that ignores retired identifiers when a source re-issues an old identifier. No goal
-configuration and no trace configuration SHALL enable an unsafe alternative.
+The alternatives SHALL include succession on a shared MAC without corroboration, resolution
+that ignores retired identifiers when a source re-issues an old identifier, and a hostname that
+corroborates without the time guard. No goal configuration and no trace configuration SHALL
+enable an unsafe alternative.
 
 #### Scenario: MAC-only succession is unsafe
 - **WHEN** the negative configuration enabling MAC-only succession, in an environment where two devices share a MAC, is model checked
@@ -34,6 +51,10 @@ configuration and no trace configuration SHALL enable an unsafe alternative.
 
 #### Scenario: Forgetting retired identifiers is unsafe
 - **WHEN** the negative configuration that ignores retired identifiers, in an environment where a source re-issues identifiers, is model checked
+- **THEN** TLC reports a violation of the no-false-merge property and the test passes
+
+#### Scenario: A hostname without the time guard is unsafe
+- **WHEN** the negative configuration that lets a hostname corroborate without the time guard, in an environment where two cloned machines share a MAC and a hostname, is model checked
 - **THEN** TLC reports a violation of the no-false-merge property and the test passes
 
 #### Scenario: A rejected alternative stops being unsafe

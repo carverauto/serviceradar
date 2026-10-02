@@ -231,9 +231,27 @@ tlc_test(
 )
 
 tlc_test(
+    name = "resolution_goal_armis_rekey_new_first_seen_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_rekey_new_first_seen.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
     name = "resolution_goal_armis_rekey_shared_mac_test",
     size = "medium",
     cfg = "resolution_goal_armis_rekey_shared_mac.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_clones_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_clones.cfg",
     spec = "MCDireResolution.tla",
     workers = 8,
     deps = ["DireResolution.tla"],
@@ -289,6 +307,14 @@ tlc_test(
     deps = ["DireResolution.tla"],
 )
 
+tlc_test(
+    name = "resolution_vacuity_hostname_succession_test",
+    cfg = "resolution_vacuity_hostname_succession.cfg",
+    expect = "violation:NeverSucceeds",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
 # ---- Rejected alternatives: each design alternative in Unsafe merges two devices ----
 
 tlc_test(
@@ -305,6 +331,16 @@ tlc_test(
     name = "resolution_unsafe_retired_ids_forgotten_test",
     size = "medium",
     cfg = "resolution_unsafe_retired_ids_forgotten.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_unsafe_overlapping_hostname_corroborates_test",
+    size = "medium",
+    cfg = "resolution_unsafe_overlapping_hostname_corroborates.cfg",
     expect = "violation:NoFalseMerge",
     spec = "MCDireResolution.tla",
     workers = 8,

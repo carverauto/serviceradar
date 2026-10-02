@@ -32,7 +32,9 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 - [x] 1.1 `DireResolution.tla`: make the source id a variable (`srcOf`, initialized from
       `SrcOf0`); add `Rekey(h, a)` gated by a `Rekeys` constant, and `FreshIds`; add the
-      `recFs` ghost for first-seen and hostname corroboration.
+      `recFs` ghost for first-seen and hostname corroboration, the `HostOf` constant so devices
+      can share a hostname, the `NewFirstSeenIds` constant so a re-key can change a device's
+      first-seen time, and the `seenWith` ghost for D3's time guard.
 - [x] 1.2 Add `Collect`, the `Fresh | Stale` absence clock and `RetireAbsent(a)`; make ingest
       consult the archive; add the reconciler's `Succeed` and `Review` with D3's succession and
       D4's review decisions; add `addrFresh`, a per-record flag that a sighting which is not
@@ -41,15 +43,17 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [x] 1.3 Add the properties `OneSourceRecordPerDevice` (at rest), `CurrentSourceIdResolves`,
       `SuccessionIsCorroborated`, `NoMergeOfCurrentSourceIds` and `NoAddresslessShell`, and the
       `NeverSucceeds` helper for the vacuity check.
-- [x] 1.4 Add the environments `armis_rekey`, `armis_rekey_shared_mac` and `armis_reissued_ids`
-      to `MCDireResolution.tla`, a `resolution_goal_*` configuration for each, and
-      `resolution_vacuity_succession` (expects `violation:NeverSucceeds`). Every existing goal
-      configuration still passes unchanged. `armis_reissued_ids` is split, with
+- [x] 1.4 Add the environments `armis_rekey`, `armis_rekey_shared_mac`, `armis_reissued_ids`,
+      `armis_clones` and `armis_rekey_new_first_seen` to `MCDireResolution.tla`, a
+      `resolution_goal_*` configuration for each, and `resolution_vacuity_succession` and
+      `resolution_vacuity_hostname_succession` (each expects `violation:NeverSucceeds`). Every
+      existing goal configuration still passes unchanged. `armis_reissued_ids` is split, with
       `armis_reissued_ids_one_device`, to stay inside the runtime budget.
 - [x] 1.5 Add the `Unsafe` constant with `ASSUME Unsafe \subseteq UnsafeAlternatives`, and the
       negative configurations `resolution_unsafe_mac_only_succession` (environment
-      `armis_rekey_shared_mac`) and `resolution_unsafe_retired_ids_forgotten` (environment
-      `armis_reissued_ids`), each expecting `violation:NoFalseMerge`. No goal or trace
+      `armis_rekey_shared_mac`), `resolution_unsafe_retired_ids_forgotten` (environment
+      `armis_reissued_ids`) and `resolution_unsafe_overlapping_hostname_corroborates`
+      (environment `armis_clones`), each expecting `violation:NoFalseMerge`. No goal or trace
       configuration sets `Unsafe`.
 - [x] 1.6 Confirm each of today's defects against the Elixir code, then add the switches
       `retired_source_id_vetoes`, `stale_holder_keeps_address` and `released_seed_stays_live` to
@@ -142,15 +146,16 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 - [ ] 5.1 In `DuplicateSweep`, after the blocked components are known, find predecessor and
       successor pairs and apply D3's conditions: a shared universal, non-zero, non-broadcast
-      MAC linking the predecessor to no other current record; agreement on first-seen time or a
-      hostname no other current record of the source holds; one-to-one; no distinct assertion
-      or cooldown.
+      MAC linking the predecessor to no other current record; agreement on first-seen time, or
+      on a hostname no other current record of the source holds when the successor's first-seen
+      time is no earlier than the predecessor's last-seen time (a missing time fails the
+      guard); one-to-one; no distinct assertion or cooldown.
 - [ ] 5.2 Merge with reason `source_succession`: earliest-created record survives (ties by uid)
       and takes the current id; source-owned metadata from the successor; facts per key by
       newest provenance; the successor's address; `merge_audit` details carrying the evidence
       and proving collections. Cap at `max_successions_per_run`.
 - [ ] 5.3 Record `succession_review` decisions with reasons `corroborated_without_mac`,
-      `mac_only`, `shared_mac` and `not_one_to_one`.
+      `mac_only`, `overlapping_hostname`, `shared_mac` and `not_one_to_one`.
 - [ ] 5.4 An administrative unmerge of a succession records a distinct assertion for the pair.
 
 ## 6. Retired mark, hidden reads and grace delete (D5)
@@ -261,12 +266,14 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       collection, query change, no exact collections, mass refusal, TTL GC exemption.
 - [ ] 14.2 Veto split: a new id with a known MAC gets its own record; a retired id still blocks
       the MAC-only backfill; corroborated succession passes the guard.
-- [ ] 14.3 Succession: MAC and hostname, MAC and first-seen, MAC only, no MAC, cloned machines,
-      not one-to-one, randomized MAC, before retirement, unmerge then rerun.
+- [ ] 14.3 Succession: MAC and hostname, MAC and first-seen, MAC only, no MAC, cloned machines
+      sharing a MAC and a hostname with overlapping lifetimes, a missing source time, not
+      one-to-one, randomized MAC, before retirement, unmerge then rerun.
 - [ ] 14.4 Mark and grace: immediate mark, agent-held record not marked, grace delete, review
       hold, a sweep that keeps answering, no revival through any of the three writers, and a
       revival audit row for every restore.
-- [ ] 14.5 Reactivation and reissue, including a holder that now holds a current id.
+- [ ] 14.5 Reactivation and reissue, including a holder that now holds a current id and an
+      update whose hostname fails D3's time guard.
 - [ ] 14.6 Address claims: a retired holder yields; a sweep refresh does not make a holder
       newer; a released seed is tombstoned; a seed with an identifier row stays live.
 - [ ] 14.7 Sweep restore: an expired sweep-only device returns with an audit row; an

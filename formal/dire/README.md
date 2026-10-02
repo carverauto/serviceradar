@@ -40,9 +40,14 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
     seed adoption, and returns to its record only by reactivation.
   - `Succeed` is the reconciler's succession merge. A predecessor holding only retired ids
     merges with the successor holding the current one only when a MAC links them, their
-    first-seen time or hostname agrees (the ghost `recFs`), and the pairing is one-to-one in
-    both directions. `Review` records every weaker pairing as a `succession_review` decision
-    and merges nothing.
+    observations corroborate, and the pairing is one-to-one in both directions. The ghost
+    `recFs` says whose first-seen time a record carries, and an equal one corroborates on its
+    own. A hostname (`HostOf`) corroborates only under D3's time guard: the source first saw the
+    successor after it last saw the predecessor. The ghost `seenWith` stands for that order,
+    holding the ids already issued at a record's last sighting. Under an id in
+    `NewFirstSeenIds` the source reports a device with a new first-seen time, so only the
+    hostname corroborates a re-key to it. `Review` records every weaker pairing as a
+    `succession_review` decision and merges nothing.
   - `addrFresh` records that a sighting carrying no identity (a sweep, a census, an address-only
     poll) touched a record last. Only `stale_holder_keeps_address` reads it.
 - `DireLifecycle.tla` models the merge lifecycle: merge, unmerge, soft delete, ephemeral
@@ -84,7 +89,7 @@ configuration sets it.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, expires, grace-deletes, reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, expires, grace-deletes, reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
 | `resolution_unsafe_<alternative>` | none; one `Unsafe` alternative | `violation:NoFalseMerge` | The rejected alternative still merges two physical devices. If TLC finds no violation, or a different one, the target fails. |
 
 The lifecycle goal is split so that each check stays inside its budget. `lifecycle_goal` (three
@@ -196,6 +201,8 @@ Each environment stands for a real situation:
 | `armis_rekey_shared_mac` | Two Armis devices reporting the same MAC, each of which Armis may re-key: a linking MAC alone must not make them one device. |
 | `armis_reissued_ids` | Two Armis devices with their own MACs. Armis may re-issue an id DIRE has retired, to either device (`FreshIds = FALSE`). |
 | `armis_reissued_ids_one_device` | One Armis device that Armis may re-key and later report again under an id DIRE retired from it. |
+| `armis_clones` | Two devices cloned from one image, reporting the same MAC and the same hostname. Armis may stop reporting either, and the hostname must not make them one device. Both are in Armis from the start, so their lifetimes overlap. |
+| `armis_rekey_new_first_seen` | `armis_rekey`, except that Armis reports the device with a new first-seen time under its new id. Only the hostname corroborates the re-keyed pair, so the time guard must let a true re-key converge. |
 
 The `Spare` constant holds record names that no identifier or address names. A re-issued id
 whose own uid already names an old record creates a record under one of them.
@@ -211,6 +218,7 @@ alternative merges two physical devices.
 |---|---|---|---|
 | `mac_only_succession` | `resolution_unsafe_mac_only_succession` | `armis_rekey_shared_mac` | Succession on a linking MAC alone, without corroboration: once one of two devices sharing a MAC leaves Armis, its record merges into the other's. |
 | `retired_ids_forgotten` | `resolution_unsafe_retired_ids_forgotten` | `armis_reissued_ids` | Retirement without the archive: when Armis re-issues a retired id to another device, nothing remembers the record that held it, and the write lands on that record, which its uid still names. |
+| `overlapping_hostname_corroborates` | `resolution_unsafe_overlapping_hostname_corroborates` | `armis_clones` | A hostname corroborates without D3's time guard: once one of two clones leaves Armis and its id retires, its record merges into the other's, because they share a MAC and a hostname. |
 
 An alternative is never fixed, so its configuration stays when switches come and go.
 
@@ -341,12 +349,26 @@ still describes the code. The switches today's code has are listed once, in `Cur
 - Agent-id rotation, a second source and telemetry. `SrcIds` belong to one source, and agents
   never re-key. Telemetry rows are not state, so neither is re-keying them to a merge survivor.
   Agent-id rotation and moving telemetry are non-goals of the source id change.
-- Collisions in the succession evidence. Corroboration is exact: the ghost `recFs` says whose
-  first-seen time and hostname a record carries, so two devices never agree. A device's MACs
-  never change either, and the archived observation of a retired id carries the MACs of the
-  devices its record describes (`SrcMacs`). Real devices can share a universal MAC and a
-  hostname, clones of one image for example. Once one of them leaves the source, such a pair
-  meets every condition of D3, and the model cannot produce it.
+- Imprecise succession evidence. Two devices never share a first-seen time, a device's MACs
+  never change, and the archived observation of a retired id carries the MACs of the devices
+  its record describes (`SrcMacs`). Hostnames may be shared (`HostOf`). The time guard is
+  exact: `seenWith` orders a record's last sighting against the issue of an id, where the code
+  compares timestamps at the source's precision and fails the guard on a missing one.
+- The clones D3 accepts as residual. A clone that the source first sees after it last saw its
+  twin, or that it reports under a re-issued id, presents the evidence of a re-key, and the
+  guarded rule merges it. `armis_clones` puts both clones in the source from the start and only
+  lets them leave, so their lifetimes always overlap; an environment with either residual case
+  would fail `NoFalseMerge`. An operator undoes such a merge with an administrative unmerge.
+- D3's rule that a hostname held by more than one current record of the source does not
+  corroborate. It takes three records sharing a hostname, two of them current, and no
+  environment has them. The rule only withholds a merge, so its absence hides no false merge;
+  that the code still converges where it applies is left to the tests.
+- One device reported under two ids at once. `srcOf` gives a device one id at a time. In the
+  code both records stay current while both ids are reported; once the older id retires, its
+  last sighting is later than the newer id's first, so the hostname fails the time guard and
+  the pair goes to review unless their first-seen times agree.
+- A new first-seen time under a re-issued id. The `armis_reissued_ids` environments keep
+  `NewFirstSeenIds` empty, so each stays inside its budget.
 - Creation order. A succession merge keeps the record created first; the model has no creation
   order and lets either record survive, which checks both.
 - A sweep re-creating a purged record. `SweepCreate` seeds only a row that never existed. A

@@ -40,6 +40,10 @@ CONSTANTS
     FreshIds,      \* whether a re-key always uses an id the source never issued before
     AgentOf,       \* [Phys -> AgentIds \cup {NoId}]: the agent running on the device, if any
     ArmisMacs,     \* whether Armis reports the device's MACs with its id
+    HostOf,        \* [Phys -> hostnames]: the hostname Armis reports for the device; cloned
+                   \* machines share one
+    NewFirstSeenIds, \* source ids Armis reports with a new first-seen time; under any other id it
+                     \* reports the device's original one
     AgentIds,      \* agent ids (agent_id identifiers)
     SrcIds,        \* source-authoritative identifiers (one source)
     HwIds,         \* globally-unique MACs
@@ -56,8 +60,10 @@ ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
 
-UnsafeAlternatives == {"mac_only_succession", "retired_ids_forgotten"}
+UnsafeAlternatives == {"mac_only_succession", "retired_ids_forgotten",
+                       "overlapping_hostname_corroborates"}
 ASSUME Unsafe \subseteq UnsafeAlternatives
+ASSUME NewFirstSeenIds \subseteq SrcIds
 
 MacIds == HwIds \cup LaaIds
 Ids    == AgentIds \cup SrcIds \cup MacIds
@@ -84,12 +90,15 @@ VARIABLES
     srcOf,    \* the source id the source currently reports for each device
     absence,  \* per source id: Unissued, Present in the last collection, or absent (Fresh, Stale)
     archive,  \* device_identifier_archive: source id -> the records it was retired from
-    recFs,    \* ghost: the devices whose source first-seen time and hostname a record carries
-    addrFresh \* last_seen_time is newer than identity_observed_at: a sighting that is not
-              \* identity-bearing (a sweep, a census, an address-only poll) touched it last
+    recFs,    \* ghost: the source first-seen times a record carries (FsOf), each naming the
+              \* device whose hostname and MACs come with it
+    addrFresh, \* last_seen_time is newer than identity_observed_at: a sighting that is not
+               \* identity-bearing (a sweep, a census, an address-only poll) touched it last
+    seenWith  \* ghost: the source ids first seen no later than the source last saw the record's
+              \* device, that is, already issued at its last source sighting
 
 vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act, srcOf, absence, archive,
-          recFs, addrFresh>>
+          recFs, addrFresh, seenWith>>
 
 \* The coarse absence clock: Fresh is absent from fewer than N exact collections or for less than
 \* T; Stale is absent from N consecutive exact collections and for at least T.
@@ -115,8 +124,9 @@ TypeOK ==
     /\ srcOf \in [Phys -> SrcIds \cup {NoId}]
     /\ absence \in [SrcIds -> Absences]
     /\ archive \in [SrcIds -> SUBSET Recs]
-    /\ recFs \in [Recs -> SUBSET Phys]
+    /\ recFs \in [Recs -> SUBSET (Phys \X (SrcIds \cup {NoId}))]
     /\ addrFresh \in [Recs -> BOOLEAN]
+    /\ seenWith \in [Recs -> SUBSET SrcIds]
 
 Live(r) == created[r] /\ into[r] = NoRec
 
@@ -152,6 +162,8 @@ SrcConflict(M) == SrcConflictIn(owner, archive, into, M)
 
 \* The ids the source reported in its last collection, and reports now.
 CurrentIds == {srcOf[h] : h \in Phys} \ {NoId}
+\* The ids the source has issued: first seen by now.
+Issued == {a \in SrcIds : absence[a] # "Unissued"}
 
 \* AliasGuard.distinct_agent_identity_conflict?/3; MergeEngine refuses every automatic merge of
 \* such a pair (merge_guard_violation/4).
@@ -171,8 +183,24 @@ PolicyAllows(matched) == matched \cap (AgentIds \cup SrcIds \cup HwIds) # {}
 \* The globally-unique MACs a record reports (D3): its identifier rows, its own interface table,
 \* and the source's observations of the devices it describes, which carry their MACs when the
 \* source reports MACs. The archived observation of a retired id is the record's.
-SrcMacs(r) == IF ArmisMacs THEN UNION {MacsOf(k) : k \in recFs[r]} ELSE {}
+SrcMacs(r) == IF ArmisMacs THEN UNION {MacsOf(v[1]) : v \in recFs[r]} ELSE {}
 MacEv(r) == (MacsHeld(r) \cup ifClaims[r] \cup SrcMacs(r)) \cap HwIds
+
+\* The first-seen time the source reports for device h under id a: the device's original one, or a
+\* new one for an id in NewFirstSeenIds. Two devices never share one.
+FsOf(h, a) == <<h, IF a \in NewFirstSeenIds THEN a ELSE NoId>>
+HostsOf(fs) == {HostOf[v[1]] : v \in fs}
+
+\* D3 corroboration of record r by the source's observations with first-seen times fs, under ids.
+\* The first-seen times agree; the ghost makes that exact (README, "What the models do not
+\* express"). Or the hostnames agree, and none of ids was first seen before the source last saw
+\* r's device: cloned machines share a hostname while both are in the source, but a re-keyed
+\* device appears under its new id only after its old one was last seen.
+\*   Unsafe overlapping_hostname_corroborates: a shared hostname corroborates on its own.
+CorroboratedBy(r, fs, ids) ==
+    \/ recFs[r] \cap fs # {}
+    \/ /\ HostsOf(recFs[r]) \cap HostsOf(fs) # {}
+       /\ "overlapping_hostname_corroborates" \in Unsafe \/ ids \cap seenWith[r] = {}
 
 ---------------------------------------------------------------------------
 Init ==
@@ -191,6 +219,7 @@ Init ==
     /\ archive = [a \in SrcIds |-> {}]
     /\ recFs = [r \in Recs |-> {}]
     /\ addrFresh = [r \in Recs |-> FALSE]
+    /\ seenWith = [r \in Recs |-> {}]
 
 \* DHCP: an interface leases a free address or releases its lease.
 Lease(x, p) ==
@@ -200,7 +229,7 @@ Lease(x, p) ==
     /\ act' = [name |-> "Lease", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
     /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive,
-                   recFs, addrFresh>>
+                   recFs, addrFresh, seenWith>>
 
 \* The phys ghost after a step: merged records' devices join the record they were merged into
 \* (m1 into t1, m2 into t2), and an identity-bearing observation joins the record it landed on --
@@ -236,13 +265,14 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* record it was retired from, or that record's merge survivor, when exactly one such
         \* record holds no current (unretired) id of the source, the update agrees with its archived
         \* observation on a globally-unique MAC, and their first-seen times or hostnames agree
-        \* (recFs). That is a reactivation; the archive row moves back. Otherwise the id is
+        \* (CorroboratedBy). That is a reactivation; the archive row moves back. Otherwise the id is
         \* re-issued: the update never joins the old record, and a record already named by the
         \* id's uid, live or merged away, makes it a new record. (A record holding an archived id
         \* is never deleted here; the grace delete and its restore are in DireLifecycle.)
         retiredS == {a \in srcS : owner[a] = NoRec /\ archive[a] # {}}
         heldBy  == UNION {{Canon(q) : q \in archive[a]} : a \in retiredS}
-        revivable == {c \in heldBy : SrcHeld(c) = {} /\ S \cap MacEv(c) # {} /\ h \in recFs[c]}
+        revivable == {c \in heldBy : /\ SrcHeld(c) = {} /\ S \cap MacEv(c) # {}
+                                     /\ CorroboratedBy(c, {FsOf(h, a) : a \in srcS}, retiredS)}
         reactivated == IF Cardinality(revivable) = 1 THEN revivable ELSE {}
         reissued == retiredS # {} /\ reactivated = {}
         \* A matched record holding, or having held, a different source-authoritative identifier
@@ -388,9 +418,16 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     \* a merge keeps both records' values.
     /\ recFs' = [r \in Recs |->
                    recFs[r]
-                   \cup (IF kind = "Armis" /\ r = target THEN {h} ELSE {})
+                   \cup (IF kind = "Armis" /\ r = target THEN {FsOf(h, a) : a \in srcS} ELSE {})
                    \cup (IF r = target0 THEN UNION {recFs[m] : m \in step1Merged} ELSE {})
                    \cup (IF r = target THEN UNION {recFs[m] : m \in step2Merged} ELSE {})]
+    \* The sync is the source's latest sighting of the record's device, and every id the source has
+    \* issued was first seen no later. A merged record was last seen at the later of the two.
+    /\ seenWith' = [r \in Recs |->
+                      seenWith[r]
+                      \cup (IF kind = "Armis" /\ r = target THEN Issued ELSE {})
+                      \cup (IF r = target0 THEN UNION {seenWith[m] : m \in step1Merged} ELSE {})
+                      \cup (IF r = target THEN UNION {seenWith[m] : m \in step2Merged} ELSE {})]
     \* The write advances the record's last_seen_time, and its identity_observed_at only when it
     \* is the device's own identity-bearing report (D7): never a census or an address-only poll.
     /\ addrFresh' = [r \in Recs |-> IF r = target THEN kind = "Arp" \/ S = {} ELSE addrFresh[r]]
@@ -462,7 +499,8 @@ SweepObserve(h, x) ==
           /\ addrFresh' = [addrFresh EXCEPT ![p] = TRUE]
     /\ act' = [name |-> "Sweep", ids |-> {}, ip |-> p, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, into, owner, alias, phys, ifClaims, srcOf, absence, archive, recFs>>
+    /\ UNCHANGED <<ipAt, into, owner, alias, phys, ifClaims, srcOf, absence, archive, recFs,
+                   seenWith>>
 
 \* The source re-identifies device h: it reports h under id a from now on (a source-side merge or
 \* re-identification), joins the source (from NoId) or leaves it (to NoId). No other device is
@@ -477,6 +515,8 @@ Rekey(h, a) ==
                       \/ ~FreshIds /\ absence[a] = "Stale" /\ owner[a] = NoRec
     /\ srcOf' = [srcOf EXCEPT ![h] = a]
     /\ absence' = IF a = NoId THEN absence ELSE [absence EXCEPT ![a] = "Present"]
+    \* An id issued now is first seen after every record's last sighting, a re-issued one too.
+    /\ seenWith' = IF a = NoId THEN seenWith ELSE [r \in Recs |-> seenWith[r] \ {a}]
     /\ act' = [name |-> "Rekey", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
     /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, archive, recFs,
@@ -497,7 +537,7 @@ Collect ==
     /\ act' = [name |-> "Collect", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
     /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, archive, recFs,
-                   addrFresh>>
+                   addrFresh, seenWith>>
 
 \* The retirement job an activation enqueues (D1): a stale id leaves device_identifiers for the
 \* archive, remembering the record that held it, and the decision is recorded.
@@ -515,7 +555,7 @@ RetireAbsent(a) ==
        act' = [name |-> "Retire", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
                addressMerged |-> {}]
     /\ UNCHANGED <<ipAt, created, into, recIp, alias, phys, ifClaims, srcOf, absence, recFs,
-                   addrFresh>>
+                   addrFresh, seenWith>>
 
 \* The reconciler (DuplicateSweep). A predecessor holds only retired source ids; a successor
 \* holds a current one (D3).
@@ -524,9 +564,8 @@ Succ(r) == Live(r) /\ SrcHeld(r) # {}
 \* MACs both records report that link the predecessor to no other current record.
 LinkMacs(pr, sc) ==
     {m \in MacEv(pr) \cap MacEv(sc) : \A r \in Recs \ {sc} : Succ(r) => m \notin MacEv(r)}
-\* The source observations agree on the first-seen time or the hostname. The ghost makes the
-\* agreement exact: two devices never agree (README, "What the models do not express").
-Corroborated(pr, sc) == recFs[pr] \cap recFs[sc] # {}
+\* The predecessor's last source observation and the successor's current one corroborate.
+Corroborated(pr, sc) == CorroboratedBy(pr, recFs[sc], SrcHeld(sc))
 \* A pair the evidence names: a linking MAC and, when corr, corroboration.
 Paired(pr, sc, corr) ==
     Pred(pr) /\ Succ(sc) /\ LinkMacs(pr, sc) # {} /\ (corr => Corroborated(pr, sc))
@@ -555,6 +594,7 @@ Succeed(pr, sc) ==
          /\ phys' = [phys EXCEPT ![s] = @ \cup phys[m]]
          /\ ifClaims' = [ifClaims EXCEPT ![s] = @ \cup ifClaims[m]]
          /\ recFs' = [recFs EXCEPT ![s] = @ \cup recFs[m]]
+         /\ seenWith' = [seenWith EXCEPT ![s] = @ \cup seenWith[m]]
     /\ act' = [name |-> "Succession", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
     /\ UNCHANGED <<ipAt, created, srcOf, absence, archive, addrFresh>>
@@ -570,7 +610,7 @@ Review(pr, sc) ==
        act' = [name |-> "Review", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
                addressMerged |-> {}]
     /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence,
-                   archive, recFs, addrFresh>>
+                   archive, recFs, addrFresh, seenWith>>
 
 Next ==
     \/ \E x \in Ifaces, p \in Ips \cup {NoIp} : Lease(x, p)

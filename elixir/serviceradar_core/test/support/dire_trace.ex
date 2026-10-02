@@ -76,6 +76,10 @@ defmodule ServiceRadar.DireTrace do
         observers: ["Armis", "Discovery", "Arp", "Sweep"]
       }
 
+  Optional keys: `host_of`, the hostname model value Armis reports for each device (by default
+  the device's own name; cloned machines share one), and the model's `rekeys`, `fresh_ids`,
+  `spare`, `agent_ids` and `agent_of`.
+
   The defect switches the trace is checked with are not part of the world: every trace reads
   `ResolutionBugs` from `formal/dire/CurrentBugs.tla`.
 
@@ -180,7 +184,7 @@ defmodule ServiceRadar.DireTrace do
       maybe_put_macs(
         %{
           "ip" => ip,
-          "hostname" => "trace-#{h}",
+          "hostname" => "trace-#{host_of(trace.world, h)}",
           "source" => "armis",
           "last_seen_time" => seen_at,
           "metadata" => metadata
@@ -925,6 +929,8 @@ defmodule ServiceRadar.DireTrace do
       FreshIds = #{tla_bool(Map.get(w, :fresh_ids, true))}
       Spare = #{set(Map.get(w, :spare, []))}
       ArmisMacs = #{tla_bool(w.armis_macs)}
+      HostOf <- TraceHostOf
+      NewFirstSeenIds = {}
       AgentIds = #{set(Map.get(w, :agent_ids, []))}
       AgentOf <- TraceAgentOf
       SrcIds = #{set(w.src_ids)}
@@ -951,6 +957,7 @@ defmodule ServiceRadar.DireTrace do
     TraceIfPhys == #{fun(ifaces, fn x -> str(w.ifaces[x].phys) end)}
     TraceIfMac == #{fun(ifaces, fn x -> if(w.ifaces[x].mac, do: str(w.ifaces[x].mac), else: "NoId") end)}
     TraceSrcOf == #{fun(w.phys, fn h -> if(a = w.src_of[h], do: str(a), else: "NoId") end)}
+    TraceHostOf == #{fun(w.phys, &str(host_of(w, &1)))}
     TraceAgentOf == #{fun(w.phys, fn h -> if(g = Map.get(w, :agent_of, %{})[h], do: str(g), else: "NoId") end)}\
     """
   end
@@ -975,6 +982,9 @@ defmodule ServiceRadar.DireTrace do
     do:
       "{" <>
         Enum.map_join(ds, ", ", &"[kind |-> #{str(&1.kind)}, recs |-> #{set(&1.recs)}]") <> "}"
+
+  # The hostname Armis reports for device `h`: its own name unless the world says otherwise.
+  defp host_of(world, h), do: Map.get(Map.get(world, :host_of, %{}), h, h)
 
   # Model "none" markers are model values, not strings.
   defp atom_or_str(v) when v in ["NoIp", "NoRec", "NoId"], do: v

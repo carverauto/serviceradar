@@ -188,7 +188,7 @@ cardinality cap.
 - **THEN** Armis device id 1001 SHALL remain in the live identifier table unless it was retired
 
 ### Requirement: Corroborated Source Identifier Succession
-The scheduled reconciliation SHALL converge a record whose source-authoritative identifiers of a type are all retired (the predecessor) with the record holding a current identifier of that type in the same scope (the successor) when, and only when, all of the following hold: both report a universally administered, unicast MAC that is not all-zero or broadcast and that links the predecessor to no other record holding a current identifier of that type; their source observations agree on the source first-seen time or on the normalized hostname; the pairing is one-to-one in both directions; and no distinct assertion or merge cooldown forbids the pair.
+The scheduled reconciliation SHALL converge a record whose source-authoritative identifiers of a type are all retired (the predecessor) with the record holding a current identifier of that type in the same scope (the successor) when, and only when, all of the following hold: both report a universally administered, unicast MAC that is not all-zero or broadcast and that links the predecessor to no other record holding a current identifier of that type; their source observations agree on the source first-seen time, or on the normalized hostname when the source first saw the successor no earlier than it last saw the predecessor; the pairing is one-to-one in both directions; and no distinct assertion or merge cooldown forbids the pair.
 The record created first SHALL survive and SHALL take the current identifier. Source-owned
 metadata SHALL come from the successor, facts carrying provenance SHALL merge per key by newest
 provenance, and the survivor SHALL take the successor's address. The merge SHALL use reason
@@ -197,16 +197,19 @@ audit row carrying the shared MAC, the corroborating field, the retired and curr
 identifiers and the collections that proved the retirement. An administrative unmerge of a
 succession SHALL restore both records and SHALL record a distinct assertion for the pair.
 Succession SHALL NOT run at ingest. A shared MAC alone SHALL NOT converge two records. Hostname
-agreement only corroborates, and a hostname held by more than one current record of the source
-SHALL NOT corroborate. Where the evidence is weaker, the system SHALL record a
-`succession_review` identity decision, which opens a de-duplication task, instead of merging:
-an equal hostname and first-seen time without a shared MAC, a shared MAC without agreement on
-either field, a MAC shared with another current record, or a pairing that is not one-to-one.
+agreement only corroborates, a hostname held by more than one current record of the source
+SHALL NOT corroborate, and a hostname SHALL NOT corroborate when either time is missing. Where
+the evidence is weaker, the system SHALL record a `succession_review` identity decision, which
+opens a de-duplication task, instead of merging: an equal hostname and first-seen time without a
+shared MAC, a shared MAC without agreement on either field, a shared MAC and hostname whose
+source times fail the guard, a MAC shared with another current record, or a pairing that is not
+one-to-one.
 
 #### Scenario: MAC and hostname converge a re-identified asset
 - **GIVEN** device X, created first, holds only the retired Armis device id 1001
 - **AND** device Y holds the current Armis device id 2002
 - **AND** both report MAC `00:00:5e:00:53:01` and hostname `host01.example.com`, and no other record shares either
+- **AND** Armis first saw id 2002 after it last saw id 1001
 - **WHEN** the scheduled reconciliation runs
 - **THEN** device Y SHALL be merged into device X with reason `source_succession`
 - **AND** device X SHALL hold Armis device id 2002
@@ -231,6 +234,22 @@ either field, a MAC shared with another current record, or a pairing that is not
 - **WHEN** the scheduled reconciliation runs
 - **THEN** devices X and Y SHALL NOT be merged
 - **AND** a `succession_review` identity decision with reason `corroborated_without_mac` SHALL open a de-duplication task naming both
+
+#### Scenario: Cloned machines sharing a MAC and a hostname do not converge
+- **GIVEN** devices X and Y run copies of one image, and Armis reports both with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`, X under id 1001 and Y under id 2002
+- **AND** Armis stops reporting id 1001, which retires
+- **AND** their first-seen times differ, and Armis first saw id 2002 before it last saw id 1001
+- **WHEN** the scheduled reconciliation runs
+- **THEN** devices X and Y SHALL NOT be merged
+- **AND** a `succession_review` identity decision with reason `overlapping_hostname` SHALL open a de-duplication task naming both
+
+#### Scenario: A hostname without source times does not corroborate
+- **GIVEN** device X holds only a retired Armis device id and device Y holds a current one
+- **AND** they share MAC `00:00:5e:00:53:01` and hostname `host01.example.com`, and their first-seen times differ
+- **AND** the archived observation of device X carries no last-seen time
+- **WHEN** the scheduled reconciliation runs
+- **THEN** devices X and Y SHALL NOT be merged
+- **AND** a `succession_review` identity decision with reason `overlapping_hostname` SHALL open a de-duplication task naming both
 
 #### Scenario: A MAC shared by cloned machines does not converge
 - **GIVEN** device X holds only a retired Armis device id
@@ -267,7 +286,7 @@ either field, a MAC shared with another current record, or a pairing that is not
 - **AND** no later scheduled run SHALL merge them again
 
 ### Requirement: Retired Source Identifiers Are Reserved
-The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when exactly one such record qualifies, that record holds no unretired identifier of that type, whether or not the source still reports it, and the update agrees with the archived observation on a universally administered MAC and on the source first-seen time or the hostname; otherwise it SHALL write the update as a new record and record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
+The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when exactly one such record qualifies, that record holds no unretired identifier of that type, whether or not the source still reports it, and the update agrees with the archived observation on a universally administered MAC and on the source first-seen time, or on the hostname when the update's first-seen time is no earlier than the archived observation's last-seen time; otherwise it SHALL write the update as a new record and record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
 Returning an identifier SHALL resolve the update to that record, SHALL move its archive row back to the live identifier table, SHALL
 clear a `source_retired` mark, SHALL restore a `source_retired` tombstone through the audited
 restore path, and SHALL record a `source_id_reactivated` identity decision. Returning an
@@ -276,7 +295,7 @@ identifier SHALL NOT merge two live records.
 #### Scenario: A retired id returns to its holder
 - **GIVEN** device X held Armis device id 1001, retired, with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`
 - **AND** device X holds no current Armis device id
-- **WHEN** Armis reports id 1001 again with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`
+- **WHEN** Armis reports id 1001 again with MAC `00:00:5e:00:53:01`, hostname `host01.example.com` and the first-seen time it reported before
 - **THEN** device X SHALL hold Armis device id 1001 in the live identifier table
 - **AND** a `source_id_reactivated` identity decision SHALL be recorded
 
