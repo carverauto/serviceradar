@@ -574,6 +574,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
+    patch("/devices/metadata/batch", DeviceController, :batch_update_metadata)
     patch("/devices/:uid/metadata", DeviceController, :update_metadata)
     delete("/devices/:uid/metadata/facts/:key", DeviceController, :delete_metadata)
     post("/camera-relay-sessions", CameraRelaySessionController, :create)
