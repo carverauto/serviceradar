@@ -22,9 +22,10 @@ SharedMac   == [x \in {"x1", "x2"} |-> "m1"]
 OneIfPhys   == [x \in {"x1"} |-> "h1"]
 OneHwMac    == [x \in {"x1"} |-> "m1"]
 ArmisA1     == [h \in {"h1"} |-> "a1"]
-\* act is a history variable Next never reads, and recFs is a ghost Next never reads; leaving
-\* them out of the fingerprint is sound
-StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive>>
+\* act is a history variable Next never reads, recFs is a ghost Next never reads, and Next reads
+\* addrFresh only under stale_holder_keeps_address; leaving them out of the fingerprint is sound
+StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive,
+               IF Bug("stale_holder_keeps_address") THEN addrFresh ELSE <<>>>>
 \* vacuity: nothing is ever merged
 NeverMerged == \A r \in Recs : into[r] = NoRec
 \* vacuity: no identity decision is ever made

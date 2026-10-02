@@ -51,7 +51,7 @@ CONSTANTS
     Bugs,
     Unsafe         \* design alternatives rejected for identity safety (negative configurations)
 
-KnownBugs == {"retired_source_id_vetoes"}
+KnownBugs == {"retired_source_id_vetoes", "stale_holder_keeps_address", "released_seed_stays_live"}
 ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
@@ -84,10 +84,12 @@ VARIABLES
     srcOf,    \* the source id the source currently reports for each device
     absence,  \* per source id: Unissued, Present in the last collection, or absent (Fresh, Stale)
     archive,  \* device_identifier_archive: source id -> the records it was retired from
-    recFs     \* ghost: the devices whose source first-seen time and hostname a record carries
+    recFs,    \* ghost: the devices whose source first-seen time and hostname a record carries
+    addrFresh \* last_seen_time is newer than identity_observed_at: a sighting that is not
+              \* identity-bearing (a sweep, a census, an address-only poll) touched it last
 
 vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act, srcOf, absence, archive,
-          recFs>>
+          recFs, addrFresh>>
 
 \* The coarse absence clock: Fresh is absent from fewer than N exact collections or for less than
 \* T; Stale is absent from N consecutive exact collections and for at least T.
@@ -113,6 +115,7 @@ TypeOK ==
     /\ absence \in [SrcIds -> Absences]
     /\ archive \in [SrcIds -> SUBSET Recs]
     /\ recFs \in [Recs -> SUBSET Phys]
+    /\ addrFresh \in [Recs -> BOOLEAN]
 
 Live(r) == created[r] /\ into[r] = NoRec
 
@@ -178,6 +181,7 @@ Init ==
     /\ absence = [a \in SrcIds |-> IF \E h \in Phys : SrcOf0[h] = a THEN "Present" ELSE "Unissued"]
     /\ archive = [a \in SrcIds |-> {}]
     /\ recFs = [r \in Recs |-> {}]
+    /\ addrFresh = [r \in Recs |-> FALSE]
 
 \* DHCP: an interface leases a free address or releases its lease.
 Lease(x, p) ==
@@ -187,7 +191,7 @@ Lease(x, p) ==
     /\ act' = [name |-> "Lease", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
     /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive,
-                   recFs>>
+                   recFs, addrFresh>>
 
 \* The phys ghost after a step: merged records' devices join the record they were merged into
 \* (m1 into t1, m2 into t2), and an identity-bearing observation joins the record it landed on --
@@ -229,7 +233,8 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         M       == {r \in allM : ~srcMismatch(r)}
         matched == {i \in S : owner[i] # NoRec /\ Canon(owner[i]) \in M}
     IN
-    \E X \in (IF M # {} THEN M ELSE {NoRec}) :
+    \E X \in (IF M # {} THEN M ELSE {NoRec}),
+       stale \in (IF Bug("stale_holder_keeps_address") /\ kind = "Armis" THEN BOOLEAN ELSE {FALSE}) :
     LET \* --- Step 1: strong-identifier conflict (merge_conflicting_devices/4) ---
         others     == M \ {X}
         conflictOk == others # {} /\ ~SrcConflict(M) /\ PolicyAllows(matched)
@@ -255,12 +260,32 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* claims no address at all.
         keepAddr  == created[target] /\ recIp[target] \in keepIps
         \* An identity-bearing write at an address another live record holds: the address follows
-        \* the device observed at it, so the holder releases it (its address is cleared, it stays
-        \* live) and the decision is recorded (DeviceWrites.claim_address_from_holder/4; #4639).
-        \* The code releases only for an observation newer than the holder's last_seen_time; the
-        \* model has no clock, so every observation here is the newer one.
-        holders   == IF keepAddr THEN {} ELSE holderAt \ {target}
-        ipConflict == strong # {} /\ holders # {}
+        \* the device observed at it, so the holder releases it (its address is cleared) and the
+        \* decision is recorded (DeviceWrites.claim_address_from_holder/4; #4639). The rule
+        \* releases only for an observation newer than the holder's. The model has no clock: the
+        \* incoming observation is the newest identity-bearing one, and D7 compares it with the
+        \* holder's identity_observed_at, which only identity-bearing observations advance.
+        \*   Bug stale_holder_keeps_address: an Armis sync compares Armis's own last-seen time
+        \*       for the device with the holder's last_seen_time, which a sweep or a census
+        \*       refreshes (observed_after?/2), so a holder one of them touched last may keep
+        \*       the address. The write then claims no address and the holder keeps it. An agent
+        \*       check-in or a mapper poll compares the current time, and always wins.
+        rivals    == IF keepAddr THEN {} ELSE holderAt \ {target}
+        staleHeld == IF stale THEN {r \in rivals : addrFresh[r]} ELSE {}
+        holders   == rivals \ staleHeld
+        ipConflict == strong # {} /\ rivals # {}
+        \* D8: an anchorless provisional seed (no identifier, current or retired) that releases its
+        \* only address to an identified device is soft-deleted in the same transaction, reason
+        \* seed_released; the model writes that as the record no longer existing, so a later
+        \* sweep of the address with no holder brings it back as a new seed. In every environment
+        \* with a strong writer an anchorless record is a sweep seed: an address-only Arp or
+        \* Discovery record needs a device with no globally-unique MAC (the phones environment,
+        \* which has no strong writer).
+        \*   Bug released_seed_stays_live: the seed releases the address and stays live, an
+        \*       addressless shell with nothing that ever removes it but ephemeral expiry.
+        released  == IF strong # {} /\ ~Bug("released_seed_stays_live")
+                     THEN {r \in holders : IdsHeld(r) = {} /\ ArchivedOf(r) = {}}
+                     ELSE {}
         owner1 == [i \in Ids |->
                      IF owner[i] \in step1Merged THEN target0
                      ELSE IF i \in S /\ owner[i] = NoRec THEN target
@@ -295,7 +320,7 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
             \cup (IF allM \ M # {}
                   THEN {[kind |-> "source_override", recs |-> (allM \ M) \cup {target0}]}
                   ELSE {})
-            \cup (IF ipConflict THEN {[kind |-> "ip_conflict", recs |-> {target} \cup holders]} ELSE {})
+            \cup (IF ipConflict THEN {[kind |-> "ip_conflict", recs |-> {target} \cup rivals]} ELSE {})
         \* Every decision leaves a persisted identity decision (DecisionLog.record/4, #4613).
         recorded == decisions
         into2   == [r \in Recs |-> IF r \in step1Merged THEN target0
@@ -303,11 +328,11 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
                                ELSE into[r]]
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->
-                      IF r = target THEN (IF keepAddr THEN recIp[r] ELSE p)
+                      IF r = target THEN (IF keepAddr \/ staleHeld # {} THEN recIp[r] ELSE p)
                       ELSE IF r \in holders THEN NoIp
                       ELSE recIp[r]]
     IN
-    /\ created' = [r \in Recs |-> created[r] \/ r = target]
+    /\ created' = [r \in Recs |-> (created[r] \/ r = target) /\ r \notin released]
     /\ into' = into2
     /\ owner' = owner2
     /\ recIp' = recIp2
@@ -332,6 +357,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
                    \cup (IF kind = "Armis" /\ r = target THEN {h} ELSE {})
                    \cup (IF r = target0 THEN UNION {recFs[m] : m \in step1Merged} ELSE {})
                    \cup (IF r = target THEN UNION {recFs[m] : m \in step2Merged} ELSE {})]
+    \* The write advances the record's last_seen_time, and its identity_observed_at only when it
+    \* is the device's own identity-bearing report (D7): never a census or an address-only poll.
+    /\ addrFresh' = [r \in Recs |-> IF r = target THEN kind = "Arp" \/ S = {} ELSE addrFresh[r]]
     /\ UNCHANGED <<ipAt, srcOf, absence, archive>>
 
 \* Armis sync: the Armis device id, plus the device's MACs when Armis reports them. Its update
@@ -373,12 +401,31 @@ MapperObserve(h, x) ==
        THEN \E ra \in BOOLEAN : Resolve(h, x, ids, ra, "guard", "Discovery", ids, OwnIps(h))
        ELSE Resolve(h, x, {}, FALSE, "none", "Discovery", {}, {})
 
-\* Sweep: an address answered. SweepResultsIngestor attaches it to the live holder or alias
-\* holder of the address, and otherwise creates a provisional record seeded from the address
-\* (create_available_unknown_devices/5).
+\* Sweep: an address answered (SweepResultsIngestor.process_batch/4). The lookup prefers a
+\* confirmed alias holder of the address, then the record holding it
+\* (DeviceLookup.batch_lookup_by_ip/2), and the sighting refreshes that record's last_seen_time
+\* and availability and nothing else: a sweep never writes or moves an address and never merges.
+\* An address nothing holds gets a provisional record seeded from it
+\* (create_available_unknown_devices/5); its uid derives from the address, so a record already
+\* named by the address that holds it no longer -- merged away, or a shell that released it --
+\* makes the create a duplicate, which is skipped.
 SweepObserve(h, x) ==
-    /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ Resolve(h, x, {}, FALSE, "none", "Sweep", {}, {})
+    LET p        == ipAt[x]
+        aliasAt  == {r \in alias[p] : Live(r)}
+        holderAt == {r \in Recs : Live(r) /\ recIp[r] = p}
+        seen     == IF aliasAt # {} THEN aliasAt ELSE holderAt
+    IN
+    /\ IfPhys[x] = h /\ p # NoIp
+    /\ \/ \E r \in seen :
+            /\ addrFresh' = [addrFresh EXCEPT ![r] = TRUE]
+            /\ UNCHANGED <<created, recIp>>
+       \/ /\ seen = {} /\ ~created[p]
+          /\ created' = [created EXCEPT ![p] = TRUE]
+          /\ recIp' = [recIp EXCEPT ![p] = p]
+          /\ addrFresh' = [addrFresh EXCEPT ![p] = TRUE]
+    /\ act' = [name |-> "Sweep", ids |-> {}, ip |-> p, decisions |-> {}, recorded |-> {},
+               addressMerged |-> {}]
+    /\ UNCHANGED <<ipAt, into, owner, alias, phys, ifClaims, srcOf, absence, archive, recFs>>
 
 \* The source re-identifies device h: it reports h under id a from now on (a source-side merge or
 \* re-identification), joins the source (from NoId) or leaves it (to NoId). No other device is
@@ -395,7 +442,8 @@ Rekey(h, a) ==
     /\ absence' = IF a = NoId THEN absence ELSE [absence EXCEPT ![a] = "Present"]
     /\ act' = [name |-> "Rekey", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, archive, recFs>>
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, archive, recFs,
+                   addrFresh>>
 
 \* An exact collection of the source activates (ArmisSourceSnapshot.activate/3). Every id it
 \* reports is Present. An id it does not report ages: absent once it is Fresh, and it turns Stale
@@ -411,7 +459,8 @@ Collect ==
                               [] OTHER -> absence[a]]
     /\ act' = [name |-> "Collect", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, archive, recFs>>
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, archive, recFs,
+                   addrFresh>>
 
 \* The retirement job an activation enqueues (D1): a stale id leaves device_identifiers for the
 \* archive, remembering the record that held it, and the decision is recorded.
@@ -428,7 +477,8 @@ RetireAbsent(a) ==
     /\ LET d == {[kind |-> "source_id_retired", recs |-> {owner[a]}]} IN
        act' = [name |-> "Retire", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, recIp, alias, phys, ifClaims, srcOf, absence, recFs>>
+    /\ UNCHANGED <<ipAt, created, into, recIp, alias, phys, ifClaims, srcOf, absence, recFs,
+                   addrFresh>>
 
 Next ==
     \/ \E x \in Ifaces, p \in Ips \cup {NoIp} : Lease(x, p)
@@ -488,5 +538,44 @@ RandomizedMacsNeverIdentify == \A m \in LaaIds : ~created[m]
 
 \* Identity Decisions Are Never Silent.
 NoSilentDecision == [][act'.decisions \subseteq act'.recorded]_vars
+
+---------------------------------------------------------------------------
+(* Properties -- source identifier change (add-source-id-succession) *)
+
+\* Source ids a record still holds that the source no longer reports.
+AbsentHeld == {a \in SrcIds : owner[a] # NoRec /\ a \notin CurrentIds}
+\* A retirement the next job would still make.
+PendingRetirement == ~Bug("retired_source_id_vetoes") /\ AbsentHeld # {}
+\* At rest: every id the source stopped reporting has been absent long enough to retire, and
+\* neither the retirement job nor the reconciler would change anything.
+AtRest ==
+    /\ \A a \in AbsentHeld : absence[a] = "Stale"
+    /\ ~PendingRetirement
+
+\* Source Identifiers Retire When Their Source Stops Reporting Them: at rest, at most one live
+\* record holding a source id describes each physical device.
+OneSourceRecordPerDevice ==
+    AtRest => \A h \in Phys :
+                Cardinality({r \in Recs : Live(r) /\ h \in phys[r] /\ SrcHeld(r) # {}}) <= 1
+
+\* A device's current source id, once owned, is owned by the record describing the device.
+CurrentSourceIdResolves ==
+    \A h \in Phys : srcOf[h] # NoId /\ owner[srcOf[h]] # NoRec =>
+                     h \in phys[Canon(owner[srcOf[h]])]
+
+\* Source-Authoritative Identifiers Govern Identity, over current ids: no merge joins two records
+\* holding distinct current source ids.
+NoMergeOfCurrentSourceIds ==
+    [][\A r \in Recs :
+         into[r] = NoRec /\ into'[r] # NoRec =>
+           LET cr == SrcHeld(r) \cap CurrentIds
+               ct == SrcHeld(CanonIn(into', r, Cardinality(Recs))) \cap CurrentIds
+           IN cr = {} \/ ct = {} \/ cr \cap ct # {}]_vars
+
+\* No live record holds neither an identifier nor an address. A record holding only retired ids is
+\* marked source_retired by its retirement and deleted after the grace period (D5, modeled in
+\* DireLifecycle), so it is not a shell here.
+NoAddresslessShell ==
+    \A r \in Recs : Live(r) /\ ArchivedOf(r) = {} => IdsHeld(r) # {} \/ recIp[r] # NoIp
 
 =============================================================================

@@ -13,7 +13,8 @@
 (* knockout is deleted.                                                     *)
 (***************************************************************************)
 
-ResolutionBugs == {}
+ResolutionBugs == {"retired_source_id_vetoes", "stale_holder_keeps_address",
+                   "released_seed_stays_live"}
 
 LifecycleBugs == {
 }
