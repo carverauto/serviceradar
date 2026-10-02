@@ -168,6 +168,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:active_camera_relay_session, nil)
     |> assign(:last_camera_relay_session, nil)
     |> assign(:active_tab, "details")
+    |> assign(:device_events, [])
+    |> assign(:events_loading, false)
+    |> assign(:events_error, nil)
+    |> assign(:events_request_ref, nil)
+    |> assign(:device_alerts, [])
+    |> assign(:alerts_loading, false)
+    |> assign(:alerts_error, nil)
+    |> assign(:alerts_request_ref, nil)
     |> EndpointInventoryRuntime.assign_defaults()
   end
 

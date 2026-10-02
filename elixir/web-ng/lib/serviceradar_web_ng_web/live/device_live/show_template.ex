@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
+  alias ServiceRadarWebNGWeb.ObservabilityPaths
 
   def render(assigns) do
     device_row = List.first(Enum.filter(assigns.results, &is_map/1))
@@ -465,6 +466,166 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               limit={@logs_limit}
               timezone={@current_scope.user.timezone || "Etc/UTC"}
             />
+          </div>
+
+          <!-- Events Tab Content -->
+          <div :if={@active_tab == "events"}>
+            <div class="rounded-xl border border-sr-line bg-sr-surface">
+              <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-bolt" class="size-4 text-sr-brand" />
+                  <span class="text-sm font-semibold">Device Events</span>
+                </div>
+                <.link
+                  navigate={
+                    ObservabilityPaths.path("events", q: "in:events device_uid:#{@device_uid}")
+                  }
+                  class="text-xs text-sr-brand hover:underline"
+                >
+                  View all in Observability →
+                </.link>
+              </div>
+              <div class="p-4">
+                <%= if @events_loading do %>
+                  <div class="flex items-center gap-2 text-sm text-sr-muted">
+                    <.ui_spinner size="sm" /> Loading events...
+                  </div>
+                <% else %>
+                  <div :if={is_binary(@events_error)} class="mb-3 text-xs text-error">
+                    {@events_error}
+                  </div>
+                  <%= if @device_events == [] do %>
+                    <div class="text-sm text-sr-muted">No events found for this device.</div>
+                  <% else %>
+                    <div class="sr-ui-table-shell">
+                      <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
+                        <thead>
+                          <tr>
+                            <th class="w-40">Time</th>
+                            <th class="w-24">Severity</th>
+                            <th>Title</th>
+                            <th class="w-20 text-right"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr :for={{event, index} <- Enum.with_index(@device_events)}>
+                            <td class="whitespace-nowrap text-xs font-mono">
+                              <.user_time
+                                id={"device-event-#{index}-timestamp"}
+                                value={
+                                  Map.get(event, "time") || Map.get(event, "event_timestamp") ||
+                                    Map.get(event, "timestamp")
+                                }
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                              />
+                            </td>
+                            <td class="whitespace-nowrap text-xs">
+                              {Map.get(event, "severity") || "—"}
+                            </td>
+                            <td
+                              class="text-xs truncate max-w-[42rem]"
+                              title={Map.get(event, "title") || Map.get(event, "message") || ""}
+                            >
+                              {Map.get(event, "title") || Map.get(event, "message") || "—"}
+                            </td>
+                            <td class="text-right">
+                              <.ui_button
+                                :if={is_binary(Map.get(event, "id"))}
+                                navigate={~p"/events/#{Map.get(event, "id")}"}
+                                size="xs"
+                                variant="ghost"
+                              >
+                                Details
+                              </.ui_button>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  <% end %>
+                <% end %>
+              </div>
+            </div>
+          </div>
+
+          <!-- Alerts Tab Content -->
+          <div :if={@active_tab == "alerts"}>
+            <div class="rounded-xl border border-sr-line bg-sr-surface">
+              <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-bell-alert" class="size-4 text-sr-brand" />
+                  <span class="text-sm font-semibold">Device Alerts</span>
+                </div>
+                <.link
+                  navigate={
+                    ObservabilityPaths.path("alerts", q: "in:alerts device_uid:#{@device_uid}")
+                  }
+                  class="text-xs text-sr-brand hover:underline"
+                >
+                  View all in Observability →
+                </.link>
+              </div>
+              <div class="p-4">
+                <%= if @alerts_loading do %>
+                  <div class="flex items-center gap-2 text-sm text-sr-muted">
+                    <.ui_spinner size="sm" /> Loading alerts...
+                  </div>
+                <% else %>
+                  <div :if={is_binary(@alerts_error)} class="mb-3 text-xs text-error">
+                    {@alerts_error}
+                  </div>
+                  <%= if @device_alerts == [] do %>
+                    <div class="text-sm text-sr-muted">No alerts found for this device.</div>
+                  <% else %>
+                    <div class="sr-ui-table-shell">
+                      <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
+                        <thead>
+                          <tr>
+                            <th class="w-40">Time</th>
+                            <th class="w-24">Severity</th>
+                            <th class="w-24">Status</th>
+                            <th>Title</th>
+                            <th class="w-20 text-right"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr :for={{alert, index} <- Enum.with_index(@device_alerts)}>
+                            <td class="whitespace-nowrap text-xs font-mono">
+                              <.user_time
+                                id={"device-alert-#{index}-timestamp"}
+                                value={alert.triggered_at || alert.created_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                              />
+                            </td>
+                            <td class="whitespace-nowrap text-xs">
+                              {alert.severity || "—"}
+                            </td>
+                            <td class="whitespace-nowrap text-xs">
+                              {alert.status || "—"}
+                            </td>
+                            <td class="text-xs truncate max-w-[42rem]" title={alert.title || ""}>
+                              {alert.title || "—"}
+                            </td>
+                            <td class="text-right">
+                              <.ui_button
+                                :if={not is_nil(alert.id)}
+                                navigate={~p"/alerts/#{alert.id}"}
+                                size="xs"
+                                variant="ghost"
+                              >
+                                Details
+                              </.ui_button>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  <% end %>
+                <% end %>
+              </div>
+            </div>
           </div>
 
           <div :if={@active_tab == "profiles" and @sysmon_presence}>

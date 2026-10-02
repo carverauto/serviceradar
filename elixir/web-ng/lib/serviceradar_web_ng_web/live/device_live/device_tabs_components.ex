@@ -127,6 +127,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
       >
         <.icon name="hero-signal" class="size-4 mr-1.5" /> MTR
       </button>
+      <button
+        :if={is_map(@device_row)}
+        type="button"
+        phx-click="switch_tab"
+        phx-value-tab="events"
+        class={["sr-ui-tab", @active_tab == "events" && "sr-ui-tab-active"]}
+      >
+        <.icon name="hero-bolt" class="size-4 mr-1.5" /> Events
+      </button>
+      <button
+        :if={is_map(@device_row)}
+        type="button"
+        phx-click="switch_tab"
+        phx-value-tab="alerts"
+        class={["sr-ui-tab", @active_tab == "alerts" && "sr-ui-tab-active"]}
+      >
+        <.icon name="hero-bell-alert" class="size-4 mr-1.5" /> Alerts
+      </button>
     </div>
     """
   end

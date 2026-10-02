@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.DeviceLive.AlertsData
   alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
   alias ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
@@ -19,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.EventsData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
@@ -482,6 +484,74 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:logs_loading, false)
        |> assign(:logs_request_ref, nil)
        |> assign(:has_logs, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_events, device_uid, request_ref}, {:ok, result}, socket) do
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.events_request_ref do
+      {events, error} =
+        case result do
+          {:ok, events} -> {events, nil}
+          {:error, reason} -> {[], reason}
+        end
+
+      {:noreply,
+       socket
+       |> assign(:device_events, events)
+       |> assign(:events_error, error)
+       |> assign(:events_loading, false)
+       |> assign(:events_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_events, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device events task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.events_request_ref do
+      {:noreply,
+       socket
+       |> assign(:device_events, [])
+       |> assign(:events_error, "Failed to load events")
+       |> assign(:events_loading, false)
+       |> assign(:events_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_alerts, device_uid, request_ref}, {:ok, result}, socket) do
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.alerts_request_ref do
+      {alerts, error} =
+        case result do
+          {:ok, alerts} -> {alerts, nil}
+          {:error, reason} -> {[], reason}
+        end
+
+      {:noreply,
+       socket
+       |> assign(:device_alerts, alerts)
+       |> assign(:alerts_error, error)
+       |> assign(:alerts_loading, false)
+       |> assign(:alerts_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_alerts, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device alerts task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.alerts_request_ref do
+      {:noreply,
+       socket
+       |> assign(:device_alerts, [])
+       |> assign(:alerts_error, "Failed to load alerts")
+       |> assign(:alerts_loading, false)
+       |> assign(:alerts_request_ref, nil)}
     else
       {:noreply, socket}
     end
@@ -1056,6 +1126,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> begin_device_details_refresh(uid, request_ref, supplemental_context)
     |> DeviceTabRuntime.maybe_reload_availability_for_active_tab(requested_tab, uid, srql_module)
     |> begin_endpoint_inventory_refresh(uid, scope)
+    |> begin_device_events_refresh(uid, scope)
+    |> begin_device_alerts_refresh(uid, scope)
     |> then(&{:noreply, &1})
   end
 
@@ -1143,6 +1215,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:bumblebee_findings, [])
     |> assign(:bumblebee_error, nil)
     |> assign(:has_bumblebee_exposure, false)
+    |> assign(:device_events, [])
+    |> assign(:events_loading, false)
+    |> assign(:events_error, nil)
+    |> assign(:events_request_ref, nil)
+    |> assign(:device_alerts, [])
+    |> assign(:alerts_loading, false)
+    |> assign(:alerts_error, nil)
+    |> assign(:alerts_request_ref, nil)
   end
 
   # Loads the full supplemental batch (virtualization, cameras, availability,
@@ -1177,6 +1257,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:endpoint_inventory_loading, not keep_existing?)
       |> start_async({:device_endpoint_inventory, uid, request_ref}, fn ->
         EndpointInventoryData.load(scope, uid)
+      end)
+    end
+  end
+
+  defp begin_device_events_refresh(socket, uid, scope) do
+    request_ref = make_ref()
+    srql = srql_module()
+
+    if Application.get_env(:serviceradar_web_ng, :env) == :test do
+      result = EventsData.load_events(srql, uid, scope)
+
+      {events, error} =
+        case result do
+          {:ok, events} -> {events, nil}
+          {:error, reason} -> {[], reason}
+        end
+
+      socket
+      |> assign(:device_events, events)
+      |> assign(:events_error, error)
+      |> assign(:events_loading, false)
+      |> assign(:events_request_ref, nil)
+    else
+      socket
+      |> assign(:events_request_ref, request_ref)
+      |> assign(:events_loading, true)
+      |> start_async({:device_events, uid, request_ref}, fn ->
+        EventsData.load_events(srql, uid, scope)
+      end)
+    end
+  end
+
+  defp begin_device_alerts_refresh(socket, uid, scope) do
+    request_ref = make_ref()
+
+    if Application.get_env(:serviceradar_web_ng, :env) == :test do
+      result = AlertsData.load_alerts(uid, scope)
+
+      {alerts, error} =
+        case result do
+          {:ok, alerts} -> {alerts, nil}
+          {:error, reason} -> {[], reason}
+        end
+
+      socket
+      |> assign(:device_alerts, alerts)
+      |> assign(:alerts_error, error)
+      |> assign(:alerts_loading, false)
+      |> assign(:alerts_request_ref, nil)
+    else
+      socket
+      |> assign(:alerts_request_ref, request_ref)
+      |> assign(:alerts_loading, true)
+      |> start_async({:device_alerts, uid, request_ref}, fn ->
+        AlertsData.load_alerts(uid, scope)
       end)
     end
   end
