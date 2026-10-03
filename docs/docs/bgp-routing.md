@@ -32,7 +32,7 @@ The BGP data model is **protocol-agnostic**. BGP data is collected from:
 
 ## BMP Ingest
 
-In addition to flow-derived AS data, ServiceRadar deploys a dedicated **BMP collector** for direct routing telemetry. The Helm chart ships a `bmp-collector` deployment (`bmpCollector.enabled`) that runs the upstream **arancini** image — the in-repo `rust/bmp-collector` crate is a legacy adapter retained for reference only.
+In addition to flow-derived AS data, ServiceRadar deploys a dedicated **BMP collector** for direct routing telemetry. The Helm chart ships a `bmp-collector` deployment (`bmpCollector.enabled`) built from the in-repo `rust/bmp-collector` crate — see its README for the authoritative admission, decoding, publish, retention, and metrics limits.
 
 The BMP collector:
 - Listens for BMP sessions over **TCP 11019** (`listen_addr`, default `0.0.0.0:11019`).

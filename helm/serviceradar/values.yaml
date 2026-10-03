@@ -1948,6 +1948,12 @@ bmpCollector:
     listenAddr: "0.0.0.0:11019"
     readBufferBytes: 65536
     maxFrameSizeBytes: 16777216
+    maxConnections: 16
+    readTimeoutSecs: 30
+    metricsAddr: "0.0.0.0:9092"
+    publishMessagesPerSecond: 1000
+    publishBytesPerSecond: 4194304
+    streamDiscardPolicy: "new"
     natsUrl: "nats://serviceradar-nats:4222"
     natsDomain: ""
     natsCredsFile: ""
