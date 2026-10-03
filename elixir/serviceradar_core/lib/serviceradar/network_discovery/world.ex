@@ -13,6 +13,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   """
 
   alias Ash.Error.Changes.InvalidArgument
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.NetworkDiscovery.WorldHead
   alias ServiceRadar.NetworkDiscovery.WorldLayout
@@ -642,14 +643,14 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     do: {:error, reason}
 
   defp transaction_result(
-         {:error, %Ash.Error.Invalid{errors: [%InvalidArgument{field: :world, value: reason}]}}
+         {:error, %Invalid{errors: [%InvalidArgument{field: :world, value: reason}]}}
        ),
        do: {:error, reason}
 
   # A missing endpoint never reaches verify_staged_endpoints/1: the relation
   # foreign key fails the Ash insert first. That is the same rejection as the
   # set-based check and as verify_relation_endpoints/2.
-  defp transaction_result({:error, %Ash.Error.Invalid{errors: errors} = reason}) do
+  defp transaction_result({:error, %Invalid{errors: errors} = reason}) do
     if endpoint_foreign_key?(errors) do
       {:error, :invalid_relation_endpoint}
     else
@@ -675,8 +676,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
        when name in [
               "topology_world_relations_source_id_fkey",
               "topology_world_relations_target_id_fkey"
-            ],
-       do: true
+            ], do: true
 
   defp endpoint_foreign_key_name?(_name), do: false
   defp read_options(:system), do: [actor: actor(), timeout: @publication_timeout]
