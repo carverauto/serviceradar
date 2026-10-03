@@ -509,7 +509,11 @@ mod tests {
         assert!(rx.try_recv().is_err());
         let mut path_prefixes = Vec::new();
         for id in 0..8193u32 {
-            path_prefixes.extend_from_slice(&(0x80000000 + id).to_be_bytes());
+            // Small path IDs keep the leading zero byte so the strict parse
+            // engages Add-Path decoding and yields 8193 prefixes for the bound
+            // to reject. High IDs fail strict decoding and degrade to zero
+            // prefixes under treat-as-withdraw, which the bound accepts.
+            path_prefixes.extend_from_slice(&id.to_be_bytes());
             path_prefixes.push(0); // Synthetic default route with Add-Path.
         }
         let mut duplicate_mp = mp_attribute(14, 4096);
