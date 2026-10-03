@@ -237,7 +237,9 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
         end
 
       # :unavailable would make the agent drop its whole gateway connection.
-      expected_status = if status == :unavailable, do: :aborted, else: status
+      # RPCError.status is the numeric code, not the atom passed to exception/1.
+      expected_status =
+        if status == :unavailable, do: GRPC.Status.aborted(), else: upstream_error.status
 
       assert error.status == expected_status
       assert error.message == upstream_error.message

@@ -446,12 +446,15 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     MediaIdentity.extract_identity_from_stream(stream, identity_resolver(), "Camera media")
   end
 
-  # An upstream RPC error keeps its status and message, except :unavailable:
-  # agents read it as loss of the gateway connection, so a relay-level failure
-  # carrying it would cost the agent every session on that connection.
-  defp relay_rpc_error(%GRPC.RPCError{status: :unavailable} = error) do
-    GRPC.RPCError.exception(status: :aborted, message: error.message)
+  # GRPC.RPCError stores the numeric status code. UNAVAILABLE on the wire is
+  # what agents read as a lost gateway connection, so a relay-level failure
+  # carrying it is rewritten to ABORTED. Every other upstream status and its
+  # message pass through. Open, upload, heartbeat, and close all use this.
+  defp relay_rpc_error(%GRPC.RPCError{status: status} = error) do
+    if status == GRPC.Status.unavailable() do
+      GRPC.RPCError.exception(status: :aborted, message: error.message)
+    else
+      error
+    end
   end
-
-  defp relay_rpc_error(%GRPC.RPCError{} = error), do: error
 end
