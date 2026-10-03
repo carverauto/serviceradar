@@ -166,7 +166,7 @@ docker run --rm --name serviceradar-trivy-sidecar \
   -v serviceradar_cert-data:/etc/serviceradar/certs:ro \
   -v serviceradar_nats-creds:/etc/serviceradar/creds:ro \
   -v "$KUBECONFIG:/kube/config:ro" \
-  registry.carverauto.dev/serviceradar/serviceradar-trivy-sidecar:${APP_TAG:-latest}
+  ghcr.io/carverauto/serviceradar-trivy-sidecar:${APP_TAG:-latest}
 ```
 
 If the Kubernetes API in your kubeconfig is not reachable from Docker, use a

@@ -8,8 +8,8 @@ CREDENTIALS_VOLUME="${CNPG_CREDENTIALS_VOLUME:-${VOLUME_PREFIX}_cnpg-credentials
 MIGRATOR_DATA_DIR="${CNPG_MIGRATOR_DATA_DIR:-}"
 MIGRATOR_CREDENTIALS_DIR="${CNPG_MIGRATOR_CREDENTIALS_DIR:-}"
 
-SOURCE_IMAGE="${CNPG_SOURCE_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:16.6.0-sr5}"
-TARGET_IMAGE="${CNPG_TARGET_IMAGE:-${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9}}"
+SOURCE_IMAGE="${CNPG_SOURCE_IMAGE:-ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr5}"
+TARGET_IMAGE="${CNPG_TARGET_IMAGE:-${CNPG_IMAGE:-ghcr.io/carverauto/serviceradar-cnpg:18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d}}"
 EXPECTED_TARGET_MAJOR="${CNPG_EXPECTED_PG_MAJOR:-18}"
 SOURCE_DATA_PATH="${CNPG_SOURCE_DATA_PATH:-/var/lib/postgresql/data}"
 TARGET_DATA_PATH="${CNPG_TARGET_DATA_PATH:-/var/lib/postgresql/18/docker}"

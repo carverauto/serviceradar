@@ -20,7 +20,7 @@
 # Image -- the same one the compose stack and the cluster use, carrying timescaledb, age,
 # postgis, vector and pg_trgm. //docker/images:cnpg_image_amd64 builds it:
 #
-#   registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5
+#   ghcr.io/carverauto/serviceradar-cnpg:18.4.0-sr4
 #
 # It is a CNPG operator image with no docker-library entrypoint, so initdb and postgres are
 # invoked directly. `su` fails inside it, hence --user rather than switching users in the
@@ -28,7 +28,7 @@
 #
 #   docker run -d --name sr-testdb --platform linux/amd64 --user 26:102 -p 5455:5432 \
 #     --entrypoint /bin/bash \
-#     registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5 -c '
+#     ghcr.io/carverauto/serviceradar-cnpg:18.4.0-sr4 -c '
 #   set -e
 #   export PATH=/usr/lib/postgresql/18/bin:$PATH
 #   export PGDATA=/tmp/pgdata
