@@ -90,6 +90,12 @@ test_suite(
     ],
 )
 
+# Every Starlark file in this package, so a repository contract sees one that is restored.
+filegroup(
+    name = "starlark_sources",
+    srcs = glob(["*.bzl"]),
+)
+
 exports_files([
     "world_snapshots.exs",
     "benchmark_runner.py",

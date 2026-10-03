@@ -95,8 +95,9 @@ the schema another branch clones. Generation count, concurrent builders, storage
 lease length are bounded by `build/schema_template/policy.json`, and `cleanup_generations`
 reclaims only idle, unleased, unconnected generations. See `docs/docs/ci-schema-templates.md`.
 
-Do not write the frozen `sr_core_template` or bypass its guards. Current guards, planned
-target retirement and rollback prerequisites are owned by
+The legacy `sr_core_template` lifecycle is retired: its targets are deleted and the guard
+rejects the name. For one lane, `provision_generation_<lane>` clones only that lane's database.
+Retirement and rollback prerequisites are owned by
 [the SRQL fixture runbook](../../../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 That workflow owns `SERVICERADAR_ENV=ci`, the typed configuration inputs, the private secret
@@ -234,7 +235,7 @@ length live in `build/schema_template/policy.json`; `cleanup_generations` reclai
 generations idle past retention with no live lease and no connections. Contract and recovery:
 [docs/docs/ci-schema-templates.md](docs/docs/ci-schema-templates.md).
 
-For singleton guards, planned target retirement and rollback prerequisites, see
+For the retired singleton and rollback prerequisites, see
 [the SRQL fixture runbook](../../../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 Step order, run-id and credential rules, the BazelCI merge-tree caveat and cleanup checks:

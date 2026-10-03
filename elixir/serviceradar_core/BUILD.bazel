@@ -173,10 +173,11 @@ INTEGRATION_TEST_DEPS = [
 # Static inputs for the repository-level integration execution contract. Keep the unit target on
 # ALL_TEST_SRCS, while the ordinary database lanes below use only the audited selected-source
 # union. The contract needs every source in order to fail when the glob and disposition inventory
-# drift in either direction.
+# drift in either direction. test/db is included so the contract also sees a database lifecycle
+# helper that is restored after its retirement.
 filegroup(
     name = "integration_contract_test_inputs",
-    srcs = ALL_TEST_SRCS + ["test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],
+    srcs = ALL_TEST_SRCS + glob(["test/db/**"]) + ["test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],
 )
 
 filegroup(

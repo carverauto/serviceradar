@@ -1,6 +1,6 @@
 ## 1. Prerequisites
 
-- [ ] 1.1 Archive `isolate-ci-schema-templates` in its own PR (`openspec archive
+- [x] 1.1 Archive `isolate-ci-schema-templates` in its own PR (`openspec archive
       isolate-ci-schema-templates --yes`, then `openspec validate --strict`). This change does
       not supersede it and does not edit its archived record.
 - [x] 1.2 Re-confirm on current `staging` that no `buildbuddy.yaml` action, `.github` workflow,
@@ -72,6 +72,11 @@
       the remaining legacy mentions: confirm `config/README.md` and `k8s/srql-fixtures/README.md`
       (which that PR leaves untouched as still accurate) and `docs/docs/ci-schema-templates.md`
       have no stale legacy-lifecycle claim left by this change's deletions.
+      The docs PR (#5052) landed with deliberately future-tense wording ("still exist",
+      "forthcoming, not yet callable"), which this change's deletions made false; this PR
+      rewrites only those sentences in the five files to the past tense and names
+      `provision_generation_<lane>`, and re-points the `migrate_db_test.exs`/`template.rs`
+      references in `docs/agent-runbooks.md` and `elixir/README.md` to the generation lifecycle.
 - [ ] 2.13 Run `gofmt`/`cargo fmt`/`mix format` as applicable, `cargo clippy` for
       `rust/integration-db` (all targets), `bazel build //rust/... //elixir/serviceradar_core/...`,
       `make lint`, `make test`, and `openspec validate retire-legacy-shared-template --strict`.

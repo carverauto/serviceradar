@@ -68,6 +68,16 @@ exports_files([
     "openspec/changes/parallelize-core-integration-tests/benchmark.md",
 ])
 
+# Every workflow, so a repository contract can scan workflows added after it was written.
+filegroup(
+    name = "github_workflows",
+    srcs = glob([
+        ".github/workflows/*.yml",
+        ".github/workflows/*.yaml",
+    ]),
+    visibility = ["//build/contracts:__pkg__"],
+)
+
 ###############################################################################
 # RUST RELEASE MODE OPTIMIZATION
 ###############################################################################

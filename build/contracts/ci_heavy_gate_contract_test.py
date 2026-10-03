@@ -2424,6 +2424,16 @@ class RetiredLegacyTemplateLifecycleContractTest(unittest.TestCase):
                 f"{label} reintroduces the retired per-lane provision_db family",
             )
 
+    # Under Bazel the test sees only declared inputs, so a missing retired source proves
+    # nothing unless its directory is declared too. Each witness is a current file that only
+    # the directory-wide input (//build:starlark_sources, the core integration contract inputs,
+    # //rust/integration-db:srcs) provides; if it is absent the existence checks are blind.
+    retired_source_witnesses = (
+        ROOT / "build/repo_alias.bzl",
+        ROOT / "elixir/serviceradar_core/test/db/template_generation.exs",
+        ROOT / "rust/integration-db/src/generation.rs",
+    )
+
     def test_the_authority_setting_and_retired_sources_are_gone(self):
         build_flags = BUILD_FLAGS.read_text(encoding="utf-8")
         self.assertIsNone(
@@ -2431,6 +2441,12 @@ class RetiredLegacyTemplateLifecycleContractTest(unittest.TestCase):
             "build/BUILD.bazel reintroduces the retired template_authority setting",
         )
         self.assertNotIn("template_authority", build_flags)
+        for witness in self.retired_source_witnesses:
+            with self.subTest(witness=witness.relative_to(ROOT).as_posix()):
+                self.assertTrue(
+                    witness.is_file(),
+                    f"{witness.name} is not a test input, so a restored sibling would be invisible",
+                )
         for path in self.retired_sources:
             with self.subTest(source=path.relative_to(ROOT).as_posix()):
                 self.assertFalse(
@@ -2442,8 +2458,11 @@ class RetiredLegacyTemplateLifecycleContractTest(unittest.TestCase):
         workflow_sources = {
             WORKFLOW: "buildbuddy.yaml",
         }
-        github_workflows = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-        self.assertGreater(len(github_workflows), 0)
+        workflow_dir = ROOT / ".github" / "workflows"
+        github_workflows = sorted([*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")])
+        # //:github_workflows must be a declared input; release.yml alone is declared
+        # separately, so a second workflow proves the scan sees the whole directory.
+        self.assertIn(workflow_dir / "publish-oci.yml", github_workflows)
         for path in github_workflows:
             workflow_sources[path] = path.relative_to(ROOT).as_posix()
 
