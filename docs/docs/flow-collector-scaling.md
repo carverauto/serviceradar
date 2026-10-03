@@ -120,8 +120,9 @@ Shared template persistence is best effort. Every packet gets at most 16 KV
 operations and a combined 100 ms deadline, including reads, writes,
 withdrawals, and implicit invalidations. The shared adapter additionally
 allows at most 128 operations per one-second window per collector process.
-Queued operations carry the packet deadline and expire before backend work
-starts. A template value larger than 1 MiB is rejected before enqueueing,
+The worker queue holds 64 operations; a full queue rejects the call before
+NATS sees it and counts as a backend error. Queued operations carry the packet deadline and expire before
+backend work starts. A template value larger than 1 MiB is rejected before enqueueing,
 and NATS enforces that value limit and `kv_max_bytes` on the shared bucket.
 
 These limits can reduce shared restoration during a burst. An ordinary IPFIX
@@ -161,15 +162,17 @@ The flow collector exposes Prometheus metrics on `metrics_addr` (default
 | `flow_collector_template_store_mutation_failures_total` | 0 | NATS rejected a write/delete or a queued mutation expired |
 | `flow_collector_template_store_bucket_bytes` | Below `kv_max_bytes` | The shared bucket is nearing its storage limit; sampled every 30 seconds |
 
-The listener-level template and source metrics apply only to NetFlow. The
-adapter budget, mutation-failure, and bucket-byte metrics describe the shared
-store across listeners and have no listener labels.
+The listener-level template, source, and sampler-rate metrics apply only to
+NetFlow. The adapter budget, mutation-failure, and bucket-byte metrics
+describe the shared store across listeners and have no listener labels.
 
 Alerting suggestions:
 
 - **`template_store_codec_errors_total > 0`**, ever: page on first occurrence.
   This is corruption, not degradation.
-- **`template_store_backend_errors_total` rate > 1/min for >5 min**: NATS is sick.
+- **`template_store_backend_errors_total` rate > 1/min for >5 min**: shared-store
+  calls are failing. Read `template_store_budget_rejections_total` and
+  `template_store_mutation_failures_total` to separate admission from NATS.
 - **`flows_dropped_total` rate > 0.1% of received**: backpressure -- investigate
   the publish path.
 - **`sources` near `max_sources`**: raise the limit or shard the deployment.
