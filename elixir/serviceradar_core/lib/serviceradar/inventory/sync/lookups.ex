@@ -239,11 +239,18 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
         {:ok, %{}}
 
       ips ->
+        # Several devices can hold a confirmed alias of one address (rows are per device); each
+        # address goes to its first holder in DeviceAliasState.holder_sort/0's order.
         query =
           from(a in DeviceAliasState,
             where:
               a.alias_type == :ip and a.alias_value in ^ips and
                 a.state in [:confirmed, :updated],
+            order_by: [
+              desc: a.last_seen_at,
+              desc_nulls_last: a.sighting_count,
+              asc: a.device_id
+            ],
             select: {a.alias_value, a.device_id}
           )
 
@@ -251,7 +258,7 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
          query
          |> Repo.all()
          |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
-         |> Map.new()}
+         |> Enum.reduce(%{}, fn {ip, uid}, acc -> Map.put_new(acc, ip, uid) end)}
     end
   rescue
     e -> {:error, e}

@@ -31,14 +31,12 @@ SharedHost  == \E k1, k2 \in Phys : k1 # k2 /\ HostOf[k1] = HostOf[k2]
 \* gives a device a new first-seen time.
 HostnameAlone == SharedHost \/ NewFirstSeenIds # {}
 \* act is a history variable Next never reads. Next reads recFs only for a record holding a
-\* retired id, and the archive stays empty unless Rekeys; it reads idSeen only for a census, and
-\* aliasRow only under foreign_sighting_confirms_alias. It reads seenWith only where hostnames
-\* agree and first-seen times do not (HostnameAlone), and only for a record holding a retired
-\* id. Leaving them out of the fingerprint otherwise is sound.
+\* retired id, and the archive stays empty unless Rekeys; it reads idSeen only for a census. It
+\* reads seenWith only where hostnames agree and first-seen times do not (HostnameAlone), and
+\* only for a record holding a retired id. Leaving them out of the fingerprint otherwise is sound.
 StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive,
                IF Rekeys THEN recFs ELSE <<>>,
                IF "Arp" \in Observers THEN idSeen ELSE <<>>,
-               IF Bug("foreign_sighting_confirms_alias") THEN aliasRow ELSE <<>>,
                IF Rekeys /\ HostnameAlone THEN seenWith ELSE <<>>>>
 \* vacuity: nothing is ever merged
 NeverMerged == \A r \in Recs : into[r] = NoRec

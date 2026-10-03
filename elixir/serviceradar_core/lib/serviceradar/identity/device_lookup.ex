@@ -604,6 +604,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
           alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated]
         )
         |> maybe_filter_alias_partition(partition)
+        |> Ash.Query.sort(DeviceAliasState.holder_sort())
         |> read_with_actor(actor)
     end
   end
@@ -618,7 +619,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state == :detected)
         |> maybe_filter_alias_partition(partition)
         # Prefer aliases with more sightings (closer to confirmation)
-        |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc)
+        |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc, device_id: :asc)
         |> read_with_actor(actor)
     end
   end
@@ -661,11 +662,18 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     end
   end
 
+  # Several devices can hold one address (alias rows are per device); the first loaded holder in
+  # DeviceAliasState.holder_sort/0's order wins.
   defp build_alias_map(devices, aliases) do
     Enum.reduce(aliases, %{}, fn alias_state, acc ->
       case Map.get(devices, alias_state.device_id) do
-        nil -> acc
-        device -> Map.put(acc, alias_state.alias_value, build_record_from_device(device))
+        nil ->
+          acc
+
+        device ->
+          Map.put_new_lazy(acc, alias_state.alias_value, fn ->
+            build_record_from_device(device)
+          end)
       end
     end)
   end
@@ -680,6 +688,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         alias_type == :ip and alias_value == ^ip and state in [:confirmed, :updated]
       )
       |> maybe_filter_alias_partition(partition)
+      |> Ash.Query.sort(DeviceAliasState.holder_sort())
 
     case read_with_actor(query, actor) do
       {:ok, [%DeviceAliasState{device_id: device_id} | _]} ->

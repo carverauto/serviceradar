@@ -49,6 +49,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defdelegate lookup_by_strong_identifiers(ids, actor, preferred_device_id \\ nil), to: Resolver
   defdelegate lookup_by_ip(ids, actor, opts \\ []), to: Resolver
   defdelegate lookup_alias_device_id(ip, partition, actor, opts \\ []), to: Resolver
+  defdelegate lookup_alias_device_ids(ip, partition, actor, opts \\ []), to: Resolver
 
   # Identifier extraction / vocabulary
   defdelegate extract_strong_identifiers(update), to: Ids

@@ -13,7 +13,7 @@
 (* knockout is deleted.                                                     *)
 (***************************************************************************)
 
-ResolutionBugs == {"armis_alias_pass_blind", "foreign_sighting_confirms_alias"}
+ResolutionBugs == {}
 
 LifecycleBugs == {"sweep_refreshes_expired_tombstone"}
 

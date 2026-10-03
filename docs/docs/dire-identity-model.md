@@ -233,6 +233,28 @@ the MACs identify.
   leased to another live device, the restore clears it and the device moves
   to the polled address; the other device keeps its address.
 
+### IP aliases
+
+An IP alias records that a device was seen at an address. Syncs, the mapper
+and discovery observations (census, fingerprint, DPI and process sightings)
+report it. An alias is evidence, never identity: it never merges two
+identified devices.
+
+- Alias rows are per device. Every device seen at an address has its own row
+  of it, filed under the device's partition, and only that device's sightings
+  confirm it (three by default, `identity_alias_confirm_threshold`).
+- When a sync, an agent check-in or a mapper poll resolves a device at an
+  address, every other device holding a confirmed alias of the address is
+  handled. An identified holder has its alias invalidated (`mark_stale`),
+  recorded as an `alias_invalidated` decision. An address-only holder is
+  merged into the device by a sync and otherwise left alone.
+- A lookup that resolves an address to one alias holder (the sweep, the
+  sync's batch lookup, the resolver and the SNMP credential lookup) takes the
+  most recently seen holder, then the one with the most sightings, then the
+  lowest device id. The mapper ranks by alias state first and, within a
+  state, in the same order. The sweep's fallback to a pending alias prefers
+  the most sightings.
+
 ## Merge policy and stability
 
 - Evidence gates (`Identity.MergePolicy`): never merge on agent_id-only or
@@ -248,7 +270,10 @@ the MACs identify.
     oscillation; blocked re-merges alert via telemetry
 - Merges are transactional, audited (`merge_audit`), and move every
   linked record (identifiers, service checks, alerts, agents, per-agent
-  availability, alias states, interfaces, endpoint inventory).
+  availability, alias states, interfaces, endpoint inventory). When both
+  devices hold an alias of one address, the merged device's row stays with
+  it, marked `replaced`, and a confirmation it carried confirms the
+  survivor's row if that row is pending or stale.
   `unmerge_device` restores a tombstoned device in place from the audit
   trail (the original IP is reclaimed only if unheld). Every merge records
   the merged-away device's own identifiers in

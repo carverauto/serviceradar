@@ -55,7 +55,7 @@ CONSTANTS
     Bugs,
     Unsafe         \* design alternatives rejected for identity safety (negative configurations)
 
-KnownBugs == {"armis_alias_pass_blind", "foreign_sighting_confirms_alias"}
+KnownBugs == {}
 ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
@@ -84,8 +84,6 @@ VARIABLES
     owner,    \* device_identifiers: identifier -> record
     recIp,    \* ocsf_devices.ip
     alias,    \* confirmed IP aliases: address -> records
-    aliasRow, \* under foreign_sighting_confirms_alias, the address's alias row: the record it names
-              \* and whether it is still pending (detected, never confirmed)
     phys,     \* ghost: physical devices whose identity-bearing observations built the record
     ifClaims, \* InterfaceMacs: interface MACs a record's own interface table claims
     act,      \* the last step: observer, reported ids, address, decisions, address merges
@@ -100,7 +98,7 @@ VARIABLES
     seenWith  \* ghost: the source ids first seen no later than the source last saw the record's
               \* device, that is, already issued at its last source sighting
 
-vars == <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, act, srcOf, absence,
+vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act, srcOf, absence,
           archive, recFs, idSeen, seenWith>>
 
 \* The coarse absence clock: Fresh is absent from fewer than N exact collections or for less than
@@ -119,7 +117,6 @@ TypeOK ==
     /\ owner \in [Ids -> Recs \cup {NoRec}]
     /\ recIp \in [Recs -> Ips \cup {NoIp}]
     /\ alias \in [Ips -> SUBSET Recs]
-    /\ aliasRow \in [Ips -> (Recs \cup {NoRec}) \X BOOLEAN]
     /\ phys \in [Recs -> SUBSET Phys]
     /\ ifClaims \in [Recs -> SUBSET MacIds]
     /\ act \in [name: STRING, ids: SUBSET Ids, ip: Ips \cup {NoIp},
@@ -214,7 +211,6 @@ Init ==
     /\ owner = [i \in Ids |-> NoRec]
     /\ recIp = [r \in Recs |-> NoIp]
     /\ alias = [p \in Ips |-> {}]
-    /\ aliasRow = [p \in Ips |-> <<NoRec, FALSE>>]
     /\ phys = [r \in Recs |-> {}]
     /\ ifClaims = [r \in Recs |-> {}]
     /\ act = [name |-> "Init", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
@@ -233,7 +229,7 @@ Lease(x, p) ==
     /\ ipAt' = [ipAt EXCEPT ![x] = p]
     /\ act' = [name |-> "Lease", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<created, into, owner, recIp, alias, aliasRow, phys, ifClaims, srcOf, absence,
+    /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence,
                    archive, recFs, idSeen, seenWith>>
 
 \* The phys ghost after a step: merged records' devices join the record they were merged into
@@ -408,19 +404,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* (Sync.Aliases.process_alias_updates/2, which SyncIngestor runs after the alias
         \* conflicts), as a mapper result does for the address it polled. recordAlias is a sighting
         \* that reaches the confirmation threshold and confirms its row, the result's own.
-        \*   Bug foreign_sighting_confirms_alias: rows are looked up by the address alone
-        \*       (AliasEvents.process_alias/5, DeviceAliasState.lookup_by_value/3), so a sighting
-        \*       is recorded on the row the address already has, whichever record it names, and
-        \*       only an address with no row gets one, naming the result. Another device observed
-        \*       at the address confirms that row's alias, and no later device there gets a row of
-        \*       its own. A row confirmed once, or staled by the alias pass, confirms nothing again.
-        foreign  == Bug("foreign_sighting_confirms_alias")
-        sights   == kind \in {"Armis", "Arp"} \/ recordAlias
-        rowOf    == aliasRow[p][1]
-        confirms == IF ~recordAlias THEN {}
-                    ELSE IF ~foreign \/ rowOf = NoRec THEN {target}
-                    ELSE IF aliasRow[p][2] THEN {CanonIn(into2, rowOf, Cardinality(Recs))}
-                    ELSE {}
+        \* Rows are per device (DeviceAliasState.lookup_for_device/4): a sighting counts only toward
+        \* the observed record's own row, and another device's row at the address is never touched.
+        confirms == IF recordAlias THEN {target} ELSE {}
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->
                       IF r = target THEN (IF keepAddr \/ keptHeld # {} THEN recIp[r] ELSE p)
@@ -436,10 +422,6 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
                    kept \cup (IF alias[q] \cap step1Merged # {} THEN {target0} ELSE {})
                         \cup (IF alias[q] \cap step2Merged # {} THEN {target} ELSE {})
                    \cup (IF q = p THEN confirms ELSE {})]
-    /\ aliasRow' = IF foreign /\ sights /\ (rowOf = NoRec \/ recordAlias)
-                   THEN [aliasRow EXCEPT ![p] = IF rowOf = NoRec THEN <<target, ~recordAlias>>
-                                                ELSE <<rowOf, FALSE>>]
-                   ELSE aliasRow
     /\ ifClaims' = [r \in Recs |->
                       ifClaims[r]
                       \cup (IF r = target0 THEN UNION {ifClaims[m] : m \in step1Merged} ELSE {})
@@ -474,16 +456,12 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
 
 \* Armis sync: the Armis device id, plus the device's MACs when Armis reports them. Its update
 \* carries a non-MAC identifier, so Sync.Aliases.process_alias_conflicts/2 runs.
-\*   Bug armis_alias_pass_blind: the pass looks for the address's alias under the partition the
-\*       update's identifiers are filed in, which for a sync naming its integration source is
-\*       the source's own (Ids.identifier_partition/2), while an alias is recorded under the
-\*       device's partition (AliasEvents). It never finds one, so an identified holder of the
-\*       alias keeps it after another device is observed at the address.
+\* The pass looks the address's alias up under the device's partition, where AliasEvents records it.
 ArmisObserve(h, x) ==
     /\ srcOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
     /\ \E ra \in BOOLEAN :
          Resolve(h, x, {srcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra,
-                 IF Bug("armis_alias_pass_blind") THEN "none" ELSE "sync", "Armis", {}, {})
+                 "sync", "Armis", {}, {})
 
 \* netprobe census: one interface's MAC and address, through SyncIngestor. A census update is an
 \* observer source with no non-MAC identifier, so Sync.Aliases never merges on it. A randomized
@@ -537,7 +515,7 @@ SweepObserve(h, x) ==
           /\ recIp' = [recIp EXCEPT ![p] = p]
     /\ act' = [name |-> "Sweep", ids |-> {}, ip |-> p, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, into, owner, alias, aliasRow, phys, ifClaims, srcOf, absence, archive,
+    /\ UNCHANGED <<ipAt, into, owner, alias, phys, ifClaims, srcOf, absence, archive,
                    recFs, idSeen, seenWith>>
 
 \* The source re-identifies device h: it reports h under id a from now on (a source-side merge or
@@ -557,7 +535,7 @@ Rekey(h, a) ==
     /\ seenWith' = IF a = NoId THEN seenWith ELSE [r \in Recs |-> seenWith[r] \ {a}]
     /\ act' = [name |-> "Rekey", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, archive,
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, archive,
                    recFs, idSeen>>
 
 \* An exact collection of the source activates (ArmisSourceSnapshot.activate/3). Every id it
@@ -574,7 +552,7 @@ Collect ==
                               [] OTHER -> absence[a]]
     /\ act' = [name |-> "Collect", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, srcOf,
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf,
                    archive, recFs, idSeen, seenWith>>
 
 \* The retirement job an activation enqueues (D1, Identity.SourceRetirement.run/2): a stale id
@@ -590,7 +568,7 @@ RetireAbsent(a) ==
     /\ LET d == {[kind |-> "source_id_retired", recs |-> {owner[a]}]} IN
        act' = [name |-> "Retire", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, recIp, alias, aliasRow, phys, ifClaims, srcOf, absence,
+    /\ UNCHANGED <<ipAt, created, into, recIp, alias, phys, ifClaims, srcOf, absence,
                    recFs, idSeen, seenWith>>
 
 \* The reconciler's succession pass. A predecessor holds only retired source ids; a successor
@@ -633,7 +611,7 @@ Succeed(pr, sc) ==
          /\ seenWith' = [seenWith EXCEPT ![s] = @ \cup seenWith[m]]
     /\ act' = [name |-> "Succession", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, aliasRow, srcOf, absence, archive, idSeen>>
+    /\ UNCHANGED <<ipAt, created, srcOf, absence, archive, idSeen>>
 
 \* D4: weaker evidence never merges. The pair gets a succession_review decision, which opens a
 \* de-duplication task: corroborated without a MAC, a MAC only, a MAC linking the predecessor to
@@ -645,7 +623,7 @@ Review(pr, sc) ==
     /\ LET d == {[kind |-> "succession_review", recs |-> {pr, sc}]} IN
        act' = [name |-> "Review", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
                addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, aliasRow, phys, ifClaims, srcOf,
+    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf,
                    absence, archive, recFs, idSeen, seenWith>>
 
 Next ==

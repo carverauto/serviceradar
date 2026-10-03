@@ -47,6 +47,9 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
     :ok
   end
 
+  # The pass looks an address's alias up under the partition AliasEvents records it under, the
+  # device's. The identifiers of a sync naming its integration source are filed under the source's
+  # own partition (Ids.identifier_partition/2), where no alias is ever recorded.
   defp alias_conflict_candidates(resolved_updates) do
     resolved_updates
     |> Enum.map(fn {update, device_id} ->
@@ -56,7 +59,9 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
     |> Enum.filter(fn {update, _device_id, ids} ->
       ids.ip != "" and alias_merge_allowed?(update, ids)
     end)
-    |> Enum.map(fn {_update, device_id, ids} -> {device_id, ids} end)
+    |> Enum.map(fn {update, device_id, ids} ->
+      {device_id, %{ids | partition: AliasEvents.alias_partition(update[:partition], device_id)}}
+    end)
   end
 
   defp alias_merge_allowed?(update, ids) do
@@ -83,12 +88,18 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
     end
   end
 
+  # Alias rows are per device, so several other devices can hold a confirmed alias of the address,
+  # and each is handled: an identified holder has its alias invalidated, another is merged.
   defp do_handle_alias_conflict(device_id, ids, actor, merged_ips) do
-    case IdentityReconciler.lookup_alias_device_id(ids.ip, ids.partition, actor) do
-      {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" ->
-        merge_alias_device(alias_device_id, device_id, ids, actor, merged_ips)
+    case IdentityReconciler.lookup_alias_device_ids(ids.ip, ids.partition, actor,
+           except: device_id
+         ) do
+      {:ok, alias_device_ids} ->
+        Enum.reduce(alias_device_ids, merged_ips, fn alias_device_id, acc ->
+          merge_alias_device(alias_device_id, device_id, ids, actor, acc)
+        end)
 
-      _ ->
+      {:error, _} ->
         merged_ips
     end
   end
