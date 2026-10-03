@@ -25,7 +25,11 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Oban.Router
   alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
-  alias ServiceRadarWebNG.Dashboards.PackageRetentionWorker, as: DashboardPackageRetentionWorker
+  @dashboard_package_retention_worker Module.concat([
+                                        "ServiceRadarWebNG",
+                                        "Dashboards",
+                                        "PackageRetentionWorker"
+                                      ])
 
   require Logger
 
@@ -362,8 +366,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
-  def trigger_job(%{source: :manual, worker: DashboardPackageRetentionWorker}) do
-    DashboardPackageRetentionWorker.enqueue_manual()
+  def trigger_job(%{source: :manual, worker: worker})
+      when worker == @dashboard_package_retention_worker do
+    apply(worker, :enqueue_manual, [])
   rescue
     e -> {:error, Exception.message(e)}
   end
@@ -711,10 +716,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
         cron: "manual",
         queue: :web_maintenance,
         enabled: true,
-        worker: DashboardPackageRetentionWorker,
+        worker: @dashboard_package_retention_worker,
         resource: nil,
         action: nil,
-        last_run_at: get_last_run(DashboardPackageRetentionWorker),
+        last_run_at: get_last_run(@dashboard_package_retention_worker),
         next_run_at: nil,
         args_filter: %{"manual" => true},
         integration_source_id: nil
