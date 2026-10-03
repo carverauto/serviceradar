@@ -20,7 +20,10 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 )
 
-const relayDrainAcknowledgedReason = "camera relay drain acknowledged"
+const (
+	relayDrainAcknowledgedReason = "camera relay drain acknowledged"
+	relayTestMediaIngestID       = "media-123"
+)
 
 var (
 	errCameraRelayStreamFailed      = errors.New("camera relay stream failed")
@@ -33,6 +36,8 @@ type fakeCameraRelayGateway struct {
 	gatewayID        string
 	uploadMessage    string
 	heartbeatMessage string
+	uploadErr        error
+	uploadAttempts   int
 	openRequests     []*proto.OpenRelaySessionRequest
 	uploadBatches    [][]*proto.MediaChunk
 	heartbeatReqs    []*proto.RelayHeartbeat
@@ -61,7 +66,7 @@ func (f *fakeCameraRelayGateway) OpenRelaySession(_ context.Context, req *proto.
 	return &proto.OpenRelaySessionResponse{
 		Accepted:           true,
 		Message:            "accepted",
-		MediaIngestId:      "media-123",
+		MediaIngestId:      relayTestMediaIngestID,
 		MaxChunkBytes:      1_048_576,
 		LeaseExpiresAtUnix: time.Now().Add(30 * time.Second).Unix(),
 	}, nil
@@ -70,6 +75,10 @@ func (f *fakeCameraRelayGateway) OpenRelaySession(_ context.Context, req *proto.
 func (f *fakeCameraRelayGateway) UploadMedia(_ context.Context, chunks []*proto.MediaChunk) (*proto.UploadMediaResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.uploadAttempts++
+	if f.uploadErr != nil {
+		return nil, f.uploadErr
+	}
 	copied := make([]*proto.MediaChunk, 0, len(chunks))
 	var lastSequence uint64
 	for _, chunk := range chunks {
@@ -211,7 +220,7 @@ func (s *cameraRelayRPCServer) CloseRelaySession(ctx context.Context, req *proto
 
 func newCameraRelayRPCClient(t *testing.T, service proto.CameraMediaServiceServer) (*agentgateway.GatewayClient, *grpc.Server, string) {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +366,7 @@ func TestCameraGatewayTransportFailureRecovers(t *testing.T) {
 	if gateway.IsConnected() {
 		t.Fatal("lost transport still marked connected")
 	}
-	listener, err := net.Listen("tcp", address)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", address)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,6 +433,7 @@ func (c *cameraRelayStopWaitContext) Done() <-chan struct{} {
 	return c.Context.Done()
 }
 
+//nolint:gocyclo // One startup-stop race: allocation, cancellation, cleanup, and a later relay stay in one scenario.
 func TestCameraRelayManagerStopClosesIngressAllocatedBeforeOpenResponse(t *testing.T) {
 	t.Setenv("SR_ALLOW_INSECURE", "true")
 	service := &allocatedCameraRelayRPCServer{
@@ -532,7 +542,7 @@ func TestCameraRelayManagerStopClosesIngressAllocatedBeforeOpenResponse(t *testi
 	}
 	select {
 	case req := <-service.closed:
-		if req.GetRelaySessionId() != spec.RelaySessionID || req.GetReason() != "camera relay source completed" {
+		if req.GetRelaySessionId() != spec.RelaySessionID || req.GetReason() != cameraRelayReasonSourceCompleted {
 			t.Fatalf("unexpected recovery cleanup: %v", req)
 		}
 	case <-ctx.Done():
@@ -621,7 +631,7 @@ func TestCameraRelayManagerStopDuringSourceStartup(t *testing.T) {
 				t.Fatalf("Stop: %v", err)
 			}
 			close(release)
-			wantErr := error(context.Canceled)
+			wantErr := context.Canceled
 			if scenario.fails {
 				wantErr = errRTSPDialFailed
 			}
@@ -643,7 +653,7 @@ func TestCameraRelayManagerStopDuringSourceStartup(t *testing.T) {
 			gateway.mu.Lock()
 			if len(gateway.uploadBatches) != 0 || len(gateway.heartbeatReqs) != 0 || len(gateway.closeRequests) != 1 {
 				t.Errorf("stopped startup: uploads=%d heartbeats=%d closes=%d", len(gateway.uploadBatches), len(gateway.heartbeatReqs), len(gateway.closeRequests))
-			} else if req := gateway.closeRequests[0]; req.GetReason() != "operator startup stop" || req.GetMediaIngestId() != "media-123" {
+			} else if req := gateway.closeRequests[0]; req.GetReason() != "operator startup stop" || req.GetMediaIngestId() != relayTestMediaIngestID {
 				t.Errorf("unexpected startup cleanup: %v", req)
 			}
 			gateway.mu.Unlock()
@@ -684,7 +694,7 @@ func TestCameraRelayManagerStartUploadsMediaAndCloses(t *testing.T) {
 	manager := newCameraRelayManager(gateway, createTestLogger())
 	manager.uploadBatchSize = 2
 	manager.sourceFactory = func(spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
-		if spec.MediaIngestID != "media-123" {
+		if spec.MediaIngestID != relayTestMediaIngestID {
 			t.Fatalf("expected media ingest id to be set before source open, got %q", spec.MediaIngestID)
 		}
 		return &sliceCameraRelayStream{
@@ -705,8 +715,8 @@ func TestCameraRelayManagerStartUploadsMediaAndCloses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start returned error: %v", err)
 	}
-	if state.MediaIngestID != "media-123" {
-		t.Fatalf("expected media_ingest_id media-123, got %q", state.MediaIngestID)
+	if state.MediaIngestID != relayTestMediaIngestID {
+		t.Fatalf("expected media_ingest_id %q, got %q", relayTestMediaIngestID, state.MediaIngestID)
 	}
 
 	select {
@@ -733,8 +743,8 @@ func TestCameraRelayManagerStartUploadsMediaAndCloses(t *testing.T) {
 	if len(gateway.closeRequests) != 1 {
 		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
 	}
-	if got := gateway.closeRequests[0].GetReason(); got != "camera relay source completed" {
-		t.Fatalf("expected close reason %q, got %q", "camera relay source completed", got)
+	if got := gateway.closeRequests[0].GetReason(); got != cameraRelayReasonSourceCompleted {
+		t.Fatalf("expected close reason %q, got %q", cameraRelayReasonSourceCompleted, got)
 	}
 }
 
@@ -773,6 +783,87 @@ func TestCameraRelayManagerRejectsDuplicateRelaySession(t *testing.T) {
 	defer cancel()
 	if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: "relay-dup", Reason: "test complete"}); err != nil {
 		t.Fatalf("Stop returned error: %v", err)
+	}
+}
+
+func TestCameraRelayManagerDoesNotRetryFailedUpload(t *testing.T) {
+	t.Parallel()
+	gateway := newFakeCameraRelayGateway()
+	gateway.uploadErr = status.Error(codes.DeadlineExceeded, "synthetic upload already accepted or timed out")
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	manager.uploadBatchSize = 1
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		return &sliceCameraRelayStream{chunks: []*cameraRelayChunk{
+			{TrackID: "video", Payload: []byte("invented-frame-1"), Sequence: 1, Codec: "h264", PayloadFormat: "annexb"},
+			{TrackID: "video", Payload: []byte("invented-frame-2"), Sequence: 2, Codec: "h264", PayloadFormat: "annexb"},
+		}}, nil
+	}
+	if _, err := manager.Start(context.Background(), cameraRelaySessionSpec{
+		RelaySessionID: "relay-no-retry-1", AgentID: "agent-synthetic-3", CameraSourceID: "camera-synthetic-3",
+		StreamProfileID: "main", LeaseToken: "lease-synthetic-3",
+	}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	select {
+	case <-gateway.closeNotifyCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for upstream close after a failed upload")
+	}
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+	if gateway.uploadAttempts != 1 {
+		t.Fatalf("upload attempts = %d, want 1 (no automatic retry)", gateway.uploadAttempts)
+	}
+	if len(gateway.closeRequests) != 1 || gateway.closeRequests[0].GetReason() != cameraRelayReasonUploadFailed {
+		t.Fatalf("unexpected cleanup after failed upload: %+v", gateway.closeRequests)
+	}
+}
+
+type eofStatusCameraRelayServer struct {
+	proto.UnimplementedCameraMediaServiceServer
+	code   codes.Code
+	closed chan *proto.CloseRelaySessionRequest
+}
+
+func (s *eofStatusCameraRelayServer) UploadMedia(grpc.ClientStreamingServer[proto.MediaChunk, proto.UploadMediaResponse]) error {
+	// Return before reading so the client's Send observes io.EOF and must
+	// recover this status from CloseAndRecv.
+	return status.Error(s.code, "synthetic ingress status during send")
+}
+
+func (s *eofStatusCameraRelayServer) CloseRelaySession(_ context.Context, req *proto.CloseRelaySessionRequest) (*proto.CloseRelaySessionResponse, error) {
+	s.closed <- req
+	return &proto.CloseRelaySessionResponse{Closed: true}, nil
+}
+
+func TestCameraGatewaySendEOFSurfacesServerStatus(t *testing.T) {
+	t.Setenv("SR_ALLOW_INSECURE", "true")
+	for _, code := range []codes.Code{codes.NotFound, codes.DeadlineExceeded, codes.Unavailable} {
+		t.Run(code.String(), func(t *testing.T) {
+			service := &eofStatusCameraRelayServer{code: code, closed: make(chan *proto.CloseRelaySessionRequest, 1)}
+			gateway, _, _ := newCameraRelayRPCClient(t, service)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			_, err := gateway.UploadMedia(ctx, []*proto.MediaChunk{{
+				RelaySessionId: "relay-eof-1", Payload: []byte("invented-eof-frame"), Sequence: 1,
+			}})
+			if status.Code(err) != code || !strings.Contains(status.Convert(err).Message(), "synthetic ingress status during send") {
+				t.Fatalf("send EOF hid the server status: %v", err)
+			}
+			if code == codes.Unavailable {
+				if gateway.IsConnected() {
+					t.Fatal("unavailable send failure left the shared gateway connected")
+				}
+				return
+			}
+			if !gateway.IsConnected() {
+				t.Fatal("non-unavailable send failure disconnected the shared gateway")
+			}
+			resp, err := gateway.CloseRelaySession(ctx, &proto.CloseRelaySessionRequest{RelaySessionId: "relay-eof-cleanup-1", Reason: "test cleanup"})
+			if err != nil || !resp.GetClosed() {
+				t.Fatalf("cleanup after send EOF: response=%v error=%v", resp, err)
+			}
+		})
 	}
 }
 

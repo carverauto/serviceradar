@@ -19,7 +19,61 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderTest do
 
     @impl true
     def handle_call({:upload_media, _chunks}, _from, :close), do: {:stop, :normal, :close}
+    def handle_call({:upload_media, _chunks}, _from, :shutdown), do: {:stop, :shutdown, :shutdown}
+    def handle_call({:upload_media, _chunks}, _from, :nodedown),
+      do: {:stop, {:nodedown, :core@synthetic}, :nodedown}
+
+    def handle_call({:upload_media, _chunks}, _from, :other), do: {:stop, :kaboom, :other}
     def handle_call({:upload_media, _chunks}, _from, :timeout), do: {:noreply, :timeout}
+  end
+
+  test "classifies noproc, shutdown, nodedown, and other ingress exits without returning media bytes" do
+    payload = "synthetic-private-media"
+
+    {:ok, dead} = IngressServer.start_link(:close)
+    Process.unlink(dead)
+    GenServer.stop(dead)
+
+    cases = [
+      {dead, GRPC.Status.not_found(), "open a new relay session"},
+      {:shutdown, GRPC.Status.not_found(), "open a new relay session"},
+      {:nodedown, GRPC.Status.unavailable(), "reconnect and open a new relay session"},
+      {:other, GRPC.Status.unavailable(), "check core health and open a new relay session"}
+    ]
+
+    for {mode_or_pid, status, recovery} <- cases do
+      pid =
+        case mode_or_pid do
+          pid when is_pid(pid) ->
+            pid
+
+          mode ->
+            {:ok, pid} = IngressServer.start_link(mode)
+            Process.unlink(pid)
+            pid
+        end
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert {:error, %GRPC.RPCError{status: ^status, message: message}} =
+                   CameraMediaForwarder.upload_media(
+                     [%Camera.MediaChunk{payload: payload, sequence: 7}],
+                     ingress_pid: pid,
+                     timeout: 5_000
+                   )
+
+          assert message =~ recovery
+          refute message =~ payload
+        end)
+
+      classification =
+        log
+        |> String.split("\n")
+        |> Enum.filter(&String.contains?(&1, "ERTS camera media ingress call failed"))
+
+      assert classification != []
+      refute Enum.any?(classification, &String.contains?(&1, payload))
+    end
   end
 
   test "distinguishes ingress closure and timeout without logging media payloads" do
