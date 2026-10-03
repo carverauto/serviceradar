@@ -69,12 +69,19 @@ exports_files([
 ])
 
 # Every workflow, so a repository contract can scan workflows added after it was written.
+# The tree is .yml today. Bazel fails the whole filegroup when any one pattern matches
+# nothing, which unloaded //:github_workflows and made the retired-lifecycle contract
+# unable to see workflows at all. allow_empty keeps a future .yaml workflow as an input
+# without that; the contract still fails if publish-oci.yml is not among the inputs.
 filegroup(
     name = "github_workflows",
-    srcs = glob([
-        ".github/workflows/*.yml",
-        ".github/workflows/*.yaml",
-    ]),
+    srcs = glob(
+        [
+            ".github/workflows/*.yml",
+            ".github/workflows/*.yaml",
+        ],
+        allow_empty = True,
+    ),
     visibility = ["//build/contracts:__pkg__"],
 )
 

@@ -423,8 +423,8 @@ integration-tagged targets. Source separation protects ExUnit selection inside t
 negative Bazel target tag and build-only-test restriction protect wildcard target selection.
 
 `build/integration_shards.bzl` exports the dedicated suffix separately from the async and serial lane suffixes.
-`provision_db` clones only the eight frozen ordinary lane databases; a focused
-`provision_db_large_ingestion` target declares the same run-id file, fixture configuration, and
+`provision_generation` clones only the eight ordinary lane databases; a focused
+`provision_generation_large_ingestion` target declares the same run-id file, fixture configuration, and
 core migration filegroup as the ordinary provision targets, and supplies only the dedicated suffix
 through `SERVICERADAR_TEST_DB_SHARDS`. It clones only the heavy-gate database. Teardown already owns
 the entire run prefix and removes either shape.
@@ -463,7 +463,7 @@ stable action name and classic GitHub commit-status context are
 `LargeIngestionGate`. BuildBuddy's linked GitHub App, not a credential passed into the Bazel action,
 posts that status for the exact workflow commit with a BuildBuddy target URL.
 
-Before `provision_db_large_ingestion`, the action starts the Bazel-owned observer with
+Before `provision_generation_large_ingestion`, the action starts the Bazel-owned observer with
 `required_pool_slots=15` and waits for its ready handshake. That reservation is the parent Repo's
 12 configured slots, the concurrently possible cold-bootstrap child Repo's 2 slots, and the one
 direct Postgrex administrator connection opened by `StartupMigrations`. It is independent of the

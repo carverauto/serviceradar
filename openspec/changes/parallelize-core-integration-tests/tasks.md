@@ -28,7 +28,7 @@
       environment preloads, fixed 50,000-device and 500-device/three-round CI values, and complete
       runtime data.
 - [x] 2.3 Add a shared `large_ingestion` database suffix and a focused
-      `//rust/integration-db:provision_db_large_ingestion` target without adding that database to
+      `//rust/integration-db:provision_generation_large_ingestion` target without adding that database to
       ordinary eight-shard provisioning.
 - [x] 2.4 Add lifecycle/configuration tests proving the Elixir target and Rust provision target
       derive the same database name, ordinary unit/integration targets exclude the heavy source,
