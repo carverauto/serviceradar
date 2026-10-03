@@ -1,8 +1,9 @@
 // Auth login command. Two flows:
-//   * device-code (RFC 8628, default)
-//   * PKCE with localhost callback (RFC 7636 + RFC 8252, --web)
-// Both fall back to manual token paste when the corresponding instance
-// endpoints return 404. Issued tokens persist via the credentials module.
+//   * device-code (RFC 8628, default). Falls back to manual token paste
+//     when /api/v1/cli/auth/device returns 404.
+//   * PKCE with localhost callback (RFC 7636 + RFC 8252, --web). A 404 from
+//     the authorize or token endpoint fails the command; it does not paste
+//     a token. Issued tokens persist via the credentials module.
 
 import {createHash, randomBytes} from "node:crypto"
 import {createServer, type Server} from "node:http"

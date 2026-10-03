@@ -14,7 +14,7 @@
 - `auth login` requests `dashboard.publish edge.manage` by default. `--scope` still overrides
   and now accepts commas. A server policy that refuses the scope is reported, not papered over.
 - `auth login --web` fails with "not supported by this server" when the PKCE authorize
-  endpoint is not routed, instead of falling back to manual token paste.
+  or token endpoint is not routed, instead of falling back to manual token paste.
 - New `srcloud` bin alias. The agent package's `/usr/local/bin/serviceradar-cli` (an `srctl`
   alias) collides with this package's bin when npm's global prefix is `/usr/local`.
 - `-o <file>` short flag for download commands.

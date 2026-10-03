@@ -1,5 +1,6 @@
-// `auth status` — print the resolved instance, user, and timestamps for
-// each stored credential. The token itself is never written to stdout.
+// `auth status` — print the resolved instance, user, granted scope, and
+// timestamps for each stored credential. The token itself is never written
+// to stdout.
 
 import {normalizeInstanceUrl, readCredentials} from "./credentials.js"
 

@@ -23,7 +23,7 @@ is installed alongside the service it administers.
 
 Examples in this page use `srctl` as the command name. The separate
 [JavaScript CLI](https://github.com/carverauto/serviceradar/blob/staging/js/cli/README.md)
-retains the `serviceradar-cli` name for dashboard and plugin workflows. The `capture` subcommand is not included; it
+(`serviceradar-cli`, and `srcloud` on edge hosts) covers dashboard, plugin, and hosted-tenant edge onboarding. The `capture` subcommand is not included; it
 depends on the remote packet-capture session, RBAC, and audit support.
 
 Run with no subcommand and no arguments to launch an interactive TUI; run with
