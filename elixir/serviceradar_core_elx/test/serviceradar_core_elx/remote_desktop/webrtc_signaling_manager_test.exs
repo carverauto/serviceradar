@@ -88,6 +88,38 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
     end
   end
 
+  # Registers like the real data channel provider (an element peer), so when
+  # this process dies the Signaling process stops with its crash reason.
+  defmodule ElementPeerMediaManagerStub do
+    @moduledoc false
+
+    def add_webrtc_viewer(session_id, viewer_session_id, signaling, opts) do
+      test_pid = Application.fetch_env!(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid)
+
+      element =
+        spawn(fn ->
+          :ok = Signaling.register_element(signaling)
+
+          :ok =
+            Signaling.signal(signaling, %ExWebRTC.SessionDescription{type: :offer, sdp: "v=0\r\ndesktop-offer"})
+
+          receive do
+            :never -> :ok
+          end
+        end)
+
+      send(test_pid, {:element_peer, viewer_session_id, element})
+      send(test_pid, {:add_webrtc_viewer, session_id, viewer_session_id, opts})
+      :ok
+    end
+
+    def remove_webrtc_viewer(session_id, viewer_session_id) do
+      test_pid = Application.fetch_env!(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid)
+      send(test_pid, {:remove_webrtc_viewer, session_id, viewer_session_id})
+      :ok
+    end
+  end
+
   defmodule MediaCleanupStub do
     @moduledoc false
 
@@ -150,6 +182,39 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
 
     assert_receive {:remove_webrtc_viewer, ^session_id, ^viewer_session_id}
     assert_receive {:close_desktop_media_session, ^session_id}
+  end
+
+  # The manager serves every desktop viewer. A crashed signaling peer (the data
+  # channel element) must release only its viewer, never restart the manager.
+  test "survives a viewer whose signaling peer crashed and releases only that viewer" do
+    session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    manager =
+      start_supervised!(
+        {WebRTCSignalingManager,
+         name: server_name,
+         session_tracker: SessionTrackerStub,
+         media_manager: ElementPeerMediaManagerStub,
+         session_ttl_ms: 5_000}
+      )
+
+    assert {:ok, %{viewer_session_id: crashed_viewer}} =
+             WebRTCSignalingManager.create_session(session_id, server: server_name, actor_id: "actor-1")
+
+    assert {:ok, %{viewer_session_id: other_viewer}} =
+             WebRTCSignalingManager.create_session(session_id, server: server_name, actor_id: "actor-1")
+
+    assert_receive {:element_peer, ^crashed_viewer, element}
+    Process.exit(element, :data_channel_crashed)
+
+    assert_receive {:remove_webrtc_viewer, ^session_id, ^crashed_viewer}
+    assert GenServer.whereis(server_name) == manager
+
+    assert {:ok, %{viewer_session_id: ^other_viewer, signaling_state: "closed"}} =
+             WebRTCSignalingManager.close_session(session_id, other_viewer, server: server_name, actor_id: "actor-1")
+
+    assert GenServer.whereis(server_name) == manager
   end
 
   test "bounds viewers per desktop session and releases capacity after close" do
