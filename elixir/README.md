@@ -53,7 +53,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_generation`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
 | `elixir/serviceradar_agent_gateway` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/web-ng` | `erlang_app`, `unit_tests`, `deps_cache`, `precommit`, `release_tar` | Phoenix; see `elixir/web-ng/AGENTS.md` |
-| `elixir/serviceradar_core_elx` | `release_tar` | Release wrapper, no `mix_app` |
+| `elixir/serviceradar_core_elx` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/palisade` | none | Not compiled by Bazel; its `BUILD.bazel` only exports `mix.lock` for the Hex closure |
 
 Vendored Hex packages that used to sit in this tree now live in
