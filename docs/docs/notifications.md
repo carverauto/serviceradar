@@ -856,11 +856,11 @@ expires.
 Links are only rendered when the deployment knows its own external address. Set
 `SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` (or the
 `:notification_action_base_url` application setting) to the externally reachable
-base of the web UI. The Helm chart sets this from `webNg.publicUrl` on the
-`web-ng` deployment, which is where Discord/Slack control-plane deliveries run.
-Without it, notifications still go out and the delivery records that links were
-exempted for an unconfigured base URL - a bare path would be a dead link in an
-email client.
+base of the web UI. The Helm chart sets this from `webNg.publicUrl` on `core`
+and `web-ng`. See [Helm configuration](./helm-configuration.md).
+Without that origin, notifications still go out and the delivery records that
+links were exempted for an unconfigured base URL - a bare path would be a dead
+link in an email client.
 
 Discord embeds also put that URL on the embed title and in an
 `Open in ServiceRadar` field so a page is one click back to `/alerts/<id>`.

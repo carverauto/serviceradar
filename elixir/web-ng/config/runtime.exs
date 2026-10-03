@@ -1358,7 +1358,8 @@ if config_env() != :test do
       :service_checks,
       parse_queue_limit.("WEB_NG_OBAN_QUEUE_SERVICE_CHECKS", 10)
     )
-    |> maybe_queue.(:notifications, parse_queue_limit.("WEB_NG_OBAN_QUEUE_NOTIFICATIONS", 5))
+    # 0 so web-ng does not publish notifications.*; dispatch stays on core.
+    |> maybe_queue.(:notifications, parse_queue_limit.("WEB_NG_OBAN_QUEUE_NOTIFICATIONS", 0))
     |> maybe_queue.(:onboarding, parse_queue_limit.("WEB_NG_OBAN_QUEUE_ONBOARDING", 3))
     |> maybe_queue.(:events, parse_queue_limit.("WEB_NG_OBAN_QUEUE_EVENTS", 10))
     |> maybe_queue.(:sweeps, parse_queue_limit.("WEB_NG_OBAN_QUEUE_SWEEPS", 20))

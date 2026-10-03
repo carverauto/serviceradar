@@ -35,6 +35,8 @@ defmodule ServiceRadar.NATS.Supervisor do
 
   use Supervisor
 
+  alias ServiceRadar.NATS.BrokerErrorLogFilter
+
   require Logger
 
   @connection_name :serviceradar_nats
@@ -53,6 +55,7 @@ defmodule ServiceRadar.NATS.Supervisor do
   def init(_opts) do
     config = Application.get_env(:serviceradar_core, ServiceRadar.NATS.Connection, [])
     _ = ensure_ssl_started(config)
+    :ok = BrokerErrorLogFilter.install(broker_identity(config))
 
     case build_connection_settings(config) do
       {:ok, connection_settings} ->
@@ -74,6 +77,29 @@ defmodule ServiceRadar.NATS.Supervisor do
         # Start with empty children - will not have NATS
         Supervisor.init([], strategy: :one_for_one)
     end
+  end
+
+  # Names the connection in broker error reports. Only paths, never secret
+  # material: the TLS client certificate maps to the broker's permission user
+  # and the creds file to the JWT user, whichever the server authenticates.
+  defp broker_identity(config) do
+    tls = Keyword.get(config, :tls, false)
+    certfile = if is_list(tls), do: Keyword.get(tls, :certfile)
+    creds_file = config |> Keyword.get(:creds_file) |> resolve_value() |> normalize()
+
+    credentials =
+      [certfile && "tls_cert=#{certfile}", creds_file && "creds_file=#{creds_file}"]
+      |> Enum.filter(& &1)
+      |> case do
+        [] -> "none"
+        parts -> Enum.join(parts, " ")
+      end
+
+    [
+      connection: @connection_name,
+      endpoint: "#{Keyword.get(config, :host, "localhost")}:#{Keyword.get(config, :port, 4222)}",
+      credentials: credentials
+    ]
   end
 
   defp ensure_ssl_started(config) do

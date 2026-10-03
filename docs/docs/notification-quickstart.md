@@ -69,8 +69,9 @@ ServiceRadar.
 
 ### 2. Egress (Kubernetes)
 
-Control-plane webhooks leave from the **web-ng** (and sometimes **core**)
-pods. If NetworkPolicy is enabled, HTTPS to the destination must be
+Control-plane webhooks leave from the **core** pods.
+`webNg.obanQueues.notifications` defaults to 0, so web-ng does not dispatch
+them. If NetworkPolicy is enabled, HTTPS from core to the destination must be
 allowlisted. Kubernetes NetworkPolicy cannot match DNS names, so you pin
 CIDRs.
 
