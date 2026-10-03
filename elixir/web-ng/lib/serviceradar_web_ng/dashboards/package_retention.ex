@@ -162,31 +162,30 @@ defmodule ServiceRadarWebNG.Dashboards.PackageRetention do
   end
 
   defp delete_one(%DashboardPackage{} = pkg, actor) do
-    blob_deleted? =
-      case pkg.wasm_object_key do
-        nil ->
-          false
-
-        key ->
-          case Storage.delete_blob(key) do
-            :ok ->
-              true
-
-            {:error, blob_reason} ->
-              Logger.warning("DashboardPackageRetention: blob delete failed",
-                package_id: pkg.id,
-                object_key: key,
-                reason: inspect(blob_reason)
-              )
-
-              false
-          end
+    with {:ok, blob_deleted?} <- delete_blob(pkg) do
+      case Ash.destroy(pkg, actor: actor) do
+        :ok -> {:ok, blob_deleted?}
+        {:ok, _} -> {:ok, blob_deleted?}
+        {:error, reason} -> {:error, reason}
       end
+    end
+  end
 
-    case Ash.destroy(pkg, actor: actor) do
-      :ok -> {:ok, blob_deleted?}
-      {:ok, _} -> {:ok, blob_deleted?}
-      {:error, reason} -> {:error, reason}
+  defp delete_blob(%DashboardPackage{wasm_object_key: nil}), do: {:ok, false}
+
+  defp delete_blob(%DashboardPackage{wasm_object_key: key} = pkg) do
+    case Storage.delete_blob(key) do
+      :ok ->
+        {:ok, true}
+
+      {:error, blob_reason} ->
+        Logger.warning("DashboardPackageRetention: blob delete failed",
+          package_id: pkg.id,
+          object_key: key,
+          reason: inspect(blob_reason)
+        )
+
+        {:error, blob_reason}
     end
   end
 end
