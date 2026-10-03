@@ -129,6 +129,24 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
   end
 
   @doc """
+  Check if a MAC address is a group (multicast) address (IEEE bit 0 of the first octet).
+
+  A group address names no single interface, so it is never evidence that two records are
+  one device.
+  """
+  @spec multicast_mac?(String.t() | nil) :: boolean()
+  def multicast_mac?(mac) do
+    case normalize_mac(mac) do
+      normalized when is_binary(normalized) and byte_size(normalized) >= 2 ->
+        {first_byte, _} = Integer.parse(String.slice(normalized, 0, 2), 16)
+        band(first_byte, 0x01) != 0
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
   The set of universally-administered (globally-unique, hardware-anchor) MACs
   from a raw MAC field or a list of them.
 

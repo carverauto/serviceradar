@@ -80,17 +80,34 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
 
   # Bulk lookup device identifiers.
   # DB connection's search_path determines the schema
-  def bulk_lookup_identifiers([]), do: %{}
-
   def bulk_lookup_identifiers(identifiers) do
-    identifiers
-    |> Enum.chunk_every(@identifier_lookup_chunk_size)
-    |> Enum.flat_map(&lookup_identifier_chunk/1)
-    |> Enum.reduce(%{}, &identifier_row_to_map/2)
+    case lookup_identifiers_strict(identifiers) do
+      {:ok, mappings} ->
+        mappings
+
+      {:error, e} ->
+        Logger.warning("Bulk identifier lookup failed: #{inspect(e)}")
+        %{}
+    end
+  end
+
+  @doc """
+  The holders of `identifiers` (`{type, value, partition}` keys), as `bulk_lookup_identifiers/1`
+  gives them, or `{:error, reason}` when the lookup fails. A caller that must not read a failure
+  as "nobody holds them" uses this one.
+  """
+  @spec lookup_identifiers_strict([{atom(), String.t(), String.t()}]) ::
+          {:ok, %{{atom(), String.t(), String.t()} => String.t()}} | {:error, term()}
+  def lookup_identifiers_strict([]), do: {:ok, %{}}
+
+  def lookup_identifiers_strict(identifiers) do
+    {:ok,
+     identifiers
+     |> Enum.chunk_every(@identifier_lookup_chunk_size)
+     |> Enum.flat_map(&lookup_identifier_chunk/1)
+     |> Enum.reduce(%{}, &identifier_row_to_map/2)}
   rescue
-    e ->
-      Logger.warning("Bulk identifier lookup failed: #{inspect(e)}")
-      %{}
+    e -> {:error, e}
   end
 
   defp lookup_identifier_chunk(identifiers) do

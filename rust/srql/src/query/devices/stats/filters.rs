@@ -49,6 +49,17 @@ pub(super) fn build_grouped_stats_filter_clause(
             let _ = super::super::filters::parse_bool(filter.value.as_scalar()?)?;
             return Ok(None);
         }
+        "include_retired" => {
+            let _ = super::super::filters::parse_include_retired(filter)?;
+            return Ok(None);
+        }
+        "source_retired" => {
+            if super::super::filters::retired_filter_matches_marked(filter)? {
+                "source_retired_at IS NOT NULL".to_string()
+            } else {
+                "source_retired_at IS NULL".to_string()
+            }
+        }
         "deleted" => build_deleted_clause(filter)?,
         "awx_managed" => build_awx_managed_clause(filter)?,
         "discovery_sources" => build_discovery_sources_clause(filter, &mut binds)?,

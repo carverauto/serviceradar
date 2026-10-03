@@ -60,15 +60,19 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   vacuously.
 
   It also models the end of a record whose source ids all retired, and the sweep:
-  - `Retire` archives ids a live record holds (the variable `arch`). When they are all it
-    holds, the same step marks the record (`marked`, `source_retired_at`); this is the design's
-    `MarkRetired`. A record that gains an identifier loses the mark.
+  - `Retire` archives source or agent ids a live record holds (the variable `arch`) and bumps
+    the record, since the archive transaction moves its `identity_revision`. The constant
+    `MacIds` says which identifiers are MACs, and a MAC never retires. When the ids retired are
+    every id the record holds but its MACs, the same step marks the record (`marked`,
+    `source_retired_at`); this is the design's `MarkRetired`. A record that gains a source or
+    agent id loses the mark. A MAC neither withholds the mark nor clears it, and stays with the
+    record while it is marked and as a tombstone (`MarkedHoldsOnlyMacs`).
   - `GraceDelete` soft-deletes a marked record with reason `source_retired` and releases its
     address.
   - A write reporting one of a record's retired ids, or one of a record merged into it, moves the
-    archive rows back. This step, `Reactivate`, is the only write that restores a
-    `source_retired` tombstone. Any other sighting of a `source_retired` or `seed_released`
-    tombstone is dropped, as the write to a merged-away row is.
+    archive rows back and bumps the record, live or not. This step, `Reactivate`, is the only
+    write that restores a `source_retired` tombstone. Any other sighting of a `source_retired`
+    or `seed_released` tombstone is dropped, as the write to a merged-away row is.
   - `Sweep` matches the live holder of the address, or else a tombstone. It restores the
     tombstone (`SweepRestore`) by `restore_eligible?/1`'s rule, and otherwise writes the
     sighting (`SweepRefresh`) or, for a tombstone once D12 lands, leaves it alone (`SweepSkip`).
@@ -91,15 +95,18 @@ configuration sets it.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, expires, grace-deletes, reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, expires, grace-deletes (a record still holding a MAC among them), reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
 | `resolution_unsafe_<alternative>` | none; one `Unsafe` alternative | `violation:NoFalseMerge` | The rejected alternative still merges two physical devices. If TLC finds no violation, or a different one, the target fails. |
 
 The lifecycle goal is split so that each check stays inside its budget. `lifecycle_goal` (three
-devices) and `lifecycle_goal_no_expiry` run with `RetirementEnabled = FALSE`. Two
+devices) and `lifecycle_goal_no_expiry` run with `RetirementEnabled = FALSE`. Three
 configurations of their own check retirement, the grace delete and reactivation:
-`lifecycle_goal_retirement` (two devices, two identifiers) and `lifecycle_goal_retirement_chain`
-(a three-device merge chain, one identifier). `lifecycle_current` turns both expiry and
-retirement on, so today's switches are checked against every action.
+`lifecycle_goal_retirement` (two devices, two source identifiers),
+`lifecycle_goal_retirement_mac` (two devices, a source identifier and a MAC) and
+`lifecycle_goal_retirement_chain` (a three-device merge chain, one identifier).
+`lifecycle_vacuity_grace_delete_mac` expects `NeverGraceDeletesMacHolder` to fail, so the MAC
+configuration grace-deletes a record that still holds its MAC. `lifecycle_current` turns both
+expiry and retirement on, so today's switches are checked against every action.
 
 `lifecycle_goal_no_expiry` sets `ExpiryEnabled = FALSE`. Every property the models check is a
 safety property, and turning an action off only removes behaviors, so today the configuration
@@ -258,26 +265,30 @@ The lifecycle traces come from
 `ServiceRadar.DireLifecycleTrace` (`test/support/dire_lifecycle_trace.ex`), which drives the
 lifecycle entry points: ingest (`SyncIngestor`, `AgentGatewaySync`), `MergeEngine` merge and
 unmerge (including the resolver's conflict merge), `Device :soft_delete`,
-`SweepResultsIngestor` sweeps, `EphemeralDeviceExpiry` expiry, and `DeviceCleanupWorker`
-purges. It records device status and
+`SweepResultsIngestor` sweeps, `EphemeralDeviceExpiry` expiry, `DeviceCleanupWorker` purges,
+`SourceRetirement` retirement after exact collections without the id, and
+`SourceRetiredExpiry`'s grace delete. It records device status and
 delete reason, identifier owners, addresses, the `merge_audit` rows, the `source_retired` mark,
 the identifier archive, which devices only the sweep discovered, and the devices each step's
 `identity_revision` moved. A sweep is logged as the model's step for what it did:
 `SweepCreate`, `SweepRestore`, `SweepRefresh` (it wrote its sighting to the record it found) or
 `SweepSkip`. Whether a sweep wrote a row is read from the row's version, since a sighting's
-one-second timestamps can equal an earlier step's. No code writes the mark before D5 lands,
-and no lifecycle trace recorded today retires an id, so those entries are empty in every one;
-the tamper variants still prove both are pinned. The recorder writes the archive empty rather
-than reading `device_identifier_archive`: the code moves an archived row to the merge survivor,
-where the model keeps the device the id retired from and follows the merge, so the first trace
-that retires an id must map one onto the other. An ingest is logged as the model's `StartWork` and `Commit`; the code
-runs them in one call, so `work` is never stale in a recorded trace: a black-box trace cannot
-place a transition between the pin and the write. The enforced fence (#4618) is proven instead by
+one-second timestamps can equal an earlier step's. The archive is read from
+`device_identifier_archive`. A merge moves an archived row to the survivor, while the model
+keeps the device the id retired from and follows the merge, so no trace merges a record after
+one of its ids retired. Only `source_retired_returns` retires an id, so the mark and the
+archive are empty in every other trace; the tamper variants still prove both are pinned. A
+source files the MACs it reports under its own partition, which a MAC-only sighting in the
+default partition does not reach, so a trace's evidence sighting of a source's record is a
+sweep. An ingest is logged as the model's `StartWork` and `Commit`, or `Reactivate` when a
+retired id it reports leaves the archive; the code runs them in one call, so `work` is never
+stale in a recorded trace: a black-box trace cannot place a transition between the pin and the
+write. The enforced fence (#4618) is proven instead by
 `elixir/serviceradar_core/test/serviceradar/inventory/identity/fence_enforcement_test.exs`, which
-puts a merge, a purge or repeated transitions in exactly that window. Two values
-are ghosts the harness supplies: which identifiers a merged-away device owned when the merge
-ran (`srcIds`), and the insertion order of `merge_audit` rows, whose `created_at` has
-one-second precision. `DireLifecycleTrace.tla` checks them the same way.
+puts a merge, a purge or repeated transitions in exactly that window. Two values are ghosts the
+harness supplies: which identifiers a merged-away device owned when the merge ran (`srcIds`),
+and the insertion order of `merge_audit` rows, whose `created_at` has one-second precision.
+`DireLifecycleTrace.tla` checks them the same way.
 
 A trace whose defect is still present is also rejected by the model with that defect switch
 turned off (a knockout, `Trace_<name>__knockout.cfg`, written by the test's
@@ -337,6 +348,12 @@ The lifecycle regression traces:
   trace without the switch, where the model leaves the tombstone alone (`SweepSkip`).
 - `purge_recreate` (#4620) records a source carrying a purged merged-away uid landing on the
   survivor.
+- `source_retired_returns` (D5, D6) records the end and the return of a record the source stops
+  reporting. Exact collections without its id retire it; the record, left holding only its
+  MAC, is marked `source_retired` with a bump. A sweep answering at its address leaves the mark,
+  the grace pass deletes it and releases the address, and a sweep there then seeds a new
+  record. When the source reports the retired id again at another address, the write
+  reactivates the tombstone with a bump.
 
 The lifecycle trace of an open defect:
 
@@ -389,7 +406,8 @@ still describes the code. The switches today's code has are listed once, in `Cur
   tombstone only by its address.
 - Partitions. Identifiers, aliases and devices are filed under partitions, and a source's
   identifiers under the source's own; the model has one partition, so a lookup made under the
-  wrong one is modeled only where a trace found it (`armis_alias_pass_blind`).
+  wrong one is modeled only where a trace found it (`armis_alias_pass_blind`). For the same
+  reason a lifecycle trace never reaches a source's record by a MAC-only sighting.
 - Hostnames reported by agents and the mapper. The model writes only the source's hostnames
   (`recFs`), so the hostname agreement it records is the source's.
 - Absorbing a provisional address-only record into an identified device. The goal never merges
@@ -432,8 +450,8 @@ still describes the code. The switches today's code has are listed once, in `Cur
   seed's uid comes from its address, so a sweep at the address of a purged merged-away seed may
   create a row under that uid, outside the redirect #4620 follows. Whether the code can is a
   task of the change (tasks.md 9.7).
-- Retirement conditions and elapsed time in the lifecycle model. Any identifier a live record
-  holds may retire, and any marked record may be grace-deleted. The absence rules, the mass
+- Retirement conditions and elapsed time in the lifecycle model. Any source or agent id a live
+  record holds may retire, and any marked record may be grace-deleted. The absence rules, the mass
   guard, the mark's conditions and the open-review hold only ever withhold a step, so the model
   checks every path they allow.
 - Availability and `last_seen_time`. A sweep's write to a record changes no modeled variable;

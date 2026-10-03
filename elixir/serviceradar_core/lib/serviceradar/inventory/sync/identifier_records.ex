@@ -145,15 +145,22 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
       {:error, e}
   end
 
+  # The source's own first-seen and last-seen times ride on the identifier row, so they move
+  # into the archive with it when the identifier retires: a retired id reported again is
+  # judged against the times its source last reported for it
+  # (`ServiceRadar.Inventory.Identity.SourceReactivation`).
   def build_identifier_metadata(update) do
     metadata =
-      Map.take(update.metadata, [
+      update.metadata
+      |> Map.take([
         "sync_service_id",
         "sync_run_id",
         "sync_total_devices",
         "integration_type",
         "source_duplicate_conflict"
       ])
+      |> put_time("source_first_seen_time", Map.get(update, :first_seen_time))
+      |> put_time("source_last_seen_time", Map.get(update, :last_seen_time))
 
     case HardwareSerial.evidence(update) do
       {:ok, evidence} ->
@@ -166,4 +173,9 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
         metadata
     end
   end
+
+  defp put_time(metadata, key, %DateTime{} = time),
+    do: Map.put(metadata, key, time |> DateTime.truncate(:second) |> DateTime.to_iso8601())
+
+  defp put_time(metadata, _key, _time), do: metadata
 end

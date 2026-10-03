@@ -1,9 +1,11 @@
 defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   @moduledoc """
   Integration coverage for source identifier retirement (change `add-source-id-succession`,
-  tasks 3.1-3.4 and 14.1): an exact collection counts the absences it proves when it
-  activates, and a retirement pass archives an identifier absent from N consecutive exact
-  collections under one query and unreported for T, unless the pass is over the mass guard.
+  tasks 3.1-3.4, 6.1, 6.2, 14.1 and 14.4): an exact collection counts the absences it proves
+  when it activates, and a retirement pass archives an identifier absent from N consecutive
+  exact collections under one query and unreported for T, unless the pass is over the mass
+  guard. A retirement that leaves its record retired-only marks the record `source_retired`,
+  and the database holds the mark to that definition whichever writer touches the record.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -12,6 +14,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -22,6 +25,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   alias ServiceRadar.Inventory.Remediation.SourceIdentityRepair
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  require Ash.Query
 
   @moduletag :integration
 
@@ -35,6 +40,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     source_retirement_max_fraction: 0.5,
     source_retirement_guard_override: false
   }
+
+  # The same, with no mass guard: for a test that retires most of its instance.
+  @unguarded %{@settings | source_retirement_max_fraction: 1.0}
 
   @defaults %{
     source_retirement_enabled: true,
@@ -307,6 +315,153 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     end
   end
 
+  describe "the source_retired mark" do
+    test "a retirement that leaves the record retired-only marks it and hides it", ctx do
+      {a, b} = sustained_absence(ctx)
+      attach_events(ctx)
+
+      assert {:ok, %{retired: 1, devices: 1, marked: 1}} = retire(ctx, 30)
+
+      assert %Device{deleted_at: nil, source_retired_at: %DateTime{}} = marked = device!(ctx, b)
+      assert marked.metadata["identity_state"] == "source_retired"
+      assert %Device{source_retired_at: nil} = unmarked = device!(ctx, a)
+      refute Map.has_key?(unmarked.metadata, "identity_state")
+      assert retired_decision!(ctx, b).evidence["marked_source_retired"] == true
+
+      uid = b.uid
+
+      assert_received {:source_retirement, :retired, %{identifiers: 1},
+                       %{device_uid: ^uid, marked: true}}
+
+      # The inventory operators read leaves the record out unless asked; resolution reads it.
+      both = Enum.sort([a.uid, b.uid])
+      assert read_uids(ctx, :inventory, [a, b]) == [a.uid]
+      assert read_uids(ctx, :inventory, [a, b], %{include_retired: true}) == both
+      assert read_uids(ctx, :inventory, [a, b], %{include_deleted: true}) == both
+      assert read_uids(ctx, :read, [a, b]) == both
+    end
+
+    test "a record an agent, another source, an operator or a recent observation claims is kept unmarked",
+         ctx do
+      a = armis_record(ctx, 1)
+
+      [unclaimed, at_cutoff, agent, agent_identifier, netbox, manual, observed] =
+        absent = Enum.map(2..8, &armis_record(ctx, &1))
+
+      # The pass at hour 30 has its cutoff at hour 6: an observation at the cutoff is T old.
+      cutoff = DateTime.add(ctx.t0, 6, :hour)
+      put_column(at_cutoff, :identity_observed_at, DateTime.to_naive(cutoff))
+      put_column(agent, :agent_id, "agent-#{ctx.n}")
+      register(ctx, agent_identifier.uid, :agent_id, "agent-#{ctx.n}-id", "default")
+      register(ctx, netbox.uid, :netbox_device_id, "nb-#{ctx.n}", "default")
+      put_column(manual, :discovery_sources, ["armis", "manual"])
+
+      put_column(
+        observed,
+        :identity_observed_at,
+        cutoff |> DateTime.add(1, :second) |> DateTime.to_naive()
+      )
+
+      collect(ctx, 1, [a | absent], hours: 0)
+      for k <- 2..4, do: collect(ctx, k, [a], hours: 2 * (k - 1))
+      attach_events(ctx)
+
+      assert {:ok, %{retired: 7, devices: 7, marked: 2, failed: 0}} =
+               retire(ctx, 30, @unguarded)
+
+      expected = [
+        {unclaimed, true},
+        {at_cutoff, true},
+        {agent, false},
+        {agent_identifier, false},
+        {netbox, false},
+        {manual, false},
+        {observed, false}
+      ]
+
+      for {{record, marked?}, label} <-
+            Enum.zip(
+              expected,
+              ~w(unclaimed at_cutoff agent agent_identifier netbox manual observed)
+            ) do
+        refute held?(ctx, record), "#{label}: its id did not retire"
+        assert is_struct(device!(ctx, record).source_retired_at, DateTime) == marked?, label
+
+        assert retired_decision!(ctx, record).evidence["marked_source_retired"] == marked?,
+               label
+
+        uid = record.uid
+        assert_received {:source_retirement, :retired, _, %{device_uid: ^uid, marked: ^marked?}}
+      end
+    end
+
+    test "a marked record counts as inactive in the inventory rollups", ctx do
+      {_a, b} = sustained_absence(ctx)
+      total = inventory_total()
+
+      assert {:ok, %{marked: 1}} = retire(ctx, 30)
+      assert inventory_total() == total - 1
+
+      # A rebuild counts as the trigger does.
+      Repo.query!("SELECT platform.refresh_device_inventory_rollups()")
+      assert inventory_total() == active_devices()
+
+      rebuilt = inventory_total()
+      register_identifier(ctx, b.uid, :agent_id, "agent-#{ctx.n}", "default")
+      assert inventory_total() == rebuilt + 1
+    end
+
+    test "an agent or source-authoritative identifier registered on a marked record clears the mark",
+         ctx do
+      for {type, i} <- Enum.with_index(SourceRetirement.marking_identifier_types(), 1) do
+        record = marked_record(ctx, i)
+
+        register_identifier(
+          ctx,
+          record.uid,
+          type,
+          "#{ctx.n}-#{type}",
+          identifier_partition(ctx, type)
+        )
+
+        cleared = device!(ctx, record)
+        assert cleared.source_retired_at == nil, "#{type} left the mark"
+        refute Map.has_key?(cleared.metadata, "identity_state"), "#{type} left identity_state"
+      end
+    end
+
+    test "an identifier a merge moves onto a marked record clears the mark", ctx do
+      holder = armis_record(ctx, 1)
+      record = marked_record(ctx, 2)
+
+      {:ok, identifier} =
+        DeviceIdentifier
+        |> Ash.Query.filter(device_id == ^holder.uid and identifier_type == :armis_device_id)
+        |> Ash.read_one(actor: ctx.actor)
+
+      {:ok, _moved} =
+        identifier
+        |> Ash.Changeset.for_update(:reassign_device, %{device_id: record.uid})
+        |> Ash.update(actor: ctx.actor)
+
+      assert device!(ctx, record).source_retired_at == nil
+    end
+
+    test "address and other evidence registered on a marked record leaves the mark", ctx do
+      record = marked_record(ctx, 1)
+      marked_at = device!(ctx, record).source_retired_at
+      evidence = identifier_types() -- SourceRetirement.marking_identifier_types()
+
+      assert :mac in evidence and :ip in evidence
+
+      for type <- evidence,
+          do: register_identifier(ctx, record.uid, type, evidence_value(ctx, type), "default")
+
+      assert %Device{source_retired_at: ^marked_at} = marked = device!(ctx, record)
+      assert marked.metadata["identity_state"] == "source_retired"
+    end
+  end
+
   describe "mass guard" do
     test "a pass over the fraction retires nothing, logs the counts and emits telemetry", ctx do
       {_a, absent} = mass_absence(ctx)
@@ -519,17 +674,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   # Registers the identifier, then backdates its sightings to t0, so only the collections
   # decide when it was last reported.
   defp register(ctx, uid, type, value, partition) do
-    {:ok, _identifier} =
-      DeviceIdentifier
-      |> Ash.Changeset.for_create(:register, %{
-        device_id: uid,
-        identifier_type: type,
-        identifier_value: value,
-        partition: partition,
-        confidence: :strong,
-        source: "test"
-      })
-      |> Ash.create(actor: ctx.actor)
+    register_identifier(ctx, uid, type, value, partition)
 
     {1, _} =
       Repo.update_all(
@@ -541,6 +686,100 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
         [set: [first_seen: DateTime.to_naive(ctx.t0), last_seen: DateTime.to_naive(ctx.t0)]],
         prefix: @prefix
       )
+  end
+
+  # One INSERT, as an ingest registration is: the statement the mark-clearing trigger sees.
+  defp register_identifier(ctx, uid, type, value, partition) do
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:register, %{
+        device_id: uid,
+        identifier_type: type,
+        identifier_value: value,
+        partition: partition,
+        confidence: :strong,
+        source: "test"
+      })
+      |> Ash.create(actor: ctx.actor)
+  end
+
+  defp identifier_partition(ctx, :armis_device_id), do: ctx.id_partition
+  defp identifier_partition(_ctx, _type), do: "default"
+
+  defp identifier_types do
+    DeviceIdentifier
+    |> Ash.Resource.Info.attribute(:identifier_type)
+    |> Map.fetch!(:constraints)
+    |> Keyword.fetch!(:one_of)
+  end
+
+  defp evidence_value(_ctx, :mac), do: "00005E005301"
+  defp evidence_value(ctx, :ip), do: "192.0.2.#{ctx.ip_base + 99}"
+  defp evidence_value(ctx, type), do: "#{ctx.n}-#{type}"
+
+  # A record marked as SourceRetirement marks it; the mirror trigger sets identity_state.
+  defp marked_record(ctx, i) do
+    device = create_device(ctx, i)
+
+    %{num_rows: 1} =
+      Repo.query!("UPDATE platform.ocsf_devices SET source_retired_at = $2 WHERE uid = $1", [
+        device.uid,
+        NaiveDateTime.utc_now()
+      ])
+
+    %{uid: device.uid}
+  end
+
+  # Writes a column no device action accepts, as the writer that owns it does.
+  defp put_column(record, column, value)
+       when column in [:agent_id, :discovery_sources, :identity_observed_at] do
+    %{num_rows: 1} =
+      Repo.query!("UPDATE platform.ocsf_devices SET #{column} = $2 WHERE uid = $1", [
+        record.uid,
+        value
+      ])
+  end
+
+  defp device!(ctx, record) do
+    {:ok, device} = Device.get_by_uid(record.uid, false, actor: ctx.actor)
+    device
+  end
+
+  defp retired_decision!(ctx, record) do
+    {:ok, decisions} = IdentityDecision.for_device(record.uid, actor: ctx.actor)
+    [decision] = Enum.filter(decisions, &(&1.decision_kind == :source_id_retired))
+    decision
+  end
+
+  defp read_uids(ctx, action, records, args \\ %{}) do
+    uids = Enum.map(records, & &1.uid)
+
+    {:ok, devices} =
+      Device
+      |> Ash.Query.for_read(action, args, actor: ctx.actor)
+      |> Ash.Query.filter(uid in ^uids)
+      |> Ash.read(actor: ctx.actor)
+      |> Page.unwrap()
+
+    devices |> Enum.map(& &1.uid) |> Enum.sort()
+  end
+
+  defp inventory_total do
+    %{rows: [[total]]} =
+      Repo.query!(
+        "SELECT COALESCE((SELECT value FROM platform.device_inventory_counts WHERE key = 'total'), 0)"
+      )
+
+    total
+  end
+
+  defp active_devices do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.ocsf_devices WHERE deleted_at IS NULL AND source_retired_at IS NULL"
+      )
+
+    count
   end
 
   # Activates collection k of the instance, observed `hours` (default k) after t0, reporting

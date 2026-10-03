@@ -64,7 +64,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       `source_retired` and `seed_released`; add `Retire` (which is also `MarkRetired`) and
       `GraceDelete`, gated by `RetirementEnabled`, an evidence sighting of a `source_retired`
       tombstone, and reactivation; add `RetiredTombstoneStaysDeleted` and
-      `MarkedHoldsNoIdentifier`; add `lifecycle_goal_no_expiry`, `lifecycle_goal_retirement`,
+      `MarkedHoldsOnlyMacs` (first named `MarkedHoldsNoIdentifier`); add
+      `lifecycle_goal_no_expiry`, `lifecycle_goal_retirement`,
       `lifecycle_goal_retirement_chain`, `lifecycle_vacuity_grace_delete` (expects
       `violation:NeverGraceDeletes`) and `lifecycle_vacuity_reactivate` (expects
       `violation:NeverReactivatesRetired`).
@@ -123,7 +124,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [x] 2.3 Add the new fields to the Inventory Cleanup settings page in web-ng.
 - [ ] 2.4 Bump `core.migrations.expectedVersion` in `helm/serviceradar/values.yaml` to the
       newest migration this change adds, in the same pull request as each migration. Done for
-      PR 2's migrations; 9.4's bumps it again.
+      PR 2's and PR 3's migrations; 9.4's bumps it again.
 
 ## 3. Retirement (D1)
 
@@ -171,28 +172,30 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 ## 6. Retired mark, hidden reads and grace delete (D5)
 
-- [ ] 6.1 Mark a retired-only record in the retirement transaction (`source_retired_at` and
+- [x] 6.1 Mark a retired-only record in the retirement transaction (`source_retired_at` and
       `metadata.identity_state`).
-- [ ] 6.2 Hide marked records from the default Ash device reads, inventory counts and the SRQL
-      default device filter (`rust/srql/src/query/devices.rs`); add `include_retired` and its
-      SRQL equivalent; show the mark and the deletion time on the device detail view.
-- [ ] 6.3 `DeviceCleanupWorker`: soft-delete marked records past the grace period with
+- [x] 6.2 Hide marked records from the inventory read (`Device :inventory`), inventory counts
+      and the SRQL default device filter (`rust/srql/src/query/devices.rs`); add
+      `include_retired` and its SRQL equivalent; show the mark and the deletion time on the
+      device detail view. `Device :read` still returns them (design D5).
+- [x] 6.3 `DeviceCleanupWorker`: soft-delete marked records past the grace period with
       `deleted_reason = "source_retired"` and `deleted_by = "system:source_retirement"`,
       releasing the address in the same transaction; hold records named by an open
       de-duplication task; apply the mass guard.
-- [ ] 6.4 Make all three revival writers honor `source_retired`: `Device :gateway_restore`,
+- [x] 6.4 Make all three revival writers honor `source_retired`: `Device :gateway_restore`,
       `Device :restore`, and the raw `on_conflict` in `sync/device_writes.ex`. Grep for the
       attribute, not the action, to confirm there is no fourth.
-- [ ] 6.5 Reconcile the pending copy of "Restore Soft-Deleted Devices" in
+- [x] 6.5 Reconcile the pending copy of "Restore Soft-Deleted Devices" in
       `add-device-delete-guardrails` with this change's version before either is archived.
+      PR 3 copied this change's version there; a later edit to either copy is made to both.
 
 ## 7. Reactivation and reissue (D6)
 
-- [ ] 7.1 Resolve a reported id through the archive; return it to its archived holder or that
+- [x] 7.1 Resolve a reported id through the archive; return it to its archived holder or that
       holder's merge survivor only under D6's conditions, moving the row back, clearing the
       mark, restoring a tombstone through `:restore`, and recording `source_id_reactivated`.
-- [ ] 7.2 Otherwise write a new record and record `source_id_reissued`, naming both.
-- [ ] 7.3 Add an `unarchive` function for the remediation rollback, recording
+- [x] 7.2 Otherwise write a new record and record `source_id_reissued`, naming both.
+- [x] 7.3 Add an `unarchive` function for the remediation rollback, recording
       `source_id_reactivated`.
 
 ## 8. Address claims and released seeds (D7, D8)
@@ -254,7 +257,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       delete its witness configuration and the knockout and trace witness configurations of the
       traces that demonstrate it, regenerate the affected traces with `DIRE_TRACE_WRITE=1`,
       model-check them, and make the property must-pass. Done in PR 2 for
-      `retired_source_id_vetoes`.
+      `retired_source_id_vetoes`. PR 3 removes no switch, since D5 and D6 had none; it adds the
+      lifecycle trace `source_retired_returns` (see the design's revision paragraph).
 - [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`.
 
@@ -282,10 +286,10 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.3 Succession: MAC and hostname, MAC and first-seen, MAC only, no MAC, cloned machines
       sharing a MAC and a hostname with overlapping lifetimes, a missing source time, not
       one-to-one, randomized MAC, before retirement, unmerge then rerun.
-- [ ] 14.4 Mark and grace: immediate mark, agent-held record not marked, grace delete, review
+- [x] 14.4 Mark and grace: immediate mark, agent-held record not marked, grace delete, review
       hold, a sweep that keeps answering, no revival through any of the three writers, and a
       revival audit row for every restore.
-- [ ] 14.5 Reactivation and reissue, including a holder that now holds a current id and an
+- [x] 14.5 Reactivation and reissue, including a holder that now holds a current id and an
       update whose hostname fails D3's time guard.
 - [ ] 14.6 Address claims: a retired holder yields; a sweep refresh does not make a holder
       newer; a released seed is tombstoned; a seed with an identifier row stays live.
@@ -302,6 +306,6 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.11 Extend the `add-hermetic-armis-dire-e2e` harness with the re-key scenarios.
 - [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
-      Done for PR 2.
+      Done for PR 2 and PR 3.
 - [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run. Done for PR 2.
+      check not run. Done for PR 2 and PR 3.

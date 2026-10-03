@@ -3,7 +3,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   Sync ingestion orchestrator.
 
   Coalesced sync batches (see SyncIngestorQueue) flow through:
-  normalize -> resolve (bulk identity lookups + DIRE resolution) ->
+  normalize -> resolve (bulk identity lookups + retired source id reactivation +
+  DIRE resolution) ->
   device upserts (with IP-conflict recovery) -> identifier/interface/risk
   writes -> alias processing. The heavy lifting lives in the
   ServiceRadar.Inventory.Sync.* submodules; identity decisions belong to
@@ -15,6 +16,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.Identity.BatchResolver
   alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.Identity.SourceReactivation
   alias ServiceRadar.Inventory.SourceFacts.Reconciler, as: SourceFactReconciler
   alias ServiceRadar.Inventory.Sync.Aliases
   alias ServiceRadar.Inventory.Sync.BatchExecutor
@@ -130,15 +132,23 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   # registration run in one transaction that locks those rows and withholds every
   # write whose pin went stale (a merge, unmerge, delete, restore, reassignment or
   # purge landed in between). The withheld updates are resolved again and written
-  # once more; a second stale pin abandons them with telemetry.
+  # once more; a second stale pin abandons them with telemetry. An update resolved
+  # to a retained tombstone (Device.retained_reasons/0) is withheld before the write
+  # and never retried: evidence never revives one. A retired source id the batch
+  # carries is judged before resolution (SourceReactivation): returned to the record
+  # that held it, or re-issued, which is recorded once the write lands.
   defp ingest_normalized([], _actor, _defer_state_events?, _attempt), do: :ok
 
   defp ingest_normalized(normalized_updates, actor, defer_state_events?, attempt) do
-    {resolved_updates, strong_uids, device_records, identifier_records, interface_records} =
-      resolve_updates(normalized_updates, actor)
+    {resolved, reactivation} = resolve_updates(normalized_updates, actor)
 
-    pins = Fence.pin_batch(Enum.map(resolved_updates, fn {_update, uid} -> uid end))
+    pins = Fence.pin_batch(Enum.map(elem(resolved, 0), fn {_update, uid} -> uid end))
     run_test_hook(:sync_ingestor_after_pin)
+
+    {pins, retained} = Fence.take_retained(pins, :sync_ingestor)
+
+    {resolved_updates, strong_uids, device_records, identifier_records, interface_records} =
+      withhold_retained(resolved, retained)
 
     case fenced_device_write(
            pins,
@@ -156,6 +166,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         device_records = Enum.filter(device_records, &keep.(&1.uid))
         interface_records = Enum.filter(interface_records, &keep.(&1.device_id))
         {fresh_updates, stale_updates} = Enum.split_with(resolved_updates, &keep.(elem(&1, 1)))
+
+        # A re-issued id's update carries a source id, so the IP-conflict remap never
+        # moves it: the uids it resolved to are the ones written.
+        _ = SourceReactivation.record_reissued(reactivation, fresh_updates)
 
         result =
           after_device_write(
@@ -176,6 +190,22 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
       {:error, _} = error ->
         finalize_ingest_results(error, :ok, :ok, :ok, :ok)
+    end
+  end
+
+  defp withhold_retained(resolved, retained) do
+    if MapSet.size(retained) == 0 do
+      resolved
+    else
+      {resolved_updates, strong_uids, device_records, identifier_records, interface_records} =
+        resolved
+
+      keep = &(not MapSet.member?(retained, &1))
+
+      {Enum.filter(resolved_updates, &keep.(elem(&1, 1))), strong_uids,
+       Enum.filter(device_records, &keep.(&1.uid)),
+       Enum.filter(identifier_records, &keep.(&1.device_id)),
+       Enum.filter(interface_records, &keep.(&1.device_id))}
     end
   end
 
@@ -439,19 +469,31 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         {update, SourcePolicy.effective_identifiers(update)}
       end)
 
+    {updates_with_ids, reactivation} =
+      SourceReactivation.resolve(updates_with_ids, existing_mappings, actor)
+
     {resolved_updates, strong_uids} =
       BatchResolver.resolve_batch(
         updates_with_ids,
-        %{identifiers: existing_mappings, ip: existing_ip_to_device},
+        %{
+          identifiers: reactivation.mappings,
+          ip: existing_ip_to_device,
+          reactivated: reactivation.reactivated,
+          reissued: reactivation.reissued
+        },
         actor
       )
+
+    reactivation =
+      SourceReactivation.reissue_targets(reactivation, updates_with_ids, resolved_updates)
 
     timestamp = DateTime.truncate(DateTime.utc_now(), :second)
     device_records = DeviceRecords.build_device_upsert_records(resolved_updates, timestamp)
     identifier_records = IdentifierRecords.build_identifier_records(resolved_updates)
     interface_records = Interfaces.build_interface_upsert_records(resolved_updates, timestamp)
 
-    {resolved_updates, strong_uids, device_records, identifier_records, interface_records}
+    {{resolved_updates, strong_uids, device_records, identifier_records, interface_records},
+     reactivation}
   end
 
   # Updates that may not create a device are kept only when they already name

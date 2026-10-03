@@ -92,6 +92,34 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnosticsTest do
     end
   end
 
+  # SRQL for a record marked source_retired: there is no tombstone, and device queries hide the
+  # live record unless they ask for it.
+  defmodule RetiredSRQL do
+    @moduledoc false
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    @impl true
+    def query_request(%{"query" => query}) do
+      send(self(), {:srql, query})
+
+      results =
+        if String.starts_with?(query, "in:devices") and query =~ "include_retired:true" and
+             not (query =~ "deleted:true") do
+          [
+            %{
+              "uid" => "sr:0189f8c0-1d2e-7a3b-9c4d-5e6f70819a2b",
+              "hostname" => "host01",
+              "source_retired_at" => "2026-01-02T03:04:05Z"
+            }
+          ]
+        else
+          []
+        end
+
+      {:ok, %{"results" => results, "pagination" => %{}}}
+    end
+  end
+
   defmodule ForbiddenSRQL do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -204,6 +232,26 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnosticsTest do
       assert length(payload["deduplication_tasks"]) == 2
       assert payload["summary"]["identity_decision_count"] == 1
       assert payload["summary"]["open_deduplication_tasks"] == ["task-open"]
+    end
+  end
+
+  describe "trace/3 for a record marked source_retired" do
+    test "finds it by uid and by hostname and says it is marked" do
+      use_srql(RetiredSRQL)
+
+      for seed <- [@uid, "host01"] do
+        assert {:ok, payload} = IdentityDiagnostics.trace(scope(), seed)
+        assert payload["device"]["uid"] == @uid, "seed #{seed}"
+        assert payload["summary"]["source_retired"]
+        refute payload["summary"]["tombstoned"]
+      end
+    end
+
+    test "a tombstone is not reported as marked" do
+      use_srql(StubSRQL)
+
+      assert {:ok, payload} = IdentityDiagnostics.trace(scope(), @uid)
+      refute payload["summary"]["source_retired"]
     end
   end
 

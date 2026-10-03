@@ -65,10 +65,12 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
 
   @typedoc """
   What a batch pinned for one device: the revision it saw, `:absent` when no row
-  existed yet (the write will create it), or `:merged` when resolution already
-  raced a merge (the row is a merged-away tombstone, so the decision is stale).
+  existed yet (the write will create it), `:merged` when resolution already
+  raced a merge (the row is a merged-away tombstone, so the decision is stale), or
+  `:retained` when the row is a retained tombstone (`Device.retained_reasons/0`),
+  which no write may revive.
   """
-  @type batch_pin :: integer() | :absent | :merged
+  @type batch_pin :: integer() | :absent | :merged | :retained
 
   @doc """
   Add the compare-and-set predicate to a **pending** changeset.
@@ -143,24 +145,60 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
   @doc """
   Pin a batch: read the identity state of every resolved device id at once.
 
-  Tombstones are read too. A non-merged tombstone is pinned by revision like a
-  live row (a write may legitimately revive it); a merged-away one is `:merged`,
-  because the resolver never lands on it except when a merge raced the
-  resolution. Unlike the observe-only reads this raises on failure: an
-  enforcing fence that cannot read must not let the batch through unchecked.
+  Tombstones are read too. A tombstone a write may legitimately revive is pinned
+  by revision like a live row. A merged-away one is `:merged`, because the
+  resolver never lands on it except when a merge raced the resolution. A retained
+  one is `:retained`: resolution reached it through evidence, which never revives
+  it, so the caller withholds the write (see `take_retained/2`). Both are always
+  stale. Unlike the observe-only reads this raises on failure: an enforcing fence
+  that cannot read must not let the batch through unchecked.
   """
   @spec pin_batch([String.t()]) :: %{String.t() => batch_pin()}
   def pin_batch(device_ids) when is_list(device_ids) do
     ids = device_ids |> Enum.filter(&(is_binary(&1) and &1 != "")) |> Enum.uniq()
     rows = read_identity_rows(ids, lock?: false)
 
-    Map.new(ids, fn id ->
-      case Map.get(rows, id) do
-        nil -> {id, :absent}
-        %{deleted_at: %_{}, deleted_reason: "merged"} -> {id, :merged}
-        %{identity_revision: revision} -> {id, revision}
-      end
-    end)
+    Map.new(ids, &{&1, pin_row(Map.get(rows, &1))})
+  end
+
+  defp pin_row(nil), do: :absent
+  defp pin_row(%{deleted_at: %_{}, deleted_reason: "merged"}), do: :merged
+
+  defp pin_row(%{identity_revision: revision} = row) do
+    if Device.retained_tombstone?(row), do: :retained, else: revision
+  end
+
+  @doc """
+  Split the `:retained` pins off a batch, and say so: one
+  `[:serviceradar, :identity_fence, :retained]` event per device and one log line.
+
+  Returns the remaining pins and the set of retained device ids, whose writes the
+  caller withholds. They are not retried: resolving the same update again reaches
+  the same tombstone, and only an operator restore or the return of a retired
+  source id revives it.
+  """
+  @spec take_retained(%{String.t() => batch_pin()}, atom()) ::
+          {%{String.t() => batch_pin()}, MapSet.t()}
+  def take_retained(pins, pipeline) when is_map(pins) do
+    {retained, rest} = Map.split_with(pins, fn {_device_id, pin} -> pin == :retained end)
+    retained_ids = retained |> Map.keys() |> Enum.sort()
+
+    if retained_ids != [] do
+      Enum.each(retained_ids, fn device_id ->
+        :telemetry.execute(
+          @telemetry_prefix ++ [:retained],
+          %{count: 1},
+          %{pipeline: pipeline, device_id: device_id}
+        )
+      end)
+
+      Logger.info(
+        "identity fence: withheld write(s) for #{length(retained_ids)} retained " <>
+          "tombstone(s) (pipeline=#{pipeline}): " <> Enum.join(retained_ids, ", ")
+      )
+    end
+
+    {rest, MapSet.new(retained_ids)}
   end
 
   @doc """
@@ -284,6 +322,9 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
 
   # A resolution that already landed on a merged-away tombstone.
   defp stale_pin?(:merged, _row), do: true
+  # A retained tombstone no write may revive; a caller that does not withhold it
+  # first (take_retained/2) re-resolves and then abandons.
+  defp stale_pin?(:retained, _row), do: true
   # Still no row: the write creates it.
   defp stale_pin?(:absent, nil), do: false
   # Another writer created the row since the pin, and nothing has happened to it.

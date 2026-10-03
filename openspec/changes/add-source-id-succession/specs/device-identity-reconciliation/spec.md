@@ -286,11 +286,13 @@ one-to-one.
 - **AND** no later scheduled run SHALL merge them again
 
 ### Requirement: Retired Source Identifiers Are Reserved
-The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when exactly one such record qualifies, that record holds no unretired identifier of that type, whether or not the source still reports it, and the update agrees with the archived observation on a universally administered MAC and on the source first-seen time, or on the hostname when the update's first-seen time is no earlier than the archived observation's last-seen time; otherwise it SHALL write the update as a new record and record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
-Returning an identifier SHALL resolve the update to that record, SHALL move its archive row back to the live identifier table, SHALL
-clear a `source_retired` mark, SHALL restore a `source_retired` tombstone through the audited
-restore path, and SHALL record a `source_id_reactivated` identity decision. Returning an
-identifier SHALL NOT merge two live records.
+The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when exactly one such record qualifies: the record is live or a tombstone that was not merged away, holds no unretired identifier of that type in the identifier's scope, whether or not the source still reports it, shares a universally administered unicast MAC with the update (its own, its MAC identifiers, its interface MACs, or the MAC the source last reported for the identifier before it retired), and agrees with the update on the source first-seen time, or on the hostname (the one the source last reported or the record's own) when the update's first-seen time is no earlier than the identifier's archived last-seen time. An identifier archived without its source times SHALL be compared on the record's first-seen time, for equality only. Otherwise the system SHALL write the update as a new record, unless the usual resolution matches a record with no history of that type, and never to a record that held the identifier, and SHALL record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
+Returning an identifier SHALL resolve the update to that record and, in one transaction, SHALL
+move its newest archive row back to the live identifier table, SHALL clear a `source_retired`
+mark, SHALL restore a tombstone through the audited restore path, and SHALL record a
+`source_id_reactivated` identity decision. When a read or the return fails, the system SHALL
+withhold the updates carrying the identifier until the next sync run. Returning an identifier
+SHALL NOT merge two live records.
 
 #### Scenario: A retired id returns to its holder
 - **GIVEN** device X held Armis device id 1001, retired, with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`
@@ -309,6 +311,18 @@ identifier SHALL NOT merge two live records.
 #### Scenario: A retired id whose holder now holds a current id
 - **GIVEN** device X held Armis device id 1001, retired, and now holds Armis device id 2002 in the live identifier table after a succession
 - **WHEN** Armis reports id 1001 again
+- **THEN** device X SHALL NOT receive Armis device id 1001
+- **AND** a new record SHALL be created and a `source_id_reissued` identity decision SHALL name both records
+
+#### Scenario: A retired id returns to a source_retired tombstone
+- **GIVEN** device X held Armis device id 1001, retired, with MAC `00:00:5e:00:53:01`, and was soft-deleted with `deleted_reason` `source_retired`
+- **WHEN** Armis reports id 1001 again with MAC `00:00:5e:00:53:01` and the first-seen time it reported before
+- **THEN** device X SHALL be restored and SHALL hold Armis device id 1001 in the live identifier table
+- **AND** the restore SHALL be recorded as a device revival
+
+#### Scenario: A shared hostname from before the id was last seen
+- **GIVEN** device X held Armis device id 1001, retired, with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`, last seen by Armis at time T
+- **WHEN** Armis reports id 1001 with MAC `00:00:5e:00:53:01`, hostname `host01.example.com` and a first-seen time earlier than T that differs from the one it reported before
 - **THEN** device X SHALL NOT receive Armis device id 1001
 - **AND** a new record SHALL be created and a `source_id_reissued` identity decision SHALL name both records
 

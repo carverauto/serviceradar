@@ -3,8 +3,9 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
   Trace validation for `formal/dire/DireLifecycle.tla`.
 
   Each test drives the real lifecycle entry points (ingest, merge, unmerge, soft delete, sweep,
-  expiry, agent check-in, purge) step by step through `ServiceRadar.DireLifecycleTrace`, and
-  requires the recorded trace to equal the committed `formal/dire/traces/Trace_<name>.{tla,cfg}`.
+  expiry, agent check-in, purge, source id retirement, the grace delete) step by step through
+  `ServiceRadar.DireLifecycleTrace`, and requires the recorded trace to equal the committed
+  `formal/dire/traces/Trace_<name>.{tla,cfg}`.
   `//formal/dire` model-checks those files against the lifecycle model with the defect switches
   that match today's code. When the code changes behavior, the comparison here fails;
   regenerate with DIRE_TRACE_WRITE=1 on a scratch database and let the model check decide
@@ -139,5 +140,24 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.expire("d1")
     |> Trace.sweep("p1")
     |> Trace.assert_golden!(demonstrates: "sweep_refreshes_expired_tombstone")
+  end
+
+  # add-source-id-succession D5/D6: a source stops reporting an id of a record that also holds a
+  # hardware MAC. Retirement archives the id and marks the record source_retired; the MAC
+  # neither withholds the mark nor clears it, and a sweep of the record's address refreshes it
+  # and keeps the mark. The grace pass deletes the record, and the next sweep seeds a new one at
+  # the freed address. The source then reports the id again, with the same MAC and first-seen
+  # time, from another address: the id leaves the archive and restores the record it retired
+  # from, rather than a third record taking it.
+  test "source_retired_returns", %{actor: actor} do
+    "source_retired_returns"
+    |> Trace.start(world(["d1", "d2"], %{"i1" => :src, "i2" => :mac}, ["p1", "p2"]), actor)
+    |> Trace.armis("i1", "p1", mac: "i2", run: true)
+    |> Trace.retire("d1")
+    |> Trace.sweep("p1")
+    |> Trace.grace_delete("d1")
+    |> Trace.sweep("p1")
+    |> Trace.armis("i1", "p2", mac: "i2", run: true)
+    |> Trace.assert_golden!()
   end
 end

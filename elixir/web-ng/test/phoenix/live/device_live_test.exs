@@ -8,13 +8,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Camera.StreamProfile, as: CameraStreamProfile
+  alias ServiceRadar.Inventory.DeduplicationTask
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.EndpointInventoryArtifact
   alias ServiceRadar.Inventory.EndpointInventoryArtifactContent
   alias ServiceRadar.Inventory.EndpointInventoryPackage
   alias ServiceRadar.Inventory.EndpointInventoryScan
   alias ServiceRadar.Inventory.EndpointPackage
   alias ServiceRadar.Inventory.EndpointVulnerabilityMatch
+  alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.VirtualizationDatastore
   alias ServiceRadar.Inventory.VirtualizationGuest
@@ -971,6 +974,70 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
     assert html =~ "Deleted"
     assert html =~ "Restore"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "device details show the source-retired mark and when the grace pass deletes it", %{
+    conn: conn
+  } do
+    uid = "test-device-source-retired-#{System.unique_integer([:positive])}"
+    other_uid = "test-device-source-retired-peer-#{System.unique_integer([:positive])}"
+    insert_device!(uid, "source-retired-host", ~U[2026-01-10 08:00:00Z])
+    insert_device!(other_uid, "source-retired-peer", nil)
+    put_cleanup_settings!(%{source_retirement_enabled: true, source_retired_grace_days: 7})
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    assert html =~ ~s(data-testid="device-source-retired-pill")
+    assert summary_datetime(html, uid, "source-retired-at") == ~U[2026-01-10 08:00:00Z]
+
+    assert summary_datetime(html, uid, "source-retired-deletes-after") ==
+             ~U[2026-01-17 08:00:00Z]
+
+    # An open review holds the record, read through the definition the grace pass uses.
+    :ok =
+      Deduplication.open_for_decisions([
+        %{
+          decision_kind: :succession_review,
+          reason: "device_live_test",
+          device_uids: [uid, other_uid],
+          evidence: %{}
+        }
+      ])
+
+    assert {:ok, [%DeduplicationTask{status: :open}]} =
+             DeduplicationTask.for_device(uid, actor: AshTestHelpers.system_actor())
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    assert html =~ "Not while a de-duplication review names it"
+    assert summary_datetime(html, uid, "source-retired-deletes-after") == nil
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{other_uid}")
+    refute html =~ ~s(data-testid="device-source-retired-pill")
+    refute html =~ "Source Retired:"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "device list hides source-retired devices unless the query includes them", %{conn: conn} do
+    hostname = "source-retired-list-#{System.unique_integer([:positive])}"
+    marked_uid = "test-device-source-retired-list-#{System.unique_integer([:positive])}"
+    kept_uid = "test-device-source-retired-kept-#{System.unique_integer([:positive])}"
+    insert_device!(marked_uid, hostname, ~U[2026-01-10 08:00:00Z])
+    insert_device!(kept_uid, hostname, nil)
+
+    {:ok, _lv, html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{hostname}", limit: 10}}")
+
+    assert html =~ kept_uid
+    refute html =~ marked_uid
+
+    {:ok, _lv, html} =
+      live(
+        conn,
+        ~p"/devices?#{%{q: "in:devices hostname:#{hostname} include_retired:true", limit: 10}}"
+      )
+
+    assert html =~ kept_uid
+    assert html =~ marked_uid
   end
 
   test "renders missing-row state instead of crashing for unknown device uid", %{conn: conn} do
@@ -4212,6 +4279,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: role}, actor: AshTestHelpers.system_actor())
     |> Ash.update!()
+  end
+
+  defp insert_device!(uid, hostname, source_retired_at) do
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: hostname,
+        is_available: true,
+        source_retired_at: source_retired_at,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+  end
+
+  defp put_cleanup_settings!(attrs) do
+    actor = AshTestHelpers.system_actor()
+
+    settings =
+      case DeviceCleanupSettings.get_settings(actor: actor) do
+        {:ok, %DeviceCleanupSettings{} = settings} -> settings
+        _missing -> DeviceCleanupSettings.create_settings!(%{}, actor: actor)
+      end
+
+    DeviceCleanupSettings.update_settings!(settings, attrs, actor: actor)
+  end
+
+  # The datetime of the device summary's time element named `suffix`, or nil when there is none.
+  defp summary_datetime(html, uid, suffix) do
+    key = uid |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-") |> String.trim("-")
+
+    case html
+         |> LazyHTML.from_fragment()
+         |> LazyHTML.query("#device-summary-#{key}-#{suffix}")
+         |> LazyHTML.attribute("datetime") do
+      [value] ->
+        {:ok, datetime, 0} = DateTime.from_iso8601(value)
+        DateTime.truncate(datetime, :second)
+
+      [] ->
+        nil
+    end
   end
 
   defp with_remote_access_ssh_enabled(enabled?) do

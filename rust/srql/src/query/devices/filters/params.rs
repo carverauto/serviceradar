@@ -100,6 +100,15 @@ pub(in crate::query::devices) fn collect_filter_params(
             let _ = parse_bool(filter.value.as_scalar()?)?;
             Ok(())
         }
+        // An IS [NOT] NULL test and a control token: neither binds.
+        "include_retired" => {
+            let _ = super::defaults::parse_include_retired(filter)?;
+            Ok(())
+        }
+        "source_retired" => {
+            let _ = super::defaults::retired_filter_matches_marked(filter)?;
+            Ok(())
+        }
         "deleted" => {
             let _ = parse_bool(filter.value.as_scalar()?)?;
             Ok(())

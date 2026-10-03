@@ -382,6 +382,151 @@ fn devices_include_inactive_suppresses_default_active_filter() {
     );
 }
 
+const RETIRED_HIDDEN: &str = "\"ocsf_devices\".\"source_retired_at\" is null";
+
+// The lowercased predicates of a device query: the select list names `source_retired_at` too.
+fn device_predicates(sql: &str) -> String {
+    let lower = sql.to_lowercase();
+    lower
+        .split_once(" from ")
+        .map_or(lower.clone(), |(_, predicates)| predicates.to_string())
+}
+
+#[test]
+fn devices_hide_source_retired_records_by_default() {
+    let plan = plan_for("in:devices");
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains(RETIRED_HIDDEN),
+        "a default device query must hide records marked source_retired, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .all(|param| !matches!(param, BindParam::Bool(_))),
+        "the default retired filter binds nothing, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_queries_that_ask_for_retired_records_see_them() {
+    for query in [
+        "in:devices include_retired:true",
+        "in:devices include_deleted:true",
+    ] {
+        let plan = plan_for(query);
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+
+        assert!(
+            !device_predicates(&sql).contains("source_retired_at"),
+            "{query} must not filter on the retired mark, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .all(|param| !matches!(param, BindParam::Bool(_))),
+            "{query} is a control token and binds nothing, got: {params:?}"
+        );
+    }
+
+    let plan = plan_for("in:devices include_retired:false");
+    let (sql, _) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    assert!(
+        sql.to_lowercase().contains(RETIRED_HIDDEN),
+        "include_retired:false keeps the default, got: {sql}"
+    );
+}
+
+#[test]
+fn devices_source_retired_filter_replaces_the_default() {
+    for (query, marked) in [
+        ("in:devices source_retired:true", true),
+        ("in:devices !source_retired:false", true),
+        ("in:devices source_retired:false", false),
+        ("in:devices !source_retired:true", false),
+    ] {
+        let plan = plan_for(query);
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = device_predicates(&sql);
+        let marked_only = "\"ocsf_devices\".\"source_retired_at\" is not null";
+
+        assert_eq!(
+            lower.contains(marked_only),
+            marked,
+            "{query}: expected marked records only = {marked}, got: {sql}"
+        );
+        assert_eq!(
+            lower.matches(RETIRED_HIDDEN).count(),
+            usize::from(!marked),
+            "{query}: the filter replaces the default rather than adding to it, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .all(|param| matches!(param, BindParam::Int(_))),
+            "{query} binds only the limit and offset, got: {params:?}"
+        );
+    }
+}
+
+#[test]
+fn devices_counts_hide_source_retired_records_by_default() {
+    let plan = plan_for(r#"in:devices stats:"count() as total""#);
+    let (sql, _) = devices::to_sql_and_params(&plan).expect("should build count SQL");
+    assert!(
+        sql.to_lowercase().contains(RETIRED_HIDDEN),
+        "a default count must leave out records marked source_retired, got: {sql}"
+    );
+
+    let plan = plan_for("in:devices stats:count() as count by type");
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped SQL");
+    assert!(
+        sql.contains("source_retired_at IS NULL"),
+        "a default grouped count must leave out records marked source_retired, got: {sql}"
+    );
+    assert!(
+        params.is_empty(),
+        "the default binds nothing, got: {params:?}"
+    );
+
+    let plan = plan_for("in:devices include_retired:true stats:count() as count by type");
+    let (sql, _) = devices::to_sql_and_params(&plan).expect("should build grouped SQL");
+    assert!(
+        !sql.contains("source_retired_at"),
+        "include_retired:true counts every live record, got: {sql}"
+    );
+
+    let plan = plan_for("in:devices source_retired:true stats:count() as count by type");
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped SQL");
+    assert!(
+        sql.contains("source_retired_at IS NOT NULL") && !sql.contains("source_retired_at IS NULL"),
+        "source_retired:true counts the marked records only, got: {sql}"
+    );
+    assert!(
+        params.is_empty(),
+        "the filter binds nothing, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_retired_controls_reject_unsupported_forms() {
+    for query in [
+        "in:devices !include_retired:true",
+        "in:devices include_retired:perhaps",
+        "in:devices source_retired:perhaps",
+        "in:devices source_retired:(true,false)",
+    ] {
+        let plan = plan_for(query);
+        assert!(
+            devices::to_sql_and_params(&plan).is_err(),
+            "{query} must be refused"
+        );
+    }
+}
+
 #[test]
 fn devices_ip_cidr_filter_generates_inet_clause() {
     let query = "in:devices ip:10.0.0.0/8";

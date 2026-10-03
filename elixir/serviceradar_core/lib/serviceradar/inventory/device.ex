@@ -37,6 +37,7 @@ defmodule ServiceRadar.Inventory.Device do
   alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Validations.AgentManaged
+  alias ServiceRadar.Inventory.Validations.RetainedTombstone
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   require Ash.Query
@@ -155,7 +156,13 @@ defmodule ServiceRadar.Inventory.Device do
   @group_fields [:group_id]
   @availability_fields [:is_available]
   @availability_source_fields [:availability_source_agent_id, :availability_source_profile_id]
-  @soft_delete_fields [:deleted_reason, :deleted_by]
+  # The grace pass releases the address in the same statement as the delete.
+  @soft_delete_fields [:deleted_reason, :deleted_by, :ip]
+
+  # Tombstones that evidence never revives: a record soft-deleted because its source
+  # retired its ids, or a released seed. Only an operator restore or the return of a
+  # retired source id brings one back (change `add-source-id-succession`, D5 and D8).
+  @retained_reasons ["source_retired", "seed_released"]
 
   postgres do
     table "ocsf_devices"
@@ -180,7 +187,7 @@ defmodule ServiceRadar.Inventory.Device do
       base "/devices"
 
       get :by_uid
-      index :read
+      index :inventory
     end
   end
 
@@ -230,6 +237,37 @@ defmodule ServiceRadar.Inventory.Device do
       # caller expresses no preference -- a DEFAULT, not a limit on what may be
       # requested. `Ash.stream!/2` remains the right tool for internal callers that
       # need every row, since it pages for them.
+      pagination keyset?: true, default_limit: 250, max_page_size: @unbounded_page_size
+      prepare build(sort: [uid: :asc])
+    end
+
+    read :inventory do
+      description """
+      The device inventory as operators see it: live records, without those marked
+      `source_retired` (source_retired_at set) unless include_retired is passed.
+      include_deleted returns every record, marked or deleted.
+
+      A marked record is live, and :read still returns it: identity resolution, the
+      deduplication review queue, bulk actions and every update's atomic re-read must
+      keep seeing it. Only the listing and counting surfaces read through this action.
+      """
+
+      argument :include_deleted, :boolean do
+        allow_nil? true
+        default false
+      end
+
+      argument :include_retired, :boolean do
+        allow_nil? true
+        default false
+      end
+
+      filter expr(
+               (is_nil(deleted_at) or ^arg(:include_deleted)) and
+                 (is_nil(source_retired_at) or ^arg(:include_retired) or ^arg(:include_deleted))
+             )
+
+      # Same paging as :read; see the max_page_size note there.
       pagination keyset?: true, default_limit: 250, max_page_size: @unbounded_page_size
       prepare build(sort: [uid: :asc])
     end
@@ -339,10 +377,14 @@ defmodule ServiceRadar.Inventory.Device do
       the device in one statement, so the new address and the revival land together.
       A restore, with :restore's identity_revision bump; the trg_ocsf_devices_revival_audit
       trigger records the tombstone it clears. Never used on a merged-away device
-      (deleted_reason "merged"): AgentGatewaySync follows the merge instead.
+      (deleted_reason "merged"): AgentGatewaySync follows the merge instead. Refuses a
+      retained tombstone (see retained_reasons/0): a check-in is evidence, and evidence
+      never revives one.
       """
 
       accept @gateway_sync_fields
+
+      validate RetainedTombstone
 
       change set_attribute(:deleted_at, nil)
       change set_attribute(:deleted_by, nil)
@@ -451,6 +493,16 @@ defmodule ServiceRadar.Inventory.Device do
       # while it held an address can find that address leased to another live device, and the
       # unique active-IP index would otherwise refuse the restore.
       accept [:ip]
+
+      # Evidence-driven restores (sweep, mapper) leave this false and are refused a
+      # retained tombstone (see retained_reasons/0). An operator restore, an unmerge or
+      # the return of a retired source id passes true.
+      argument :allow_retained, :boolean do
+        allow_nil? true
+        default false
+      end
+
+      validate RetainedTombstone
 
       change set_attribute(:deleted_at, nil)
       change set_attribute(:deleted_by, nil)
@@ -850,6 +902,30 @@ defmodule ServiceRadar.Inventory.Device do
       description "Optional reason for device deletion"
     end
 
+    # Written only by SourceRetirement and the database; deliberately absent from every
+    # accept list.
+    attribute :source_retired_at, :utc_datetime_usec do
+      public? true
+
+      description """
+      When the record was marked source_retired: live, but holding only source ids its
+      source has retired. Hidden from :inventory until the mark clears or the grace pass
+      soft-deletes the record. The database clears it when the record gains an agent or
+      source-authoritative identifier, and on soft delete.
+      """
+    end
+
+    attribute :identity_observed_at, :utc_datetime_usec do
+      public? true
+
+      description """
+      The last observation that carried a strong identifier as the device's own report (a
+      source sync carrying a current source id, an agent check-in, a discovery poll of the
+      device). Sweeps and address-only sightings never advance it. Null counts as older
+      than any value.
+      """
+    end
+
     attribute :tags, :map do
       default %{}
       public? true
@@ -1014,6 +1090,24 @@ defmodule ServiceRadar.Inventory.Device do
                 end
               )
   end
+
+  @doc """
+  Deletion reasons that mark a retained tombstone: evidence (a sweep, a check-in, an
+  address or MAC match) never revives one. Only an operator restore, an unmerge or the
+  return of a retired source id does, through `:restore` with `allow_retained: true`.
+  """
+  @spec retained_reasons() :: [String.t()]
+  def retained_reasons, do: @retained_reasons
+
+  @spec retained_reason?(term()) :: boolean()
+  def retained_reason?(reason), do: reason in @retained_reasons
+
+  @doc "Whether `device` is a tombstone with a retained reason (see `retained_reasons/0`)."
+  @spec retained_tombstone?(term()) :: boolean()
+  def retained_tombstone?(%{deleted_at: %DateTime{}, deleted_reason: reason}),
+    do: retained_reason?(reason)
+
+  def retained_tombstone?(_device), do: false
 
   defp actor_identifier(nil), do: nil
 

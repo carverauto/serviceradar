@@ -5,7 +5,9 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     1. expires ephemeral devices -- no strong identifier, unseen past the configured window --
        by soft-deleting them with `deleted_reason: "stale_ephemeral"`
        (`ServiceRadar.Inventory.EphemeralDeviceExpiry`);
-    2. purges soft-deleted devices after the retention period.
+    2. soft-deletes the records marked `source_retired` whose grace period ended, with
+       `deleted_reason: "source_retired"` (`ServiceRadar.Inventory.SourceRetiredExpiry`);
+    3. purges soft-deleted devices after the retention period.
   """
 
   use Oban.Worker,
@@ -20,6 +22,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.EphemeralDeviceExpiry
+  alias ServiceRadar.Inventory.SourceRetiredExpiry
   alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -81,6 +84,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       cutoff = DateTime.add(DateTime.utc_now(), -retention_days * 86_400, :second)
 
       expire_ephemeral_devices(settings, actor)
+      delete_source_retired(settings, actor)
 
       Logger.info(
         "DeviceCleanupWorker: Starting cleanup - deleted devices older than #{retention_days} days"
@@ -122,6 +126,34 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       })
 
       Logger.error("DeviceCleanupWorker: ephemeral expiry raised",
+        error: Exception.message(error)
+      )
+  end
+
+  # Runs before the purge for the same reasons as the expiry pass.
+  defp delete_source_retired(settings, actor) do
+    case SourceRetiredExpiry.run(Map.from_struct(settings), actor) do
+      {:ok, %{deleted: deleted, candidates: candidates, held: held}} ->
+        Logger.info("DeviceCleanupWorker: source-retired grace pass complete",
+          deleted: deleted,
+          candidates: candidates,
+          held: held
+        )
+
+      {:error, reason} ->
+        Logger.warning("DeviceCleanupWorker: source-retired grace pass skipped",
+          reason: inspect(reason)
+        )
+    end
+  rescue
+    error ->
+      :telemetry.execute(
+        [:serviceradar, :inventory, :source_retired_expiry, :failed],
+        %{count: 1},
+        %{error: error.__struct__}
+      )
+
+      Logger.error("DeviceCleanupWorker: source-retired grace pass raised",
         error: Exception.message(error)
       )
   end
@@ -175,7 +207,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
           ephemeral_expiry_days: @default_ephemeral_expiry_days,
           ephemeral_expiry_exclusion_query: nil,
           ephemeral_expiry_max_fraction: 0.5,
-          ephemeral_expiry_guard_override: false
+          ephemeral_expiry_guard_override: false,
+          # Fails closed, as the retirement pass does: settings that cannot be read delete
+          # nothing at the end of a grace period.
+          source_retirement_enabled: false
         }
     end
   end

@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
   attr(:device_display_name, :string, required: true)
   attr(:agent_device, :boolean, default: false)
   attr(:device_deleted, :boolean, default: false)
+  attr(:device_source_retired, :boolean, default: false)
   attr(:device_active, :any, default: nil)
   attr(:device_ansible_managed, :boolean, default: false)
   attr(:can_run_ansible, :boolean, default: false)
@@ -70,6 +71,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
             class="inline-flex items-center gap-1 rounded-full bg-sr-subtle px-2 py-0.5 text-[11px] font-semibold text-sr-muted"
           >
             <.icon name="hero-archive-box" class="size-3" /> Deleted
+          </span>
+          <span
+            :if={@device_source_retired}
+            data-testid="device-source-retired-pill"
+            title="Every source id this record held was retired. It is hidden from the inventory and deleted at the end of its grace period."
+            class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning"
+          >
+            <.icon name="hero-clock" class="size-3" /> Source retired
           </span>
           <span
             :if={@device_active == false}

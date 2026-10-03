@@ -397,13 +397,21 @@ subsection heading matches the `in:` name used to select the entity.
 | `metadata.<key>` | | Match an arbitrary metadata key, e.g. `metadata.integration_type:armis` |
 | `cve` | `cve_id` | Device has an active, confirmed, affected assessment for this CVE (EXISTS). Case-insensitive. |
 | `kev` | | Device has an active, confirmed, affected KEV assessment (`true`/`false`) |
+| `source_retired` | | Record is marked `source_retired` (`true`/`false`); see the control tokens below. Replaces the default that hides marked records. |
 
 Sortable fields include `hostname`, `ip`, `first_seen` / `first_seen_time`,
 `last_seen` / `last_seen_time`, and `type_id`. There is no `cpe` filter on
 `in:devices`; query `in:endpoint_packages` or `in:cve_matches`.
 
 Control tokens: `include_inactive:true` returns devices regardless of lifecycle
-state; `include_deleted:true` includes soft-deleted records.
+state; `include_deleted:true` includes soft-deleted records and records marked
+`source_retired`; `include_retired:true` includes records marked `source_retired`.
+
+A record is marked `source_retired` when its source retired every id it held and
+nothing else identifies it. Device queries and counts hide a marked record until it
+is deleted after a grace period, unless the query asks for it with
+`include_retired:true`, `include_deleted:true` or a `source_retired:` filter. A
+`deleted:` filter does not show marked records.
 
 ### events
 

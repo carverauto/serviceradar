@@ -29,6 +29,13 @@ pub(in crate::query::devices) fn build_grouped_stats_query(
         clauses.push("COALESCE(is_active, true) = true".to_string());
     }
 
+    if super::super::filters::should_apply_default_retired_filter(
+        plan.include_deleted,
+        &plan.filters,
+    )? {
+        clauses.push("source_retired_at IS NULL".to_string());
+    }
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         clauses.push("last_seen_time >= ?".to_string());
         binds.push(DeviceSqlBindValue::Timestamp(*start));

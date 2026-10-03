@@ -62,11 +62,12 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
     end
   end
 
-  # A tombstoned device is the usual subject here, so ask for it first.
+  # A tombstoned device is the usual subject here, so ask for it first. The live lookup asks for
+  # a record marked source_retired too, which device queries hide by default.
   defp device_row(scope, literal) do
     case rows(scope, "in:devices uid:#{literal} deleted:true limit:1") do
       {:ok, [row | _]} -> {:ok, row}
-      {:ok, []} -> first_or_nil(rows(scope, "in:devices uid:#{literal} limit:1"))
+      {:ok, []} -> first_or_nil(rows(scope, "in:devices uid:#{literal} include_retired:true limit:1"))
       error -> error
     end
   end
@@ -123,9 +124,11 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
 
     # deleted:true so a device that was just tombstoned is still findable --
     # which is the case an operator is usually in when they reach for this.
+    # include_retired:true for the same reason: a record marked source_retired
+    # is hidden from device queries by default.
     with {:ok, literal} <- SrqlBind.literal(seed, kind),
          {:ok, tombstoned} <- rows(scope, "in:devices #{field}:#{literal} deleted:true limit:5"),
-         {:ok, live} <- rows(scope, "in:devices #{field}:#{literal} limit:5") do
+         {:ok, live} <- rows(scope, "in:devices #{field}:#{literal} include_retired:true limit:5") do
       case Enum.uniq_by(tombstoned ++ live, &Map.get(&1, "uid")) do
         [] ->
           {:error, "no device found with #{field} #{seed} (searched live and tombstoned)"}
@@ -221,6 +224,7 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
 
     Map.put(payload, "summary", %{
       "tombstoned" => not is_nil(device) and not is_nil(device["deleted_at"]),
+      "source_retired" => not is_nil(device) and not is_nil(device["source_retired_at"]),
       "deleted_reason" => device && device["deleted_reason"],
       "deleted_by" => device && device["deleted_by"],
       "survivor" => survivor(payload["merge_chain"]),

@@ -162,12 +162,14 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   defp list_devices_for_export(conn, opts) do
     scope = get_scope(conn)
 
+    # The inventory as operators see it: records marked source_retired are left out.
     Device
+    |> Ash.Query.for_read(:inventory, %{}, scope: scope)
     |> Ash.Query.sort(last_seen_time: :desc)
     |> maybe_filter_type_id(opts.type_id)
     |> maybe_filter_first_seen_after(opts.first_seen_after)
     |> maybe_filter_last_seen_after(opts.last_seen_after)
-    # The Device :read action requires keyset pagination, so Ash.read! returns an
+    # The Device :inventory action requires keyset pagination, so Ash.read! returns an
     # Ash.Page.* struct (not a list) and query-level limit is ignored. Use the
     # page option for exact offset paging and unwrap .results — the list the
     # callers (Enum.map/length) expect.
@@ -479,7 +481,8 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
          {:ok, search} <- parse_optional_string(Map.get(params, "search")),
          {:ok, status} <- parse_status(Map.get(params, "status")),
          {:ok, gateway_id} <- parse_optional_string(Map.get(params, "gateway_id")),
-         {:ok, device_type} <- parse_optional_string(Map.get(params, "device_type")) do
+         {:ok, device_type} <- parse_optional_string(Map.get(params, "device_type")),
+         {:ok, include_retired} <- parse_include_retired(Map.get(params, "include_retired")) do
       {:ok,
        %{
          limit: limit,
@@ -487,12 +490,18 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
          search: search,
          status: status,
          gateway_id: gateway_id,
-         device_type: device_type
+         device_type: device_type,
+         include_retired: include_retired
        }}
     end
   end
 
   defp parse_index_params(_), do: {:error, "invalid query params"}
+
+  # Records marked source_retired are listed only on request.
+  defp parse_include_retired(value) when value in [nil, "", false, "false"], do: {:ok, false}
+  defp parse_include_retired(value) when value in [true, "true"], do: {:ok, true}
+  defp parse_include_retired(_value), do: {:error, "invalid include_retired (use true or false)"}
 
   defp parse_limit(nil, default), do: {:ok, default}
   defp parse_limit("", default), do: {:ok, default}

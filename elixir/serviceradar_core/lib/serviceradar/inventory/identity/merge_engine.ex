@@ -678,12 +678,14 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       {:ok, %Device{deleted_at: %_{}}} ->
         # Atomic updates on tombstoned rows raise StaleRecord (the update
         # query is built from the primary read, which filters deleted rows);
-        # bulk_update over an include_deleted query restores in place.
+        # bulk_update over an include_deleted query restores in place. An
+        # unmerge is an administrative restore, so a retained tombstone is
+        # restored too (Device.retained_reasons/0).
         restore_result =
           Device
           |> Ash.Query.for_read(:read, %{include_deleted: true})
           |> Ash.Query.filter(uid == ^from_device_id)
-          |> Ash.bulk_update(:restore, %{},
+          |> Ash.bulk_update(:restore, %{allow_retained: true},
             actor: actor,
             return_records?: true,
             return_errors?: true,

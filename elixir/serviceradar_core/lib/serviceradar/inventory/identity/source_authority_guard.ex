@@ -22,6 +22,10 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   update carrying a value it does not currently hold, and two records that each have a
   history of one type in one scope never merge automatically, even when the values are equal
   (change `add-source-id-succession`, design D2).
+
+  A retired identifier its source reports again is not matched here at all:
+  `ServiceRadar.Inventory.Identity.SourceReactivation` returns it to the record that held it,
+  or re-issues it, before resolution (D6).
   """
 
   import Ecto.Query
@@ -156,7 +160,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   A retired value counts: a record whose only identifier of the type retired is not a match
   for an update carrying a different one. Nor is it a match for an update carrying the
-  retired value itself, which this guard does not return to the record.
+  retired value itself: `SourceReactivation` decides whether that value returns to the
+  record, and once it has, the record holds it again.
 
   A device with no history of that type is not a mismatch: a discovered record of the same
   device, found through its MAC, or a record of the same device from a different source, is

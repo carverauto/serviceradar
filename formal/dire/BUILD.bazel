@@ -55,6 +55,20 @@ tlc_test(
     ],
 )
 
+# The record grace-deleted may still hold a MAC (a MAC neither withholds nor clears the mark).
+tlc_test(
+    name = "lifecycle_vacuity_grace_delete_mac_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_grace_delete_mac.cfg",
+    expect = "violation:NeverGraceDeletesMacHolder",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
 tlc_test(
     name = "lifecycle_vacuity_reactivate_test",
     size = "medium",
@@ -112,6 +126,20 @@ tlc_test(
     name = "lifecycle_goal_retirement_chain_test",
     size = "medium",
     cfg = "lifecycle_goal_retirement_chain.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# Retirement with one of the two identifiers a MAC: the MAC never retires, stays with the
+# record when the record is marked, and neither withholds nor clears the mark.
+tlc_test(
+    name = "lifecycle_goal_retirement_mac_test",
+    size = "medium",
+    cfg = "lifecycle_goal_retirement_mac.cfg",
     spec = "MCDireLifecycle.tla",
     workers = 8,
     deps = [
@@ -767,6 +795,18 @@ tlc_test(
     cfg = "traces/Trace_soft_delete_upsert_revival.cfg",
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_soft_delete_upsert_revival.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_source_retired_returns_test",
+    cfg = "traces/Trace_source_retired_returns.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_source_retired_returns.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",

@@ -256,8 +256,11 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     |> Page.unwrap()
   end
 
+  # A sweep is evidence, and evidence never revives a retained tombstone
+  # (`Device.retained_reasons/0`).
   defp eligible_restore_uids(devices) do
     devices
+    |> Enum.reject(&Device.retained_tombstone?/1)
     |> Enum.filter(&restore_eligible?/1)
     |> Enum.map(& &1.uid)
   end

@@ -1776,10 +1776,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   # What a resolved uid is: a device to write, an existing one to keep, or a tombstone. A poll
   # never revives a device an operator deleted, one a merge tombstoned (the Resolver has already
-  # followed the merge), or one a DIRE remediation removed on purpose. A device an automatic
-  # process deleted (a reaper or an expiry, identified by a `system:` actor) came back online, so
-  # it is restored through the audited `:restore` action rather than the raw upsert, which would
-  # clear the tombstone without a trace.
+  # followed the merge), one a DIRE remediation removed on purpose, or a retained tombstone
+  # (`Device.retained_reasons/0`: its source retired its ids, or it was a released seed). A
+  # device an automatic process deleted (a reaper or an expiry, identified by a `system:` actor)
+  # came back online, so it is restored through the audited `:restore` action rather than the
+  # raw upsert, which would clear the tombstone without a trace.
   defp polled_device_state(nil, _actor), do: :new
 
   defp polled_device_state(%Device{deleted_at: nil} = device, _actor), do: {:existing, device}
@@ -1796,7 +1797,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp restorable_system_delete?("merged"), do: false
   defp restorable_system_delete?("dire_remediation" <> _), do: false
-  defp restorable_system_delete?(_reason), do: true
+  defp restorable_system_delete?(reason), do: not Device.retained_reason?(reason)
 
   # The restored device keeps its recorded address unless another live device holds it now (the
   # address was leased again while the device was gone); then the restore clears it in the same
