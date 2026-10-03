@@ -178,9 +178,11 @@ spec:
                 }
               },
               # Web-NG owns browser/API-facing object-store workflows such as
-              # plugin WASM/dashboard package imports and FieldSurvey artifacts.
-              # Keep this identity scoped to object-store and JetStream control
-              # subjects instead of reusing the broader core identity.
+              # plugin WASM/dashboard package imports and FieldSurvey artifacts,
+              # and it publishes the internal logs, OCSF events, and analytics
+              # signals that core code in this release emits. It does not
+              # publish the notifications.* firehose. Do not reuse the core
+              # identity for this user.
               {
                 user: "CN=serviceradar-web-ng,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
