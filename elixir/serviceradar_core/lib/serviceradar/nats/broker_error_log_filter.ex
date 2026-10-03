@@ -51,7 +51,8 @@ defmodule ServiceRadar.NATS.BrokerErrorLogFilter do
 
   def filter(_event, _identity), do: :ignore
 
-  defp broker_error_message(%{label: {:error_logger, :error_report}, report: report}), do: broker_error_message(report)
+  defp broker_error_message(%{label: {:error_logger, :error_report}, report: report}),
+    do: broker_error_message(report)
 
   defp broker_error_message(report) when is_list(report) do
     if Keyword.keyword?(report) and Keyword.get(report, :type) == :gnat_error_from_broker do

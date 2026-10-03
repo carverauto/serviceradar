@@ -24,7 +24,10 @@ defmodule ServiceRadar.NATS.BrokerErrorLogFilterTest do
     message = ~s(Permissions Violation for Publish to "#{subject}")
 
     # Exactly how Gnat reports a broker -ERR (Gnat.process_message/2).
-    log = capture_log(fn -> :error_logger.error_report(type: :gnat_error_from_broker, message: message) end)
+    log =
+      capture_log(fn ->
+        :error_logger.error_report(type: :gnat_error_from_broker, message: message)
+      end)
 
     assert log =~
              "NATS broker error on connection serviceradar_nats " <>
@@ -33,7 +36,10 @@ defmodule ServiceRadar.NATS.BrokerErrorLogFilterTest do
   end
 
   test "leaves other error reports untouched" do
-    log = capture_log(fn -> :error_logger.error_report(type: :some_other_report, message: "unrelated") end)
+    log =
+      capture_log(fn ->
+        :error_logger.error_report(type: :some_other_report, message: "unrelated")
+      end)
 
     assert log =~ "some_other_report"
     refute log =~ "NATS broker error"
