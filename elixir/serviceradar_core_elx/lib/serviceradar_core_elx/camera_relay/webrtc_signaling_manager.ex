@@ -140,7 +140,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
           {:noreply, put_in(state, [:sessions, viewer_session_id], session)}
 
         {:error, reason} ->
-          _ = Signaling.close(signaling)
+          _ = close_signaling(signaling)
           {:reply, {:error, reason}, state}
       end
     else
@@ -260,6 +260,26 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
     end
   end
 
+  # A viewer's Signaling process stopped on its own (normally because its WebRTC
+  # sink crashed). Release only that viewer; sessions already closed by this
+  # manager are no longer tracked, so their DOWN is ignored.
+  def handle_info({:DOWN, _ref, :process, signaling_pid, reason}, state) do
+    case fetch_session_by_signaling(state, signaling_pid) do
+      {:ok, session} ->
+        Logger.warning(
+          "Camera relay WebRTC signaling stopped: relay_session_id=#{session.relay_session_id} " <>
+            "viewer_session_id=#{session.viewer_session_id} reason=#{inspect(reason)}"
+        )
+
+        close_runtime_session(state, session, "webrtc viewer connection failed")
+        maybe_reply_failure(session.pending_reply_to)
+        {:noreply, %{state | sessions: Map.delete(state.sessions, session.viewer_session_id)}}
+
+      :error ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(
         {:membrane_webrtc_signaling, signaling_pid, %{"type" => "sdp_offer", "data" => offer_data}, _metadata},
         state
@@ -336,7 +356,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
     _ = cancel_timer(session.timer_ref)
     _ = cancel_timer(session.offer_timeout_ref)
     _ = pipeline_manager(state).remove_webrtc_viewer(session.relay_session_id, session.viewer_session_id)
-    _ = Signaling.close(session.signaling)
+    _ = close_signaling(session.signaling)
 
     :ok =
       relay_pubsub(state).viewer_leave(session.relay_session_id, session.viewer_session_id, %{
@@ -361,11 +381,22 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
     }
   end
 
+  # Unlinked and monitored. A Signaling process stops with its element peer's
+  # crash reason when that peer (the viewer's WebRTC sink) dies, so a link would
+  # take this manager -- and every other viewer's session -- down with one
+  # viewer. The DOWN handler releases just that viewer.
   defp start_signaling do
-    case Signaling.start_link([]) do
-      {:ok, signaling_pid} -> {:ok, Signaling.new(signaling_pid)}
-      {:error, reason} -> {:error, reason}
-    end
+    signaling = Signaling.start()
+    _ref = Process.monitor(signaling.pid)
+    {:ok, signaling}
+  end
+
+  # The process may already be gone (its viewer crashed); GenServer.stop on a
+  # dead pid would exit this manager.
+  defp close_signaling(signaling) do
+    Signaling.close(signaling)
+  catch
+    :exit, _reason -> :ok
   end
 
   defp apply_or_hold_candidate(%{answer_sdp: answer_sdp} = session, candidate) when is_binary(answer_sdp) do
