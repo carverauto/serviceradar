@@ -646,7 +646,39 @@ defmodule ServiceRadar.NetworkDiscovery.World do
        ),
        do: {:error, reason}
 
+  # A missing endpoint never reaches verify_staged_endpoints/1: the relation
+  # foreign key fails the Ash insert first. That is the same rejection as the
+  # set-based check and as verify_relation_endpoints/2.
+  defp transaction_result({:error, %Ash.Error.Invalid{errors: errors} = reason}) do
+    if endpoint_foreign_key?(errors) do
+      {:error, :invalid_relation_endpoint}
+    else
+      {:error, reason}
+    end
+  end
+
   defp transaction_result({:error, _reason} = error), do: error
+
+  defp endpoint_foreign_key?(errors) when is_list(errors),
+    do: Enum.any?(errors, &endpoint_foreign_key?/1)
+
+  defp endpoint_foreign_key?(%{errors: errors}) when is_list(errors),
+    do: endpoint_foreign_key?(errors)
+
+  defp endpoint_foreign_key?(%{private_vars: vars}) when is_list(vars) do
+    vars |> Keyword.get(:constraint) |> endpoint_foreign_key_name?()
+  end
+
+  defp endpoint_foreign_key?(_error), do: false
+
+  defp endpoint_foreign_key_name?(name)
+       when name in [
+              "topology_world_relations_source_id_fkey",
+              "topology_world_relations_target_id_fkey"
+            ],
+       do: true
+
+  defp endpoint_foreign_key_name?(_name), do: false
   defp read_options(:system), do: [actor: actor(), timeout: @publication_timeout]
   defp read_options(scope), do: [scope: scope]
   defp actor, do: SystemActor.system(:topology_world)
