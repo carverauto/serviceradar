@@ -11,7 +11,11 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackRouteTest do
 
   use ExUnit.Case, async: true
 
+  import Plug.Conn
+  import Plug.Test
+
   alias ServiceRadarWebNGWeb.Api.RawBodyReader
+  alias ServiceRadarWebNGWeb.Plugs.SafeParsers
 
   # web-ng's Bazel tier runs `ExUnit.configure(exclude: [:test], include: [:db_free])`,
   # so an untagged file runs ZERO tests in CI while reporting success. These need no
@@ -19,6 +23,100 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackRouteTest do
   @moduletag :db_free
 
   @providers ["slack"]
+
+  test "notification callbacks reject oversized bodies before decoding across route representations" do
+    bodies = [
+      {"application/x-www-form-urlencoded", URI.encode_query(%{"payload" => String.duplicate("x", 1_048_577)})},
+      {"application/json", Jason.encode!(%{"padding" => String.duplicate("x", 1_048_577)})},
+      {"multipart/form-data; boundary=synthetic-boundary",
+       "--synthetic-boundary\r\nContent-Disposition: form-data; name=\"payload\"\r\n\r\n" <>
+         String.duplicate("x", 1_048_577) <> "\r\n--synthetic-boundary--\r\n"}
+    ]
+
+    for path <- [
+          "/api/notifications/callbacks/slack",
+          "/api/notifications/callbacks/pagerduty",
+          "/%61pi/notifications/%63allbacks/slack"
+        ],
+        method <- [:post, :put],
+        {content_type, body} <- bodies do
+      parsed =
+        method
+        |> conn(path, body)
+        |> put_req_header("content-type", content_type)
+        |> SafeParsers.call(parser_opts())
+
+      assert parsed.halted
+      assert parsed.status == 400
+      assert Jason.decode!(parsed.resp_body) == %{"error" => "malformed_request"}
+    end
+  end
+
+  test "raw notification bytes remain bounded across multiple reads without truncation" do
+    for path <- ["/api/notifications/callbacks/slack", "/%61pi/notifications/callbacks/slack"] do
+      body = String.duplicate("x", 1_048_576)
+      conn = conn(:post, path, body)
+      assert {:more, _first, conn} = RawBodyReader.read_body(conn, length: 524_288)
+      assert {:ok, _second, conn} = RawBodyReader.read_body(conn, length: 524_288)
+      assert RawBodyReader.raw_body(conn) == body
+
+      conn = conn(:post, path, body <> "x")
+      assert {:more, _first, conn} = RawBodyReader.read_body(conn, length: 524_288)
+      assert {:more, _second, conn} = RawBodyReader.read_body(conn, length: 524_288)
+
+      assert_raise Plug.Parsers.RequestTooLargeError, fn -> RawBodyReader.read_body(conn, []) end
+    end
+  end
+
+  test "multipart callbacks reject empty-part framing that does not consume the parser body budget" do
+    body =
+      String.duplicate("--synthetic-boundary\r\n\r\n\r\n", 50_000) <>
+        "--synthetic-boundary--\r\n"
+
+    parsed =
+      :post
+      |> conn("/api/notifications/callbacks/slack", body)
+      |> put_req_header("content-type", "multipart/form-data; boundary=synthetic-boundary")
+      |> SafeParsers.call(parser_opts())
+
+    assert parsed.halted
+    assert parsed.status == 400
+  end
+
+  test "bounded callbacks keep exact signature bytes and unrelated uploads keep their larger limit" do
+    for {path, content_type, body, expected} <- [
+          {"/api/notifications/callbacks/slack", "application/x-www-form-urlencoded",
+           "payload=" <> String.duplicate("x", 1_048_568), %{"payload" => String.duplicate("x", 1_048_568)}},
+          {"/api/notifications/callbacks/pagerduty", "application/json",
+           ~s({ "event" : {} }) <> String.duplicate(" ", 1_048_560), %{"event" => %{}}},
+          {"/api/northbound/action-callbacks/example-job", "application/json",
+           Jason.encode!(%{"padding" => String.duplicate("x", 1_048_577)}),
+           %{"padding" => String.duplicate("x", 1_048_577)}},
+          {"/api/plugin-packages/example/blob", "application/json",
+           Jason.encode!(%{"padding" => String.duplicate("x", 1_048_577)}),
+           %{"padding" => String.duplicate("x", 1_048_577)}}
+        ] do
+      parsed =
+        :post
+        |> conn(path, body)
+        |> put_req_header("content-type", content_type)
+        |> SafeParsers.call(parser_opts())
+
+      refute parsed.halted
+      assert parsed.body_params == expected
+      assert RawBodyReader.raw_body(parsed) == if(RawBodyReader.buffered?(path), do: body, else: "")
+    end
+  end
+
+  defp parser_opts do
+    SafeParsers.init(
+      parsers: [:urlencoded, :multipart, :json],
+      pass: ["*/*"],
+      json_decoder: Jason,
+      body_reader: {RawBodyReader, :read_body, []},
+      length: 67_108_864
+    )
+  end
 
   test "every provider callback path is buffered" do
     for provider <- @providers do
