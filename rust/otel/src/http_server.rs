@@ -189,7 +189,7 @@ pub async fn start_http_server(
                             result => {
                                 let _ = result;
                                 debug!("OTLP/HTTP TLS handshake from {peer} failed or timed out");
-                                return Ok(());
+                                Ok(())
                             }
                         }
                     }
