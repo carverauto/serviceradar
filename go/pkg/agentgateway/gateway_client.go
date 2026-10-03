@@ -898,10 +898,14 @@ func (g *GatewayClient) UploadMedia(ctx context.Context, chunks []*proto.MediaCh
 			// io.EOF means the gateway ended the stream; its status arrives
 			// with the response, not from Send.
 			if errors.Is(err, io.EOF) {
-				_, err = stream.CloseAndRecv()
-			} else {
-				_ = stream.CloseSend()
+				resp, closeErr := stream.CloseAndRecv()
+				g.markDisconnectedOnTransportFailure(closeErr)
+				if closeErr != nil {
+					return nil, fmt.Errorf("failed to send media chunk: %w", closeErr)
+				}
+				return resp, nil
 			}
+			_ = stream.CloseSend()
 			g.markDisconnectedOnTransportFailure(err)
 			return nil, fmt.Errorf("failed to send media chunk: %w", err)
 		}

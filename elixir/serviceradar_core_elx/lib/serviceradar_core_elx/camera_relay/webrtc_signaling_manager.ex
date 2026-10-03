@@ -182,7 +182,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
         updated =
           session
           |> refresh_session(state.session_ttl_ms)
-          |> Map.put(:signaling_state, "candidate_buffered")
           |> Map.put(:last_candidate, candidate)
           |> apply_or_hold_candidate(candidate)
 
@@ -380,7 +379,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
     pending = Map.get(session, :pending_candidates, [])
 
     if length(pending) < @max_pending_candidates do
-      Map.put(session, :pending_candidates, pending ++ [candidate])
+      session
+      |> Map.put(:signaling_state, "candidate_buffered")
+      |> Map.put(:pending_candidates, pending ++ [candidate])
     else
       session
     end
