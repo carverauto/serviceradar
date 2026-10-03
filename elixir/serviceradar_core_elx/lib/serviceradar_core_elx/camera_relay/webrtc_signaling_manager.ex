@@ -10,14 +10,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   held per viewer and forwarded, in order, right after the answer.
   """
 
-  require Logger
-
   use GenServer
 
   alias Membrane.WebRTC.Signaling
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
+
+  require Logger
 
   @default_session_ttl_ms 60_000
   @default_offer_timeout_ms 5_000

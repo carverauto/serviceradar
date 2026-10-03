@@ -87,8 +87,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
   end
 
   def handle_call({:close_relay_session, _request}, _from, %{closed: true} = state) do
-    {:reply, {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session already closed"}},
-     state}
+    {:reply, {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session already closed"}}, state}
   end
 
   def handle_call({:upload_media, []}, _from, state) do

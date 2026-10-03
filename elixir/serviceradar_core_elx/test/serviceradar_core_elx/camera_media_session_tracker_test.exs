@@ -36,7 +36,11 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
   defmodule IngressNotifierStub do
     @moduledoc false
     def notify_lease_expired(relay_session_id) do
-      send(Application.fetch_env!(:serviceradar_core_elx, :camera_media_tracker_test_pid), {:lease_expired, relay_session_id})
+      send(
+        Application.fetch_env!(:serviceradar_core_elx, :camera_media_tracker_test_pid),
+        {:lease_expired, relay_session_id}
+      )
+
       :ok
     end
   end

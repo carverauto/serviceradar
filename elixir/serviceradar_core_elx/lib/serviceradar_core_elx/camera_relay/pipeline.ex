@@ -12,8 +12,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
 
   use Membrane.Pipeline
 
-  require Logger
-
   alias Membrane.Pad
   alias Membrane.WebRTC.Sink, as: WebRTCSink
   alias ServiceRadarCoreElx.CameraRelay.AnalysisSink
@@ -21,6 +19,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   alias ServiceRadarCoreElx.CameraRelay.BoomboxOutputBin
   alias ServiceRadarCoreElx.CameraRelay.ChunkSource
   alias ServiceRadarCoreElx.CameraRelay.PubSubSink
+
+  require Logger
 
   @source :camera_chunk_source
   @browser_tee :camera_browser_tee

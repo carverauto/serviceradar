@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
   alias ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
+  alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
 
   setup do
     previous_analysis_state = :sys.get_state(AnalysisBranchManager)
@@ -26,7 +27,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     viewer_id = "viewer-membrane-1"
     :ok = RelayPubSub.subscribe_viewer(relay_session_id, viewer_id)
     :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
-    _ = :sys.get_state(ServiceRadarCoreElx.CameraRelay.ViewerRegistry)
+    _ = :sys.get_state(ViewerRegistry)
 
     assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
 
@@ -98,7 +99,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     pubsub_viewer_id = "viewer-pubsub-crash-1"
     :ok = RelayPubSub.subscribe_viewer(relay_session_id, pubsub_viewer_id)
     :ok = RelayPubSub.viewer_join(relay_session_id, pubsub_viewer_id)
-    _ = :sys.get_state(ServiceRadarCoreElx.CameraRelay.ViewerRegistry)
+    _ = :sys.get_state(ViewerRegistry)
 
     assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
     {:ok, signaling_pid} = Signaling.start_link([])
