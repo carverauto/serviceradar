@@ -138,9 +138,11 @@ This repo uses:
 - `.githooks/mix-format-elixir` (from `.githooks/pre-commit`) to format staged
   `.ex`, `.exs`, and `.heex` files and re-stage them before the commit is written.
   A project with `deps/styler` uses `mix format` on those files. Otherwise the hook
-  runs `bazel run --config=remote //elixir/<project>:format`, the same hermetic
-  formatter Elixir Quality uses, so a checkout without `mix deps.get` still cannot
-  land an unformatted line. `SERVICERADAR_SKIP_ELIXIR_FORMAT=1` skips that step.
+  runs `bazel run --config=remote //elixir/<project>:format`, the hermetic formatter
+  Elixir Quality prints on failure, so a checkout does not need `mix deps.get`.
+  If `.bazelrc.remote` is missing, the hook links it from
+  `${SERVICERADAR_BAZELRC_DIR:-$HOME/src/serviceradar}` (and `.bazelrc.local` when
+  that clone has one). `SERVICERADAR_SKIP_ELIXIR_FORMAT=1` skips that step.
 - `.githooks/pre-push` to run a local `gitleaks` scan of commits being pushed when `gitleaks` or Docker is available
 
 The authoritative merge gate remains GitHub Actions, but keeping the local hooks enabled is the fastest way to catch accidental secrets before they leave your machine.

@@ -205,8 +205,9 @@ agent-sr-test-pve04   05:05:37  is_available: TRUE    <- 77 min stale, never exp
 ## 6. Housekeeping (no spec delta required)
 
 - [ ] 6.1 `req 0.7.3` is unsatisfiable on Hex, so `serviceradar_core_elx` deps will not
-      resolve and the `mix format` pre-commit hook fails repo-wide. CI is unaffected (it
-      resolves fresh). Bump deliberately rather than leaving everyone on `--no-verify`.
+      resolve. Commit-time formatting does not need that `deps/` tree; see
+      [CONTRIBUTING.md](../../../CONTRIBUTING.md). CI is unaffected (it resolves fresh).
+      Bump deliberately.
 - [ ] 6.2 `//elixir/web-ng:static_files` is still a bare `glob(["priv/static/**"])`. A local
       asset build collides with `//elixir/web-ng/assets:static_undigested` and breaks
       `make push_all`, not just `make test`. Add the `exclude` for the gitignored

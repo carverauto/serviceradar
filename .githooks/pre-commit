@@ -5,6 +5,7 @@ ROOT_DIR="$(git rev-parse --show-toplevel)"
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT_DIR"
 
+# macOS /bin/bash is 3.2 and has no mapfile.
 staged_files=()
 while IFS= read -r staged_file; do
   [ -n "$staged_file" ] || continue
