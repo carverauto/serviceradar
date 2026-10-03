@@ -20,6 +20,9 @@ Constraints:
 - The repository credential rule separates device and integration
   credentials (CNPG unified model) from ServiceRadar-to-itself secrets
   (Kubernetes Secret or OpenBao).
+- All metrics flow through NATS JetStream and are persisted by EventWriter
+  (StarRocks when enabled, otherwise CNPG); nothing writes telemetry rows
+  directly.
 
 ## Goals / Non-Goals
 - Goals:
@@ -71,33 +74,145 @@ Constraints:
   - TTL default 600s, bounded to 60..3600s.
   - The secret is read from a mounted Secret file, 32..512 bytes, the same
     bounds RDP enforces today.
-- **`cloudflare`**:
-  - Call `POST https://rtc.live.cloudflare.com/v1/turn/keys/<key_id>/credentials/generate-ice-servers`
-    with a bearer API token and `{"ttl": <seconds>}`, through
-    `EgressClient`, so the Smokescreen proxy applies.
+- **`cloudflare`** (bring your own Cloudflare account):
+  - Per viewer, call
+    `POST https://rtc.live.cloudflare.com/v1/turn/keys/<turn_key_id>/credentials/generate-ice-servers`
+    with the provisioned TURN key's secret as the bearer token and
+    `{"ttl": <seconds>}`, through `EgressClient`, so the Smokescreen proxy
+    applies.
   - The response's `iceServers` (with username and credential) is passed
     through after URL-scheme validation.
-  - The token is read from a mounted Secret file.
-  - TTL default 600s, bounded as above.
-  - Request timeout 5s.
-  - No caching across viewers: credentials are per viewer.
-- **Selection:** a deployment selects one backend
-  (`webrtc.iceCredentials.backend: none|static_secret|cloudflare`, default
-  `none`). STUN URLs from the static ICE list are always appended.
+  - The TURN key ID and key secret come from the provisioning flow below and
+    are read from the unified credential store, never from Helm values or a
+    mounted file.
+  - TTL default 600s, bounded as above. Request timeout 5s. No caching across
+    viewers: credentials are per viewer.
+- **Selection:** the active backend lives in the deployment's
+  **WebRTC relay settings** record (`none|static_secret|cloudflare`, default
+  `none`), edited in Settings. Helm still owns everything that is
+  infrastructure: the `static_secret` shared-secret Secret and the optional
+  TURN server. STUN URLs from the static ICE list are always appended.
 
-### Why these secrets are not in the unified credential model
-The TURN shared secret and the Cloudflare TURN token authenticate
-ServiceRadar to its **own media-relay infrastructure**, the same class as
-NATS creds, session and JWT keys, and the Dgraph ACL credential. They are
-not used to talk to a monitored device or a third-party data source
-integration. They are not scoped to any target. They have exactly one
-consumer: the deployment's WebRTC stack.
+### Which secrets go where
+- **TURN REST shared secret (`static_secret`, chart TURN server): an
+  infrastructure secret.** It authenticates ServiceRadar to its own
+  media-relay server, the same class as NATS creds and session keys. It has
+  one consumer, is never scoped to a target, and stays an operator-owned
+  Kubernetes Secret (or OpenBao-synced Secret) mounted into web-ng, core-elx
+  and the TURN server only. It is not stored in
+  `platform.network_credential_secrets`.
+- **Cloudflare API token and the provisioned TURN key secret: integration
+  credentials.** They authenticate ServiceRadar to a third-party service the
+  operator brings, and operators enter and rotate them in the product. Per the
+  repository credential rule they are stored encrypted in
+  `platform.network_credential_secrets` and managed in the canonical
+  credentials settings area, under a new native descriptor `cloudflare` with
+  auth method `api_token` and purposes `turn_provisioning` (the account API
+  token) and `turn_key` (the provisioned key secret, created by the system).
+  The descriptor keeps `supports_rules: true`; it is not hidden from the rule
+  form. See "Credential binding" for why the TURN settings reference them
+  directly.
 
-Storing them in `platform.network_credential_secrets` would expose them in
-the operator credential inventory and rule binding UI, where they cannot be
-meaningfully bound. They therefore live in an operator-owned Kubernetes
-Secret (or OpenBao-synced Secret), mounted as a file into the web-ng and
-core-elx pods only.
+### Credential binding: direct reference, not credential rules
+The WebRTC relay settings record is a deployment-level singleton, like
+`ServiceRadar.Integrations.OutboundMailSettings`. Credential rules select
+material dynamically for a target query or compiler; here there is no target
+and exactly one consumer, so a rule would add an indirection with nothing to
+select. The settings record therefore references both secrets directly, and
+meets every condition the credential rule sets for a direct reference:
+- **Product contract:** this change (Settings -> Media relay (TURN)).
+- **Restrictive foreign keys:** `cloudflare_api_token_secret_id` and
+  `cloudflare_turn_key_secret_id` reference `network_credential_secrets` with
+  `on_delete: :restrict`, as `outbound_mail_settings` does.
+- **Usage inventory:** `ServiceRadar.Credentials.CredentialUsage` gains a
+  `webrtc_relay_settings` direct-consumer source with a label like
+  "Media relay (TURN), Cloudflare API token" and "... TURN key".
+- **Guarded deletion:** `GuardCredentialDestroy` refuses to delete either
+  secret while the settings reference it; the restrictive FK backs it up.
+- **Navigable usage surface:** the credential's usage view links to
+  Settings -> Media relay (TURN), and that page links back to the credential.
+
+### No chart-mounted Cloudflare token
+GitOps installs do **not** get a Helm value for the Cloudflare token. Two live
+sources (a mounted Secret and the credential store) would disagree after the
+first rotation in the UI. Automation uses the existing authenticated API
+instead: create the credential with `POST /network-credential-secrets`, then
+set the relay settings (backend, credential reference) and trigger
+provisioning through the settings API. The credential store is the single
+source of truth.
+
+### Settings UI and Cloudflare provisioning
+A web-ng page **Settings -> Media relay (TURN)** (route `/settings/webrtc`,
+registered in the settings catalog under the system category), gated by a new
+RBAC permission `settings.webrtc.manage` in the core permission catalog.
+Read-only status is visible with `settings.webrtc.view`.
+- **Backend:** none / Cloudflare / self-hosted (`static_secret`). Self-hosted
+  is selectable only when the chart mounted the shared secret; the page says
+  so otherwise.
+- **Cloudflare:** pick an existing `cloudflare` credential or create one
+  inline (it lands in the credential store, not on the settings record). The
+  token needs Cloudflare Realtime (Calls) edit permission on the account, plus
+  account analytics read for the usage dashboard. The page names both.
+- **Provision:** core resolves the account ID from the token, then calls
+  `POST https://api.cloudflare.com/client/v4/accounts/<account_id>/calls/turn_keys`
+  through `EgressClient`. The returned key ID is stored on the settings
+  record; the returned key secret is stored as a system-created
+  `cloudflare`/`turn_key` credential and referenced directly.
+- **Idempotency:** provisioning runs as an Oban job unique per settings record
+  with a provisioning-attempt id. Each created key carries a name derived from
+  the deployment id and attempt id, so a retried attempt finds its own key by
+  name instead of creating a second one.
+- **Partial failure:** if Cloudflare created the key but storing the secret
+  or updating the settings fails, the job deletes that key
+  (`DELETE .../calls/turn_keys/<key_id>`) before reporting failure. If the
+  delete also fails, the attempt is recorded as `orphaned_key` with the key ID
+  (never the secret) and a cleanup job retries the delete with backoff.
+- **Status:** `not_configured`, `provisioning`, `provisioned`, `failed` with a
+  reason class (`unauthorized`, `forbidden`, `rate_limited`, `egress_denied`,
+  `timeout`, `upstream_error`), plus last success and key ID suffix.
+- **Rotate:** create a new key, store its secret, switch the settings to it,
+  then delete the old key and its credential. Viewers already holding
+  credentials from the old key keep them until their TTL ends.
+- **Revoke:** delete the key on Cloudflare, delete the system-created key
+  credential, and set the backend to `none` (the operator's API token
+  credential is left for the operator to delete).
+- **Egress:** the Smokescreen ACL needs `api.cloudflare.com` (provisioning and
+  analytics) and `rtc.live.cloudflare.com` (per-viewer minting).
+
+### Usage telemetry and dashboard
+All usage data rides JetStream and is persisted by EventWriter's existing
+`METRICS` stream (`metrics.>`) as generic timeseries metrics, the same shape
+the plugin metrics publisher uses under `metrics.timeseries`, so it lands in
+the timeseries metrics store (StarRocks when enabled, otherwise CNPG) and is
+SRQL-queryable. No new table.
+- **Our own telemetry** on `metrics.timeseries.webrtc.*`:
+  - `webrtc_ice_mints_total` (labels: feature, backend, result, reason class);
+  - `webrtc_ice_mint_duration_ms`;
+  - `webrtc_viewer_connections_total` (labels: feature, candidate type
+    `host|srflx|relay|failed`).
+  web-ng publishes mint metrics (it mints for browsers); core-elx publishes
+  mint and candidate-pair metrics for its peers.
+- **Cloudflare usage poller:** an Oban cron job in core (every 15 minutes,
+  `:integrations` queue) queries the Cloudflare GraphQL Analytics API TURN
+  usage dataset for the provisioned key over the last window and publishes
+  `webrtc_turn_ingress_bytes`, `webrtc_turn_egress_bytes` and
+  `webrtc_turn_concurrent_connections` samples to
+  `metrics.timeseries.webrtc.cloudflare`. Exact dataset and field names are
+  confirmed against Cloudflare's schema at implementation. A poll failure is a
+  telemetry event, not a provisioning-status change.
+- **NATS permissions:** core's and web-ng's NATS identities do not publish on
+  `metrics.>` today. The chart grants each exactly
+  `metrics.timeseries.webrtc.>` (both auth modes: cert-mapped users and the
+  compose operator/JWT users). Missing grants show up as broker Permissions
+  Violations, so the chart unittest asserts them.
+- **Dashboard:** the Media relay (TURN) settings page shows an SRQL-backed
+  usage panel: relay share of viewer connections (relay / all successful),
+  mint failures by reason, and for Cloudflare bytes relayed per day with a
+  30-day trend. An operator-set monthly relay-bytes threshold raises an
+  alert through the existing alerting path when crossed.
+- **Control plane:** carverauto/serviceradar-control#156 surfaces the same
+  setup and usage in the tenant console; this change provides the instance
+  side (settings API and metrics) it builds on.
 
 ### ICE transport policy
 - Default `:all` on both sides, with relay as a fallback.
@@ -158,9 +273,9 @@ core-elx pods only.
 - **Generalized key:** that policy moves under
   `webrtc.networkPolicy`, and the RDP keys alias to it, so the camera relay
   gets the same opt-in egress to the TURN server or Cloudflare TURN ranges.
-- **Cloudflare API:** the API call goes through Smokescreen, so the egress
-  ACL needs `rtc.live.cloudflare.com`. That is documented, not chart
-  managed.
+- **Cloudflare API:** provisioning, analytics and minting go through
+  Smokescreen, so the egress ACL needs `api.cloudflare.com` and
+  `rtc.live.cloudflare.com`. That is documented, not chart managed.
 
 ### Failure behavior
 - If the provider cannot mint (secret file missing at runtime, Cloudflare
@@ -215,11 +330,16 @@ These feed existing metrics through JetStream per the telemetry rule.
    with its tests unchanged.
 2. Wire the camera relay (web-ng signaling plus the core-elx peer). The
    default backend `none` keeps today's STUN-only behavior.
-3. Add the `cloudflare` backend.
+3. Add the `cloudflare` descriptor, the WebRTC relay settings record (with
+   its credential-usage and guarded-deletion wiring), the provisioning job,
+   the Settings page and the `cloudflare` backend.
+3a. Add the usage telemetry, the NATS grants, the Cloudflare usage poller and
+   the dashboard panel.
 4. Add the optional eturnal chart component and its validation.
-5. Enable on demo: choose a backend, create the Secret, open the TURN ports
-   (self-hosted) or add `rtc.live.cloudflare.com` to the egress ACL
-   (Cloudflare).
+5. Enable on demo: create the shared-secret Secret and expose the TURN
+   listeners (self-hosted); add `api.cloudflare.com` and
+   `rtc.live.cloudflare.com` to the egress ACL, enter the Cloudflare API token
+   in Settings and provision (Cloudflare).
 
 Rollback: set the backend to `none`. Viewers return to STUN-only plus the
 websocket fallback.
@@ -246,6 +366,9 @@ Decided by the maintainer on 2026-10-03:
 - `forceRelay` defaults to `false` for camera relay and remote desktop; relay
   candidates are a fallback an operator can force per feature once a backend
   is configured.
-- Cloudflare backend needs a TURN key created in the account (key id + API
-  token) stored as a ServiceRadar infrastructure Secret, and
-  `rtc.live.cloudflare.com` in the demo egress ACL.
+- Cloudflare is bring-your-own: the operator enters an API token in Settings
+  and ServiceRadar provisions the TURN key (amended 2026-10-03; supersedes the
+  earlier "infrastructure Secret" decision for the Cloudflare token). The token
+  and key secret are integration credentials in the unified credential store.
+- A usage dashboard ships with the feature; the SaaS tenant console
+  counterpart is carverauto/serviceradar-control#156.
