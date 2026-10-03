@@ -33,6 +33,14 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
     end
   end
 
+  defmodule IngressNotifierStub do
+    @moduledoc false
+    def notify_lease_expired(relay_session_id) do
+      send(Application.fetch_env!(:serviceradar_core_elx, :camera_media_tracker_test_pid), {:lease_expired, relay_session_id})
+      :ok
+    end
+  end
+
   setup do
     previous_state =
       CameraMediaSessionTracker
@@ -439,6 +447,79 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
                       termination_kind: "viewer_idle",
                       close_reason: "viewer idle timeout"
                     }}
+  end
+
+  test "drains the relay when its media pipeline dies instead of failing the next upload" do
+    relay_session_id = unique_relay_session_id()
+    :ok = RelayPubSub.subscribe(relay_session_id)
+
+    assert {:ok, _session} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: relay_session_id,
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main"
+             })
+
+    assert_receive {:activate_session, ^relay_session_id, media_ingest_id, _attrs}
+    assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, status: "active"}}
+
+    %{pipeline_pid: pipeline_pid} = :sys.get_state(PipelineManager).sessions[relay_session_id]
+    Process.exit(pipeline_pid, :kill)
+
+    assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, status: "closing"}}, 1_000
+
+    assert {:ok, %{status: "closing"}} =
+             CameraMediaSessionTracker.record_chunk(relay_session_id, media_ingest_id, %{
+               sequence: 3,
+               codec: "h264",
+               payload_format: "annexb",
+               payload: <<1, 2, 3>>
+             })
+  end
+
+  test "the lease sweep closes a relay whose agent stopped renewing and releases its ingress" do
+    expired_id = unique_relay_session_id()
+    live_id = unique_relay_session_id()
+    previous_test_pid = Application.get_env(:serviceradar_core_elx, :camera_media_tracker_test_pid)
+    Application.put_env(:serviceradar_core_elx, :camera_media_tracker_test_pid, self())
+
+    on_exit(fn ->
+      if previous_test_pid,
+        do: Application.put_env(:serviceradar_core_elx, :camera_media_tracker_test_pid, previous_test_pid),
+        else: Application.delete_env(:serviceradar_core_elx, :camera_media_tracker_test_pid)
+    end)
+
+    for relay_session_id <- [expired_id, live_id] do
+      assert {:ok, _session} =
+               CameraMediaSessionTracker.open_session(%{
+                 relay_session_id: relay_session_id,
+                 agent_id: "agent-1",
+                 gateway_id: "gateway-1",
+                 camera_source_id: "camera-1",
+                 stream_profile_id: "main"
+               })
+    end
+
+    assert_receive {:activate_session, ^expired_id, expired_media_ingest_id, _attrs}
+
+    :sys.replace_state(CameraMediaSessionTracker, fn state ->
+      state
+      |> Map.put(:ingress_notifier, IngressNotifierStub)
+      |> put_in([:sessions, expired_id, :lease_expires_at_unix], System.os_time(:second) - 120)
+    end)
+
+    send(CameraMediaSessionTracker, :sweep_expired_leases)
+
+    assert_receive {:close_session, ^expired_id, ^expired_media_ingest_id, %{close_reason: "relay lease expired"}}
+    assert_receive {:lease_expired, ^expired_id}
+
+    assert CameraMediaSessionTracker.fetch_session(expired_id) == nil
+    refute Map.has_key?(:sys.get_state(PipelineManager).sessions, expired_id)
+
+    assert %{relay_session_id: ^live_id} = CameraMediaSessionTracker.fetch_session(live_id)
+    refute_received {:lease_expired, ^live_id}
   end
 
   defp clear_tracker_sessions(state) do

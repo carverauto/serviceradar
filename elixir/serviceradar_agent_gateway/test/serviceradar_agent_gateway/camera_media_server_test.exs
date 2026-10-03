@@ -242,6 +242,43 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
     end
   end
 
+  # A relay that ended on the core side answers the upload with a drain, and
+  # any other forward failure is :aborted. :unavailable is what agents read as
+  # a lost gateway connection, so relay-level failures must never use it.
+  test "answers an upload for a relay closed upstream with a drain and never reports :unavailable" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_record_result,
+      {:ok, %{status: "active"}}
+    )
+
+    upload = fn ->
+      CameraMediaServer.upload_media(
+        [
+          %Camera.MediaChunk{
+            relay_session_id: "relay-gw-upload-closed-1",
+            media_ingest_id: "core-media-upload-closed-1",
+            agent_id: "agent-1",
+            sequence: 4,
+            payload: <<0, 1>>
+          }
+        ],
+        %{adapter: CameraMediaAdapterStub, payload: :test}
+      )
+    end
+
+    Application.put_env(:serviceradar_agent_gateway, :camera_media_forwarder_upload_result, {:error, :relay_closed})
+
+    response = upload.()
+    assert response.received == false
+    assert response.message =~ "drain"
+
+    Application.put_env(:serviceradar_agent_gateway, :camera_media_forwarder_upload_result, {:error, :core_unavailable})
+
+    error = assert_raise GRPC.RPCError, upload
+    assert error.status == GRPC.Status.aborted()
+  end
+
   test "rejects relay heartbeat from a different authenticated agent" do
     Application.put_env(
       :serviceradar_agent_gateway,

@@ -1,11 +1,18 @@
 defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
   @moduledoc """
   Starts and manages Membrane relay pipelines keyed by relay session id.
+
+  A pipeline that stops on its own (not through `close_session/1`) is logged
+  and reported to the session tracker, which drains the relay so the agent
+  closes it instead of uploading into a session with no media path.
   """
 
   use GenServer
 
+  alias ServiceRadarCoreElx.CameraMediaSessionTracker
   alias ServiceRadarCoreElx.CameraRelay.Pipeline
+
+  require Logger
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -52,8 +59,21 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
   end
 
   @impl true
-  def init(_opts) do
-    {:ok, %{sessions: %{}}}
+  def init(opts) do
+    {:ok,
+     %{
+       sessions: %{},
+       session_tracker:
+         Keyword.get(
+           opts,
+           :session_tracker,
+           Application.get_env(
+             :serviceradar_core_elx,
+             :camera_media_session_tracker_module,
+             CameraMediaSessionTracker
+           )
+         )
+     }}
   end
 
   @impl true
@@ -193,17 +213,19 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
   end
 
   @impl true
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    sessions =
-      Enum.reduce(state.sessions, state.sessions, fn {relay_session_id, session}, acc ->
-        if session.monitor_ref == ref do
-          Map.delete(acc, relay_session_id)
-        else
-          acc
-        end
-      end)
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    case Enum.find(state.sessions, fn {_relay_session_id, session} -> session.monitor_ref == ref end) do
+      {relay_session_id, _session} ->
+        Logger.warning(
+          "Camera relay media pipeline stopped: relay_session_id=#{relay_session_id} reason=#{inspect(reason)}"
+        )
 
-    {:noreply, %{state | sessions: sessions}}
+        _ = state.session_tracker.pipeline_down(relay_session_id, reason)
+        {:noreply, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
+
+      nil ->
+        {:noreply, state}
+    end
   end
 
   defp required_string!(attrs, key) do

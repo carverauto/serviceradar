@@ -1,6 +1,18 @@
 defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   @moduledoc """
   Tracks authoritative camera relay sessions at the core-elx ingress boundary.
+
+  Two paths end a session without the agent asking:
+
+    * The relay's media pipeline dies (`pipeline_down/2`, or a chunk forward
+      that finds no pipeline). The session moves to `closing`, so uploads and
+      heartbeats answer with a drain message and the agent closes the relay
+      cleanly instead of receiving an error.
+    * Its lease lapses. Agents renew the lease with every heartbeat; an agent
+      that vanished (crash, network loss, a dropped gateway connection) never
+      sends a close. A periodic sweep closes sessions whose lease expired more
+      than a grace period ago and releases their pipeline and ingress process,
+      which would otherwise live until the node restarts.
   """
 
   use GenServer
@@ -17,6 +29,10 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   require Logger
 
   @default_lease_seconds 30
+  @default_lease_sweep_interval_ms 15_000
+  @default_lease_grace_seconds 30
+  @lease_expired_reason "relay lease expired"
+  @pipeline_lost_reason "relay media pipeline stopped"
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -42,6 +58,14 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
     GenServer.cast(__MODULE__, {:sync_viewer_count, relay_session_id, viewer_count})
   end
 
+  @doc """
+  Reports that the relay's media pipeline stopped. The session starts
+  draining so the agent closes it.
+  """
+  def pipeline_down(relay_session_id, reason) when is_binary(relay_session_id) do
+    GenServer.cast(__MODULE__, {:pipeline_down, relay_session_id, reason})
+  end
+
   def fetch_session(relay_session_id) when is_binary(relay_session_id) do
     GenServer.call(__MODULE__, {:fetch_session, relay_session_id})
   end
@@ -52,9 +76,24 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
 
   @impl true
   def init(opts) do
+    lease_sweep_interval_ms = Keyword.get(opts, :lease_sweep_interval_ms, @default_lease_sweep_interval_ms)
+    _ = schedule_lease_sweep(lease_sweep_interval_ms)
+
     {:ok,
      %{
        sessions: %{},
+       lease_sweep_interval_ms: lease_sweep_interval_ms,
+       lease_grace_seconds: Keyword.get(opts, :lease_grace_seconds, @default_lease_grace_seconds),
+       ingress_notifier:
+         Keyword.get(
+           opts,
+           :ingress_notifier,
+           Application.get_env(
+             :serviceradar_core_elx,
+             :camera_media_ingress_notifier,
+             ServiceRadarCoreElx.CameraMediaIngressSession
+           )
+         ),
        sync_module:
          Keyword.get(
            opts,
@@ -263,6 +302,13 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
     end
   end
 
+  def handle_cast({:pipeline_down, relay_session_id, reason}, state) do
+    case Map.get(state.sessions, relay_session_id) do
+      nil -> {:noreply, state}
+      session -> {:noreply, mark_pipeline_lost(state, session, reason)}
+    end
+  end
+
   def handle_cast({:mark_closing, relay_session_id, attrs}, state) do
     case Map.get(state.sessions, relay_session_id) do
       nil ->
@@ -281,6 +327,80 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
         :ok = RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(updated))
 
         {:noreply, put_in(state, [:sessions, relay_session_id], updated)}
+    end
+  end
+
+  @impl true
+  def handle_info(:sweep_expired_leases, state) do
+    cutoff = now_unix() - state.lease_grace_seconds
+
+    expired =
+      Enum.filter(state.sessions, fn {_relay_session_id, session} ->
+        is_integer(session.lease_expires_at_unix) and session.lease_expires_at_unix < cutoff
+      end)
+
+    state = Enum.reduce(expired, state, fn {_relay_session_id, session}, acc -> expire_session(acc, session) end)
+
+    _ = schedule_lease_sweep(state.lease_sweep_interval_ms)
+    {:noreply, state}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  # Best effort throughout: the database row may already have been closed by
+  # the relay reaper, and the local entry, pipeline and ingress process must
+  # be released regardless.
+  defp expire_session(state, session) do
+    relay_session_id = session.relay_session_id
+
+    _ =
+      sync_module(state).close_session(
+        relay_session_id,
+        session.media_ingest_id,
+        %{close_reason: @lease_expired_reason, viewer_count: 0},
+        sync_opts(state)
+      )
+
+    _ = pipeline_manager(state).close_session(relay_session_id)
+    _ = state.ingress_notifier.notify_lease_expired(relay_session_id)
+
+    closed_session =
+      session
+      |> Map.put(:status, "closed")
+      |> Map.put(:viewer_count, 0)
+      |> Map.put(:close_reason, @lease_expired_reason)
+      |> Map.put(:updated_at_unix, now_unix())
+
+    log_session(:warning, "Core camera relay lease expired", closed_session)
+    emit_session_event(:closed, closed_session)
+    :ok = RelayPubSub.broadcast_state(relay_session_id, relay_state_payload(closed_session))
+
+    update_in(state, [:sessions], &Map.delete(&1, relay_session_id))
+  end
+
+  defp schedule_lease_sweep(interval_ms) when is_integer(interval_ms) and interval_ms > 0 do
+    Process.send_after(self(), :sweep_expired_leases, interval_ms)
+  end
+
+  defp schedule_lease_sweep(_disabled), do: nil
+
+  defp mark_pipeline_lost(state, session, reason) do
+    if closing_session?(session) do
+      state
+    else
+      updated =
+        session
+        |> Map.put(:status, "closing")
+        |> Map.put(:close_reason, @pipeline_lost_reason)
+        |> Map.put(:failure_reason, inspect(reason))
+        |> Map.put(:updated_at_unix, now_unix())
+
+      log_session(:warning, "Core camera relay media pipeline lost; draining", updated)
+      emit_session_event(:failed, updated, %{reason: inspect(reason), stage: "pipeline"})
+      maybe_record_session_failure(updated, %{reason: inspect(reason), stage: "pipeline"})
+      :ok = RelayPubSub.broadcast_state(updated.relay_session_id, relay_state_payload(updated))
+
+      put_in(state, [:sessions, updated.relay_session_id], updated)
     end
   end
 
@@ -382,6 +502,12 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
          }) do
       :ok ->
         {:reply, {:ok, updated}, put_in(state, [:sessions, relay_session_id], updated)}
+
+      # The pipeline died before its DOWN reached us: drain rather than fail
+      # the upload, the same outcome pipeline_down/2 produces.
+      {:error, :not_found} ->
+        next_state = mark_pipeline_lost(state, updated, :pipeline_not_found)
+        {:reply, {:ok, get_in(next_state, [:sessions, relay_session_id])}, next_state}
 
       {:error, reason} ->
         log_session(:warning, "Core camera relay chunk forward failed", updated, %{reason: inspect(reason)})

@@ -60,15 +60,18 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
     :ok = RelayPubSub.subscribe(relay_session_id)
 
     {:ok, open_response, %{ingress_pid: ingress_pid, core_node: core_node}} =
-      CameraMediaIngress.open_relay_session(%Camera.OpenRelaySessionRequest{
-        relay_session_id: relay_session_id,
-        agent_id: "agent-1",
-        gateway_id: "gateway-1",
-        camera_source_id: "camera-1",
-        stream_profile_id: "main",
-        codec_hint: "h264",
-        container_hint: "annexb"
-      })
+      CameraMediaIngress.open_relay_session(
+        %Camera.OpenRelaySessionRequest{
+          relay_session_id: relay_session_id,
+          agent_id: "agent-1",
+          gateway_id: "gateway-1",
+          camera_source_id: "camera-1",
+          stream_profile_id: "main",
+          codec_hint: "h264",
+          container_hint: "annexb"
+        },
+        close_grace_ms: 50
+      )
 
     assert open_response.accepted == true
     assert open_response.message == "core relay session accepted"
@@ -140,8 +143,19 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
     assert_receive {:close_session, ^relay_session_id, ^media_ingest_id,
                     %{close_reason: "operator stop", viewer_count: 0}}
 
-    refute Process.alive?(ingress_pid)
     assert CameraMediaSessionTracker.fetch_session(relay_session_id) == nil
+
+    # An upload queued behind the close (a separate gateway handler) gets a
+    # drain answer instead of the caller exiting {:normal, {GenServer, :call, _}}.
+    ingress_ref = Process.monitor(ingress_pid)
+
+    assert {:ok, %Camera.UploadMediaResponse{received: false, message: late_message}} =
+             CameraMediaIngressSession.upload_media(ingress_pid, [
+               %Camera.MediaChunk{relay_session_id: relay_session_id, media_ingest_id: media_ingest_id, sequence: 8}
+             ])
+
+    assert late_message =~ "drain"
+    assert_receive {:DOWN, ^ingress_ref, :process, ^ingress_pid, :normal}, 1_000
   end
 
   test "returns drain acknowledgments when the relay is already closing" do
