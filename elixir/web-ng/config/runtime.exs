@@ -1362,9 +1362,8 @@ if config_env() != :test do
     if dashboard_pkg_retention_enabled do
       web_crontab ++
         [
-          {dashboard_pkg_retention_cron,
-           ServiceRadarWebNG.Dashboards.PackageRetentionWorker,
-           args: %{"enabled" => true}, queue: :web_maintenance}
+          {dashboard_pkg_retention_cron, ServiceRadarWebNG.Dashboards.PackageRetentionWorker, args: %{"enabled" => true},
+           queue: :web_maintenance}
         ]
     else
       web_crontab

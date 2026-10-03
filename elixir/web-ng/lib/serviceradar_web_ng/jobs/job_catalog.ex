@@ -25,13 +25,14 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Oban.Router
   alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
+
+  require Logger
+
   @dashboard_package_retention_worker Module.concat([
                                         "ServiceRadarWebNG",
                                         "Dashboards",
                                         "PackageRetentionWorker"
                                       ])
-
-  require Logger
 
   @plugin_blob_retention_worker Module.concat([
                                   "ServiceRadarWebNG",
@@ -366,8 +367,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
-  def trigger_job(%{source: :manual, worker: worker})
-      when worker == @dashboard_package_retention_worker do
+  def trigger_job(%{source: :manual, worker: worker}) when worker == @dashboard_package_retention_worker do
     apply(worker, :enqueue_manual, [])
   rescue
     e -> {:error, Exception.message(e)}
@@ -710,8 +710,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       %{
         id: "manual:dashboard_package_retention",
         name: "Dashboard package retention",
-        description:
-          "Manually queue cleanup of old dashboard package versions and their WASM blobs.",
+        description: "Manually queue cleanup of old dashboard package versions and their WASM blobs.",
         source: :manual,
         cron: "manual",
         queue: :web_maintenance,
