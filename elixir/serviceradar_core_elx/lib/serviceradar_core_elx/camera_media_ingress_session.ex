@@ -5,12 +5,9 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
   Each accepted relay session gets one process on a core-elx node. The gateway
   forwards chunk batches and lifecycle operations to that process over ERTS.
 
-  Closing (or a lapsed lease) does not stop the process at once. An upload or
-  heartbeat for the same relay can already be queued behind the close; had
-  the process exited, that caller would see `{:normal, {GenServer, :call, _}}`
-  and report the relay's core as unavailable. Instead the process answers
-  anything that arrives after the close with a drain response and stops after
-  a short grace period.
+  Closing (or a lapsed lease) does not stop the process at once. An upload,
+  heartbeat, or close already queued behind that close still receives this
+  process's drain reply. The process stops after a short grace period.
   """
 
   use GenServer
@@ -20,6 +17,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
   @max_chunk_bytes 1_048_576
   @default_close_grace_ms 5_000
   @closed_message "core relay session closed; drain"
+  @already_closed_message "core relay session already closed"
 
   def start_link(session, opts \\ []) when is_map(session) do
     GenServer.start_link(__MODULE__, {session, opts}, name: via(session.relay_session_id))
@@ -87,7 +85,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
   end
 
   def handle_call({:close_relay_session, _request}, _from, %{closed: true} = state) do
-    {:reply, {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session already closed"}}, state}
+    {:reply, {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: @already_closed_message}}, state}
   end
 
   def handle_call({:upload_media, []}, _from, state) do
