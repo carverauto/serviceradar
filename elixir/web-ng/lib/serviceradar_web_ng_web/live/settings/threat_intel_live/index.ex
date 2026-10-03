@@ -137,7 +137,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   def handle_event("sync_now", _params, socket) do
     if RBAC.can?(socket.assigns.current_scope, "plugins.assign") do
-      case ThreatIntelOTXSyncWorker.ensure_scheduled(schedule_in: 1) do
+      case ThreatIntelOTXSyncWorker.ensure_scheduled(schedule_in: 1, force: true) do
+        {:ok, :already_scheduled} ->
+          {:noreply, put_flash(socket, :info, "OTX sync is already queued")}
+
         {:ok, _job} ->
           {:noreply, put_flash(socket, :info, "OTX sync queued")}
 
@@ -292,6 +295,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <%= if @sync_statuses == [] do %>
                   <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No sync runs recorded.
+                    <p :if={core_worker_mode?(@otx_settings)} class="mt-1">
+                      The core AlienVault feed has not reported a sync.
+                    </p>
                   </div>
                 <% else %>
                   <div class="divide-y divide-sr-line">
@@ -301,7 +307,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           <div>
                             <div class="font-mono text-sm">{status_agent_label(status)}</div>
                             <div class="text-xs text-sr-muted">
-                              {status.collection_id || "collection"} ·
+                              {status.collection_id || "collection"} · last attempt
                               <.user_time
                                 id={"settings-threat-intel-sync-status-#{status.id}-last-attempt-at"}
                                 value={status.last_attempt_at}
@@ -309,11 +315,35 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                                 style={:compact}
                                 fallback="-"
                               />
+                              · last success
+                              <.user_time
+                                id={"settings-threat-intel-sync-status-#{status.id}-last-success-at"}
+                                value={status.last_success_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                                fallback="never"
+                              />
+                              · last failure
+                              <.user_time
+                                id={"settings-threat-intel-sync-status-#{status.id}-last-failure-at"}
+                                value={status.last_failure_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                                fallback="none"
+                              />
+                            </div>
+                            <div :if={cursor_modified_since(status)} class="text-xs text-sr-muted">
+                              Cursor {cursor_modified_since(status)}
                             </div>
                           </div>
-                          <.ui_badge size="xs" variant={status_badge_variant(status.last_status)}>
-                            {status.last_status}
-                          </.ui_badge>
+                          <div class="flex flex-wrap items-center gap-1">
+                            <.ui_badge :if={stale_feed?(status, @otx_settings)} size="xs" variant="warning">
+                              Stale
+                            </.ui_badge>
+                            <.ui_badge size="xs" variant={status_badge_variant(status.last_status)}>
+                              {status.last_status}
+                            </.ui_badge>
+                          </div>
                         </div>
                         <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                           <.status_count label="Objects" value={status.objects_count} />
@@ -1375,6 +1405,27 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       ""
     end
   end
+
+  defp core_worker_mode?(%NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker"}),
+    do: true
+
+  defp core_worker_mode?(_settings), do: false
+
+  defp stale_feed?(%ThreatIntelSyncStatus{} = status, settings) do
+    ThreatIntelOTXSyncWorker.stale?(status, DateTime.utc_now(), freshness_interval(settings))
+  end
+
+  defp freshness_interval(%NetflowSettings{otx_sync_interval_seconds: seconds})
+       when is_integer(seconds) and seconds > 0,
+       do: seconds
+
+  defp freshness_interval(_settings), do: 86_400
+
+  defp cursor_modified_since(%{cursor: %{"modified_since" => value}})
+       when is_binary(value) and value != "",
+       do: value
+
+  defp cursor_modified_since(_status), do: nil
 
   defp status_agent_label(%ThreatIntelSyncStatus{} = status) do
     cond do
