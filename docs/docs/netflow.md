@@ -127,7 +127,7 @@ decimal per-server file-store limit.
 ```yaml
 services:
   flow-collector:
-    image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:latest
+    image: ghcr.io/carverauto/serviceradar-flow-collector:latest
     ports:
       - "2055:2055/udp"
       - "6343:6343/udp"

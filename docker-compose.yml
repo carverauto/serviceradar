@@ -82,7 +82,7 @@ services:
       - serviceradar-net
 
   cnpg:
-    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9}
+    image: ${CNPG_IMAGE:-ghcr.io/carverauto/serviceradar-cnpg:18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d}
     container_name: serviceradar-cnpg-mtls
     user: "26:102"
     entrypoint: ["/bin/sh", "/check-cnpg-major-version.sh"]
@@ -199,7 +199,7 @@ services:
     restart: unless-stopped
 
   dgraph-migrate:
-    image: ${DGRAPH_MIGRATE_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate:${APP_TAG:-latest}}
+    image: ${DGRAPH_MIGRATE_IMAGE:-ghcr.io/carverauto/serviceradar-dgraph-migrate:${APP_TAG:-latest}}
     container_name: serviceradar-dgraph-migrate
     # dgraph-migrate exits 10 ("schema applied") and 0 ("already current"), so a
     # first boot would otherwise fail service_completed_successfully and strand
@@ -219,7 +219,7 @@ services:
       - serviceradar-net
 
   age-to-dgraph:
-    image: ${DGRAPH_MIGRATE_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate:${APP_TAG:-latest}}
+    image: ${DGRAPH_MIGRATE_IMAGE:-ghcr.io/carverauto/serviceradar-dgraph-migrate:${APP_TAG:-latest}}
     container_name: serviceradar-age-to-dgraph
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -299,7 +299,7 @@ services:
       - serviceradar-net
 
   cnpg-app-bootstrap:
-    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9}
+    image: ${CNPG_IMAGE:-ghcr.io/carverauto/serviceradar-cnpg:18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d}
     container_name: serviceradar-cnpg-app-bootstrap
     user: "0:0"
     environment:
@@ -366,7 +366,7 @@ services:
       - serviceradar-net
 
   core-elx-migrations:
-    image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-migrations
     user: "0:0"
     hostname: core-elx-migrations
@@ -417,7 +417,7 @@ services:
       - serviceradar-net
 
   core-elx:
-    image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
     env_file:
       # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
@@ -620,7 +620,7 @@ services:
 
   # Bootstrap NATS operator/account credentials (idempotent).
   nats-creds-init:
-    image: registry.carverauto.dev/serviceradar/serviceradar-tools:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-nats-creds-init
     user: "0:0"
     volumes:
@@ -648,7 +648,7 @@ services:
   # blocks NATS startup: a tools image that predates the subcommand, or any
   # failure, leaves the existing quota in place.
   nats-account-limits:
-    image: registry.carverauto.dev/serviceradar/serviceradar-tools:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-nats-account-limits
     user: "0:0"
     volumes:
@@ -735,7 +735,7 @@ services:
     restart: unless-stopped
 
   datasvc:
-    image: registry.carverauto.dev/serviceradar/serviceradar-datasvc:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
     env_file:
       # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
@@ -772,7 +772,7 @@ services:
     restart: unless-stopped
 
   agent:
-    image: registry.carverauto.dev/serviceradar/serviceradar-agent:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-latest}
     container_name: serviceradar-agent-mtls
     hostname: agent
     # Note: agent is push-based and doesn't expose a gRPC server
@@ -809,7 +809,7 @@ services:
     restart: unless-stopped
 
   agent-gateway:
-    image: registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-agent-gateway:${APP_TAG:-latest}
     container_name: serviceradar-agent-gateway-mtls
     hostname: agent-gateway
     environment:
@@ -864,7 +864,7 @@ services:
     restart: unless-stopped
 
   log-collector:
-    image: registry.carverauto.dev/serviceradar/serviceradar-log-collector:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-log-collector:${APP_TAG:-latest}
     container_name: serviceradar-log-collector-mtls
     env_file:
       # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
@@ -992,7 +992,7 @@ services:
   # individual collectors with `--profile snmp-traps`, `--profile flows`, or
   # `--profile bmp`. The collector stays off unless that profile is selected.
   trapd:
-    image: registry.carverauto.dev/serviceradar/serviceradar-trapd:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd-mtls
     profiles:
       - network-ingest
@@ -1020,7 +1020,7 @@ services:
     restart: unless-stopped
 
   flow-collector:
-    image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-flow-collector:${APP_TAG:-latest}
     container_name: serviceradar-flow-collector-mtls
     env_file:
       # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
@@ -1057,7 +1057,7 @@ services:
     restart: unless-stopped
 
   bmp-collector:
-    image: registry.carverauto.dev/serviceradar/arancini:${ARANCINI_TAG:-latest}
+    image: ghcr.io/carverauto/arancini:${ARANCINI_TAG:-latest}
     container_name: serviceradar-bmp-collector-mtls
     env_file:
       # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
@@ -1220,7 +1220,7 @@ services:
     restart: unless-stopped
 
   web-ng:
-    image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:${APP_TAG:-latest}
+    image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
     env_file:
       # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
