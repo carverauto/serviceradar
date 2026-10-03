@@ -117,6 +117,22 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     refute File.exists?(Path.join([ctx.tmp_dir, "cisa-kev", "connect-timeout"]))
   end
 
+  test "revalidates an artifact's validators with HEAD through the tunnel", ctx do
+    # The origin is reachable only through the proxy (https://localhost has no
+    # listener on 443), so a HEAD that skipped the proxy could not succeed.
+    assert {:ok, %Req.Response{status: 200, body: ""} = response} =
+             EgressClient.head("https://localhost/validators", opts(ctx, []))
+
+    assert Req.Response.get_header(response, "etag") == [~s("synthetic-v1")]
+
+    assert Req.Response.get_header(response, "last-modified") == [
+             "Wed, 02 Sep 2026 18:05:00 GMT"
+           ]
+
+    assert {:ok, %Req.Response{status: 302}} =
+             EgressClient.head("https://localhost/redirect", opts(ctx, []))
+  end
+
   test "returns the redirect instead of following it", ctx do
     assert {:ok, %Req.Response{status: 302} = response} =
              EgressClient.get("https://localhost/redirect", opts(ctx, []))
@@ -551,6 +567,11 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
       String.contains?(request, "/loop") ->
         redirect_response("https://localhost/loop")
+
+      String.contains?(request, "/validators") ->
+        "HTTP/1.1 200 OK\r\netag: \"synthetic-v1\"\r\n" <>
+          "last-modified: Wed, 02 Sep 2026 18:05:00 GMT\r\n" <>
+          "content-length: 0\r\nconnection: close\r\n\r\n"
 
       String.contains?(request, "/missing") ->
         "HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\n" <>

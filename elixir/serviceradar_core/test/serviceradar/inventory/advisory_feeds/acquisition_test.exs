@@ -158,7 +158,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
   end
 
   test "compact pair rejects loopback downloads and redirect responses", %{root: root} do
-    assert {:error, {:download_failed, :disallowed_host}} =
+    assert {:error, {:download_failed, %{host: "127.0.0.1", reason: :disallowed_host}}} =
              Acquisition.acquire_ubuntu_pair(
                "ubuntu-osv-vex",
                "https://127.0.0.1/osv.tar.xz",
@@ -172,7 +172,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
       {:ok, %{status: 302, resolved_url: "https://127.0.0.1/private"}}
     end
 
-    assert {:error, {:download_failed, {:http_status, 302}}} =
+    assert {:error, {:download_failed, %{host: "example.invalid", reason: {:http_status, 302}}}} =
              Acquisition.acquire_ubuntu_pair(
                "ubuntu-osv-vex",
                "https://example.invalid/osv.tar.xz",
@@ -243,10 +243,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
 
     # The revalidation HEAD is unconditional: no If-Match/If-Unmodified-Since
     # preconditions, so a publication that rolls mid-download surfaces as
-    # {:validator_changed, _} instead of {:revalidation_status, 412}.
+    # {:validator_changed, _} instead of {:revalidation_status, %{status: 412}}.
     assert_received {:revalidated, _, []}
 
-    assert {:error, {:download_failed, {:archive_limit_exceeded, :compressed_bytes}}} =
+    assert {:error, {:download_failed, %{reason: {:archive_limit_exceeded, :compressed_bytes}}}} =
              Acquisition.acquire_ubuntu_pair(
                "ubuntu-osv-vex",
                "https://example.invalid/osv/feed.tar.xz",
@@ -319,6 +319,66 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
     assert_received {:revalidated, _, []}
     assert_received {:revalidated, _, []}
     refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-roll"]))
+  end
+
+  test "a failed pair transfer names the artifact and the host it came from", %{root: root} do
+    modified = "Wed, 02 Sep 2026 18:05:00 GMT"
+    validators = %{"etag" => [~s("v1")], "last-modified" => [modified]}
+
+    # Only the VEX archive times out, so the error must say which one did.
+    http_get = fn url, opts ->
+      if String.contains?(url, "/vex/") do
+        {:error, %Req.TransportError{reason: :timeout}}
+      else
+        Enum.into(["osv"], opts[:into])
+        {:ok, %{status: 200, headers: validators}}
+      end
+    end
+
+    assert {:error,
+            {:download_failed,
+             %{
+               artifact: :vex,
+               host: "vex.example.invalid",
+               reason: %Req.TransportError{reason: :timeout}
+             }}} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://osv.example.invalid/osv/feed.tar.xz",
+               "https://vex.example.invalid/vex/feed.tar.xz",
+               "pair-vex-timeout",
+               http_get: http_get
+             )
+
+    refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-vex-timeout"]))
+
+    ok_get = fn _url, opts ->
+      Enum.into(["body"], opts[:into])
+      {:ok, %{status: 200, headers: validators}}
+    end
+
+    assert {:error,
+            {:revalidation_failed,
+             %{artifact: :osv, host: "osv.example.invalid", reason: :timeout}}} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://osv.example.invalid/osv/feed.tar.xz",
+               "https://vex.example.invalid/vex/feed.tar.xz",
+               "pair-head-timeout",
+               http_get: ok_get,
+               http_head: fn _url, _opts -> {:error, :timeout} end
+             )
+
+    assert {:error,
+            {:revalidation_status, %{artifact: :osv, host: "osv.example.invalid", status: 503}}} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://osv.example.invalid/osv/feed.tar.xz",
+               "https://vex.example.invalid/vex/feed.tar.xz",
+               "pair-head-503",
+               http_get: ok_get,
+               http_head: fn _url, _opts -> {:ok, %{status: 503}} end
+             )
   end
 
   describe "download failures" do
