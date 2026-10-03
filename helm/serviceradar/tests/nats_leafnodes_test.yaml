@@ -1,0 +1,265 @@
+suite: NATS leafnode listener for edge-site leaf servers
+templates:
+  - templates/nats.yaml
+  - templates/gateway-api.yaml
+  - templates/network-policy.yaml
+  - templates/cert-scripts-configmap.yaml
+  - templates/web.yaml
+# Pinned so parentRefs and SAN assertions prove .Release.Namespace is used.
+release:
+  namespace: sr-leaf-test
+tests:
+  - it: renders no leafnode listener, port or route by default
+    template: templates/nats.yaml
+    asserts:
+      - notContains:
+          path: spec.ports
+          content:
+            name: leafnodes
+            port: 7422
+            targetPort: leafnodes
+        # nats.yaml renders the client Service first; the headless Service and
+        # the StatefulSet share its name, so no name selector is unique.
+        documentIndex: 0
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'leafnodes \{'
+        documentSelector:
+          path: kind
+          value: StatefulSet
+
+  - it: exposes the leafnode port and binds partition-role leaves to the platform account
+    template: templates/nats.yaml
+    set:
+      partitionId: acme
+      nats.leafnodes.enabled: true
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: leafnodes
+            port: 7422
+            targetPort: leafnodes
+        # nats.yaml renders the client Service first; the headless Service and
+        # the StatefulSet share its name, so no name selector is unique.
+        documentIndex: 0
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            containerPort: 7422
+            name: leafnodes
+        documentSelector:
+          path: kind
+          value: StatefulSet
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'leafnodes \{\s+port: 7422\s+tls \{[^}]*ca_file: "/etc/serviceradar/certs/root.pem"\s+verify_and_map: true'
+        documentSelector:
+          path: kind
+          value: StatefulSet
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '\{ user: "spiffe://serviceradar.local/nats-leaf/acme", account: SERVICERADAR \}'
+        documentSelector:
+          path: kind
+          value: StatefulSet
+
+  - it: honours a custom leafnode port on the Service
+    template: templates/nats.yaml
+    set:
+      nats.leafnodes.enabled: true
+      nats.leafnodes.port: 17422
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: leafnodes
+            port: 17422
+            targetPort: leafnodes
+        # nats.yaml renders the client Service first; the headless Service and
+        # the StatefulSet share its name, so no name selector is unique.
+        documentIndex: 0
+
+  - it: routes the managed Gateway leaf listener to the NATS leafnode port
+    template: templates/gateway-api.yaml
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      nats.leafnodes.enabled: true
+      gatewayApi.natsLeaf.enabled: true
+    asserts:
+      - contains:
+          path: spec.listeners
+          content:
+            name: nats-leaf
+            port: 7422
+            protocol: TCP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-edge-gateway
+      - isKind:
+          of: TCPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-nats-leaf
+      - contains:
+          path: spec.parentRefs
+          content:
+            name: serviceradar-edge-gateway
+            namespace: sr-leaf-test
+            sectionName: nats-leaf
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-nats-leaf
+      - contains:
+          path: spec.rules[0].backendRefs
+          content:
+            group: ""
+            kind: Service
+            name: serviceradar-nats
+            port: 7422
+            weight: 1
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-nats-leaf
+
+  - it: uses explicit parentRefs in attach mode
+    template: templates/gateway-api.yaml
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.mode: attach
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.parentRefs:
+        - name: shared-gateway
+          namespace: edge
+          sectionName: https
+      nats.leafnodes.enabled: true
+      gatewayApi.natsLeaf.enabled: true
+      gatewayApi.natsLeaf.parentRefs:
+        - name: shared-gateway
+          namespace: edge
+          sectionName: nats-leaf
+    asserts:
+      - equal:
+          path: spec.parentRefs
+          value:
+            - name: shared-gateway
+              namespace: edge
+              sectionName: nats-leaf
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-nats-leaf
+
+  - it: rejects attach mode without leaf parentRefs
+    template: templates/gateway-api.yaml
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.mode: attach
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.parentRefs:
+        - name: shared-gateway
+      nats.leafnodes.enabled: true
+      gatewayApi.natsLeaf.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: gatewayApi.natsLeaf.parentRefs is required
+
+  - it: rejects a leaf route when the NATS leafnode listener is disabled
+    template: templates/gateway-api.yaml
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.natsLeaf.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: requires nats.leafnodes.enabled=true
+
+  - it: admits envoy pods to the NATS leafnode port only
+    template: templates/network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      nats.leafnodes.enabled: true
+      gatewayApi.natsLeaf.enabled: true
+      gatewayApi.natsLeaf.envoyGatewayNamespace: custom-envoy
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: serviceradar-nats
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-nats-leaf-gateway
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: custom-envoy
+              ports:
+                - protocol: TCP
+                  port: 7422
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-nats-leaf-gateway
+
+  - it: adds the public leaf host and extra names to the NATS certificate
+    template: templates/cert-scripts-configmap.yaml
+    set:
+      hostedRuntime.publicEndpoints.natsLeafHost: acme.nats.serviceradar.cloud
+      nats.leafnodes.tls.extraDnsNames:
+        - leaf.example.com
+    asserts:
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "nats" "serviceradar-nats" "[^"]*IP:127\.0\.0\.1,DNS:acme\.nats\.serviceradar\.cloud,DNS:leaf\.example\.com"'
+
+  - it: leaves the NATS certificate SANs unchanged without leaf names
+    template: templates/cert-scripts-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "nats" "serviceradar-nats" "[^"]*svc\.cluster\.local,DNS:localhost,IP:127\.0\.0\.1"'
+
+  - it: renders the web-ng leaf upstream URL from the hosted public endpoint
+    template: templates/web.yaml
+    set:
+      hostedRuntime.publicEndpoints.natsLeafHost: acme.nats.serviceradar.cloud
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATS_LEAF_UPSTREAM_URL
+            value: tls://acme.nats.serviceradar.cloud:7422
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: honours a custom public leaf port
+    template: templates/web.yaml
+    set:
+      hostedRuntime.publicEndpoints.natsLeafHost: acme.nats.serviceradar.cloud
+      hostedRuntime.publicEndpoints.natsLeafPort: 443
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATS_LEAF_UPSTREAM_URL
+            value: tls://acme.nats.serviceradar.cloud:443
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: omits the leaf upstream URL without a hosted leaf host
+    template: templates/web.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: SERVICERADAR_NATS_LEAF_UPSTREAM_URL
+        documentSelector:
+          path: kind
+          value: Deployment

@@ -112,6 +112,13 @@
 {{- $agentGatewayArtifactsServicePort := default $agentGatewayArtifactsPort $agentGatewayArtifacts.servicePort -}}
 {{- $agentGatewayArtifactsRouteName := default (printf "%s-agent-artifacts" (include "serviceradar.fullname" .)) $agentGatewayArtifacts.routeName -}}
 {{- $agentGatewayArtifactsParentRefs := default (list) $agentGatewayArtifacts.parentRefs -}}
+{{- $natsLeaf := default (dict) $gatewayApi.natsLeaf -}}
+{{- $natsLeafEnabled := default false $natsLeaf.enabled -}}
+{{- $natsLeafListenerName := default "nats-leaf" $natsLeaf.listenerName -}}
+{{- $natsLeafPort := default 7422 $natsLeaf.port -}}
+{{- $natsLeafServicePort := default (default 7422 (default (dict) (default (dict) .Values.nats).leafnodes).port) $natsLeaf.servicePort -}}
+{{- $natsLeafRouteName := default (printf "%s-nats-leaf" (include "serviceradar.fullname" .)) $natsLeaf.routeName -}}
+{{- $natsLeafParentRefs := default (list) $natsLeaf.parentRefs -}}
 {{- $parentRefs := default (list) $gatewayApi.parentRefs -}}
 {{- $redirectParentRefs := default (list) $gatewayApi.redirectParentRefs -}}
 {{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
@@ -125,7 +132,10 @@
 {{- if and $managedMode $httpRedirectToHttps (not $tlsEnabled) }}
 {{- fail "gatewayApi.http.redirectToHttps requires gatewayApi.tls.enabled=true" }}
 {{- end }}
-{{- if and $managedMode (not (or $httpEnabled $tlsEnabled $syslogEnabled $agentGatewayEnabled $flowCollectorListenerEnabled $trapdEnabled $bmpCollectorEnabled)) }}
+{{- if and $natsLeafEnabled (not (default false (default (dict) (default (dict) .Values.nats).leafnodes).enabled)) }}
+{{- fail "gatewayApi.natsLeaf.enabled=true requires nats.leafnodes.enabled=true" }}
+{{- end }}
+{{- if and $managedMode (not (or $httpEnabled $tlsEnabled $syslogEnabled $agentGatewayEnabled $natsLeafEnabled $flowCollectorListenerEnabled $trapdEnabled $bmpCollectorEnabled)) }}
 {{- fail "gatewayApi must expose at least one listener" }}
 {{- end }}
 {{- if and $attachMode (eq (len $parentRefs) 0) }}
@@ -157,6 +167,9 @@
 {{- end }}
 {{- if and $attachMode $agentGatewayEnabled $agentGatewayArtifactsEnabled (eq (len $agentGatewayArtifactsParentRefs) 0) }}
 {{- fail "gatewayApi.agentGateway.artifacts.parentRefs is required when gatewayApi.agentGateway.artifacts.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $natsLeafEnabled (eq (len $natsLeafParentRefs) 0) }}
+{{- fail "gatewayApi.natsLeaf.parentRefs is required when gatewayApi.natsLeaf.enabled=true and gatewayApi.mode=attach" }}
 {{- end }}
 {{- if and $managedMode $tlsEnabled $tls.clusterIssuer }}
 ---
@@ -330,6 +343,14 @@ spec:
         namespaces:
           from: Same
     {{- end }}
+    {{- end }}
+    {{- if $natsLeafEnabled }}
+    - name: {{ $natsLeafListenerName }}
+      port: {{ $natsLeafPort }}
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
     {{- end }}
 {{- end }}
 ---
@@ -655,6 +676,32 @@ spec:
           port: {{ $agentGatewayArtifactsServicePort }}
           weight: 1
 {{- end }}
+{{- end }}
+{{- if $natsLeafEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ $natsLeafRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $natsLeafListenerName }}
+    {{- else }}
+{{ toYaml $natsLeafParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: "serviceradar-nats"
+          port: {{ $natsLeafServicePort }}
+          weight: 1
 {{- end }}
 {{- if and $httpEnabled $httpRedirectToHttps }}
 ---
