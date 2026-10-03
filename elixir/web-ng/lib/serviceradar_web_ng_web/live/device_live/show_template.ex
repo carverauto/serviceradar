@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   import ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents
   import ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents
   import ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents
+  import ServiceRadarWebNGWeb.DeviceLive.FactProvenanceComponents
   import ServiceRadarWebNGWeb.DeviceLive.FlowComponents
   import ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents
   import ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents
@@ -205,6 +206,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               />
 
               <.metadata_summary_section
+                :if={is_map(@device_row)}
+                device_row={@device_row}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+              />
+
+              <.fact_provenance_section
                 :if={is_map(@device_row)}
                 device_row={@device_row}
                 timezone={@current_scope.user.timezone || "Etc/UTC"}
