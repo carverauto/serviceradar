@@ -56,6 +56,7 @@ Network devices should send syslog to `<SYSLOG_GATEWAY_ADDRESS>:514/UDP`. Keep t
 ## Configure Devices
 
 - Prefer TCP or TLS transports where supported (see [TCP Syslog](#tcp-syslog)). The log-collector's flowgger input supports `udp`, `tcp`, and `tls`; it does not support RELP. When restricted to UDP, enforce ACLs and use an out-of-band management network.
+- UDP zlib and gzip payloads are decompressed before parsing. The expanded record must be at most five times the maximum UDP packet size (65,527 bytes, so 327,635 bytes). Larger expansions are dropped; records at or under that cap are accepted.
 - Normalize time zones to UTC to keep SRQL queries aligned with SNMP and OTEL data.
 - Leverage structured data fields (RFC 5424) for network appliances that support it; ServiceRadar stores them as JSON for easier filtering.
 
@@ -82,7 +83,10 @@ the deployment.
 For network transports, `source_ip` is the address observed by the collector.
 The log detail view displays it as **Source IP**, SRQL can filter it with
 `source_ip:"10.208.254.4"`, and the original Flowgger `_remote_addr` value is
-also retained in the log attributes for troubleshooting. If a Kubernetes
+also retained in the log attributes for troubleshooting. That field is the
+transport peer address. A `remote_addr` entry in RFC 5424 structured data, or a
+`_remote_addr` GELF extra, cannot replace it, and the collector omits the field
+when it has no transport address. If a Kubernetes
 load balancer or Gateway performs source NAT, the observed value may be the
 load balancer or Gateway address rather than the device address. Preserve the
 source address at the load balancer and Gateway layer when device-level

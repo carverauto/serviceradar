@@ -55,8 +55,11 @@ tables that SRQL and the web UI query.
   exports share a process-wide admission limit of 1 to 16 requests, computed as
   `128 MiB / (3 * max_request_bytes)` (rounded down, minimum 1). With the default
   64 MiB body limit, one export is admitted at a time; excess exports receive
-  retryable HTTP 503. The multiplier allows headroom for compressed, expanded,
-  and decoded data; it is not an exact heap-size guarantee.
+  retryable HTTP 503 with `Retry-After: 1` and the body
+  `OTLP/HTTP request capacity exhausted`. The multiplier allows headroom for
+  compressed, expanded, and decoded data; it is not an exact heap-size guarantee.
+  Parallel throughput is that one in-flight batch. A smaller `max_request_bytes`
+  raises the shared limit, still capped at 16, and lets more exports run at once.
 - TLS handshakes and HTTP/1 headers have a 10-second deadline. Accepted requests
   have a 30-second deadline. HTTP connections close after 5 minutes, including
   idle connections and peers stalled during protocol negotiation; exporters
@@ -515,6 +518,7 @@ WHERE t.service_name = 'checkout'
 | Connection refused on 4318 | Old collector build without the OTLP/HTTP listener; or compose without a `4318:4318` mapping; or the k8s Service has `logCollector.otlp.service.http.enabled=false` | Upgrade the collector, publish the port, or enable the Service port |
 | TLS handshake rejected on compose `localhost:4317` (e.g. `certificate required`) | Compose ships `[grpc_tls]` with a CA and the default `client_auth = "required"` | Present the workstation client cert pair, or set `client_auth = "none"`/`"optional"` in `docker/compose/otel.docker.toml` and restart |
 | Export succeeds but SDK logs a partial-success warning | Individual records exceed `max_request_bytes` and were rejected | Raise `[server] max_request_bytes`, or reduce record/batch size |
+| HTTP 503 `OTLP/HTTP request capacity exhausted` | Shared export admission is full | Retry after `Retry-After` (1 second). See the [OTLP/HTTP admission limits](#otlphttp-port-4318) |
 | HTTP 503 / gRPC `UNAVAILABLE` on export | Collector could not publish to NATS (broker down or stream unavailable) | Retryable; check `kubectl logs deploy/serviceradar-log-collector -n <namespace>` and NATS health |
 | Telemetry accepted but missing from queries | Wrong table/entity, or trace summaries not refreshed yet | Check the [storage model](#storage-model) and [rollup recovery runbook](./observability-rollup-recovery.md); run `scripts/otel-conformance.sh` to isolate the failing signal |
 
