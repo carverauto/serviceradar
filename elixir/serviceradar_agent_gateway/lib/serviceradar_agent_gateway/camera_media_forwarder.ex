@@ -4,6 +4,18 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
 
   The gateway remains the edge-facing trust boundary. Core-elx becomes the
   authoritative ingress for relay session ownership and media pipeline startup.
+
+  Uploads use the session's core ERTS pid, not a pooled gateway-to-core gRPC
+  channel. A normal ingress exit during close, or a stale pid after close, means
+  the relay session ended; it does not establish a core connectivity outage.
+  Open a new authorized relay session to obtain a new ingress pid. Timeouts
+  report deadline_exceeded so operators can check core load, while node loss
+  reports unavailable and identifies the target node in the gateway log.
+
+  Do not retry an upload automatically: a timed-out batch may already have been
+  accepted. To verify recovery, compare the core session tracker's sent_bytes,
+  last_sequence and updated_at_unix across successive uploads. Gateway receipt
+  counters alone are insufficient because they advance before core forwarding.
   """
 
   alias ServiceRadarAgentGateway.CoreNodeForwarder
@@ -45,39 +57,67 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
   end
 
   def upload_media(request_stream, opts \\ []) do
-    with_ingress_pid(opts, fn ingress_pid ->
+    with_ingress_pid(opts, :upload_media, fn ingress_pid ->
       chunks = Enum.to_list(request_stream)
       GenServer.call(ingress_pid, {:upload_media, chunks}, timeout(opts))
     end)
   end
 
   def heartbeat(%Camera.RelayHeartbeat{} = request, opts \\ []) do
-    with_ingress_pid(opts, fn ingress_pid ->
+    with_ingress_pid(opts, :heartbeat, fn ingress_pid ->
       GenServer.call(ingress_pid, {:heartbeat, request}, timeout(opts))
     end)
   end
 
   def close_relay_session(%Camera.CloseRelaySessionRequest{} = request, opts \\ []) do
-    with_ingress_pid(opts, fn ingress_pid ->
+    with_ingress_pid(opts, :close_relay_session, fn ingress_pid ->
       GenServer.call(ingress_pid, {:close_relay_session, request}, timeout(opts))
     end)
   end
 
-  defp with_ingress_pid(opts, fun) when is_function(fun, 1) do
+  defp with_ingress_pid(opts, operation, fun) when is_function(fun, 1) do
     case Keyword.get(opts, :ingress_pid) do
       ingress_pid when is_pid(ingress_pid) ->
         try do
           fun.(ingress_pid)
         catch
-          :exit, reason ->
-            Logger.warning("ERTS camera media ingress call failed: #{inspect(reason)}")
-            {:error, :core_unavailable}
+          :exit, {reason, {GenServer, :call, _args}} ->
+            ingress_call_error(reason, ingress_pid, operation)
         end
 
       other ->
         Logger.error("Camera media forwarder missing ingress pid: #{inspect(other)}")
         {:error, :missing_ingress_pid}
     end
+  end
+
+  # GenServer exit terms contain the request, including private media bytes.
+  # Classify the failure without logging or returning those call arguments.
+  defp ingress_call_error(reason, ingress_pid, operation) do
+    {status, failure, message} =
+      case reason do
+        closed when closed in [:normal, :noproc, :shutdown] ->
+          {:not_found, :session_closed, "camera relay ingress closed; open a new relay session"}
+
+        :timeout ->
+          {:deadline_exceeded, :timeout,
+           "camera relay ingress timed out; check core load before opening a new relay session"}
+
+        {:nodedown, _node} ->
+          {:unavailable, :nodedown, "camera relay core connection lost; reconnect and open a new relay session"}
+
+        _other ->
+          {:unavailable, :ingress_failed, "camera relay ingress failed; check core health and open a new relay session"}
+      end
+
+    log_level = if failure == :session_closed, do: :debug, else: :warning
+
+    Logger.log(
+      log_level,
+      "ERTS camera media ingress call failed: core_node=#{node(ingress_pid)} operation=#{operation} failure=#{failure}"
+    )
+
+    {:error, GRPC.RPCError.exception(status: status, message: message)}
   end
 
   defp timeout(opts), do: opts[:timeout] || @default_timeout

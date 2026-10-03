@@ -1,10 +1,52 @@
 defmodule ServiceRadarAgentGateway.CameraMediaForwarderTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadarAgentGateway.CameraMediaForwarder
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaConnectivityStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaErtsIngressStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaRpcStub
+
+  defmodule IngressServer do
+    @moduledoc false
+    use GenServer
+
+    def start_link(mode), do: GenServer.start_link(__MODULE__, mode)
+
+    @impl true
+    def init(mode), do: {:ok, mode}
+
+    @impl true
+    def handle_call({:upload_media, _chunks}, _from, :close), do: {:stop, :normal, :close}
+    def handle_call({:upload_media, _chunks}, _from, :timeout), do: {:noreply, :timeout}
+  end
+
+  test "distinguishes ingress closure and timeout without logging media payloads" do
+    for {mode, status, recovery, timeout} <- [
+          {:close, GRPC.Status.not_found(), "open a new relay session", 5_000},
+          {:timeout, GRPC.Status.deadline_exceeded(), "check core load", 5}
+        ] do
+      pid = start_supervised!({IngressServer, mode}, id: mode)
+      payload = "synthetic-private-media"
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert {:error, %GRPC.RPCError{status: ^status, message: message}} =
+                   CameraMediaForwarder.upload_media(
+                     [%Camera.MediaChunk{payload: payload, sequence: 1}],
+                     ingress_pid: pid,
+                     timeout: timeout
+                   )
+
+          assert message =~ recovery
+        end)
+
+      assert log =~ "core_node="
+      assert log =~ "operation=upload_media failure="
+      refute log =~ payload
+    end
+  end
 
   setup do
     Process.delete({CameraMediaConnectivityStub, :results})

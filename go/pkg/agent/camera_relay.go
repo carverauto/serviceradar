@@ -115,11 +115,8 @@ type cameraRelayGateway interface {
 }
 
 type cameraRelayHandle struct {
-	cancel        context.CancelFunc
-	done          chan struct{}
-	agentID       string
-	mediaIngestID string
-	closeOnce     sync.Once
+	cancel context.CancelCauseFunc
+	done   chan struct{}
 }
 
 type cameraRelayManager struct {
@@ -142,12 +139,12 @@ func newCameraRelayManager(gateway cameraRelayGateway, log logger.Logger) *camer
 	}
 }
 
-func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionSpec) (*cameraRelaySessionState, error) {
+func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionSpec) (state *cameraRelaySessionState, err error) {
 	if m == nil {
 		return nil, errCameraRelayGatewayUnavailable
 	}
 
-	spec, err := normalizeCameraRelaySpec(spec)
+	spec, err = normalizeCameraRelaySpec(spec)
 	if err != nil {
 		return nil, err
 	}
@@ -160,14 +157,20 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 		spec.GatewayID = strings.TrimSpace(m.gateway.GetGatewayID())
 	}
 
-	handle := &cameraRelayHandle{
-		done:    make(chan struct{}),
-		agentID: spec.AgentID,
-	}
+	runCtx, cancel := context.WithCancelCause(ctx)
+	handle := &cameraRelayHandle{cancel: cancel, done: make(chan struct{})}
 
 	if err := m.registerSession(spec.RelaySessionID, handle); err != nil {
+		cancel(nil)
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			cancel(nil)
+			m.unregisterSession(spec.RelaySessionID, handle)
+			close(handle.done)
+		}
+	}()
 
 	openResp, err := m.gateway.OpenRelaySession(ctx, &proto.OpenRelaySessionRequest{
 		RelaySessionId:  spec.RelaySessionID,
@@ -180,12 +183,19 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 		ContainerHint:   spec.ContainerHint,
 	})
 	if err != nil {
-		m.unregisterSession(spec.RelaySessionID, handle)
 		return nil, fmt.Errorf("open relay session: %w", err)
 	}
 
 	spec.MediaIngestID = strings.TrimSpace(openResp.GetMediaIngestId())
-	handle.mediaIngestID = spec.MediaIngestID
+	defer func() {
+		if err != nil {
+			reason := "source_start_failed"
+			if cause := context.Cause(runCtx); cause != nil && cause != context.Canceled && cause != context.DeadlineExceeded {
+				reason = cause.Error()
+			}
+			m.closeUpstream(spec, reason)
+		}
+	}()
 
 	m.logger.Info().
 		Str("relay_session_id", spec.RelaySessionID).
@@ -196,15 +206,15 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 		Str("stream_profile_id", spec.StreamProfileID).
 		Msg("Camera relay upstream session accepted")
 
-	stream, err := m.openSource(ctx, spec)
+	stream, err := m.openSource(runCtx, spec)
 	if err != nil {
-		m.closeUpstream(spec, handle, "source_start_failed")
-		m.unregisterSession(spec.RelaySessionID, handle)
+		return nil, err
+	}
+	if err = runCtx.Err(); err != nil {
+		_ = stream.Close()
 		return nil, err
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
-	handle.cancel = cancel
 	go m.runSession(runCtx, spec, handle, stream)
 
 	return &cameraRelaySessionState{
@@ -234,15 +244,7 @@ func (m *cameraRelayManager) Stop(ctx context.Context, payload cameraRelayStopPa
 		return errCameraRelaySessionNotFound
 	}
 
-	m.closeUpstream(cameraRelaySessionSpec{
-		RelaySessionID: relaySessionID,
-		MediaIngestID:  handle.mediaIngestID,
-		AgentID:        handle.agentID,
-	}, handle, reason)
-
-	if handle.cancel != nil {
-		handle.cancel()
-	}
+	handle.cancel(errors.New(reason))
 
 	if ctx == nil {
 		return nil
@@ -262,6 +264,7 @@ func (m *cameraRelayManager) runSession(
 	handle *cameraRelayHandle,
 	stream cameraRelayChunkStream,
 ) {
+	defer handle.cancel(nil)
 	defer close(handle.done)
 	defer m.unregisterSession(spec.RelaySessionID, handle)
 	defer func() {
@@ -272,12 +275,15 @@ func (m *cameraRelayManager) runSession(
 
 	closeReason := "camera relay completed"
 	defer func() {
+		if cause := context.Cause(ctx); cause != nil && cause != context.Canceled && cause != context.DeadlineExceeded {
+			closeReason = cause.Error()
+		}
 		m.logger.Info().
 			Str("relay_session_id", spec.RelaySessionID).
 			Str("media_ingest_id", spec.MediaIngestID).
 			Str("close_reason", closeReason).
 			Msg("Camera relay session stopping")
-		m.closeUpstream(spec, handle, closeReason)
+		m.closeUpstream(spec, closeReason)
 	}()
 
 	batch := make([]*proto.MediaChunk, 0, m.batchSize())
@@ -330,6 +336,10 @@ func (m *cameraRelayManager) runSession(
 	}
 
 	for {
+		if ctx.Err() != nil {
+			closeReason = "camera relay cancelled"
+			return
+		}
 		chunk, err := stream.Recv(ctx)
 		switch {
 		case err == nil:
@@ -375,36 +385,34 @@ func (m *cameraRelayManager) runSession(
 	}
 }
 
-func (m *cameraRelayManager) closeUpstream(spec cameraRelaySessionSpec, handle *cameraRelayHandle, reason string) {
-	if m == nil || m.gateway == nil || handle == nil {
+func (m *cameraRelayManager) closeUpstream(spec cameraRelaySessionSpec, reason string) {
+	if m == nil || m.gateway == nil {
 		return
 	}
 
-	handle.closeOnce.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), defaultCameraRelayCloseTimeout)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCameraRelayCloseTimeout)
+	defer cancel()
 
-		_, err := m.gateway.CloseRelaySession(ctx, &proto.CloseRelaySessionRequest{
-			RelaySessionId: spec.RelaySessionID,
-			MediaIngestId:  spec.MediaIngestID,
-			AgentId:        spec.AgentID,
-			Reason:         reason,
-		})
-		if err != nil {
-			m.logger.Warn().
-				Err(err).
-				Str("relay_session_id", spec.RelaySessionID).
-				Str("reason", reason).
-				Msg("Failed to close upstream camera relay session")
-			return
-		}
-
-		m.logger.Info().
-			Str("relay_session_id", spec.RelaySessionID).
-			Str("media_ingest_id", spec.MediaIngestID).
-			Str("reason", reason).
-			Msg("Closed upstream camera relay session")
+	_, err := m.gateway.CloseRelaySession(ctx, &proto.CloseRelaySessionRequest{
+		RelaySessionId: spec.RelaySessionID,
+		MediaIngestId:  spec.MediaIngestID,
+		AgentId:        spec.AgentID,
+		Reason:         reason,
 	})
+	if err != nil {
+		m.logger.Warn().
+			Err(err).
+			Str("relay_session_id", spec.RelaySessionID).
+			Str("reason", reason).
+			Msg("Failed to close upstream camera relay session")
+		return
+	}
+
+	m.logger.Info().
+		Str("relay_session_id", spec.RelaySessionID).
+		Str("media_ingest_id", spec.MediaIngestID).
+		Str("reason", reason).
+		Msg("Closed upstream camera relay session")
 }
 
 func (m *cameraRelayManager) registerSession(relaySessionID string, handle *cameraRelayHandle) error {
@@ -442,6 +450,10 @@ func (m *cameraRelayManager) batchSize() int {
 }
 
 func (m *cameraRelayManager) openSource(ctx context.Context, spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if strings.TrimSpace(spec.PluginAssignmentID) != "" {
 		if m == nil || m.pluginSourceFactory == nil {
 			return nil, errCameraRelayPluginUnavailable

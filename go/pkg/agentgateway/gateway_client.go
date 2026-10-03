@@ -831,7 +831,9 @@ func (g *GatewayClient) OpenRelaySession(ctx context.Context, req *proto.OpenRel
 	resp, err := client.OpenRelaySession(ctx, req)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to open camera relay session at gateway")
-		g.markDisconnected()
+		if status.Code(err) == codes.Unavailable {
+			g.markDisconnected()
+		}
 		return nil, fmt.Errorf("failed to open relay session: %w", err)
 	}
 
@@ -853,7 +855,9 @@ func (g *GatewayClient) UploadMedia(ctx context.Context, chunks []*proto.MediaCh
 	stream, err := client.UploadMedia(ctx)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to create camera media upload stream")
-		g.markDisconnected()
+		if status.Code(err) == codes.Unavailable {
+			g.markDisconnected()
+		}
 		return nil, fmt.Errorf("failed to create media upload stream: %w", err)
 	}
 
@@ -864,8 +868,16 @@ func (g *GatewayClient) UploadMedia(ctx context.Context, chunks []*proto.MediaCh
 		}
 		sentAny = true
 		if err := stream.Send(chunk); err != nil {
-			_ = stream.CloseSend()
-			g.markDisconnected()
+			if errors.Is(err, io.EOF) {
+				if _, recvErr := stream.CloseAndRecv(); recvErr != nil {
+					err = recvErr
+				}
+			} else {
+				_ = stream.CloseSend()
+			}
+			if status.Code(err) == codes.Unavailable {
+				g.markDisconnected()
+			}
 			return nil, fmt.Errorf("failed to send media chunk: %w", err)
 		}
 	}
@@ -877,7 +889,9 @@ func (g *GatewayClient) UploadMedia(ctx context.Context, chunks []*proto.MediaCh
 
 	resp, err := stream.CloseAndRecv()
 	if err != nil {
-		g.markDisconnected()
+		if status.Code(err) == codes.Unavailable {
+			g.markDisconnected()
+		}
 		return nil, fmt.Errorf("failed to receive media upload response: %w", err)
 	}
 
@@ -899,7 +913,9 @@ func (g *GatewayClient) HeartbeatRelaySession(ctx context.Context, req *proto.Re
 	resp, err := client.Heartbeat(ctx, req)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to heartbeat camera relay session")
-		g.markDisconnected()
+		if status.Code(err) == codes.Unavailable {
+			g.markDisconnected()
+		}
 		return nil, fmt.Errorf("failed to heartbeat relay session: %w", err)
 	}
 
@@ -921,7 +937,9 @@ func (g *GatewayClient) CloseRelaySession(ctx context.Context, req *proto.CloseR
 	resp, err := client.CloseRelaySession(ctx, req)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to close camera relay session")
-		g.markDisconnected()
+		if status.Code(err) == codes.Unavailable {
+			g.markDisconnected()
+		}
 		return nil, fmt.Errorf("failed to close relay session: %w", err)
 	}
 

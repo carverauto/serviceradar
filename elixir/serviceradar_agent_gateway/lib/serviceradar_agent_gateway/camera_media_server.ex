@@ -159,6 +159,9 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
           maybe_mark_upload_closing(session_ref, response.message)
           response
 
+        {:error, %GRPC.RPCError{} = error} ->
+          raise error
+
         {:error, reason} ->
           raise GRPC.RPCError,
             status: :unavailable,
