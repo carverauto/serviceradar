@@ -83,6 +83,8 @@ defmodule ServiceRadarCoreElx.CameraMediaIngress do
         )
       )
 
-    [tracker: tracker]
+    opts
+    |> Keyword.take([:close_grace_ms])
+    |> Keyword.put(:tracker, tracker)
   end
 end

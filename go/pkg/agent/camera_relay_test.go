@@ -867,6 +867,107 @@ func TestCameraGatewaySendEOFSurfacesServerStatus(t *testing.T) {
 	}
 }
 
+// blockingUploadGateway holds every upload until the caller's context ends and
+// records whether a close arrived while an upload was still in flight.
+type blockingUploadGateway struct {
+	*fakeCameraRelayGateway
+
+	uploadStarted     chan struct{}
+	uploadStartedOnce sync.Once
+	inFlight          sync.Mutex
+	uploading         bool
+	closedMidUpload   bool
+}
+
+func (g *blockingUploadGateway) UploadMedia(ctx context.Context, _ []*proto.MediaChunk) (*proto.UploadMediaResponse, error) {
+	g.inFlight.Lock()
+	g.uploading = true
+	g.inFlight.Unlock()
+	g.uploadStartedOnce.Do(func() { close(g.uploadStarted) })
+
+	<-ctx.Done()
+
+	g.inFlight.Lock()
+	g.uploading = false
+	g.inFlight.Unlock()
+
+	return nil, ctx.Err()
+}
+
+func (g *blockingUploadGateway) CloseRelaySession(ctx context.Context, req *proto.CloseRelaySessionRequest) (*proto.CloseRelaySessionResponse, error) {
+	g.inFlight.Lock()
+	if g.uploading {
+		g.closedMidUpload = true
+	}
+	g.inFlight.Unlock()
+
+	return g.fakeCameraRelayGateway.CloseRelaySession(ctx, req)
+}
+
+// Stop must not close the upstream relay while an upload for it is in flight:
+// the upstream ends the relay on close, so the queued upload would fail and
+// read as an unreachable core. The session goroutine closes once its upload
+// has returned, with the reason Stop was given.
+func TestCameraRelayManagerStopClosesAfterInFlightUploadReturns(t *testing.T) {
+	t.Parallel()
+
+	gateway := &blockingUploadGateway{
+		fakeCameraRelayGateway: newFakeCameraRelayGateway(),
+		uploadStarted:          make(chan struct{}),
+	}
+
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	manager.uploadBatchSize = 1
+	manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		return &sliceCameraRelayStream{
+			chunks: []*cameraRelayChunk{
+				{TrackID: "video", Payload: []byte("a"), Sequence: 1, Codec: "h264", PayloadFormat: "annexb"},
+			},
+		}, nil
+	}
+
+	if _, err := manager.Start(context.Background(), cameraRelaySessionSpec{
+		RelaySessionID:  "relay-stop-mid-upload-1",
+		AgentID:         "agent-1",
+		CameraSourceID:  "camera-1",
+		StreamProfileID: "main",
+		LeaseToken:      "lease-1",
+	}); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	select {
+	case <-gateway.uploadStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for the upload to start")
+	}
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: "relay-stop-mid-upload-1", Reason: "viewer idle timeout"}); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+
+	gateway.inFlight.Lock()
+	closedMidUpload := gateway.closedMidUpload
+	gateway.inFlight.Unlock()
+
+	if closedMidUpload {
+		t.Fatal("upstream relay was closed while an upload was still in flight")
+	}
+
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+
+	if len(gateway.closeRequests) != 1 {
+		t.Fatalf("expected 1 close request, got %d", len(gateway.closeRequests))
+	}
+	if got := gateway.closeRequests[0].GetReason(); got != "viewer idle timeout" {
+		t.Fatalf("expected close reason %q, got %q", "viewer idle timeout", got)
+	}
+}
+
 func TestCameraRelayManagerStopsWhenGatewayUploadEntersDrain(t *testing.T) {
 	t.Parallel()
 	testCameraRelayManagerStopsWhenGatewayEntersDrain(t, "relay-drain-upload-1", "media chunks accepted during relay drain", "", 0)

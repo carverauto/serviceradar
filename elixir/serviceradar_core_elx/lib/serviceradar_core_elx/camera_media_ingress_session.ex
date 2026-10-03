@@ -4,6 +4,10 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
 
   Each accepted relay session gets one process on a core-elx node. The gateway
   forwards chunk batches and lifecycle operations to that process over ERTS.
+
+  Closing (or a lapsed lease) does not stop the process at once. An upload,
+  heartbeat, or close already queued behind that close still receives this
+  process's drain reply. The process stops after a short grace period.
   """
 
   use GenServer
@@ -11,6 +15,9 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
 
   @max_chunk_bytes 1_048_576
+  @default_close_grace_ms 5_000
+  @closed_message "core relay session closed; drain"
+  @already_closed_message "core relay session already closed"
 
   def start_link(session, opts \\ []) when is_map(session) do
     GenServer.start_link(__MODULE__, {session, opts}, name: via(session.relay_session_id))
@@ -28,11 +35,33 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
     GenServer.call(ingress_pid, {:close_relay_session, request}, timeout)
   end
 
+  @doc """
+  Tells the relay's ingress process that its lease expired. Safe to call when
+  no such process runs on this node.
+  """
+  def notify_lease_expired(relay_session_id) when is_binary(relay_session_id) do
+    case Registry.lookup(ServiceRadarCoreElx.CameraMediaIngressRegistry, relay_session_id) do
+      [{pid, _value}] -> send(pid, :lease_expired)
+      [] -> :ok
+    end
+
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
   @impl true
   def init({session, opts}) do
     {:ok,
      %{
        session: session,
+       closed: false,
+       close_grace_ms:
+         Keyword.get(
+           opts,
+           :close_grace_ms,
+           Application.get_env(:serviceradar_core_elx, :camera_media_ingress_close_grace_ms, @default_close_grace_ms)
+         ),
        tracker:
          Keyword.get(
            opts,
@@ -47,6 +76,18 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
   end
 
   @impl true
+  def handle_call({:upload_media, _chunks}, _from, %{closed: true} = state) do
+    {:reply, {:ok, %Camera.UploadMediaResponse{received: false, message: @closed_message}}, state}
+  end
+
+  def handle_call({:heartbeat, _request}, _from, %{closed: true} = state) do
+    {:reply, {:ok, %Camera.RelayHeartbeatAck{accepted: false, message: @closed_message}}, state}
+  end
+
+  def handle_call({:close_relay_session, _request}, _from, %{closed: true} = state) do
+    {:reply, {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: @already_closed_message}}, state}
+  end
+
   def handle_call({:upload_media, []}, _from, state) do
     {:reply, {:error, :empty_upload}, state}
   end
@@ -93,12 +134,24 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
            state.tracker.close_session(request.relay_session_id, request.media_ingest_id, %{
              reason: request.reason
            }) do
-      {:stop, :normal, {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session closed"}},
-       state}
+      {:reply, {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session closed"}},
+       close_after_grace(state)}
     else
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
+  end
+
+  @impl true
+  def handle_info(:lease_expired, state), do: {:noreply, close_after_grace(state)}
+  def handle_info(:stop_after_close, state), do: {:stop, :normal, state}
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp close_after_grace(%{closed: true} = state), do: state
+
+  defp close_after_grace(state) do
+    _ = Process.send_after(self(), :stop_after_close, state.close_grace_ms)
+    %{state | closed: true}
   end
 
   defp reduce_chunks(state, chunks) do

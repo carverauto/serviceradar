@@ -207,7 +207,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
                     %{close_reason: "upstream relay drain"}}
   end
 
-  test "preserves actionable upstream upload statuses and messages" do
+  test "preserves actionable upstream upload statuses and messages, never :unavailable" do
     Application.put_env(
       :serviceradar_agent_gateway,
       :camera_media_session_tracker_record_result,
@@ -236,10 +236,52 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
           CameraMediaServer.upload_media([chunk], %{adapter: CameraMediaAdapterStub, payload: :test})
         end
 
-      assert error.status == upstream_error.status
+      # :unavailable would make the agent drop its whole gateway connection.
+      # RPCError.status is the numeric code, not the atom passed to exception/1.
+      expected_status =
+        if status == :unavailable, do: GRPC.Status.aborted(), else: upstream_error.status
+
+      assert error.status == expected_status
       assert error.message == upstream_error.message
       assert_receive {:upload_media, [^chunk]}
     end
+  end
+
+  # A relay that ended on the core side answers the upload with a drain, and
+  # any other forward failure is :aborted. :unavailable is what agents read as
+  # a lost gateway connection, so relay-level failures must never use it.
+  test "answers an upload for a relay closed upstream with a drain and never reports :unavailable" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_record_result,
+      {:ok, %{status: "active"}}
+    )
+
+    upload = fn ->
+      CameraMediaServer.upload_media(
+        [
+          %Camera.MediaChunk{
+            relay_session_id: "relay-gw-upload-closed-1",
+            media_ingest_id: "core-media-upload-closed-1",
+            agent_id: "agent-1",
+            sequence: 4,
+            payload: <<0, 1>>
+          }
+        ],
+        %{adapter: CameraMediaAdapterStub, payload: :test}
+      )
+    end
+
+    Application.put_env(:serviceradar_agent_gateway, :camera_media_forwarder_upload_result, {:error, :relay_closed})
+
+    response = upload.()
+    assert response.received == false
+    assert response.message =~ "drain"
+
+    Application.put_env(:serviceradar_agent_gateway, :camera_media_forwarder_upload_result, {:error, :core_unavailable})
+
+    error = assert_raise GRPC.RPCError, upload
+    assert error.status == GRPC.Status.aborted()
   end
 
   test "rejects relay heartbeat from a different authenticated agent" do
