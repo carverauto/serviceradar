@@ -20,8 +20,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarderTest do
     @impl true
     def handle_call({:upload_media, _chunks}, _from, :close), do: {:stop, :normal, :close}
     def handle_call({:upload_media, _chunks}, _from, :shutdown), do: {:stop, :shutdown, :shutdown}
-    def handle_call({:upload_media, _chunks}, _from, :nodedown),
-      do: {:stop, {:nodedown, :core@synthetic}, :nodedown}
+    def handle_call({:upload_media, _chunks}, _from, :nodedown), do: {:stop, {:nodedown, :core@synthetic}, :nodedown}
 
     def handle_call({:upload_media, _chunks}, _from, :other), do: {:stop, :kaboom, :other}
     def handle_call({:upload_media, _chunks}, _from, :timeout), do: {:noreply, :timeout}
