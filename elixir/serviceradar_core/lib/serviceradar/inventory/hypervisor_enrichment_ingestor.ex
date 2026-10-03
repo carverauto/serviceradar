@@ -1468,6 +1468,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
     case IdentityReconciler.lookup_by_strong_identifiers(ids, actor) do
       {:ok, uid} when is_binary(uid) and uid != "" -> uid
+      {:error, {:identifier_lookup_failed, _}} = error -> error
       _ -> nil
     end
   end

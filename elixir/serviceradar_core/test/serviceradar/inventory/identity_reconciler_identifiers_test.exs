@@ -173,6 +173,40 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
     assert device_uid_2 == device_uid_1
   end
 
+  # An agent whose agent_id sits on a device it did not mint (a hypervisor VM record it
+  # was merged into) must not be handed its deterministic uid when the identifier store
+  # cannot answer: that uid names a second, MAC-less device, and the agent is split off
+  # its VM record.
+  test "agent_id resolution fails instead of minting a device when the identifier lookup fails",
+       %{actor: actor} do
+    agent_id = "lookup-fail-agent-#{System.unique_integer([:positive])}"
+    holder_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _holder} = create_device_with_uid(actor, holder_uid, "vm01.example.com", nil)
+    {:ok, _identifier} = register_identifier(actor, holder_uid, :agent_id, agent_id)
+
+    update = %{
+      device_id: nil,
+      ip: nil,
+      mac: nil,
+      partition: "default",
+      metadata: %{"agent_id" => agent_id}
+    }
+
+    assert {:ok, ^holder_uid} = IdentityReconciler.resolve_device_id(update, actor: actor)
+
+    # A process outside the test's sandbox cannot check out a connection, so every read it
+    # makes fails the way one does when the pool gives out under load.
+    parent = self()
+
+    spawn(fn ->
+      send(parent, {:resolved, IdentityReconciler.resolve_device_id(update, actor: actor)})
+    end)
+
+    assert_receive {:resolved, result}, 30_000
+    assert {:error, {:identifier_lookup_failed, _reason}} = result
+  end
+
   test "agent_id takes priority over IP for device resolution", %{actor: _actor} do
     agent_id = "priority-agent-#{System.unique_integer([:positive])}"
 
