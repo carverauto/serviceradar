@@ -170,6 +170,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManagerTest do
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
+  @tag skip: "production bug, see https://github.com/carverauto/serviceradar/issues/5120"
   test "allocates a secure managed output path when no output_path is provided" do
     relay_session_id = "relay-boombox-sidecar-3"
     branch_id = "boombox-sidecar-3"

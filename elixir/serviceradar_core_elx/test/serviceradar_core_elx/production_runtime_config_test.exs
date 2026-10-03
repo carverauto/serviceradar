@@ -129,7 +129,9 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert {:error, {:non_delivering_adapter, message}} =
              ServiceRadar.OutboundMail.diagnose(mailer)
 
-    assert message =~ "SMTP_RELAY_HOST"
+    assert message =~ "Swoosh.Adapters.Test"
+    assert message =~ "delivers nothing"
+    assert message =~ "set Adapter to SMTP"
   end
 
   test "prod config selects the local mailbox when SERVICERADAR_LOCAL_MAILER is set" do
@@ -150,7 +152,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert opts[:emit_verdicts?] == true
     assert opts[:seasonal_n_sigma] == 3.0
     assert opts[:min_bucket_samples] == 4
-    assert opts[:confirm_slots] == 1
+    assert opts[:confirm_slots] == 2
   end
 
   test "prod config parses capacity forecasting source opt-ins from env" do
