@@ -722,7 +722,7 @@ Page size, pages per invocation, request timeout, retry attempts, the pull-wide 
 
 There is no separate `Max IOCs` completeness cap. Legacy `max_iocs`, `max_indicators`, and `otx_max_indicators` values are accepted and ignored. Assignment edits preserve unrelated configuration while removing the obsolete keys. The legacy database column remains inert for rollback compatibility during this release window and can be removed by a later cleanup migration after older supported releases no longer read it.
 
-Core-hosted OTX sync is also available for deployments that prefer the control plane to poll OTX directly. Configure the core worker with these environment variables:
+Core-hosted OTX sync polls from the control plane when **Settings -> Networks -> Threat Intel** has OTX enabled and **Execution Mode** set to **Core Worker**, and a core API key is stored in settings or supplied by the environment. The NetFlow security scheduler keeps one sync chain on the configured interval, which is at least one hour. **Edge Plugin** mode leaves that worker off even when an environment key is set, so the two paths do not pull at the same time. If settings cannot be read, an environment key still enables the core worker. Configure the core worker with these environment variables:
 
 - `SERVICERADAR_OTX_API_KEY` or `SERVICERADAR_OTX_API_KEY_FILE`
 - `SERVICERADAR_OTX_BASE_URL` (defaults to `https://otx.alienvault.com`)
@@ -733,7 +733,7 @@ Core-hosted OTX sync is also available for deployments that prefer the control p
 - `SERVICERADAR_OTX_MODIFIED_SINCE`
 - `SERVICERADAR_OTX_PARTITION`
 
-Prefer the `*_FILE` form for Kubernetes secrets. Rotate OTX keys through the secret backend or Kubernetes secret, then restart or roll the affected pod so runtime config is refreshed. After rotation, use **Sync Now** on the Threat Intel settings page and verify Sync Health shows a fresh successful run.
+Prefer the `*_FILE` form for Kubernetes secrets. Rotate OTX keys through the secret backend or Kubernetes secret, then restart or roll the affected pod so runtime config is refreshed. After rotation, use **Sync Now** on the Threat Intel settings page and verify Sync Health shows a fresh successful run. **Sync Now** says the sync is already queued when a job is waiting. Sync Health shows the last attempt, last success, last failure, counts, and the `modified_since` cursor. A **Stale** badge means there has been no successful sync, or the last success is older than twice the longer of the configured interval and one day. A failed fetch records only the error kind and keeps the last success, counts, and cursor.
 
 When raw payload archival is enabled in Threat Intel settings, core stores decoded OTX page payload snapshots in NATS Object Store. Archival is optional; if NATS Object Store is unavailable, normalized indicator ingest continues and the archive failure is logged. The core defaults are:
 
