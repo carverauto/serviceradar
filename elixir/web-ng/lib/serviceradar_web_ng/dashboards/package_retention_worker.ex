@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNG.Dashboards.PackageRetentionWorker do
   @moduledoc """
   Oban worker for dashboard package version retention.
 
-  Keeps only the N most-recent versions per package name, deleting older
+  Keeps only the N most-recent versions per dashboard_id, deleting older
   WASM blobs from the object store and the corresponding DB records.
   Enabled packages and packages referenced by a DashboardInstance are
   always protected.
