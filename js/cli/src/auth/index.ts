@@ -29,11 +29,17 @@ export async function dispatchAuth(
 
 export function printAuthHelp(): void {
   console.log(`Usage:
-  serviceradar-cli auth login   --instance <url> [--web] [--no-browser] [--ca-file <pem>] [--token <existing-token>]
+  serviceradar-cli auth login   --instance <url> [--scope "<scopes>"] [--web] [--no-browser] [--ca-file <pem>] [--token <existing-token>]
   serviceradar-cli auth status  [--instance <url>]
   serviceradar-cli auth logout  [--instance <url>]
 
 Reads/writes ~/.config/serviceradar/credentials.json (mode 0600).
+
+Scopes:
+  Without --scope, login requests "dashboard.publish edge.manage", which covers
+  dashboard publishing and edge onboarding (agent, edge, collector, nats
+  commands). Pass --scope with a space- or comma-separated list to request
+  others, e.g. --scope "plugin.publish plugins.manage".
 
 Private / corporate CAs:
   Node does not use the OS trust store. If curl works but login fails with
@@ -50,7 +56,8 @@ Login flows:
                  opens the instance's authorize endpoint in a browser,
                  and exchanges the returned code for a long-lived token.
 
-Both flows fall back to manual token paste when the corresponding
-endpoints return 404. TLS and network failures are reported instead of
-that fallback.`)
+The device flow falls back to manual token paste when its endpoint returns
+404. --web fails with a clear error on a server that does not route the
+PKCE endpoints; use the device flow there. TLS and network failures are
+reported instead of any fallback.`)
 }

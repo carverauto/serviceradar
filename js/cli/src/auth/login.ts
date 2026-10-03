@@ -14,6 +14,21 @@ import type {CredentialEntry} from "./credentials.js"
 import {credentialsPath, normalizeInstanceUrl, upsertStoredCredential} from "./credentials.js"
 
 const PKCE_CALLBACK_PATH = "/cli/auth/callback"
+
+// Scopes requested when `--scope` is not given: dashboard publishing plus edge
+// onboarding (`edge.manage`), so one login covers both workflows.
+export const DEFAULT_CLI_SCOPES = ["dashboard.publish", "edge.manage"]
+
+/**
+ * The space-separated scope string sent to the server. Accepts `--scope` as
+ * space- or comma-separated; the server stores the string verbatim and its
+ * route confinement splits on whitespace only, so commas must not reach it.
+ */
+export function requestedScope(option: unknown): string {
+  const raw = typeof option === "string" ? option : ""
+  const scopes = raw.split(/[\s,]+/).filter(Boolean)
+  return (scopes.length > 0 ? scopes : DEFAULT_CLI_SCOPES).join(" ")
+}
 const PKCE_DEFAULT_TIMEOUT_MS = 600_000
 
 interface PkceCallbackResult {
@@ -43,12 +58,10 @@ export async function authLoginCommand(options: Record<string, any>): Promise<vo
       ? await runWebPkceFlow(instance, options)
       : await runDeviceCodeFlow(instance, options)
   } catch (error) {
+    // Only the device flow falls back to a pasted token. A server without the
+    // PKCE endpoints fails `--web` outright (see runWebPkceFlow).
     if (errorCode(error) !== "DEVICE_CODE_UNAVAILABLE") throw error
-    if (options.web) {
-      console.warn("PKCE web login is not available on this instance yet.")
-    } else {
-      console.warn("Device-code login is not available on this instance yet.")
-    }
+    console.warn("Device-code login is not available on this instance yet.")
     if (errorMessage(error)) console.warn(`  ${errorMessage(error)}`)
     console.warn("Falling back to manual token entry. Generate a long-lived CLI token in the ServiceRadar UI and paste it below.")
     credential = await promptManualToken(instance, options)
@@ -68,7 +81,7 @@ async function runDeviceCodeFlow(instance: string, options: Record<string, any>)
       headers: {"content-type": "application/json"},
       body: JSON.stringify({
         client_id: "serviceradar-cli",
-        scope: options.scope || "dashboard.publish",
+        scope: requestedScope(options.scope),
       }),
     })
   } catch (error) {
@@ -79,7 +92,14 @@ async function runDeviceCodeFlow(instance: string, options: Record<string, any>)
     throw codedError("device-code endpoint not implemented", "DEVICE_CODE_UNAVAILABLE")
   }
   if (!response.ok) {
-    throw new Error(`device-code request failed: HTTP ${response.status}`)
+    const failure = await response.json().catch(() => null)
+    if (failure?.error === "invalid_scope") {
+      throw new Error(invalidScopeMessage(instance, requestedScope(options.scope), typeof options.scope === "string" && options.scope.trim() !== ""))
+    }
+    const detail = typeof failure?.error === "string"
+      ? ` ${failure.error}${typeof failure.error_description === "string" ? ` — ${failure.error_description}` : ""}`
+      : ""
+    throw new Error(`device-code request failed: HTTP ${response.status}${detail}`)
   }
 
   const payload = await response.json()
@@ -156,6 +176,7 @@ async function runDeviceCodeFlow(instance: string, options: Record<string, any>)
     return {
       token: String(body.access_token),
       user: extractUserLabel(body),
+      scope: typeof body.scope === "string" ? body.scope : requestedScope(options.scope),
       obtained_at: new Date().toISOString(),
       expires_at: body.expires_at
         || (body.expires_in ? new Date(Date.now() + Number(body.expires_in) * 1000).toISOString() : ""),
@@ -185,13 +206,13 @@ async function runWebPkceFlow(instance: string, options: Record<string, any>): P
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
     state,
-    scope: typeof options.scope === "string" ? options.scope : "dashboard.publish",
+    scope: requestedScope(options.scope),
   }).toString()
 
-  // Probe the authorize endpoint cheaply so a 404 routes to the manual-token
-  // fallback before we open a browser window the user would then have to
-  // close manually. We use GET (with redirect:manual) so any 200/302 from a
-  // real authorize endpoint counts as "available."
+  // Probe the authorize endpoint cheaply so a server without it fails before
+  // we open a browser window the user would then have to close manually. We
+  // use GET (with redirect:manual) so any 200/302 from a real authorize
+  // endpoint counts as "available."
   let probeStatus: number | undefined
   try {
     const probe = await fetch(authorizeUrl, {method: "GET", redirect: "manual"})
@@ -201,7 +222,7 @@ async function runWebPkceFlow(instance: string, options: Record<string, any>): P
   }
   if (probeStatus === 404) {
     await new Promise<void>((res) => server.close(() => res()))
-    throw codedError("PKCE authorize endpoint not implemented", "DEVICE_CODE_UNAVAILABLE")
+    throw new Error(pkceUnsupportedMessage(instance, "/api/v1/cli/auth/authorize"))
   }
 
   console.log("")
@@ -255,7 +276,7 @@ async function runWebPkceFlow(instance: string, options: Record<string, any>): P
   }
 
   if (tokenResponse.status === 404) {
-    throw codedError("PKCE token endpoint not implemented", "DEVICE_CODE_UNAVAILABLE")
+    throw new Error(pkceUnsupportedMessage(instance, "/api/v1/cli/auth/token"))
   }
   if (!tokenResponse.ok) {
     throw new Error(`PKCE token exchange failed: HTTP ${tokenResponse.status}`)
@@ -269,6 +290,7 @@ async function runWebPkceFlow(instance: string, options: Record<string, any>): P
   return {
     token: String(tokenPayload.access_token),
     user: extractUserLabel(tokenPayload),
+    scope: typeof tokenPayload.scope === "string" ? tokenPayload.scope : requestedScope(options.scope),
     obtained_at: new Date().toISOString(),
     expires_at: tokenPayload.expires_at
       || (tokenPayload.expires_in ? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000).toISOString() : ""),
@@ -322,6 +344,21 @@ function startPkceCallbackServer(_expectedState: string): Promise<PkceServerHand
       resolveSetup({server, port, callbackPromise})
     })
   })
+}
+
+function pkceUnsupportedMessage(instance: string, path: string): string {
+  return `PKCE web login (--web) is not supported by this server: ${path} returned 404.\n` +
+    `→ use the device flow instead: serviceradar-cli auth login --instance ${instance}`
+}
+
+function invalidScopeMessage(instance: string, scope: string, explicit: boolean): string {
+  if (explicit) {
+    return `the server refused the requested scope "${scope}" (invalid_scope): its CLI auth policy does not allow it.\n` +
+      "→ ask a tenant admin to allow it under Settings → CLI authentication, or request fewer scopes with --scope"
+  }
+  return `the server refused the default CLI scopes "${scope}" (invalid_scope): its CLI auth policy does not allow edge.manage yet.\n` +
+    "→ ask a tenant admin to allow edge.manage under Settings → CLI authentication,\n" +
+    `  or log in for dashboards only: serviceradar-cli auth login --instance ${instance} --scope dashboard.publish`
 }
 
 function extractUserLabel(body: any): string {
