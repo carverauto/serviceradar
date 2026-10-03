@@ -18,17 +18,19 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
     now = DateTime.utc_now()
     limit = opts |> Keyword.get(:limit, @page_size) |> min(@page_size) |> max(1)
     source = opts[:source]
+    include_stale? = opts[:stale] == true
 
     query =
       IpThreatIntelCache
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(matched == true and expires_at > ^now)
+      |> Ash.Query.filter(matched == true)
+      |> maybe_filter_fresh(include_stale?, now)
       |> maybe_filter_source(source)
       |> Ash.Query.sort(looked_up_at: :desc, ip: :asc)
       |> Ash.Query.limit(limit)
 
     case Ash.read(query, scope: scope) do
-      {:ok, rows} -> {:ok, Enum.map(rows, &cache_row/1)}
+      {:ok, rows} -> {:ok, Enum.map(rows, &cache_row(&1, now))}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -63,13 +65,19 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
 
   defp parse_ip(_ip), do: {:error, :invalid_ip}
 
+  defp maybe_filter_fresh(query, true, _now), do: query
+
+  defp maybe_filter_fresh(query, false, now) do
+    Ash.Query.filter(query, expires_at > ^now)
+  end
+
   defp maybe_filter_source(query, source) when is_binary(source) and source != "" do
     Ash.Query.filter(query, fragment("? = ANY(sources)", ^source))
   end
 
   defp maybe_filter_source(query, _), do: query
 
-  defp cache_row(row) do
+  defp cache_row(row, now) do
     %{
       observed_ip: row.ip,
       evaluated_at: row.looked_up_at,
@@ -77,9 +85,16 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
       indicator_match_count: row.match_count,
       max_severity: row.max_severity,
       sources: List.wrap(row.sources),
-      match_kind: "current"
+      match_kind: "current",
+      stale: stale?(row.expires_at, now)
     }
   end
+
+  defp stale?(%DateTime{} = expires_at, %DateTime{} = now) do
+    DateTime.compare(expires_at, now) != :gt
+  end
+
+  defp stale?(_, _), do: false
 
   defp indicator_row(row) do
     %{
