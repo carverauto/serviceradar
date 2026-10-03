@@ -18,7 +18,15 @@ export const BOOLEAN_FLAGS: Set<string> = new Set([
   "web",
   "fire-test",
   "clear-test",
+  // `edge site bundle --wait` polls until the site's leaf server is ready.
+  "wait",
 ])
+
+// Single-letter aliases. Only `-o` is recognised: download commands take
+// `-o <file>` the way curl and wget do.
+const SHORT_FLAGS: Record<string, string> = {
+  "-o": "output",
+}
 
 export interface ParsedArgs {
   _: string[]
@@ -29,6 +37,11 @@ export function parseArgs(args: string[]): ParsedArgs {
   const options: ParsedArgs = {_: []}
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
+    if (SHORT_FLAGS[arg]) {
+      options[SHORT_FLAGS[arg]] = args[index + 1]
+      index += 1
+      continue
+    }
     if (!arg.startsWith("--")) {
       options._.push(arg)
       continue
