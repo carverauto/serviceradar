@@ -27,25 +27,59 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
   require Logger
 
   @default_schedule_seconds 3_600
+  @freshness_floor_seconds 86_400
   @default_provider AlienVaultOTX
   @plugin_id "alienvault-otx-core"
+  @collection_id "otx:pulses:subscribed"
   @completed_walk_overlap_seconds 2 * 24 * 60 * 60
+  # Continuation and root jobs share one chain. This key is never written, so
+  # every incomplete job counts and a second chain can be cancelled.
+  @chain_one_off_key "manual"
 
   @doc """
-  Schedules one core-hosted OTX sync job if Oban is available.
+  Schedules one core-hosted OTX sync when that path is enabled.
+
+  An incomplete job, including a page continuation, means the chain is alive.
+  Extra pending jobs are cancelled down to the earliest one. `force: true`
+  queues a run even when the saved execution mode is the edge plugin; the
+  NetFlow security scheduler calls this without force.
   """
   @spec ensure_scheduled(keyword()) ::
-          {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
+          {:ok, Oban.Job.t()}
+          | {:ok, :already_scheduled}
+          | {:ok, :disabled}
+          | {:error, term()}
   def ensure_scheduled(opts \\ []) do
-    schedule_in = Keyword.get(opts, :schedule_in, @default_schedule_seconds)
+    cond do
+      not ObanSupport.available?() ->
+        {:error, :oban_unavailable}
 
-    if ObanSupport.available?() do
-      %{}
-      |> new(schedule_in: max(schedule_in, 1))
-      |> ObanSupport.safe_insert()
-    else
-      {:error, :oban_unavailable}
+      not Keyword.get(opts, :force, false) and not core_sync_enabled?() ->
+        {:ok, :disabled}
+
+      true ->
+        schedule_chain(opts)
     end
+  end
+
+  @doc """
+  A feed is stale when it has no successful sync, or the last success is older
+  than twice the longer of the configured interval and one day.
+  """
+  @spec stale?(map(), DateTime.t(), pos_integer()) :: boolean()
+  def stale?(status, now, interval \\ @freshness_floor_seconds)
+
+  def stale?(%{last_success_at: %DateTime{} = success}, %DateTime{} = now, interval) do
+    DateTime.diff(now, success, :second) > freshness_budget_seconds(interval)
+  end
+
+  def stale?(%{}, %DateTime{}, _interval), do: true
+  def stale?(_status, _now, _interval), do: false
+
+  @doc false
+  @spec freshness_budget_seconds(term()) :: pos_integer()
+  def freshness_budget_seconds(interval) do
+    max(positive_int(interval, @freshness_floor_seconds), @freshness_floor_seconds) * 2
   end
 
   @impl Oban.Worker
@@ -206,13 +240,125 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
     emit_sync_event(:exception, started_at, %{
       provider: "alienvault_otx",
       source: "alienvault_otx",
-      collection_id: "otx:pulses:subscribed",
+      collection_id: @collection_id,
       status: "error",
       error: error_kind(reason)
     })
 
-    Logger.warning("AlienVault OTX sync failed", reason: format_reason(reason))
+    Logger.warning("AlienVault OTX sync failed", reason: error_kind(reason))
+    record_failure(reason)
     {:error, reason}
+  end
+
+  defp schedule_chain(opts) do
+    case ObanSupport.incomplete_chain_job_count(__MODULE__, @chain_one_off_key) do
+      0 ->
+        schedule_in = Keyword.get(opts, :schedule_in, next_delay_seconds())
+
+        %{}
+        |> new(schedule_in: max(schedule_in, 1))
+        |> ObanSupport.safe_insert()
+
+      1 ->
+        {:ok, :already_scheduled}
+
+      _duplicates ->
+        ObanSupport.cancel_duplicate_pending_jobs(__MODULE__, @chain_one_off_key)
+        {:ok, :already_scheduled}
+    end
+  end
+
+  defp next_delay_seconds do
+    case read_settings() do
+      %NetflowSettings{otx_sync_interval_seconds: seconds} when is_integer(seconds) ->
+        max(seconds, @default_schedule_seconds)
+
+      _ ->
+        @default_schedule_seconds
+    end
+  end
+
+  defp core_sync_enabled? do
+    case read_settings() do
+      %NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker"} = settings ->
+        has_api_key?(settings_config(settings)) or env_api_key?()
+
+      %NetflowSettings{} ->
+        false
+
+      _ ->
+        env_api_key?()
+    end
+  end
+
+  defp env_api_key? do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:provider_config, %{})
+    |> Map.new()
+    |> has_api_key?()
+  end
+
+  defp record_failure(reason) do
+    actor = SystemActor.system(:threat_intel_otx_sync_worker)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    existing = latest_status(actor)
+
+    attrs = %{
+      provider: "alienvault_otx",
+      source: "alienvault_otx",
+      collection_id: @collection_id,
+      agent_id: "",
+      gateway_id: "",
+      plugin_id: @plugin_id,
+      execution_mode: "core_worker",
+      last_status: "error",
+      last_message: "AlienVault OTX sync failed",
+      last_error: error_kind(reason),
+      last_attempt_at: now,
+      last_failure_at: now,
+      last_success_at: existing && existing.last_success_at,
+      objects_count: (existing && existing.objects_count) || 0,
+      indicators_count: (existing && existing.indicators_count) || 0,
+      skipped_count: (existing && existing.skipped_count) || 0,
+      total_count: (existing && existing.total_count) || 0,
+      cursor: (existing && existing.cursor) || %{},
+      metadata: (existing && existing.metadata) || %{}
+    }
+
+    case Ash.create(ThreatIntelSyncStatus, attrs,
+           action: :upsert,
+           actor: actor,
+           domain: ServiceRadar.Observability
+         ) do
+      {:ok, _status} ->
+        :ok
+
+      {:error, write_error} ->
+        Logger.warning("AlienVault OTX failure status was not recorded",
+          reason: error_kind(write_error)
+        )
+    end
+  rescue
+    error ->
+      Logger.warning("AlienVault OTX failure status was not recorded", reason: error_kind(error))
+  end
+
+  defp latest_status(actor) do
+    ThreatIntelSyncStatus
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      source == "alienvault_otx" and plugin_id == ^@plugin_id and collection_id == ^@collection_id and
+        agent_id == "" and gateway_id == ""
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, %ThreatIntelSyncStatus{} = status} -> status
+      _ -> nil
+    end
+  rescue
+    _ -> nil
   end
 
   defp page_from_url(url) when is_binary(url) do
@@ -254,27 +400,38 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
   end
 
   defp settings_provider_config do
-    actor = SystemActor.system(:threat_intel_otx_sync_worker)
-
-    case NetflowSettings.get_settings(actor: actor) do
-      {:ok, %NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker"} = settings} ->
-        %{
-          "api_key" => settings.otx_api_key,
-          "base_url" => settings.otx_base_url,
-          "modified_since" => settings.otx_modified_since,
-          "limit" => settings.otx_page_size,
-          "timeout_ms" => settings.otx_timeout_ms
-        }
-        |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
-        |> Map.new()
+    case read_settings() do
+      %NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker"} = settings ->
+        settings_config(settings)
 
       _ ->
         %{}
     end
+  end
+
+  defp settings_config(%NetflowSettings{} = settings) do
+    %{
+      "api_key" => settings.otx_api_key,
+      "base_url" => settings.otx_base_url,
+      "modified_since" => settings.otx_modified_since,
+      "limit" => settings.otx_page_size,
+      "timeout_ms" => settings.otx_timeout_ms
+    }
+    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+    |> Map.new()
+  end
+
+  defp read_settings do
+    actor = SystemActor.system(:threat_intel_otx_sync_worker)
+
+    case NetflowSettings.get_settings(actor: actor) do
+      {:ok, %NetflowSettings{} = settings} -> settings
+      _ -> nil
+    end
   rescue
     error ->
-      Logger.debug("AlienVault OTX settings unavailable", reason: inspect(error))
-      %{}
+      Logger.debug("AlienVault OTX settings unavailable", reason: error_kind(error))
+      nil
   end
 
   defp has_api_key?(%{} = config) do
@@ -308,9 +465,6 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
       _ -> 0
     end
   end
-
-  defp format_reason(reason) when is_binary(reason), do: reason
-  defp format_reason(reason), do: inspect(reason)
 
   defp error_kind(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_kind({kind, _detail}) when is_atom(kind), do: Atom.to_string(kind)
