@@ -19,8 +19,8 @@ The primary workflow is `.github/workflows/release.yml`. It:
 5. Waits for the native add-on and Wasm plugin catalog indexes plus the source
    and image security bundles from the parallel tag workflows.
 6. Publishes the GitHub release only after every required asset exists.
-7. Advances `demo/prod-release` after publication so the reviewed manual Argo
-   rollout can use the verified semver tag.
+7. Advances `demo/prod-release` after publication so `serviceradar-demo-prod`
+   can sync the verified release commit.
 
 `.github/workflows/native-addons.yml`, `.github/workflows/wasm-plugins.yml`,
 `.github/workflows/source-security.yml`, and
@@ -151,16 +151,19 @@ scripts/validate-large-ingestion.sh
 
 ## Demo Handoff
 
-Successful stable, non-draft publication advances `demo/prod-release` and updates
-`helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml` to the semver
-image tag. Automated Argo sync and Image Updater are intentionally disabled
-while the live generated-secret, CNPG, and deployment drift is under review.
+`scripts/cut-release.sh` writes `global.imageTag` in
+`helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml` to the release
+tag on the release commit. When that file exists,
+`scripts/validate-release-metadata.sh` fails unless `global.imageTag` equals
+the release tag. `.github/workflows/release.yml` runs that check in its
+release-source steps, before publication. A missing file is allowed.
+Successful stable, non-draft publication then advances `demo/prod-release` to
+that commit.
 
-Do not patch `global.imageTag` directly for a formal release. Follow
-`.agents/skills/release-cut-and-demo-roll/SKILL.md`: verify the release branch,
-review every OutOfSync resource, perform a non-pruning manual sync through an
-authenticated Argo context, and wait for `Synced|Healthy|Succeeded` with the
-key workloads on `v<version>`.
+`serviceradar-demo-prod` tracks the branch and syncs it automatically, with
+prune and self-heal off. Image Updater stays disabled. Do not patch
+`global.imageTag` on the live Application. Rollout checks are in
+`.agents/skills/release-cut-and-demo-roll/SKILL.md`.
 
 ## CI Prerequisites
 
