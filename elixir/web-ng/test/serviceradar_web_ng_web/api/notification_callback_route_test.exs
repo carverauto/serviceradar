@@ -2,11 +2,15 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackRouteTest do
   @moduledoc """
   That the callback routes are actually raw-body buffered (task 4.3.0b).
 
-  `RawBodyReader` matches on `String.starts_with?`, and an unbuffered route does
-  not fail loudly: the verifier is handed `""`, computes a signature over the
-  empty string, and answers an ordinary 401 - indistinguishable from a wrong
-  secret. So the concrete paths are asserted here rather than the prefix list
-  being eyeballed.
+  `RawBodyReader` buffers notification callbacks two ways: `buffered?/1`
+  matches the `/api/notifications/callbacks/` prefix on the raw `request_path`,
+  and `NotificationCallbackBody.callback?/1` matches the URI-decoded `path_info`
+  segments, so percent-encoded spellings of the callback path get the same 1 MiB
+  envelope and exact raw-byte retention for per-provider signature verification.
+  An unbuffered route does not fail loudly: the verifier is handed `""`,
+  computes a signature over the empty string, and answers an ordinary 401 -
+  indistinguishable from a wrong secret. So the concrete paths are asserted here
+  rather than the prefix list being eyeballed.
   """
 
   use ExUnit.Case, async: true
@@ -128,9 +132,11 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackRouteTest do
   end
 
   test "the bare callbacks path is NOT buffered, which is why routes carry a provider segment" do
-    # Documents the trap rather than asserting a wish: the registered prefix ends
-    # in a slash, so a route mounted at the bare path would silently lose its raw
-    # body. The router therefore puts the provider in the path.
+    # `buffered?/1` is a raw `request_path` prefix check, and the registered
+    # prefix ends in a slash, so it returns false for the bare path. That is why
+    # routes carry a provider segment. The bare path is still bounded and its
+    # exact raw bytes retained via `NotificationCallbackBody.callback?/1`, which
+    # matches the URI-decoded `path_info` segments.
     refute RawBodyReader.buffered?("/api/notifications/callbacks")
   end
 
