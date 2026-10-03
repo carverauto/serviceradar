@@ -449,7 +449,8 @@ To see what the executors actually register as:
 kubectl exec -n buildbuddy <executor-pod> -- printenv | grep -i pool
 ```
 
-The workflow actions use the dedicated `workflows` fleet described above, not these three build
+The workflow actions use the dedicated `workflows` fleet described above (LargeIngestionGate
+uses the `workflows-lig` pool; see "Dedicated LargeIngestionGate pool"), not these three build
 executors. Their current `resource_requests` live in `buildbuddy.yaml` (memory varies per
 action — measured workflows request less than unmeasured load tests; disk is 40GB); change
 those together with `values-workflows.yaml` when adjusting placement capacity.
