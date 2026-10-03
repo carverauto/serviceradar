@@ -539,8 +539,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert html =~ "0 agent(s) · 0 add-on(s)"
   end
 
-  # The fleet matrix table markup (everything before the catalog inventory
-  # panel), so assertions can scope to fleet rows only.
   defp seed_paged_agents!(actor, unique, addon_id, count) do
     package = create_addon_package!(actor, addon_id, "1.0.0")
 
@@ -581,6 +579,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     ~s([data-role="agent-addon-card"][data-agent-uid="#{agent_uid}"])
   end
 
+  # The fleet matrix table markup (everything before the catalog inventory
+  # panel), so assertions can scope to fleet rows only.
   defp fleet_table_html(html) do
     case String.split(html, "Catalog inventory", parts: 2) do
       [fleet, _catalog] -> fleet
