@@ -256,6 +256,35 @@ for dry-run review, execution gates, and device/source allowlists.
   instance's live records is refused and logged at error level unless the one-pass override is
   set. Telemetry: `[:serviceradar, :inventory, :source_retirement, :run]`, `:retired` and
   `:refused`.
+- Retired-only records (`Identity.SourceRetirement`): a retirement that leaves a live record
+  with no source-authoritative id and no agent id, no identity-bearing observation within T,
+  and not created by an operator marks it `source_retired` in the same transaction
+  (`ocsf_devices.source_retired_at`; the pass counts them as `marked`). A marked record stays
+  live but hidden: `Device :inventory`, the SRQL device queries and the inventory counts leave
+  it out unless a query asks for it (`include_retired:true`, `include_deleted:true` or a
+  `source_retired:` filter). An agent or source-authoritative id registered on it clears the
+  mark. The device detail page shows when the record was marked and when it will be deleted,
+  or why it will not be. After `source_retired_grace_days` (default 7) the `DeviceCleanupWorker`
+  grace pass (`SourceRetiredExpiry`) soft-deletes it with `deleted_reason` `source_retired` and
+  clears its address; a record named by an open de-duplication task is held until the task
+  closes. The tombstone is retained: no sweep, discovery poll or check-in restores it. The grace
+  pass is bounded by the retirement pass's maximum fraction and admitted by its override.
+  Telemetry: `[:serviceradar, :inventory, :source_retired_expiry, :run]` and `:refused`.
+- A retired id reported again (`Identity.SourceReactivation`), whatever its archive reason: the
+  sync ingest finds the records that held it, each followed to its merge survivor, before
+  resolution. The id returns to one of them when exactly one qualifies: the record is live or a
+  tombstone that was not merged away, holds no other id of the type in the id's scope, shares a
+  hardware MAC with the update (its own, its MAC identifiers, its interface MACs, or the MAC
+  the source last reported for the id before it retired), and agrees with the update on the
+  source first-seen time, or on the hostname when the update was first seen no earlier than the
+  id was last seen. The return moves the newest archived row and its integration id back,
+  restores a tombstone through the audited restore path (releasing an address another live
+  record holds), clears the mark and records `source_id_reactivated`, in one transaction.
+  Otherwise the id is re-issued: the update is written as a new record, never to a record that
+  held the id, and a `source_id_reissued` decision naming it and the holders opens a
+  de-duplication task. Nothing merges two live records. A failed read or return withholds the
+  updates carrying the id until the next sync run. Telemetry: `[:serviceradar, :inventory,
+  :source_reactivation, :reactivated]`, `:reissued` and `:withheld`.
 - Ephemeral device expiry (`EphemeralDeviceExpiry`, run by `DeviceCleanupWorker`; off by
   default, Settings -> Networks -> Inventory Cleanup): a live device holding no strong
   identifier -- no agent, source-authoritative id, hardware serial or globally-unique MAC --
@@ -285,6 +314,9 @@ for dry-run review, execution gates, and device/source allowlists.
 | `[:serviceradar, :identity_reconciler, :hostname_agreement, :refused]` | a sync declined to adopt an address holder whose hostname agrees (also recorded as a `policy_block` decision) |
 | `[:serviceradar, :inventory, :source_retirement, :refused]` | the mass guard refused a source id retirement pass |
 | `[:serviceradar, :inventory, :source_retirement, :retired]` | source ids retired from one record |
+| `[:serviceradar, :inventory, :source_retired_expiry, :refused]` | the mass guard refused a pass deleting `source_retired` records |
+| `[:serviceradar, :inventory, :source_reactivation, :reissued]` | a retired source id reported again was written as a new record; its de-duplication task needs review |
+| `[:serviceradar, :inventory, :source_reactivation, :withheld]` | updates carrying a retired source id were withheld until the next sync run |
 | `[:serviceradar, :identity_reconciler, :decision, :record_failed]` | an identity decision could not be written to `platform.identity_decisions` |
 | `[:serviceradar, :identity_reconciler, :deduplication_task, :open_failed]` | a de-duplication task could not be opened or updated for a recorded decision |
 
@@ -297,7 +329,10 @@ kind (`policy_block`, `guard_block`, `source_block`, `alias_invalidated`, `ip_co
 `source_override`, `component_block`), the reason, the sorted device set, the address it concerns, the latest
 evidence, and how often and when it was made. A repeat updates the row rather than adding
 one. Administrative merges are not decisions and are not recorded. Retiring a source id is
-recorded the same way, as a `source_id_retired` decision whose subject is the id.
+recorded the same way, as a `source_id_retired` decision whose subject is the id. A retired id
+its source reports again is recorded as `source_id_reactivated` when it returned to its record,
+or as `source_id_reissued` when it was written as a new record, which opens a de-duplication
+task.
 
 Read them with SRQL `in:identity_decisions` (for one device, `device:<uid>`), or through the
 `trace_device_identity` MCP tool. Both are read-only.

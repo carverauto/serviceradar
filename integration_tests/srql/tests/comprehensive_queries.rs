@@ -480,6 +480,50 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // device-retired (45m) is live but marked source_retired, so only
+            // include_retired:true lists it beside alpha (30m).
+            query: "in:devices include_retired:true time:last_1h",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let mut rows: Vec<_> = body["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| {
+                        (
+                            row["uid"].as_str().unwrap(),
+                            row["source_retired_at"].is_string(),
+                        )
+                    })
+                    .collect();
+                rows.sort_unstable();
+                assert_eq!(rows, vec![("device-alpha", false), ("device-retired", true)]);
+            })),
+        },
+        TestCase {
+            // A source_retired: filter replaces the default and selects the marked records.
+            query: "in:devices source_retired:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-retired")
+            })),
+        },
+        TestCase {
+            // A count hides the marked record as well: alpha, gamma and delta are active.
+            query: "in:devices stats:count() as total",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 3)
+            })),
+        },
+        TestCase {
+            query: "in:devices include_retired:true stats:count() as total",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 4)
+            })),
+        },
+        TestCase {
             // Per-agent latest availability: agent-1 sees alpha and beta as reachable.
             query: "in:devices include_inactive:true available_from_agent:agent-1 sort:uid:asc",
             expected_count: 2,

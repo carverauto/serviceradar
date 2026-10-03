@@ -69,7 +69,10 @@ CREATE TABLE public.ocsf_devices (
     deleted_by          TEXT,
     deleted_reason      TEXT,
     partition           TEXT        NOT NULL DEFAULT 'default',
-    switch_port_attachment JSONB
+    switch_port_attachment JSONB,
+    -- Set while a live record is marked source_retired. Device queries select it and hide
+    -- a marked record unless asked, so every device query fails without this column.
+    source_retired_at   TIMESTAMPTZ
 );
 
 -- The SRQL engine schema-qualifies device-identity correlation lookups as

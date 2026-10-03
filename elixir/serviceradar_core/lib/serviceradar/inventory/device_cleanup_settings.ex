@@ -222,7 +222,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
       constraints min: 0.01, max: 1.0
 
       description "Largest fraction of a source instance's live records one retirement pass " <>
-                    "may affect; a larger pass is refused"
+                    "may affect, and of all live records one grace pass may delete; a larger " <>
+                    "pass is refused"
     end
 
     attribute :source_retirement_guard_override, :boolean do
@@ -230,8 +231,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
       default false
       public? true
 
-      description "Let the next retirement pass exceed source_retirement_max_fraction; the " <>
-                    "pass it admits clears it"
+      description "Let the next retirement or grace pass exceed " <>
+                    "source_retirement_max_fraction; the pass it admits clears it"
     end
 
     attribute :source_retired_grace_days, :integer do

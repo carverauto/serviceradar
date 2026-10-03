@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
+  alias ServiceRadarWebNGWeb.DeviceLive.SourceRetiredData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
   alias ServiceRadarWebNGWeb.MetricWindowComponents
@@ -1101,6 +1102,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:limit, limit)
     |> assign(:results, results)
     |> assign(:device_row, device_row)
+    |> assign(:source_retirement, SourceRetiredData.load(device_row, scope))
     |> maybe_reset_supplemental_defaults(refresh?)
     |> assign(:active_tab, requested_tab)
     |> assign(

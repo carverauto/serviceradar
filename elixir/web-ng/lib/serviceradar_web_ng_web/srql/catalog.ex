@@ -278,6 +278,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "tags",
         "include_inactive",
         "include_deleted",
+        "include_retired",
+        "source_retired",
         "first_seen",
         "first_seen_time",
         "cve",
@@ -297,6 +299,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "awx_managed",
         "include_inactive",
         "include_deleted",
+        # A record marked source_retired (its source retired its ids) is hidden unless the
+        # query asks: `include_retired:true` shows it, `source_retired:true` lists only those.
+        "include_retired",
+        "source_retired",
         "kev"
       ],
       # Fields backed by array columns - builder will always use list syntax for these

@@ -52,6 +52,20 @@ defmodule ServiceRadar.Inventory.Identity.MacUniversalTest do
     end
   end
 
+  describe "multicast_mac?/1" do
+    test "recognizes a group address by IEEE bit 0 of the first octet" do
+      assert Mac.multicast_mac?("01:00:5e:90:10:01")
+      assert Mac.multicast_mac?("03005E900101")
+      refute Mac.multicast_mac?("00:00:5e:00:53:01")
+      refute Mac.multicast_mac?("02:00:5e:00:53:01")
+    end
+
+    test "a value that is not a MAC is not a group address" do
+      refute Mac.multicast_mac?("not-a-mac")
+      refute Mac.multicast_mac?(nil)
+    end
+  end
+
   describe "hardware_mac_sibling/1" do
     test "flips IEEE bit 1 of the first octet" do
       assert Mac.hardware_mac_sibling("F492BF75C721") == "F692BF75C721"

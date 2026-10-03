@@ -162,7 +162,8 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # the retirement pass retires a1 from A's record, and the reconciler runs. Expected: the two
   # are different devices, so they never merge. The reconciler leaves both alone: B's record
   # carries m1 in its MAC column, but m1 is filed under the source's partition, which the
-  # duplicate pass never pairs a device row with.
+  # duplicate pass never pairs a device row with. A's record, left holding only m1, is marked
+  # source_retired (D5), which the resolution model does not express, so the test asserts it.
   test "src_attach_shared_mac", %{actor: actor} do
     world =
       two_devices(%{
@@ -174,21 +175,24 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
         rekeys: true
       })
 
-    "src_attach_shared_mac"
-    |> DireTrace.start(world, actor)
-    |> DireTrace.lease("x1", "p1")
-    |> DireTrace.lease("x2", "p2")
-    |> DireTrace.armis("h1", "x1")
-    |> DireTrace.armis("h2", "x2")
-    |> DireTrace.armis("h2", "x2")
-    |> DireTrace.collect()
-    |> DireTrace.rekey("h1", "NoId")
-    |> DireTrace.collect()
-    |> DireTrace.collect()
-    |> DireTrace.collect()
-    |> DireTrace.retire()
-    |> DireTrace.reconcile()
-    |> DireTrace.assert_golden!()
+    trace =
+      "src_attach_shared_mac"
+      |> DireTrace.start(world, actor)
+      |> DireTrace.lease("x1", "p1")
+      |> DireTrace.lease("x2", "p2")
+      |> DireTrace.armis("h1", "x1")
+      |> DireTrace.armis("h2", "x2")
+      |> DireTrace.armis("h2", "x2")
+      |> DireTrace.collect()
+      |> DireTrace.rekey("h1", "NoId")
+      |> DireTrace.collect()
+      |> DireTrace.collect()
+      |> DireTrace.collect()
+      |> DireTrace.retire()
+      |> DireTrace.reconcile()
+
+    DireTrace.assert_golden!(trace)
+    assert DireTrace.marked(trace) == ["a1"]
   end
 
   # The source re-identifies a device (a source-side merge or re-identification): Armis reports

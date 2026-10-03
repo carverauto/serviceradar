@@ -4,8 +4,9 @@ mod stats;
 
 use self::{
     filters::{
-        apply_default_active_filter, apply_filter, collect_filter_params, has_deleted_filter,
-        should_apply_default_active_filter,
+        apply_default_active_filter, apply_default_retired_filter, apply_filter,
+        collect_filter_params, has_deleted_filter, should_apply_default_active_filter,
+        should_apply_default_retired_filter,
     },
     order::apply_ordering,
     stats::{
@@ -195,6 +196,10 @@ fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
 
     if should_apply_default_active_filter(&plan.filters)? {
         query = apply_default_active_filter(query);
+    }
+
+    if should_apply_default_retired_filter(plan.include_deleted, &plan.filters)? {
+        query = apply_default_retired_filter(query);
     }
 
     if let Some(TimeRange { start, end }) = &plan.time_range {

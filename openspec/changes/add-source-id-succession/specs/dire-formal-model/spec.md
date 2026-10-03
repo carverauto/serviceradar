@@ -117,7 +117,13 @@ that configuration with the switch, as it deletes a knockout configuration.
 
 #### Scenario: Cloned machines stay separate after one leaves its source
 - **WHEN** the shared-MAC trace runs and its first device's identifier retires
-- **THEN** the recorded trace keeps the two records separate and marks the first `source_retired`, because their first-seen times and hostnames differ
+- **THEN** the recorded trace keeps the two records separate, because their first-seen times and hostnames differ
+- **AND** the first record is marked `source_retired`, which the test asserts beside the trace because the resolution model does not express the mark
+
+#### Scenario: A source-retired record is recorded ending and returning
+- **WHEN** the lifecycle trace of a record whose only source identifier retires runs against the real code
+- **THEN** the recorded trace marks the record `source_retired` with a revision bump, keeps the mark through a sweep of its address, and grace-deletes it
+- **AND** the source reporting the identifier again restores the record with a revision bump, and TLC accepts the trace
 
 #### Scenario: A released seed is recorded as retired
 - **WHEN** the sweep-seed trace runs against the real code after the fix

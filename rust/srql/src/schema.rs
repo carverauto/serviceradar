@@ -204,6 +204,9 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         deleted_by -> Nullable<Text>,
         deleted_reason -> Nullable<Text>,
+        // Set while the record is marked `source_retired`: live, holding only retired source
+        // ids, and hidden from default device queries until the grace delete.
+        source_retired_at -> Nullable<Timestamptz>,
         partition -> Text,
         switch_port_attachment -> Nullable<Jsonb>,
     }

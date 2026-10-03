@@ -275,10 +275,13 @@ Behavior while marked:
 - **Mark is authoritative.** `source_retired_at` is the authority, a column so that
   default-read filters and the grace query can use an index. `identity_state` mirrors it for
   existing readers and is already a reserved key of `MergeDeviceFacts`.
-- **Hidden by default.** Marked records are hidden from the default Ash device reads, from SRQL
-  `in:devices` queries without an explicit filter, and from inventory counts. A filter
-  (`include_retired`, and the SRQL equivalent) shows them. Device detail by uid still shows them,
-  with the time they will be deleted.
+- **Hidden by default.** Marked records are hidden from the inventory read (`Device :inventory`,
+  which the device list and inventory counts read through), from SRQL `in:devices` queries
+  without an explicit filter, and from inventory counts. A filter (`include_retired`, and the
+  SRQL equivalents `include_retired:true` and `source_retired:`) shows them. The plain
+  `Device :read` still returns them: identity resolution, the review queue, bulk actions and
+  every update's atomic re-read must keep seeing a record that is still a candidate (below).
+  Device detail by uid still shows them, with the time they will be deleted.
 - **Still a candidate.** They remain succession and reactivation candidates.
 - **Grace delete.** After `source_retired_grace_days` (default 7), a `DeviceCleanupWorker` pass
   soft-deletes them through `Device :soft_delete` with `deleted_reason = "source_retired"` and
@@ -303,7 +306,9 @@ Behavior while marked:
   the record (D3), and an ingest that registers such an identifier on it. MAC and address
   evidence registers neither, so evidence still never clears the mark. The grace delete
   therefore never deletes a record holding one of these identifiers; the lifecycle model checks
-  this as `MarkedHoldsNoIdentifier`.
+  this as `MarkedHoldsOnlyMacs`. A MAC never retires, so a MAC the record holds neither
+  withholds the mark nor clears it: the record keeps it while marked and as a tombstone, and it
+  is the hardware evidence a reactivation needs (D6).
 
 The mark comes before deletion, rather than deleting at once, for two reasons. The revival paths
 make a deletion that is undone silently worse than no deletion. A grace period also leaves room
@@ -312,34 +317,59 @@ for succession and review.
 ### D6. A retired id presented again
 
 The archive is indexed by `(identifier_type, identifier_value, partition)`, and resolution
-consults it. When a source reports a retired id again:
+consults it. When a source reports a retired id again, whatever the reason it retired:
 
 - **Reactivation.** The id returns to the record that held it when it was retired, or to that
   record's merge survivor. This needs all of the following:
-  - exactly one such record qualifies;
-  - the record holds no unretired id of that type, that is, no `device_identifiers` row of the
-    type. Whether the source still reports that id does not matter. A record that took a
-    device's new id by succession still holds it after the source switches back to the old one,
-    and reactivating the old id there would leave one record holding two ids of the type;
-  - the update agrees with the archived observation on a universal MAC;
-  - the update agrees on the first-seen time or the hostname. A hostname corroborates under D3's
-    time guard: the update's first-seen time must be no earlier than the archived observation's
-    last-seen time.
+  - exactly one such record qualifies. A record merged away is followed to its survivor, which
+    holds the archived rows; a tombstone that was not merged away, including a `source_retired`
+    one, is a candidate;
+  - the record holds no unretired id of that type in the id's scope (its identifier
+    partition), that is, no `device_identifiers` row of the type there. Whether the source
+    still reports that id does not matter. A record that took a device's new id by succession
+    still holds it after the source switches back to the old one, and reactivating the old id
+    there would leave one record holding two ids of the type;
+  - the update shares a hardware MAC (universally administered and unicast) with the record:
+    the record's own MAC, its MAC identifiers, its interface MACs, or the MAC the source last
+    reported for the id. The source's observation counts only as it stood when the id retired;
+    one the source refreshed since describes whatever reports the id now;
+  - the update agrees on the first-seen time or the hostname, the one the source last reported
+    for the id or the record's own. A hostname corroborates under D3's time guard: the update's
+    first-seen time must be no earlier than the archived id's last-seen time.
+
+  The source's first-seen and last-seen times travel with the identifier row into the archive,
+  in its metadata. A row archived before identifier rows carried them is judged on the record's
+  first-seen time, and only an equal first-seen time corroborates it: with no last-seen time a
+  hostname cannot pass the time guard.
 
   The reactivated record is the update's match, as if it had never lost the id. Resolution must
   not fall back to the uid the id derives: that uid names the record that first held the id,
   which after a re-issue is another device's record.
 
-  The archive row is moved back. A `source_retired` mark is cleared, and a tombstone is
-  restored through the audited restore path. The decision is recorded as `source_id_reactivated`.
+  The newest archive row of the id, and the integration id derived from it, are moved back. A
+  tombstone is restored through the audited restore path first, releasing its address when
+  another live record holds it, and the returned identifier clears a `source_retired` mark.
+  The record's identity revision is bumped and the decision is recorded as
+  `source_id_reactivated`, in the same transaction. A check that no longer holds under the
+  transaction's locks (the holder, its ids of the type, the archive row, another record
+  registering the id) decides again from what changed. A read or write that fails withholds
+  the updates carrying the id until the next sync run, rather than leaving the usual
+  resolution to place them.
 - **Re-issue.** Otherwise the update is written as a new record, and a `source_id_reissued`
-  decision names both records and opens a review task. The new record never joins the old one
-  automatically. When a record already carries the uid the id derives, live or merged away, the
-  new record gets a fresh uid; writing to the derived uid would land the update on the old
-  record.
+  decision names both records and opens a review task once the write lands. The new record
+  never joins the old one automatically. When a record already carries the uid the id derives,
+  live or merged away, the new record gets a fresh uid, derived from that uid and the archived
+  rows so a retried batch picks the same one; writing to the derived uid would land the update
+  on the old record. The usual resolution may still attach the update to a record with no
+  history of the type, such as a discovered record of the same device, but never to a record
+  that held the id.
 
 The archive never merges two live records. This pins the model's `FreshIds = FALSE` case: a
 source that re-issues an old id to a different asset produces a review task, not a false merge.
+
+The remediation rollback (D11) moves archived rows back to their holders under the same locks
+and checks, and records `source_id_reactivated`. It does not restore a tombstone: the rollback
+restores the records it deleted itself.
 
 ### D7. A stale or retired holder does not keep the address
 
@@ -534,8 +564,9 @@ trace configuration ever sets it. Each alternative has a negative configuration:
   sighting (`SweepRefresh`): to a live record, and today to an unrestored tombstone as well.
   Once D12 lands, an unrestored tombstone is left alone (`SweepSkip`).
 - New actions, gated by a new constant, `RetirementEnabled`:
-  - `Retire(u, R)` archives the ids `R` (D1) and marks the record when `R` is every id it
-    holds (D5), so it is also the design's `MarkRetired`;
+  - `Retire(u, R)` archives the ids `R` (D1), none of them a MAC, and marks the record when
+    `R` is every other id it holds (D5), so it is also the design's `MarkRetired`. A constant,
+    `MacIds`, says which identifiers are MACs;
   - `GraceDelete`;
   - an evidence sighting of a `source_retired` or `seed_released` tombstone, a `CommitWork`
     branch that drops the write;
@@ -543,7 +574,7 @@ trace configuration ever sets it. Each alternative has a negative configuration:
     into it (D6).
 - Properties:
   - `RetiredTombstoneStaysDeleted`: no evidence path restores a `source_retired` tombstone.
-  - `MarkedHoldsNoIdentifier`: a marked record is live and holds no identifier.
+  - `MarkedHoldsOnlyMacs`: a marked record is live and holds no identifier but a MAC.
   - `SweepWritesOnlyLiveRecords`, an action property: a sweep write changes only a record that
     is live after the step.
   - `ExpiredDeviceReturns`, an action property: a sweep that matches an `expired` tombstone
@@ -617,8 +648,8 @@ confirmed by knocking the fix back out: a marked predecessor that survived a
 `source_succession` merge kept its mark, so the grace delete would have deleted the record that
 now held the device's current id. With the mark cleared only by reactivation, both a merge into
 a marked record and an ingest that registers an identifier on one violate
-`MarkedHoldsNoIdentifier`. D5 now clears the mark whenever the record gains an identifier, and
-D3 says so for the merge. Knocking out the evidence branch instead makes `Commit` revive a
+`MarkedHoldsNoIdentifier`, since renamed `MarkedHoldsOnlyMacs` (below). D5 now clears the mark
+whenever the record gains a source or agent id, and D3 says so for the merge. Knocking out the evidence branch instead makes `Commit` revive a
 `source_retired` tombstone, which `RetiredTombstoneStaysDeleted` reports.
 
 **The revision the traces made.** A knockout checks a trace with its switch turned off and
@@ -655,6 +686,25 @@ did not express. Each was confirmed against the code and added as a switch with 
 
 Every goal configuration checks `AliasFollowsSyncedDevice`, which a model that keeps neither
 defect satisfies.
+
+**The revision the lifecycle trace made.** Recording the `source_retired_returns` trace from the
+code (task 12.1) found the lifecycle model out of step with D5 and with the code it drives:
+
+- **MACs.** The model gave every identifier one kind, so `Retire` marked a record only once every
+  identifier it held had retired, a MAC included. D5 counts only source and agent ids: a record
+  whose source ids retire is marked while it still holds its hardware MAC. The model now types
+  MACs (`MacIds`). `Retire` never archives one, and it marks the record when `R` is every other
+  id the record holds. A MAC that a write, a merge or an unmerge registers on a marked record
+  leaves the mark, as the clearing trigger does. `MarkedHoldsNoIdentifier` became
+  `MarkedHoldsOnlyMacs`.
+- **Revisions.** Retiring an id bumps the record's identity revision
+  (`SourceRetirement.archive/4`). So does a reactivation, whether the record it returns to is
+  live or a tombstone (`SourceReactivation`). The model bumped neither a retirement nor a live
+  reactivation.
+
+The trace checks the first point and the retirement bump: under either old rule, TLC cannot take
+the trace's `Retire` step. The trace reactivates a tombstone, so the live-reactivation bump is
+checked only by the code's tests.
 
 ### D11. Remediation
 

@@ -45,6 +45,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # adopted on hostname agreement: that identifier decides its identity.
   @source_authoritative_types SourceAuthorityGuard.source_identifier_types()
 
+  # Tombstones the upsert never writes to (device_upsert_update_query/0): a merged-away
+  # device and a retained tombstone (`Device.retained_reasons/0`).
+  @unrevivable_reasons ["merged" | Device.retained_reasons()]
+
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do
     case bulk_upsert_devices(records, strong_uids, resolved_updates, []) do
@@ -1393,14 +1397,19 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp ip_unique_conflict?(_), do: false
 
   # The WHERE keeps a merged-away device's tombstone: a conflicting insert for it
-  # updates nothing (follow_merged_away_uids/2 then redirects the batch's dependent
-  # writes to the survivor). Any other tombstone the upsert reaches is revived, and a
-  # revival is an identity transition -- the uid names a live thing again -- so it
-  # bumps identity_revision exactly as Device :restore does. The
+  # updates nothing (follow_merged_away_uids/3 then redirects the batch's dependent
+  # writes to the survivor). It keeps a retained tombstone (`Device.retained_reasons/0`)
+  # the same way: a sync reaching one is evidence, and evidence never revives it. The
+  # fenced sync path withholds those updates before writing (SyncIngestor); this is the
+  # backstop. Any other tombstone the upsert reaches is revived, and a revival is an
+  # identity transition -- the uid names a live thing again -- so it bumps
+  # identity_revision exactly as Device :restore does. The
   # trg_ocsf_devices_revival_audit trigger records the tombstone the revival clears.
   defp device_upsert_update_query do
     from(d in Device,
-      where: is_nil(d.deleted_at) or is_nil(d.deleted_reason) or d.deleted_reason != "merged",
+      where:
+        is_nil(d.deleted_at) or is_nil(d.deleted_reason) or
+          d.deleted_reason not in @unrevivable_reasons,
       update: [
         set: [
           # nil EXCLUDED.ip = omit (keep current). Blank EXCLUDED.ip = explicit

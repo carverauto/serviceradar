@@ -169,6 +169,7 @@ pub struct DeviceRow {
     pub deleted_at: Option<DateTime<Utc>>,
     pub deleted_by: Option<String>,
     pub deleted_reason: Option<String>,
+    pub source_retired_at: Option<DateTime<Utc>>,
     pub partition: String,
     pub switch_port_attachment: Option<DbJson>,
 }
@@ -237,6 +238,7 @@ impl DeviceRow {
             "deleted_at": self.deleted_at,
             "deleted_by": self.deleted_by,
             "deleted_reason": self.deleted_reason,
+            "source_retired_at": self.source_retired_at,
             "partition": self.partition,
             "switch_port_attachment": self.switch_port_attachment.map(serde_json::Value::from),
         })

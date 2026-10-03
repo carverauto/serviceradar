@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
 
   attr(:device_row, :map, default: nil)
   attr(:device_deleted, :boolean, default: false)
+  attr(:source_retirement, :map, default: nil)
   attr(:editing, :boolean, default: false)
   attr(:snmp_polling_source, :map, default: nil)
   attr(:timezone, :string, default: "Etc/UTC")
@@ -126,6 +127,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
                   style={:compact}
                 />
               </.kv_inline>
+              <.kv_inline :if={is_map(@source_retirement)} label="Source Retired" mono>
+                <.user_time
+                  id={"device-summary-#{device_time_key(@device_row)}-source-retired-at"}
+                  value={@source_retirement.marked_at}
+                  timezone={@timezone}
+                  style={:compact}
+                />
+              </.kv_inline>
+              <.kv_inline
+                :if={is_map(@source_retirement) and @source_retirement.schedule == :scheduled}
+                label="Deletes After"
+                mono
+              >
+                <.user_time
+                  id={"device-summary-#{device_time_key(@device_row)}-source-retired-deletes-after"}
+                  value={@source_retirement.deletes_after}
+                  timezone={@timezone}
+                  style={:compact}
+                />
+              </.kv_inline>
+              <.kv_inline
+                :if={is_map(@source_retirement) and @source_retirement.schedule != :scheduled}
+                label="Deletes After"
+                value={source_retired_schedule(@source_retirement.schedule)}
+              />
               <.kv_inline :if={@device_deleted} label="Deleted At" mono>
                 <.user_time
                   id={"device-summary-#{device_time_key(@device_row)}-deleted-at"}
@@ -229,6 +255,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
     </div>
     """
   end
+
+  # When a marked record will be deleted, if no time can be given.
+  defp source_retired_schedule(:held), do: "Not while a de-duplication review names it"
+  defp source_retired_schedule(:paused), do: "Not while source retirement is disabled"
+  defp source_retired_schedule(_unknown), do: "Depends on the device cleanup settings"
 
   defp format_value(nil), do: "—"
   defp format_value(""), do: "—"

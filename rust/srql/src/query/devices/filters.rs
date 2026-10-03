@@ -10,7 +10,9 @@ mod text;
 
 pub(super) use self::{
     defaults::{
-        apply_default_active_filter, has_deleted_filter, should_apply_default_active_filter,
+        apply_default_active_filter, apply_default_retired_filter, has_deleted_filter,
+        parse_include_retired, retired_filter_matches_marked, should_apply_default_active_filter,
+        should_apply_default_retired_filter,
     },
     ip::safe_device_ip_inet_sql,
     jsonb::{is_valid_jsonb_key, parse_bool},
@@ -21,7 +23,7 @@ pub(super) use self::{
 use self::{
     availability::{apply_agent_availability_filter, apply_availability_source_freshness_filter},
     composite::{apply_composite_verdict_filter, parse_composite_field},
-    defaults::apply_active_filter,
+    defaults::{apply_active_filter, apply_retired_filter},
     identity::{apply_device_type_filter, apply_mac_filter},
     ip::apply_ip_filter,
     jsonb::{apply_jsonb_text_filter, apply_tags_filter},
@@ -144,6 +146,13 @@ pub(super) fn apply_filter<'a>(
         }
         "include_inactive" => {
             let _ = parse_bool(filter.value.as_scalar()?)?;
+        }
+        // Control token: shows records marked source_retired (defaults.rs).
+        "include_retired" => {
+            let _ = parse_include_retired(filter)?;
+        }
+        "source_retired" => {
+            query = apply_retired_filter(query, filter)?;
         }
         // OCSF device type (string name like "Server", "Router", etc.)
         "type" | "device_type" => {

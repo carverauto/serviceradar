@@ -6,6 +6,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
   use ServiceRadar.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -991,6 +993,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert tombstone.deleted_at
     assert tombstone.deleted_reason == "dire_remediation_test_duplicate"
     assert revival_audit_rows(uid) == []
+  end
+
+  # Nor a retained tombstone (Device.retained_reasons/0), even one an automatic process
+  # deleted: only an operator restore or the return of a retired source id revives it. The
+  # poll leaves it deleted without attempting the restore, which its validation would refuse.
+  test "a poll does not revive a retained tombstone", %{actor: actor} do
+    for reason <- Device.retained_reasons() do
+      uniq = System.unique_integer([:positive, :monotonic])
+      ip = unique_test_ip(198, 51, 130, uniq)
+      mac = unique_global_test_mac(uniq)
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+      assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+
+      assert {:ok, deleted} =
+               Device.soft_delete(device, reason, "system:mapper_test", actor: actor)
+
+      log =
+        capture_log(fn ->
+          assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+        end)
+
+      refute log =~ "Mapper could not restore device #{uid}"
+
+      assert {:ok, tombstone} = Device.get_by_uid(uid, true, actor: actor)
+      assert tombstone.deleted_at == deleted.deleted_at
+      assert tombstone.deleted_reason == reason
+      assert tombstone.identity_revision == deleted.identity_revision
+      assert revival_audit_rows(uid) == []
+    end
   end
 
   test "a restored device whose old address was leased again gives it up and moves to the polled address",

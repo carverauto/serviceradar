@@ -1002,6 +1002,19 @@ defmodule ServiceRadar.DireTrace do
     |> Enum.sort_by(& &1.uid)
   end
 
+  @doc """
+  The trace's live records marked `source_retired` (add-source-id-succession D5), by model name.
+  The resolution model does not express the mark, which the lifecycle model and its traces
+  check (`ServiceRadar.DireLifecycleTrace`), so a test asserts it beside the trace.
+  """
+  def marked(trace) do
+    trace
+    |> trace_devices()
+    |> Enum.filter(&(is_nil(&1.deleted_at) and not is_nil(&1.source_retired_at)))
+    |> Enum.map(&name_of!(trace, &1.uid))
+    |> Enum.sort()
+  end
+
   defp merge_rows(trace) do
     uids = trace |> trace_devices() |> Enum.map(& &1.uid)
 

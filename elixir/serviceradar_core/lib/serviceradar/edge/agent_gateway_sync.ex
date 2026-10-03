@@ -522,8 +522,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         follow_merged_away_device(device, agent_id, attrs, capabilities, actor, now)
 
       {:ok, device} ->
-        # Update existing device (a soft-deleted one is restored: see gateway_update_action/1)
-        update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now)
+        if Device.retained_tombstone?(device) do
+          refuse_retained_device(device, agent_id)
+        else
+          # Update existing device (a soft-deleted one is restored: see gateway_update_action/1)
+          update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now)
+        end
 
       {:error, reason} ->
         if not_found_error?(reason) do
@@ -574,6 +578,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
         {:error, {:merged_away_device, device.uid}}
     end
+  end
+
+  # A check-in never revives a retained tombstone (Device.retained_reasons/0): its source
+  # retired the ids it held, or it was a released seed. A record holding an agent identifier
+  # is never retired, so resolution reaches one only through evidence such as a shared MAC,
+  # and evidence never restores it; only an operator restore or the return of a retired
+  # source id does. The check-in is refused and the tombstone stays, as for a merged-away
+  # device with no live survivor.
+  defp refuse_retained_device(device, agent_id) do
+    Logger.warning(
+      "Agent #{agent_id} check-in reached retained device #{device.uid} " <>
+        "(deleted_reason #{device.deleted_reason}); leaving it deleted"
+    )
+
+    {:error, {:retained_tombstone, device.uid}}
   end
 
   defp create_device_for_agent(device_context, actor, now, allow_conflict_release? \\ true) do
@@ -1095,7 +1114,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   # A check-in on a soft-deleted device restores it (Device :gateway_restore bumps
   # identity_revision, as :restore does); :gateway_sync never clears a tombstone. A
-  # merged-away device never gets here (follow_merged_away_device/6).
+  # merged-away device never gets here (follow_merged_away_device/6), nor does a retained
+  # one (refuse_retained_device/2), which :gateway_restore also refuses.
   defp gateway_update_action(%Device{deleted_at: %DateTime{}}), do: :gateway_restore
   defp gateway_update_action(%Device{}), do: :gateway_sync
 

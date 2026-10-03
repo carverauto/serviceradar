@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
           <.input
             field={@form[:source_retirement_max_fraction]}
             type="number"
-            label="Largest share of a source's live devices one pass may retire"
+            label="Largest share of live devices one retirement (per source) or grace pass may affect"
             min="0.01"
             max="1"
             step="0.01"
@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
           <.input
             field={@form[:source_retirement_guard_override]}
             type="checkbox"
-            label="Allow the next retirement pass to exceed that share"
+            label="Allow the next retirement or grace pass to exceed that share"
           />
           <.input
             field={@form[:source_retired_grace_days]}

@@ -1129,6 +1129,157 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert after_sweep.identity_revision == tombstone.identity_revision
   end
 
+  # Nor a retained tombstone (Device.retained_reasons/0), which only an operator restore or the
+  # return of a retired source id revives. The grace pass releases the address of a record it
+  # deletes, so each tombstone here is soft-deleted directly with its address kept: the
+  # sweep's refusal must not rest on that release.
+  test "ingest results never restores a retained tombstone resolved by IP", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    for reason <- Device.retained_reasons() do
+      unique_id = Ash.UUID.generate()
+      ip = unique_ip("retained-deleted-#{unique_id}")
+      partition = "default"
+
+      {:ok, device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "device-retained-deleted-#{unique_id}",
+            ip: ip,
+            hostname: "retained-#{unique_id}",
+            discovery_sources: ["armis"],
+            is_available: false
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      assert {:ok, tombstone} =
+               device
+               |> Ash.Changeset.for_update(
+                 :soft_delete,
+                 %{deleted_reason: reason, deleted_by: "sweep_results_flow_e2e"},
+                 actor: actor
+               )
+               |> Ash.update()
+
+      {:ok, group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{name: "Sweep Retained Deleted #{unique_id}", partition: partition, agent_ids: []},
+          actor: actor
+        )
+        |> Ash.create()
+
+      handler_id = "retained-restore-skipped-#{unique_id}"
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :sweep, :restore, :retained_skipped],
+          fn _event, measurements, metadata, _config ->
+            send(test_pid, {:retained_restore_skipped, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert {:ok, _stats} =
+               SweepResultsIngestor.ingest_results(
+                 [%{"host_ip" => ip, "hostname" => "revived-#{unique_id}", "available" => true}],
+                 Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 authenticated_partition_id: partition,
+                 config_version: "hash-retained-deleted-#{unique_id}"
+               )
+
+      uid = device.uid
+      assert_receive {:retained_restore_skipped, %{count: 1}, %{device_uids: [^uid]}}
+
+      after_sweep = include_deleted_device!(actor, uid)
+      assert after_sweep.deleted_at == tombstone.deleted_at
+      assert after_sweep.deleted_reason == reason
+      assert after_sweep.identity_revision == tombstone.identity_revision
+    end
+  end
+
+  # A marked record (`source_retired_at`) stays live until the grace pass deletes it, and a
+  # sweep may keep finding it there. That is evidence: it neither clears the mark nor counts
+  # as an identity-bearing observation.
+  test "a sweep that keeps answering a marked record leaves the mark", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("marked-#{unique_id}")
+    partition = "default"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-marked-#{unique_id}",
+          ip: ip,
+          hostname: "marked-#{unique_id}",
+          discovery_sources: ["armis"],
+          is_available: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    %{num_rows: 1} =
+      Repo.query!(
+        "UPDATE platform.ocsf_devices SET source_retired_at = now() - interval '1 day' WHERE uid = $1",
+        [device.uid]
+      )
+
+    marked = include_deleted_device!(actor, device.uid)
+    assert %DateTime{} = marked.source_retired_at
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Marked #{unique_id}", partition: partition, agent_ids: []},
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, stats} =
+             SweepResultsIngestor.ingest_results(
+               [%{"host_ip" => ip, "hostname" => "marked-#{unique_id}", "available" => true}],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
+               config_version: "hash-marked-#{unique_id}"
+             )
+
+    # The sweep reached the marked record and refreshed it, rather than creating another.
+    assert stats.devices_created == 0
+    assert stats.devices_updated == 1
+
+    after_sweep = include_deleted_device!(actor, device.uid)
+    assert after_sweep.is_available
+    assert after_sweep.deleted_at == nil
+    assert after_sweep.source_retired_at == marked.source_retired_at
+    assert after_sweep.metadata["identity_state"] == "source_retired"
+    assert after_sweep.identity_observed_at == nil
+  end
+
   test "ingest results ignores stale cache after active device IP changes", %{
     actor: actor,
     agent_id: agent_id

@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
+  alias ServiceRadarWebNGWeb.DeviceLive.SourceRetiredData
   alias ServiceRadarWebNGWeb.ObservabilityPaths
 
   def render(assigns) do
@@ -66,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
       )
       |> assign(:device_ansible_managed, DeviceStateData.ansible_managed?(device_row))
       |> assign(:device_deleted, DeviceStateData.deleted?(device_row))
+      |> assign(:device_source_retired, SourceRetiredData.marked?(device_row))
       |> assign(
         :device_active,
         device_active_state(device_row, MetadataData.row_metadata(device_row))
@@ -127,6 +129,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           device_display_name={@device_display_name}
           agent_device={@agent_device}
           device_deleted={@device_deleted}
+          device_source_retired={@device_source_retired}
           device_active={@device_active}
           device_ansible_managed={@device_ansible_managed}
           can_run_ansible={@can_run_ansible}
@@ -154,6 +157,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             :if={is_map(@device_row) and not @editing}
             device_row={@device_row}
             device_deleted={@device_deleted}
+            source_retirement={@source_retirement}
             editing={@editing}
             snmp_polling_source={@snmp_polling_source}
             timezone={@current_scope.user.timezone || "Etc/UTC"}

@@ -21,6 +21,19 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   `SourceAuthorityGuard` still treats it as deciding the record's identity, so retirement never
   makes a record attachable to, or mergeable with, a record holding another value.
 
+  A retirement that leaves the record retired-only marks it `source_retired` in the same
+  transaction (design D5): `ocsf_devices.source_retired_at` is set, and the database mirrors it
+  into `metadata.identity_state`. A record is retired-only when it holds no source-authoritative
+  identifier of any type and no agent identifier, its last identity-bearing observation
+  (`identity_observed_at`; none counts as old) is at least T old, and no operator created it
+  (`discovery_sources` holds no `"manual"`). A marked record stays live: `Device :inventory` and
+  the SRQL device queries hide it, the inventory counts leave it out, and
+  `ServiceRadar.Inventory.SourceRetiredExpiry` soft-deletes it after
+  `source_retired_grace_days` unless an identifier registered on it first clears the mark. Each
+  `source_id_retired` decision records whether its retirement marked the record. Marking
+  happens only here, when an id of the record's own retires: a record an operator restores is
+  not marked again until another of its ids retires.
+
   Absence is counted when an exact collection activates (`record_collection/1`, inside the
   activation transaction). Each identifier of the instance's scope that a live record holds
   and the collection did not report gains one absence in
@@ -36,7 +49,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   instance's live records is refused: nothing is retired, and the refusal is logged at error
   level with the counts and emitted as `[:serviceradar, :inventory, :source_retirement,
   :refused]`. `source_retirement_guard_override` admits the next refused pass, and that pass
-  clears it.
+  clears it. The grace pass (`ServiceRadar.Inventory.SourceRetiredExpiry`) is bounded by the same
+  fraction and admitted by the same override.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -55,6 +69,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
 
   @archive_reason "source_absent"
   @decision_source "source_retirement"
+  @operator_sources ["manual"]
   # Collection ids an absence row keeps as evidence: the largest N the settings allow.
   @max_collection_ids 32
 
@@ -225,6 +240,22 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
       WHERE di.identifier_type = a.identifier_type
         AND di.identifier_value = a.source_object_id
         AND right(di.partition, char_length($5::text)) = $5::text
+    )
+  """
+
+  # Marks the record source_retired when the retirement leaves it retired-only (design D5): no
+  # source-authoritative or agent identifier of any type left, no agent claiming it, no recent
+  # identity-bearing observation, and not created by an operator.
+  @mark_sql """
+  UPDATE platform.ocsf_devices AS d
+  SET source_retired_at = $2::timestamp
+  WHERE d.uid = $1::text AND d.deleted_at IS NULL AND d.source_retired_at IS NULL
+    AND NULLIF(btrim(COALESCE(d.agent_id, '')), '') IS NULL
+    AND (d.identity_observed_at IS NULL OR d.identity_observed_at <= $3::timestamp)
+    AND NOT (COALESCE(d.discovery_sources, ARRAY[]::text[]) && $4::text[])
+    AND NOT EXISTS (
+      SELECT 1 FROM platform.device_identifiers AS di
+      WHERE di.device_id = d.uid AND di.identifier_type = ANY ($5::text[])
     )
   """
 
@@ -434,7 +465,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
         :ok
 
       {:refuse, reason} ->
-        if settings.source_retirement_guard_override == true and consume_override() do
+        if settings.source_retirement_guard_override == true and consume_guard_override() do
           Logger.warning(
             "SourceRetirement: #{describe(ctx.instance)} pass over the guard admitted by " <>
               "source_retirement_guard_override, now cleared: retiring ids from #{devices} " <>
@@ -459,9 +490,14 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     count
   end
 
-  # The override admits one refused pass. Clearing it is the admission: of two passes racing
-  # for one override, only the one whose update matched proceeds.
-  defp consume_override do
+  @doc """
+  Clears `source_retirement_guard_override` and returns whether this call cleared it. The
+  override admits one refused pass, a retirement pass or the grace pass, and clearing it is the
+  admission: of two passes racing for one override, only the one whose update matched
+  proceeds.
+  """
+  @spec consume_guard_override() :: boolean()
+  def consume_guard_override do
     {count, _} =
       Repo.update_all(
         from(settings in "device_cleanup_settings",
@@ -505,16 +541,21 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.map(fn {device_id, rows} -> {device_id, retire_device(device_id, rows, ctx)} end)
 
-    retired = for {device_id, {:ok, [_ | _] = rows}} <- results, do: {device_id, rows}
-    skipped = Enum.count(results, &match?({_device_id, {:ok, []}}, &1))
+    retired = for {device_id, {:ok, %{} = retirement}} <- results, do: {device_id, retirement}
+    skipped = Enum.count(results, &match?({_device_id, {:ok, :not_retirable}}, &1))
     failed = Enum.count(results, &match?({_device_id, {:error, _}}, &1))
-    retired_ids = retired |> Enum.map(fn {_device_id, rows} -> length(rows) end) |> Enum.sum()
+
+    retired_ids =
+      retired
+      |> Enum.map(fn {_device_id, retirement} -> length(retirement.rows) end)
+      |> Enum.sum()
 
     stats = %{
       status: :completed,
       candidates: length(candidates),
       retired: retired_ids,
       devices: length(retired),
+      marked: Enum.count(retired, fn {_device_id, retirement} -> retirement.marked end),
       skipped: skipped,
       failed: failed
     }
@@ -528,7 +569,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # One transaction per device: the instance lock orders the pass after any activation in
   # flight, the device row is locked before its identifiers (as the fenced ingest write and
   # `MergeEngine` do), and the rule is checked again under those locks, so an id reported, or
-  # a device deleted, since the candidates were read is left alone.
+  # a device deleted, since the candidates were read is left alone. Returns the retired rows
+  # and whether the record was marked, or :not_retirable.
   defp retire_device(device_id, rows, ctx) do
     Device
     |> Ash.transact(fn ->
@@ -540,7 +582,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
         archive(device_id, rows, device, ctx)
       else
         {:error, _} = error -> error
-        _not_retirable -> {:ok, []}
+        _not_retirable -> {:ok, :not_retirable}
       end
     end)
     |> case do
@@ -624,13 +666,39 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
         ])
 
       with {:ok, _device} <- Device.bump_identity_revision(device, actor: ctx.actor),
-           :ok <- DecisionLog.record_many_strict(Enum.map(rows, &retired_decision(&1, ctx))) do
-        {:ok, rows}
+           marked = mark(device_id, ctx),
+           :ok <-
+             DecisionLog.record_many_strict(Enum.map(rows, &retired_decision(&1, marked, ctx))) do
+        {:ok, %{rows: rows, marked: marked}}
       end
     else
       {:error, {:archive_incomplete, archived, length(ids)}}
     end
   end
+
+  # Runs after the archive, so the identifiers this retirement moved no longer count. The T of
+  # the identity-bearing observation is the pass's own minimum absence.
+  defp mark(device_id, ctx) do
+    %{num_rows: marked} =
+      Repo.query!(@mark_sql, [
+        device_id,
+        DateTime.utc_now(),
+        ctx.cutoff,
+        @operator_sources,
+        Enum.map(marking_identifier_types(), &Atom.to_string/1)
+      ])
+
+    marked == 1
+  end
+
+  @doc """
+  The identifier types whose presence keeps a record from being marked `source_retired`, and
+  whose registration on a marked record clears the mark: the agent identifier and every
+  source-authoritative type. The clearing trigger lists them too
+  (`trg_device_identifiers_clear_source_retired`).
+  """
+  @spec marking_identifier_types() :: [atom()]
+  def marking_identifier_types, do: [:agent_id | SourceAuthorityGuard.source_identifier_types()]
 
   # Each row gains the `integration_id` rows the device holds that were derived from its value.
   defp accompany(device_id, rows, ctx) do
@@ -660,7 +728,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     IntegrationIdentity.scoped_device_id(instance.source, instance.source_instance, value)
   end
 
-  defp retired_decision(row, ctx) do
+  defp retired_decision(row, marked, ctx) do
     instance = ctx.instance
 
     %{
@@ -690,7 +758,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
         "query_hash" => ctx.query_hash,
         "last_reported_at" => iso8601(row.last_reported_at),
         "min_absent_collections" => ctx.min_collections,
-        "min_absence_hours" => ctx.min_absence_hours
+        "min_absence_hours" => ctx.min_absence_hours,
+        "marked_source_retired" => marked
       }
     }
   end
@@ -699,7 +768,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(_value), do: nil
 
-  defp emit_retired({device_id, rows}, ctx) do
+  defp emit_retired({device_id, %{rows: rows, marked: marked}}, ctx) do
     :telemetry.execute(
       [:serviceradar, :inventory, :source_retirement, :retired],
       %{identifiers: length(rows)},
@@ -707,6 +776,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
         device_uid: device_id,
         identifier_type: ctx.scope.identifier_type,
         identifier_values: Enum.map(rows, & &1.identifier_value),
+        marked: marked,
         source: ctx.instance.source,
         source_instance: ctx.instance.source_instance
       }
@@ -716,7 +786,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   defp emit(stats, ctx) do
     :telemetry.execute(
       [:serviceradar, :inventory, :source_retirement, :run],
-      Map.take(stats, [:candidates, :retired, :devices, :skipped, :failed]),
+      Map.take(stats, [:candidates, :retired, :devices, :marked, :skipped, :failed]),
       %{source: ctx.instance.source, source_instance: ctx.instance.source_instance}
     )
   end
@@ -724,11 +794,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   defp log_retired([], _ctx), do: :ok
 
   defp log_retired(retired, ctx) do
+    marked = for {device_id, %{marked: true}} <- retired, do: device_id
+
     Logger.info(
       "SourceRetirement: #{describe(ctx.instance)} retired #{ctx.scope.identifier_type} ids " <>
         "absent from #{ctx.min_collections}+ exact collections and unreported for " <>
-        "#{ctx.min_absence_hours}h+ on #{length(retired)} record(s): " <>
-        inspect(Enum.take(Enum.map(retired, &elem(&1, 0)), 50))
+        "#{ctx.min_absence_hours}h+ on #{length(retired)} record(s), marking " <>
+        "#{length(marked)} source_retired: " <>
+        inspect(Enum.take(Enum.map(retired, &elem(&1, 0)), 50)) <>
+        if(marked == [], do: "", else: "; marked: " <> inspect(Enum.take(marked, 50)))
     )
   end
 
