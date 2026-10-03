@@ -190,9 +190,17 @@ defmodule ServiceRadar.DireTrace do
       "_alias_last_seen_ip" => ip
     }
 
+    # Sync times are truncated to the second (Normalize.parse_timestamp/1), and a claim on an
+    # address whose holder was observed in the same second keeps the holder
+    # (DeviceWrites.observed_after?/2). Each recorded step adds a second, so a later sync is
+    # always observed later, however quickly the trace runs.
     seen_at =
       DateTime.to_iso8601(
-        DateTime.add(DateTime.utc_now(), Keyword.get(opts, :seen_offset, 60), :second)
+        DateTime.add(
+          DateTime.utc_now(),
+          Keyword.get(opts, :seen_offset, 60) + length(trace.states),
+          :second
+        )
       )
 
     update =
