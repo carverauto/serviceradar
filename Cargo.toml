@@ -76,7 +76,7 @@ anyhow = "1.0"
 # 0.7.6 is the first release on bgpkit-parser 0.20 and declares MSRV 1.93.
 arancini-lib = "=0.7.6"
 arrow-array = "59"
-arrow-ipc = "59"
+arrow-ipc = "60"
 arrow-schema = "59"
 async-nats = "0.50.0"
 async-trait = "0.1"
