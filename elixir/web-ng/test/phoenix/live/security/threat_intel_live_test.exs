@@ -74,7 +74,12 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/security/threat-intel?#{[ip: ip, source: source]}")
 
-    assert has_element?(view, ~s([data-testid="threat-intel-detail-notice"]), "No active indicator still contains this endpoint.")
+    assert has_element?(
+             view,
+             ~s([data-testid="threat-intel-detail-notice"]),
+             "No active indicator still contains this endpoint."
+           )
+
     refute has_element?(view, ~s([data-testid="threat-intel-indicator-error"]))
     refute has_element?(view, ~s([data-testid="threat-intel-provider-context"]))
     refute html =~ "Failed to load indicators."

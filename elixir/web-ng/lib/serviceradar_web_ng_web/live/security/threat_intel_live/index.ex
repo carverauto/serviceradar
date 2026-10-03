@@ -99,10 +99,21 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
           </div>
         </div>
 
-        <.ui_alert :if={@matches_error} variant="error" id="threat-intel-matches-error" data-testid="threat-intel-error">
+        <.ui_alert
+          :if={@matches_error}
+          variant="error"
+          id="threat-intel-matches-error"
+          data-testid="threat-intel-error"
+        >
           <div class="flex flex-wrap items-center justify-between gap-3">
             <span>{@matches_error}</span>
-            <.ui_button type="button" phx-click="retry" variant="outline" size="sm" id="threat-intel-matches-retry">
+            <.ui_button
+              type="button"
+              phx-click="retry"
+              variant="outline"
+              size="sm"
+              id="threat-intel-matches-retry"
+            >
               Retry
             </.ui_button>
           </div>
@@ -115,7 +126,12 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
                 <h2 class="text-base font-semibold text-sr-ink">Current matches</h2>
                 <p class="text-xs text-sr-muted">{length(@matches)} endpoints</p>
               </div>
-              <.ui_button href={stale_toggle_path(assigns)} variant="ghost" size="sm" id="threat-intel-stale-toggle">
+              <.ui_button
+                href={stale_toggle_path(assigns)}
+                variant="ghost"
+                size="sm"
+                id="threat-intel-stale-toggle"
+              >
                 {if @show_stale, do: "Hide stale", else: "Show stale"}
               </.ui_button>
             </:header>
@@ -183,7 +199,10 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
             </p>
             <div :if={@selected_ip} class="space-y-3">
               <p class="break-all font-mono text-sm text-sr-ink">{@selected_ip}</p>
-              <p :if={@selected_match && @selected_match.stale} class="text-sm text-amber-800 dark:text-amber-200">
+              <p
+                :if={@selected_match && @selected_match.stale}
+                class="text-sm text-amber-800 dark:text-amber-200"
+              >
                 Stale cache row. It is past its expiry and is hidden from the default list.
               </p>
               <.ui_alert
@@ -194,7 +213,13 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
               >
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <span>{@indicator_error}</span>
-                  <.ui_button type="button" phx-click="retry" variant="outline" size="sm" id="threat-intel-indicator-retry">
+                  <.ui_button
+                    type="button"
+                    phx-click="retry"
+                    variant="outline"
+                    size="sm"
+                    id="threat-intel-indicator-retry"
+                  >
                     Retry
                   </.ui_button>
                 </div>
@@ -244,7 +269,11 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
                   </div>
                 </li>
               </ul>
-              <p :if={@indicator_state == :ready} class="text-sm text-sr-muted" data-testid="threat-intel-provider-context">
+              <p
+                :if={@indicator_state == :ready}
+                class="text-sm text-sr-muted"
+                data-testid="threat-intel-provider-context"
+              >
                 Provider context not available.
               </p>
             </div>
@@ -334,13 +363,11 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   defp timeout?(%{error: error}) when not is_nil(error), do: timeout?(error)
   defp timeout?(_reason), do: false
 
-  defp detail_notice(%{stale: true}),
-    do: "This cache row is stale, and no active indicator still contains this endpoint."
+  defp detail_notice(%{stale: true}), do: "This cache row is stale, and no active indicator still contains this endpoint."
 
   defp detail_notice(%{}), do: "No active indicator still contains this endpoint."
 
-  defp detail_notice(_match),
-    do: "This endpoint is not a current match, and no active indicator contains it."
+  defp detail_notice(_match), do: "This endpoint is not a current match, and no active indicator contains it."
 
   defp investigation_path(socket, ip) do
     params = [ip: ip, source: socket.assigns.source_filter]

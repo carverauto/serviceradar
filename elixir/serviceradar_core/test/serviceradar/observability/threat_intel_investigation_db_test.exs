@@ -39,7 +39,9 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
     assert {:ok, rows} = ThreatIntelInvestigation.indicators_for_ip(%{actor: actor}, ip)
     assert Enum.any?(rows, &(&1.source == source and &1.label == "Synthetic pulse #{source}"))
 
-    assert {:ok, other_rows} = ThreatIntelInvestigation.indicators_for_ip(%{actor: actor}, other_ip)
+    assert {:ok, other_rows} =
+             ThreatIntelInvestigation.indicators_for_ip(%{actor: actor}, other_ip)
+
     refute Enum.any?(other_rows, &(&1.source == source <> "-expired"))
     refute Enum.any?(other_rows, &(&1.source == source))
   end
