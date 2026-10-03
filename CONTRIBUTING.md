@@ -135,11 +135,14 @@ For local guardrails before code reaches GitHub:
 This repo uses:
 
 - `.githooks/pre-commit` to chain the repo-managed checks and the existing `god_view` quick checks
-- `.githooks/mix-format-elixir` (via pre-commit) to `mix format` staged Elixir files and
-  **fail the commit** if that Mix project has no `deps/styler` or is still unformatted.
-  CI runs `mix format --check-formatted` on every Elixir project; the hook used to
-  `|| true` and skip missing deps, which is how unformatted files reached PRs.
-  Run `mix deps.get` in the Mix project you are editing so the hook can see Styler.
+- `.githooks/mix-format-elixir` (from `.githooks/pre-commit`) to format staged
+  `.ex`, `.exs`, and `.heex` files and re-stage them before the commit is written.
+  A project with `deps/styler` uses `mix format` on those files. Otherwise the hook
+  runs `bazel run --config=remote //elixir/<project>:format`, the hermetic formatter
+  Elixir Quality prints on failure, so a checkout does not need `mix deps.get`.
+  If `.bazelrc.remote` is missing, the hook links it from
+  `${SERVICERADAR_BAZELRC_DIR:-$HOME/src/serviceradar}` (and `.bazelrc.local` when
+  that clone has one). `SERVICERADAR_SKIP_ELIXIR_FORMAT=1` skips that step.
 - `.githooks/pre-push` to run a local `gitleaks` scan of commits being pushed when `gitleaks` or Docker is available
 
 The authoritative merge gate remains GitHub Actions, but keeping the local hooks enabled is the fastest way to catch accidental secrets before they leave your machine.
