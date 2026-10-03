@@ -83,6 +83,14 @@ when, under the `__fact_provenance` metadata key. This is stamped
 server-side; a timestamp supplied in the request body is ignored, so a
 fact cannot be back-dated.
 
+On the device details page, the Details tab shows a Fact Provenance
+table directly above All Metadata when that map has at least one entry.
+Each row is the fact key, the current value at that metadata key, the
+recorded source, and `updated_at` in the viewer's timezone. The table is
+open; nothing has to be expanded. A device with no provenance renders no
+empty block. All Metadata stays collapsed by default and still includes
+the raw `__fact_provenance` map. There is no setting to hide the section.
+
 This matters for composite checks. A `device_metadata` input may declare
 a `max_age`, and a fact older than that resolves as `unknown` rather than
 as its stored value, which normally sends the device's verdict to

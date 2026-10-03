@@ -101,7 +101,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FactProvenanceComponents do
   defp row_metadata(_row), do: %{}
 
   defp format_value(nil), do: "—"
-  defp format_value(value) when is_binary(value), do: if(String.trim(value) == "", do: "—", else: value)
+
+  defp format_value(value) when is_binary(value) do
+    if String.trim(value) == "", do: "—", else: value
+  end
+
   defp format_value(value) when is_boolean(value) or is_number(value), do: to_string(value)
   defp format_value(value), do: inspect(value)
 end
