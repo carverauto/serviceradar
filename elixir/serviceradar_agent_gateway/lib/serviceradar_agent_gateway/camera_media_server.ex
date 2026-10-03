@@ -168,7 +168,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
           %Camera.UploadMediaResponse{received: false, message: @relay_closed_message}
 
         {:error, %GRPC.RPCError{} = error} ->
-          raise error
+          raise relay_rpc_error(error)
 
         {:error, reason} ->
           raise GRPC.RPCError,
@@ -209,7 +209,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
       }
     else
       {:error, %GRPC.RPCError{} = error} ->
-        raise error
+        raise relay_rpc_error(error)
 
       {:error, :not_found} ->
         raise GRPC.RPCError, status: :not_found, message: "relay session not found"
@@ -256,7 +256,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
       end
     else
       {:error, %GRPC.RPCError{} = error} ->
-        raise error
+        raise relay_rpc_error(error)
 
       {:error, :not_found} ->
         raise GRPC.RPCError, status: :not_found, message: "relay session not found"
@@ -328,7 +328,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
         {:ok, response, %{}}
 
       {:error, %GRPC.RPCError{} = error} ->
-        raise error
+        raise relay_rpc_error(error)
 
       {:error, reason} ->
         raise GRPC.RPCError, status: :aborted, message: "failed to open upstream relay session: #{inspect(reason)}"
@@ -445,4 +445,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
   defp extract_identity_from_stream(stream) do
     MediaIdentity.extract_identity_from_stream(stream, identity_resolver(), "Camera media")
   end
+
+  # An upstream RPC error keeps its status and message, except :unavailable:
+  # agents read it as loss of the gateway connection, so a relay-level failure
+  # carrying it would cost the agent every session on that connection.
+  defp relay_rpc_error(%GRPC.RPCError{status: :unavailable} = error) do
+    GRPC.RPCError.exception(status: :aborted, message: error.message)
+  end
+
+  defp relay_rpc_error(%GRPC.RPCError{} = error), do: error
 end

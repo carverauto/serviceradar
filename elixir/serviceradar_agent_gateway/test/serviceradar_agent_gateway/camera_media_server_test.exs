@@ -207,7 +207,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
                     %{close_reason: "upstream relay drain"}}
   end
 
-  test "preserves actionable upstream upload statuses and messages" do
+  test "preserves actionable upstream upload statuses and messages, never :unavailable" do
     Application.put_env(
       :serviceradar_agent_gateway,
       :camera_media_session_tracker_record_result,
@@ -236,7 +236,10 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
           CameraMediaServer.upload_media([chunk], %{adapter: CameraMediaAdapterStub, payload: :test})
         end
 
-      assert error.status == upstream_error.status
+      # :unavailable would make the agent drop its whole gateway connection.
+      expected_status = if status == :unavailable, do: :aborted, else: status
+
+      assert error.status == expected_status
       assert error.message == upstream_error.message
       assert_receive {:upload_media, [^chunk]}
     end
