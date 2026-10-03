@@ -30,6 +30,13 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   # At @batch_size a 2M-relation world reload needs 4,000 sequential round trips inside one
   # transaction; @stream_batch_size cuts that by 10x within the same @publication_timeout.
   @stream_batch_size 5_000
+  # A candidate stage writes every row of a world inside one transaction (three
+  # million rows for a million devices). At @batch_size that is ~6,000 upsert
+  # statements plus ~4,000 endpoint reads, which consumed most of
+  # @staging_timeout on a quiet database and exceeded it under load. Larger
+  # write batches cut the statements 4x and stay under PostgreSQL's 65,535
+  # bind-parameter limit (a relation row binds 17 columns).
+  @stage_batch_size 2_000
   # Initial million-device stages write three million rows without holding the
   # active head. Leave time within WorldWorker's 15-minute deadline for source
   # reads and placement; readers and visible publications retain a shorter lease.
@@ -92,8 +99,9 @@ defmodule ServiceRadar.NetworkDiscovery.World do
              :ok <- building?(layout),
              :ok <- clear_stage_rows(WorldRelation, layout_version),
              :ok <- clear_stage_rows(WorldPosition, layout_version),
-             :ok <- insert_positions(layout_version, positions),
-             :ok <- upsert_relations(layout_version, relations),
+             :ok <- insert_positions(layout_version, positions, @stage_batch_size),
+             :ok <- stage_relations(layout_version, relations),
+             :ok <- verify_staged_endpoints(layout_version),
              :ok <-
                verify_counts(
                  layout,
@@ -383,13 +391,63 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     |> Ash.update(actor: actor())
   end
 
-  defp insert_positions(version, rows) do
-    each_batch(rows, fn batch ->
+  defp insert_positions(version, rows, batch_size \\ @batch_size) do
+    each_batch(rows, batch_size, fn batch ->
       batch
       |> Enum.map(&Map.put(&1, :layout_version, version))
-      |> Ash.bulk_create(WorldPosition, :insert, bulk_options())
+      |> Ash.bulk_create(WorldPosition, :insert, bulk_options(batch_size))
       |> bulk_result()
     end)
+  end
+
+  # A candidate stage inserts every position before any relation, so the
+  # endpoint check runs once over the whole stage (verify_staged_endpoints/1)
+  # instead of one read per batch.
+  defp stage_relations(version, rows) do
+    each_batch(rows, @stage_batch_size, fn batch ->
+      batch
+      |> Enum.map(&Map.put(&1, :layout_version, version))
+      |> Ash.bulk_create(WorldRelation, :upsert, bulk_options(@stage_batch_size))
+      |> bulk_result()
+    end)
+  end
+
+  # Same rule as verify_relation_endpoints/2: every active relation's source and
+  # target must be an active position in the same layout.
+  defp verify_staged_endpoints(version) do
+    case Repo.query(
+           """
+           SELECT EXISTS (
+             SELECT 1
+             FROM platform.topology_world_relations r
+             WHERE r.layout_version = $1::uuid
+               AND r.active
+               AND NOT EXISTS (
+                 SELECT 1 FROM platform.topology_world_positions p
+                 WHERE p.layout_version = r.layout_version
+                   AND p.device_id = r.source_id
+                   AND p.active
+               )
+             UNION ALL
+             SELECT 1
+             FROM platform.topology_world_relations r
+             WHERE r.layout_version = $1::uuid
+               AND r.active
+               AND NOT EXISTS (
+                 SELECT 1 FROM platform.topology_world_positions p
+                 WHERE p.layout_version = r.layout_version
+                   AND p.device_id = r.target_id
+                   AND p.active
+               )
+           )
+           """,
+           [Ecto.UUID.dump!(version)],
+           timeout: @staging_timeout
+         ) do
+      {:ok, %{rows: [[false]]}} -> :ok
+      {:ok, %{rows: [[true]]}} -> reject(:invalid_relation_endpoint)
+      {:error, _reason} = error -> error
+    end
   end
 
   defp upsert_relations(version, rows) do
@@ -519,9 +577,9 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     end)
   end
 
-  defp each_batch(rows, callback) do
+  defp each_batch(rows, batch_size \\ @batch_size, callback) do
     rows
-    |> Stream.chunk_every(@batch_size)
+    |> Stream.chunk_every(batch_size)
     |> Enum.reduce_while(:ok, fn batch, :ok ->
       case callback.(batch) do
         :ok -> {:cont, :ok}
@@ -530,13 +588,13 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     end)
   end
 
-  defp bulk_options do
+  defp bulk_options(batch_size \\ @batch_size) do
     [
       actor: actor(),
       return_errors?: true,
       return_records?: false,
       stop_on_error?: true,
-      batch_size: @batch_size
+      batch_size: batch_size
     ]
   end
 
