@@ -14,7 +14,7 @@ defmodule ServiceRadar.Repo.MigrationsCompileTest do
 
   Nothing was watching. `mix test` and `bazel test //...` never compile migrations -- they
   are staged as `data`, which puts them on disk without building them. The target that does
-  compile and run them, `//elixir/serviceradar_core:migrate_template`, is tagged `manual`
+  compile and run them, `//elixir/serviceradar_core:migrate_generation`, is tagged `manual`
   precisely so tag selection cannot pull it into a batch: it is an ordered DDL step in the
   //rust/integration-db fixture lifecycle and needs a live database. So `//...` never
   expands it, and a syntactically-parseable but uncompilable migration had no gate at all.

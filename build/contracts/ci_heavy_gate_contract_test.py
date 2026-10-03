@@ -51,10 +51,7 @@ ASYNC_SANDBOX_CONFIGURATION_SOURCE = (
     "test/serviceradar/async_sandbox_configuration_test.exs"
 )
 INTEGRATION_ENV = ROOT / "elixir/serviceradar_core/test/db/integration_env.exs"
-TEMPLATE_ENV = ROOT / "elixir/serviceradar_core/test/db/template_env.exs"
-TEMPLATE_AUTHORITY_BZL = ROOT / "build/template_authority.bzl"
 BUILD_FLAGS = ROOT / "build/BUILD.bazel"
-INTEGRATION_DB_LIB = ROOT / "rust/integration-db/src/lib.rs"
 INTEGRATION_DB_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
 INTEGRATION_ENV_CONFIG = (
     ROOT / "elixir/serviceradar_core/test/db/integration_env_config.exs"
@@ -878,20 +875,13 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         )
         self.assertEqual(2, prebuild.count("bazel build"))
 
-    def test_the_benchmark_never_writes_the_shared_template(self):
+    def test_the_benchmark_builds_schema_generations_only(self):
         """The measurement branch is still a branch, and shares one fixture with every other.
 
-        Its keyed preflight can publish only the manifest-selected immutable generation; it
-        cannot advance sr_core_template. A benchmark cohort therefore cannot change what a
-        different checkout clones. The distinction is not theoretical: one branch once left
-        seven migrations in the singleton and every branch without them was refused a clone.
+        Its keyed preflight can publish only the manifest-selected immutable generation, and
+        every database it creates is a clone of that generation. The retired shared-template
+        lifecycle is guarded by RetiredLegacyTemplateLifecycleContractTest below.
         """
-        for target in (
-            "//rust/integration-db:prepare_template",
-            "//rust/integration-db:reset_template",
-            "//elixir/serviceradar_core:migrate_template",
-        ):
-            self.assertNotIn(target, self.action)
         self.assertIn("--//build:run_id=$RUN_ID", self.action)
         self.assertEqual(3, self.action.count("//rust/integration-db:prepare_generation"))
         self.assertEqual(1, self.action.count("//rust/integration-db:provision_generation)"))
@@ -972,8 +962,9 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
 
 
 class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
-    # These are retained only for rollback. No active caller may read or write the singleton.
-    template_write_targets = (
+    # The retired shared-template lifecycle. No active caller may name any of these; the
+    # build-graph half of that contract is RetiredLegacyTemplateLifecycleContractTest below.
+    retired_legacy_targets = (
         "//rust/integration-db:prepare_template",
         "//rust/integration-db:reset_template",
         "//elixir/serviceradar_core:migrate_template",
@@ -1092,10 +1083,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         wait = "wait_for_observer_ready 30 || exit 1"
         self.assertEqual(1, lines.count(wait))
         self.assertNotIn("wait_for_observer_ready 30 || true", lines)
-        # The measured lifecycle touches this run's own database and nothing shared. A
-        # migrate_template here is the original bug: state every branch reads, advanced from a
-        # branch checkout.
-        for target in self.template_write_targets:
+        # The measured lifecycle touches this run's own databases and nothing shared. A
+        # retired shared-template target here is the original bug: state every branch reads,
+        # advanced from a branch checkout.
+        for target in self.retired_legacy_targets:
             self.assertNotIn(target, measured)
 
         expected = (
@@ -1134,85 +1125,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn('if [ "$GENERATION_STATUS" = "needs_migration" ]; then', lines)
         self.assertIn('GENERATION_MIGRATOR_STARTED=0', lines)
         self.assertIn('GENERATION_MIGRATOR_STARTED=1', lines)
-
-    def test_no_active_workflow_may_write_the_shared_template(self):
-        """The authority mechanism remains for rollback, but no caller may grant it.
-
-        Every active database workflow now uses immutable generations. Retaining a trunk-only
-        singleton writer alongside the keyed callers would silently reintroduce two lifecycle
-        families and leave the old cache mutating after the cutover.
-        """
-        flag = "--//build:template_authority=true"
-
-        for action_name in (
-            "BazelCI",
-            "LargeIngestionGate",
-            "IntegrationBenchmark",
-            "IntegrationBenchmarkCPU2",
-            "IntegrationBenchmarkCPU12",
-        ):
-            with self.subTest(action=action_name):
-                action = named_action(action_name)
-                self.assertNotIn(flag, action)
-                for target in self.template_write_targets:
-                    self.assertNotIn(target, action)
-
-    def test_the_authority_flag_is_declared_off_and_read_from_the_build_graph(self):
-        """A refusal only holds if both halves of the lifecycle can see the same answer.
-
-        The trunk lifecycle writes the template from two languages: //rust/integration-db
-        creates and resets it, and //elixir/serviceradar_core:migrate_template performs the
-        ratchet. Both read the SAME staged file rather than ambient environment -- the run-id
-        format already taught this repository what happens when two steps of one lifecycle
-        resolve the same fact independently.
-        """
-        rust = INTEGRATION_DB_LIB.read_text(encoding="utf-8")
-        elixir = TEMPLATE_ENV.read_text(encoding="utf-8")
-        starlark = TEMPLATE_AUTHORITY_BZL.read_text(encoding="utf-8")
-
-        # The marker, in all three producers and consumers of it.
-        self.assertIn('const TEMPLATE_AUTHORITY_MARKER: &str = "trunk";', rust)
-        self.assertIn('_AUTHORITY_MARKER = "trunk"', starlark)
-        self.assertIn('String.trim(File.read!(authority_path)) == "trunk"', elixir)
-
-        # The flag defaults to OFF. A default of True would hand write access to every wildcard
-        # build, every pull request and every workstation at once, which is strictly worse than
-        # the state this replaced.
-        build_flags = BUILD_FLAGS.read_text(encoding="utf-8")
-        declaration = build_flags[build_flags.index('name = "template_authority"') :]
-        self.assertIn(
-            "build_setting_default = False", declaration[: declaration.index(")")]
-        )
-
-        # Both sides read the staged file, not the environment. A System.get_env of the flag
-        # here would be a name the build graph never declared.
-        staged = "build/template_authority_file.txt"
-        self.assertIn(staged, rust)
-        self.assertIn(staged, elixir)
-
-        # And it is actually staged for all three write targets, or the refusal fires on the
-        # trunk lifecycle itself: `require_template_authority` fails closed on a missing
-        # runfile, so an undeclared input and a withheld grant are the same answer.
-        core_build = CORE_BUILD.read_text(encoding="utf-8")
-        migrate = core_build[core_build.index('name = "migrate_template"') :]
-        migrate = migrate[: migrate.index("\n)\n")]
-        self.assertIn('"//build:template_authority_file"', migrate)
-
-        db_build = INTEGRATION_DB_BUILD.read_text(encoding="utf-8")
-        self.assertIn(
-            'TEMPLATE_WRITE_DATA = ["//build:template_authority_file"]', db_build
-        )
-        for target in ("prepare_template", "reset_template"):
-            with self.subTest(target=target):
-                block = db_build[db_build.index(f'name = "{target}"') :]
-                block = block[: block.index("\n)\n")]
-                self.assertIn("TEMPLATE_WRITE_DATA", block)
-
-        # provision_base must NOT declare it: the run-base path is what every branch uses, and
-        # a branch holding shared-template write authority is the bug this file exists to stop.
-        base = db_build[db_build.index('name = "provision_base"') :]
-        base = base[: base.index("\n)\n")]
-        self.assertNotIn("TEMPLATE_WRITE_DATA", base)
 
     def test_database_flags_disable_cache_and_remote_upload(self):
         for action_name in ("BazelCI", "LargeIngestionGate"):
@@ -1438,7 +1350,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         prepare_output = action.index('echo "$PREPARE_JSON"', prepare)
         self.assertLess(prepare, leased)
         self.assertLess(leased, prepare_output)
-        for target in self.template_write_targets:
+        for target in self.retired_legacy_targets:
             self.assertNotIn(target, action)
 
     def assert_clock_contract(self, action: str) -> None:
@@ -1459,15 +1371,13 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(ready, start_ns)
         self.assertLess(start_ns, observer)
 
-    def assert_shared_template_is_never_written(self, action: str) -> None:
-        """No active path to the shared template exists anywhere in the action.
+    def assert_only_generation_lifecycle_runs(self, action: str) -> None:
+        """Only the keyed generation lifecycle runs anywhere in the action.
 
-        The invariant, stated where it can fail. A branch action that can advance
-        sr_core_template poisons every other branch's clone source, and the failure surfaces
-        on whichever branch runs next rather than on the branch that caused it.
+        The invariant, stated where it can fail. The retired shared-template targets are
+        covered workflow-wide by RetiredLegacyTemplateLifecycleContractTest; this asserts the
+        positive generation counts the measured lifecycle must show.
         """
-        for target in self.template_write_targets:
-            self.assertNotIn(target, action)
         measured = measured_database_lifecycle_shell(action)
         self.assertEqual(2, measured.count("//rust/integration-db:prepare_generation"))
         self.assertEqual(1, measured.count("//elixir/serviceradar_core:migrate_generation"))
@@ -1579,7 +1489,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         ):
             self.assertIn(required, action)
 
-        self.assert_shared_template_is_never_written(action)
+        self.assert_only_generation_lifecycle_runs(action)
         self.assert_common_measured_lifecycle(
             action,
             self.ordinary_provision,
@@ -2284,12 +2194,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         release_target = named_starlark_rule(
             core_build, "ex_unit_test", "large_ingestion_release_gate"
         )
-        ordinary_provision = named_starlark_rule(
-            integration_db_build, "rust_test", "provision_db"
-        )
-        release_provision = named_starlark_rule(
-            integration_db_build, "rust_test", "provision_db_large_ingestion"
-        )
+        ordinary_provision = integration_db_build[
+            integration_db_build.index('[\n    rust_binary(\n        name = name,') :
+        ]
+        release_provision = ordinary_provision
 
         self.assertNotIn(
             'test "large Armis sync chunks route through results router into inventory"',
@@ -2405,23 +2313,201 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         startup_migrations = STARTUP_MIGRATIONS.read_text(encoding="utf-8")
         self.assertEqual(1, startup_migrations.count("case Postgrex.start_link(opts) do"))
 
-        self.assertEqual(1, integration_db_build.count('name = "provision_db_large_ingestion"'))
-        self.assertIn('srcs = ["tests/provision_db_test.rs"]', release_provision)
-        self.assertIn('crate_root = "tests/provision_db_test.rs"', release_provision)
+        self.assertEqual(
+            1,
+            integration_db_build.count(
+                '("provision_generation_large_ingestion", "clone", LARGE_INGESTION_DB_SHARD)'
+            ),
+        )
+        self.assertIn('srcs = ["src/bin/generation.rs"]', release_provision)
+        self.assertIn('args = [operation]', release_provision)
         self.assertIn(
-            'data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"]',
+            '"//build/schema_template:manifest"',
             release_provision,
         )
         self.assertIn(
-            '"SERVICERADAR_TEST_DB_SHARDS": LARGE_INGESTION_DB_SHARD',
+            '"SERVICERADAR_TEST_DB_SHARDS": shards',
             release_provision,
         )
-        self.assertIn("target_compatible_with = requires_shared_fixture()", release_provision)
         self.assertIn(
-            '"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_lane_names())',
+            'target_compatible_with = requires_shared_fixture()',
+            release_provision,
+        )
+        self.assertIn(
+            '(\n            "provision_generation",\n            "clone",\n            ",".join(integration_lane_names()),\n        ),',
             ordinary_provision,
         )
-        self.assertNotIn("LARGE_INGESTION_DB_SHARD", ordinary_provision)
+
+
+def parsed_integration_lanes() -> list[str]:
+    """Compute integration_lane_names() the way build/integration_shards.bzl does.
+
+    Mirrors serial_lane_count_for_capacity with the frozen constants, so the contract can
+    prove the focused generation clone targets track the canonical lane list without a
+    hand-maintained copy of it.
+    """
+    shards = INTEGRATION_SHARDS.read_text(encoding="utf-8")
+
+    def constant(name: str) -> int:
+        match = re.search(rf"^{name} = (\d+)$", shards, re.MULTILINE)
+        assert match, f"{name} is missing from {INTEGRATION_SHARDS}"
+        return int(match.group(1))
+
+    dispositions = INTEGRATION_DISPOSITIONS_BZL.read_text(encoding="utf-8")
+    counts = re.search(
+        r"^SERIAL_INTEGRATION_MODULE_COUNTS = \{$(?P<body>.*?)^\}",
+        dispositions,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert counts, "SERIAL_INTEGRATION_MODULE_COUNTS is missing"
+    serial_sources = len(re.findall(r'^\s+"[^"]+": \d+,?$', counts.group("body"), re.MULTILINE))
+
+    pool_per_beam = constant("INTEGRATION_REPO_POOL_SIZE")
+    max_beams = constant("INTEGRATION_MAX_BEAMS")
+    max_pool_slots = constant("INTEGRATION_MAX_POOL_SLOTS")
+    usable_slots = constant("FROZEN_FIXTURE_USABLE_CLIENT_SLOTS")
+
+    safe_pool_budget = min(max_pool_slots, (usable_slots * 9) // 10)
+    funded_beams = safe_pool_budget // pool_per_beam
+    serial_lane_count = min(serial_sources, min(max_beams - 1, funded_beams - 1))
+
+    return ["async"] + [f"serial_{index}" for index in range(serial_lane_count)]
+
+
+class RetiredLegacyTemplateLifecycleContractTest(unittest.TestCase):
+    """The shared mutable template lifecycle is deleted, and must stay deleted.
+
+    The failure this contract prevents was silent and fleet-wide: a branch ratcheting shared
+    schema state that every other branch clones. Every CI database lifecycle now builds
+    immutable per-digest sr_tpl_* generations; the retired targets, their sources, and the
+    authority flag that gated them must not come back while the frozen `sr_core_template`
+    database still exists.
+    """
+
+    retired_targets = (
+        "//elixir/serviceradar_core:migrate_template",
+        "//elixir/serviceradar_core:migrate_run",
+        "//rust/integration-db:prepare_template",
+        "//rust/integration-db:reset_template",
+        "//rust/integration-db:provision_base",
+        "//rust/integration-db:provision_db",
+        "//rust/integration-db:provision_db_large_ingestion",
+    )
+    retired_names = tuple(target.split(":")[1] for target in retired_targets)
+    retired_sources = (
+        ROOT / "build/template_authority.bzl",
+        ROOT / "elixir/serviceradar_core/test/db/template_env.exs",
+        ROOT / "elixir/serviceradar_core/test/db/migrate_db_test.exs",
+        ROOT / "rust/integration-db/src/template.rs",
+        ROOT / "rust/integration-db/src/bin/prepare_template.rs",
+        ROOT / "rust/integration-db/src/bin/reset_template.rs",
+        ROOT / "rust/integration-db/src/bin/provision_base.rs",
+        ROOT / "rust/integration-db/tests/provision_db_test.rs",
+    )
+
+    def test_retired_targets_are_not_defined_in_either_build_file(self):
+        for source, label in (
+            (INTEGRATION_DB_BUILD, "rust/integration-db/BUILD.bazel"),
+            (CORE_BUILD, "elixir/serviceradar_core/BUILD.bazel"),
+        ):
+            build = source.read_text(encoding="utf-8")
+            for name in self.retired_names:
+                with self.subTest(build=label, target=name):
+                    self.assertIsNone(
+                        re.search(rf'name = "{re.escape(name)}"(?![\w-])', build),
+                        f"{label} reintroduces retired target {name}",
+                    )
+            # The per-lane family is retired with its base target: a reintroduced
+            # provision_db_<lane> comprehension is the same lifecycle under a suffixed name.
+            self.assertIsNone(
+                re.search(r'name = "provision_db_[\w{}\"(). ]+"', build),
+                f"{label} reintroduces the retired per-lane provision_db family",
+            )
+
+    # Under Bazel the test sees only declared inputs, so a missing retired source proves
+    # nothing unless its directory is declared too. Each witness is a current file that only
+    # the directory-wide input (//build:starlark_sources, the core integration contract inputs,
+    # //rust/integration-db:srcs) provides; if it is absent the existence checks are blind.
+    retired_source_witnesses = (
+        ROOT / "build/repo_alias.bzl",
+        ROOT / "elixir/serviceradar_core/test/db/template_generation.exs",
+        ROOT / "rust/integration-db/src/generation.rs",
+    )
+
+    def test_the_authority_setting_and_retired_sources_are_gone(self):
+        build_flags = BUILD_FLAGS.read_text(encoding="utf-8")
+        self.assertIsNone(
+            re.search(r'name = "template_authority"(?![\w-])', build_flags),
+            "build/BUILD.bazel reintroduces the retired template_authority setting",
+        )
+        self.assertNotIn("template_authority", build_flags)
+        for witness in self.retired_source_witnesses:
+            with self.subTest(witness=witness.relative_to(ROOT).as_posix()):
+                self.assertTrue(
+                    witness.is_file(),
+                    f"{witness.name} is not a test input, so a restored sibling would be invisible",
+                )
+        for path in self.retired_sources:
+            with self.subTest(source=path.relative_to(ROOT).as_posix()):
+                self.assertFalse(
+                    path.exists(),
+                    f"retired lifecycle source {path.name} was reintroduced",
+                )
+
+    def test_no_workflow_names_a_retired_target_or_the_retired_setting(self):
+        workflow_sources = {
+            WORKFLOW: "buildbuddy.yaml",
+        }
+        workflow_dir = ROOT / ".github" / "workflows"
+        github_workflows = sorted([*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")])
+        # //:github_workflows must be a declared input; release.yml alone is declared
+        # separately, so a second workflow proves the scan sees the whole directory.
+        self.assertIn(workflow_dir / "publish-oci.yml", github_workflows)
+        for path in github_workflows:
+            workflow_sources[path] = path.relative_to(ROOT).as_posix()
+
+        for path, label in workflow_sources.items():
+            workflow = path.read_text(encoding="utf-8")
+            for target in self.retired_targets:
+                with self.subTest(workflow=label, target=target):
+                    self.assertNotIn(target, workflow)
+            self.assertNotIn("--//build:template_authority", workflow)
+
+    def test_focused_generation_clone_targets_track_the_lane_list(self):
+        """provision_generation_<lane> must be generated, never hand-maintained.
+
+        The comprehension is keyed on integration_lane_names(), the same list that generates
+        the Elixir lane targets, so the clone set cannot drift from the test set. A hand
+        written lane entry (or a re-pointed comprehension) fails here.
+        """
+        lanes = parsed_integration_lanes()
+        self.assertEqual("async", lanes[0])
+
+        db_build = INTEGRATION_DB_BUILD.read_text(encoding="utf-8")
+        core_build = CORE_BUILD.read_text(encoding="utf-8")
+
+        comprehension = db_build[db_build.index("    for name, operation, shards in [") :]
+        self.assertIn('name = "provision_generation_{}".format(lane)', db_build)
+        self.assertIn("for lane in integration_lane_names()", db_build)
+        self.assertIn("for lane in integration_lane_names()", core_build)
+
+        for lane in lanes:
+            with self.subTest(lane=lane):
+                # Generated, not hand-maintained: the literal must NOT appear.
+                self.assertNotIn(f'name = "provision_generation_{lane}"', db_build)
+
+        self.assertIn(
+            '(\n            "provision_generation",\n            "clone",\n            ",".join(integration_lane_names()),\n        ),',
+            comprehension,
+        )
+        self.assertIn(
+            '("provision_generation_large_ingestion", "clone", LARGE_INGESTION_DB_SHARD)',
+            comprehension,
+        )
+        self.assertIn('args = ["clone"]', db_build)
+        self.assertIn(
+            'env = {"SERVICERADAR_TEST_DB_SHARDS": lane}', db_build
+        )
 
 
 class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
