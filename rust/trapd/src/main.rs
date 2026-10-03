@@ -323,7 +323,7 @@ fn format_snmp_value(value: &snmp2::Value<'_>) -> String {
         Value::OctetString(v) => format!("OCTET STRING: {}", String::from_utf8_lossy(v)),
         Value::ObjectIdentifier(v) => format!("OBJECT IDENTIFIER: {v}"),
         Value::Null => "NULL".to_string(),
-        Value::IpAddress(v) => format!("IP ADDRESS: {}.{}.{}.{}", v[0], v[1], v[2], v[3]),
+        Value::IpAddress([a, b, c, d]) => format!("IP ADDRESS: {a}.{b}.{c}.{d}"),
         Value::Counter32(v) => format!("COUNTER32: {v}"),
         Value::Unsigned32(v) => format!("UNSIGNED32: {v}"),
         Value::Timeticks(v) => format!("TIMETICKS: {v}"),
@@ -866,5 +866,19 @@ mod value_format_tests {
         let built = build_message(&pdu, source);
         assert!(built.varbinds[0].value.len() < 64);
         assert!(serde_json::to_vec(&built).unwrap().len() < 1024);
+    }
+
+    #[test]
+    fn ip_address_formatting_is_total_without_indexing() {
+        assert_eq!(
+            format_snmp_value(&snmp2::Value::IpAddress([192, 0, 2, 3])),
+            "IP ADDRESS: 192.0.2.3"
+        );
+        let source = "192.0.2.1:162".parse().unwrap();
+        let wire = message(&ber(0x40, &[192, 0]));
+        let pdu = snmp2::Pdu::from_bytes(&wire).unwrap();
+        let built = build_message(&pdu, source);
+        assert!(built.varbinds.is_empty());
+        assert_eq!(built.body, "SNMP trap from 192.0.2.1");
     }
 }
