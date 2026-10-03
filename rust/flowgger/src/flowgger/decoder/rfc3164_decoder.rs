@@ -155,7 +155,10 @@ fn decode_rfc_standard(
     if tokens_vec.len() > 3 {
         // Parse the date, the next token is the hostname
         let (ts, _log_tokens) = parse_date_token(&tokens_vec, default_timezone)?;
-        let _hostname = _log_tokens[0];
+        let _hostname = _log_tokens
+            .first()
+            .copied()
+            .ok_or("Malformed RFC3164 standard event: Missing hostname")?;
 
         // All that remains is the message that may contain several spaces, so rebuild it
         let _message = _log_tokens[1..].join(" ");
@@ -396,6 +399,23 @@ use crate::flowgger::utils::test_utils::rfc_test_utils::{
 };
 #[cfg(test)]
 use time::Month;
+
+#[test]
+fn timestamp_only_records_are_rejected_without_panicking() {
+    let cfg = Config::from_string("[input]\nrfc3164_timezone = \"UTC\"\n").unwrap();
+    let decoder = RFC3164Decoder::new(&cfg);
+    for timestamp in [
+        "2030 Jan 2 03:04:05",
+        "Jan 2 03:04:05 UTC",
+        "2030 Jan 2 03:04:05 UTC",
+    ] {
+        assert!(decoder.decode(timestamp).is_err());
+        let valid = format!("{timestamp} host01.example.com synthetic message");
+        let record = decoder.decode(&valid).unwrap();
+        assert_eq!(record.hostname, "host01.example.com");
+        assert_eq!(record.msg.as_deref(), Some("synthetic message"));
+    }
+}
 
 #[test]
 fn test_rfc3164_decode_nopri() {
