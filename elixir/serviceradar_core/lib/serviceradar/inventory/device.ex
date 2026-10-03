@@ -151,6 +151,7 @@ defmodule ServiceRadar.Inventory.Device do
     :is_trusted,
     :discovery_sources,
     :last_seen_time,
+    :identity_observed_at,
     :metadata
   ]
   @group_fields [:group_id]

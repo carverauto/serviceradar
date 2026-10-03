@@ -1756,13 +1756,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       end)
       |> Enum.split_with(&match?({:existing, _polled, _device}, &1))
 
+    # One observation time for the whole poll: a holder this poll also observed is not older
+    # than the device moving onto its address, so it keeps the address.
+    observed_at = DateTime.utc_now()
+
+    existing
+    |> Enum.map(fn {:existing, _entry, device} -> device.uid end)
+    |> stamp_identity_observed(observed_at)
+
     Enum.each(existing, fn {:existing, entry, device} ->
-      maybe_move_device_address(entry, device, records, actor)
+      maybe_move_device_address(entry, device, records, observed_at, actor)
     end)
 
     context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
     kept = Enum.map(existing, fn {:existing, entry, _device} -> entry end)
-    created = create_polled_devices(Enum.map(new, &elem(&1, 1)), records, context, actor)
+    new_entries = Enum.map(new, &elem(&1, 1))
+    created = create_polled_devices(new_entries, records, context, observed_at, actor)
     kept ++ created
   end
 
@@ -1772,6 +1781,24 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Ash.Query.filter(uid in ^Enum.uniq(uids))
     |> Page.stream!(actor: actor)
     |> Map.new(&{&1.uid, &1})
+  end
+
+  # A poll of a device identified by the MACs its own interfaces report is an
+  # identity-bearing observation of it (`DeviceWrites.observed_after?/2`), as an agent
+  # check-in is. An address-seeded device (`create_address_seeded_device/5`) is not: nothing
+  # but the address identifies it. The stamp only moves forward.
+  defp stamp_identity_observed([], _observed_at), do: :ok
+
+  defp stamp_identity_observed(uids, observed_at) do
+    Repo.update_all(
+      from(d in Device,
+        where: d.uid in ^Enum.uniq(uids) and is_nil(d.deleted_at),
+        where: is_nil(d.identity_observed_at) or d.identity_observed_at < ^observed_at
+      ),
+      set: [identity_observed_at: observed_at]
+    )
+
+    :ok
   end
 
   # What a resolved uid is: a device to write, an existing one to keep, or a tombstone. A poll
@@ -1845,18 +1872,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # (`DeviceWrites.bulk_upsert_devices/3`), so the address it was polled at is claimed with the
   # same rules as any other strong write: an anchorless provisional seed holding the address is
   # adopted, and any other live holder is left in place with the conflict recorded.
-  defp create_polled_devices([], _records, _context, _actor), do: []
+  defp create_polled_devices([], _records, _context, _observed_at, _actor), do: []
 
-  defp create_polled_devices(new, records, context, _actor) do
-    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+  defp create_polled_devices(new, records, context, observed_at, _actor) do
+    timestamp = DateTime.truncate(observed_at, :second)
     resolved_updates = Enum.map(new, &{new_device_update(&1), &1.uid})
 
+    # The poll observed each device itself (stamp_identity_observed/2).
     device_records =
       resolved_updates
       |> DeviceRecords.build_device_upsert_records(timestamp)
       |> Enum.map(fn record ->
-        maybe_put(
-          record,
+        record
+        |> Map.put(:identity_observed_at, observed_at)
+        |> maybe_put(
           :management_device_id,
           find_management_device_uid(record.ip, records, context)
         )
@@ -1910,14 +1939,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # address it was polled at, or one its interfaces report (a router polled at its WAN and
   # LAN addresses is one device, and must not flip between them). A recorded address the
   # device no longer reports is stale, and the device moves to the address it was polled at.
-  defp maybe_move_device_address(polled, %Device{} = device, records, actor) do
+  defp maybe_move_device_address(polled, %Device{} = device, records, observed_at, actor) do
     current = normalize_alias_ip(device.ip)
 
     if current in own_addresses(polled.device_ip, records) or
          not valid_alias_ip?(polled.device_ip) do
       :ok
     else
-      move_device_address(device, polled.device_ip, polled.partition, actor)
+      move_device_address(device, polled.device_ip, polled.partition, observed_at, actor)
     end
   end
 
@@ -1936,12 +1965,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp bare_address(_value), do: nil
 
-  # Moves an existing device to the address it was polled at, under the rule of
-  # `DeviceWrites.claim_address_from_holder/4`: the address follows the newer observation. A
-  # live holder last seen before this poll is stale (DHCP churn), so it releases the address in
-  # the same transaction the device takes it in. A holder not older keeps it, the device keeps
-  # its own address, and the refusal is recorded as an active-IP conflict.
-  defp move_device_address(%Device{} = device, ip, partition, actor) do
+  # Moves an existing device to the address it was polled at, under the newer-observation rule
+  # of `DeviceWrites.claim_address_from_holder/5`: the address follows the newer
+  # identity-bearing observation (`DeviceWrites.observed_after?/2`). A live holder whose last
+  # one is before this poll, or that has none, is stale (DHCP churn), so it releases the
+  # address in the same transaction the device takes it in. A holder not older keeps it, the
+  # device keeps its own address, and the refusal is recorded as an active-IP conflict.
+  defp move_device_address(%Device{} = device, ip, partition, observed_at, actor) do
     case live_address_holder(ip, partition, device.uid) do
       nil ->
         case set_device_address(device, ip, actor) do
@@ -1953,7 +1983,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         end
 
       %{uid: holder_uid} = holder ->
-        if DeviceWrites.observed_after?(%{last_seen_time: DateTime.utc_now()}, holder) do
+        if DeviceWrites.observed_after?(%{identity_observed_at: observed_at}, holder) do
           take_address_from_stale_holder(device, holder_uid, ip, actor)
         else
           Logger.info(
@@ -1969,7 +1999,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp take_address_from_stale_holder(%Device{} = device, holder_uid, ip, actor) do
     result =
       Repo.transaction(fn ->
-        DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [{holder_uid, ip}])
+        # A stale release: an anchorless sweep seed that releases its only address is
+        # soft-deleted as seed_released in this transaction.
+        DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [], [{holder_uid, ip}])
 
         case set_device_address(device, ip, actor, return_notifications?: true) do
           {:ok, _device, notifications} -> notifications
@@ -2031,7 +2063,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       from(d in Device,
         where: d.ip == ^ip and d.partition == ^normalize_partition(partition),
         where: is_nil(d.deleted_at) and d.uid != ^device_uid,
-        select: %{uid: d.uid, last_seen_time: d.last_seen_time},
+        select: %{uid: d.uid, identity_observed_at: d.identity_observed_at},
         limit: 1
       )
     )

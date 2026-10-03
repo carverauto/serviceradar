@@ -106,11 +106,31 @@ that observed the device at its address (Armis, the passive census,
 mapper/SNMP discovery, an agent's self-report; see
 `SourcePolicy.observed_address_source?/1`) lands on an address that a different
 live device still holds (DHCP moved the address), and that observation is newer
-than the holder's `last_seen_time`, the incoming device takes it and the stale
-holder releases it: its IP is cleared in the same transaction and
-it stays live. The decision is recorded as an open `active_ip_conflict`
-source-identity conflict (proposed action
-`preserve_source_identity_release_stale_ip`).
+than the holder's last identity-bearing observation, the incoming device takes
+it and the stale holder releases it: its IP is cleared in the same transaction.
+The holder stays live unless it is an anchorless sweep seed (below). The
+decision is recorded as an open `active_ip_conflict` source-identity conflict
+(proposed action `preserve_source_identity_release_stale_ip`).
+
+The last identity-bearing observation is `identity_observed_at`. Only a report
+of the device's own identity writes it, and it only moves forward:
+
+- a source sync carrying a current source-authoritative identifier, at the time
+  the source last saw the device;
+- an agent check-in;
+- a mapper poll that identified the device by its interface MACs.
+
+A sweep, a census sighting and an address-only sighting never write it, so a
+sweep that keeps answering at a stale holder's address does not make the
+holder newer. A holder with none counts as older than any write. A census
+sighting carries no time of its own and compares its record's: a record only
+census sightings have seen has none, and never displaces a holder that has one.
+
+A write carrying a current source-authoritative identifier (`armis_device_id`,
+`netbox_device_id`) also takes the address from a retired holder, whatever
+either record's times: one marked `source_retired`, or one whose
+source-authoritative identifiers have all retired. The source has stopped
+reporting it.
 
 The holder keeps the address, and the incoming record drops it, in these cases
 (the conflict is still recorded, with proposed action
@@ -118,10 +138,15 @@ The holder keeps the address, and the incoming record drops it, in these cases
 
 - the write comes from a declarative inventory (AWX, NetBox, Proxmox,
   hypervisor enrichment, generic integrations), whose address is configuration
-  that can lag the network rather than a sighting;
-- the observation is not newer than the holder's (older or equal, or either
-  `last_seen_time` is missing), so an Armis last-known address of an offline
-  device does not displace a live holder;
+  that can lag the network rather than a sighting. Only one carrying a
+  source-authoritative identifier, as NetBox does, takes the address, and only
+  from a retired holder;
+- the observation is not newer than the holder's (older or equal, or the write
+  has none and the holder has one). An Armis sync observes at the time Armis
+  last saw the device, so the last-known address of a device Armis has not
+  seen since does not displace a holder observed later. It does displace a
+  holder whose identity was never observed, such as one only sweeps and census
+  sightings have seen;
 - another record in the same batch, the holder's own or a second incoming one,
   also claims the address: neither observation is fresher;
 - the holder is bound to a different agent that is still live (an agent
@@ -135,8 +160,8 @@ Two further cases adopt the holder's uid instead of moving the address: an
 anchorless provisional seed at the address, and a holder whose hostname agrees,
 under narrow conditions. Both apply only to an incoming record that is not yet
 a device: an existing device that moves onto a seeded address takes it under
-the rules above, and the seed releases it and stays live until it expires. A
-hostname is evidence, like the address, never identity, so hostname agreement
+the rules above, and the seed releases it (below). A hostname is evidence,
+like the address, never identity, so hostname agreement
 adopts the holder only when the incoming record is not yet a device and
 neither side holds a source-authoritative identifier (`armis_device_id`,
 `netbox_device_id`), with no disagreeing
@@ -148,12 +173,21 @@ a `policy_block` identity decision (reason `hostname_agreement_not_identity`),
 which opens a de-duplication task for an operator to merge, mark distinct or
 dismiss.
 
+A sweep seed that releases its address is soft-deleted in the same
+transaction, with `deleted_reason` `seed_released`, when the address is all it
+is: it has no identifier row, current or archived, no discovery source but the
+sweep, and no address alias for another address. A seed carrying more stays
+live. No sighting revives a `seed_released` tombstone; only an operator
+restores one. A seed's uid comes from its address, so while the tombstone
+remains, a sweep of the address creates no new seed.
+
 An agent check-in never adopts on hostname: `AgentGatewaySync` adopts a holder
 only when it claims no anchor identifier (agent id, Armis id, MAC, serial, ...)
 that the agent does not also claim. An agent's existing device is never
 replaced by the holder; it takes the address under the rule above or keeps its
 own, and either decision is recorded, with an evidence `reason`: `holder_stale`
-(released), `holder_seen_no_earlier` or `held_by_live_agent` (kept). The holder
+(released), `holder_seen_no_earlier` (the holder's identity was observed no
+earlier than the check-in) or `held_by_live_agent` (kept). The holder
 lookup for a new agent device is scoped to that device's partition; a missing or
 blank partition on the check-in is `default`, for the device and the lookup.
 
@@ -182,9 +216,10 @@ the MACs identify.
 - An existing device moves to the polled address only when its recorded
   address is not one its interfaces still report, so a router polled at its
   WAN and LAN addresses keeps one address. The address follows the newer
-  observation: a live holder last seen before the poll releases it in the same
-  transaction, and a holder that is not older keeps it, with an
-  `active_ip_conflict` recorded.
+  identity-bearing observation: a live holder whose identity was last observed
+  before the poll, or never, releases it in the same transaction, and a holder
+  that is not older keeps it, with an `active_ip_conflict` recorded. A holder
+  the same poll identified is not older.
 - Only globally-unique MACs identify a device. A poll that reports no
   globally-unique interface MAC, whether it has none or only randomized ones,
   falls back to the address: the live holder, then a confirmed alias, then an
@@ -317,6 +352,7 @@ for dry-run review, execution gates, and device/source allowlists.
 | `[:serviceradar, :inventory, :source_retired_expiry, :refused]` | the mass guard refused a pass deleting `source_retired` records |
 | `[:serviceradar, :inventory, :source_reactivation, :reissued]` | a retired source id reported again was written as a new record; its de-duplication task needs review |
 | `[:serviceradar, :inventory, :source_reactivation, :withheld]` | updates carrying a retired source id were withheld until the next sync run |
+| `[:serviceradar, :inventory, :seed_released]` | an identified device took the address of sweep seeds, which were soft-deleted as `seed_released` |
 | `[:serviceradar, :identity_reconciler, :decision, :record_failed]` | an identity decision could not be written to `platform.identity_decisions` |
 | `[:serviceradar, :identity_reconciler, :deduplication_task, :open_failed]` | a de-duplication task could not be opened or updated for a recorded decision |
 

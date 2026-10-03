@@ -316,10 +316,11 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # #4705 (fixed, seed_adopts_existing): an existing identified device moves onto an address a
   # sweep seeded. Steps: Armis A (a1, no MAC reported) is synced at p1; DHCP moves A to p2; a
   # sweep finds p2 answering and creates a provisional record there; A is synced at p2, twice.
-  # Expected: A takes p2, the seed releases it and stays live, and the conflict is recorded. Each
-  # sync used to be written onto the seed, leaving A at its stale address p1 with no decision.
-  # The seed that stays live is a defect still open (released_seed_stays_live): an addressless
-  # shell nothing removes but ephemeral expiry. The knockout shows the code exhibits it.
+  # Expected: A takes p2, and the conflict is recorded. The seed releases p2 and is soft-deleted
+  # as seed_released in the same transaction (add-source-id-succession D8, which fixed
+  # released_seed_stays_live: it used to stay live, an addressless shell nothing removed but
+  # ephemeral expiry). Each sync used to be written onto the seed, leaving A at its stale address
+  # p1 with no decision.
   test "armis_moves_onto_sweep_seed", %{actor: actor} do
     world = %{
       phys: ["h1"],
@@ -341,7 +342,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.sweep("h1", "x1")
     |> DireTrace.armis("h1", "x1")
     |> DireTrace.armis("h1", "x1")
-    |> DireTrace.assert_golden!(demonstrates: "released_seed_stays_live")
+    |> DireTrace.assert_golden!()
   end
 
   # #4638 (fixed): the mapper resolves a polled device by its interface MACs, not by the address

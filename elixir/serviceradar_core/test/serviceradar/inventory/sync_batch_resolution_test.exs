@@ -1934,6 +1934,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
           },
           actor: actor
         )
+        |> Ash.Changeset.force_change_attribute(:identity_observed_at, DateTime.utc_now())
         |> Ash.create(actor: actor)
 
       armis_id = "#{n}13"
@@ -2023,7 +2024,198 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       refute first_row.ip == ip
       refute second_row.ip == ip
     end
+
+    # A holder the source has stopped reporting yields the address to a record the source still
+    # reports, whatever their observation times. Each holder below was observed after the
+    # update, so only its retirement lets the update take the address.
+    test "a holder whose Armis ids all retired yields the IP", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder = address_holder!(actor, ip, minutes_ago(1), minutes_ago(1))
+      retired = "#{n}14"
+      register_identifier(actor, holder.uid, :armis_device_id, retired)
+      IdentifierArchiveFixtures.archive!(:armis_device_id, retired)
+
+      current = "#{n}15"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_seen_update(current, ip, minutes_ago(60))],
+                 actor: actor
+               )
+
+      assert_address_taken(device_for_armis_id(current, actor), holder.uid, ip, actor)
+    end
+
+    test "a holder marked source_retired yields the IP", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder = address_holder!(actor, ip, minutes_ago(1), minutes_ago(1))
+      mark_source_retired!(holder)
+      armis_id = "#{n}16"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_seen_update(armis_id, ip, minutes_ago(60))],
+                 actor: actor
+               )
+
+      assert_address_taken(device_for_armis_id(armis_id, actor), holder.uid, ip, actor)
+    end
+
+    # A declarative inventory's address is configuration, not a sighting: it displaces only a
+    # retired holder.
+    test "a NetBox address displaces a retired holder", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder = address_holder!(actor, ip, minutes_ago(1), minutes_ago(1))
+      mark_source_retired!(holder)
+      netbox = netbox_id(n, 1)
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+
+      assert :ok = SyncIngestor.ingest_updates([netbox_update(netbox, ip, mac)], actor: actor)
+
+      assert_address_taken(device_for_netbox_id(netbox, actor), holder.uid, ip, actor)
+    end
+
+    test "a NetBox address does not displace a holder that is not retired", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder = address_holder!(actor, ip, minutes_ago(60), nil)
+      netbox = netbox_id(n, 1)
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+
+      assert :ok = SyncIngestor.ingest_updates([netbox_update(netbox, ip, mac)], actor: actor)
+
+      claimer_uid = device_for_netbox_id(netbox, actor)
+      assert is_binary(claimer_uid)
+      {:ok, claimer} = Device.get_by_uid(claimer_uid, false, actor: actor)
+      refute claimer.ip == ip
+      assert {:ok, %Device{ip: ^ip}} = Device.get_by_uid(holder.uid, false, actor: actor)
+      assert [conflict] = active_ip_conflicts(claimer_uid, actor)
+      assert conflict.proposed_action == "preserve_source_identity_drop_conflicting_ip"
+    end
+
+    # The newer-observation rule compares last identity-bearing observations. A sweep answering
+    # at the holder's address refreshed its last_seen_time a minute ago; the holder's own last
+    # identity-bearing observation is two days old, older than the update's.
+    test "a sweep refresh does not make a holder newer", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder = address_holder!(actor, ip, minutes_ago(1), minutes_ago(2 * 24 * 60))
+      register_identifier(actor, holder.uid, :armis_device_id, "#{n}17")
+      armis_id = "#{n}18"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_seen_update(armis_id, ip, minutes_ago(60))],
+                 actor: actor
+               )
+
+      assert_address_taken(device_for_armis_id(armis_id, actor), holder.uid, ip, actor)
+    end
   end
+
+  # identity_observed_at: the last identity-bearing observation the newer-observation rule
+  # compares (DeviceWrites.observed_after?/2).
+  describe "the last identity-bearing observation" do
+    test "a source sync records when the source saw the device, keeping the latest", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      armis_id = "#{n}19"
+      seen = minutes_ago(30)
+
+      assert_observed_at(sync_seen!(armis_id, ip, seen, actor), seen)
+      assert_observed_at(sync_seen!(armis_id, ip, DateTime.add(seen, -600, :second), actor), seen)
+
+      later = DateTime.add(seen, 600, :second)
+      assert_observed_at(sync_seen!(armis_id, ip, later, actor), later)
+    end
+
+    test "a sweep answering at the device's address does not advance it", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      seen = minutes_ago(30)
+      device = sync_seen!("#{n}20", ip, seen, actor)
+
+      sweep = %{"ip" => ip, "hostname" => "weak-sighting", "source" => "sweep"}
+      assert :ok = SyncIngestor.ingest_updates([sweep], actor: actor)
+
+      {:ok, swept} = Device.get_by_uid(device.uid, false, actor: actor)
+      assert DateTime.after?(swept.last_seen_time, seen), "the sweep did not reach the device"
+      assert_observed_at(swept, seen)
+    end
+  end
+
+  # A live record holding `ip`, last seen at `last_seen_time` and last observed with an
+  # identity at `identity_observed_at`, which :create does not accept.
+  defp address_holder!(actor, ip, last_seen_time, identity_observed_at) do
+    {:ok, holder} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        ip: ip,
+        hostname: "holder-#{System.unique_integer([:positive])}",
+        last_seen_time: last_seen_time
+      })
+      |> Ash.Changeset.force_change_attribute(:identity_observed_at, identity_observed_at)
+      |> Ash.create(actor: actor)
+
+    holder
+  end
+
+  # Marks the record as SourceRetirement does; the mirror trigger sets identity_state.
+  defp mark_source_retired!(device) do
+    %{num_rows: 1} =
+      Repo.query!("UPDATE platform.ocsf_devices SET source_retired_at = $2 WHERE uid = $1", [
+        device.uid,
+        DateTime.to_naive(DateTime.utc_now())
+      ])
+  end
+
+  # The claimer took `ip`; the holder released it and stays live; the conflict is recorded.
+  defp assert_address_taken(claimer_uid, holder_uid, ip, actor) do
+    assert is_binary(claimer_uid)
+    {:ok, claimer} = Device.get_by_uid(claimer_uid, false, actor: actor)
+    assert claimer.ip == ip
+
+    {:ok, %Device{deleted_at: nil} = holder} = Device.get_by_uid(holder_uid, false, actor: actor)
+    assert holder.ip in [nil, ""]
+
+    assert [conflict] = active_ip_conflicts(claimer_uid, actor)
+    assert conflict.proposed_action == "preserve_source_identity_release_stale_ip"
+    assert conflict.conflicting_identifiers["existing_device_uid"] == holder_uid
+  end
+
+  defp active_ip_conflicts(device_uid, actor) do
+    SourceIdentityConflict
+    |> Ash.Query.filter(conflict_category == "active_ip_conflict" and device_uid == ^device_uid)
+    |> Ash.read!(actor: actor)
+  end
+
+  # An Armis update for a device the source last saw at `seen`.
+  defp armis_seen_update(armis_id, ip, seen) do
+    armis_id
+    |> armis_ip_update(ip)
+    |> Map.put("last_seen_time", DateTime.to_iso8601(seen))
+  end
+
+  defp sync_seen!(armis_id, ip, seen, actor) do
+    assert :ok =
+             SyncIngestor.ingest_updates([armis_seen_update(armis_id, ip, seen)], actor: actor)
+
+    {:ok, device} = Device.get_by_uid(device_for_armis_id(armis_id, actor), false, actor: actor)
+    device
+  end
+
+  # Sync times are kept to the second.
+  defp assert_observed_at(device, expected) do
+    assert %DateTime{} = device.identity_observed_at
+
+    assert DateTime.compare(device.identity_observed_at, DateTime.truncate(expected, :second)) ==
+             :eq
+  end
+
+  defp minutes_ago(minutes), do: DateTime.add(DateTime.utc_now(), -minutes * 60, :second)
 
   defp armis_ip_update(armis_id, ip) do
     %{

@@ -50,8 +50,18 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
     `NewFirstSeenIds` the source reports a device with a new first-seen time, so only the
     hostname corroborates a re-key to it. `Review` records every weaker pairing as a
     `succession_review` decision and merges nothing.
-  - `addrFresh` records that a sighting carrying no identity (a sweep, a census, an address-only
-    poll) touched a record last. Only `stale_holder_keeps_address` reads it.
+  - An identified write observed at an address takes it from the record holding it, which
+    releases it in the same transaction, and the conflict is recorded (#4639). Under D7 the
+    holder keeps it only against a write observed before it, comparing `identity_observed_at`,
+    and a holder with none is older. The model has no clock: a source sync, an agent check-in
+    and a mapper poll are each the newest identity-bearing observation of their device and
+    always take the address. A census carries no time of its own, only its record's last
+    identity-bearing one, which the variable `idSeen` says the record has. A census record
+    with none never displaces a holder that has one, and when both have one either may be
+    newer. A sweep, a census and an address-only poll never set `idSeen`.
+  - A sweep seed that releases its address to an identified device and holds no identifier
+    and no archived one is soft-deleted as `seed_released` in the same transaction (D8). The
+    model writes it as a record that no longer exists.
 - `DireLifecycle.tla` models the merge lifecycle: merge, unmerge, soft delete, ephemeral
   expiry, the revival paths, purge, and the identity fence. Its identifiers are the strong
   ones; randomized MACs and addresses are evidence and are not in `Ids`, so `Expire` applies
@@ -95,7 +105,7 @@ configuration sets it.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, expires, grace-deletes (a record still holding a MAC among them), reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, leaves an address a census reports with a record the census does not identify, expires, grace-deletes (a record still holding a MAC among them), reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
 | `resolution_unsafe_<alternative>` | none; one `Unsafe` alternative | `violation:NoFalseMerge` | The rejected alternative still merges two physical devices. If TLC finds no violation, or a different one, the target fails. |
 
 The lifecycle goal is split so that each check stays inside its budget. `lifecycle_goal` (three
@@ -116,6 +126,11 @@ on expiry running.
 `resolution_vacuity_shared_mac_override` checks `NeverDecides` in the `armis_shared_mac`
 environment: the goal overrides the source-authoritative id's rival record and records that
 decision, so the property must fail.
+
+`resolution_vacuity_census_keeps_holder` checks `NeverCensusKeepsHolder` in the `armis_nomacs`
+environment: a census reports a MAC at an address an Armis record holds, the census's record has
+no identity-bearing observation, and the Armis record keeps the address. `ObservedAddressHeld`
+allows that after a census only, so the property must fail, or that allowance is vacuous.
 
 Every `resolution_goal_*` configuration also checks `AddressNeverMerges`: no merge is ever
 caused by address or IP-alias evidence. No address-only record in the model ever holds an alias
@@ -151,8 +166,6 @@ listed there as an open question until one is made; a new defect gets a row here
 
 | Switch | Model | Code path | Fix | Witness property |
 |---|---|---|---|---|
-| `stale_holder_keeps_address` | resolution | `DeviceWrites.claim_address_from_holder/4` releases a holder only to a write `observed_after?/2` finds newer than the holder's `last_seen_time`, which a sweep or a census refreshes. An Armis sync compares Armis's own last-seen time, so a holder a sweep touched last can keep the address of the device observed at it. | D7 (`identity_observed_at`) | `ObservedAddressHeld` |
-| `released_seed_stays_live` | resolution | `DeviceWrites.resolve_record_active_ip/7`: a sweep seed that releases its only address to an identified device stays live, an addressless shell that only ephemeral expiry removes. | D8 | `NoAddresslessShell` |
 | `armis_alias_pass_blind` | resolution | `Sync.Aliases.process_alias_conflicts/2` looks for the address's alias under the partition the update's identifiers are filed in, which for a sync naming its integration source is the source's own (`Ids.identifier_partition/2`), while `AliasEvents` records an alias under the device's partition. The pass never finds one, so an identified holder of the alias keeps it after another device is observed at the address. | Open question | `AliasFollowsSyncedDevice` |
 | `foreign_sighting_confirms_alias` | resolution | `AliasEvents.process_alias/5` looks an alias row up by its address alone (`DeviceAliasState.lookup_by_value/3`) and records the sighting on the first row found, whichever device it names; only an address with no row gets one. Another device's sightings at the address confirm the first device's alias, and no later device there gets a row of its own. | Open question | `AliasFollowsSyncedDevice` |
 | `sweep_refreshes_expired_tombstone` | lifecycle | `SweepResultsIngestor.restore_eligible?/1` restores a tombstone only for a discovery source other than the sweep, so an expired sweep-only device never returns; `update_device_statuses_available/3` has no `deleted_at` filter, so the sweep writes to a tombstone it did not restore. | D12 | `ExpiredDeviceReturns` |
@@ -169,7 +182,7 @@ Each witness configuration is `<model>_witness_<switch>`. Code paths are relativ
 | `upsert_revives_merged` | #4614 (the `DeviceWrites` upsert's `on_conflict` WHERE skips a merged-away row and `follow_merged_away_uids/2` redirects that write's identifiers to the survivor; any other revival bumps `identity_revision`) | `RevivalBumpsRevision` in `lifecycle_current` (with #4615), `NoZombieRevival` (with #4615 and #4617); the `upsert_zombie` witness needed this switch and went with it |
 | `gateway_sync_no_bump` | #4615 (an agent check-in restores a soft-deleted device through `Device :gateway_restore`, which bumps `identity_revision`, and follows the merge of a merged-away one; `:gateway_sync` no longer clears a tombstone) | `RevivalBumpsRevision` in `lifecycle_current`; `NoZombieRevival` (with #4614 and #4617) |
 | `sweep_restores_merged` | #4617 (`SweepResultsIngestor.eligible_restore_uids/1` never restores a `deleted_reason = "merged"` tombstone, and logs and counts each skip) | `NoZombieRevival` in `lifecycle_current` (with #4614 and #4615) |
-| `stale_holder_keeps_address` | #4639 (`DeviceWrites.claim_address_from_holder/4`: a strong-identified write observed at the address (`SourcePolicy.observed_address_source?/1`) more recently than the holder's `last_seen_time` takes it, the stale holder releases it in the same transaction, and an `active_ip_conflict` row records it) | `ObservedAddressHeld`, `NoSilentDecision` in every `resolution_goal_*`; trace `armis_dhcp` step 8 |
+| `stale_holder_keeps_address` | #4639 (`DeviceWrites.claim_address_from_holder/4`: a strong-identified write observed at the address (`SourcePolicy.observed_address_source?/1`) more recently than the holder's `last_seen_time` takes it, the stale holder releases it in the same transaction, and an `active_ip_conflict` row records it), then #5085 (D7: `claim_address_from_holder/5` compares `identity_observed_at`, which only an identity-bearing observation writes, where it compared a `last_seen_time` a sweep or a census refreshes; a holder with none is older, and a holder whose source ids have all retired yields to a write carrying a current one) | `ObservedAddressHeld`, `NoSilentDecision` in every `resolution_goal_*`; traces `armis_dhcp` step 8, `agent_stale_armis_holder`, `mapper_stale_address` |
 | `follow_stale_audit` | #4616 (`Resolver.do_follow_canonical/3` follows only a `deleted_reason = "merged"` tombstone) | `NoStaleRedirect`, `MergeGraphAcyclic` in `lifecycle_current`; the `merge_cycle` witness needed this switch and went with it |
 | `unmerge_restores_matches` | #4619 (every merge records the source's own identifiers in `merge_audit.details.source_identifiers`; `MergeEngine.reassign_original_identifiers/4` restores exactly those the survivor still holds) | `UnmergeRestoresExactly` in `lifecycle_current` |
 | `purge_forgets_redirect` | #4620 (`Resolver.do_follow_canonical/3` and `BatchResolver` follow a purged merged-away uid through its newest merge row unless an unmerge reversed it) | `NoPurgedResurrection` in `lifecycle_current` (with #4618, which removed the `purge_zombie` witness) |
@@ -180,11 +193,13 @@ Each witness configuration is `<model>_witness_<switch>`. Code paths are relativ
 | `mac_only_conflicts_blocked` | #4612 (`MergePolicy.merge_allowed_for_matches?/1` accepts a match set holding a globally-unique MAC; an all-randomized set stays blocked, and a record linked only through a randomized MAC drops out of the merge as a recorded `randomized_mac_link` policy block) | `EvidenceConverges` in every `resolution_goal_*`; traces `router_mac_only`, `agent_mac_split` |
 | `randomized_mac_seeds_uid` | #4760 (`Ids.has_strong_identifier?/1` counts a MAC only when it is universally administered, and `Ids.generate_deterministic_device_id/1` names an update with no strong identifier by its address, so a census sighting of a randomized MAC is address-only) | `RandomizedMacsNeverIdentify` in every `resolution_goal_*`; trace `census_randomized_mac` |
 | `seed_adopts_existing` | #4705 (`DeviceWrites.resolve_record_active_ip/7` adopts an anchorless provisional seed only for a record that is not yet a device; an existing device at a seeded address takes it under the #4639 rule, the seed releases it and stays live, and the conflict is recorded) | `ObservedAddressHeld`, `NoSilentDecision` in every `resolution_goal_*`; trace `armis_moves_onto_sweep_seed` |
+| `released_seed_stays_live` | #5085 (D8: `DeviceWrites.lock_and_clear_for_upsert/3` soft-deletes a seed that released its address to an identified device, in the same transaction, as `seed_released`, when only sweeps discovered it and it holds no identifier, no archived one and no alias of another address; the sync, agent and mapper paths all release through it) | `NoAddresslessShell` in every `resolution_goal_*`; trace `armis_moves_onto_sweep_seed` |
 | `retired_source_id_vetoes` | #5075 (`Identity.SourceRetirement.run/2`, which `SourceRetirementWorker` runs after an exact Armis collection activates, moves an Armis device id absent from N consecutive exact collections and unreported for T into `device_identifier_archive`, with the `integration_id` derived from it, and records a `source_id_retired` decision naming the proving collections; `SourceAuthorityGuard` reads the archive, so the retired id still vetoes another id and blocks automatic merges) | `OneSourceRecordPerDevice` in every `resolution_goal_*`; traces `src_attach_shared_mac`, `src_rekey_succession` (their `Retire` step) |
 
-`stale_holder_keeps_address` appears in both tables. #4639 fixed a holder that never released
-the address. The active switch of the same name (Defect switches) is a narrower defect left in
-the rule #4639 added: the time the rule compares is one a sweep or a census refreshes.
+`stale_holder_keeps_address` was fixed twice. #4639 fixed a holder that never released the
+address. The switch then named a narrower defect left in the rule #4639 added: the time the
+rule compared was one a sweep or a census refreshes. #5085 compares `identity_observed_at`
+instead (D7).
 
 #4664 had no switch. The model already let a write adopt the holder of its address only when that
 holder is an anchorless seed and the write creates a new record, and it never adopts for an
@@ -300,7 +315,6 @@ property fails on the real code. No trace recorded today has one.
 | Trace | Knockout |
 |---|---|
 | `armis_dhcp` | `armis_alias_pass_blind` |
-| `armis_moves_onto_sweep_seed` | `released_seed_stays_live` |
 | `src_rekey_succession` | `foreign_sighting_confirms_alias` |
 | `expired_sweep_only_returns` (lifecycle) | `sweep_refreshes_expired_tombstone` |
 | `sweep_restores_merged` (lifecycle) | `sweep_refreshes_expired_tombstone` |
@@ -314,9 +328,6 @@ The resolution traces of open defects:
   sightings; it leaves the address and an Armis device is synced there. The Armis device takes
   the address and the first device keeps its alias, which should go stale
   (`armis_alias_pass_blind`).
-- `armis_moves_onto_sweep_seed` (#4705, `seed_adopts_existing`): an Armis device synced at a new
-  address a sweep has seeded takes the address, and the conflict is recorded. The seed releases
-  it and stays live (`released_seed_stays_live`).
 - `src_rekey_succession`: Armis re-keys a device. The new id gets its own record, which takes the
   address, while the old record keeps the MAC. Matching hostnames record the pair for
   de-duplication review. The new record's sightings of the address land on the alias row the old
@@ -329,6 +340,11 @@ The resolution traces of open defects:
 `census_randomized_mac` is a regression trace of `randomized_mac_seeds_uid` (#4760): two census
 sightings of one randomized MAC at different addresses are address-only, each landing on the
 record named by its address.
+
+`armis_moves_onto_sweep_seed` is a regression trace of `seed_adopts_existing` (#4705) and
+`released_seed_stays_live` (#5085): an Armis device synced at a new address a sweep has seeded
+takes the address, and the conflict is recorded. The seed releases it and is soft-deleted as
+`seed_released` in the same step.
 
 The lifecycle regression traces:
 
@@ -446,6 +462,16 @@ still describes the code. The switches today's code has are listed once, in `Cur
   `NewFirstSeenIds` empty, so each stays inside its budget.
 - Creation order. A succession merge keeps the record created first; the model has no creation
   order and lets either record survive, which checks both.
+- Observation times. A source sync, an agent check-in and a mapper poll always take the
+  address from its holder (see The models). The code compares each write's own time with the
+  holder's `identity_observed_at`: an Armis sync compares the last-seen time Armis reports,
+  which may be older than an agent's or a poll's on the holder, and then the holder keeps the
+  address. An agent check-in also leaves the address with a holder bound to another agent that
+  is still live. The model takes neither branch, so a trace of either is rejected.
+- The `seed_released` tombstone. The model writes a released seed as a record that no longer
+  exists, so a later sweep of the address may seed it again at once. The code keeps the
+  tombstone, and a seed's uid comes from its address, so until the purge removes the tombstone a
+  sweep there seeds nothing: the model allows more than the code does.
 - A sweep re-creating a purged record. `SweepCreate` seeds only a row that never existed. A
   seed's uid comes from its address, so a sweep at the address of a purged merged-away seed may
   create a row under that uid, outside the redirect #4620 follows. Whether the code can is a

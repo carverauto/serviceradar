@@ -22,6 +22,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Address
@@ -29,6 +30,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.IdentifierArchiveFixtures
 
   require Ash.Query
 
@@ -104,42 +106,61 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   end
 
   # #4705: an existing device never adopts a provisional seed. A device that moves onto an
-  # address a sweep has seeded keeps its own record and takes the address; the seed releases
-  # it, stays live, and the conflict is recorded. The write used to land on the seed instead,
-  # leaving the device at its old address on every sync.
-  test "an existing device moving onto a sweep-seeded address takes it and leaves the seed", %{
+  # address a sweep has seeded keeps its own record and takes the address, and the conflict is
+  # recorded. The write used to land on the seed instead, leaving the device at its old address
+  # on every sync. A seed is nothing but its address, so the release soft-deletes it as
+  # seed_released (add-source-id-succession D8): it used to stay live, an addressless record
+  # nothing removed but ephemeral expiry.
+  test "an existing device moving onto a sweep-seeded address takes it and retires the seed", %{
     actor: actor
   } do
-    {old_ip, new_ip} = seed_ip_pair()
-    armis_id = "armis-4705-#{System.unique_integer([:positive])}"
+    seed = move_onto_seed!(actor)
 
-    assert :ok = SyncIngestor.ingest_updates([armis_update(armis_id, old_ip, 0)], actor: actor)
-    device_uid = device_uid_for_armis!(armis_id, actor)
-
-    seed =
-      create_device!(actor, nil, new_ip, %{
-        uid: "sr:" <> Ecto.UUID.generate(),
-        discovery_sources: ["sweep"],
-        metadata: %{"identity_state" => "provisional", "identity_source" => "sweep_ip_seed"}
-      })
-
-    assert :ok = SyncIngestor.ingest_updates([armis_update(armis_id, new_ip, 60)], actor: actor)
-
-    assert device_uid_for_armis!(armis_id, actor) == device_uid
-    {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
-    assert device.ip == new_ip
-
-    {:ok, seed} = Device.get_by_uid(seed.uid, false, actor: actor)
-    assert is_nil(seed.deleted_at)
-    assert seed.ip == nil
+    assert {:error, _} = Device.get_by_uid(seed.uid, false, actor: actor)
+    assert %DateTime{} = seed.deleted_at
+    assert seed.deleted_reason == "seed_released"
+    assert seed.deleted_by == "system:seed_release"
     assert seed.hostname == nil
+    assert_received {:seed_released, %{count: 1}, %{deleted_reason: "seed_released"}}
+  end
 
-    decisions =
-      IdentityDecision
-      |> Ash.Query.filter(decision_kind == :ip_conflict and subject == ^new_ip)
-      |> Ash.read!(actor: actor)
+  test "a seed's alias of the address it releases does not keep it live", %{actor: actor} do
+    seed = move_onto_seed!(actor, %{}, &detect_alias!(&1, &1.ip, actor))
 
-    assert Enum.any?(decisions, &(Enum.sort(&1.device_uids) == Enum.sort([device_uid, seed.uid])))
+    assert seed.deleted_reason == "seed_released"
+    assert_received {:seed_released, %{count: 1}, _metadata}
+  end
+
+  # D8 retires a released seed only when the address is all it is. Anything more anchors the
+  # record: the release clears its address and it stays live.
+  test "a seed with an identifier row releases the address and stays live", %{actor: actor} do
+    actor
+    |> move_onto_seed!(%{}, &register_mac!(&1, actor))
+    |> assert_seed_kept()
+  end
+
+  test "a seed with an archived identifier releases the address and stays live", %{
+    actor: actor
+  } do
+    actor
+    |> move_onto_seed!(%{}, &IdentifierArchiveFixtures.archive!(:mac, register_mac!(&1, actor)))
+    |> assert_seed_kept()
+  end
+
+  test "a seed another source has reported releases the address and stays live", %{
+    actor: actor
+  } do
+    actor
+    |> move_onto_seed!(%{discovery_sources: ["sweep", "mapper"]})
+    |> assert_seed_kept()
+  end
+
+  test "a seed with an alias of another address releases the address and stays live", %{
+    actor: actor
+  } do
+    actor
+    |> move_onto_seed!(%{}, &detect_alias!(&1, unique_test_ip(), actor))
+    |> assert_seed_kept()
   end
 
   test "pre-resolves a batch with colliding strong identities without choosing an IP owner", %{
@@ -823,6 +844,109 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       "last_seen_time" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), offset, :second)),
       "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
     }
+  end
+
+  # The #4705 move: an Armis device synced at one address is synced again at the address of a
+  # sweep seed. `anchor` gives the seed whatever it has beyond the address before the move.
+  # Asserts the device took the address and the conflict was recorded, and returns the seed as
+  # the move left it, deleted or not, with the seed_released events the move emitted waiting in
+  # the mailbox.
+  defp move_onto_seed!(actor, seed_attrs \\ %{}, anchor \\ fn _seed -> :ok end) do
+    {old_ip, new_ip} = seed_ip_pair()
+    armis_id = "armis-4705-#{System.unique_integer([:positive])}"
+
+    assert :ok = SyncIngestor.ingest_updates([armis_update(armis_id, old_ip, 0)], actor: actor)
+    device_uid = device_uid_for_armis!(armis_id, actor)
+
+    seed =
+      create_device!(
+        actor,
+        nil,
+        new_ip,
+        Map.merge(
+          %{
+            uid: "sr:" <> Ecto.UUID.generate(),
+            discovery_sources: ["sweep"],
+            metadata: %{"identity_state" => "provisional", "identity_source" => "sweep_ip_seed"}
+          },
+          seed_attrs
+        )
+      )
+
+    anchor.(seed)
+
+    handler_id = "seed-released-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :inventory, :seed_released],
+        &__MODULE__.forward_seed_released/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert :ok = SyncIngestor.ingest_updates([armis_update(armis_id, new_ip, 60)], actor: actor)
+
+    assert device_uid_for_armis!(armis_id, actor) == device_uid
+    {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+    assert device.ip == new_ip
+
+    decisions =
+      IdentityDecision
+      |> Ash.Query.filter(decision_kind == :ip_conflict and subject == ^new_ip)
+      |> Ash.read!(actor: actor)
+
+    assert Enum.any?(decisions, &(Enum.sort(&1.device_uids) == Enum.sort([device_uid, seed.uid])))
+
+    {:ok, seed} = Device.get_by_uid(seed.uid, true, actor: actor)
+    assert seed.ip == nil
+    seed
+  end
+
+  # A single-batch ingest runs in its caller, so only this test's own events are forwarded.
+  @doc false
+  def forward_seed_released(_event, measurements, metadata, test_pid) do
+    if self() == test_pid, do: send(test_pid, {:seed_released, measurements, metadata})
+  end
+
+  defp assert_seed_kept(seed) do
+    assert is_nil(seed.deleted_at)
+    assert is_nil(seed.deleted_reason)
+    refute_received {:seed_released, _measurements, _metadata}
+  end
+
+  defp register_mac!(device, actor) do
+    mac = String.replace(unique_universal_mac(), ":", "")
+
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:upsert, %{
+        device_id: device.uid,
+        identifier_type: :mac,
+        identifier_value: mac,
+        partition: "default",
+        confidence: :strong,
+        source: "test"
+      })
+      |> Ash.create(actor: actor)
+
+    mac
+  end
+
+  defp detect_alias!(device, ip, actor) do
+    {:ok, _alias_state} =
+      DeviceAliasState.create_detected(
+        %{
+          device_id: device.uid,
+          partition: "default",
+          alias_type: :ip,
+          alias_value: ip,
+          metadata: %{}
+        },
+        actor: actor
+      )
   end
 
   defp device_uid_for_armis!(armis_id, actor) do

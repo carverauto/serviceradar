@@ -632,9 +632,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:zone, partition)
       |> compact_attrs()
 
-    # DB connection's search_path determines the schema
+    # DB connection's search_path determines the schema. The check-in is an
+    # identity-bearing observation (DeviceWrites.observed_after?/2), which
+    # :create does not accept from its other callers.
     Device
     |> Ash.Changeset.for_create(:create, create_attrs)
+    |> Ash.Changeset.force_change_attribute(:identity_observed_at, now)
     |> Ash.create(actor: actor)
     |> case do
       {:ok, _device} ->
@@ -840,7 +843,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     source_ip = update_attrs.ip
 
     fn ->
-      DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [{holder.uid, source_ip}])
+      # A stale release: an anchorless sweep seed that releases its only address
+      # is soft-deleted as seed_released in this transaction.
+      DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [], [{holder.uid, source_ip}])
 
       device
       |> Ash.Changeset.for_update(action, update_attrs)
@@ -1001,18 +1006,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp normalize_hostname(_), do: nil
 
   # Whether a check-in observed at the holder's address `now` takes it. The address is
-  # evidence and follows the newer observation (#4639), with one exception: a holder
-  # bound to a different agent that is still live keeps it. Two live agents behind one
-  # NAT address would otherwise move it between their devices on every reconnect; it
-  # stays with the device that has it and neither device's identity changes. A different
-  # agent that is gone -- retired, or not heard from within the live window -- is no
-  # evidence the address is still its host's, and releases it like any stale holder.
+  # evidence and follows the newer identity-bearing observation
+  # (DeviceWrites.observed_after?/2, which compares `identity_observed_at`: a holder with
+  # none is older, and a sweep that answers at its address never makes it newer), with
+  # one exception: a holder bound to a different agent that is still live keeps it. Two
+  # live agents behind one NAT address would otherwise move it between their devices on
+  # every reconnect; it stays with the device that has it and neither device's identity
+  # changes. A different agent that is gone -- retired, or not heard from within the live
+  # window -- is no evidence the address is still its host's, and releases it like any
+  # stale holder.
   defp address_claim(%Device{} = holder, agent_id, now, actor) do
     cond do
       different_agent?(holder, agent_id) and live_agent?(holder.agent_id, actor) ->
         {:keep, :held_by_live_agent}
 
-      DeviceWrites.observed_after?(%{last_seen_time: now}, holder) ->
+      DeviceWrites.observed_after?(%{identity_observed_at: now}, holder) ->
         :release
 
       true ->
@@ -1081,7 +1089,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         is_managed: true,
         is_trusted: true,
         discovery_sources: new_sources,
-        last_seen_time: now
+        last_seen_time: now,
+        identity_observed_at: now
       }
       |> maybe_put(:hostname, hostname)
       |> maybe_put(:ip, source_ip)
