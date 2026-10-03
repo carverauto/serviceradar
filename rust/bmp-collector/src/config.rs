@@ -9,6 +9,18 @@ pub struct Config {
     pub read_buffer_bytes: usize,
     #[serde(default = "default_max_frame_size_bytes")]
     pub max_frame_size_bytes: usize,
+    #[serde(default = "default_max_connections")]
+    pub max_connections: usize,
+    #[serde(default = "default_read_timeout_secs")]
+    pub read_timeout_secs: u64,
+    #[serde(default = "default_metrics_addr")]
+    pub metrics_addr: String,
+    #[serde(default = "default_publish_messages_per_second")]
+    pub publish_messages_per_second: u64,
+    #[serde(default = "default_publish_bytes_per_second")]
+    pub publish_bytes_per_second: u64,
+    #[serde(default = "default_stream_discard_policy")]
+    pub stream_discard_policy: async_nats::jetstream::stream::DiscardPolicy,
     pub nats_url: String,
     #[serde(default)]
     pub nats_domain: Option<String>,
@@ -102,6 +114,21 @@ impl Config {
         if self.max_frame_size_bytes < 6 {
             anyhow::bail!("max_frame_size_bytes must be >= 6");
         }
+        if self.max_connections == 0 || self.max_connections > tokio::sync::Semaphore::MAX_PERMITS {
+            anyhow::bail!("max_connections must be a supported positive semaphore capacity");
+        }
+        if self.read_timeout_secs == 0 || self.read_timeout_secs > 86_400 {
+            anyhow::bail!("read_timeout_secs must be in 1..=86400");
+        }
+        if self.metrics_addr.parse::<SocketAddr>().is_err() {
+            anyhow::bail!("metrics_addr must be a valid socket address");
+        }
+        if self.publish_messages_per_second == 0
+            || self.publish_bytes_per_second == 0
+            || self.publish_timeout_ms == 0
+        {
+            anyhow::bail!("publish budgets and timeout must be positive");
+        }
         if self.nats_url.trim().is_empty() {
             anyhow::bail!("nats_url is required");
         }
@@ -164,6 +191,25 @@ where
     }
 }
 
+fn default_max_connections() -> usize {
+    16
+}
+fn default_read_timeout_secs() -> u64 {
+    30
+}
+fn default_metrics_addr() -> String {
+    "0.0.0.0:9092".to_string()
+}
+fn default_publish_messages_per_second() -> u64 {
+    1000
+}
+fn default_publish_bytes_per_second() -> u64 {
+    4 * 1024 * 1024
+}
+fn default_stream_discard_policy() -> async_nats::jetstream::stream::DiscardPolicy {
+    async_nats::jetstream::stream::DiscardPolicy::New
+}
+
 fn default_listen_addr() -> String {
     "0.0.0.0:11019".to_string()
 }
@@ -224,6 +270,40 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         Config::from_json_with_env(json, |name| vars.get(name).cloned())
+    }
+
+    #[test]
+    fn admission_defaults_and_invalid_limits_are_validated_at_load() {
+        let cfg = load(&json_with_stream(None, None), &[]).unwrap();
+        assert_eq!(cfg.max_connections, 16);
+        assert_eq!(cfg.read_timeout_secs, 30);
+        assert_eq!(
+            cfg.stream_discard_policy,
+            async_nats::jetstream::stream::DiscardPolicy::New
+        );
+        for field in [
+            "max_connections",
+            "read_timeout_secs",
+            "publish_messages_per_second",
+            "publish_bytes_per_second",
+            "publish_timeout_ms",
+        ] {
+            let mut value = serde_json::json!({"nats_url": "nats://nats.example.com:4222"});
+            value[field] = 0.into();
+            assert!(
+                load(&value.to_string(), &[]).is_err(),
+                "{field} accepted zero"
+            );
+        }
+        let invalid = serde_json::json!({"nats_url": "nats://nats.example.com:4222", "read_timeout_secs": 86401});
+        assert!(load(&invalid.to_string(), &[]).is_err());
+        let explicit = serde_json::json!({"nats_url": "nats://nats.example.com:4222", "stream_discard_policy": "old"});
+        assert_eq!(
+            load(&explicit.to_string(), &[])
+                .unwrap()
+                .stream_discard_policy,
+            async_nats::jetstream::stream::DiscardPolicy::Old
+        );
     }
 
     /// Environment, then JSON, then the compiled default, for each field on its own.
