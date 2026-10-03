@@ -414,40 +414,51 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   end
 
   # Same rule as verify_relation_endpoints/2: every active relation's source and
-  # target must be an active position in the same layout.
+  # target must be an active position in the same layout. The rows were just
+  # loaded in this transaction, so planner statistics still describe an empty
+  # table and a nested loop does not finish inside @staging_timeout. Hash the
+  # probe instead. work_mem is a cap for this transaction, not a reservation.
   defp verify_staged_endpoints(version) do
-    case Repo.query(
-           """
-           SELECT EXISTS (
-             SELECT 1
-             FROM platform.topology_world_relations r
-             WHERE r.layout_version = $1::uuid
-               AND r.active
-               AND NOT EXISTS (
-                 SELECT 1 FROM platform.topology_world_positions p
-                 WHERE p.layout_version = r.layout_version
-                   AND p.device_id = r.source_id
+    with {:ok, _} <-
+           Repo.query(
+             """
+             SELECT set_config('enable_nestloop', 'off', true),
+                    set_config('work_mem', '256MB', true)
+             """,
+             [],
+             timeout: @staging_timeout
+           ) do
+      case Repo.query(
+             """
+             SELECT EXISTS (
+               SELECT 1
+               FROM (
+                 SELECT r.source_id AS device_id
+                 FROM platform.topology_world_relations r
+                 WHERE r.layout_version = $1::uuid
+                   AND r.active
+                 UNION ALL
+                 SELECT r.target_id
+                 FROM platform.topology_world_relations r
+                 WHERE r.layout_version = $1::uuid
+                   AND r.active
+               ) AS endpoint
+               WHERE NOT EXISTS (
+                 SELECT 1
+                 FROM platform.topology_world_positions p
+                 WHERE p.layout_version = $1::uuid
+                   AND p.device_id = endpoint.device_id
                    AND p.active
                )
-             UNION ALL
-             SELECT 1
-             FROM platform.topology_world_relations r
-             WHERE r.layout_version = $1::uuid
-               AND r.active
-               AND NOT EXISTS (
-                 SELECT 1 FROM platform.topology_world_positions p
-                 WHERE p.layout_version = r.layout_version
-                   AND p.device_id = r.target_id
-                   AND p.active
-               )
-           )
-           """,
-           [Ecto.UUID.dump!(version)],
-           timeout: @staging_timeout
-         ) do
-      {:ok, %{rows: [[false]]}} -> :ok
-      {:ok, %{rows: [[true]]}} -> reject(:invalid_relation_endpoint)
-      {:error, _reason} = error -> error
+             )
+             """,
+             [Ecto.UUID.dump!(version)],
+             timeout: @staging_timeout
+           ) do
+        {:ok, %{rows: [[false]]}} -> :ok
+        {:ok, %{rows: [[true]]}} -> reject(:invalid_relation_endpoint)
+        {:error, _reason} = error -> error
+      end
     end
   end
 
