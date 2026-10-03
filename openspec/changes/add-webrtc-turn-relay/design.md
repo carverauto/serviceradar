@@ -121,19 +121,32 @@ core-elx pods only.
 - **What the chart renders** (`turnServer.enabled`, default `false`):
   - A Deployment (1 replica by default; the TURN REST scheme is stateless,
     so more replicas behind the Service are fine).
-  - A Service of type `LoadBalancer` (default) or `NodePort`, exposing UDP
-    and TCP 3478, optional TLS 5349 (cert from cert-manager `Certificate`
-    or an existing TLS Secret), and a bounded relay range (default
-    49160-49200, at most 1000 ports).
-  - `externalAddress` (required when enabled) is advertised as the relay
-    address.
+  - Client-facing exposure (`turnServer.exposure`):
+    - `gateway` (default when Gateway API is enabled): listeners and routes on
+      the shared Envoy Gateway -- UDPRoute and TCPRoute for 3478 and a
+      passthrough TLSRoute for 5349. eturnal terminates TLS itself with a
+      cert-manager `Certificate` (or an existing TLS Secret) for the TURN
+      hostname.
+    - `service`: a `LoadBalancer` or `NodePort` Service on the same ports, for
+      installations without Gateway API.
+  - `externalHostname` (required when enabled) is the name browsers dial in
+    the `turn:`/`turns:` URLs.
+  - A bounded relay port range (default 49160-49200, at most 1000 ports) that
+    is reachable only in-cluster. The far end of every relayed connection is
+    core-elx's WebRTC peer, so eturnal advertises its pod address as the relay
+    address and the range is never published.
   - A ConfigMap.
-  - A NetworkPolicy permitting ingress on those ports.
-- **Peer deny list:** the server denies relaying to RFC 1918, loopback,
-  link-local, CGNAT (100.64.0.0/10), ULA, and the configured pod and
-  service CIDRs. The single exception is that core-elx pod traffic may
-  reach the relay ports from inside the cluster (an allow for the release's
-  core pod selector on the TURN NetworkPolicy, not a peer allow).
+  - A NetworkPolicy: client ports from the gateway (or the Service), relay
+    ports only from core-elx pods.
+- **Peer policy:** the server denies relaying to RFC 1918, loopback,
+  link-local, CGNAT (100.64.0.0/10), ULA, and the configured pod and service
+  CIDRs, with two explicit allows: the server's own relay addresses (so a
+  browser relay and a core-elx relay on the same server can reach each other)
+  and the release's core-elx pod addresses. Everything else in-cluster stays
+  denied.
+- **Behind the gateway:** eturnal sees Envoy's address as each client's
+  transport address. TURN allocations are keyed per 5-tuple, so this is
+  fine; server-reflexive candidates still come from the public STUN entry.
 - **ICE list:** when the chart TURN server is enabled with
   `static_secret`, the chart adds its `turn:`/`turns:` URLs (external
   address) to the browser ICE list. The core-elx peer gets the in-cluster
@@ -211,11 +224,28 @@ These feed existing metrics through JetStream per the telemetry rule.
 Rollback: set the backend to `none`. Viewers return to STUN-only plus the
 websocket fallback.
 
-## Open Questions
-- Demo backend choice and public exposure: which external address and
-  ports can the demo load balancer or firewall expose for a self-hosted
-  TURN server? Or should demo start on Cloudflare?
-- Should `forceRelay` default to `true` for remote desktop, which carries
-  more sensitive content than camera tiles?
-- Do we need TLS 5349 (TURNS over 443-style egress) on demo, or are UDP and
-  TCP 3478 enough for the expected viewer networks?
+## Resolved Questions
+Decided by the maintainer on 2026-10-03:
+- Demo exercises BOTH backends: the self-hosted eturnal component and the
+  `cloudflare` backend (selectable per environment; demo validates each).
+- Self-hosted exposure uses the existing shared Envoy Gateway
+  (`serviceradar-shared-gateway`), not a dedicated LoadBalancer. It already
+  carries demo UDPRoute (syslog) and TLSRoute (OTLP) listeners. The chart adds
+  listeners/routes for UDP 3478 (UDPRoute), TCP 3478 (TCPRoute) and TLS 5349
+  (TLSRoute, passthrough; eturnal terminates TLS with a cert-manager
+  certificate for the TURN hostname).
+- The relay port range is NOT exposed publicly. Every relayed connection's
+  far end is core's in-cluster ex_webrtc peer, so eturnal advertises its pod
+  address as the relay address and only in-cluster traffic reaches the relay
+  ports. A NetworkPolicy limits relay-port ingress to core pods.
+- Behind the gateway, eturnal sees Envoy's address as the client transport
+  address. That is acceptable for TURN allocations (keyed per 5-tuple); STUN
+  server-reflexive candidates keep coming from the public STUN entry, not from
+  eturnal.
+- TLS 5349 is enabled on demo so TURNS is tested alongside UDP/TCP 3478.
+- `forceRelay` defaults to `false` for camera relay and remote desktop; relay
+  candidates are a fallback an operator can force per feature once a backend
+  is configured.
+- Cloudflare backend needs a TURN key created in the account (key id + API
+  token) stored as a ServiceRadar infrastructure Secret, and
+  `rtc.live.cloudflare.com` in the demo egress ACL.
