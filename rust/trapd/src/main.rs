@@ -294,7 +294,7 @@ fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {
     for (oid, value) in pdu.varbinds.clone() {
         varbinds.push(Varbind {
             oid: format!("{oid}"),
-            value: format!("{value:?}"),
+            value: format_snmp_value(&value),
         });
     }
     let source = addr.to_string();
@@ -307,6 +307,42 @@ fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {
         community,
         body,
         varbinds,
+    }
+}
+
+/// Reader-backed values are lazy ASN.1 slices. Never recurse into their Debug
+/// implementation: a UDP varbind can nest readers to exhaust the stack or heap.
+fn format_snmp_value(value: &snmp2::Value<'_>) -> String {
+    use snmp2::Value;
+    let omitted = |label: &str, reader: &snmp2::AsnReader<'_>| {
+        format!("{label}: ({} bytes omitted)", reader.bytes_left())
+    };
+    match value {
+        Value::Boolean(v) => format!("BOOLEAN: {v}"),
+        Value::Integer(v) => format!("INTEGER: {v}"),
+        Value::OctetString(v) => format!("OCTET STRING: {}", String::from_utf8_lossy(v)),
+        Value::ObjectIdentifier(v) => format!("OBJECT IDENTIFIER: {v}"),
+        Value::Null => "NULL".to_string(),
+        Value::IpAddress(v) => format!("IP ADDRESS: {}.{}.{}.{}", v[0], v[1], v[2], v[3]),
+        Value::Counter32(v) => format!("COUNTER32: {v}"),
+        Value::Unsigned32(v) => format!("UNSIGNED32: {v}"),
+        Value::Timeticks(v) => format!("TIMETICKS: {v}"),
+        Value::Opaque(v) => format!("OPAQUE: {v:?}"),
+        Value::Counter64(v) => format!("COUNTER64: {v}"),
+        Value::EndOfMibView => "END OF MIB VIEW".to_string(),
+        Value::NoSuchObject => "NO SUCH OBJECT".to_string(),
+        Value::NoSuchInstance => "NO SUCH INSTANCE".to_string(),
+        Value::Sequence(v) => omitted("SEQUENCE", v),
+        Value::Set(v) => omitted("SET", v),
+        Value::Constructed(tag, v) => omitted(&format!("CONSTRUCTED-{tag}"), v),
+        Value::GetRequest(v) => omitted("SNMP GET REQUEST", v),
+        Value::GetNextRequest(v) => omitted("SNMP GET NEXT REQUEST", v),
+        Value::GetBulkRequest(v) => omitted("SNMP GET BULK REQUEST", v),
+        Value::Response(v) => omitted("SNMP RESPONSE", v),
+        Value::SetRequest(v) => omitted("SNMP SET REQUEST", v),
+        Value::InformRequest(v) => omitted("SNMP INFORM REQUEST", v),
+        Value::Trap(v) => omitted("SNMP TRAP", v),
+        Value::Report(v) => omitted("SNMP REPORT", v),
     }
 }
 
@@ -726,5 +762,109 @@ mod trap_body_tests {
             format_trap_body("10.0.0.8", &varbinds),
             "SNMP trap from 10.0.0.8"
         );
+    }
+}
+
+#[cfg(test)]
+mod value_format_tests {
+    use super::*;
+
+    fn ber(tag: u8, body: &[u8]) -> Vec<u8> {
+        let mut out = vec![tag];
+        if body.len() < 128 {
+            out.push(body.len() as u8);
+        } else {
+            out.push(0x82);
+            out.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        }
+        out.extend_from_slice(body);
+        out
+    }
+
+    // Entirely synthetic SNMPv2c response with a standard sysDescr OID.
+    fn message(value: &[u8]) -> Vec<u8> {
+        let mut varbind = ber(6, &[43, 6, 1, 2, 1, 1, 1, 0]);
+        varbind.extend_from_slice(value);
+        let varbinds = ber(0x30, &ber(0x30, &varbind));
+        let mut response = vec![2, 1, 1, 2, 1, 0, 2, 1, 0];
+        response.extend_from_slice(&varbinds);
+        let mut body = vec![2, 1, 1];
+        body.extend_from_slice(&ber(4, b"synthetic"));
+        body.extend_from_slice(&ber(0xa2, &response));
+        ber(0x30, &body)
+    }
+
+    #[test]
+    fn wire_values_preserve_leaves_and_omit_every_reader_backed_variant() {
+        // The pinned reader rejects BOOLEAN tags; protect its typed formatting
+        // without changing dependency parsing as part of this security fix.
+        assert_eq!(
+            format_snmp_value(&snmp2::Value::Boolean(true)),
+            "BOOLEAN: true"
+        );
+        let leaves: Vec<(u8, Vec<u8>, &str)> = vec![
+            (2, vec![42], "INTEGER: 42"),
+            (
+                4,
+                b"synthetic notice".to_vec(),
+                "OCTET STRING: synthetic notice",
+            ),
+            (6, vec![43, 6, 1, 2, 1], "OBJECT IDENTIFIER: 1.3.6.1.2.1"),
+            (5, vec![], "NULL"),
+            (0x40, vec![192, 0, 2, 3], "IP ADDRESS: 192.0.2.3"),
+            (0x41, vec![42], "COUNTER32: 42"),
+            (0x42, vec![42], "UNSIGNED32: 42"),
+            (0x43, vec![42], "TIMETICKS: 42"),
+            (0x44, vec![1, 2], "OPAQUE: [1, 2]"),
+            (0x46, vec![42], "COUNTER64: 42"),
+            (0x80, vec![], "NO SUCH OBJECT"),
+            (0x81, vec![], "NO SUCH INSTANCE"),
+            (0x82, vec![], "END OF MIB VIEW"),
+        ];
+        let source = "192.0.2.1:162".parse().unwrap();
+        for (tag, bytes, expected) in leaves {
+            let wire = message(&ber(tag, &bytes));
+            let pdu = snmp2::Pdu::from_bytes(&wire).unwrap();
+            let built = build_message(&pdu, source);
+            assert_eq!(
+                built.varbinds.len(),
+                1,
+                "synthetic tag {tag:#x} did not parse"
+            );
+            assert_eq!(built.varbinds[0].value, expected);
+            if tag == 4 {
+                assert_eq!(built.body, "SNMP trap from 192.0.2.1: synthetic notice");
+            }
+        }
+        for (tag, label) in [
+            (0x30, "SEQUENCE"),
+            (0x31, "SET"),
+            (0x60, "CONSTRUCTED-96"),
+            (0xa0, "SNMP GET REQUEST"),
+            (0xa1, "SNMP GET NEXT REQUEST"),
+            (0xa5, "SNMP GET BULK REQUEST"),
+            (0xa2, "SNMP RESPONSE"),
+            (0xa3, "SNMP SET REQUEST"),
+            (0xa6, "SNMP INFORM REQUEST"),
+            (0xa7, "SNMP TRAP"),
+            (0xa8, "SNMP REPORT"),
+        ] {
+            // Invalid child bytes prove the formatter never tries to parse children.
+            let wire = message(&ber(tag, &[0x30, 0x82, 255, 255]));
+            let pdu = snmp2::Pdu::from_bytes(&wire).unwrap();
+            assert_eq!(
+                build_message(&pdu, source).varbinds[0].value,
+                format!("{label}: (4 bytes omitted)")
+            );
+        }
+        let mut nested = ber(4, b"synthetic");
+        for _ in 0..4096 {
+            nested = ber(0x30, &nested);
+        }
+        let wire = message(&nested);
+        let pdu = snmp2::Pdu::from_bytes(&wire).unwrap();
+        let built = build_message(&pdu, source);
+        assert!(built.varbinds[0].value.len() < 64);
+        assert!(serde_json::to_vec(&built).unwrap().len() < 1024);
     }
 }
