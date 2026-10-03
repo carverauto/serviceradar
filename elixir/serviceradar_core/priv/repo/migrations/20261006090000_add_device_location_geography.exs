@@ -65,25 +65,6 @@ defmodule ServiceRadar.Repo.Migrations.AddDeviceLocationGeography do
     WHERE location IS NOT NULL;
     """
 
-    # Backfill any devices that already carry lat/lon in metadata.
-    execute """
-    UPDATE platform.ocsf_devices
-    SET location = CAST(ST_SetSRID(
-      ST_MakePoint(
-        CAST(metadata->>'longitude' AS double precision),
-        CAST(metadata->>'latitude' AS double precision)
-      ), 4326) AS geography)
-    WHERE
-      metadata->>'latitude' IS NOT NULL
-      AND metadata->>'longitude' IS NOT NULL
-      AND (metadata->>'latitude') ~ '^-?[0-9]+(\\.[0-9]+)?$'
-      AND (metadata->>'longitude') ~ '^-?[0-9]+(\\.[0-9]+)?$'
-      AND CAST(metadata->>'latitude' AS double precision) != 0
-      AND CAST(metadata->>'longitude' AS double precision) != 0
-      AND CAST(metadata->>'latitude' AS double precision) BETWEEN -90 AND 90
-      AND CAST(metadata->>'longitude' AS double precision) BETWEEN -180 AND 180
-      AND location IS NULL;
-    """
   end
 
   def down do
