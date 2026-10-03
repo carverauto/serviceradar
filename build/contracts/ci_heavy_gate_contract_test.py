@@ -520,6 +520,7 @@ def run_godview_gate(
     *,
     origin_reachable: bool = True,
     remote_tracking_ref: bool = False,
+    shallow_runner_clone: bool = False,
 ) -> tuple[int, str, tuple[str, ...]]:
     """Execute the real gate shell against a synthetic repository.
 
@@ -529,6 +530,10 @@ def run_godview_gate(
 
     `remote_tracking_ref` defaults to False because the workflow runner clones
     by SHA: refs/remotes/origin/staging is absent until the gate fetches it.
+
+    `shallow_runner_clone` reproduces an API-dispatched run: the runner fetches
+    only the feature commit at depth 1, and staging has moved past the fork, so
+    the fork point is outside the clone until the gate deepens it.
     """
     shell = godview_gate_shell(named_action("BazelCI"))
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -566,7 +571,18 @@ def run_godview_gate(
         git(work, "add", "--all")
         git(work, "commit", "--quiet", "-m", "feature")
 
-        if not remote_tracking_ref:
+        if shallow_runner_clone:
+            git(work, "push", "--quiet", "origin", "feature")
+            (origin / "README.md").write_text("staging moved on\n", encoding="utf-8")
+            git(origin, "commit", "--quiet", "-am", "staging after the fork")
+            runner = temp / "runner"
+            runner.mkdir()
+            git(runner, "init", "--quiet")
+            git(runner, "remote", "add", "origin", origin.as_uri())
+            git(runner, "fetch", "--quiet", "--depth=1", "origin", "feature")
+            git(runner, "checkout", "--quiet", "--force", "-B", "feature", "FETCH_HEAD")
+            work = runner
+        elif not remote_tracking_ref:
             git(work, "update-ref", "-d", "refs/remotes/origin/staging")
         if not origin_reachable:
             git(work, "remote", "remove", "origin")
@@ -1615,6 +1631,27 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.assertEqual(0, status, log)
                 self.assertEqual((), invocations)
                 self.assertIn("skipping acceptance", log)
+
+    def test_godview_gate_resolves_the_base_from_a_depth_one_runner_clone(self):
+        """An API-dispatched re-run clones at depth 1; the gate must still see the diff.
+
+        Without deepening, merge-base finds nothing and every re-run of an
+        unrelated PR falls open into the browser suite.
+        """
+        for changed, expected in (
+            (("rust/srql/src/main.rs",), ()),
+            (
+                ("elixir/web-ng/assets/js/lib/god_view/topology_overview_projection.js",),
+                (self.acceptance_invocation,),
+            ),
+        ):
+            with self.subTest(changed=changed):
+                status, log, invocations = run_godview_gate(
+                    changed, shallow_runner_clone=True
+                )
+                self.assertEqual(0, status, log)
+                self.assertEqual(expected, invocations, log)
+                self.assertNotIn("fail-open", log)
 
     def test_godview_gate_fails_open_when_the_base_cannot_be_resolved(self):
         """A gate that cannot see the diff runs, never skips."""
