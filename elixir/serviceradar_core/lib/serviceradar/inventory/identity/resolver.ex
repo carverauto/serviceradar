@@ -155,6 +155,15 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
           {:ok, device_id} when is_binary(device_id) and device_id != "" ->
             {:ok, device_id}
 
+          # An address lookup that could not be answered is not "nobody holds this address".
+          # Minting here would put a second device on an address another device holds.
+          {:error, reason} ->
+            Logger.warning(
+              "Identity resolution refused: address lookup failed: #{inspect(reason)}"
+            )
+
+            {:error, {:identifier_lookup_failed, reason}}
+
           _ ->
             {:ok, follow_canonical_device_id(Ids.generate_deterministic_device_id(ids), actor)}
         end
@@ -438,6 +447,9 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
         {:ok, device_id} when is_binary(device_id) and device_id != "" ->
           {:ok, device_id}
 
+        {:error, _} = error ->
+          error
+
         _ ->
           do_lookup_by_ip(ip, partition, actor)
       end
@@ -461,7 +473,7 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   rescue
     e ->
       Logger.warning("Failed to lookup device by IP: #{inspect(e)}")
-      {:ok, nil}
+      {:error, e}
   end
 
   @doc """
@@ -510,7 +522,7 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   rescue
     e ->
       Logger.warning("Failed to lookup device by alias IP: #{inspect(e)}")
-      {:ok, nil}
+      {:error, e}
   end
 
   defp lookup_detected_alias_device_id(ip, partition, query_opts) do
@@ -529,7 +541,7 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   rescue
     e ->
       Logger.warning("Failed to lookup detected alias for IP: #{inspect(e)}")
-      {:ok, nil}
+      {:error, e}
   end
 
   def maybe_filter_alias_partition(query, nil), do: query

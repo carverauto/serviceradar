@@ -152,26 +152,46 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
     end
   end
 
-  # Bulk lookup devices by IP
-  # DB connection's search_path determines the schema
+  # Bulk lookup devices by IP.
+  # DB connection's search_path determines the schema.
+  #
+  # A failure becomes an empty map, matching `bulk_lookup_identifiers/1`. A caller that must
+  # not mint a device for an address the store could not be asked about uses `lookup_ips_strict/1`.
   def bulk_lookup_by_ip([]), do: %{}
 
   def bulk_lookup_by_ip(updates) do
-    ips = extract_ips(updates)
+    case lookup_ips_strict(updates) do
+      {:ok, mappings} ->
+        mappings
 
-    case ips do
-      [] ->
+      {:error, e} ->
+        Logger.warning("Bulk IP lookup failed: #{inspect(e)}")
         %{}
+    end
+  end
 
-      _ ->
-        alias_map = lookup_alias_device_ids_by_ip(ips)
-        direct_map = lookup_devices_by_ip(ips, alias_map)
-        Map.merge(direct_map, alias_map)
+  @doc """
+  Holders of the updates' addresses, or `{:error, reason}` when the read fails.
+
+  `bulk_lookup_by_ip/1` turns that failure into an empty map. Resolving a batch against the
+  empty map mints a device for every address-only update, including addresses another device
+  already holds.
+  """
+  @spec lookup_ips_strict([map()]) :: {:ok, %{String.t() => String.t()}} | {:error, term()}
+  def lookup_ips_strict([]), do: {:ok, %{}}
+
+  def lookup_ips_strict(updates) do
+    case extract_ips(updates) do
+      [] ->
+        {:ok, %{}}
+
+      ips ->
+        with {:ok, alias_map} <- lookup_alias_device_ids_by_ip_strict(ips) do
+          {:ok, Map.merge(lookup_devices_by_ip(ips, alias_map), alias_map)}
+        end
     end
   rescue
-    e ->
-      Logger.warning("Bulk IP lookup failed: #{inspect(e)}")
-      %{}
+    e -> {:error, e}
   end
 
   defp extract_ips(updates) do
@@ -203,9 +223,20 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
   end
 
   def lookup_alias_device_ids_by_ip(ips) do
+    case lookup_alias_device_ids_by_ip_strict(ips) do
+      {:ok, mappings} ->
+        mappings
+
+      {:error, e} ->
+        Logger.warning("Bulk IP alias lookup failed: #{inspect(e)}")
+        %{}
+    end
+  end
+
+  defp lookup_alias_device_ids_by_ip_strict(ips) do
     case Enum.filter(ips, &AliasPolicy.valid_alias_ip?/1) do
       [] ->
-        %{}
+        {:ok, %{}}
 
       ips ->
         query =
@@ -216,14 +247,13 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
             select: {a.alias_value, a.device_id}
           )
 
-        query
-        |> Repo.all()
-        |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
-        |> Map.new()
+        {:ok,
+         query
+         |> Repo.all()
+         |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
+         |> Map.new()}
     end
   rescue
-    e ->
-      Logger.warning("Bulk IP alias lookup failed: #{inspect(e)}")
-      %{}
+    e -> {:error, e}
   end
 end
