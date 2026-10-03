@@ -146,6 +146,51 @@ SELECT 'device-delta',
     '{}'::jsonb
 FROM base;
 
+-- A live record marked source_retired: every source id it held has retired, and it
+-- waits out the grace period. Device queries hide it unless asked (include_retired:true
+-- or a source_retired: filter), so the exact device counts asserted over the four
+-- records above hold only while that default does. It is active, available, seen
+-- within the hour and untagged, so a query that stopped hiding it would also grow
+-- time:last_1h and every "Unknown" tag bucket.
+INSERT INTO public.ocsf_devices (
+        uid,
+        type_id,
+        type,
+        name,
+        hostname,
+        ip,
+        mac,
+        first_seen_time,
+        last_seen_time,
+        created_time,
+        modified_time,
+        discovery_sources,
+        is_available,
+        is_active,
+        metadata,
+        tags,
+        source_retired_at
+    )
+VALUES (
+    'device-retired',
+    12,  -- Router
+    'Router',
+    'Retired Source Router',
+    'retired-router',
+    '192.0.2.77',
+    '00:00:5e:00:53:77',
+    NOW() - INTERVAL '10 days',
+    NOW() - INTERVAL '45 minutes',
+    NOW() - INTERVAL '10 days',
+    NOW() - INTERVAL '45 minutes',
+    ARRAY ['armis','sweep'],
+    TRUE,
+    TRUE,
+    '{"identity_state":"source_retired"}'::jsonb,
+    '{}'::jsonb,
+    NOW() - INTERVAL '1 day'
+);
+
 WITH base AS (
     SELECT NOW() AS now_ts
 )
