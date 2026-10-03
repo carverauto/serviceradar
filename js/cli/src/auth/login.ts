@@ -161,6 +161,7 @@ async function runDeviceCodeFlow(instance: string, options: Record<string, any>)
       }
       if (body.error === "access_denied") throw new Error("device login was denied")
       if (body.error === "expired_token") throw new Error("device code expired before login completed")
+      if (body.error === "invalid_scope") throw new Error(invalidScopeMessage(instance, requestedScope(options.scope), typeof options.scope === "string" && options.scope.trim() !== ""))
       throw new Error(`token poll failed: ${body.error}${body.error_description ? ` — ${body.error_description}` : ""}`)
     }
 
@@ -279,7 +280,14 @@ async function runWebPkceFlow(instance: string, options: Record<string, any>): P
     throw new Error(pkceUnsupportedMessage(instance, "/api/v1/cli/auth/token"))
   }
   if (!tokenResponse.ok) {
-    throw new Error(`PKCE token exchange failed: HTTP ${tokenResponse.status}`)
+    const failure = await tokenResponse.json().catch(() => null)
+    if (failure?.error === "invalid_scope") {
+      throw new Error(invalidScopeMessage(instance, requestedScope(options.scope), typeof options.scope === "string" && options.scope.trim() !== ""))
+    }
+    const detail = typeof failure?.error === "string"
+      ? ` ${failure.error}${typeof failure.error_description === "string" ? ` — ${failure.error_description}` : ""}`
+      : ""
+    throw new Error(`PKCE token exchange failed: HTTP ${tokenResponse.status}${detail}`)
   }
 
   const tokenPayload = await tokenResponse.json()
