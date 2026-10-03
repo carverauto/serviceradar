@@ -314,16 +314,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                                 timezone={@current_scope.user.timezone || "Etc/UTC"}
                                 style={:compact}
                                 fallback="-"
-                              />
-                              · last success
+                              /> · last success
                               <.user_time
                                 id={"settings-threat-intel-sync-status-#{status.id}-last-success-at"}
                                 value={status.last_success_at}
                                 timezone={@current_scope.user.timezone || "Etc/UTC"}
                                 style={:compact}
                                 fallback="never"
-                              />
-                              · last failure
+                              /> · last failure
                               <.user_time
                                 id={"settings-threat-intel-sync-status-#{status.id}-last-failure-at"}
                                 value={status.last_failure_at}
@@ -337,7 +335,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                             </div>
                           </div>
                           <div class="flex flex-wrap items-center gap-1">
-                            <.ui_badge :if={stale_feed?(status, @otx_settings)} size="xs" variant="warning">
+                            <.ui_badge
+                              :if={stale_feed?(status, @otx_settings)}
+                              size="xs"
+                              variant="warning"
+                            >
                               Stale
                             </.ui_badge>
                             <.ui_badge size="xs" variant={status_badge_variant(status.last_status)}>
@@ -1406,8 +1408,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     end
   end
 
-  defp core_worker_mode?(%NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker"}),
-    do: true
+  defp core_worker_mode?(%NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker"}), do: true
 
   defp core_worker_mode?(_settings), do: false
 
@@ -1415,15 +1416,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     ThreatIntelOTXSyncWorker.stale?(status, DateTime.utc_now(), freshness_interval(settings))
   end
 
-  defp freshness_interval(%NetflowSettings{otx_sync_interval_seconds: seconds})
-       when is_integer(seconds) and seconds > 0,
-       do: seconds
+  defp freshness_interval(%NetflowSettings{otx_sync_interval_seconds: seconds}) when is_integer(seconds) and seconds > 0,
+    do: seconds
 
   defp freshness_interval(_settings), do: 86_400
 
-  defp cursor_modified_since(%{cursor: %{"modified_since" => value}})
-       when is_binary(value) and value != "",
-       do: value
+  defp cursor_modified_since(%{cursor: %{"modified_since" => value}}) when is_binary(value) and value != "", do: value
 
   defp cursor_modified_since(_status), do: nil
 

@@ -301,7 +301,7 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
 
   defp record_failure(reason) do
     actor = SystemActor.system(:threat_intel_otx_sync_worker)
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     existing = latest_status(actor)
 
     attrs = %{

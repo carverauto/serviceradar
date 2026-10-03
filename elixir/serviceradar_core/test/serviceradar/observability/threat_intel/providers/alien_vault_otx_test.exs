@@ -220,7 +220,11 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTXTest do
   end
 
   test "a feed with no successful sync is stale" do
-    assert ThreatIntelOTXSyncWorker.stale?(%{last_success_at: nil}, ~U[2026-07-16 00:00:00Z], 3_600)
+    assert ThreatIntelOTXSyncWorker.stale?(
+             %{last_success_at: nil},
+             ~U[2026-07-16 00:00:00Z],
+             3_600
+           )
   end
 
   test "a success inside two days is fresh and an older success is stale" do
