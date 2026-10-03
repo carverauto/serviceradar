@@ -503,7 +503,10 @@ webNg:
     default: 1
     alerts: 1
     serviceChecks: 1
-    notifications: 1
+    # Notification dispatch publishes the notifications.* firehose, which only
+    # core may publish (web-ng subscribes). Keep this 0 so DispatchWorker jobs
+    # run on core under core's NATS identity.
+    notifications: 0
     onboarding: 1
     events: 1
     sweeps: 1

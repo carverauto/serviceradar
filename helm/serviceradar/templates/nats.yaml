@@ -190,6 +190,13 @@ spec:
                       "\$JS.FC.OBJ_{{ $pluginBucket }}.>",
                       "\$O.{{ $fieldSurveyBucket }}.>",
                       "\$JS.FC.OBJ_{{ $fieldSurveyBucket }}.>",
+                      # Internal audit/onboarding logs and OCSF events that
+                      # core code running inside the web-ng release publishes
+                      # (AuditWriter from UI actions, ObanFailureEventReporter).
+                      # Without these the broker rejects the publish with a
+                      # Permissions Violation and DurablePublishWorker retries it.
+                      "logs.internal.>",
+                      "events.internal.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"

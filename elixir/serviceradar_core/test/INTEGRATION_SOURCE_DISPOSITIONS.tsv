@@ -591,6 +591,7 @@ test/serviceradar/monitoring/changes/enqueue_routing_request_test.exs	-	not_sele
 test/serviceradar/monitoring/poll_job_integration_test.exs	ServiceRadar.Monitoring.PollJobIntegrationTest	data_case	serial	application_env	Sets and restores :repo_enabled at test:19-26 before every case.
 test/serviceradar/nats/account_client_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/nats/agent_flow_collector_permissions_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/nats/broker_error_log_filter_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/nats/durable_publish_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/nats/jetstream_consumer_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/nats/jetstream_publish_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
