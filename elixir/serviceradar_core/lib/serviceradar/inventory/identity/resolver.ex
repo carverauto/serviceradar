@@ -332,8 +332,17 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     if Ids.has_strong_identifier?(ids) or Ids.mac_lookup_values(ids) != [] do
       case lookup_governed_matches(ids, actor, refuse?) do
         {:ok, first_matches, overridden} ->
-          {resolve_strong_matches(ids, first_matches, actor, preferred_device_id, refuse?),
-           overridden}
+          case resolve_strong_matches(ids, first_matches, actor, preferred_device_id, refuse?) do
+            {:error, reason} ->
+              Logger.warning(
+                "Identity resolution refused: strong identifier lookup failed: #{inspect(reason)}"
+              )
+
+              {{:error, {:identifier_lookup_failed, reason}}, []}
+
+            result ->
+              {result, overridden}
+          end
 
         {:error, reason} ->
           Logger.warning(
@@ -348,21 +357,25 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   end
 
   defp resolve_strong_matches(ids, first_matches, actor, preferred_device_id, refuse?) do
-    matches =
-      Enum.to_list(first_matches) ++
-        hardware_mac_owner_matches(ids, first_matches, actor, refuse?)
+    case hardware_mac_owner_matches(ids, first_matches, actor, refuse?) do
+      {:error, _reason} = error ->
+        error
 
-    case match_device_ids(matches) do
-      [] ->
-        {:ok, nil}
+      {:ok, owner_matches} ->
+        matches = Enum.to_list(first_matches) ++ owner_matches
 
-      [device_id] ->
-        {:ok, device_id}
+        case match_device_ids(matches) do
+          [] ->
+            {:ok, nil}
 
-      device_ids ->
-        canonical_id = select_canonical_device_id(preferred_device_id, matches, actor)
-        _ = MergeEngine.merge_conflicting_devices(canonical_id, device_ids, matches, actor)
-        {:ok, canonical_id}
+          [device_id] ->
+            {:ok, device_id}
+
+          device_ids ->
+            canonical_id = select_canonical_device_id(preferred_device_id, matches, actor)
+            _ = MergeEngine.merge_conflicting_devices(canonical_id, device_ids, matches, actor)
+            {:ok, canonical_id}
+        end
     end
   end
 
@@ -384,14 +397,19 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
       |> MapSet.delete(first_mac)
       |> Enum.sort()
 
-    values
-    |> lookup_mac_owners(Ids.ids_get_partition(ids), actor)
-    |> Enum.filter(fn {id_type, %{device_id: device_id}} ->
-      is_nil(refuse?) or refuse?.(id_type, device_id) == :accept
-    end)
+    case lookup_mac_owners(values, Ids.ids_get_partition(ids), actor) do
+      {:error, _reason} = error ->
+        error
+
+      {:ok, owner_matches} ->
+        {:ok,
+         Enum.filter(owner_matches, fn {id_type, %{device_id: device_id}} ->
+           is_nil(refuse?) or refuse?.(id_type, device_id) == :accept
+         end)}
+    end
   end
 
-  defp lookup_mac_owners([], _partition, _actor), do: []
+  defp lookup_mac_owners([], _partition, _actor), do: {:ok, []}
 
   defp lookup_mac_owners(values, partition, actor) do
     query_opts = if actor, do: [actor: actor], else: []
@@ -404,18 +422,19 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     |> Page.unwrap()
     |> case do
       {:ok, identifiers} ->
-        identifiers
-        |> Enum.map(&{:mac, %{value: &1.identifier_value, device_id: &1.device_id}})
-        |> Enum.sort_by(fn {:mac, %{value: value}} -> value end)
+        {:ok,
+         identifiers
+         |> Enum.map(&{:mac, %{value: &1.identifier_value, device_id: &1.device_id}})
+         |> Enum.sort_by(fn {:mac, %{value: value}} -> value end)}
 
       {:error, reason} ->
         Logger.warning("Failed to look up MAC owners: #{inspect(reason)}")
-        []
+        {:error, reason}
     end
   rescue
     e ->
       Logger.warning("Failed to look up MAC owners: #{inspect(e)}")
-      []
+      {:error, e}
   end
 
   defp match_device_ids(matches) do
