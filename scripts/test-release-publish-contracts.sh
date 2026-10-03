@@ -208,6 +208,43 @@ if (
   exit 1
 fi
 
+cat > "${metadata_repo}/helm/serviceradar/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: serviceradar
+version: 9.8.7
+appVersion: "9.8.7"
+EOF
+write_demo_argocd_source() {
+  cat > "${metadata_repo}/helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml" <<EOF
+helm:
+  parameters:
+  - name: global.imageTag
+    value: $1
+    forcestring: true
+  - name: image.name
+    value: registry.example.com/serviceradar/serviceradar-web-ng
+    forcestring: true
+EOF
+  git -C "${metadata_repo}" add helm/serviceradar
+  git -C "${metadata_repo}" commit -qm "demo source override $1"
+  git -C "${metadata_repo}" update-ref refs/tags/v9.8.7 HEAD
+}
+
+write_demo_argocd_source v9.8.7
+(
+  cd "${metadata_repo}"
+  "${validate_release_metadata}" v9.8.7 >/dev/null
+)
+
+write_demo_argocd_source v9.8.6
+if (
+  cd "${metadata_repo}"
+  "${validate_release_metadata}" v9.8.7 >/dev/null 2>&1
+); then
+  echo "release metadata validator accepted a demo image tag from another release" >&2
+  exit 1
+fi
+
 fake_helm="${tmp_dir}/fake-helm.sh"
 cat > "${fake_helm}" <<'EOF'
 #!/usr/bin/env bash

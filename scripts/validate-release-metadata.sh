@@ -84,4 +84,21 @@ if [[ "${chart_app_version}" != "${expected_version}" ]]; then
   exit 1
 fi
 
+# The demo Argo CD source override pins the image tag every demo workload pulls,
+# and the release job pushes this commit to the demo release branch. A stale pin
+# ships the previous release's images under this release's chart, so the
+# migrations hook runs old code and web-ng waits forever for the new schema.
+demo_argocd_source="helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml"
+if git cat-file -e "${release_commit}:${demo_argocd_source}" 2>/dev/null; then
+  demo_image_tag="$(
+    read_release_file "${demo_argocd_source}" |
+      awk '/name: global.imageTag/ { found = 1; next } found && $1 == "value:" { print $2; exit }'
+  )"
+  demo_image_tag="$(strip_yaml_scalar_quotes "${demo_image_tag}")"
+  if [[ "${demo_image_tag}" != "${tag}" ]]; then
+    echo "${demo_argocd_source} global.imageTag (${demo_image_tag:-<missing>}) does not match release tag ${tag}" >&2
+    exit 1
+  fi
+fi
+
 printf 'tag=%s\nversion=%s\ncommit=%s\n' "${tag}" "${expected_version}" "${release_commit}"

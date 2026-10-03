@@ -224,7 +224,7 @@ git fetch origin \
 git show origin/demo/prod-release:helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml
 ```
 
-The source file must set `global.imageTag` to `v<version>`. Confirm the conservative automatic-sync policy is still active:
+The source file must set `global.imageTag` to `v<version>`. `scripts/validate-release-metadata.sh` fails the release when that pin is not the release tag (`docs/RELEASE_PUBLISHING.md`). Confirm the conservative automatic-sync policy is still active:
 
 ```bash
 kubectl get application -n argocd serviceradar-demo-prod \
