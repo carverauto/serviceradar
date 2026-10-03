@@ -94,6 +94,57 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWritesTest do
     end
   end
 
+  describe "observed_after?/2" do
+    @earlier ~U[2026-01-01 00:00:00.000000Z]
+    @later ~U[2026-01-01 00:00:01.000000Z]
+
+    test "a holder with no recorded observation is older than any incoming record" do
+      assert DeviceWrites.observed_after?(%{identity_observed_at: @earlier}, %{
+               identity_observed_at: nil
+             })
+
+      assert DeviceWrites.observed_after?(%{identity_observed_at: nil}, %{
+               identity_observed_at: nil
+             })
+
+      assert DeviceWrites.observed_after?(%{}, %{})
+    end
+
+    test "an incoming record with no recorded observation never displaces a holder that has one" do
+      refute DeviceWrites.observed_after?(%{identity_observed_at: nil}, %{
+               identity_observed_at: @earlier
+             })
+
+      refute DeviceWrites.observed_after?(%{}, %{identity_observed_at: @earlier})
+    end
+
+    test "compares the two observations, and a tie keeps the holder" do
+      assert DeviceWrites.observed_after?(%{identity_observed_at: @later}, %{
+               identity_observed_at: @earlier
+             })
+
+      refute DeviceWrites.observed_after?(%{identity_observed_at: @earlier}, %{
+               identity_observed_at: @later
+             })
+
+      refute DeviceWrites.observed_after?(%{identity_observed_at: @later}, %{
+               identity_observed_at: @later
+             })
+    end
+
+    test "ignores last_seen_time, which a sweep refresh advances" do
+      refute DeviceWrites.observed_after?(
+               %{identity_observed_at: @earlier, last_seen_time: @earlier},
+               %{identity_observed_at: @later, last_seen_time: @earlier}
+             )
+
+      assert DeviceWrites.observed_after?(
+               %{identity_observed_at: @later, last_seen_time: @earlier},
+               %{identity_observed_at: @earlier, last_seen_time: @later}
+             )
+    end
+  end
+
   describe "with_deadlock_retry/2" do
     test "retries on 40P01 and returns the eventual success" do
       {:ok, counter} = Agent.start_link(fn -> 0 end)

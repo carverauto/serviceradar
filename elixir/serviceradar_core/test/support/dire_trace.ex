@@ -594,7 +594,7 @@ defmodule ServiceRadar.DireTrace do
 
     %{
       "ipAt" => trace.ip_at,
-      "created" => Map.new(recs, fn r -> {r, r in Map.values(trace.names)} end),
+      "created" => Map.new(recs, fn r -> {r, created?(trace, r, by_uid)} end),
       "into" => Map.new(recs, fn r -> {r, into_of(trace, r, by_uid)} end),
       "owner" => owners(trace),
       "recIp" => Map.new(recs, fn r -> {r, rec_ip(trace, r, by_uid)} end),
@@ -610,6 +610,15 @@ defmodule ServiceRadar.DireTrace do
       Map.get(world, :agent_ids, []) ++
         world.src_ids ++ world.hw_ids ++ world.laa_ids ++ world.ips
 
+  # A named record exists. A seed soft-deleted as `seed_released` (D8) is written as a record
+  # that no longer exists, as the model writes it.
+  defp created?(trace, r, by_uid) do
+    case uid_of(trace, r) do
+      nil -> false
+      uid -> not match?(%Device{deleted_reason: "seed_released"}, Map.get(by_uid, uid))
+    end
+  end
+
   defp into_of(trace, r, by_uid) do
     case uid_of(trace, r) do
       nil ->
@@ -623,6 +632,9 @@ defmodule ServiceRadar.DireTrace do
           %Device{deleted_reason: "merged"} ->
             {:ok, [audit | _]} = MergeAudit.get_merged_to(uid, actor: trace.actor)
             name_of!(trace, audit.to_device_id)
+
+          %Device{deleted_reason: "seed_released"} ->
+            "NoRec"
 
           %Device{deleted_reason: reason} ->
             flunk("DIRE trace #{trace.name}: #{r} tombstoned for #{inspect(reason)}, not modeled")

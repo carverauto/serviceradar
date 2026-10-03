@@ -416,9 +416,11 @@ address is the only rule under which no shell is ever live, which is what `NoAdd
 
 The seed is tombstoned rather than merged into the claimant. A seed is named by its address, so
 redirecting its uid to the claimant would make that address resolve to the claimant for ever.
-That is address-as-identity, which D1 of the strong-identity goal forbids. If the address later
-answers a sweep with no holder, a seed comes back through the normal discovery path, which
-records the revival.
+That is address-as-identity, which D1 of the strong-identity goal forbids. The tombstone keeps
+the uid the address derives, and no sweep restores a `seed_released` tombstone, so while it
+remains a sweep of the address seeds nothing: the create is a duplicate and is skipped, as it
+was for the live shell. Once the purge removes the tombstone, a sweep seeds the address again
+through the normal discovery path.
 
 ### D9. Blocked components carry an evidence fingerprint
 

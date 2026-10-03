@@ -120,7 +120,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     merged_discovery_sources =
       merge_discovery_sources(existing.discovery_sources, incoming.discovery_sources)
 
-    %{
+    merged = %{
       existing
       | ip: prefer_non_empty(incoming.ip, existing.ip),
         mac: prefer_non_empty(incoming.mac, existing.mac),
@@ -144,6 +144,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         created_time: prefer_non_nil(existing.created_time, incoming.created_time),
         modified_time: prefer_non_nil(incoming.modified_time, existing.modified_time)
     }
+
+    # The later identity-bearing observation of the two
+    # (DeviceWrites.observed_after?/2).
+    case later(Map.get(existing, :identity_observed_at), Map.get(incoming, :identity_observed_at)) do
+      nil -> merged
+      at -> Map.put(merged, :identity_observed_at, at)
+    end
   end
 
   defp merge_discovery_sources(existing_sources, incoming_sources) do
@@ -157,6 +164,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
   defp prefer_non_empty(new_value, _old_value), do: new_value
   defp prefer_non_nil(nil, old_value), do: old_value
   defp prefer_non_nil(new_value, _old_value), do: new_value
+
+  defp later(nil, other), do: other
+  defp later(at, nil), do: at
+  defp later(at, other), do: if(DateTime.after?(other, at), do: other, else: at)
 
   defp prefer_positive_int(new_value, _old_value) when is_integer(new_value) and new_value > 0,
     do: new_value

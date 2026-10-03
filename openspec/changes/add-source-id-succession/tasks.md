@@ -39,7 +39,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       consult the archive; add the reconciler's `Succeed` and `Review` with D3's succession and
       D4's review decisions; add `addrFresh`, a per-record flag that a sighting which is not
       identity-bearing touched the record last, standing for the identity-observation
-      freshness the sweep never refreshes.
+      freshness the sweep never refreshes. PR 4 replaced it with `idSeen`: the record has an
+      `identity_observed_at`.
 - [x] 1.3 Add the properties `OneSourceRecordPerDevice` (at rest), `CurrentSourceIdResolves`,
       `SuccessionIsCorroborated`, `NoMergeOfCurrentSourceIds` and `NoAddresslessShell`, and the
       `NeverSucceeds` helper for the vacuity check.
@@ -200,13 +201,13 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 ## 8. Address claims and released seeds (D7, D8)
 
-- [ ] 8.1 Write `identity_observed_at` only from identity-bearing observations: a source sync
+- [x] 8.1 Write `identity_observed_at` only from identity-bearing observations: a source sync
       carrying a current source id, an agent check-in, a discovery poll of the device itself.
-- [ ] 8.2 `claim_address_from_holder/4`: a retired or `source_retired` holder yields; the
+- [x] 8.2 `claim_address_from_holder/4`: a retired or `source_retired` holder yields; the
       newer-observation rule compares `identity_observed_at`, with null counting as older.
-- [ ] 8.3 Soft-delete a qualifying released seed with `deleted_reason = "seed_released"` in the
+- [x] 8.3 Soft-delete a qualifying released seed with `deleted_reason = "seed_released"` in the
       transaction that releases its address; keep the `ip_conflict` decision.
-- [ ] 8.4 Replace the "stays live until expiry" comment in `sync/device_writes.ex` with the new
+- [x] 8.4 Replace the "stays live until expiry" comment in `sync/device_writes.ex` with the new
       rule.
 
 ## 9. Sweep restore and expiry (D12, D13, D14)
@@ -258,7 +259,9 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       traces that demonstrate it, regenerate the affected traces with `DIRE_TRACE_WRITE=1`,
       model-check them, and make the property must-pass. Done in PR 2 for
       `retired_source_id_vetoes`. PR 3 removes no switch, since D5 and D6 had none; it adds the
-      lifecycle trace `source_retired_returns` (see the design's revision paragraph).
+      lifecycle trace `source_retired_returns` (see the design's revision paragraph). Done in
+      PR 4 for `stale_holder_keeps_address` and `released_seed_stays_live`, which also adds
+      `resolution_vacuity_census_keeps_holder`.
 - [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`.
 
@@ -291,7 +294,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       revival audit row for every restore.
 - [x] 14.5 Reactivation and reissue, including a holder that now holds a current id and an
       update whose hostname fails D3's time guard.
-- [ ] 14.6 Address claims: a retired holder yields; a sweep refresh does not make a holder
+- [x] 14.6 Address claims: a retired holder yields; a sweep refresh does not make a holder
       newer; a released seed is tombstoned; a seed with an identifier row stays live.
 - [ ] 14.7 Sweep restore: an expired sweep-only device returns with an audit row; an
       operator-deleted sweep-only device stays deleted and unchanged; a `source_retired` or
@@ -306,6 +309,6 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.11 Extend the `add-hermetic-armis-dire-e2e` harness with the re-key scenarios.
 - [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
-      Done for PR 2 and PR 3.
+      Done for PR 2, PR 3 and PR 4.
 - [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run. Done for PR 2 and PR 3.
+      check not run. Done for PR 2, PR 3 and PR 4.
