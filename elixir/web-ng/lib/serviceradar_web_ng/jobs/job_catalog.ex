@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Oban.Router
   alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
+  alias ServiceRadarWebNG.Dashboards.PackageRetentionWorker, as: DashboardPackageRetentionWorker
 
   require Logger
 
@@ -361,6 +362,12 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
+  def trigger_job(%{source: :manual, worker: DashboardPackageRetentionWorker}) do
+    DashboardPackageRetentionWorker.enqueue_manual()
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
   def trigger_job(_job), do: {:error, :no_worker}
 
   @doc false
@@ -691,6 +698,23 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
         resource: nil,
         action: nil,
         last_run_at: get_last_run(@plugin_blob_retention_worker),
+        next_run_at: nil,
+        args_filter: %{"manual" => true},
+        integration_source_id: nil
+      },
+      %{
+        id: "manual:dashboard_package_retention",
+        name: "Dashboard package retention",
+        description:
+          "Manually queue cleanup of old dashboard package versions and their WASM blobs.",
+        source: :manual,
+        cron: "manual",
+        queue: :web_maintenance,
+        enabled: true,
+        worker: DashboardPackageRetentionWorker,
+        resource: nil,
+        action: nil,
+        last_run_at: get_last_run(DashboardPackageRetentionWorker),
         next_run_at: nil,
         args_filter: %{"manual" => true},
         integration_source_id: nil

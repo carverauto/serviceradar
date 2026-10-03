@@ -930,6 +930,39 @@ if object_store_retention_overrides != [] do
          Keyword.merge(object_store_retention_defaults, object_store_retention_overrides)
 end
 
+dashboard_pkg_retention_enabled =
+  to_bool.(System.get_env("DASHBOARD_PACKAGE_RETENTION_ENABLED")) || false
+
+dashboard_pkg_retention_cron =
+  System.get_env("DASHBOARD_PACKAGE_RETENTION_CRON", "0 4 * * *")
+
+dashboard_pkg_retention_overrides =
+  []
+  |> maybe_put_env.(
+    :enabled?,
+    System.get_env("DASHBOARD_PACKAGE_RETENTION_ENABLED"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :dry_run?,
+    System.get_env("DASHBOARD_PACKAGE_RETENTION_DRY_RUN"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :keep_versions,
+    System.get_env("DASHBOARD_PACKAGE_RETENTION_COUNT"),
+    to_int
+  )
+
+if dashboard_pkg_retention_overrides != [] do
+  config :serviceradar_web_ng,
+         :dashboard_package_retention,
+         Keyword.merge(
+           Application.get_env(:serviceradar_web_ng, :dashboard_package_retention, []),
+           dashboard_pkg_retention_overrides
+         )
+end
+
 plugin_verification_overrides =
   []
   |> maybe_put_env.(
@@ -1320,6 +1353,18 @@ if config_env() != :test do
         [
           {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker, args: %{"enabled" => true},
            queue: :web_maintenance}
+        ]
+    else
+      web_crontab
+    end
+
+  web_crontab =
+    if dashboard_pkg_retention_enabled do
+      web_crontab ++
+        [
+          {dashboard_pkg_retention_cron,
+           ServiceRadarWebNG.Dashboards.PackageRetentionWorker,
+           args: %{"enabled" => true}, queue: :web_maintenance}
         ]
     else
       web_crontab
