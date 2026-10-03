@@ -117,6 +117,9 @@ pub struct TemplateStoreConfig {
     /// caps history at 64. Validated at config load.
     #[serde(default = "default_kv_history")]
     pub kv_history: u8,
+    /// Shared bucket storage limit, including retained revisions.
+    #[serde(default = "default_kv_max_bytes")]
+    pub kv_max_bytes: i64,
     /// Optional TTL (seconds) for entries in the KV bucket. NATS will
     /// expire stale templates automatically. `0` disables TTL. Default 0.
     #[serde(default)]
@@ -127,6 +130,10 @@ pub struct TemplateStoreConfig {
     /// traffic — useful for multi-tenant or split-fault-domain setups.
     #[serde(default)]
     pub nats_url: Option<String>,
+}
+
+fn default_kv_max_bytes() -> i64 {
+    1024 * 1024 * 1024
 }
 
 fn default_kv_history() -> u8 {
@@ -456,6 +463,9 @@ impl Config {
             anyhow::bail!("at least one listener is required");
         }
         if let Some(ts) = &self.template_store {
+            if ts.kv_max_bytes <= 0 {
+                anyhow::bail!("template_store.kv_max_bytes must be > 0");
+            }
             if ts.kv_bucket.is_empty() {
                 anyhow::bail!("template_store.kv_bucket cannot be empty");
             }
@@ -1151,6 +1161,16 @@ mod tests {
         assert_eq!(ts.kv_bucket, "flow_templates");
         assert_eq!(ts.kv_history, 1);
         assert_eq!(ts.kv_ttl_secs, 0);
+        assert_eq!(ts.kv_max_bytes, 1024 * 1024 * 1024);
+        for limit in [-1, 0, 4096] {
+            let mut value: serde_json::Value = serde_json::from_str(json).unwrap();
+            value["template_store"]["kv_max_bytes"] = limit.into();
+            let result = Config::from_json_with_env(&value.to_string(), |_| None);
+            assert_eq!(result.is_ok(), limit > 0);
+            if let Ok(cfg) = result {
+                assert_eq!(cfg.template_store.unwrap().kv_max_bytes, limit);
+            }
+        }
     }
 
     #[test]

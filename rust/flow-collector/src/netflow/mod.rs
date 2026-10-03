@@ -5,13 +5,14 @@ use crate::flowpb::FlowMessage;
 use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
 use crate::sflow::SflowHandler;
-use converter::Converter;
+use converter::{Converter, SamplerRates};
 use log::{debug, info, warn};
+use netflow_parser::scoped_parser::{DEFAULT_MAX_SOURCES, ScopingInfo, extract_scoping_info};
 use netflow_parser::{
     AutoScopedParser, IpfixSourceKey, NetflowParserBuilder, ParserCacheInfo, PendingFlowsConfig,
     TemplateEvent, TemplateStore, V9SourceKey,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
@@ -95,7 +96,9 @@ fn make_template_event_callback(
 
 pub struct NetflowHandler {
     parser: Arc<Mutex<AutoScopedParser>>,
-    sampling_rates_by_exporter_sampler_id: Mutex<HashMap<(IpAddr, u64), u64>>,
+    sampling_rates_by_exporter_sampler_id: Mutex<SamplerRates>,
+    sources: Mutex<SourceAdmission>,
+    max_sources: usize,
     default_sampling_rate: u64,
     sampling_rate_overrides: HashMap<IpAddr, u64>,
     sflow_fallback: SflowHandler,
@@ -162,12 +165,39 @@ impl NetflowHandler {
 
         Self {
             parser,
-            sampling_rates_by_exporter_sampler_id: Mutex::new(HashMap::new()),
+            sampling_rates_by_exporter_sampler_id: Mutex::new(SamplerRates::default()),
+            sources: Mutex::new(SourceAdmission::default()),
+            max_sources: max_sources.unwrap_or(DEFAULT_MAX_SOURCES),
             default_sampling_rate: default_sampling_rate.unwrap_or(1).max(1),
             sampling_rate_overrides,
             sflow_fallback: SflowHandler::new(None, Arc::clone(&metrics)),
             metrics,
         }
+    }
+
+    fn admit_source(&self, parser: &mut AutoScopedParser, peer: SocketAddr, buf: &[u8]) {
+        let Some(source) = SourceId::from_datagram(peer, buf) else {
+            return;
+        };
+        let mut sources = self.sources.lock().unwrap();
+        let Some((removed, creator_owned)) = sources.admit(source, peer.ip(), self.max_sources)
+        else {
+            return;
+        };
+        // Pressure removes only the in-process parser. It must not
+        // masquerade as an exporter-requested shared withdrawal.
+        let retired = match removed {
+            SourceId::Ipfix(key) => parser.remove_ipfix_source(&key),
+            SourceId::V9(key) => parser.remove_v9_source(&key),
+            SourceId::Legacy(addr) => parser.remove_legacy_source(&addr),
+        };
+        drop(retired);
+        let counter = if creator_owned {
+            &self.metrics.source_creator_evictions
+        } else {
+            &self.metrics.source_global_evictions
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
     }
 
     fn fallback_sampling_rate(&self, peer: SocketAddr) -> u64 {
@@ -201,6 +231,8 @@ impl FlowHandler for NetflowHandler {
 
         let packets: Vec<_> = {
             let mut parser = self.parser.lock().unwrap();
+            self.admit_source(&mut parser, peer, buf);
+            let _store_budget = crate::template_store::DatagramBudget::begin();
             match parser.iter_packets_from_source(peer, buf) {
                 Ok(iter) => iter.collect(),
                 Err(e) => {
@@ -240,8 +272,14 @@ impl FlowHandler for NetflowHandler {
                 let fallback_sampling_rate = self.fallback_sampling_rate(peer);
                 let mut sampler_rates = self.sampling_rates_by_exporter_sampler_id.lock().unwrap();
 
-                Converter::new(packet, peer, receive_time_ns, fallback_sampling_rate)
-                    .convert_with_sampler_rates(&mut sampler_rates)
+                let before = sampler_rates.rejected_inserts;
+                let converted =
+                    Converter::new(packet, peer, receive_time_ns, fallback_sampling_rate)
+                        .convert_with_sampler_rates(&mut sampler_rates);
+                self.metrics
+                    .sampler_rate_rejections
+                    .fetch_add(sampler_rates.rejected_inserts - before, Ordering::Relaxed);
+                converted
             };
 
             let valid = filter_and_track_flows(flow_messages, peer, &self.metrics);
@@ -307,6 +345,85 @@ enum SourceId {
     Ipfix(IpfixSourceKey),
     V9(V9SourceKey),
     Legacy(SocketAddr),
+}
+
+impl SourceId {
+    fn from_datagram(addr: SocketAddr, bytes: &[u8]) -> Option<Self> {
+        match extract_scoping_info(bytes) {
+            ScopingInfo::IPFix {
+                observation_domain_id,
+            } => Some(Self::Ipfix(IpfixSourceKey {
+                addr,
+                observation_domain_id,
+            })),
+            ScopingInfo::V9 { source_id } => Some(Self::V9(V9SourceKey { addr, source_id })),
+            ScopingInfo::Legacy => Some(Self::Legacy(addr)),
+            _ => None,
+        }
+    }
+}
+
+/// Exact transport/domain identities stay in the parser. Pressure ownership
+/// groups by IP so changing source ports cannot evade creator preference.
+#[derive(Default)]
+struct SourceAdmission {
+    sequence: u128,
+    entries: HashMap<SourceId, (IpAddr, u128)>,
+    oldest: BTreeMap<u128, SourceId>,
+    by_creator: HashMap<IpAddr, BTreeMap<u128, SourceId>>,
+}
+
+impl SourceAdmission {
+    fn remove(&mut self, source: &SourceId) {
+        if let Some((creator, order)) = self.entries.remove(source) {
+            self.oldest.remove(&order);
+            let peers = self.by_creator.get_mut(&creator).expect("tracked creator");
+            peers.remove(&order);
+            if peers.is_empty() {
+                self.by_creator.remove(&creator);
+            }
+        }
+    }
+
+    fn admit(
+        &mut self,
+        source: SourceId,
+        creator: IpAddr,
+        limit: usize,
+    ) -> Option<(SourceId, bool)> {
+        let evicted = if !self.entries.contains_key(&source) && self.entries.len() >= limit {
+            let preferred = self
+                .by_creator
+                .get(&creator)
+                .and_then(|entries| entries.first_key_value());
+            let (victim, creator_owned) = if let Some((_, victim)) = preferred {
+                (victim.clone(), true)
+            } else {
+                (
+                    self.oldest
+                        .first_key_value()
+                        .expect("nonzero source limit")
+                        .1
+                        .clone(),
+                    false,
+                )
+            };
+            self.remove(&victim);
+            Some((victim, creator_owned))
+        } else {
+            None
+        };
+        self.remove(&source);
+        self.sequence += 1;
+        self.entries
+            .insert(source.clone(), (creator, self.sequence));
+        self.oldest.insert(self.sequence, source.clone());
+        self.by_creator
+            .entry(creator)
+            .or_default()
+            .insert(self.sequence, source);
+        evicted
+    }
 }
 
 /// Mutable state carried across ticker iterations.
@@ -416,52 +533,141 @@ mod tests {
     use super::*;
     use crate::metrics::ListenerMetrics;
 
-    /// Proves the configured `max_sources` value actually reaches
-    /// `AutoScopedParser::with_max_sources` through `NetflowHandler::new`,
-    /// not just that `ListenerConfig::Netflow.max_sources` deserializes
-    /// (config.rs already covers that half). `AutoScopedParser`'s default
-    /// cap is 10_000 (`netflow_parser::scoped_parser::DEFAULT_MAX_SOURCES`),
-    /// so if the constructor ever stopped threading `max_sources` through,
-    /// a second exporter would grow `source_count()` to 2 instead of
-    /// tripping LRU eviction back down to 1 -- this test would then fail.
+    // Synthetic NetFlow v9 bytes assembled from the wire specification.
+    fn v9_packet(domain: u32, template: Option<&[(u16, u16)]>, records: &[u8]) -> Vec<u8> {
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&9u16.to_be_bytes());
+        packet
+            .extend_from_slice(&u16::from(template.is_some() || !records.is_empty()).to_be_bytes());
+        for value in [1000u32, 1_893_456_000, 1, domain] {
+            packet.extend_from_slice(&value.to_be_bytes());
+        }
+        if let Some(fields) = template {
+            packet.extend_from_slice(&0u16.to_be_bytes());
+            packet.extend_from_slice(&(8u16 + 4 * fields.len() as u16).to_be_bytes());
+            packet.extend_from_slice(&256u16.to_be_bytes());
+            packet.extend_from_slice(&(fields.len() as u16).to_be_bytes());
+            for (kind, length) in fields {
+                packet.extend_from_slice(&kind.to_be_bytes());
+                packet.extend_from_slice(&length.to_be_bytes());
+            }
+        }
+        if !records.is_empty() {
+            packet.extend_from_slice(&256u16.to_be_bytes());
+            packet.extend_from_slice(&(4u16 + records.len() as u16).to_be_bytes());
+            packet.extend_from_slice(records);
+        }
+        packet
+    }
+
     #[test]
-    fn max_sources_config_reaches_the_parser_and_evicts_lru() {
+    fn source_churn_preserves_other_exporters_templates() {
         let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
         let handler = NetflowHandler::new(
-            /* max_templates */ 128,
-            /* pending_flows */ None,
-            /* default_sampling_rate */ None,
-            /* sampling_rate_overrides */ HashMap::new(),
-            /* max_sources */ Some(1),
-            /* template_store */ None,
+            128,
+            None,
+            None,
+            HashMap::new(),
+            Some(2),
+            None,
             Arc::clone(&metrics),
         );
-
-        // Minimal NetFlow v5 header: version=5, everything else zero. Enough
-        // for AutoScopedParser::extract_scoping_info to register a Legacy
-        // (v5/v7) source -- registration happens before the payload is
-        // actually decoded, so this doesn't need a fully valid v5 body.
-        let mut v5 = vec![0u8; 24];
-        v5[0] = 0x00;
-        v5[1] = 0x05;
-
-        let source_a: SocketAddr = "10.0.0.1:2055".parse().unwrap();
-        let source_b: SocketAddr = "10.0.0.2:2055".parse().unwrap();
-
-        handler.parse_datagram(&v5, v5.len(), source_a);
+        let legitimate: SocketAddr = "192.0.2.1:2055".parse().unwrap();
+        let noisy: SocketAddr = "198.51.100.1:2055".parse().unwrap();
+        let learned = v9_packet(1, Some(&[(1, 4)]), &111u32.to_be_bytes());
         assert_eq!(
-            handler.parser.lock().unwrap().source_count(),
-            1,
-            "first exporter should register"
+            handler.parse_datagram(&learned, learned.len(), legitimate)[0].bytes,
+            111
         );
-
-        // A distinct second exporter must evict the first rather than being
-        // allowed to grow the table past the configured cap.
-        handler.parse_datagram(&v5, v5.len(), source_b);
+        let noisy_template = v9_packet(10, Some(&[(1, 4)]), &222u32.to_be_bytes());
         assert_eq!(
-            handler.parser.lock().unwrap().source_count(),
+            handler.parse_datagram(&noisy_template, noisy_template.len(), noisy)[0].bytes,
+            222
+        );
+        // Changing both domain and port still belongs to the same creator IP.
+        for domain in 11..40 {
+            let peer = SocketAddr::new(noisy.ip(), 2055 + domain as u16);
+            let packet = v9_packet(domain, None, &[]);
+            handler.parse_datagram(&packet, packet.len(), peer);
+            assert_eq!(handler.parser.lock().unwrap().source_count(), 2);
+        }
+        let data = v9_packet(1, None, &333u32.to_be_bytes());
+        let decoded = handler.parse_datagram(&data, data.len(), legitimate);
+        assert_eq!(
+            decoded.len(),
             1,
-            "max_sources=1 did not reach AutoScopedParser: source table grew instead of evicting"
+            "unrelated exporter lost its learned template"
+        );
+        assert_eq!(decoded[0].bytes, 333);
+        assert_eq!(metrics.source_creator_evictions.load(Ordering::Relaxed), 29);
+        assert_eq!(metrics.source_global_evictions.load(Ordering::Relaxed), 0);
+        // A genuinely new creator still has a bounded global-LRU fallback.
+        let new_peer: SocketAddr = "203.0.113.1:2055".parse().unwrap();
+        handler.parse_datagram(&data, data.len(), new_peer);
+        assert_eq!(handler.parser.lock().unwrap().source_count(), 2);
+        assert_eq!(metrics.source_global_evictions.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn sampler_state_is_bounded_without_overriding_record_rates_or_existing_updates() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
+        let handler = NetflowHandler::new(
+            128,
+            None,
+            Some(7),
+            HashMap::new(),
+            Some(2),
+            None,
+            Arc::clone(&metrics),
+        );
+        let peer: SocketAddr = "192.0.2.1:2055".parse().unwrap();
+        let template = v9_packet(1, Some(&[(48, 4), (34, 4), (1, 4)]), &[]);
+        handler.parse_datagram(&template, template.len(), peer);
+        for batch in 0..64u32 {
+            let mut records = Vec::new();
+            for id in (batch * 1024 + 1)..=(batch + 1) * 1024 {
+                for value in [id, 17, 3] {
+                    records.extend_from_slice(&value.to_be_bytes());
+                }
+            }
+            let packet = v9_packet(1, None, &records);
+            let decoded = handler.parse_datagram(&packet, packet.len(), peer);
+            assert_eq!(decoded.len(), 1024);
+            assert!(decoded.iter().all(|flow| flow.sampling_rate == 17));
+        }
+        let lookup = |id: u32, rate: u32| {
+            let mut fields = Vec::new();
+            for value in [id, rate, 3] {
+                fields.extend_from_slice(&value.to_be_bytes());
+            }
+            let packet = v9_packet(1, None, &fields);
+            handler.parse_datagram(&packet, packet.len(), peer)[0].sampling_rate
+        };
+        assert_eq!(
+            lookup(65_537, 19),
+            19,
+            "record rate wins even when it cannot be cached"
+        );
+        assert_eq!(
+            lookup(65_537, 0),
+            7,
+            "unknown sampler uses configured fallback"
+        );
+        assert_eq!(
+            lookup(1, 31),
+            31,
+            "existing sampler updates still work at capacity"
+        );
+        assert_eq!(lookup(1, 0), 31, "later records reuse the updated rate");
+        assert_eq!(metrics.sampler_rate_rejections.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            handler
+                .sampling_rates_by_exporter_sampler_id
+                .lock()
+                .unwrap()
+                .entries
+                .len(),
+            65_536
         );
     }
 

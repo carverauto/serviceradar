@@ -27,11 +27,13 @@ use anyhow::{Context, Result};
 use async_nats::jetstream::{self, kv::Store};
 use log::warn;
 use netflow_parser::{TemplateKind, TemplateStore, TemplateStoreError, TemplateStoreKey};
+use std::cell::Cell;
 use std::io;
-use std::sync::Once;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender};
+use std::sync::{Mutex, Once};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc as tokio_mpsc;
 
 /// Hard bound on any single KV round-trip.
@@ -44,7 +46,71 @@ use tokio::sync::mpsc as tokio_mpsc;
 /// `Backend` error as a miss and carries on, and the failure is visible as
 /// `flow_collector_template_store_backend_errors_total`.
 const KV_OP_TIMEOUT: Duration = Duration::from_millis(500);
-const KV_REPLY_TIMEOUT: Duration = Duration::from_millis(600);
+const DATAGRAM_KV_TIMEOUT: Duration = Duration::from_millis(100);
+const DATAGRAM_KV_OPERATIONS: usize = 16;
+const GLOBAL_KV_OPERATIONS_PER_SECOND: usize = 128;
+const MAX_TEMPLATE_VALUE_BYTES: usize = 1024 * 1024;
+static BUDGET_REJECTIONS: AtomicU64 = AtomicU64::new(0);
+static MUTATION_FAILURES: AtomicU64 = AtomicU64::new(0);
+static BUCKET_BYTES: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy)]
+struct PacketBudget {
+    deadline: Instant,
+    remaining: usize,
+}
+
+thread_local! {
+    static PACKET_BUDGET: Cell<Option<PacketBudget>> = const { Cell::new(None) };
+}
+
+/// One shared allowance for all synchronous store calls made while parsing a packet.
+/// The parser also calls the store for implicit evictions and withdrawals.
+pub(crate) struct DatagramBudget(Option<PacketBudget>);
+
+impl DatagramBudget {
+    pub(crate) fn begin() -> Self {
+        Self(PACKET_BUDGET.replace(Some(PacketBudget {
+            deadline: Instant::now() + DATAGRAM_KV_TIMEOUT,
+            remaining: DATAGRAM_KV_OPERATIONS,
+        })))
+    }
+}
+
+impl Drop for DatagramBudget {
+    fn drop(&mut self) {
+        PACKET_BUDGET.set(self.0);
+    }
+}
+
+#[derive(Debug)]
+struct RateBudget {
+    since: Instant,
+    remaining: usize,
+}
+
+impl Default for RateBudget {
+    fn default() -> Self {
+        Self {
+            since: Instant::now(),
+            remaining: GLOBAL_KV_OPERATIONS_PER_SECOND,
+        }
+    }
+}
+
+pub(crate) fn metrics() -> (u64, u64, u64) {
+    (
+        BUDGET_REJECTIONS.load(Ordering::Relaxed),
+        MUTATION_FAILURES.load(Ordering::Relaxed),
+        BUCKET_BYTES.load(Ordering::Relaxed),
+    )
+}
+
+#[derive(Debug)]
+struct KvWork {
+    operation: KvOperation,
+    deadline: Instant,
+}
 const KV_WORK_QUEUE_CAPACITY: usize = 64;
 
 type WorkerResult<T> = Result<T, String>;
@@ -131,7 +197,8 @@ where
 
 #[derive(Debug)]
 pub struct NatsKvTemplateStore {
-    worker: SyncWorker<KvOperation>,
+    worker: SyncWorker<KvWork>,
+    rate_budget: Mutex<RateBudget>,
 }
 
 impl NatsKvTemplateStore {
@@ -145,7 +212,34 @@ impl NatsKvTemplateStore {
     pub fn connect(config: Config, store_config: TemplateStoreConfig) -> Result<Self> {
         Ok(Self {
             worker: spawn_kv_worker(config, store_config)?,
+            rate_budget: Mutex::new(RateBudget::default()),
         })
+    }
+
+    fn admit(&self) -> Result<Instant, TemplateStoreError> {
+        let now = Instant::now();
+        let deadline = PACKET_BUDGET.with(|budget| match budget.get() {
+            Some(mut current) if current.remaining > 0 && now < current.deadline => {
+                current.remaining -= 1;
+                budget.set(Some(current));
+                Some(current.deadline)
+            }
+            Some(_) => None,
+            None => Some(now + DATAGRAM_KV_TIMEOUT),
+        });
+        let mut rate = self.rate_budget.lock().unwrap_or_else(|e| e.into_inner());
+        if now.duration_since(rate.since) >= Duration::from_secs(1) {
+            rate.since = now;
+            rate.remaining = GLOBAL_KV_OPERATIONS_PER_SECOND;
+        }
+        if let Some(deadline) = deadline {
+            if rate.remaining > 0 {
+                rate.remaining -= 1;
+                return Ok(deadline);
+            }
+        }
+        BUDGET_REJECTIONS.fetch_add(1, Ordering::Relaxed);
+        Err(worker_error("NATS KV operation budget exhausted"))
     }
 
     /// Render a [`TemplateStoreKey`] as a NATS KV key.
@@ -181,7 +275,7 @@ impl NatsKvTemplateStore {
 fn spawn_kv_worker(
     config: Config,
     store_config: TemplateStoreConfig,
-) -> Result<SyncWorker<KvOperation>> {
+) -> Result<SyncWorker<KvWork>> {
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
 
     // The NATS connection is opened *inside* the worker's runtime so that its
@@ -201,8 +295,19 @@ fn spawn_kv_worker(
             if ready_tx.try_send(Ok(())).is_err() {
                 return;
             }
-            while let Some(operation) = receiver.recv().await {
-                handle_operation(&kv, operation).await;
+            let mut status_tick = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                tokio::select! {
+                    operation = receiver.recv() => match operation {
+                        Some(work) => handle_operation(&kv, work).await,
+                        None => break,
+                    },
+                    _ = status_tick.tick() => {
+                        if let Ok(Ok(status)) = tokio::time::timeout(KV_OP_TIMEOUT, kv.status()).await {
+                            BUCKET_BYTES.store(status.info.state.bytes, Ordering::Relaxed);
+                        }
+                    }
+                }
             }
         },
     )
@@ -223,6 +328,8 @@ async fn open_kv_store(config: &Config, cfg: &TemplateStoreConfig) -> Result<Sto
     let kv_config = jetstream::kv::Config {
         bucket: cfg.kv_bucket.clone(),
         history: i64::from(cfg.kv_history),
+        max_bytes: cfg.kv_max_bytes,
+        max_value_size: MAX_TEMPLATE_VALUE_BYTES as i32,
         max_age: if cfg.kv_ttl_secs > 0 {
             Duration::from_secs(cfg.kv_ttl_secs)
         } else {
@@ -264,10 +371,10 @@ fn kind_tag(kind: TemplateKind) -> &'static str {
 }
 
 /// Build the error reported when a KV op exceeds [`KV_OP_TIMEOUT`].
-fn timed_out(op: &str, key: &str) -> io::Error {
+fn timed_out(op: &str, key: &str, timeout: Duration) -> io::Error {
     io::Error::new(
         io::ErrorKind::TimedOut,
-        format!("NATS KV {op} for '{key}' exceeded {KV_OP_TIMEOUT:?}"),
+        format!("NATS KV {op} for '{key}' exceeded {timeout:?}"),
     )
 }
 
@@ -275,44 +382,70 @@ fn worker_error(error: impl std::fmt::Display) -> TemplateStoreError {
     TemplateStoreError::Backend(Box::new(io::Error::other(error.to_string())))
 }
 
-fn wait_for_reply<T>(reply: mpsc::Receiver<WorkerResult<T>>) -> Result<T, TemplateStoreError> {
-    match reply.recv_timeout(KV_REPLY_TIMEOUT) {
+fn wait_for_reply<T>(
+    reply: mpsc::Receiver<WorkerResult<T>>,
+    deadline: Instant,
+) -> Result<T, TemplateStoreError> {
+    match reply.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(error)) => Err(worker_error(error)),
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(worker_error(format!(
-            "NATS KV worker reply exceeded {KV_REPLY_TIMEOUT:?}"
-        ))),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(worker_error(
+            "NATS KV worker reply exceeded the datagram deadline",
+        )),
         Err(mpsc::RecvTimeoutError::Disconnected) => {
             Err(worker_error("NATS KV worker reply channel closed"))
         }
     }
 }
 
-async fn handle_operation(kv: &Store, operation: KvOperation) {
-    match operation {
+async fn handle_operation(kv: &Store, work: KvWork) {
+    let remaining = work.deadline.saturating_duration_since(Instant::now());
+    // Check before constructing a NATS future: expired queued mutations must
+    // never be applied after the parser has already abandoned the operation.
+    if remaining.is_zero() {
+        let error = "NATS KV queued operation expired".to_string();
+        match work.operation {
+            KvOperation::Get { reply, .. } => {
+                let _ = reply.try_send(Err(error));
+            }
+            KvOperation::Put { reply, .. } | KvOperation::Remove { reply, .. } => {
+                MUTATION_FAILURES.fetch_add(1, Ordering::Relaxed);
+                let _ = reply.try_send(Err(error));
+            }
+        }
+        return;
+    }
+    let timeout = remaining.min(KV_OP_TIMEOUT);
+    match work.operation {
         KvOperation::Get { key, reply } => {
-            let result = match tokio::time::timeout(KV_OP_TIMEOUT, kv.get(&key)).await {
+            let result = match tokio::time::timeout(timeout, kv.get(&key)).await {
                 Ok(Ok(Some(bytes))) => Ok(Some(bytes.to_vec())),
                 Ok(Ok(None)) => Ok(None),
                 Ok(Err(error)) => Err(error.to_string()),
-                Err(_) => Err(timed_out("get", &key).to_string()),
+                Err(_) => Err(timed_out("get", &key, timeout).to_string()),
             };
             let _ = reply.try_send(result);
         }
         KvOperation::Put { key, value, reply } => {
-            let result = match tokio::time::timeout(KV_OP_TIMEOUT, kv.put(&key, value)).await {
+            let result = match tokio::time::timeout(timeout, kv.put(&key, value)).await {
                 Ok(Ok(_revision)) => Ok(()),
                 Ok(Err(error)) => Err(error.to_string()),
-                Err(_) => Err(timed_out("put", &key).to_string()),
+                Err(_) => Err(timed_out("put", &key, timeout).to_string()),
             };
+            if result.is_err() {
+                MUTATION_FAILURES.fetch_add(1, Ordering::Relaxed);
+            }
             let _ = reply.try_send(result);
         }
         KvOperation::Remove { key, reply } => {
-            let result = match tokio::time::timeout(KV_OP_TIMEOUT, kv.delete(&key)).await {
+            let result = match tokio::time::timeout(timeout, kv.delete(&key)).await {
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(error)) => Err(error.to_string()),
-                Err(_) => Err(timed_out("remove", &key).to_string()),
+                Err(_) => Err(timed_out("remove", &key, timeout).to_string()),
             };
+            if result.is_err() {
+                MUTATION_FAILURES.fetch_add(1, Ordering::Relaxed);
+            }
             let _ = reply.try_send(result);
         }
     }
@@ -320,40 +453,56 @@ async fn handle_operation(kv: &Store, operation: KvOperation) {
 
 impl TemplateStore for NatsKvTemplateStore {
     fn get(&self, key: &TemplateStoreKey) -> Result<Option<Vec<u8>>, TemplateStoreError> {
+        let deadline = self.admit()?;
         let nats_key = Self::render_key(key);
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         self.worker
-            .try_send(KvOperation::Get {
-                key: nats_key,
-                reply: reply_tx,
+            .try_send(KvWork {
+                deadline,
+                operation: KvOperation::Get {
+                    key: nats_key,
+                    reply: reply_tx,
+                },
             })
             .map_err(worker_error)?;
-        wait_for_reply(reply_rx)
+        wait_for_reply(reply_rx, deadline)
     }
 
     fn put(&self, key: &TemplateStoreKey, value: &[u8]) -> Result<(), TemplateStoreError> {
+        if value.len() > MAX_TEMPLATE_VALUE_BYTES {
+            BUDGET_REJECTIONS.fetch_add(1, Ordering::Relaxed);
+            return Err(worker_error("NATS KV template exceeds maximum value size"));
+        }
+        let deadline = self.admit()?;
         let nats_key = Self::render_key(key);
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         self.worker
-            .try_send(KvOperation::Put {
-                key: nats_key,
-                value: bytes::Bytes::copy_from_slice(value),
-                reply: reply_tx,
+            .try_send(KvWork {
+                deadline,
+                operation: KvOperation::Put {
+                    key: nats_key,
+                    value: bytes::Bytes::copy_from_slice(value),
+                    reply: reply_tx,
+                },
             })
             .map_err(worker_error)?;
-        wait_for_reply(reply_rx)
+        wait_for_reply(reply_rx, deadline)
     }
 
     fn remove(&self, key: &TemplateStoreKey) -> Result<(), TemplateStoreError> {
+        let deadline = self.admit()?;
         let nats_key = Self::render_key(key);
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         self.worker
-            .try_send(KvOperation::Remove {
-                key: nats_key,
-                reply: reply_tx,
+            .try_send(KvWork {
+                deadline,
+                operation: KvOperation::Remove {
+                    key: nats_key,
+                    reply: reply_tx,
+                },
             })
             .map_err(worker_error)?;
-        wait_for_reply(reply_rx)
+        wait_for_reply(reply_rx, deadline)
     }
 }
 
@@ -365,6 +514,108 @@ mod tests {
 
     fn key(scope: &str, kind: TemplateKind, id: u16) -> TemplateStoreKey {
         TemplateStoreKey::new(Arc::<str>::from(scope), kind, id)
+    }
+
+    #[test]
+    fn adapter_bounds_packet_work_shared_rate_and_values_before_enqueue() {
+        let received = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&received);
+        let sender = spawn_driven_worker(
+            "test-budget-worker",
+            KV_WORK_QUEUE_CAPACITY,
+            move |mut rx: tokio_mpsc::Receiver<KvWork>| async move {
+                while let Some(work) = rx.recv().await {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    match work.operation {
+                        KvOperation::Get { reply, .. } => {
+                            let _ = reply.try_send(Ok(None));
+                        }
+                        KvOperation::Put { reply, .. } | KvOperation::Remove { reply, .. } => {
+                            let _ = reply.try_send(Ok(()));
+                        }
+                    }
+                }
+            },
+        )
+        .unwrap();
+        let store = NatsKvTemplateStore {
+            worker: SyncWorker::from_sender(sender),
+            rate_budget: Mutex::new(RateBudget::default()),
+        };
+        let k = key("v9:192.0.2.1:2055/1", TemplateKind::V9Data, 256);
+        assert!(store.put(&k, &vec![0; 1024 * 1024 + 1]).is_err());
+        assert_eq!(
+            received.load(Ordering::SeqCst),
+            0,
+            "oversized value reached the worker"
+        );
+        {
+            let _packet = DatagramBudget::begin();
+            // Isolate the count contract from scheduler latency; the deadline
+            // contract is exercised independently below.
+            PACKET_BUDGET.with(|budget| {
+                let mut current = budget.get().unwrap();
+                current.deadline = Instant::now() + Duration::from_secs(10);
+                budget.set(Some(current));
+            });
+            for index in 0..16 {
+                store.rate_budget.lock().unwrap().since = Instant::now();
+                match index % 3 {
+                    0 => {
+                        assert_eq!(store.get(&k).unwrap(), None);
+                    }
+                    1 => store.put(&k, b"synthetic-template").unwrap(),
+                    _ => store.remove(&k).unwrap(),
+                }
+            }
+            assert!(store.get(&k).is_err());
+            assert!(store.put(&k, b"synthetic-template").is_err());
+            assert!(store.remove(&k).is_err());
+            assert_eq!(
+                received.load(Ordering::SeqCst),
+                16,
+                "packet limit failed before enqueue"
+            );
+        }
+        // New packets get their own allowance; the store-wide rate remains shared.
+        for _ in 16..128 {
+            // Hold one rate window while observing count consumption across
+            // separate packet budgets, without adding a production clock hook.
+            store.rate_budget.lock().unwrap().since = Instant::now();
+            let _packet = DatagramBudget::begin();
+            PACKET_BUDGET.with(|budget| {
+                let mut current = budget.get().unwrap();
+                current.deadline = Instant::now() + Duration::from_secs(10);
+                budget.set(Some(current));
+            });
+            assert_eq!(store.get(&k).unwrap(), None);
+        }
+        store.rate_budget.lock().unwrap().since = Instant::now();
+        assert!(store.remove(&k).is_err());
+        assert_eq!(received.load(Ordering::SeqCst), 128);
+    }
+
+    #[test]
+    fn one_stalled_kv_call_exhausts_the_packet_deadline() {
+        let (sender, mut rx) = tokio_mpsc::channel(KV_WORK_QUEUE_CAPACITY);
+        let store = NatsKvTemplateStore {
+            worker: SyncWorker::from_sender(sender),
+            rate_budget: Mutex::new(RateBudget::default()),
+        };
+        let k = key("ipfix:192.0.2.1:4739/1", TemplateKind::IpfixData, 256);
+        let _packet = DatagramBudget::begin();
+        let started = Instant::now();
+        assert!(store.get(&k).is_err());
+
+        assert!(store.remove(&k).is_err());
+        assert!(store.put(&k, b"synthetic-template").is_err());
+        let queued = rx.try_recv().unwrap();
+        assert!(queued.deadline <= started + Duration::from_millis(100));
+        assert!(queued.deadline <= Instant::now());
+        assert!(
+            rx.try_recv().is_err(),
+            "operations were queued after the packet deadline"
+        );
     }
 
     #[test]
