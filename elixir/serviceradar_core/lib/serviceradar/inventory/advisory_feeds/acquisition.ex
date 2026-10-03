@@ -313,8 +313,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
   # The revalidation HEAD is deliberately unconditional. A conditional HEAD
   # (`If-Match`/`If-Unmodified-Since`) turns the expected event it guards
   # against — the origin publishing a new archive between the download and the
-  # revalidation — into `{:revalidation_status, 412}`, discarding the current
-  # validators the 412 withholds. A plain HEAD always returns the current
+  # revalidation — into `{:revalidation_status, %{status: 412}}`, discarding the
+  # current validators the 412 withholds. A plain HEAD always returns the current
   # `ETag`/`Last-Modified`, and `validate_ubuntu_publication/3` already
   # compares them against the downloaded pair, reporting a roll as
   # `{:validator_changed, _}` (left to Oban's normal backoff retry).
@@ -407,7 +407,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
 
     case http_get.(
            url,
-           [into: %CappedFile{path: path, max_bytes: limits.compressed_bytes}, receive_timeout: timeout] ++
+           [
+             into: %CappedFile{path: path, max_bytes: limits.compressed_bytes},
+             receive_timeout: timeout
+           ] ++
              egress_opts(opts)
          ) do
       :ok -> {:ok, %{status: 200}}

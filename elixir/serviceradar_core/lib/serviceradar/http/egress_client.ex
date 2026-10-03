@@ -1,6 +1,6 @@
 defmodule ServiceRadar.HTTP.EgressClient do
   @moduledoc """
-  HTTPS GET for hosts outside the deployment, over `SERVICERADAR_EGRESS_PROXY`.
+  HTTPS GET and HEAD for hosts outside the deployment, over `SERVICERADAR_EGRESS_PROXY`.
 
   Every fetch of an external host belongs here -- `download_to_file/3` for
   artifacts and databases, `fetch_body/2` for raw datasets, `fetch_json/2`
@@ -141,8 +141,11 @@ defmodule ServiceRadar.HTTP.EgressClient do
              [body_format: :binary],
              profile
            ) do
-        {:ok, {{_version, status, _reason}, headers, _body}} -> {:ok, response(status, headers, "")}
-        {:error, reason} -> {:error, transport_error(reason)}
+        {:ok, {{_version, status, _reason}, headers, _body}} ->
+          {:ok, response(status, headers, "")}
+
+        {:error, reason} ->
+          {:error, transport_error(reason)}
       end
     end
   end

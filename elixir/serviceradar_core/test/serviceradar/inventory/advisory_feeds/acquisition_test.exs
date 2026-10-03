@@ -243,7 +243,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
 
     # The revalidation HEAD is unconditional: no If-Match/If-Unmodified-Since
     # preconditions, so a publication that rolls mid-download surfaces as
-    # {:validator_changed, _} instead of {:revalidation_status, 412}.
+    # {:validator_changed, _} instead of {:revalidation_status, %{status: 412}}.
     assert_received {:revalidated, _, []}
 
     assert {:error, {:download_failed, %{reason: {:archive_limit_exceeded, :compressed_bytes}}}} =
@@ -358,7 +358,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
     end
 
     assert {:error,
-            {:revalidation_failed, %{artifact: :osv, host: "osv.example.invalid", reason: :timeout}}} =
+            {:revalidation_failed,
+             %{artifact: :osv, host: "osv.example.invalid", reason: :timeout}}} =
              Acquisition.acquire_ubuntu_pair(
                "ubuntu-osv-vex",
                "https://osv.example.invalid/osv/feed.tar.xz",
