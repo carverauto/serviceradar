@@ -8,6 +8,7 @@ ServiceRadar stores durable internal artifacts in NATS JetStream Object Store. T
 
 - `agent-releases/<version>/...` for mirrored agent release artifacts stored through datasvc
 - `plugins/<plugin_id>/<version>/<package_id>.wasm` for uploaded Wasm plugin packages when plugin storage uses the JetStream backend
+- `dashboards/<dashboard_id>/<version>/<package_id>.wasm` for uploaded dashboard WASM packages
 
 Retention is enabled by default. Agent release cleanup keeps one locally imported
 release by default, plus any release referenced by active or paused rollouts and
@@ -37,20 +38,33 @@ The plugin admin UI paginates installed plugin packages ten rows at a time. Obje
 
 ## Running Cleanup
 
-Agent release artifact cleanup is handled by `ServiceRadar.ObjectStore.RetentionWorker` in the `maintenance` Oban queue. Plugin blob cleanup is handled by `ServiceRadarWebNG.Plugins.BlobRetentionWorker` and requires web-ng to process the `maintenance` queue.
+Agent release artifact cleanup is handled by `ServiceRadar.ObjectStore.RetentionWorker` in the `maintenance` Oban queue. Plugin blob cleanup is handled by `ServiceRadarWebNG.Plugins.BlobRetentionWorker` in the `web_maintenance` queue. Dashboard package version cleanup is handled by `ServiceRadarWebNG.Dashboards.PackageRetentionWorker` in the `web_maintenance` queue; both web-ng workers require web-ng to process the `web_maintenance` queue.
+
+Dashboard package retention is disabled by default. Enable it and tune it with environment variables:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DASHBOARD_PACKAGE_RETENTION_ENABLED` | `false` | Set to `true` to activate the cron job |
+| `DASHBOARD_PACKAGE_RETENTION_CRON` | `0 4 * * *` | Oban cron schedule (daily at 04:00) |
+| `DASHBOARD_PACKAGE_RETENTION_COUNT` | `2` | Versions to keep per dashboard_id |
+| `DASHBOARD_PACKAGE_RETENTION_DRY_RUN` | `false` | Log deletions without executing them |
+
+Enabled packages and packages referenced by a `DashboardInstance` are always protected. At least one version per dashboard is always kept even when all versions are disabled.
 
 Manual dry-run enqueue from an attached IEx shell:
 
 ```elixir
 ServiceRadar.ObjectStore.RetentionWorker.enqueue_manual(dry_run?: true)
 ServiceRadarWebNG.Plugins.BlobRetentionWorker.enqueue_manual(dry_run?: true)
+ServiceRadarWebNG.Dashboards.PackageRetentionWorker.enqueue_manual(dry_run?: true)
 ```
 
-To preview cleanup before deleting anything, temporarily set `dryRun: true` and inspect the summary logs:
+To preview cleanup before deleting anything, temporarily set `dryRun: true` (for object-store/plugin retention) or `DASHBOARD_PACKAGE_RETENTION_DRY_RUN=true` (for dashboard package retention) and inspect the summary logs:
 
 ```text
 ObjectStoreRetention: release artifact cleanup completed scanned=... protected=... eligible=... deleted=0 dry_run=true
 PluginBlobRetention: cleanup completed scanned=... protected=... eligible=... deleted=0 dry_run=true
+DashboardPackageRetention completed scanned=... protected=... eligible=... deleted_blobs=0 deleted_records=0 dry_run=true
 ```
 
-Set `dryRun: false` again after the eligible counts look correct.
+Set the flag back to `false` after the eligible counts look correct.
