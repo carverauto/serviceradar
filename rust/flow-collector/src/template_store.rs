@@ -232,11 +232,11 @@ impl NatsKvTemplateStore {
             rate.since = now;
             rate.remaining = GLOBAL_KV_OPERATIONS_PER_SECOND;
         }
-        if let Some(deadline) = deadline {
-            if rate.remaining > 0 {
-                rate.remaining -= 1;
-                return Ok(deadline);
-            }
+        if let Some(deadline) = deadline
+            && rate.remaining > 0
+        {
+            rate.remaining -= 1;
+            return Ok(deadline);
         }
         BUDGET_REJECTIONS.fetch_add(1, Ordering::Relaxed);
         Err(worker_error("NATS KV operation budget exhausted"))
