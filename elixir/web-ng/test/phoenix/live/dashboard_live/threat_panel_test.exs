@@ -154,6 +154,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
     assert ThreatIntelLinks.device_path("198.51.100.23", "host-1") == "/devices/host-1"
     assert ThreatIntelLinks.device_path("198.51.100.23") =~ "in%3Adevices+ip%3A%22198.51.100.23%22"
     assert ThreatIntelLinks.netflow_path("198.51.100.23") =~ "in%3Anetflows+ip%3A%22198.51.100.23%22"
+
+    assert ThreatIntelLinks.flow_path("198.51.100.23") =~
+             "in%3Aflows+threat_observed_ip%3A%22198.51.100.23%22+time%3Alast_24h"
+
+    assert ThreatIntelLinks.attributed_flow_path("198.51.100.23") =~
+             "in%3Aattributed_flows+threat_observed_ip%3A%22198.51.100.23%22+time%3Alast_24h"
   end
 
   test "investigation path keeps boolean query params" do

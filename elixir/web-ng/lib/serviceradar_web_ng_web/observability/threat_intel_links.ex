@@ -18,6 +18,22 @@ defmodule ServiceRadarWebNGWeb.Observability.ThreatIntelLinks do
       URI.encode_query(%{"view" => "explorer", "q" => ~s(in:netflows ip:"#{escape_srql_value(ip)}")})
   end
 
+  @spec flow_path(term()) :: String.t()
+  def flow_path(ip) do
+    "/observability/netflows?" <>
+      URI.encode_query(%{"view" => "explorer", "q" => threat_flow_query("in:flows", ip)})
+  end
+
+  @spec attributed_flow_path(term()) :: String.t()
+  def attributed_flow_path(ip) do
+    "/observability/flows/attributed?" <>
+      URI.encode_query(%{"q" => threat_flow_query("in:attributed_flows", ip)})
+  end
+
+  defp threat_flow_query(entity, ip) do
+    ~s(#{entity} threat_observed_ip:"#{escape_srql_value(ip)}" time:last_24h sort:time:desc)
+  end
+
   @spec investigation_path(keyword()) :: String.t()
   def investigation_path(params \\ []) do
     query =
