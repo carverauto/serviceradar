@@ -27,7 +27,7 @@ require (
 	github.com/pkg/sftp v1.13.11
 	github.com/rs/zerolog v1.35.1
 	github.com/shirou/gopsutil/v3 v3.24.5
-	github.com/spiffe/go-spiffe/v2 v2.8.1
+	github.com/spiffe/go-spiffe/v2 v2.8.2
 	github.com/spiffe/spire-api-sdk v1.15.3
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag v1.16.6
@@ -168,7 +168,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
