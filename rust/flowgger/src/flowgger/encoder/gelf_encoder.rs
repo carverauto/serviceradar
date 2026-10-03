@@ -84,9 +84,6 @@ impl Encoder for GelfEncoder {
         if let Some(procid) = record.procid {
             map.insert("process_id".to_owned(), Value::String(procid));
         }
-        if let Some(addr) = record.remote_addr {
-            map.insert("_remote_addr".to_owned(), Value::String(addr));
-        }
         if let Some(sd_vec) = record.sd {
             for sd in &sd_vec {
                 // Warning: Gelf doesn't have a concept of structued data. In case there are
@@ -112,6 +109,15 @@ impl Encoder for GelfEncoder {
         }
         for (name, value) in self.extra.iter().cloned() {
             map.insert(name, Value::String(value));
+        }
+        // Transport provenance takes precedence over structured data and extras.
+        match record.remote_addr {
+            Some(addr) => {
+                map.insert("_remote_addr".to_owned(), Value::String(addr));
+            }
+            None => {
+                map.remove("_remote_addr");
+            }
         }
         let json =
             serde_json::to_vec(&Value::Object(map)).or(Err("Unable to serialize to JSON"))?;

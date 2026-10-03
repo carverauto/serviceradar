@@ -49,6 +49,19 @@ tables that SRQL and the web UI query.
 - CORS for browser-based exporters: `allowed_origins` defaults to `["*"]`. Restrict it
   when the listener is reachable from the public internet.
 - The same `max_request_bytes` cap applies to the (decompressed) HTTP body.
+- Headers (including ingestion authentication) are checked before the body is read.
+  CORS OPTIONS preflight remains unauthenticated and does not read a body.
+- HTTP accepts up to 64 connections and 8 HTTP/2 streams per connection. Active
+  exports share a process-wide admission limit of 1 to 16 requests, computed as
+  `128 MiB / (3 * max_request_bytes)` (rounded down, minimum 1). With the default
+  64 MiB body limit, one export is admitted at a time; excess exports receive
+  retryable HTTP 503. The multiplier allows headroom for compressed, expanded,
+  and decoded data; it is not an exact heap-size guarantee.
+- TLS handshakes and HTTP/1 headers have a 10-second deadline. Accepted requests
+  have a 30-second deadline. HTTP connections close after 5 minutes, including
+  idle connections and peers stalled during protocol negotiation; exporters
+  should reconnect and retry. OTLP/gRPC also limits each connection to 8 streams.
+
 
 ### Collector configuration reference (`otel.toml`)
 
