@@ -207,6 +207,41 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
                     %{close_reason: "upstream relay drain"}}
   end
 
+  test "preserves actionable upstream upload statuses and messages" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :camera_media_session_tracker_record_result,
+      {:ok, %{ingress_pid: self()}}
+    )
+
+    chunk = %Camera.MediaChunk{
+      relay_session_id: "relay-error-forwarding",
+      media_ingest_id: "media-error-forwarding",
+      agent_id: "agent-1",
+      sequence: 1,
+      payload: <<1, 2, 3>>
+    }
+
+    for status <- [:not_found, :deadline_exceeded, :unavailable] do
+      upstream_error = GRPC.RPCError.exception(status: status, message: "synthetic upstream failure")
+
+      Application.put_env(
+        :serviceradar_agent_gateway,
+        :camera_media_forwarder_upload_result,
+        {:error, upstream_error}
+      )
+
+      error =
+        assert_raise GRPC.RPCError, fn ->
+          CameraMediaServer.upload_media([chunk], %{adapter: CameraMediaAdapterStub, payload: :test})
+        end
+
+      assert error.status == upstream_error.status
+      assert error.message == upstream_error.message
+      assert_receive {:upload_media, [^chunk]}
+    end
+  end
+
   test "rejects relay heartbeat from a different authenticated agent" do
     Application.put_env(
       :serviceradar_agent_gateway,
