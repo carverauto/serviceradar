@@ -6,11 +6,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   Where Admin.AddonPackageLive.Index is catalog/assignment-centric, this page is
   operations-centric: one card per agent, with one compact row per add-on showing
   the effective state — assigned version, running version, health — and drift
-  rendered as an honest comparison of the two present sides. Historical or
-  superseded assignments and long runtime diagnostics live in an expandable
-  per-add-on detail instead of peer rows or truncated cells, and catalog-only
-  inventory (imported but assigned nowhere) is a separate section rather than
-  agentless fleet rows.
+  rendered as an honest comparison of the two present sides. Agent cards are
+  paged after filters, so a large fleet does not render every card at once.
+  Summary counts and the agent/add-on dropdowns stay on the full filtered set.
+  Historical or superseded assignments and long
+  runtime diagnostics live in an expandable per-add-on detail instead of peer
+  rows or truncated cells, and catalog-only inventory (imported but assigned
+  nowhere) is a separate section rather than agentless fleet rows.
 
   Read-only; gated by `plugins.view` (same permission as the add-on catalog page).
   All data comes from the ServiceRadarWebNG.Plugins.AddonFleet context, which reads
@@ -32,6 +34,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   @categories ~w(healthy updating action_required unavailable expected_inactive observed_only)
 
   @finished_rollout_page_size 10
+  # Each card is a full add-on table, so a page stays short enough to scan.
+  @agent_page_size 10
 
   @impl true
   def mount(_params, _session, socket) do
@@ -57,11 +61,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
 
   @impl true
   def handle_event("filter", %{"filter" => filter} = _params, socket) do
-    {:noreply, apply_filters(socket, Map.merge(default_filters(), filter))}
+    {:noreply, apply_filters(socket, Map.merge(default_filters(), filter), reset_page: true)}
   end
 
   def handle_event("clear_filters", _params, socket) do
-    {:noreply, apply_filters(socket, default_filters())}
+    {:noreply, apply_filters(socket, default_filters(), reset_page: true)}
+  end
+
+  def handle_event("agent_page", %{"page" => page}, socket) do
+    groups = socket.assigns.agent_groups
+    page = clamp_page(page, length(groups), socket.assigns.agent_page_size)
+
+    {:noreply,
+     socket
+     |> assign(:agent_page, page)
+     |> assign(:paged_agent_groups, paginated_items(groups, page, socket.assigns.agent_page_size))}
   end
 
   def handle_event("refresh", _params, socket) do
@@ -186,16 +200,31 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     |> assign(:categories, @categories)
     |> assign(:agent_options, AddonFleet.agents(rows))
     |> assign(:addon_options, AddonFleet.addon_ids(rows))
-    |> apply_filters(filters)
+    |> apply_filters(filters, reset_page: false)
   end
 
-  defp apply_filters(socket, filters) do
+  defp apply_filters(socket, filters, opts) do
     rows = AddonFleet.filter(socket.assigns.all_rows, filters)
+    groups = group_rows_by_agent(rows)
+    page_size = @agent_page_size
+
+    page =
+      if Keyword.get(opts, :reset_page, true) do
+        1
+      else
+        Map.get(socket.assigns, :agent_page, 1)
+      end
+
+    page = clamp_page(page, length(groups), page_size)
 
     socket
     |> assign(:filters, filters)
     |> assign(:rows, rows)
-    |> assign(:agent_groups, group_rows_by_agent(rows))
+    |> assign(:agent_groups, groups)
+    |> assign(:agent_group_total, length(groups))
+    |> assign(:agent_page, page)
+    |> assign(:agent_page_size, page_size)
+    |> assign(:paged_agent_groups, paginated_items(groups, page, page_size))
     |> assign(:summary, AddonFleet.summary(rows))
   end
 
@@ -530,13 +559,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                   Agent identity and aggregate health appear once; expand an add-on for diagnostics.
                 </p>
               </div>
-              <div class="text-xs text-sr-muted">
-                {length(@agent_groups)} agent(s) · {length(@rows)} add-on(s)
+              <div class="text-xs text-sr-muted" data-role="addon-fleet-agent-count">
+                {@agent_group_total} agent(s) · {length(@rows)} add-on(s)
               </div>
             </div>
           </:header>
 
-          <%= if @agent_groups == [] do %>
+          <%= if @agent_group_total == 0 do %>
             <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-6 text-center">
               <div class="text-sm font-semibold text-sr-ink">
                 No matching add-on deployments
@@ -546,7 +575,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           <% else %>
             <div id="addon-fleet-table" class="space-y-4">
               <article
-                :for={group <- @agent_groups}
+                :for={group <- @paged_agent_groups}
                 data-role="agent-addon-card"
                 data-agent-uid={group.agent_uid}
                 class="overflow-hidden rounded-xl border border-sr-line bg-sr-surface"
@@ -697,6 +726,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 </div>
               </article>
             </div>
+            <.pagination_controls
+              :if={@agent_group_total > @agent_page_size}
+              id_prefix="addon-fleet-agents"
+              event="agent_page"
+              page={@agent_page}
+              total_items={@agent_group_total}
+              page_size={@agent_page_size}
+            />
           <% end %>
         </.ui_panel>
 
