@@ -467,6 +467,118 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     refute has_element?(lv, "#addon-rollout-#{Enum.at(finished_ids, 2)}")
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "pages agent cards and keeps an open detail when returning to that page", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-page-addon-#{unique}"
+    agents = seed_paged_agents!(actor, unique, addon_id, 11)
+    first = hd(agents)
+    last = List.last(agents)
+
+    {:ok, view, _html} = live(conn, ~p"/settings/agents/addons/fleet")
+    html = filter_fleet(view, %{"addon_id" => addon_id})
+
+    assert html =~ "11 agent(s) · 11 add-on(s)"
+    assert count_occurrences(html, ~s(data-role="agent-addon-card")) == 10
+    assert has_element?(view, agent_card(first.uid))
+    refute has_element?(view, agent_card(last.uid))
+    assert html =~ "Showing 1-10 of 11"
+
+    html = render_click(view, "toggle_details", %{"row" => "#{first.uid}|#{addon_id}"})
+    assert html =~ "What to do"
+    assert html =~ "no diagnostics reported"
+
+    html = render_click(view, "agent_page", %{"page" => "2"})
+    assert has_element?(view, agent_card(last.uid))
+    refute has_element?(view, agent_card(first.uid))
+    refute html =~ "What to do"
+    assert html =~ "Showing 11-11 of 11"
+    assert html =~ "11 agent(s) · 11 add-on(s)"
+
+    html = render_click(view, "agent_page", %{"page" => "1"})
+    assert has_element?(view, agent_card(first.uid))
+    refute has_element?(view, agent_card(last.uid))
+    assert html =~ "What to do"
+    assert html =~ "no diagnostics reported"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "changing the fleet filter resets agent pagination", %{conn: conn, actor: actor} do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-filter-page-#{unique}"
+    agents = seed_paged_agents!(actor, unique, addon_id, 11)
+    first = hd(agents)
+    last = List.last(agents)
+
+    {:ok, view, _html} = live(conn, ~p"/settings/agents/addons/fleet")
+    filter_fleet(view, %{"addon_id" => addon_id})
+    render_click(view, "agent_page", %{"page" => "2"})
+    assert has_element?(view, agent_card(last.uid))
+    refute has_element?(view, agent_card(first.uid))
+
+    html =
+      filter_fleet(view, %{"agent_uid" => first.uid, "addon_id" => addon_id})
+
+    assert html =~ "1 agent(s) · 1 add-on(s)"
+    assert has_element?(view, agent_card(first.uid))
+    refute has_element?(view, agent_card(last.uid))
+    refute has_element?(view, "#addon-fleet-agents-next-page")
+
+    html = filter_fleet(view, %{"addon_id" => addon_id})
+    assert html =~ "11 agent(s) · 11 add-on(s)"
+    assert html =~ "Showing 1-10 of 11"
+    assert has_element?(view, agent_card(first.uid))
+    refute has_element?(view, agent_card(last.uid))
+
+    html = filter_fleet(view, %{"addon_id" => "fleet-missing-#{unique}"})
+    assert html =~ "No matching add-on deployments"
+    assert count_occurrences(html, ~s(data-role="agent-addon-card")) == 0
+    assert html =~ "0 agent(s) · 0 add-on(s)"
+  end
+
+  defp seed_paged_agents!(actor, unique, addon_id, count) do
+    package = create_addon_package!(actor, addon_id, "1.0.0")
+
+    gateway =
+      gateway_fixture(%{id: "fleet-page-gw-#{unique}", component_id: "fleet-page-comp-#{unique}"})
+
+    for n <- 1..count do
+      label = n |> Integer.to_string() |> String.pad_leading(2, "0")
+
+      agent =
+        agent_fixture(gateway, %{
+          uid: "fleet-page-agent-#{unique}-#{label}",
+          name: "Fleet Page #{unique} #{label}"
+        })
+
+      create_assignment!(actor, agent.uid, package.id, enabled: true)
+      report_status!(agent.uid, addon_id, state: "running", active: true, version: "1.0.0")
+      agent
+    end
+  end
+
+  defp filter_fleet(view, filter) do
+    render_change(view, "filter", %{
+      "filter" =>
+        Map.merge(
+          %{
+            "agent_uid" => "",
+            "addon_id" => "",
+            "category" => "",
+            "attention_only" => "false"
+          },
+          filter
+        )
+    })
+  end
+
+  defp agent_card(agent_uid) do
+    ~s([data-role="agent-addon-card"][data-agent-uid="#{agent_uid}"])
+  end
+
   # The fleet matrix table markup (everything before the catalog inventory
   # panel), so assertions can scope to fleet rows only.
   defp fleet_table_html(html) do
