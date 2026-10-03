@@ -22,7 +22,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/compress v1.20.0
 	github.com/nats-io/jwt/v2 v2.8.2
-	github.com/nats-io/nats.go v1.53.1
+	github.com/nats-io/nats.go v1.54.0
 	github.com/pion/rtp v1.10.5
 	github.com/pkg/sftp v1.13.11
 	github.com/rs/zerolog v1.35.1
