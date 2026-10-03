@@ -70,18 +70,24 @@ It SHALL answer requests over the limit with the STUN-only list and a rate-limit
 
 ### Requirement: Optional chart-managed TURN server
 The Helm chart SHALL offer an optional TURN server, disabled by default.
-When enabled, it SHALL be exposed through a LoadBalancer or NodePort Service on UDP and TCP 3478, optionally TLS 5349, plus a bounded relay port range.
-It SHALL require an explicit external address and authenticate with the same shared-secret Secret as the `static_secret` backend.
-It SHALL deny relaying to loopback, link-local, RFC 1918, CGNAT, ULA and the configured cluster pod and service CIDRs.
+When enabled, it SHALL expose UDP and TCP 3478 and, optionally, TLS 5349 to clients, through the shared Gateway API gateway when available or otherwise a LoadBalancer or NodePort Service.
+Its relay port range SHALL be bounded and reachable only from inside the cluster.
+It SHALL require an explicit external hostname and authenticate with the same shared-secret Secret as the `static_secret` backend.
+It SHALL deny relaying to loopback, link-local, RFC 1918, CGNAT, ULA and the configured cluster pod and service CIDRs, except its own relay addresses and the release's core-elx pod addresses.
 
-#### Scenario: Enabled without an external address
-- **WHEN** an operator enables the TURN server without setting its external address
+#### Scenario: Enabled without an external hostname
+- **WHEN** an operator enables the TURN server without setting its external hostname
 - **THEN** chart rendering SHALL fail with an error naming the missing value
 
-#### Scenario: Relay to a cluster address is refused
+#### Scenario: Relay to an unrelated cluster address is refused
 - **GIVEN** the chart-managed TURN server is running
-- **WHEN** an authenticated client requests a relay permission for a pod CIDR address
+- **WHEN** an authenticated client requests a relay permission for a pod CIDR address that is neither a core-elx pod nor the server's own relay address
 - **THEN** the TURN server SHALL refuse the permission
+
+#### Scenario: Relay to core-elx is permitted
+- **GIVEN** the chart-managed TURN server is running
+- **WHEN** an authenticated browser requests a relay permission for a core-elx WebRTC candidate address
+- **THEN** the TURN server SHALL grant the permission
 
 ### Requirement: Forced relay requires a credential backend
 The system SHALL support an operator option that makes browsers use relay-only ICE (`iceTransportPolicy: relay`).

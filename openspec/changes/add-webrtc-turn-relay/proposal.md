@@ -31,10 +31,12 @@ backend exists for a managed TURN service.
 - Add an **optional TURN server** to the Helm chart (eturnal, recommended in
   `design.md`):
   - UDP and TCP 3478, optional TLS 5349, and a bounded relay port range.
-  - Exposed through a LoadBalancer or NodePort Service with a configurable
-    external address.
+  - Exposed through the shared Envoy Gateway (UDP/TCP 3478 routes, TLS 5349
+    passthrough) or, without Gateway API, a LoadBalancer or NodePort Service.
+    The relay port range stays in-cluster.
   - Wired to the same operator-owned shared-secret Secret.
-  - Denies relaying to cluster and private CIDRs by default.
+  - Denies relaying to cluster and private CIDRs, except its own relay
+    addresses and core-elx pods.
 - Add chart configuration for the Cloudflare backend (key ID plus an
   operator-owned token Secret) and render-time validation for both backends.
 - Define failure behavior: when the provider cannot mint, the viewer falls
