@@ -7,36 +7,6 @@ defmodule ServiceRadar.FlowAttribution.WorkloadBackfill do
   @correlation_window_minutes 15
   @correlation_skew_seconds 900
 
-  @backfill_current_workload_sql """
-  WITH updated_rows AS (
-    UPDATE #{@schema}.#{@table} AS attr
-    SET
-      workload_identity = NULLIF(
-        COALESCE(workload.identity, '{}'::jsonb) || COALESCE(attr.workload_identity, '{}'::jsonb),
-        '{}'::jsonb
-      ),
-      updated_at = now()
-    FROM #{@schema}.#{@workload_identity_table} AS workload
-    WHERE attr.container_id IS NOT NULL
-      AND attr.container_id <> ''
-      AND attr.observed_at > now() - interval '#{@correlation_window_minutes * 60 + @correlation_skew_seconds} seconds'
-      AND workload.partition = attr.partition
-      AND workload.agent_id = attr.agent_id
-      AND workload.container_id = attr.container_id
-      AND (
-        attr.workload_identity IS NULL
-        OR NOT (attr.workload_identity ? 'context_name')
-      )
-      AND COALESCE(attr.workload_identity, '{}'::jsonb) <>
-        (
-          COALESCE(workload.identity, '{}'::jsonb) ||
-            COALESCE(attr.workload_identity, '{}'::jsonb)
-        )
-    RETURNING 1
-  )
-  SELECT count(*) FROM updated_rows
-  """
-
   @backfill_current_workload_for_keys_sql """
   WITH input_keys AS (
     SELECT DISTINCT
@@ -85,14 +55,6 @@ defmodule ServiceRadar.FlowAttribution.WorkloadBackfill do
   )
   SELECT count(*) FROM updated_rows
   """
-
-  @spec backfill_current_workload_identity() :: {:ok, non_neg_integer()} | {:error, term()}
-  def backfill_current_workload_identity do
-    case ServiceRadar.Repo.query(@backfill_current_workload_sql, []) do
-      {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   @spec backfill_current_workload_identity([map()]) ::
           {:ok, non_neg_integer()} | {:error, term()}
