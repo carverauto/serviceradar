@@ -10,7 +10,7 @@ helm:
     value: sha256:3bb84ce68753a234d206255a15bf71f68d304b1c822d4502dc60baf2b71d04a7
     forcestring: true
   - name: image.digests.webNg
-    value: sha256:d7b726f671dcbde9c6353e3f098565b536bd774616facf683d8ae0625d0fa78e
+    value: sha256:daa680c07e00813547481404c9d7a929d0d4bb387570e79cd91718c662b17786
     forcestring: true
   - name: core.migrations.expectedVersion
     value: "20261005150102"
