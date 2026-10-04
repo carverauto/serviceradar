@@ -61,6 +61,7 @@ type testProxmoxHostAuthorityOptions struct {
 	sshHostKeyPolicy      string
 	targetIDs             map[string]string
 	grantID               string
+	scopeOnly             bool
 	secretRef             string
 	expiresAt             string
 	ttlSeconds            int
@@ -422,6 +423,82 @@ func TestProxmoxInventoryHostAuthorityInjectsOnlyForExactIPOriginAndRequest(t *t
 	}
 	if resolver.calls != 1 {
 		t.Fatalf("credential resolver calls = %d, want 1", resolver.calls)
+	}
+}
+
+type recordingCredentialGrantGateway struct {
+	requests []*proto.CredentialBrokerResolveRequest
+}
+
+func (g *recordingCredentialGrantGateway) ResolveCredentialGrant(
+	_ context.Context,
+	req *proto.CredentialBrokerResolveRequest,
+) (*proto.CredentialBrokerResolveResponse, error) {
+	g.requests = append(g.requests, req)
+	return &proto.CredentialBrokerResolveResponse{Success: true, Value: "user@pve!inventory=super-secret"}, nil
+}
+
+// A binding delivered with grant scope only is resolved by naming the
+// assignment and binding; core issues the grant at use. A binding that still
+// carries a grant id resolves by that id, as before.
+func TestProxmoxInventoryHostAuthorityResolvesScopeOnlyBindingByBinding(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name           string
+		scopeOnly      bool
+		wantGrantID    string
+		wantBindingID  string
+		wantAssignment string
+	}{
+		{name: "scope only", scopeOnly: true, wantBindingID: "proxmox-test-binding", wantAssignment: "proxmox-inventory-test"},
+		{name: "embedded grant", wantGrantID: "proxmox-inventory-grant-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gateway := &recordingCredentialGrantGateway{}
+			resolver := newControlPlaneCredentialBrokerResolver(gateway, "agent-1")
+			var sentAuthorization string
+			transport := &countingPluginHTTPTransport{
+				respond: func(req *http.Request) *http.Response {
+					sentAuthorization = req.Header.Get("Authorization")
+					return pluginHTTPTestResponse(req, http.StatusOK, nil, `{"ok":true}`)
+				},
+			}
+			permissions := pluginPermissions{AllowedDomains: []string{"*"}, AllowedPorts: []int{8006}}
+			exec, module := newPluginHTTPHostTestExecution(t, permissions, transport, resolver)
+			options := testInventoryAuthorityOptions()
+			options.scopeOnly = tc.scopeOnly
+			if tc.scopeOnly {
+				options.grantID = ""
+			}
+			assignment := newTestProxmoxHostAuthorityAssignment(t, options)
+			assignment.Permissions = permissions
+			assignment.Permissions.normalize()
+			exec.assignment = assignment
+			exec.configJSON = assignment.ParamsJSON
+			exec.mode = pluginExecutionModeScheduled
+
+			got := callPluginHostHTTPRequestPayload(t, exec, module, httpRequestPayload{
+				Method:  http.MethodGet,
+				URL:     testProxmoxOrigin + "/api2/json/version",
+				Headers: map[string]string{"Authorization": pluginHostCredentialSentinel},
+			})
+			if got <= 0 || transport.calls != 1 || len(gateway.requests) != 1 {
+				t.Fatalf("request returned %d with %d transport calls and %d resolves",
+					got, transport.calls, len(gateway.requests))
+			}
+			req := gateway.requests[0]
+			if req.GetGrantId() != tc.wantGrantID || req.GetBindingId() != tc.wantBindingID ||
+				req.GetAssignmentId() != tc.wantAssignment {
+				t.Fatalf("resolve request grant=%q assignment=%q binding=%q",
+					req.GetGrantId(), req.GetAssignmentId(), req.GetBindingId())
+			}
+			if sentAuthorization != "PVEAPIToken=user@pve!inventory=super-secret" {
+				t.Fatalf("outbound Authorization = %q", sentAuthorization)
+			}
+		})
 	}
 }
 
@@ -1512,7 +1589,7 @@ func testProxmoxHostAuthorityJSON(t *testing.T, options testProxmoxHostAuthority
 		testProxmoxCredentialRuleID,
 	)
 	grantID := options.grantID
-	if grantID == "" {
+	if grantID == "" && !options.scopeOnly {
 		grantID = "proxmox-test-grant"
 	}
 	secretRef := options.secretRef

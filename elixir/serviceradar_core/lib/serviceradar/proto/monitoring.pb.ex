@@ -798,6 +798,8 @@ defmodule Monitoring.CredentialBrokerResolveRequest do
   field :consumer_id, 5, type: :string, json_name: "consumerId"
   field :purpose, 6, type: :string
   field :resolution_location, 7, type: :string, json_name: "resolutionLocation"
+  field :assignment_id, 8, type: :string, json_name: "assignmentId"
+  field :binding_id, 9, type: :string, json_name: "bindingId"
 end
 
 defmodule Monitoring.CredentialBrokerResolveResponse.FieldsEntry do

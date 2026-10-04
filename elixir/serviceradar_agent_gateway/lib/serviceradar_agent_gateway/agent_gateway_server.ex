@@ -214,7 +214,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       consumer_kind: request.consumer_kind,
       consumer_id: request.consumer_id,
       purpose: request.purpose,
-      resolution_location: request.resolution_location
+      resolution_location: request.resolution_location,
+      assignment_id: request.assignment_id,
+      binding_id: request.binding_id
     }
 
     AgentGatewaySync

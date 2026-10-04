@@ -60,6 +60,12 @@ type CredentialBrokerGrant struct {
 	Allow               CredentialBrokerACL         `json:"allow,omitempty"`
 	TTLSeconds          int                         `json:"ttl_seconds,omitempty"`
 	ExpiresAt           string                      `json:"expires_at,omitempty"`
+	// ResolveAssignmentID and ResolveBindingID name the host binding a grant
+	// without a grant id belongs to: the agent resolves it by binding and core
+	// issues the grant at use. Set by the agent from the binding, never decoded
+	// from config.
+	ResolveAssignmentID string `json:"-"`
+	ResolveBindingID    string `json:"-"`
 }
 
 type CredentialBrokerTarget struct {

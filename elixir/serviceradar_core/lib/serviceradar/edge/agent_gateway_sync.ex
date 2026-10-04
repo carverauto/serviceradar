@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Credentials.ProxmoxApiToken
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifactDelivery
+  alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.OnboardingPackage
@@ -35,6 +36,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Plugins.CredentialBrokerDelivery
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -44,6 +46,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   @terminal_release_target_statuses [:healthy, :failed, :rolled_back, :canceled]
   @agent_live_window_minutes 30
+  # A reused grant must outlive this, so the material the agent caches until
+  # the lease ends is never handed over about to expire.
+  @binding_grant_min_remaining_seconds 60
 
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
@@ -53,7 +58,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
   def get_config_if_changed(agent_id, partition_id, config_version) do
-    ServiceRadar.Edge.AgentConfigGenerator.get_config_if_changed(
+    AgentConfigGenerator.get_config_if_changed(
       agent_id,
       partition_id,
       config_version
@@ -226,14 +231,18 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     grant_id = string_value(map_value(request, :grant_id))
     agent_id = string_value(map_value(request, :agent_id))
 
-    with :ok <- present_required(grant_id, :grant_id),
-         :ok <- present_required(agent_id, :agent_id),
-         {:ok, %CredentialBrokerGrant{} = grant} <-
-           CredentialBrokerGrant.get_by_id(grant_id, actor: actor),
-         :ok <- validate_broker_request(grant, request),
-         {:ok, resolved} <-
-           resolve_broker_grant_material(grant, actor, agent_id) do
-      {:ok, credential_material(resolved)}
+    if grant_id == "" and binding_request?(request) do
+      resolve_credential_by_binding(request, agent_id, actor)
+    else
+      with :ok <- present_required(grant_id, :grant_id),
+           :ok <- present_required(agent_id, :agent_id),
+           {:ok, %CredentialBrokerGrant{} = grant} <-
+             CredentialBrokerGrant.get_by_id(grant_id, actor: actor),
+           :ok <- validate_broker_request(grant, request),
+           {:ok, resolved} <-
+             resolve_broker_grant_material(grant, actor, agent_id) do
+        {:ok, credential_material(resolved)}
+      end
     end
   end
 
@@ -1762,6 +1771,88 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp not_found_error?(_error), do: false
+
+  defp binding_request?(request) do
+    string_value(map_value(request, :assignment_id)) != "" and
+      string_value(map_value(request, :binding_id)) != ""
+  end
+
+  # Resolve-by-binding: the agent names its assignment and binding instead of a
+  # grant. The binding is rebuilt from the assignment as it is now, so a
+  # disabled rule, a changed secret, or a binding the assignment no longer
+  # carries is refused at use rather than when an old grant expires. The grant
+  # is then reused or issued through the grant issue action (system actor,
+  # credential-rule lifecycle guard) and resolved exactly as a presented grant
+  # is.
+  defp resolve_credential_by_binding(request, agent_id, actor) do
+    assignment_id = string_value(map_value(request, :assignment_id))
+    binding_id = string_value(map_value(request, :binding_id))
+
+    with :ok <- present_required(agent_id, :agent_id),
+         {:ok, attrs} <- binding_grant_attrs(assignment_id, agent_id, binding_id),
+         {:ok, grant} <- issue_binding_grant(attrs, actor),
+         :ok <- validate_broker_request(grant, request),
+         {:ok, resolved} <- resolve_broker_grant_material(grant, actor, agent_id) do
+      {:ok, credential_material(resolved)}
+    else
+      {:binding_denied, reason, attrs} ->
+        audit_binding_denial(request, agent_id, attrs, reason)
+        {:error, reason}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp binding_grant_attrs(assignment_id, agent_id, binding_id) do
+    with {:ok, binding} <-
+           AgentConfigGenerator.plugin_host_binding_for_resolution(
+             assignment_id,
+             agent_id,
+             binding_id
+           ),
+         %{} = payload <- binding["credential_broker"],
+         {:ok, attrs} <-
+           CredentialBrokerDelivery.grant_attrs_from_payload(payload, agent_id: agent_id),
+         ^agent_id <- string_value(Map.get(attrs, :agent_id)) do
+      {:ok, attrs}
+    else
+      {:error, reason} when is_atom(reason) -> {:binding_denied, reason, %{}}
+      _ -> {:binding_denied, :credential_binding_not_found, %{}}
+    end
+  end
+
+  # Issue refused means the rule behind the binding can no longer issue: it
+  # was disabled or now names another secret.
+  defp issue_binding_grant(attrs, actor) do
+    case CredentialBrokerGrant.reuse_or_issue(attrs,
+           actor: actor,
+           min_remaining_seconds: @binding_grant_min_remaining_seconds
+         ) do
+      {:ok, %CredentialBrokerGrant{} = grant} -> {:ok, grant}
+      {:error, _reason} -> {:binding_denied, :credential_rule_not_issuable, attrs}
+    end
+  end
+
+  defp audit_binding_denial(request, agent_id, attrs, reason) do
+    SecretBroker.write_audit(%{
+      secret_id: Map.get(attrs, :secret_id),
+      grant_id: nil,
+      consumer_kind: :plugin,
+      consumer_id: Map.get(attrs, :consumer_id) || string_value(map_value(request, :consumer_id)),
+      purpose: Map.get(attrs, :purpose) || string_value(map_value(request, :purpose)),
+      agent_id: agent_id,
+      resolution_location: :agent,
+      outcome: :denied,
+      error_class: :provider_policy_denied,
+      metadata: %{
+        "assignment_id" => string_value(map_value(request, :assignment_id)),
+        "binding_id" => string_value(map_value(request, :binding_id)),
+        "reason" => Atom.to_string(reason)
+      },
+      occurred_at: DateTime.truncate(DateTime.utc_now(), :second)
+    })
+  end
 
   defp validate_broker_request(grant, request) do
     with :ok <- validate_agent_bound_grant(grant, request),

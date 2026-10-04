@@ -52,6 +52,10 @@ const (
 	proxmoxSemanticConnectorCapabilityV1                  = "proxmox-semantic-connector:v1"
 	proxmoxConsolePolicyBindingCapabilityV1               = "proxmox-console-policy-binding:v1"
 	proxmoxIdentityCapabilityV3                           = "proxmox-identity:v3"
+	// credentialBrokerResolveByBindingCapability: host bindings may arrive
+	// with grant scope only, and the agent resolves them by assignment and
+	// binding id; core issues the grant at use.
+	credentialBrokerResolveByBindingCapability = "credential_broker_resolve_by_binding"
 	// capabilityConfigPushChunks: this agent reassembles a control-stream config
 	// push sent as AgentConfigChunks, so the gateway can push configs larger than
 	// one gRPC message.
@@ -379,6 +383,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		proxmoxSemanticConnectorCapabilityV1,
 		proxmoxConsolePolicyBindingCapabilityV1,
 		proxmoxIdentityCapabilityV3,
+		credentialBrokerResolveByBindingCapability,
 		// grpc_request: the Wasm runtime provides the grpc_unary host
 		// function, so core can admit packages that declare it.
 		pluginCapabilityGRPCRequest,

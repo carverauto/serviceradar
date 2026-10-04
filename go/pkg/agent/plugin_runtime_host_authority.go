@@ -196,7 +196,7 @@ func (a *pluginAssignment) preparePluginHostAuthority(hostParamsJSON []byte) err
 		return fail()
 	}
 
-	bindings, err := decodePluginHostAuthority(hostJSON, a.PluginID, policyBinding)
+	bindings, err := decodePluginHostAuthority(hostJSON, a.AssignmentID, a.PluginID, policyBinding)
 	if err != nil {
 		return fail()
 	}
@@ -207,6 +207,7 @@ func (a *pluginAssignment) preparePluginHostAuthority(hostParamsJSON []byte) err
 
 func decodePluginHostAuthority(
 	raw []byte,
+	assignmentID string,
 	pluginID string,
 	policyBinding proxmoxAssignmentPolicyBinding,
 ) ([]pluginHostAuthorityBinding, error) {
@@ -221,7 +222,7 @@ func decodePluginHostAuthority(
 	scopes := make(map[string]struct{}, len(envelope.Bindings))
 
 	for _, wire := range envelope.Bindings {
-		binding, err := validatePluginHostAuthorityBinding(wire, pluginID, policyBinding)
+		binding, err := validatePluginHostAuthorityBinding(wire, assignmentID, pluginID, policyBinding)
 		if err != nil {
 			return nil, err
 		}
@@ -243,6 +244,7 @@ func decodePluginHostAuthority(
 
 func validatePluginHostAuthorityBinding(
 	wire pluginHostAuthorityEnvelopeBinding,
+	assignmentID string,
 	pluginID string,
 	policyBinding proxmoxAssignmentPolicyBinding,
 ) (pluginHostAuthorityBinding, error) {
@@ -277,6 +279,15 @@ func validatePluginHostAuthorityBinding(
 	if err := validatePluginHostAuthorityGrant(grant, pluginID, policyBinding.CredentialRuleID); err != nil {
 		return pluginHostAuthorityBinding{}, err
 	}
+	if grant.GrantID == "" {
+		// Scope only: core authorizes against the current assignment and
+		// issues the grant when this binding's credential is resolved.
+		if !validPluginHostAuthorityString(assignmentID) || grant.ExpiresAt != "" {
+			return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
+		}
+		grant.ResolveAssignmentID = assignmentID
+		grant.ResolveBindingID = wire.BindingID
+	}
 	if !validProxmoxSSHHostBindingPolicy(pluginID, wire.SSHHostKeyPolicy, grant) {
 		return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
 	}
@@ -307,7 +318,7 @@ func validatePluginHostAuthorityGrant(grant credentialBrokerGrant, pluginID, cre
 		grant.Schema != "serviceradar.edge_credential_broker_grant.v2" {
 		return errPluginHostAuthorityMalformed
 	}
-	if !validPluginHostAuthorityString(grant.GrantID) ||
+	if (grant.GrantID != "" && !validPluginHostAuthorityString(grant.GrantID)) ||
 		!validPluginHostAuthorityString(grant.CredentialSecretRef) ||
 		grant.CredentialRuleID != credentialRuleID ||
 		grant.ResolutionLocation != proxmoxResolutionLocationAgent && grant.ResolutionLocation != "hybrid" {

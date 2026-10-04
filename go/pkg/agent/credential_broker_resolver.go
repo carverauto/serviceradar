@@ -64,6 +64,8 @@ func (r controlPlaneCredentialBrokerResolver) ResolveCredentialGrant(
 		ConsumerId:          strings.TrimSpace(grant.Consumer["id"]),
 		Purpose:             strings.TrimSpace(grant.Consumer["purpose"]),
 		ResolutionLocation:  strings.TrimSpace(grant.ResolutionLocation),
+		AssignmentId:        strings.TrimSpace(grant.ResolveAssignmentID),
+		BindingId:           strings.TrimSpace(grant.ResolveBindingID),
 	})
 	if err != nil {
 		return CredentialBrokerMaterial{}, err

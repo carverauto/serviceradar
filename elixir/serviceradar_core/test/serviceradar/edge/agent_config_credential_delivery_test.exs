@@ -24,9 +24,11 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
@@ -260,7 +262,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     refute config3.config_version == config2.config_version
   end
 
-  test "consecutive generations that each re-mint the broker grant keep one config version",
+  test "consecutive generations reuse one live broker grant and keep one config version",
        %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
     {:ok, _agent} = create_connected_agent(admin, agent_uid)
     create_expired_grant_policy_assignment!(admin, system, agent_uid, unique_id)
@@ -279,8 +281,79 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         config.plugins |> hd() |> get_in([:params, "template", "credential_broker", "grant_id"])
       end)
 
-    assert delivered_grant_ids |> Enum.uniq() |> length() == 4
+    # The stored grant is expired, so the first generation issues one; every
+    # later generation delivers that live grant instead of minting another.
+    assert [_one] = Enum.uniq(delivered_grant_ids)
     assert configs |> Enum.map(& &1.config_version) |> Enum.uniq() |> length() == 1
+  end
+
+  test "an agent that resolves by binding gets grant scope only and core issues the grant at use",
+       %{admin: admin, system: system, agent_uid: agent_uid} do
+    {:ok, _agent} =
+      create_connected_agent(admin, agent_uid, ["credential_broker_resolve_by_binding"])
+
+    secret = create_proxmox_secret!(admin, System.unique_integer([:positive]))
+    rule = create_proxmox_inventory_rule!(system, secret, agent_uid)
+    assignment_id = insert_proxmox_inventory_assignment!(rule, secret, agent_uid)
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+    assert [plugin] = config.plugins
+    assert [binding] = plugin.host_params["bindings"]
+    refute Map.has_key?(binding["credential_broker"], "grant_id")
+    refute Map.has_key?(binding["credential_broker"], "expires_at")
+    assert grant_count(secret) == 0
+
+    request = %{
+      agent_id: agent_uid,
+      assignment_id: assignment_id,
+      binding_id: binding["binding_id"],
+      consumer_kind: "plugin",
+      consumer_id: "proxmox-inventory",
+      purpose: "inventory_enrichment",
+      resolution_location: "agent"
+    }
+
+    assert {:ok, %{value: @api_token_payload}} =
+             AgentGatewaySync.resolve_credential_broker_grant(request)
+
+    assert {:ok, %{value: @api_token_payload}} =
+             AgentGatewaySync.resolve_credential_broker_grant(request)
+
+    assert grant_count(secret) == 1
+
+    {:ok, config_after} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+    assert config_after.config_version == config.config_version
+
+    for {label, denied_request} <- [
+          {"another agent", %{request | agent_id: agent_uid <> "-other"}},
+          {"an unknown binding", %{request | binding_id: "unknown-binding"}}
+        ] do
+      assert {:error, _reason} = AgentGatewaySync.resolve_credential_broker_grant(denied_request),
+             "#{label} resolved the binding"
+    end
+
+    # The rule now names another secret: the assignment still references the
+    # old one, so the issue guard refuses and nothing is reused.
+    replacement = create_proxmox_secret!(admin, System.unique_integer([:positive]))
+
+    assert {:ok, rule} =
+             rule
+             |> Ash.Changeset.for_update(:update, %{secret_id: replacement.id}, actor: system)
+             |> Ash.update()
+
+    assert {:error, _reason} = AgentGatewaySync.resolve_credential_broker_grant(request)
+
+    assert {:ok, _rule} =
+             rule
+             |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: system)
+             |> Ash.update()
+
+    assert {:error, _reason} = AgentGatewaySync.resolve_credential_broker_grant(request)
+    assert grant_count(secret) == 1
+    assert grant_count(replacement) == 0
+    # another agent, the changed secret and the disabled rule; the unknown
+    # binding is audited under its own id
+    assert binding_denials(binding["binding_id"]) == 3
   end
 
   test "fresh policy broker grant is reused and still resolves with an audit row",
@@ -673,7 +746,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     end
   end
 
-  defp create_connected_agent(actor, agent_uid) do
+  defp create_connected_agent(actor, agent_uid, capabilities \\ []) do
     Agent
     |> Ash.Changeset.for_create(
       :register_connected,
@@ -682,11 +755,154 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         name: "Credential Delivery Agent #{agent_uid}",
         host: "127.0.0.1",
         port: 50_051,
+        capabilities: capabilities,
         metadata: %{}
       },
       actor: actor
     )
     |> Ash.create()
+  end
+
+  defp create_proxmox_inventory_rule!(system, secret, agent_uid) do
+    {:ok, rule} =
+      NetworkCredentialRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "pve-inventory-rule-#{System.unique_integer([:positive])}",
+          provider: "proxmox",
+          auth_method: :proxmox_api_token,
+          purpose: :inventory_enrichment,
+          target_query: "in:devices",
+          scope_type: :agent,
+          scope_value: agent_uid,
+          secret_id: secret.id,
+          tls_policy: :verify
+        }
+      )
+      |> Ash.create(actor: system)
+
+    rule
+  end
+
+  # The real host-authority plugin id, as a materialized assignment carries it:
+  # the stored template holds the grant's scope and no grant.
+  defp insert_proxmox_inventory_assignment!(rule, secret, agent_uid) do
+    now = DateTime.utc_now()
+    package_id = Ecto.UUID.generate()
+    assignment_id = Ecto.UUID.generate()
+    policy_id = "network-credential-rule:#{rule.id}:inventory_enrichment"
+    secret_ref = SecretRefs.network_credential_ref(to_string(secret.id))
+
+    scope =
+      CredentialBrokerGrant.scope_payload(%{
+        secret_id: secret.id,
+        credential_rule_id: rule.id,
+        grant_type: "proxmox_api_token",
+        consumer_kind: :plugin,
+        consumer_id: "proxmox-inventory",
+        purpose: "inventory_enrichment",
+        agent_id: agent_uid,
+        resolution_location: :agent,
+        inject: %{"type" => "http_header", "name" => "Authorization", "scheme" => "PVEAPIToken"},
+        allowed_methods: ["GET"],
+        allowed_paths: ["/api2/json/version", "/api2/json/nodes"],
+        ttl_seconds: 300
+      })
+
+    Repo.insert_all("plugins", [
+      %{
+        plugin_id: "proxmox-inventory",
+        name: "proxmox-inventory",
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("plugin_packages", [
+      %{
+        id: Ecto.UUID.dump!(package_id),
+        plugin_id: "proxmox-inventory",
+        name: "proxmox-inventory",
+        version: "0.1.10",
+        entrypoint: "run_check",
+        status: "approved",
+        outputs: "serviceradar.plugin_result.v1",
+        manifest: %{},
+        config_schema: %{},
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("plugin_assignments", [
+      %{
+        id: Ecto.UUID.dump!(assignment_id),
+        agent_uid: agent_uid,
+        partition_id: @default_partition,
+        plugin_id: "proxmox-inventory",
+        plugin_package_id: Ecto.UUID.dump!(package_id),
+        source: "policy",
+        policy_id: policy_id,
+        enabled: true,
+        interval_seconds: 300,
+        timeout_seconds: 30,
+        params: %{
+          "schema" => "serviceradar.plugin_inputs.v1",
+          "policy_id" => policy_id,
+          "policy_version" => 1,
+          "credential_rule_id" => to_string(rule.id),
+          "agent_id" => agent_uid,
+          "generated_at" => DateTime.to_iso8601(now),
+          "inputs" => [
+            %{
+              "name" => "targets",
+              "entity" => "devices",
+              "query" => "in:devices",
+              "chunk_index" => 0,
+              "chunk_total" => 1,
+              "chunk_hash" => String.duplicate("a", 64),
+              "items" => [
+                %{
+                  "uid" => "sr:device:pve-a",
+                  "ip" => "192.0.2.10",
+                  "hostname" => "pve-a",
+                  "target_kind" => "pve_host"
+                }
+              ]
+            }
+          ],
+          "template" => %{"credential_broker" => scope, "api_token_secret_ref" => secret_ref}
+        },
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    assignment_id
+  end
+
+  defp grant_count(secret) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.credential_broker_grants WHERE secret_id = $1",
+        [Ecto.UUID.dump!(to_string(secret.id))]
+      )
+
+    count
+  end
+
+  defp binding_denials(binding_id) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*) FROM platform.credential_secret_resolution_audits
+        WHERE outcome = 'denied' AND metadata->>'binding_id' = $1
+        """,
+        [binding_id]
+      )
+
+    count
   end
 
   defp register_control_session!(agent_uid, partition_id) do
