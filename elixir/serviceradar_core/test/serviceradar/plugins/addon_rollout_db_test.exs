@@ -825,11 +825,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
 
       recovered_at = DateTime.add(started_at, 2)
 
+      # report_status/6, not report_status_for/5: the unhealthy failure above
+      # upserted degradation_reason "test_failure" on the shared
+      # {agent_uid, addon_id} identity, and evaluate_rollback_target gates on
+      # supervision_ready?/2, which requires no degradation. report_status/6
+      # rewrites degradation_reason (nil for a running report) while
+      # report_status_for/5 would leave the stale failure reason in place and
+      # the targets would never reach :rolled_back.
       for target <- targets do
-        report_status_for(
-          fixture.addon_id,
-          target.agent_uid,
+        report_status(
+          %{addon_id: fixture.addon_id, agent_uid: target.agent_uid},
           fixture.current.version,
+          "running",
+          true,
           recovered_at,
           actor
         )
