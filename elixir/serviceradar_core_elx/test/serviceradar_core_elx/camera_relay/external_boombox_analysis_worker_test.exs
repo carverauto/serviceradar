@@ -112,7 +112,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.ExternalBoomboxAnalysisWorkerTest do
     assert metadata["analysis_adapter"] == "boombox_external"
   end
 
-  @tag skip: "production bug, see https://github.com/carverauto/serviceradar/issues/5120"
   test "dispatches through the existing HTTP adapter and ingests Boombox-derived results with provenance", %{port: port} do
     relay_session_id = "relay-external-boombox-worker-1"
     branch_id = "external-boombox-http-1"

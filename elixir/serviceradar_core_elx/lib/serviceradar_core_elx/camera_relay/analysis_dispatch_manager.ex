@@ -166,11 +166,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager do
     end
   end
 
+  # The resolved worker's `:adapter` is its protocol name ("http"). The worker
+  # opts key of the same name is the deliver/3 module, so copying it would
+  # replace the module with a string.
   defp worker_runtime_attrs(resolved_worker) do
     Map.take(resolved_worker, [
       :worker_id,
       :display_name,
-      :adapter,
       :endpoint_url,
       :capabilities,
       :headers,

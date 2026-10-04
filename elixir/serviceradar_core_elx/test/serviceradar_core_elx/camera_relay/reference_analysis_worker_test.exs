@@ -109,7 +109,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.ReferenceAnalysisWorkerTest do
     assert detection["label"] == "h264_annexb_keyframe"
   end
 
-  @tag skip: "production bug, see https://github.com/carverauto/serviceradar/issues/5120"
   test "dispatches through the HTTP adapter and ingests derived results with provenance", %{port: port} do
     relay_session_id = "relay-reference-worker-1"
     branch_id = "reference-http-1"
@@ -162,7 +161,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.ReferenceAnalysisWorkerTest do
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
-  @tag skip: "production bug, see https://github.com/carverauto/serviceradar/issues/5120"
   test "returns a bounded no-op for non-keyframe input and does not ingest a derived event", %{port: port} do
     relay_session_id = "relay-reference-worker-2"
     branch_id = "reference-http-2"

@@ -694,7 +694,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
 
   # Intermittent: remove_analysis_branch replies before the child is gone, so a
   # quick re-open of the same branch name hits "Duplicated names".
-  @tag skip: "production bug, see https://github.com/carverauto/serviceradar/issues/5120"
   test "emits timeout and failure paths without crashing relay ingest" do
     relay_session_id = "relay-analysis-dispatch-3"
     branch_id = "analysis-http-3"

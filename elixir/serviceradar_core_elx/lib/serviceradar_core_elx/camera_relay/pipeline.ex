@@ -46,7 +46,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       |> child(@webrtc_tee, Membrane.Tee)
     ]
 
-    {[spec: spec], %{relay_session_id: relay_session_id, viewers: %{}, analysis_branches: %{}, boombox_branches: %{}}}
+    {[spec: spec],
+     %{
+       relay_session_id: relay_session_id,
+       viewers: %{},
+       analysis_branches: %{},
+       boombox_branches: %{},
+       pending_removals: %{}
+     }}
   end
 
   @impl true
@@ -93,14 +100,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     end
   end
 
-  def handle_call({:remove_webrtc_viewer, viewer_session_id}, _ctx, state) do
+  def handle_call({:remove_webrtc_viewer, viewer_session_id}, ctx, state) do
     case Map.pop(state.viewers, viewer_session_id) do
       {nil, _viewers} ->
         {[reply: {:error, :not_found}], state}
 
       {%{sink_name: sink_name, output_pad: output_pad}, viewers} ->
-        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name, reply: :ok]
-        {actions, %{state | viewers: viewers}}
+        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name]
+        {actions, defer_removal_reply(%{state | viewers: viewers}, sink_name, ctx.from)}
     end
   end
 
@@ -159,25 +166,41 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     end
   end
 
-  def handle_call({:remove_analysis_branch, branch_id}, _ctx, state) do
+  def handle_call({:remove_analysis_branch, branch_id}, ctx, state) do
     case Map.pop(state.analysis_branches, branch_id) do
       {nil, _analysis_branches} ->
         {[reply: {:error, :not_found}], state}
 
       {%{sink_name: sink_name, output_pad: output_pad}, analysis_branches} ->
-        actions = [remove_link: {@browser_tee, output_pad}, remove_children: sink_name, reply: :ok]
-        {actions, %{state | analysis_branches: analysis_branches}}
+        actions = [remove_link: {@browser_tee, output_pad}, remove_children: sink_name]
+        {actions, defer_removal_reply(%{state | analysis_branches: analysis_branches}, sink_name, ctx.from)}
     end
   end
 
-  def handle_call({:remove_boombox_branch, branch_id}, _ctx, state) do
+  def handle_call({:remove_boombox_branch, branch_id}, ctx, state) do
     case Map.pop(state.boombox_branches, branch_id) do
       {nil, _boombox_branches} ->
         {[reply: {:error, :not_found}], state}
 
       {%{sink_name: sink_name, output_pad: output_pad}, boombox_branches} ->
-        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name, reply: :ok]
-        {actions, %{state | boombox_branches: boombox_branches}}
+        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name]
+        {actions, defer_removal_reply(%{state | boombox_branches: boombox_branches}, sink_name, ctx.from)}
+    end
+  end
+
+  # A remove call is answered only once its child has terminated. Replying when
+  # the removal is merely requested let a caller re-add the same viewer or
+  # branch before the old child was gone, which Membrane rejects with
+  # "Duplicated names in children specification". A child that crashes while
+  # its removal is pending terminates here too, so the caller still gets :ok.
+  @impl true
+  def handle_child_terminated(child, _ctx, state) do
+    case Map.pop(state.pending_removals, child) do
+      {nil, _pending_removals} ->
+        {[], state}
+
+      {from, pending_removals} ->
+        {[reply_to: {from, :ok}], %{state | pending_removals: pending_removals}}
     end
   end
 
@@ -218,6 +241,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   end
 
   defp notify_member_crash(_member, _kind, _relay_session_id, _member_id, _reason), do: :ok
+
+  defp defer_removal_reply(state, sink_name, from) do
+    %{state | pending_removals: Map.put(state.pending_removals, sink_name, from)}
+  end
 
   defp crash_group(spec, group), do: {spec, group: group, crash_group_mode: :temporary}
 end
