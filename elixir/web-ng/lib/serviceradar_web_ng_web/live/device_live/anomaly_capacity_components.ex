@@ -349,17 +349,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             </div>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <.anomaly_capacity_detail_modal
-        detail={@detail}
-        device_uid={@device_uid}
-        device_display_name={@device_display_name}
-        metric_sections={@metric_sections}
-        timezone={@timezone}
-      />
-    </div>
-    """
+    <.anomaly_capacity_detail_modal
+      detail={@detail}
+      device_uid={@device_uid}
+      device_display_name={@device_display_name}
+      metric_sections={@metric_sections}
+      timezone={@timezone}
+    />
+  </div>
+  """
   end
 
   attr :class, :string, default: nil
