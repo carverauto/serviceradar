@@ -250,7 +250,7 @@ confused:
 | `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/mnt/buildbuddy/cache` | build actions |
 | `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 72Gi | `/mnt/buildbuddy/cache-workflows` | the CI runner |
 
-The fleet is sized for two concurrent runs of BazelCI/LargeIngestionGate (36GB each,
+The fleet is sized for two concurrent runs of BazelCI (36GB each,
 measured — see `values-workflows.yaml`); an unmeasured benchmark action still requests 50GB
 and fits alone. Putting this on the build fleet means either it cannot be placed (16Gi
 advertised) or, if you size the build fleet up, one runner reserves 72Gi on all three pods and
