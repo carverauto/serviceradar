@@ -118,7 +118,7 @@ If the `UDPRoute` is not accepted, check the parent reference, listener `section
 
 ## NetFlow And sFlow
 
-NetFlow and sFlow use the flow collector service. Keep flow exports on a stable collector address because IPFIX and NetFlow v9 templates are scoped per exporter and collector process. The service should use a single collector replica plus `ClientIP` session affinity so one exporter keeps landing on the same parser instance.
+NetFlow and sFlow use the flow collector service. Keep flow exports on a stable collector address because IPFIX and NetFlow v9 templates are scoped per exporter and collector process. The service should use a single collector replica plus `ClientIP` session affinity so one exporter keeps landing on the same parser instance. Template-based v9/IPFIX over UDP is rejected by default; see [Flow Collector Scaling and Exporter Authentication](./flow-collector-scaling.md) for TLS migration and the insecure opt-in.
 
 Example values:
 
