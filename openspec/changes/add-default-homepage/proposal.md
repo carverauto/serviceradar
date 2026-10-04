@@ -17,4 +17,4 @@ After sign-in, every user lands on `/dashboard`. People who live in the dashboar
 
 - Affected specs: new capability `default-homepage`. The flows dashboard at `/flows` is unchanged.
 - Affected code: `Identity.User`, `Identity.UserGroup`, `Identity.Homepage`, web-ng profile and user-group settings, `UserAuth.log_in_user`, SAML login params.
-- Migration `20261005150000` adds nullable `homepage_kind` and `homepage_target` on `platform.ng_users` and `platform.user_groups`, with a check constraint. Helm `core.migrations.expectedVersion` is `20261005150000`.
+- Migration `20261005160000` adds nullable `homepage_kind` and `homepage_target` on `platform.ng_users` and `platform.user_groups`, with a check constraint. Helm `core.migrations.expectedVersion` is `20261005160000`.
