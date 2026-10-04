@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.AgentCapabilities
+  alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
   alias ServiceRadarWebNG.RBAC
 
@@ -1366,9 +1367,16 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         management_mode = AddonRuntimePolicy.management_mode(status.addon_id, false)
 
         {drift_state, drift_reason} =
-          case management_mode do
-            :required -> addon_drift(nil, %{enabled: true}, status, agent)
-            :observed -> {:observed_unmanaged, "Reported by the agent without an assignment or required-runtime policy."}
+          if AddonFleet.stale_status?(status, DateTime.utc_now()) do
+            stale_drift(status)
+          else
+            case management_mode do
+              :required ->
+                addon_drift(nil, %{enabled: true}, status, agent)
+
+              :observed ->
+                {:observed_unmanaged, "Reported by the agent without an assignment or required-runtime policy."}
+            end
           end
 
         %{
@@ -1390,6 +1398,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp addon_drift(package, _assignment, %AddonStatus{} = status, agent) do
     cond do
+      AddonFleet.stale_status?(status, DateTime.utc_now()) ->
+        stale_drift(status)
+
       addon_arch_unsupported?(package, status, agent) ->
         {:arch_unsupported, "No package artifact matches the reported or agent platform."}
 
@@ -1406,6 +1417,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         {:healthy, nil}
     end
   end
+
+  defp stale_drift(%AddonStatus{} = status),
+    do: {:stale, "Last reported #{status.state} at #{status.reported_at}; no current report."}
 
   defp addon_drift(_package, _assignment, nil, _agent) do
     {:assigned_not_installed, "Assignment exists, but the agent has not reported installed or active status."}
@@ -1472,21 +1486,34 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp management_mode_text(:observed), do: "unmanaged runtime"
   defp management_mode_text(_mode), do: "unknown"
 
-  defp runtime_badge_variant(%AddonStatus{active: true}), do: "success"
+  defp runtime_badge_variant(%AddonStatus{} = status) do
+    cond do
+      AddonFleet.stale_status?(status, DateTime.utc_now()) -> "ghost"
+      status.active == true -> "success"
+      status.state in ["unhealthy", "failed", "circuit_open"] -> "error"
+      true -> "warning"
+    end
+  end
 
-  defp runtime_badge_variant(%AddonStatus{state: state}) when state in ["unhealthy", "failed", "circuit_open"],
-    do: "error"
-
-  defp runtime_badge_variant(%AddonStatus{}), do: "warning"
   defp runtime_badge_variant(nil), do: "ghost"
 
-  defp runtime_state_text(%AddonStatus{active: true}), do: "running"
-  defp runtime_state_text(%AddonStatus{state: state}) when is_binary(state), do: state
-  defp runtime_state_text(%AddonStatus{}), do: "not active"
+  defp runtime_state_text(%AddonStatus{} = status) do
+    if AddonFleet.stale_status?(status, DateTime.utc_now()) do
+      if is_binary(status.state), do: "stale: last #{status.state}", else: "stale"
+    else
+      cond do
+        status.active == true -> "running"
+        is_binary(status.state) -> status.state
+        true -> "not active"
+      end
+    end
+  end
+
   defp runtime_state_text(nil), do: "not reported"
 
   defp drift_badge_variant(:healthy), do: "success"
   defp drift_badge_variant(:disabled), do: "ghost"
+  defp drift_badge_variant(:stale), do: "ghost"
   defp drift_badge_variant(:observed_unmanaged), do: "warning"
   defp drift_badge_variant(:assigned_not_installed), do: "warning"
   defp drift_badge_variant(:assigned_not_active), do: "warning"
@@ -1497,6 +1524,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp drift_state_text(:healthy), do: "in sync"
   defp drift_state_text(:disabled), do: "disabled"
+  defp drift_state_text(:stale), do: "stale"
   defp drift_state_text(:observed_unmanaged), do: "unmanaged"
   defp drift_state_text(:assigned_not_installed), do: "not installed"
   defp drift_state_text(:assigned_not_active), do: "not active"
@@ -1507,6 +1535,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp addon_status_indicator_class(:healthy), do: "status-success"
   defp addon_status_indicator_class(:disabled), do: "status-neutral"
+  defp addon_status_indicator_class(:stale), do: "status-neutral"
 
   defp addon_status_indicator_class(state)
        when state in [:observed_unmanaged, :assigned_not_installed, :assigned_not_active, :runtime_warning],
