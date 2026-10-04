@@ -23,6 +23,32 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
 
   @plugin_id "alienvault-otx-threat-intel"
 
+  setup_all do
+    original_join_process_registry =
+      Application.get_env(:serviceradar_core, :join_process_registry)
+
+    Application.put_env(:serviceradar_core, :join_process_registry, true)
+    {:ok, _apps} = Application.ensure_all_started(:horde)
+
+    if is_nil(Process.whereis(ProcessRegistry.registry_name())) do
+      Enum.each(ProcessRegistry.child_specs(), &start_supervised!/1)
+    end
+
+    on_exit(fn ->
+      if is_nil(original_join_process_registry) do
+        Application.delete_env(:serviceradar_core, :join_process_registry)
+      else
+        Application.put_env(
+          :serviceradar_core,
+          :join_process_registry,
+          original_join_process_registry
+        )
+      end
+    end)
+
+    :ok
+  end
+
   setup :register_and_log_in_admin_user
 
   setup do
