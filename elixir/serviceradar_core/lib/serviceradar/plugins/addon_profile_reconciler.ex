@@ -408,6 +408,9 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       is_nil(compatibility_row) ->
         {"no_enrolled_agent", "referenced agent is not enrolled"}
 
+      superseded_agent?(compatibility_row) ->
+        {"superseded_agent", "agent identity is superseded"}
+
       unsupported_platform?(profile, compatibility_row) ->
         {"unsupported_platform", "target platform has no package artifact"}
 
@@ -425,6 +428,14 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
       true ->
         nil
+    end
+  end
+
+  defp superseded_agent?(row) do
+    case ValueUtils.raw_value(row, [:status, "status"]) do
+      :superseded -> true
+      "superseded" -> true
+      _ -> false
     end
   end
 

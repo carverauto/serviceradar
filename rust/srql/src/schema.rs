@@ -29,6 +29,9 @@ diesel::table! {
         release_rollout_state -> Nullable<Text>,
         last_update_at -> Nullable<Timestamptz>,
         last_update_error -> Nullable<Text>,
+        status -> Text,
+        superseded_by -> Nullable<Text>,
+        superseded_at -> Nullable<Timestamptz>,
     }
 }
 

@@ -56,6 +56,20 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   # ============================================================================
 
   @doc """
+  Agent heartbeat window, in milliseconds.
+
+  A connected or degraded agent last seen longer ago than this is stale.
+  Callers that decide whether an identity is still live read this so they
+  share the monitor's clock instead of inventing their own.
+  """
+  @spec agent_timeout() :: pos_integer()
+  def agent_timeout do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:agent_timeout, @default_agent_timeout)
+  end
+
+  @doc """
   Returns the PID of the StateMonitor, or nil if not running.
   """
   @spec whereis() :: pid() | nil

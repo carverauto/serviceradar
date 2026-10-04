@@ -62,7 +62,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
     # Load database record
     db_agent =
-      case srql_module().query("in:agents uid:\"#{escape_value(uid)}\" limit:1", %{scope: scope}) do
+      case srql_module().query(
+             "in:agents uid:\"#{escape_value(uid)}\" include_deleted:true limit:1",
+             %{scope: scope}
+           ) do
         {:ok, %{"results" => [agent | _]}} when is_map(agent) ->
           Map.put(agent, "_source", "database")
 
@@ -1674,6 +1677,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         :available -> {"Available", "success"}
         "busy" -> {"Busy", "warning"}
         :busy -> {"Busy", "warning"}
+        "unavailable" -> {"Unavailable", "ghost"}
+        :unavailable -> {"Unavailable", "ghost"}
+        "superseded" -> {"Superseded", "ghost"}
+        :superseded -> {"Superseded", "ghost"}
         true -> {"Active", "success"}
         false -> {"Inactive", "error"}
         _ -> {"Unknown", "ghost"}

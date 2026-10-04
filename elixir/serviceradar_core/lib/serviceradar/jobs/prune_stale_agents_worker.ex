@@ -16,6 +16,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.AgentSupersession
 
   require Ash.Query
   require Logger
@@ -27,10 +28,29 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
-    args
-    |> atomize_args()
-    |> prune()
-    |> case do
+    opts = atomize_args(args)
+    actor = SystemActor.system(:stale_agent_pruner)
+
+    # Supersede replaced identities before the stale-row retire. A superseded
+    # row is not in the prune query, so the retire cannot turn it back into
+    # unavailable. A failed sweep skips the retire: pruning first would hide
+    # the identity the sweep still needs to see.
+    case AgentSupersession.sweep(actor: actor) do
+      {:ok, %{superseded: superseded}} ->
+        if superseded > 0 do
+          Logger.info("Superseded replaced agent identities", superseded: superseded)
+        end
+
+        retire_stale(opts)
+
+      {:error, reason} ->
+        Logger.warning("Failed to supersede replaced agent identities", reason: inspect(reason))
+        {:error, reason}
+    end
+  end
+
+  defp retire_stale(opts) do
+    case prune(opts) do
       {:ok, %{retired: retired, cutoff: cutoff}} ->
         if retired > 0 do
           Logger.info("Retired stale agent rows",
