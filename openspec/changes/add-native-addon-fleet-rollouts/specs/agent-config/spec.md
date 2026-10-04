@@ -59,12 +59,22 @@ than rewriting all desired state.
 - **THEN** the candidate SHALL be blocked for that source
 - **AND** no rollout target or desired-state override SHALL be activated until an authorized operator changes the policy
 
-#### Scenario: Active rollout serializes newer candidates
-- **GIVEN** a source already rolling from version `0.2.22` to `0.2.23`
+#### Scenario: Running, pending, or rolling-back rollout serializes newer candidates
+- **GIVEN** a source with an active rollout in `running`, `pending`, or `rolling-back` from version `0.2.22` to `0.2.23`
 - **AND** version `0.2.24` becomes approved
 - **WHEN** latest-candidate reconciliation runs
 - **THEN** a second rollout SHALL NOT overlap the active source or effective targets
 - **AND** version `0.2.24` SHALL be reconsidered after the active rollout reaches a terminal state
+
+#### Scenario: Sole paused rollout is superseded by a strictly newer eligible candidate
+- **GIVEN** a source whose sole active rollout is `paused` on candidate `0.2.23`
+- **AND** version `0.2.24` is approved, verified, trusted, same add-on and origin, on the selected release channel, strictly newer than the paused candidate, and within the source capability ceiling
+- **WHEN** latest-candidate reconciliation runs
+- **THEN** the paused rollout SHALL terminalize as `superseded` with blocked reason `newer_candidate_approved` before the replacement starts
+- **AND** only that rollout's owned desired-state overrides SHALL be released and its remaining slot-holding targets canceled, preserving the original blocked reason in error and audit details
+- **AND** the replacement SHALL start in the same reconcile pass from a freshly read stable source, the stable source SHALL remain on the last healthy package until the replacement proves health, and the superseded failed version SHALL NOT be retried or promoted
+- **AND** a staged, unapproved, or privilege-expanding replacement SHALL NOT supersede the paused rollout
+- **AND** observed-fleet convergence supersession and its source-promotion and stranding repair SHALL remain unchanged and SHALL NOT handle newer-candidate supersessions
 
 ### Requirement: Native add-on rollouts are snapshotted and batched
 The control plane SHALL roll a candidate package to a snapshotted eligible target set
