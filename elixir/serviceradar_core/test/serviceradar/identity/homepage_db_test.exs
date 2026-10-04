@@ -194,7 +194,7 @@ defmodule ServiceRadar.Identity.HomepageDbTest do
 
   defp stored_homepage(user) do
     %{rows: [[homepage]]} =
-      Repo.query!("SELECT homepage FROM platform.ng_users WHERE id = $1::uuid", [user.id])
+      Repo.query!("SELECT homepage FROM platform.ng_users WHERE id = ($1::text)::uuid", [user.id])
 
     homepage
   end
