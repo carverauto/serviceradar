@@ -120,4 +120,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
       refute Map.has_key?(entity.known_values, "verdict")
     end
   end
+
+  describe "flows entity catalog registration" do
+    test "includes proto in flows and attributed_flows filter and numeric fields" do
+      flows = Enum.find(Catalog.entities(), &(&1.id == "flows"))
+      assert flows
+      assert "proto" in flows.filter_fields
+      assert "proto" in flows.filter_fields_downsample
+
+      attributed = Enum.find(Catalog.entities(), &(&1.id == "attributed_flows"))
+      assert attributed
+      assert "proto" in attributed.filter_fields
+      assert "proto" in attributed.numeric_fields
+    end
+  end
 end
