@@ -86,7 +86,9 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
     insert_metric!(device_id, 900.0)
 
-    Repo.query!("ALTER TABLE platform.interface_threshold_states ADD CONSTRAINT force_fail_test CHECK (false)")
+    Repo.query!(
+      "ALTER TABLE platform.interface_threshold_states ADD CONSTRAINT force_fail_test CHECK (false)"
+    )
 
     assert {:error, _} = InterfaceThresholdWorker.run(now: DateTime.utc_now())
   end
