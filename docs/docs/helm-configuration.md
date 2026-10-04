@@ -110,11 +110,12 @@ Key values: workload identity (`spire`)
 
 Key values: topology graph (`dgraph`, `graph`)
 - `dgraph.enabled` defaults to `true`. The chart installs Dgraph (Zero + Alpha)
-  as a subchart, generates its ACL credential, issues its TLS certificates, and
+  as a subchart, generates its ACL credential, mints its TLS Secrets, and
   applies the topology schema through a post-install Job.
-- **cert-manager is required for that default.** The Dgraph `Issuer` and
-  `Certificate` objects are plain cert-manager resources; without cert-manager
-  installed in the cluster the install fails on unknown kinds.
+- Those Secrets are ordinary `kubernetes.io/tls` objects (`dgraph-ca` and the
+  Alpha TLS Secret the subchart mounts). The chart creates them on install and
+  reuses the same bytes on upgrade. A tenant cluster does not need cert-manager
+  for Dgraph. Public HTTPS is issued separately.
 - To reuse a Dgraph cluster you already run, set `dgraph.enabled=false` and
   `dgraph.external.host`. Its ACL credential comes from a Secret that already
   exists in the namespace (`dgraph.external.credentialsSecret`), never from a
