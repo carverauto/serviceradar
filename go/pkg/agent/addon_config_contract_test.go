@@ -45,6 +45,7 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -82,6 +83,21 @@ func mergeContractFixtureOverStagedBase(t *testing.T, addonID, baseConfigPath st
 
 	merged, err := mergeAddonRuntimeConfig(base, readAddonConfigContractFixture(t, addonID))
 	require.NoError(t, err)
+
+	// The staged base points profile_path at the host-wide runtime profile
+	// under /var/lib/serviceradar, which LoadConfig layers over the decoded
+	// document. On a host with an installed agent that profile overrides the
+	// delivered agent_id/enabled and the test asserts the host instead of the
+	// contract, so point it at a path inside the test's own temp dir.
+	var doc map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(merged, &doc))
+	if _, ok := doc["profile_path"]; ok {
+		isolated, err := json.Marshal(filepath.Join(t.TempDir(), "runtime-profile-absent.json"))
+		require.NoError(t, err)
+		doc["profile_path"] = isolated
+		merged, err = json.Marshal(doc)
+		require.NoError(t, err)
+	}
 
 	mergedPath := filepath.Join(t.TempDir(), addonID+".json")
 	require.NoError(t, os.WriteFile(mergedPath, merged, 0o600))
