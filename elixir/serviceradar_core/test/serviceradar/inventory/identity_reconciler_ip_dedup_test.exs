@@ -61,6 +61,31 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
     assert resolved_id == device.uid
   end
 
+  test "a failed address lookup does not mint a device", %{actor: actor} do
+    ip = unique_ip()
+    {:ok, device} = create_device(actor, ip, "host01.example.com")
+
+    update = %{
+      device_id: nil,
+      ip: ip,
+      mac: nil,
+      partition: "default",
+      metadata: %{}
+    }
+
+    assert {:ok, resolved_id} = IdentityReconciler.resolve_device_id(update, actor: actor)
+    assert resolved_id == device.uid
+
+    parent = self()
+
+    spawn(fn ->
+      send(parent, {:resolved, IdentityReconciler.resolve_device_id(update, actor: actor)})
+    end)
+
+    assert_receive {:resolved, result}, 30_000
+    assert {:error, {:identifier_lookup_failed, _reason}} = result
+  end
+
   test "IP fallback reuses existing device for weak updates", %{actor: actor} do
     ip = unique_ip()
     {:ok, device} = create_device(actor, ip, "existing-weak-device")
