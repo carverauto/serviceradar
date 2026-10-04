@@ -61,7 +61,8 @@ defmodule ServiceRadar.Identity.PrivilegeMutationResourceContractTest do
     assert Enum.map(Info.interfaces(UserGroup), & &1.name) == [
              :list,
              :create_group,
-             :update_group
+             :update_group,
+             :update_homepage
            ]
   end
 
