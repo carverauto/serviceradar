@@ -25,9 +25,16 @@ spec:
   isCA: true
   commonName: dgraph-ci-ca
   secretName: dgraph-ci-ca
+  # Same policy as srql-fixture-server-ca. CI fetches this CA from a fixed URL and other
+  # clusters' fixture certificates chain to copies of it, so a renewal must keep the key:
+  # cert-manager >= 1.18 defaults rotationPolicy to Always, which would mint a new key at the
+  # default 90-day renewal and silently break every copy. Ten years, renewed in place.
+  duration: 87600h
+  renewBefore: 2160h
   privateKey:
     algorithm: ECDSA
     size: 256
+    rotationPolicy: Never
   issuerRef:
     name: dgraph-ci-selfsigned
     kind: Issuer

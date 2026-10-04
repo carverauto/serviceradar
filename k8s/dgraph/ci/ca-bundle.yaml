@@ -5,7 +5,7 @@
 #
 # WHY THIS EXISTS: config/environments/ci.textproto sets dgraph.tls_mode to VERIFY_CA against a
 # certificate issued by the in-cluster `dgraph-ci-ca`. No public authority signs a
-# *.svc.cluster.local name, so clients need that CA -- and cert-manager rotates it, which makes
+# *.svc.cluster.local name, so clients need that CA -- and cert-manager renews it, which makes
 # any stored copy correct only until it silently is not. Naming the endpoint in the config means
 # every client reads the CURRENT bundle and nobody rotates a secret by hand.
 #
@@ -18,8 +18,8 @@
 # and the volume projects ca.crt alone. That projection is the guarantee, not the Caddyfile route.
 #
 # A near-copy of //k8s/srql-fixtures/ca-bundle.yaml, which does the same job for the CNPG
-# fixture. Kept as a separate deployment rather than generalised: two CAs with two rotation
-# schedules in two namespaces, and a shared publisher would couple their availability.
+# fixture. Kept as a separate deployment rather than generalised: two CAs on the same renewal
+# schedule in two namespaces, and a shared publisher would couple their availability.
 apiVersion: v1
 kind: ConfigMap
 metadata:
