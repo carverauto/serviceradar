@@ -1247,18 +1247,24 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       |> agent_record_attrs(partition_id, nil, source_ip)
       |> maybe_add_config_source(config_source)
 
-    case core_call(AgentGatewaySync, :heartbeat_agent, [agent_id, attrs]) do
-      {:ok, :ok} ->
-        :ok
+    # Fire-and-forget: heartbeat updates are non-critical and must not block the
+    # PushStatus response. A slow or unavailable core causes DEADLINE_EXCEEDED on
+    # the agent side if this runs synchronously. Task.start (not start_link) so
+    # a crash in the background task does not propagate to the handler process.
+    Task.start(fn ->
+      case core_call(AgentGatewaySync, :heartbeat_agent, [agent_id, attrs]) do
+        {:ok, :ok} ->
+          :ok
 
-      {:ok, {:error, reason}} ->
-        Logger.warning("Failed to heartbeat agent record #{agent_id}: #{inspect(reason)}")
-        :ok
+        {:ok, {:error, reason}} ->
+          Logger.warning("Failed to heartbeat agent record #{agent_id}: #{inspect(reason)}")
 
-      {:error, :core_unavailable} ->
-        Logger.warning("Core unavailable while updating agent #{agent_id}")
-        :ok
-    end
+        {:error, :core_unavailable} ->
+          Logger.warning("Core unavailable while updating agent #{agent_id}")
+      end
+    end)
+
+    :ok
   end
 
   defp maybe_add_config_source(attrs, nil), do: attrs
@@ -2066,7 +2072,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp control_session_pid({:awaiting_hello, _}), do: nil
 
   defp reconcile_agent_release(agent_id) do
-    _ = core_call(AgentGatewaySync, :reconcile_agent_release, [agent_id], 15_000)
+    # Fire-and-forget: reconcile is non-critical and must not block the handler
+    # response. A 15-second synchronous call here causes DEADLINE_EXCEEDED when
+    # core is slow. Task.start (not start_link) so a crash does not propagate.
+    Task.start(fn ->
+      core_call(AgentGatewaySync, :reconcile_agent_release, [agent_id], 15_000)
+    end)
+
     :ok
   end
 end
