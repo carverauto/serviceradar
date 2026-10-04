@@ -169,7 +169,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       assert {:ok, %{status: :unscoped}} =
                SourceRetirement.run(instance,
                  settings: @settings,
-                 now: DateTime.add(ctx.t0, 100, :hour),
+                 now: DateTime.shift(ctx.t0, hour: 100),
                  actor: ctx.actor
                )
 
@@ -283,7 +283,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       assert {:ok, %{retired: 1}} =
                SourceRetirement.run(ctx.instance,
                  settings: @settings,
-                 now: DateTime.add(ctx.t0, 100, :hour),
+                 now: DateTime.shift(ctx.t0, hour: 100),
                  actor: ctx.actor,
                  uids: [a.uid, b.uid, d.uid]
                )
@@ -298,7 +298,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       assert {:ok, report} =
                SourceIdentityRepair.dry_run("armis", ctx.inst,
                  settings: @settings,
-                 now: DateTime.add(ctx.t0, 30, :hour)
+                 now: DateTime.shift(ctx.t0, hour: 30)
                )
 
       assert report.mode == "dry_run"
@@ -349,7 +349,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
         absent = Enum.map(2..8, &armis_record(ctx, &1))
 
       # The pass at hour 30 has its cutoff at hour 6: an observation at the cutoff is T old.
-      cutoff = DateTime.add(ctx.t0, 6, :hour)
+      cutoff = DateTime.shift(ctx.t0, hour: 6)
       put_column(at_cutoff, :identity_observed_at, DateTime.to_naive(cutoff))
       put_column(agent, :agent_id, "agent-#{ctx.n}")
       register(ctx, agent_identifier.uid, :agent_id, "agent-#{ctx.n}-id", "default")
@@ -359,7 +359,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       put_column(
         observed,
         :identity_observed_at,
-        cutoff |> DateTime.add(1, :second) |> DateTime.to_naive()
+        cutoff |> DateTime.shift(second: 1) |> DateTime.to_naive()
       )
 
       collect(ctx, 1, [a | absent], hours: 0)
@@ -618,7 +618,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       ip_base: ip_base,
       instance: %{partition: "default", source: "armis", source_instance: inst},
       id_partition: "default:armis:#{inst}",
-      t0: DateTime.utc_now() |> DateTime.add(-10, :day) |> DateTime.truncate(:microsecond)
+      t0: DateTime.utc_now() |> DateTime.shift(day: -10) |> DateTime.truncate(:microsecond)
     }
   end
 
@@ -789,7 +789,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     collection_id = "#{ctx.inst}-c#{k}"
     content_hash = sha(collection_id)
     query_hash = Keyword.get(opts, :query_hash)
-    observed_at = DateTime.add(ctx.t0, Keyword.get(opts, :hours, k), :hour)
+    observed_at = DateTime.shift(ctx.t0, hour: Keyword.get(opts, :hours, k))
 
     snapshot = %{
       partition: "default",
@@ -839,7 +839,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   defp retire(ctx, hours, settings \\ @settings) do
     SourceRetirement.run(ctx.instance,
       settings: settings,
-      now: DateTime.add(ctx.t0, hours, :hour),
+      now: DateTime.shift(ctx.t0, hour: hours),
       actor: ctx.actor
     )
   end

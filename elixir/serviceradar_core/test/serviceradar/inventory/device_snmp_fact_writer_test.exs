@@ -131,7 +131,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
     device: device
   } do
     oid = ".1.3.6.1.2.1.1.3.0"
-    older = DateTime.add(DateTime.utc_now(), -60, :second)
+    older = DateTime.shift(DateTime.utc_now(), minute: -1)
 
     :ok =
       DeviceSNMPFactWriter.write_rows([

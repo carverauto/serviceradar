@@ -3254,7 +3254,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       device = reporter_device!(actor, unique_id, "freshness", false)
       group = reporter_group!(actor, unique_id, "freshness", [original_agent])
       newer = DateTime.truncate(DateTime.utc_now(), :microsecond)
-      older = DateTime.add(newer, -3_600, :second)
+      older = DateTime.shift(newer, hour: -1)
 
       assert {:ok, _} =
                ingest_report(
@@ -3303,8 +3303,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           emit_availability_events: true
         })
 
-      newer = DateTime.utc_now() |> DateTime.add(30, :second) |> DateTime.truncate(:microsecond)
-      older = DateTime.add(newer, -3_600, :second)
+      newer = DateTime.utc_now() |> DateTime.shift(second: 30) |> DateTime.truncate(:microsecond)
+      older = DateTime.shift(newer, hour: -1)
 
       assert {:ok, _} =
                ingest_report(actor, group.id, agent_id, unavailable_result(device.ip, newer))
@@ -3362,8 +3362,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           emit_availability_events: true
         })
 
-      newer = DateTime.utc_now() |> DateTime.add(30, :second) |> DateTime.truncate(:microsecond)
-      older = DateTime.add(newer, -3_600, :second)
+      newer = DateTime.utc_now() |> DateTime.shift(second: 30) |> DateTime.truncate(:microsecond)
+      older = DateTime.shift(newer, hour: -1)
 
       assert {:ok, _} =
                ingest_report(

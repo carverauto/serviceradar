@@ -465,19 +465,19 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
       context =
         base()
         |> Map.put(:route, %{id: @route_id, throttle_seconds: 300})
-        |> Map.put(:last_dispatch_at, DateTime.add(@now, -60, :second))
+        |> Map.put(:last_dispatch_at, DateTime.shift(@now, minute: -1))
 
       assert {:suppress, :throttled, detail} = Suppression.evaluate(context)
       assert detail.throttle_seconds == 300
       assert detail.effective_seconds == 300
-      assert detail.next_eligible_at == DateTime.add(@now, 240, :second)
+      assert detail.next_eligible_at == DateTime.shift(@now, minute: 4)
     end
 
     test "a dispatch at the throttle boundary proceeds" do
       context =
         base()
         |> Map.put(:route, %{id: @route_id, throttle_seconds: 300})
-        |> Map.put(:last_dispatch_at, DateTime.add(@now, -300, :second))
+        |> Map.put(:last_dispatch_at, DateTime.shift(@now, minute: -5))
 
       assert Suppression.evaluate(context) == :allow
     end
@@ -488,7 +488,7 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
         base()
         |> Map.put(:route, %{id: @route_id, throttle_seconds: 900})
         |> Map.put(:rule, %{cooldown_seconds: 600})
-        |> Map.put(:last_dispatch_at, DateTime.add(@now, -700, :second))
+        |> Map.put(:last_dispatch_at, DateTime.shift(@now, second: -700))
 
       assert {:suppress, :throttled, detail} = Suppression.evaluate(route_longer)
       assert detail.effective_seconds == 900
@@ -498,7 +498,7 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
         base()
         |> Map.put(:route, %{id: @route_id, throttle_seconds: 300})
         |> Map.put(:rule, %{cooldown_seconds: 600})
-        |> Map.put(:last_dispatch_at, DateTime.add(@now, -400, :second))
+        |> Map.put(:last_dispatch_at, DateTime.shift(@now, second: -400))
 
       assert {:suppress, :throttled, detail} = Suppression.evaluate(route_shorter)
       assert detail.effective_seconds == 600
@@ -510,7 +510,7 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
       context =
         base()
         |> Map.put(:rule, %{cooldown_seconds: 600})
-        |> Map.put(:last_dispatch_at, DateTime.add(@now, -120, :second))
+        |> Map.put(:last_dispatch_at, DateTime.shift(@now, minute: -2))
 
       assert {:suppress, :throttled, detail} = Suppression.evaluate(context)
       assert detail.effective_seconds == 600
@@ -520,7 +520,7 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
       configured = Map.put(base(), :route, %{id: @route_id, throttle_seconds: 300})
       assert Suppression.evaluate(configured) == :allow
 
-      dispatched = Map.put(base(), :last_dispatch_at, DateTime.add(@now, -1, :second))
+      dispatched = Map.put(base(), :last_dispatch_at, DateTime.shift(@now, second: -1))
       assert Suppression.evaluate(dispatched) == :allow
     end
 
@@ -530,7 +530,7 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
         |> Map.put(:route, %{id: @route_id, throttle_seconds: 30})
         |> Map.put(:throttle, %{
           throttle_seconds: 3600,
-          last_dispatch_at: DateTime.add(@now, -60, :second)
+          last_dispatch_at: DateTime.shift(@now, minute: -1)
         })
 
       assert {:suppress, :throttled, detail} = Suppression.evaluate(context)
@@ -719,7 +719,7 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
 
       dispatch_context =
         routing_context
-        |> Map.put(:now, DateTime.add(@now, 900, :second))
+        |> Map.put(:now, DateTime.shift(@now, minute: 15))
         |> Map.put(:device, %{device_uid: "dev-1", is_active: false})
         |> Map.put(:step, %{step_number: 2, condition: :if_unacknowledged})
 
@@ -731,17 +731,17 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
 
       retry_context =
         base()
-        |> Map.put(:now, DateTime.add(@now, 120, :second))
+        |> Map.put(:now, DateTime.shift(@now, minute: 2))
         |> Map.put(:silences, [silence()])
 
       assert {:suppress, :silence, _} = Suppression.evaluate(retry_context)
     end
 
     test "an expiring silence stops suppressing on the next evaluation" do
-      context = Map.put(base(), :silences, [silence(%{ends_at: DateTime.add(@now, 60, :second)})])
+      context = Map.put(base(), :silences, [silence(%{ends_at: DateTime.shift(@now, minute: 1)})])
 
       assert {:suppress, :silence, _} = Suppression.evaluate(context)
-      assert Suppression.evaluate(%{context | now: DateTime.add(@now, 61, :second)}) == :allow
+      assert Suppression.evaluate(%{context | now: DateTime.shift(@now, second: 61)}) == :allow
     end
 
     test "nothing is cached between calls" do
@@ -813,7 +813,7 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
       context =
         base()
         |> Map.put(:route, %{id: @route_id, throttle_seconds: 300})
-        |> Map.put(:last_dispatch_at, DateTime.add(@now, -60, :second))
+        |> Map.put(:last_dispatch_at, DateTime.shift(@now, minute: -1))
 
       outcome = Suppression.evaluate(context)
       assert {:ok, attrs} = Suppression.to_delivery_attributes(outcome, context)
@@ -930,7 +930,7 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
   defp trigger(context, :throttled) do
     Map.put(context, :throttle, %{
       throttle_seconds: 300,
-      last_dispatch_at: DateTime.add(@now, -60, :second)
+      last_dispatch_at: DateTime.shift(@now, minute: -1)
     })
   end
 

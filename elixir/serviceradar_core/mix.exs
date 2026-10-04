@@ -32,7 +32,6 @@ defmodule ServiceRadarCore.MixProject do
         ignore_advisories: [
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-43969",
-          "EEF-CVE-2026-43971",
           "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
@@ -86,11 +85,13 @@ defmodule ServiceRadarCore.MixProject do
       # CVE-2026-67579: keyset cursor injection is fixed in 3.31.3.
       # EEF-CVE-2026-93477: private action arguments settable through bulk
       # update/destroy input is fixed in 3.33.11.
-      {:ash, "~> 3.33.11"},
+      # CVE-2026-94201: filtering on an atom created atoms; fixed in 3.34.3.
+      {:ash, "~> 3.34.3"},
       # The floors below are the first releases carrying the fixes for the Hex
       # advisories open against the previously locked versions
-      # (`mix hex.audit`); do not lower them.
-      {:ash_postgres, "~> 2.13"},
+      # (`mix hex.audit`); do not lower them. ash_postgres 2.14 is the
+      # temporal release that matches Ash 3.34; its advisory floor was 2.13.
+      {:ash_postgres, "~> 2.14"},
       {:ash_oban, "~> 0.8.14"},
       {:ash_state_machine, "~> 0.2"},
       {:ash_json_api, "~> 1.4"},
@@ -125,9 +126,12 @@ defmodule ServiceRadarCore.MixProject do
       # gRPC client for serviceradar-sync communication
       {:grpc, "~> 1.0"},
       # grpc 1.0 made transport adapters optional and pins the default Gun
-      # adapter to `~> 2.2.0`. Keep the CVE-patched gun 2.4.1 (Phase-1) and force
+      # adapter to `~> 2.2.0`. Keep gun on the CVE-patched 2.4 line and force
       # it via override so the default Gun client adapter stays available.
       {:gun, "~> 2.4", override: true},
+      # membrane_webrtc_plugin requires websock_adapter ~> 0.5.0. Bazel builds
+      # one copy of each Hex package, so the other apps stay on that line.
+      {:websock_adapter, "~> 0.5.0", override: true},
       {:protobuf, "~> 0.16.0", override: true},
 
       # Telemetry

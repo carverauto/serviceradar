@@ -283,7 +283,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreTest do
       action_version: "1.0.0",
       audience: "serviceradar.awx.callback/v1",
       issued_at: now,
-      expires_at: DateTime.add(now, 120),
+      expires_at: DateTime.shift(now, minute: 2),
       budget_total: 1,
       budget_remaining: 1,
       target_keys: [String.duplicate("9", 64)],

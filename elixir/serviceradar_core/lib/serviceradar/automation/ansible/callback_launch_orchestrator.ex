@@ -277,7 +277,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          grant_id,
          edge_principal
        ) do
-    expires_at = DateTime.add(allocation.issued_at, launch_contract.ttl_seconds, :second)
+    expires_at = DateTime.shift(allocation.issued_at, second: launch_contract.ttl_seconds)
     actor = value(plan.snapshot, :actor) || %{}
     approval = value(plan.operation, :approval_snapshot) || %{}
     scope = awx_scope(plan, approval)

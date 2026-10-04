@@ -29,7 +29,7 @@ defmodule ServiceRadar.Jobs.SecurityEventsRetentionWorker do
   @impl Oban.Worker
   def perform(_job) do
     days = retention_days()
-    cutoff = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -days)
     actor = SystemActor.system(:security_events_retention)
 
     case SecurityEvent.delete_older_than(cutoff, actor: actor) do

@@ -211,7 +211,7 @@ defmodule ServiceRadar.Notifications.ActionToken do
          {:ok, ttl_seconds} <- ttl_seconds(opts) do
       selector = random(@selector_bytes)
       secret = random(@secret_bytes)
-      expires_at = DateTime.add(now(opts), ttl_seconds, :second)
+      expires_at = DateTime.shift(now(opts), second: ttl_seconds)
 
       attrs = %{
         selector: selector,

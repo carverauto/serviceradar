@@ -461,7 +461,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorTest do
       live_launch_snapshot_digest: String.duplicate("d", 64),
       command_result_digest: String.duplicate("e", 64),
       verified_at: @issued_at,
-      expires_at: DateTime.add(@issued_at, 120, :second)
+      expires_at: DateTime.shift(@issued_at, minute: 2)
     }
   end
 

@@ -544,7 +544,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
       |> Keyword.get(:window_seconds, @default_window_seconds)
       |> max(60)
 
-    lower = DateTime.add(as_of, -window_seconds, :second)
+    lower = DateTime.shift(as_of, second: -window_seconds)
 
     sql = """
     SELECT hostile_ip, dst_ip, dst_port, comm, cmdline, agent_id, observed_at, row_key

@@ -196,10 +196,9 @@ defmodule ServiceRadar.DireTrace do
     # always observed later, however quickly the trace runs.
     seen_at =
       DateTime.to_iso8601(
-        DateTime.add(
+        DateTime.shift(
           DateTime.utc_now(),
-          Keyword.get(opts, :seen_offset, 60) + length(trace.states),
-          :second
+          second: Keyword.get(opts, :seen_offset, 60) + length(trace.states)
         )
       )
 
@@ -420,7 +419,7 @@ defmodule ServiceRadar.DireTrace do
     instance = %{partition: "default", source: "armis", source_instance: trace.source}
 
     now =
-      DateTime.add(DateTime.utc_now(), settings.source_retirement_min_absence_hours + 1, :hour)
+      DateTime.shift(DateTime.utc_now(), hour: settings.source_retirement_min_absence_hours + 1)
 
     step(trace, "Retire", nil, nil, [], fn ->
       assert {:ok, %{status: :completed}} =

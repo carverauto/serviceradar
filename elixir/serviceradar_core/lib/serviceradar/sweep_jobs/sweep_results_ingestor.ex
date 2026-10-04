@@ -1765,7 +1765,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # This prevents transient network issues from causing availability flapping
     available_wins_window = get_available_wins_window(group)
 
-    available_wins_cutoff = DateTime.add(timestamp, -available_wins_window, :second)
+    available_wins_cutoff = DateTime.shift(timestamp, second: -available_wins_window)
 
     sql = """
     UPDATE ocsf_devices AS d

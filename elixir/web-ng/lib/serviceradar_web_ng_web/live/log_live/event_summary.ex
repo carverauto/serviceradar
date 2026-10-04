@@ -99,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.EventSummary do
 
   defp resolve_value(value, now) do
     with {:ok, seconds} <- relative_seconds(value) do
-      {:ok, DateTime.add(now, -seconds, :second), now}
+      {:ok, DateTime.shift(now, second: -seconds), now}
     end
   end
 
@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.EventSummary do
 
       {"", end_raw} ->
         with {:ok, end_at} <- parse_datetime(end_raw) do
-          {:ok, DateTime.add(end_at, -@max_span_seconds, :second), end_at}
+          {:ok, DateTime.shift(end_at, second: -@max_span_seconds), end_at}
         end
 
       {start_raw, ""} ->

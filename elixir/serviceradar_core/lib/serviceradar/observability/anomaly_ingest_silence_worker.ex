@@ -97,9 +97,9 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
     health = Keyword.get(opts, :health_recorder, &TripwireHealth.record/3)
     hours = silence_hours()
 
-    metrics_cutoff = DateTime.add(now, -@metrics_alive_window_hours * 3600, :second)
-    anomaly_cutoff = DateTime.add(now, -hours * 3600, :second)
-    heartbeat_cutoff = DateTime.add(now, -@addon_heartbeat_freshness_minutes * 60, :second)
+    metrics_cutoff = DateTime.shift(now, hour: -@metrics_alive_window_hours)
+    anomaly_cutoff = DateTime.shift(now, hour: -hours)
+    heartbeat_cutoff = DateTime.shift(now, minute: -@addon_heartbeat_freshness_minutes)
 
     case metrics_alive?(repo, metrics_cutoff, opts) do
       {:ok, false} ->

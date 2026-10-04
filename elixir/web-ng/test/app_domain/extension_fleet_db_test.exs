@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
               version: version,
               active: true,
               last_health_at: now,
-              reported_at: DateTime.add(now, -report_age)
+              reported_at: DateTime.shift(now, second: -report_age)
             },
             actor: system_actor()
           )
@@ -131,7 +131,7 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
         state: "unhealthy",
         version: "2.0.0",
         active: false,
-        reported_at: DateTime.add(now, 1)
+        reported_at: DateTime.shift(now, second: 1)
       },
       scope: scope
     )

@@ -233,7 +233,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
     # node. Observed on farm01: a nist-nvd2 run OOMKilled four minutes in, then sat
     # `executing` for over an hour behind a node name that looked fine.
     test "a job is orphaned when its node restarted after the attempt began" do
-      live = %{"serviceradar_core@10.42.0.1" => DateTime.add(@job_at, 260, :second)}
+      live = %{"serviceradar_core@10.42.0.1" => DateTime.shift(@job_at, second: 260)}
 
       assert FeedWorker.orphaned?(executing_on("serviceradar_core@10.42.0.1"), live),
              "a VM that booted after the attempt cannot be the one running it"
@@ -300,7 +300,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
       assert FeedWorker.reclaim_orphaned_jobs() == :ok
     end
 
-    defp booted_before, do: DateTime.add(@job_at, -600, :second)
+    defp booted_before, do: DateTime.shift(@job_at, minute: -10)
 
     defp executing_on(node) do
       %Oban.Job{state: "executing", attempted_by: [node, "uuid"], attempted_at: @job_at}

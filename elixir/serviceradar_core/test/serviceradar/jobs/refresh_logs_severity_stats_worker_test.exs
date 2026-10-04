@@ -54,7 +54,7 @@ defmodule ServiceRadar.Jobs.RefreshLogsSeverityStatsWorkerTest do
 
   test "refills 24 hours when the rollup start lags raw logs" do
     now = ~U[2026-08-18 12:00:00Z]
-    last = DateTime.add(now, -2 * 3_600, :second)
+    last = DateTime.shift(now, hour: -2)
 
     assert RefreshLogsSeverityStatsWorker.needs_24h_refresh?(
              raw_min: ~U[2026-08-17 12:00:00Z],
@@ -69,7 +69,7 @@ defmodule ServiceRadar.Jobs.RefreshLogsSeverityStatsWorkerTest do
     refute RefreshLogsSeverityStatsWorker.needs_24h_refresh?(
              raw_min: ~U[2026-08-17 12:00:00Z],
              rollup_min: ~U[2026-08-17 12:02:00Z],
-             last_refresh_at: DateTime.add(now, -10 * 60, :second),
+             last_refresh_at: DateTime.shift(now, minute: -10),
              now: now,
              coverage_grace_seconds: 300,
              min_interval_seconds: 3_600,
@@ -83,14 +83,14 @@ defmodule ServiceRadar.Jobs.RefreshLogsSeverityStatsWorkerTest do
     assert RefreshLogsSeverityStatsWorker.needs_24h_refresh?(
              raw_min: ~U[2026-08-17 12:00:00Z],
              rollup_min: nil,
-             last_refresh_at: DateTime.add(now, -2 * 3_600, :second),
+             last_refresh_at: DateTime.shift(now, hour: -2),
              now: now
            )
 
     assert RefreshLogsSeverityStatsWorker.needs_24h_refresh?(
              raw_min: ~U[2026-08-17 12:00:00Z],
              rollup_min: ~U[2026-08-17 12:00:00Z],
-             last_refresh_at: DateTime.add(now, -7 * 3_600, :second),
+             last_refresh_at: DateTime.shift(now, hour: -7),
              now: now,
              coverage_grace_seconds: 300,
              min_interval_seconds: 3_600,

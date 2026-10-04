@@ -90,7 +90,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindow do
           %{
             bucket: bucket,
             range_start: latest(bucket, window.start),
-            bucket_end: earliest(DateTime.add(bucket, bucket_seconds, :second), window.end),
+            bucket_end: earliest(DateTime.shift(bucket, second: bucket_seconds), window.end),
             total: 0,
             low: 0,
             medium: 0,

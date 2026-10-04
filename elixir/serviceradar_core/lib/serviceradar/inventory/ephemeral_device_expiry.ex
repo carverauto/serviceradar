@@ -98,7 +98,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
     if Map.get(settings, :ephemeral_expiry_enabled, false) do
       now = Keyword.get(opts, :now, DateTime.utc_now())
       days = Map.get(settings, :ephemeral_expiry_days) || @default_days
-      cutoff = now |> DateTime.add(-days * 86_400, :second) |> DateTime.truncate(:second)
+      cutoff = now |> DateTime.shift(day: -days) |> DateTime.truncate(:second)
       batch_size = Map.get(settings, :batch_size) || 1_000
 
       with {:ok, excluded} <-

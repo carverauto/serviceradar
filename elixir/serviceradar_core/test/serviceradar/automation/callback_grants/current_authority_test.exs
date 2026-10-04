@@ -190,7 +190,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       put_in(
         issued,
         [:principal, :authority, :profile_versions, Access.at(0), :updated_at],
-        DateTime.add(first.updated_at, 1)
+        DateTime.shift(first.updated_at, second: 1)
       )
 
     assert {:error, :principal_changed} = authorize(:activate, first_changed)
@@ -199,7 +199,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       put_in(
         issued,
         [:principal, :authority, :profile_versions, Access.at(1), :updated_at],
-        DateTime.add(second.updated_at, 1)
+        DateTime.shift(second.updated_at, second: 1)
       )
 
     assert {:error, :principal_changed} = authorize(:activate, second_changed)
@@ -300,7 +300,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       fixture
       |> put_in(
         [:grant, :approval_snapshot, "issued_at"],
-        DateTime.to_iso8601(DateTime.add(@now, -301))
+        DateTime.to_iso8601(DateTime.shift(@now, second: -301))
       )
       |> redigest(:approval_snapshot, :approval_digest)
 
@@ -386,7 +386,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       scopes: ["write"],
       enabled: true,
       revoked_at: nil,
-      expires_at: DateTime.add(@now, 3_600),
+      expires_at: DateTime.shift(@now, hour: 1),
       updated_at: ~U[2026-07-12 20:02:00.000000Z]
     }
 
@@ -571,10 +571,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       current: true,
       approval_state: :approved,
       approval_id: ids.approval,
-      approval_expires_at: DateTime.add(@now, 3_600),
+      approval_expires_at: DateTime.shift(@now, hour: 1),
       reviewed_by_principal_type: :human,
       reviewed_by_principal_id: ids.user,
-      reviewed_at: DateTime.add(@now, -3_600),
+      reviewed_at: DateTime.shift(@now, hour: -1),
       callback_actions: [@action],
       ask_credential_on_launch: true,
       callback_credential_type_id: 6,
@@ -614,7 +614,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       dispatch_id: "dispatch-1",
       awx_job_id: 9_001,
       state: :scope_verified,
-      scope_verified_at: DateTime.add(@now, -30),
+      scope_verified_at: DateTime.shift(@now, second: -30),
       metadata: %{"awx_created_by_id" => 11, "target_digest" => target_digest},
       accepted_job_snapshot: %{
         "controller_id" => ids.controller,

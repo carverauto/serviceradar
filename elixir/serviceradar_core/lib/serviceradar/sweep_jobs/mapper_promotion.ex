@@ -264,7 +264,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
     interval_seconds = SweepMonitorWorker.parse_interval_to_seconds(interval)
 
     if interval_seconds > 0 do
-      DateTime.add(last_run_at, interval_seconds, :second)
+      DateTime.shift(last_run_at, second: interval_seconds)
     end
   end
 
@@ -386,7 +386,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
   defp status_name(other), do: to_string(other)
 
   defp cooldown_until(%{status: :dispatched}, now, cooldown_seconds),
-    do: now |> DateTime.add(cooldown_seconds, :second) |> DateTime.to_iso8601()
+    do: now |> DateTime.shift(second: cooldown_seconds) |> DateTime.to_iso8601()
 
   defp cooldown_until(
          %{status: :suppressed, cooldown_until: cooldown_until},

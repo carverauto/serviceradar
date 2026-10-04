@@ -50,7 +50,7 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
          :ok <- assert_rule_contract(rule),
          :ok <- StatefulAlertEngine.evaluate_events([event(:open, now, device_uid, series_key)]),
          {:ok, alert} <- wait_for_alert(actor, series_key, timeout_ms),
-         clear_time = DateTime.add(now, 30, :second),
+         clear_time = DateTime.shift(now, second: 30),
          :ok <-
            StatefulAlertEngine.evaluate_events([
              event(:clear, clear_time, device_uid, series_key)

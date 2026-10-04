@@ -178,13 +178,13 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
     secret = secret_fixture("grants")
     now = ~U[2026-08-31 12:00:00Z]
 
-    live_issued = insert_grant(secret.id, :issued, DateTime.add(now, 1, :second), "issued")
-    live_active = insert_grant(secret.id, :active, DateTime.add(now, 60, :second), "active")
+    live_issued = insert_grant(secret.id, :issued, DateTime.shift(now, second: 1), "issued")
+    live_active = insert_grant(secret.id, :active, DateTime.shift(now, minute: 1), "active")
     _boundary = insert_grant(secret.id, :issued, now, "boundary")
-    _expired_active = insert_grant(secret.id, :active, DateTime.add(now, -1, :second), "old")
+    _expired_active = insert_grant(secret.id, :active, DateTime.shift(now, second: -1), "old")
 
     for status <- [:consumed, :denied, :expired, :revoked] do
-      insert_grant(secret.id, status, DateTime.add(now, 60, :second), Atom.to_string(status))
+      insert_grant(secret.id, status, DateTime.shift(now, minute: 1), Atom.to_string(status))
     end
 
     assert {:ok, %Result{live_grants: grants}} =

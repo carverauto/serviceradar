@@ -120,8 +120,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRangeSelectionTest do
 
   defp points_with_count(count) do
     for index <- 0..(count - 1) do
-      start = DateTime.add(~U[2026-08-27 10:00:00Z], index * 300, :second)
-      point(start, DateTime.add(start, 300, :second))
+      start = DateTime.shift(~U[2026-08-27 10:00:00Z], minute: index * 5)
+      point(start, DateTime.shift(start, minute: 5))
     end
   end
 

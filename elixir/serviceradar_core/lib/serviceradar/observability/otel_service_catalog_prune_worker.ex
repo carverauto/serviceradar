@@ -74,7 +74,7 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogPruneWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    cutoff = DateTime.add(DateTime.utc_now(), -retention_days() * 86_400, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -retention_days())
 
     with {:ok, %{num_rows: deleted}} <-
            Repo.query(@delete_sql, [cutoff], timeout: @query_timeout_ms),

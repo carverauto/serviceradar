@@ -224,7 +224,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
 
     insert_duplicate_terminal_hop!(
       trace_id,
-      DateTime.add(timestamp, 1, :second),
+      DateTime.shift(timestamp, second: 1),
       {"198.51.100.40", 20_000, 20, 10}
     )
 

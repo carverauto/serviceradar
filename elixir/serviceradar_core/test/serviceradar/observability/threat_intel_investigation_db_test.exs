@@ -21,7 +21,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
       source: source,
       label: "Synthetic pulse #{source}",
       severity: 100,
-      expires_at: DateTime.add(now, 3600, :second),
+      expires_at: DateTime.shift(now, hour: 1),
       first_seen_at: now,
       last_seen_at: now
     })
@@ -31,7 +31,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
       source: source <> "-expired",
       label: "Expired pulse #{source}",
       severity: 100,
-      expires_at: DateTime.add(now, -3600, :second),
+      expires_at: DateTime.shift(now, hour: -1),
       first_seen_at: now,
       last_seen_at: now
     })
@@ -59,7 +59,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
       max_severity: 4,
       sources: [source],
       looked_up_at: now,
-      expires_at: DateTime.add(now, -60, :second)
+      expires_at: DateTime.shift(now, minute: -1)
     })
 
     assert {:ok, current} = ThreatIntelInvestigation.list_current_matches(scope, source: source)

@@ -109,7 +109,7 @@ defmodule ServiceRadarWebNG.Dashboards.PackageRetentionTest do
     }
   end
 
-  defp date_for(n), do: ~N[2020-01-01 00:00:00] |> DateTime.from_naive!("Etc/UTC") |> DateTime.add(n * 86_400)
+  defp date_for(n), do: ~N[2020-01-01 00:00:00] |> DateTime.from_naive!("Etc/UTC") |> DateTime.shift(day: n)
 
   defp assert_protected(plan, id, reason) do
     entry = Enum.find(plan.protected, &(&1.package.id == id))

@@ -111,7 +111,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     down = %{
       data: %{
         initial.data
-        | "generated_at" => DateTime.add(initial_time, 1, :second),
+        | "generated_at" => DateTime.shift(initial_time, second: 1),
           "nodes" => [%{"name" => "node1.example.com", "ready" => false}]
       }
     }

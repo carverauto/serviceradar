@@ -461,7 +461,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
 
   test "due dispatch records status and advances next due", %{actor: actor, uid: uid} do
     assert {:ok, schedule} = create_enabled_schedule(actor, uid)
-    due_at = DateTime.add(DateTime.utc_now(), -60, :second)
+    due_at = DateTime.shift(DateTime.utc_now(), minute: -1)
 
     assert {:ok, due_schedule} =
              schedule
@@ -505,7 +505,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert cron_schedule.next_due_at
     assert DateTime.diff(cron_schedule.next_due_at, DateTime.utc_now(), :second) <= 90
 
-    due_at = DateTime.add(DateTime.utc_now(), -60, :second)
+    due_at = DateTime.shift(DateTime.utc_now(), minute: -1)
 
     assert {:ok, due_schedule} =
              cron_schedule
@@ -618,7 +618,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
 
   test "an explicit next due wins over a cadence change", %{actor: actor, uid: uid} do
     assert {:ok, schedule} = create_enabled_schedule(actor, uid)
-    pinned_due_at = DateTime.add(DateTime.utc_now(), 90, :second)
+    pinned_due_at = DateTime.shift(DateTime.utc_now(), second: 90)
 
     assert {:ok, updated} =
              schedule

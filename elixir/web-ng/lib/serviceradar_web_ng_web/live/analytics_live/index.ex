@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   defp get_hourly_event_stats(_scope) do
-    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -1)
 
     query =
       from(s in "ocsf_events_hourly_stats",
@@ -539,7 +539,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp merge_event_stats(base, _), do: base
 
   defp get_service_counts do
-    cutoff = DateTime.add(DateTime.utc_now(), -1, :hour)
+    cutoff = DateTime.shift(DateTime.utc_now(), hour: -1)
 
     query =
       from(s in "service_status",

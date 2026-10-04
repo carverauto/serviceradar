@@ -24,7 +24,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceTest do
       %{aggregate | hosts: []},
       %{aggregate | source_fingerprint: "sha256:" <> String.duplicate("2", 64)},
       %{aggregate | collection_id: "different-observation"},
-      %{aggregate | observed_at: DateTime.add(aggregate.observed_at, 1, :second)},
+      %{aggregate | observed_at: DateTime.shift(aggregate.observed_at, second: 1)},
       put_in(aggregate, [:hosts, Access.at(0), :ansible_host], "192.0.2.20")
     ]
 

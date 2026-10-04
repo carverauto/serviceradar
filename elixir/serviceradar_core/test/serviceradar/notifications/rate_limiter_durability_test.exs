@@ -103,7 +103,7 @@ defmodule ServiceRadar.Notifications.RateLimiterDurabilityTest do
       for _ <- 1..3, do: RateLimiter.check_and_consume(channel.id, 3, now)
       assert {:wait, _at} = RateLimiter.check_and_consume(channel.id, 3, now)
 
-      next_window = DateTime.add(now, 60, :second)
+      next_window = DateTime.shift(now, minute: 1)
 
       assert RateLimiter.check_and_consume(channel.id, 3, next_window) == :ok
 
@@ -115,7 +115,7 @@ defmodule ServiceRadar.Notifications.RateLimiterDurabilityTest do
       channel: channel,
       now: now
     } do
-      later = DateTime.add(now, 60, :second)
+      later = DateTime.shift(now, minute: 1)
 
       assert RateLimiter.check_and_consume(channel.id, 3, later) == :ok
       assert RateLimiter.check_and_consume(channel.id, 3, now) == :ok

@@ -81,7 +81,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     else
       retention_days = settings.retention_days
       batch_size = settings.batch_size
-      cutoff = DateTime.add(DateTime.utc_now(), -retention_days * 86_400, :second)
+      cutoff = DateTime.shift(DateTime.utc_now(), day: -retention_days)
 
       expire_ephemeral_devices(settings, actor)
       delete_source_retired(settings, actor)

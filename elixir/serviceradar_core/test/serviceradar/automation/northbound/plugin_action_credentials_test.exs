@@ -489,8 +489,8 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
                    result: %{"status" => "queued"},
                    external_correlation_id: "poll-task-#{unique}",
                    continuation_state: %{"task_id" => "poll-task-#{unique}"},
-                   next_poll_at: DateTime.add(DateTime.utc_now(), 30, :second),
-                   poll_deadline_at: DateTime.add(DateTime.utc_now(), 300, :second)
+                   next_poll_at: DateTime.shift(DateTime.utc_now(), second: 30),
+                   poll_deadline_at: DateTime.shift(DateTime.utc_now(), minute: 5)
                  },
                  actor: @system_actor
                )

@@ -361,7 +361,7 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
 
       # `expires_at` is written by core at dispatch, so this decision needs
       # nothing from the status handler.
-      later = DateTime.add(now, 3_600, :second)
+      later = DateTime.shift(now, hour: 1)
 
       assert %{settled: settled} = Dispatcher.reconcile(later, actor: actor)
       assert id in settled
@@ -419,7 +419,7 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
       # store-and-forward (forgejo #4902), so once the TTL passes there is
       # nothing left to wait for and nothing else in the system will move this
       # row: `read :retry_due` selects only `:pending`.
-      later = DateTime.add(now, 3_600, :second)
+      later = DateTime.shift(now, hour: 1)
 
       assert %{settled: settled} = Dispatcher.reconcile(later, actor: actor)
       assert id in settled
@@ -454,7 +454,7 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
       # redispatching it directly from due/2 would duplicate an in-flight page.
       dispatching!(id, Ash.UUID.generate(), actor)
 
-      later = DateTime.add(now, 3_600, :second)
+      later = DateTime.shift(now, hour: 1)
 
       assert %{settled: settled} = Dispatcher.reconcile(later, actor: actor)
       assert id in settled
@@ -476,7 +476,7 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
     create_route!(actor, policy)
 
     alert = create_alert!(actor)
-    now = DateTime.add(alert.triggered_at, 1, :second)
+    now = DateTime.shift(alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
 

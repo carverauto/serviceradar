@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
   test "CPU section renders overall utilization plus top-core drilldown" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    older = DateTime.add(now, -300, :second)
+    older = DateTime.shift(now, minute: -5)
 
     Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
       cond do
@@ -413,7 +413,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
         String.contains?(query, ~s|metric_name:"process.cpu_usage"|) ->
           cpu_rows =
             Enum.map(cpu_offsets_values, fn {offset, value} ->
-              dt = now |> DateTime.add(offset, :second) |> DateTime.truncate(:second)
+              dt = now |> DateTime.shift(second: offset) |> DateTime.truncate(:second)
 
               %{
                 "timestamp" => DateTime.to_iso8601(dt),

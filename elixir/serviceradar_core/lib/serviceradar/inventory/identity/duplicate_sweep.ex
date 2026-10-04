@@ -211,7 +211,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   end
 
   defp prune_run_records(actor) do
-    cutoff = DateTime.add(DateTime.utc_now(), -run_retention_days() * 86_400, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -run_retention_days())
 
     ReconciliationRun
     |> Ash.Query.for_read(:older_than, %{cutoff: cutoff}, actor: actor)

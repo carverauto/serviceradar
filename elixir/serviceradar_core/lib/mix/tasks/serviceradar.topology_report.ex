@@ -35,7 +35,7 @@ defmodule Mix.Tasks.Serviceradar.TopologyReport do
       )
 
     lookback_minutes = Keyword.get(opts, :lookback_minutes, 60)
-    cutoff = DateTime.add(DateTime.utc_now(), -lookback_minutes * 60, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), minute: -lookback_minutes)
 
     report =
       %{

@@ -21,7 +21,6 @@ defmodule ServiceRadarAgentGateway.MixProject do
         ignore_advisories: [
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-43969",
-          "EEF-CVE-2026-43971",
           "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
@@ -73,7 +72,7 @@ defmodule ServiceRadarAgentGateway.MixProject do
       # package (the `grpc` client lib, inherited via serviceradar_core, no longer
       # ships GRPC.Server/GRPC.Endpoint/GRPC.Server.Supervisor).
       {:grpc_server, "~> 1.0"},
-      # Keep the CVE-patched gun 2.4.1 (Phase-1) for the client adapter; grpc 1.0
+      # Keep gun on the CVE-patched 2.4 line for the client adapter; grpc 1.0
       # pins the optional Gun adapter to `~> 2.2.0`, so force it via override.
       {:gun, "~> 2.4", override: true},
       # grpc_core 1.0 conservatively requests protobuf `~> 0.17`; the proto-generated

@@ -141,8 +141,8 @@ defmodule ServiceRadar.Inventory.Identity.ReconciliationRunTest do
       old_id = Ash.UUID.generate()
       recent_id = Ash.UUID.generate()
 
-      insert_run(%{run_id: old_id, started_at: DateTime.add(DateTime.utc_now(), -90, :day)})
-      insert_run(%{run_id: recent_id, started_at: DateTime.add(DateTime.utc_now(), -1, :day)})
+      insert_run(%{run_id: old_id, started_at: DateTime.shift(DateTime.utc_now(), day: -90)})
+      insert_run(%{run_id: recent_id, started_at: DateTime.shift(DateTime.utc_now(), day: -1)})
 
       assert {:ok, _stats} = DuplicateSweep.reconcile_duplicates(actor: actor())
 

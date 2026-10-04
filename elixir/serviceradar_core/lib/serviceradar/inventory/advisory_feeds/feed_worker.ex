@@ -397,7 +397,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     import Ecto.Query
 
     live = live_node_start_times()
-    cutoff = DateTime.add(DateTime.utc_now(), -@orphan_grace_seconds, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), second: -@orphan_grace_seconds)
 
     query =
       from(j in Oban.Job,

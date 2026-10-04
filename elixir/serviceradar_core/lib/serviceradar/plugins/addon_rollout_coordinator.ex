@@ -750,7 +750,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
                state: :rollback_pending,
                reason_code: reason,
                rollback_started_at: now,
-               deadline_at: DateTime.add(now, rollout.policy["health_timeout_seconds"] || 900)
+               deadline_at:
+                 DateTime.shift(now, second: rollout.policy["health_timeout_seconds"] || 900)
              },
              actor
            ),
@@ -851,7 +852,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         end
 
       target, :ok ->
-        deadline = DateTime.add(now, policy["health_timeout_seconds"])
+        deadline = DateTime.shift(now, second: policy["health_timeout_seconds"])
 
         with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
              {:ok, _} <-
@@ -1026,7 +1027,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
                    %{
                      state: :rollback_pending,
                      rollback_started_at: now,
-                     deadline_at: DateTime.add(now, health_timeout_seconds),
+                     deadline_at: DateTime.shift(now, second: health_timeout_seconds),
                      reason_code: "whole_rollout_rollback"
                    },
                    actor

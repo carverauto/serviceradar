@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
 
     expiry =
       DateTime.utc_now()
-      |> DateTime.add(expiry_hours * 3600, :second)
+      |> DateTime.shift(hour: expiry_hours)
       |> DateTime.to_unix()
 
     payload =
@@ -131,7 +131,7 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
   @spec expiry_datetime(keyword()) :: DateTime.t()
   def expiry_datetime(opts \\ []) do
     expiry_hours = Keyword.get(opts, :expiry_hours, @default_expiry_hours)
-    DateTime.add(DateTime.utc_now(), expiry_hours * 3600, :second)
+    DateTime.shift(DateTime.utc_now(), hour: expiry_hours)
   end
 
   defp decode_v2(token_string, opts) do

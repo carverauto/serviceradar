@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.DeliveryFilters do
   def since(filters, %DateTime{} = now) do
     case hours(filters[:window]) do
       nil -> nil
-      count -> DateTime.add(now, -count * 3600, :second)
+      count -> DateTime.shift(now, hour: -count)
     end
   end
 

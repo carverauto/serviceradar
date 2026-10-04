@@ -81,8 +81,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.ChartData.Overlays do
       if previous_period do
         with {:ok, {start_dt, end_dt}} <- TimeWindow.parse_time_window_from_query(base_query),
              diff when is_integer(diff) and diff > 0 <- DateTime.diff(end_dt, start_dt, :second) do
-          prev_start = DateTime.add(start_dt, -diff, :second)
-          prev_end = DateTime.add(end_dt, -diff, :second)
+          prev_start = DateTime.shift(start_dt, second: -diff)
+          prev_end = DateTime.shift(end_dt, second: -diff)
           prev_time = "[#{DateTime.to_iso8601(prev_start)},#{DateTime.to_iso8601(prev_end)}]"
           prev_query = NFQuery.flows_replace_time(base_query, prev_time)
 
@@ -140,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.ChartData.Overlays do
       %{"t" => t} = p when is_binary(t) ->
         case DateTime.from_iso8601(t) do
           {:ok, dt, _} ->
-            Map.put(p, "t", dt |> DateTime.add(seconds, :second) |> DateTime.to_iso8601())
+            Map.put(p, "t", dt |> DateTime.shift(second: seconds) |> DateTime.to_iso8601())
 
           _ ->
             p
@@ -195,8 +195,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.ChartData.Overlays do
         if previous_period do
           with {:ok, {start_dt, end_dt}} <- TimeWindow.parse_time_window_from_query(base_query),
                diff when is_integer(diff) and diff > 0 <- DateTime.diff(end_dt, start_dt, :second) do
-            prev_start = DateTime.add(start_dt, -diff, :second)
-            prev_end = DateTime.add(end_dt, -diff, :second)
+            prev_start = DateTime.shift(start_dt, second: -diff)
+            prev_end = DateTime.shift(end_dt, second: -diff)
             prev_time = "[#{DateTime.to_iso8601(prev_start)},#{DateTime.to_iso8601(prev_end)}]"
             prev_query = NFQuery.flows_replace_time(base_query, prev_time)
 
@@ -248,7 +248,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.ChartData.Overlays do
         %{"t" => t} = point when is_binary(t) ->
           case DateTime.from_iso8601(t) do
             {:ok, dt, _} ->
-              Map.put(point, "t", dt |> DateTime.add(seconds, :second) |> DateTime.to_iso8601())
+              Map.put(point, "t", dt |> DateTime.shift(second: seconds) |> DateTime.to_iso8601())
 
             _ ->
               point

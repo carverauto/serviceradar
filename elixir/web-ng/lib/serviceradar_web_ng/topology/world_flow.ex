@@ -7,9 +7,9 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
   @doc "Builds an exact-pair request without truncating identities that exceed the byte budget."
   def request(relations, now, settings) do
     window = %{
-      since: DateTime.add(now, -settings.window_seconds, :second),
+      since: DateTime.shift(now, second: -settings.window_seconds),
       until: now,
-      fresh_after: DateTime.add(now, -settings.freshness_seconds, :second)
+      fresh_after: DateTime.shift(now, second: -settings.freshness_seconds)
     }
 
     candidates = relations |> Enum.flat_map(&pairs/1) |> Enum.uniq()

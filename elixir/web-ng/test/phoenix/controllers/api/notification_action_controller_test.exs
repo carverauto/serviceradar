@@ -360,7 +360,7 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationActionControllerTest do
     {:ok, minted} =
       ActionToken.mint(
         %{delivery_id: delivery.id, alert_id: delivery.alert_id, action: :acknowledge},
-        now: DateTime.add(DateTime.utc_now(), -7200, :second),
+        now: DateTime.shift(DateTime.utc_now(), hour: -2),
         ttl_seconds: 60
       )
 

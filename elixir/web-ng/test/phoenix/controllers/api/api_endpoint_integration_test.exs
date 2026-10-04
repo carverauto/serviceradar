@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     now = DateTime.utc_now()
 
     for i <- 1..n do
-      last_seen = DateTime.add(now, -i, :second)
+      last_seen = DateTime.shift(now, second: -i)
 
       attrs =
         Map.merge(
@@ -151,7 +151,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
             ip: "10.20.#{i}.#{:rand.uniform(250)}",
             type_id: rem(i, 3),
             is_available: true,
-            first_seen_time: DateTime.add(now, -3600, :second),
+            first_seen_time: DateTime.shift(now, hour: -1),
             last_seen_time: last_seen
           },
           overrides

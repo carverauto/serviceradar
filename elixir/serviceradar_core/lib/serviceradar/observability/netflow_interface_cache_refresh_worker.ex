@@ -294,7 +294,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
              limit > 0 do
     since =
       DateTime.utc_now()
-      |> DateTime.add(-scan_window_seconds, :second)
+      |> DateTime.shift(second: -scan_window_seconds)
       |> DateTime.truncate(:second)
 
     collect_interface_pairs(since, limit, nil, [], opts)

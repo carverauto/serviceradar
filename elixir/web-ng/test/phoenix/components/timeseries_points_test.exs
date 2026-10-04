@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesPointsTest do
 
   test "a 90 day window labels months across the window, not the clock time of the samples" do
     now = ~U[2026-09-21 12:00:00Z]
-    start = DateTime.add(now, -90, :day)
+    start = DateTime.shift(now, day: -90)
 
     points = [
       {~U[2026-09-16 19:00:00Z], 7.0},

@@ -119,7 +119,7 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   def run_incremental(check, opts) do
     actor = Keyword.fetch!(opts, :actor)
     mark = db_now()
-    since = DateTime.add(check.last_incremental_at, -@watermark_slack_seconds, :second)
+    since = DateTime.shift(check.last_incremental_at, second: -@watermark_slack_seconds)
     opts = Keyword.put(opts, :now, mark)
 
     with {:ok, normalized} <- Scope.normalize(check.scope_query),

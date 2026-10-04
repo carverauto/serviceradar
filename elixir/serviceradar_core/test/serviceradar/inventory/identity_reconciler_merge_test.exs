@@ -54,7 +54,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     assert {:ok, _to_device} = create_device(actor, to_uid, "merge-to")
 
     timestamp = DateTime.truncate(DateTime.utc_now(), :second)
-    earlier = DateTime.add(timestamp, -60, :second)
+    earlier = DateTime.shift(timestamp, minute: -1)
 
     assert {:ok, _} = create_interface(actor, to_uid, timestamp, "ifindex:1", 1, "eth0")
     assert {:ok, _} = create_interface(actor, from_uid, timestamp, "ifindex:1", 1, "eth0")

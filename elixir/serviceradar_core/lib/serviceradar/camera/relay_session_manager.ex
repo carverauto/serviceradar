@@ -753,7 +753,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
   defp lease_expiry(opts) do
     ttl_seconds = Keyword.get(opts, :lease_ttl_seconds, @default_lease_ttl_seconds)
-    DateTime.utc_now() |> DateTime.add(ttl_seconds, :second) |> DateTime.truncate(:microsecond)
+    DateTime.utc_now() |> DateTime.shift(second: ttl_seconds) |> DateTime.truncate(:microsecond)
   end
 
   defp lease_token do

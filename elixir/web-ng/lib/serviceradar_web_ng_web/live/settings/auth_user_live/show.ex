@@ -164,7 +164,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     user = socket.assigns.user
 
     if ServiceRadarWebNG.RBAC.can?(scope, "settings.auth.manage") do
-      enabled = not (user.local_login_enabled == true)
+      enabled = user.local_login_enabled != true
 
       case AdminApi.set_user_local_login(scope, user.id, enabled) do
         {:ok, updated} ->

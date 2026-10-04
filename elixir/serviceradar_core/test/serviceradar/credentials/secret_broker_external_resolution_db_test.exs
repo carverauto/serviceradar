@@ -162,7 +162,7 @@ defmodule ServiceRadar.Credentials.SecretBrokerExternalResolutionDbTest do
       status: :active,
       consumer_kind: :plugin,
       resolution_location: Keyword.get(opts, :resolution_location, :agent),
-      expires_at: Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 300, :second))
+      expires_at: Keyword.get(opts, :expires_at, DateTime.shift(DateTime.utc_now(), minute: 5))
     }
   end
 end

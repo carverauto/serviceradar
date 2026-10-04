@@ -93,7 +93,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert assignment.rollout_package_id == candidate.id
     assert assignment.rollout_id == rollout.id
 
-    observed_at = DateTime.add(started_at, 1)
+    observed_at = DateTime.shift(started_at, second: 1)
 
     {:ok, _status} =
       AddonStatus
@@ -116,7 +116,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert :ok =
              AddonRolloutCoordinator.advance(rollout.id,
                actor: actor,
-               now: DateTime.add(observed_at, 1)
+               now: DateTime.shift(observed_at, second: 1)
              )
 
     assignment = get_assignment(assignment.id, actor)
@@ -355,7 +355,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert get_rollout(rollout.id, actor).state == :paused
 
     # The agent reached the candidate by some other route entirely.
-    later = DateTime.add(fixture.started_at, 60)
+    later = DateTime.shift(fixture.started_at, minute: 1)
     report_status(fixture, fixture.candidate.version, "running", true, later, actor)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
@@ -386,7 +386,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor)
 
     # workload-identity's shape: candidate 0.1.5, agents already on 0.1.7.
-    later = DateTime.add(fixture.started_at, 60)
+    later = DateTime.shift(fixture.started_at, minute: 1)
     report_status(fixture, "1.2.0", "running", true, later, actor)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
@@ -411,7 +411,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     # elsewhere" from "this rollout just delivered the candidate". Without the
     # paused precondition this hijacked three existing rollout tests, turning
     # healthy promotions into supersessions.
-    later = DateTime.add(fixture.started_at, 60)
+    later = DateTime.shift(fixture.started_at, minute: 1)
     report_status(fixture, fixture.candidate.version, "running", true, later, actor)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
@@ -432,7 +432,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     # scalibr's shape: candidate 0.1.3 while the fleet sits on 0.1.2. Lexically
     # "1.0.5" >= "1.1.0" is false, but so is the semantic comparison -- this
     # asserts the version check is not fooled either way.
-    later = DateTime.add(fixture.started_at, 60)
+    later = DateTime.shift(fixture.started_at, minute: 1)
     report_status(fixture, "1.0.5", "running", true, later, actor)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
@@ -453,7 +453,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     # anomaly's shape on ns01-ns05: running the candidate, reporting only that
     # the host has not delegated the cpu cgroup controller. Before the gate fix
     # this failed as candidate_reported_unhealthy.
-    later = DateTime.add(fixture.started_at, 60)
+    later = DateTime.shift(fixture.started_at, minute: 1)
 
     {:ok, _} =
       AddonStatus
@@ -491,7 +491,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
                trigger: :manual
              )
 
-    failed_at = DateTime.add(fixture.started_at, 1)
+    failed_at = DateTime.shift(fixture.started_at, second: 1)
     report_status(fixture, fixture.candidate.version, "unhealthy", false, failed_at, actor)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
@@ -499,7 +499,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert get_rollout_target(rollout.id, actor).state == :rollback_pending
     assert is_nil(get_assignment(fixture.assignment.id, actor).rollout_package_id)
 
-    recovered_at = DateTime.add(failed_at, 1)
+    recovered_at = DateTime.shift(failed_at, second: 1)
     report_status(fixture, fixture.current.version, "running", true, recovered_at, actor)
 
     assert :ok =
@@ -523,17 +523,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
                trigger: :manual
              )
 
-    failed_at = DateTime.add(fixture.started_at, 1)
+    failed_at = DateTime.shift(fixture.started_at, second: 1)
     report_status(fixture, fixture.candidate.version, "unhealthy", false, failed_at, actor)
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: failed_at)
 
-    recovered_at = DateTime.add(failed_at, 1)
+    recovered_at = DateTime.shift(failed_at, second: 1)
     report_status(fixture, fixture.current.version, "running", true, recovered_at, actor)
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: recovered_at)
     assert :ok = AddonRolloutCoordinator.resume(rollout.id, actor: actor, now: recovered_at)
     assert get_rollout(rollout.id, actor).state == :failed
 
-    retry_at = DateTime.add(recovered_at, 1)
+    retry_at = DateTime.shift(recovered_at, second: 1)
 
     assert {:ok, retried} =
              AddonRolloutCoordinator.retry(rollout.id, actor: actor, now: retry_at)
@@ -562,7 +562,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
              )
 
     target = get_rollout_target(rollout.id, actor)
-    failed_at = DateTime.add(fixture.started_at, 1)
+    failed_at = DateTime.shift(fixture.started_at, second: 1)
 
     {:ok, _} =
       target
@@ -579,7 +579,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
       })
       |> Ash.update(actor: actor)
 
-    retry_at = DateTime.add(failed_at, 1)
+    retry_at = DateTime.shift(failed_at, second: 1)
 
     assert {:ok, retried} =
              AddonRolloutCoordinator.retry(rollout.id, actor: actor, now: retry_at)
@@ -604,13 +604,13 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert :ok =
              AddonRolloutCoordinator.rollback(rollout.id,
                actor: actor,
-               now: DateTime.add(fixture.started_at, 1)
+               now: DateTime.shift(fixture.started_at, second: 1)
              )
 
     assert get_rollout(rollout.id, actor).state == :rolling_back
     assert get_rollout_target(rollout.id, actor).state == :rollback_pending
 
-    recovered_at = DateTime.add(fixture.started_at, 2)
+    recovered_at = DateTime.shift(fixture.started_at, second: 2)
     report_status(fixture, fixture.current.version, "running", true, recovered_at, actor)
 
     assert :ok =
@@ -652,7 +652,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
       |> Ash.update(actor: actor)
 
     # The live half of the fleet is on the candidate. The dead peer never reports.
-    later = DateTime.add(fixture.started_at, 60)
+    later = DateTime.shift(fixture.started_at, minute: 1)
     report_status_for(fixture.addon_id, fixture.live_uid, fixture.candidate.version, later, actor)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
@@ -678,7 +678,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
                trigger: :manual
              )
 
-    stale_at = DateTime.add(fixture.started_at, 1)
+    stale_at = DateTime.shift(fixture.started_at, second: 1)
     report_status(fixture, fixture.current.version, "unhealthy", false, stale_at, actor)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: stale_at)
@@ -686,7 +686,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert get_rollout_target(rollout.id, actor).state == :waiting_health
     assert get_assignment(fixture.assignment.id, actor).rollout_package_id == fixture.candidate.id
 
-    ready_at = DateTime.add(stale_at, 1)
+    ready_at = DateTime.shift(stale_at, second: 1)
     report_status(fixture, fixture.candidate.version, "running", true, ready_at, actor)
 
     assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: ready_at)
@@ -760,7 +760,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
       )
       |> Ash.update(actor: actor)
 
-    later = DateTime.add(fixture.started_at, 60)
+    later = DateTime.shift(fixture.started_at, minute: 1)
     report_status_for(fixture.addon_id, fixture.live_uid, fixture.candidate.version, later, actor)
 
     {fixture, rollout, later}
@@ -821,7 +821,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert {:ok, _next} =
              AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
                actor: actor,
-               now: DateTime.add(fixture.started_at, 120),
+               now: DateTime.shift(fixture.started_at, minute: 2),
                trigger: :manual
              )
   end

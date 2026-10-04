@@ -139,14 +139,14 @@ defmodule ServiceRadar.Edge.CollectorPackage do
               token_bytes = :crypto.strong_rand_bytes(32)
               token_secret = Base.url_encode64(token_bytes, padding: false)
               hash = :sha256 |> :crypto.hash(token_secret) |> Base.encode16(case: :lower)
-              expires = DateTime.add(DateTime.utc_now(), 7, :day)
+              expires = DateTime.shift(DateTime.utc_now(), week: 1)
               {hash, expires}
 
             provided_hash ->
               # Use provided token hash (from EnrollmentToken)
               expires =
                 Ash.Changeset.get_argument(changeset, :token_expires_at) ||
-                  DateTime.add(DateTime.utc_now(), 1, :day)
+                  DateTime.shift(DateTime.utc_now(), day: 1)
 
               {provided_hash, expires}
           end

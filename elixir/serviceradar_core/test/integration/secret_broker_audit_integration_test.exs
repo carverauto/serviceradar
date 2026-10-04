@@ -52,7 +52,7 @@ defmodule ServiceRadar.Credentials.SecretBrokerAuditIntegrationTest do
       consumer_kind: :plugin,
       consumer_id: "plugin-#{unique}",
       resolution_location: :agent,
-      expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
+      expires_at: DateTime.shift(DateTime.utc_now(), minute: 5)
     }
 
     assert {:error, {:resolution_location_not_allowed, :agent}} =

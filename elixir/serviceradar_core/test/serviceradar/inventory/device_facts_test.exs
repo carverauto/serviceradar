@@ -215,7 +215,7 @@ defmodule ServiceRadar.Inventory.DeviceFactsTest do
       config: %{"path" => "nac_applied", "value_type" => "boolean", "max_age_seconds" => 60}
     }
 
-    later = DateTime.add(DateTime.utc_now(), 3_600, :second)
+    later = DateTime.shift(DateTime.utc_now(), hour: 1)
 
     assert %{value: :unknown, reason: :stale} =
              DeviceMetadata.resolve(input, updated.metadata, later)

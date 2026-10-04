@@ -67,7 +67,7 @@ defmodule ServiceRadar.Observability.MtrGraph do
   def prune_stale_edges(stale_hours \\ @stale_hours) do
     cutoff =
       DateTime.utc_now()
-      |> DateTime.add(-stale_hours * 3600, :second)
+      |> DateTime.shift(hour: -stale_hours)
       |> DateTime.to_iso8601()
 
     cypher = """

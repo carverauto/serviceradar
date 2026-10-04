@@ -37,7 +37,7 @@ defmodule ServiceRadar.Notifications.RateLimiterTest do
       window = RateLimiter.window_start(at("2026-08-09T12:34:00Z"))
 
       for second <- 0..59 do
-        instant = DateTime.add(at("2026-08-09T12:34:00Z"), second, :second)
+        instant = DateTime.shift(at("2026-08-09T12:34:00Z"), second: second)
         assert RateLimiter.window_start(instant) == window
       end
     end

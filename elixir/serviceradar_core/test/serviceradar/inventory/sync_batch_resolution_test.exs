@@ -1883,7 +1883,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
             ip: ip,
             hostname: "stale-holder-#{n}",
             mac: "00:00:5E:00:53:01",
-            last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
+            last_seen_time: DateTime.shift(DateTime.utc_now(), hour: -1)
           },
           actor: actor
         )
@@ -1939,7 +1939,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
       armis_id = "#{n}13"
 
-      last_seen = DateTime.add(DateTime.utc_now(), -3600, :second)
+      last_seen = DateTime.shift(DateTime.utc_now(), hour: -1)
 
       offline_update =
         armis_id
@@ -2125,9 +2125,9 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       seen = minutes_ago(30)
 
       assert_observed_at(sync_seen!(armis_id, ip, seen, actor), seen)
-      assert_observed_at(sync_seen!(armis_id, ip, DateTime.add(seen, -600, :second), actor), seen)
+      assert_observed_at(sync_seen!(armis_id, ip, DateTime.shift(seen, minute: -10), actor), seen)
 
-      later = DateTime.add(seen, 600, :second)
+      later = DateTime.shift(seen, minute: 10)
       assert_observed_at(sync_seen!(armis_id, ip, later, actor), later)
     end
 
@@ -2215,7 +2215,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
              :eq
   end
 
-  defp minutes_ago(minutes), do: DateTime.add(DateTime.utc_now(), -minutes * 60, :second)
+  defp minutes_ago(minutes), do: DateTime.shift(DateTime.utc_now(), minute: -minutes)
 
   defp armis_ip_update(armis_id, ip) do
     %{

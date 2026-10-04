@@ -93,7 +93,7 @@ defmodule ServiceRadar.Plugins.StorageToken do
       true ->
         exp =
           DateTime.utc_now()
-          |> DateTime.add(download_ttl_seconds(), :second)
+          |> DateTime.shift(second: download_ttl_seconds())
           |> DateTime.to_unix()
 
         payload = %{

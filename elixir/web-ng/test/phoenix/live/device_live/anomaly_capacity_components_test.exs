@@ -408,7 +408,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
     points =
       for hour <- 14..18 do
-        {DateTime.add(~U[2026-06-22 00:00:00Z], hour * 60 * 60, :second), hour * 1.0}
+        {DateTime.shift(~U[2026-06-22 00:00:00Z], hour: hour), hour * 1.0}
       end
 
     metric_sections = [
@@ -492,7 +492,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       metric_statuses: []
     }
 
-    points = for minute <- 0..360//30, do: {DateTime.add(~U[2026-01-08 07:00:00Z], minute * 60), 8.0}
+    points = for minute <- 0..360//30, do: {DateTime.shift(~U[2026-01-08 07:00:00Z], minute: minute), 8.0}
 
     sections = [
       %{
@@ -595,7 +595,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     # and hide the 13:30 episode open; a drift focus reaches back to it.
     points =
       for minute <- 0..(6 * 60)//10 do
-        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+        {DateTime.shift(~U[2026-06-22 10:30:00Z], minute: minute), 120.0 + rem(minute, 7)}
       end
 
     metric_sections = [
@@ -687,7 +687,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
     points =
       for minute <- 0..(6 * 60)//10 do
-        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+        {DateTime.shift(~U[2026-06-22 10:30:00Z], minute: minute), 120.0 + rem(minute, 7)}
       end
 
     metric_sections = [
@@ -773,7 +773,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
     points =
       for minute <- 0..(6 * 60)//10 do
-        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+        {DateTime.shift(~U[2026-06-22 10:30:00Z], minute: minute), 120.0 + rem(minute, 7)}
       end
 
     metric_sections = [
@@ -846,7 +846,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
     points =
       for hour <- 14..18 do
-        {DateTime.add(~U[2026-06-22 00:00:00Z], hour * 60 * 60, :second), hour * 1.0}
+        {DateTime.shift(~U[2026-06-22 00:00:00Z], hour: hour), hour * 1.0}
       end
 
     metric_sections = [

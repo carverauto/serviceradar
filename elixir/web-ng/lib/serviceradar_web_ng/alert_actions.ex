@@ -398,7 +398,7 @@ defmodule ServiceRadarWebNG.AlertActions do
   end
 
   defp snooze_until(:snooze, now, opts) do
-    DateTime.add(now, Keyword.fetch!(opts, :seconds), :second)
+    DateTime.shift(now, second: Keyword.fetch!(opts, :seconds))
   end
 
   defp snooze_until(_action, _now, _opts), do: nil

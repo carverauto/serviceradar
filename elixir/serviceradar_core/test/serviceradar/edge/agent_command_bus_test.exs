@@ -892,13 +892,13 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       _stale_one =
         create_mtr_command(actor, agent_id, "1.1.1.1",
-          expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
           status: :sent
         )
 
       _stale_two =
         create_mtr_command(actor, agent_id, "8.8.8.8",
-          expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
           status: :acknowledged
         )
 
@@ -1187,7 +1187,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         })
 
       create_bulk_mtr_command(actor, agent_id, ["1.1.1.1", "1.1.1.2"],
-        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
         status: :sent
       )
 
@@ -1553,7 +1553,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   defp create_mtr_command(actor, agent_id, target, opts) do
-    expires_at = Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 60, :second))
+    expires_at = Keyword.get(opts, :expires_at, DateTime.shift(DateTime.utc_now(), minute: 1))
     status = Keyword.get(opts, :status, :queued)
 
     {:ok, command} =
@@ -1585,7 +1585,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   defp create_bulk_mtr_command(actor, agent_id, targets, opts) do
-    expires_at = Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 300, :second))
+    expires_at = Keyword.get(opts, :expires_at, DateTime.shift(DateTime.utc_now(), minute: 5))
     status = Keyword.get(opts, :status, :queued)
 
     {:ok, command} =
