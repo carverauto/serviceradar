@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.AgentCapabilities
+  alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
   alias ServiceRadarWebNG.RBAC
 
@@ -1390,6 +1391,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp addon_drift(package, _assignment, %AddonStatus{} = status, agent) do
     cond do
+      AddonFleet.stale_status?(status, DateTime.utc_now()) ->
+        {:stale, "Last reported #{status.state} at #{status.reported_at}; no current report."}
+
       addon_arch_unsupported?(package, status, agent) ->
         {:arch_unsupported, "No package artifact matches the reported or agent platform."}
 
@@ -1487,6 +1491,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp drift_badge_variant(:healthy), do: "success"
   defp drift_badge_variant(:disabled), do: "ghost"
+  defp drift_badge_variant(:stale), do: "ghost"
   defp drift_badge_variant(:observed_unmanaged), do: "warning"
   defp drift_badge_variant(:assigned_not_installed), do: "warning"
   defp drift_badge_variant(:assigned_not_active), do: "warning"
@@ -1497,6 +1502,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp drift_state_text(:healthy), do: "in sync"
   defp drift_state_text(:disabled), do: "disabled"
+  defp drift_state_text(:stale), do: "stale"
   defp drift_state_text(:observed_unmanaged), do: "unmanaged"
   defp drift_state_text(:assigned_not_installed), do: "not installed"
   defp drift_state_text(:assigned_not_active), do: "not active"
@@ -1507,6 +1513,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp addon_status_indicator_class(:healthy), do: "status-success"
   defp addon_status_indicator_class(:disabled), do: "status-neutral"
+  defp addon_status_indicator_class(:stale), do: "status-neutral"
 
   defp addon_status_indicator_class(state)
        when state in [:observed_unmanaged, :assigned_not_installed, :assigned_not_active, :runtime_warning],

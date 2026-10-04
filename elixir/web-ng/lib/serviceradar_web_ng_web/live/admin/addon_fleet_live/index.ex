@@ -1133,6 +1133,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp assigned_label(%{management_mode: :required}), do: "required"
   defp assigned_label(_row), do: "unassigned"
 
+  # A stale row is the agent's last report, possibly months old; never paint it
+  # as a current failure or a current success.
+  defp running_badge_variant(%{observation_stale?: true}), do: "ghost"
   defp running_badge_variant(%{category: :healthy}), do: "success"
   defp running_badge_variant(%{category: :expected_inactive}), do: "info"
   defp running_badge_variant(%{category: :updating}), do: "info"
@@ -1142,6 +1145,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp running_badge_variant(_row), do: "error"
 
   defp running_label(%{running_state: nil}), do: "not reported"
+  defp running_label(%{observation_stale?: true, running_state: state}), do: "stale: last #{state}"
   defp running_label(%{running_state: state}), do: state
 
   defp category_badge_variant(:healthy), do: "success"
