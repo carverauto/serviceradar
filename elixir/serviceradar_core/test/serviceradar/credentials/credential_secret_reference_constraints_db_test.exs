@@ -583,6 +583,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
       "integration_sources_credential_secret_id_fkey" => "r",
       "mapper_mikrotik_controllers_credential_secret_id_fkey" => "r",
       "mapper_unifi_controllers_credential_secret_id_fkey" => "r",
+      "netflow_settings_otx_credential_secret_id_fkey" => "r",
       "network_credential_rules_secret_id_fkey" => "r",
       "network_credential_secret_bindings_secret_id_fkey" => "r",
       "network_credential_secret_versions_version_source_id_fkey" => "c",

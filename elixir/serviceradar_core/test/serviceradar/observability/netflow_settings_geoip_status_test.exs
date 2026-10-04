@@ -115,7 +115,10 @@ defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
                actor: manager
              )
 
-    refute cleared.otx_api_key_present
+    assert cleared.otx_credential_secret_id == nil
+
+    assert {:ok, %NetflowSettings{} = refetched} = NetflowSettings.get_settings(actor: manager)
+    refute refetched.otx_api_key_present
     # Clearing the consumer reference never deletes or decrypts the inventory credential.
     assert {:ok, %{id: id}} =
              NetworkCredentialSecret.get_by_id(migrated.otx_credential_secret_id, actor: manager)
