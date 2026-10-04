@@ -72,6 +72,9 @@ var (
 	// ErrAddonSystemdSupervisionUnknown is returned when a primary unit is requested for
 	// a supervision model that is not systemd-service or systemd-timer.
 	ErrAddonSystemdSupervisionUnknown = errors.New("unsupported systemd supervision model")
+	// ErrAddonSystemdTimerRequiresTimer is returned when timer activation is
+	// requested without a timer primary unit.
+	ErrAddonSystemdTimerRequiresTimer = errors.New("timer activation requires a timer primary unit")
 )
 
 // AddonSystemdInstallRequest describes a privileged install + enable of an add-on's
@@ -184,7 +187,7 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 	timerService := ""
 	if req.RunTimerNow {
 		if !strings.HasSuffix(enable, ".timer") {
-			return fmt.Errorf("timer activation requires a timer primary unit")
+			return ErrAddonSystemdTimerRequiresTimer
 		}
 		src, err := resolveStagedAddonUnit(req.RuntimeRoot, req.AddonID, enable)
 		if err != nil {
