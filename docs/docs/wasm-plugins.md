@@ -685,6 +685,7 @@ Wasm packages are served by the web-ng API and stored using a configurable backe
 For core plugin blob delivery, set:
 
 - `PLUGIN_STORAGE_PUBLIC_URL` — base URL for web-ng (your deployment's web-ng endpoint)
+- `AGENT_PLUGIN_STORAGE_PUBLIC_URL` — optional agent-facing override minted into agent download URLs ahead of `PLUGIN_STORAGE_PUBLIC_URL`; use it when agents reach artifacts through a different address (for example the in-cluster gateway service when the load balancer has no hairpin NAT)
 - `PLUGIN_STORAGE_SIGNING_SECRET` — must match web-ng
 - `PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS` — default `86400`
 

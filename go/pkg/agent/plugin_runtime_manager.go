@@ -302,7 +302,10 @@ func (m *PluginManager) refreshPluginHostAuthorities(incoming []*pluginAssignmen
 // refreshDownloadCredentials copies the freshly minted artifact download
 // URL/token from incoming assignments onto the currently held assignments
 // (scheduled runners, streaming registrations, and action-only registrations)
-// keyed by assignment ID.
+// keyed by assignment ID, then prefetches every assignment whose binary is not
+// cached yet. The fingerprint excludes the download request, so a corrected
+// download URL arrives on this path; without the prefetch the binary would
+// stay unfetched until the first scheduled run.
 func (m *PluginManager) refreshDownloadCredentials(incoming []*pluginAssignment) {
 	if m == nil || len(incoming) == 0 {
 		return
@@ -342,6 +345,7 @@ func (m *PluginManager) refreshDownloadCredentials(incoming []*pluginAssignment)
 		}
 		downloadURL, downloadToken := fresh.downloadCredentials()
 		assignment.setDownloadCredentials(downloadURL, downloadToken)
+		m.prefetchAssignment(assignment)
 	}
 }
 
