@@ -111,6 +111,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     assert html =~ "hostname:edge-1"
 
+    # Each list load starts enrichment and stats queries with start_async, and the next
+    # navigation cancels any still running. Cancelling one mid-query kills the client that
+    # holds the test's sandbox connection, so let each load settle before navigating.
+    render_async(view, 10_000)
+
     view
     |> element(~s(button[aria-label="Reset SRQL filters"]))
     |> render_click()
@@ -135,6 +140,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert render(view) =~ "Compose a query visually."
     refute has_element?(view, ~s([phx-click="srql_builder_apply"]))
 
+    render_async(view, 10_000)
+
     view
     |> form("#srql-query-bar", %{q: "in:devices include_inactive:true"})
     |> render_submit()
@@ -144,13 +151,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert params["q"] =~ "in:devices"
     assert params["q"] =~ "include_inactive:true"
 
-    # The patch is applied by the LiveView after assert_patch/1 returns. Render once so the
-    # reload it triggers finishes inside the test (and its sandbox), and prove Run kept working.
-    assert render(view) =~ "include_inactive:true"
-
-    # Device-list refreshes are debounced timers. Stop the LiveView inside the sandbox so a
-    # timer that fires after the last assertion cannot reload against a released connection.
-    :ok = GenServer.stop(view.pid)
+    # The patch is applied by the LiveView after assert_patch/1 returns. Wait for the reload
+    # it triggers (and its async loads) to finish inside the sandbox; prove Run kept working.
+    assert render_async(view, 10_000) =~ "include_inactive:true"
   end
 
   @tag :web_ng_shared_fixture_db
