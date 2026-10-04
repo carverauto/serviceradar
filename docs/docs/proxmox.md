@@ -76,7 +76,8 @@ that list instead of sending it to the agent to fail the handshake. The agent ne
 a different address than the target names. Core logs `dropping target ... the node
 certificate does not list that address` with the SANs it saw. To collect from that node,
 make sure it is discovered at an address in the list, set `proxmox_base_url` on the device
-to one, or pin `server_cert_fingerprint`. Operator-set URLs are never dropped, and nothing
+to one, or pin `server_cert_fingerprint`. Targets without recorded SAN data are left
+alone. Operator-set URLs are never dropped, and nothing
 is dropped while a fingerprint is pinned.
 
 Work the following steps in order.
