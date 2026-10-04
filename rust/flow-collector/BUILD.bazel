@@ -56,9 +56,12 @@ rust_test(
     name = "flow_collector_test",
     compile_data = ["flow-collector.json"],
     crate = ":flow-collector",
+    # `crate` inherits the binary's srcs/deps/features/compile_data, so only
+    # test-only extras belong here; re-listing normal deps duplicates the
+    # inherited labels and puts the package in error. rcgen is the sole
+    # dev-dependency (runtime-invented test PKI) and is not a normal dep.
     deps = all_crate_deps(
         cargo_only = True,
-        normal = True,
         normal_dev = True,
     ),
 )
