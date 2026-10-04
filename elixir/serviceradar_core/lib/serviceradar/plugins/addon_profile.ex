@@ -21,6 +21,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
   alias ServiceRadar.Plugins.Validations.AddonProfileTargetQuery
+  alias ServiceRadar.Plugins.Validations.NoDuplicateAddonProfileTarget
   alias ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile
 
   @mutable_fields [
@@ -93,6 +94,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       validate AddonAssignmentParams
       validate AddonProfileTargetQuery
       validate SingleEnabledAddonProfile
+      validate NoDuplicateAddonProfileTarget
     end
 
     update :update do
@@ -111,6 +113,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       validate AddonAssignmentParams
       validate AddonProfileTargetQuery
       validate SingleEnabledAddonProfile
+      validate NoDuplicateAddonProfileTarget
     end
 
     update :record_reconcile_result do
