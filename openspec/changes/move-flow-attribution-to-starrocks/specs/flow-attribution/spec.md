@@ -11,13 +11,18 @@ Process attribution observations SHALL be published to JetStream on `flows.attri
 - **AND** no CNPG table receives the observations
 
 ### Requirement: Observation Storage Has No Row-Level Churn
-The observation table SHALL be an append-only StarRocks Duplicate Key table partitioned by time on `observed_at`. Observations MUST NOT be updated or deleted row by row; expiry MUST happen by dropping whole partitions, and the retained span MUST cover at least the correlation window plus skew.
+The observation table SHALL be an append-only StarRocks Duplicate Key table partitioned by day on `observed_at`. Observations MUST NOT be updated or deleted row by row; expiry MUST happen by dropping whole partitions. Retention SHALL default to 30 days, SHALL be operator-configurable through the warehouse Data retention setting, and MUST NOT be set below 1 day.
 
 #### Scenario: Old observations expire
 - **GIVEN** observations older than the retained span
 - **WHEN** partition retention runs
 - **THEN** their partitions are dropped
 - **AND** no row-level DELETE or UPDATE is issued against the table
+
+#### Scenario: Default attribution retention
+- **GIVEN** a new installation with no stored retention setting for the attribution dataset and no seed override
+- **WHEN** retention is applied
+- **THEN** the observation table keeps 30 daily partitions
 
 #### Scenario: Repeated observation of the same socket
 - **GIVEN** the same attribution key is observed many times within the window

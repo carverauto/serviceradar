@@ -1,5 +1,5 @@
 ## 1. Warehouse table and ingest
-- [ ] 1.1 Add `priv/starrocks/00NN_flow_process_attribution_observations.sql`: Duplicate Key, hourly `date_trunc` partitions, `partition_live_number` per design, columns covering the current observation payload; register it with the schema migrator.
+- [ ] 1.1 Add `priv/starrocks/00NN_flow_process_attribution_observations.sql`: Duplicate Key, daily `date_trunc` partitions on `observed_at`, columns covering the current observation payload; register it with the schema migrator and add it to `Retention.tables/0` as dataset `attribution`.
 - [ ] 1.2 Publish admitted `FlowAttributionEvent` batches from `StatusHandler` to `flows.attribution.observations` (flow demand domain) instead of calling `FlowAttribution.persist/4`; keep bounded admission.
 - [ ] 1.3 Add the EventWriter processor and stream/consumer config that Stream-Loads observations into the new table; grant the NATS publish/subscribe permissions in the Helm chart.
 - [ ] 1.4 Tests: publisher emits the subject with the expected payload; processor maps rows to the table columns; admission stays bounded.
@@ -17,13 +17,21 @@
 - [ ] 3.3 Without StarRocks: publisher and correlator do not run; health reports `attribution_disabled: starrocks_required`. Test it.
 - [ ] 3.4 Grep the workspace (web-ng, SRQL, docs, Helm) for remaining references and remove them.
 
-## 4. Observability
-- [ ] 4.1 Emit correlator pass duration, flows read, matches by strategy, stamped count, observation lag, ingest rate and live partition count as metrics through JetStream.
+## 4. Data retention settings (all warehouse datasets)
+- [ ] 4.1 CNPG settings resource: one row per dataset (days, updated_by/at, last applied value, status, error); migration.
+- [ ] 4.2 Seed rows from `Env` (`SERVICERADAR_STARROCKS_RETENTION_DAYS_<DATASET>`, Helm `analytics.starrocks.retentionDays`, Compose) when absent; add `attribution` (default 30) to Env, Helm values, Compose and docs; demo Helm values set attribution to 1.
+- [ ] 4.3 `Retention` reads the stored settings, re-applies a dataset on change without restart, keeps retry/backoff, records outcome on the row, and enforces per-dataset floors (attribution: 1 day, never fewer than 2 live partitions).
+- [ ] 4.4 web-ng "Data retention" Settings page, RBAC view/manage permissions: effective value, seed default, last applied status/time per dataset; floor validation; storage warning for large values.
+- [ ] 4.5 Tests: seed from env; a saved change issues the ALTER for that dataset only and records `applied`; Frontend unavailable records `pending` and retries; below-floor values rejected; attribution default 30. Update the Helm checksum pin if the defaults block changes.
 
-## 5. Load-test gate
-- [ ] 5.1 Replay demo-scale observation and flow rates against a warehouse for several hours.
-- [ ] 5.2 Gate: correlation p95 well under the pass interval, zero failed passes, observation table size flat at steady state (bounded by live partitions), attribution coverage no worse than the CNPG path.
-- [ ] 5.3 Record the numbers in the PR.
+## 5. Observability
+- [ ] 5.1 Emit correlator pass duration, flows read, matches by strategy, stamped count, observation lag, ingest rate and live partition count as metrics through JetStream.
 
-## 6. Cutover
-- [ ] 6.1 Ship in one release; verify on demo that observations land, passes succeed and flows are stamped.
+## 6. Load-test gate
+- [ ] 6.1 Replay demo-scale observation and flow rates against a warehouse for several hours.
+- [ ] 6.2 Gate: correlation p95 well under the pass interval, zero failed passes, observation table size flat at steady state (bounded by live partitions), attribution coverage no worse than the CNPG path.
+- [ ] 6.3 Record the numbers in the PR, including storage per day of observations.
+- [ ] 6.4 Only if the load test shows observation volume matters: coalesce duplicate `(partition, attribution_key)` rows within an EventWriter batch.
+
+## 7. Cutover
+- [ ] 7.1 Ship in one release; verify on demo that observations land, passes succeed and flows are stamped.

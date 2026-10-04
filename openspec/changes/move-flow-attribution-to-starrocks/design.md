@@ -42,7 +42,7 @@ burst cannot starve other EventWriter consumers, and admission stays bounded as
 StarRocks with Stream Load like the other warehouse processors. Core publishes; it never
 writes the warehouse. This closes the direct-write exception in the current design.
 
-### 2. Append-only Duplicate Key table with hourly partitions and partition TTL
+### 2. Append-only Duplicate Key table with daily partitions and partition TTL
 
 ```sql
 CREATE TABLE IF NOT EXISTS serviceradar.flow_process_attribution_observations (
@@ -58,23 +58,29 @@ CREATE TABLE IF NOT EXISTS serviceradar.flow_process_attribution_observations (
   pid INT, comm VARCHAR(256), container_id VARCHAR(256), ...   -- remaining payload columns
 )
 DUPLICATE KEY (observed_at, `partition`, proto, local_ip)
-PARTITION BY date_trunc('hour', observed_at)
+PARTITION BY date_trunc('day', observed_at)
 DISTRIBUTED BY HASH(`partition`, local_ip) BUCKETS 8
-PROPERTIES ("replication_num" = "3", "partition_live_number" = "3");
+PROPERTIES ("replication_num" = "3", "partition_live_number" = "30");
 ```
 
 - **Duplicate Key, not Primary Key.** Every observation is a new row. Nothing is updated, so
   there is no upsert path, no delete vector, no primary index to maintain, and no compaction
   pressure from rewriting the same key thousands of times an hour.
-- **Expiry by partition drop.** With hourly partitions and `partition_live_number = 3`, the
-  warehouse keeps the current hour plus at least two full hours, comfortably more than the
-  30-minute window plus skew, and removes old data by dropping a partition: a metadata
-  operation with no per-row cost. This replaces the ctid prune job.
+- **Expiry by partition drop, daily partitions.** Retention is a number of days, applied as
+  `partition_live_number` like every other warehouse dataset. Daily partitions keep the
+  partition count small for long retention (30 days is 30 partitions; hourly would be 720) and
+  match the other datasets, so the existing retention applier handles this table unchanged.
+  Old data goes by dropping a partition: a metadata operation with no per-row cost. This
+  replaces the ctid prune job.
+- **Retention floor.** The minimum is 1 day. Correlation needs only the 15-minute window plus
+  15 minutes of skew, but with daily partitions a value of 1 still keeps the current day, and
+  the newest flows near midnight can need the previous day's partition, so the floor is stated
+  as 1 day and the applier never sets fewer than 2 live partitions for this table.
 - **Duplicates are expected.** The same socket is observed repeatedly. Correlation already
   takes the newest qualifying observation per key and rank, so repeats cost storage (a few
-  hours of rows) but not correctness. EventWriter may coalesce identical
-  `(partition, attribution_key)` rows within one Stream Load batch to cut volume; that is an
-  optimization, not a requirement.
+  days of rows) but not correctness. EventWriter may coalesce identical
+  `(partition, attribution_key)` rows within one Stream Load batch, but only if the load test
+  shows the volume matters.
 - **Why a Primary Key design would reintroduce the problem.** A StarRocks Primary Key table
   keyed on `(partition, attribution_key)` with an upsert on every observation and row deletes
   for retention reproduces the CNPG pattern in a different engine: every upsert writes a delete
@@ -82,9 +88,10 @@ PROPERTIES ("replication_num" = "3", "partition_live_number" = "3");
   rewriting segments for keys that change every few seconds, and retention deletes add more
   delete vectors. The cost moves from autovacuum to compaction but grows with churn the same
   way. Append-only plus partition drop has no per-row maintenance at all.
-- **Retention is deliberately hours, not the warehouse default of 365 days.** These rows are
-  correlation input, not history. The durable result, the attribution stamped onto each flow,
-  lives on `ocsf_network_activity` and keeps that dataset's retention. See open questions.
+- **Retention defaults to 30 days.** Observations answer incident-response questions (which
+  process was talking to this address last Tuesday) beyond what the per-flow stamp carries, so
+  they are kept as a dataset in their own right, shorter than the 365-day default because of
+  volume. Operators change it on the Data retention settings page (Decision 8); demo sets 1 day.
 
 ### 3. Correlation is one in-warehouse statement
 
@@ -139,11 +146,38 @@ Correlator pass duration, flows read, matches by strategy, stamped count, observ
 JetStream like every other metric, so a slow or failing pass is visible before attribution is
 lost.
 
+### 8. One DB-backed Data retention setting for every warehouse dataset
+
+Today retention is per dataset but env-only: `Env` reads
+`SERVICERADAR_STARROCKS_RETENTION_DAYS_<DATASET>` (Helm `analytics.starrocks.retentionDays.<dataset>`,
+Compose `STARROCKS_RETENTION_DAYS_<DATASET>`), and `Retention` applies
+`ALTER TABLE ... SET ("partition_live_number" = N)` to each dataset's tables at boot, retrying with
+capped backoff until the Frontend answers. Changing a value means editing Helm and restarting core.
+
+- **Storage.** A CNPG control-plane settings resource holds one row per dataset: retention days,
+  updated_by, updated_at, and the last applied value, status (`applied`, `pending`, `failed`)
+  and error. It is deployment-scoped, like other platform settings.
+- **Seed default.** The env/Helm/Compose value seeds a dataset's row when none exists. After
+  that the stored setting wins; the env value is the default, not an override. Datasets: flows,
+  metrics, logs, events, mtr, otel, traces, bmp at 365 days (the existing default), attribution
+  at 30.
+- **Apply without restart.** Saving a setting updates the row and asks the existing applier to
+  re-apply that dataset's statements. The applier keeps its retry-with-backoff behaviour and
+  records the outcome on the row, so the page shows whether the warehouse took the value. Boot
+  still applies every dataset from the stored settings, so a warehouse rebuilt from DDL defaults
+  converges again.
+- **Validation.** Each dataset has a floor (attribution 1 day; the others keep today's minimum)
+  enforced on save and by the applier. Large values show a storage warning on the page but are
+  allowed.
+- **UI.** One "Data retention" Settings page in web-ng, RBAC-gated (view vs manage), listing each
+  dataset with its effective value, seed default, and last-applied status and time.
+
 ## Risks / Trade-offs
 
-- Observation volume in StarRocks is a few hours of raw rows rather than one row per key.
-  Demo's rate (on the order of 10k observations a minute) is small for a Duplicate Key table;
-  the load test confirms the steady-state size.
+- Observation volume: 30 days of raw rows at a real install's rate. Demo's rate (on the order of
+  10k observations a minute) is about 430M rows over 30 days, modest for a Duplicate Key table in
+  shared-data StarRocks; the load test measures the steady-state size and per-day storage, which
+  the retention page's storage warning uses.
 - Correlation latency now depends on warehouse query capacity. The load test gates on p95.
 - Stamps for a flow that arrives after its observations have expired are lost, as today; the
   window is unchanged.
@@ -152,10 +186,10 @@ lost.
 
 Switch in one release; the attribution window is ephemeral, nothing to migrate.
 
-## Open Questions
+## Decided
 
-- Observation retention: keep hours (proposed: `partition_live_number` 3 with hourly
-  partitions) as an explicit exception to the 365-day warehouse default, since the durable
-  attribution lives on the flows? Or keep longer for debugging attribution after the fact?
-- Should EventWriter coalesce duplicate `(partition, attribution_key)` rows within a batch from
-  the start, or only if the load test shows the volume matters?
+- Observation retention: operator-configurable, default 30 days, daily partitions, floor 1 day;
+  demo sets 1 day in its Helm values.
+- Retention for every warehouse dataset moves to one DB-backed Data retention setting.
+- Coalescing duplicate observations within an EventWriter batch is done only if the load test
+  shows the volume matters.

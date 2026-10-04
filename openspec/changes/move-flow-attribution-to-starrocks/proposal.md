@@ -33,9 +33,10 @@ live.
 
 - Attribution observations are published to JetStream (`flows.attribution.observations`) and
   persisted by an EventWriter processor into a new append-only StarRocks **Duplicate Key** table,
-  `flow_process_attribution_observations`, partitioned by hour on `observed_at` with
-  `partition_live_number` sized to the correlation window plus skew. Expiry drops whole
-  partitions; nothing is updated or deleted row by row.
+  `flow_process_attribution_observations`, partitioned by day on `observed_at`. Expiry drops
+  whole partitions; nothing is updated or deleted row by row. Observations are kept for incident
+  response, not only as correlation input: retention defaults to **30 days** and is
+  operator-configurable, with a floor of 1 day (the correlation window plus skew is 30 minutes).
 - Correlation runs as one in-warehouse statement that joins recent unattributed flows to recent
   observations with the existing precedence (exact tuple, wildcard listener, relaxed UDP, ICMP,
   node-SNAT, public endpoint classes; newest qualifying observation wins within a rank).
@@ -48,15 +49,24 @@ live.
   job, the workload backfill, `Persistence.insert_current_rows/1`, and the CNPG correlation SQL.
   There is no CNPG fallback; without StarRocks, attribution is disabled with an operator-visible
   reason, as NetFlow already is.
+- Add one DB-backed **Data retention** settings surface for every StarRocks warehouse dataset
+  (flows, metrics, logs, events, mtr, otel, traces, bmp, and the new attribution dataset).
+  Retention is env-only today (`SERVICERADAR_STARROCKS_RETENTION_DAYS_<DATASET>`, applied once at
+  boot by `ServiceRadar.Analytics.StarRocks.Retention`). The operator setting is stored in CNPG,
+  edited on an RBAC-gated Settings page, and re-applied to the warehouse when it changes, with no
+  restart. Env/Helm/Compose values become the seed default only. Existing datasets keep the
+  365-day default; attribution defaults to 30 days (demo sets 1 day in its Helm values).
 - Cutover: switch in one release; the attribution window is ephemeral, nothing to migrate.
 
 ## Impact
 
-- Affected specs: `flow-attribution`.
+- Affected specs: `flow-attribution`, `warehouse-retention` (new).
 - Affected code: `ServiceRadar.StatusHandler` (flow-attribution branch),
   `ServiceRadar.FlowAttribution` and `FlowAttribution.{Persistence,Retention,WorkloadBackfill,
   Correlation,Correlator}`, EventWriter config and processors, `priv/starrocks` (new table DDL),
-  Helm NATS permissions for the new subject, core metrics for correlator health.
+  Helm NATS permissions for the new subject, core metrics for correlator health,
+  `Analytics.StarRocks.{Env,Retention}`, a new CNPG retention settings resource and web-ng
+  Settings page, Helm `analytics.starrocks.retentionDays` (adds `attribution`).
 - Related: issue #5031 (PR A removes the workload backfill from the correlate path, turns JIT
   off and sets an honest statement timeout; it is the interim fix this change supersedes),
   `harden-flow-attribution-pipeline` (its correlation precedence requirement is preserved
