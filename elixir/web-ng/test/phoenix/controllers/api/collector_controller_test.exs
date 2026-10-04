@@ -5,10 +5,56 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Edge.EnrollmentToken
 
   defmodule BrokenCollectorBundleGenerator do
     @moduledoc false
     def create_tarball(_package, _creds, _tls_key, _opts), do: {:error, %{secret: "collector-bundle-secret"}}
+  end
+
+  describe "POST /api/admin/collectors" do
+    setup %{conn: conn} do
+      seed = :crypto.strong_rand_bytes(32)
+      {public_key, _} = :crypto.generate_key(:eddsa, :ed25519, seed)
+      prior_private = Application.get_env(:serviceradar_web_ng, :onboarding_token_private_key)
+      prior_public = Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key)
+      prior_caps = Application.get_env(:serviceradar_web_ng, :runtime_capabilities)
+
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, Base.encode64(seed))
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, Base.encode64(public_key))
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, prior_private)
+        Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, prior_public)
+
+        if prior_caps,
+          do: Application.put_env(:serviceradar_web_ng, :runtime_capabilities, prior_caps),
+          else: Application.delete_env(:serviceradar_web_ng, :runtime_capabilities)
+      end)
+
+      {:ok, token, _claims} =
+        ServiceRadarWebNG.Auth.Guardian.create_access_token(ServiceRadarWebNG.AshTestHelpers.admin_user_fixture())
+
+      %{conn: Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")}
+    end
+
+    test "returns a collectorpkg enrollment token that verifies against the stored hash", %{conn: conn} do
+      if not ServiceRadarWebNG.Capabilities.collectors_enabled?() do
+        Application.put_env(:serviceradar_web_ng, :runtime_capabilities, %{
+          enabled: [:collectors_enabled],
+          configured?: true
+        })
+      end
+
+      body = conn |> post(~p"/api/admin/collectors", %{"collector_type" => "flowgger"}) |> json_response(201)
+
+      assert "collectorpkg-v2:" <> _ = body["enrollment_token"]
+      assert {:ok, decoded} = EnrollmentToken.decode(body["enrollment_token"])
+      assert decoded.package_id == body["id"]
+
+      package = Ash.get!(CollectorPackage, body["id"], actor: system_actor())
+      assert EnrollmentToken.verify_secret(decoded.secret, package.download_token_hash)
+    end
   end
 
   describe "POST /api/admin/collectors/:id/download" do

@@ -61,6 +61,13 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
       assert row.scope == "dashboard.publish"
     end
 
+    test "accepts the edge.manage scope alongside dashboard.publish by default", %{conn: conn} do
+      params = %{"client_id" => @client_id, "scope" => "dashboard.publish edge.manage"}
+      body = conn |> post_with_ip(~p"/api/v1/cli/auth/device", params) |> json_response(200)
+
+      assert is_binary(body["device_code"])
+    end
+
     test "rejects unknown client_id with 400 invalid_client", %{conn: conn} do
       conn =
         post_with_ip(conn, ~p"/api/v1/cli/auth/device", %{

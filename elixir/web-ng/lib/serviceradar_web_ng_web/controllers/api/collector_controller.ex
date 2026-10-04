@@ -100,15 +100,12 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
         }
 
         actor = get_user_actor(conn)
-        opts = [actor: actor]
 
-        case CollectorPackage
-             |> Ash.Changeset.for_create(:create, attrs)
-             |> Ash.create(opts) do
-          {:ok, package} ->
+        case create_with_enrollment_token(attrs, collector_type, actor) do
+          {:ok, package, enrollment_token} ->
             conn
             |> put_status(:created)
-            |> json(package_to_json(package))
+            |> json(Map.put(package_to_json(package), :enrollment_token, enrollment_token))
 
           {:error, changeset} ->
             {:error, changeset}
@@ -701,4 +698,39 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
       _ -> nil
     end
   end
+
+  # Mint the signed collectorpkg token and store its secret hash on create, the
+  # same way the collector LiveView does, so API-created packages can be
+  # downloaded with the returned `enrollment_token`. The hash depends only on
+  # the secret, so the token is minted once the real package id exists.
+  defp create_with_enrollment_token(attrs, collector_type, actor) do
+    base_url = ServiceRadarWebNGWeb.Endpoint.url()
+    secret = EnrollmentToken.generate_secret()
+    config_filename = collector_config_filename(collector_type)
+
+    with {:ok, {_token, token_hash, ^secret}} <-
+           EnrollmentToken.generate("pending", secret: secret, base_url: base_url, config_filename: config_filename),
+         {:ok, package} <-
+           CollectorPackage
+           |> Ash.Changeset.for_create(
+             :create,
+             Map.merge(attrs, %{token_hash: token_hash, token_expires_at: EnrollmentToken.expiry_datetime()})
+           )
+           |> Ash.create(actor: actor),
+         {:ok, {token, ^token_hash, ^secret}} <-
+           EnrollmentToken.generate(package.id,
+             secret: secret,
+             base_url: base_url,
+             config_filename: config_filename
+           ) do
+      {:ok, package, token}
+    end
+  end
+
+  defp collector_config_filename("flowgger"), do: "flowgger.toml"
+  defp collector_config_filename("otel"), do: "otel.toml"
+  defp collector_config_filename("trapd"), do: "trapd.json"
+  defp collector_config_filename("netflow"), do: "netflow.json"
+  defp collector_config_filename("falcosidekick"), do: "falcosidekick.yaml"
+  defp collector_config_filename(_), do: ""
 end

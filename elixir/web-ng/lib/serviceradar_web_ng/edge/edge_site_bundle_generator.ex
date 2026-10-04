@@ -45,7 +45,8 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   - `edge_site` - The EdgeSite record
   - `leaf_server` - The NatsLeafServer record (with decrypted keys)
-  - `nats_creds` - The decrypted NATS credentials content
+  - `nats_creds` - Minted NATS credentials content, or `nil` to ship the bundle
+    without a creds file (the leaf then authenticates by mTLS only)
 
   ## Options
 
@@ -59,7 +60,7 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   `{:ok, tarball_binary}` or `{:error, reason}`
   """
-  @spec create_tarball(map(), map(), String.t(), keyword()) ::
+  @spec create_tarball(map(), map(), String.t() | nil, keyword()) ::
           {:ok, binary()} | {:error, term()}
   def create_tarball(edge_site, leaf_server, nats_creds, opts \\ []) do
     leaf_key_pem = Keyword.fetch!(opts, :leaf_key_pem)
@@ -67,12 +68,17 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
     direct_leaf_identities = Keyword.get(opts, :direct_leaf_identities, [])
 
     bundle_name = "edge-site-#{edge_site.slug}"
+    with_credentials = is_binary(nats_creds)
+    template_opts = [with_credentials: with_credentials]
 
     files = [
       # NATS configuration
       {
         "#{bundle_name}/nats/nats-leaf.conf",
-        NatsLeafConfigGenerator.generate_config(edge_site, leaf_server, direct_leaf_identities: direct_leaf_identities)
+        NatsLeafConfigGenerator.generate_config(edge_site, leaf_server,
+          direct_leaf_identities: direct_leaf_identities,
+          with_credentials: with_credentials
+        )
       },
 
       # Server certificates (for local client connections)
@@ -86,15 +92,17 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
       # CA chain
       {"#{bundle_name}/nats/certs/ca-chain.pem", leaf_server.ca_chain_pem},
 
-      # NATS credentials
-      {"#{bundle_name}/creds/account.creds", nats_creds},
-
       # Setup script
-      {"#{bundle_name}/setup.sh", NatsLeafConfigGenerator.generate_setup_script(edge_site)},
+      {"#{bundle_name}/setup.sh", NatsLeafConfigGenerator.generate_setup_script(edge_site, template_opts)},
 
       # README
-      {"#{bundle_name}/README.md", NatsLeafConfigGenerator.generate_readme(edge_site)}
+      {"#{bundle_name}/README.md", NatsLeafConfigGenerator.generate_readme(edge_site, template_opts)}
     ]
+
+    files =
+      if with_credentials,
+        do: files ++ [{"#{bundle_name}/creds/account.creds", nats_creds}],
+        else: files
 
     # Validate all files have content
     case validate_files(files) do

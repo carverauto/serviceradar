@@ -1,40 +1,58 @@
 defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   @moduledoc """
-  Oban worker for provisioning NATS leaf server configuration.
+  Oban worker that provisions a NATS leaf server for an edge site.
 
-  In single-deployment mode:
-  - Certificate generation is handled by external infrastructure (SPIFFE/SPIRE, cert-manager)
-  - The worker updates the NatsLeafServer record with a config checksum
+  It issues the leaf client certificate (for the upstream leafnode connection
+  to the hub) and the local server certificate (for collectors at the site)
+  from the agent-gateway CA via `ServiceRadar.Edge.NatsLeafCertificateIssuer`,
+  then records them, the encrypted keys, the CA chain and a config checksum
+  through the `NatsLeafServer` `:provision` action.
 
-  When an EdgeSite is created, this worker validates the configuration
-  and updates the NatsLeafServer status.
+  A leaf server that is no longer `pending` is left alone. When no gateway is
+  reachable the job returns an error so Oban retries with backoff.
   """
 
   use Oban.Worker,
     queue: :edge,
-    max_attempts: 3,
+    max_attempts: 10,
     priority: 1
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Edge.NatsLeafCertificateIssuer
   alias ServiceRadar.Edge.NatsLeafServer
   alias ServiceRadar.Oban.Router
 
-  require Ash.Query
   require Logger
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"leaf_server_id" => leaf_server_id}}) do
+  def perform(%Oban.Job{} = job), do: perform(job, [])
+
+  @doc """
+  `perform/1` with injectable collaborators. `:certificate_issuer` is a module
+  exporting `issue/1` (default `ServiceRadar.Edge.NatsLeafCertificateIssuer`),
+  mirroring the `:account_client` seam in `ProvisionAgentWorker`.
+  """
+  def perform(%Oban.Job{args: %{"leaf_server_id" => leaf_server_id}}, opts) do
+    certificate_issuer = Keyword.get(opts, :certificate_issuer, NatsLeafCertificateIssuer)
     Logger.info("Provisioning NATS leaf server: #{leaf_server_id}")
 
-    # In single-deployment mode, certificate generation is handled by external infrastructure
     with {:ok, leaf_server} <- load_leaf_server(leaf_server_id),
+         :ok <- ensure_pending(leaf_server),
          {:ok, edge_site} <- load_edge_site(leaf_server.edge_site_id),
+         {:ok, material} <- certificate_issuer.issue(edge_site),
          {:ok, config_checksum} <- compute_config_checksum(leaf_server, edge_site),
-         {:ok, _updated} <- update_leaf_server(leaf_server, config_checksum) do
+         {:ok, _updated} <- update_leaf_server(leaf_server, material, config_checksum) do
       Logger.info("Successfully provisioned NATS leaf server: #{leaf_server_id}")
       :ok
     else
+      {:skip, status} ->
+        Logger.info("NATS leaf server #{leaf_server_id} is #{status}; nothing to provision")
+        :ok
+
+      {:error, :leaf_server_not_found} ->
+        {:cancel, :leaf_server_not_found}
+
       {:error, reason} = error ->
         Logger.error("Failed to provision leaf server #{leaf_server_id}: #{inspect(reason)}")
         error
@@ -51,6 +69,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   end
 
   # Private functions
+
+  defp ensure_pending(%{status: :pending}), do: :ok
+  defp ensure_pending(%{status: status}), do: {:skip, status}
 
   defp load_leaf_server(leaf_server_id) do
     actor = SystemActor.system(:provision_leaf)
@@ -86,15 +107,18 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
     {:ok, checksum}
   end
 
-  defp update_leaf_server(leaf_server, config_checksum) do
-    # In single-deployment mode, TLS certificates are provisioned by external infrastructure
-    # We only update the config checksum to indicate the leaf server is ready
+  defp update_leaf_server(leaf_server, material, config_checksum) do
     actor = SystemActor.system(:provision_leaf)
 
     leaf_server
     |> Ash.Changeset.for_update(
       :provision,
       %{
+        leaf_cert_pem: material.leaf_cert_pem,
+        leaf_key_pem: material.leaf_key_pem,
+        server_cert_pem: material.server_cert_pem,
+        server_key_pem: material.server_key_pem,
+        ca_chain_pem: material.ca_chain_pem,
         config_checksum: config_checksum
       },
       actor: actor
