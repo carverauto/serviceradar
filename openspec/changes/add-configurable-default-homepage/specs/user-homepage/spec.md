@@ -9,7 +9,7 @@ The system SHALL represent a homepage as a typed choice (`overview`, `dashboards
 
 #### Scenario: Dashboard target becomes a dashboard route
 - **WHEN** a homepage of kind `dashboard` targets an authored dashboard
-- **THEN** the resolved path is that dashboard's `/dashboards/...` route built by the server
+- **THEN** the resolved path is that dashboard's own route built by the server (`/dashboard/<ref>` for an authored dashboard, `/dashboards/<route_slug>` for a package instance)
 
 ### Requirement: Homepage Resolution Precedence
 The system SHALL resolve the post-sign-in destination in the order: sanitized return path, user homepage, highest-ranked group homepage, deployment default homepage, then `/dashboard`.

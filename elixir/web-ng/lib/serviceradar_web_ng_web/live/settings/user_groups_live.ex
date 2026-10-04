@@ -2,8 +2,10 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Identity.Homepage, as: HomepageValue
   alias ServiceRadar.Identity.MappedUserGroups
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.Homepage
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -20,6 +22,10 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
       |> assign(:users, [])
       |> assign(:user_groups, [])
       |> assign(:user_group_memberships, [])
+      |> assign(:homepage_choices, [])
+      |> assign(:idp_values, %{})
+      |> assign(:homepage_warnings, MapSet.new())
+      |> assign(:homepage_params, default_homepage_params())
       |> assign(:loading?, connected?(socket))
       |> assign(:can_manage_groups?, can_manage_groups?(scope))
       |> assign(:can_view_share_principals?, can_view_share_principals?(scope))
@@ -94,6 +100,36 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
 
       {:error, _reason} ->
         deny_manage(socket)
+    end
+  end
+
+  def handle_event("validate_group_homepage", %{"group_homepage" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:homepage_params, merge_params(socket.assigns.homepage_params, params))
+     |> assign_group_forms()}
+  end
+
+  def handle_event("set_group_homepage", %{"group_homepage" => params}, socket) do
+    with :ok <- authorize_manage_groups(socket),
+         {:ok, homepage} <- Homepage.decode_choice(params["choice"]),
+         {:ok, _group} <-
+           Homepage.set_group_homepage(socket.assigns.current_scope, params["group_id"], homepage, params["priority"]) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Group homepage saved")
+       |> assign(:homepage_params, default_homepage_params())
+       |> reload_access_controls()}
+    else
+      {:error, :forbidden} ->
+        deny_manage(socket)
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:homepage_params, params)
+         |> assign_group_forms()
+         |> put_flash(:error, "Group homepage save failed: #{format_error(reason)}")}
     end
   end
 
@@ -184,6 +220,26 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                       {membership_count(@user_group_memberships, group.id)} members
                     </.ui_badge>
                   </div>
+                  <div :if={group.homepage} class="mt-3 space-y-1 text-xs text-sr-muted">
+                    <p>
+                      Homepage:
+                      <span class="font-semibold text-sr-ink">
+                        {Homepage.describe(HomepageValue.stored(group.homepage), @homepage_choices)}
+                      </span>
+                      <span>· priority {group.homepage_priority}</span>
+                    </p>
+                    <p
+                      :if={MapSet.member?(@homepage_warnings, group.id)}
+                      class="text-amber-700"
+                      role="status"
+                    >
+                      This dashboard is not public or shared with this group; members who cannot open it land on the next default.
+                    </p>
+                    <p :for={idp <- Map.get(@idp_values, to_string(group.id), [])}>
+                      Users mapped from IdP group <span class="font-semibold">{idp}</span>
+                      land on this homepage via this group.
+                    </p>
+                  </div>
                   <div class="mt-3 flex flex-wrap gap-2">
                     <span
                       :for={membership <- memberships_for(@user_group_memberships, group.id)}
@@ -238,6 +294,41 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                     <.icon name="hero-user-plus" class="size-4" /> Add Member
                   </.ui_button>
                 </.form>
+
+                <.form
+                  for={@homepage_form}
+                  as={:group_homepage}
+                  id="group_homepage_form"
+                  phx-change="validate_group_homepage"
+                  phx-submit="set_group_homepage"
+                  class="space-y-3 border-t border-sr-line pt-4"
+                >
+                  <p class="text-xs text-sr-muted">
+                    Members land on the group homepage after signing in unless they choose their own. When groups disagree, the lowest priority wins, then the group name.
+                  </p>
+                  <.input
+                    field={@homepage_form[:group_id]}
+                    type="select"
+                    label="Group"
+                    options={group_select_options(@user_groups)}
+                  />
+                  <.input
+                    field={@homepage_form[:choice]}
+                    type="select"
+                    label="Group homepage"
+                    options={[{"None", ""}] ++ Homepage.page_choices() ++ @homepage_choices}
+                  />
+                  <.input
+                    field={@homepage_form[:priority]}
+                    type="number"
+                    label="Priority (lower wins)"
+                    min="0"
+                    max="10000"
+                  />
+                  <.ui_button type="submit" disabled={@user_groups == []} size="sm" variant="neutral">
+                    <.icon name="hero-home" class="size-4" /> Save Group Homepage
+                  </.ui_button>
+                </.form>
               </div>
             </div>
           </section>
@@ -261,7 +352,33 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
         {[], []}
       end
 
-    %{users: users, user_groups: groups, user_group_memberships: memberships}
+    homepage_assigns =
+      if assigns.can_manage_groups? or assigns.can_view_share_principals?,
+        do: homepage_assigns(scope, groups, assigns.can_manage_groups?),
+        else: %{}
+
+    Map.merge(%{users: users, user_groups: groups, user_group_memberships: memberships}, homepage_assigns)
+  end
+
+  defp homepage_assigns(scope, groups, manager?) do
+    base = %{homepage_choices: Homepage.dashboard_choices(scope)}
+
+    if manager? do
+      warnings =
+        groups
+        |> Enum.filter(fn group ->
+          homepage = HomepageValue.stored(group.homepage)
+          HomepageValue.dashboard?(homepage) and Homepage.audience_gap?(scope, homepage, group.id)
+        end)
+        |> MapSet.new(& &1.id)
+
+      Map.merge(base, %{
+        idp_values: MappedUserGroups.idp_values_by_group(groups),
+        homepage_warnings: warnings
+      })
+    else
+      base
+    end
   end
 
   defp reload_access_controls(socket) do
@@ -274,10 +391,12 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
     socket
     |> assign(:group_form, to_form(socket.assigns.group_params, as: :group))
     |> assign(:membership_form, to_form(socket.assigns.membership_params, as: :membership))
+    |> assign(:homepage_form, to_form(socket.assigns.homepage_params, as: :group_homepage))
   end
 
   defp default_group_params, do: %{"name" => "", "description" => ""}
   defp default_membership_params, do: %{"group_id" => "", "user_id" => ""}
+  defp default_homepage_params, do: %{"group_id" => "", "choice" => "", "priority" => "100"}
   defp merge_params(current, incoming), do: Map.merge(current || %{}, incoming || %{})
   defp can_manage_groups?(scope), do: RBAC.can?(scope, "identity.user_groups.manage")
   defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
@@ -292,5 +411,6 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
   defp user_label(%{email: email}) when is_binary(email), do: email
   defp user_label(_user), do: "Unknown user"
   defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(%{errors: [_ | _] = errors}), do: Enum.map_join(errors, "; ", &Exception.message/1)
   defp format_error(reason), do: inspect(reason)
 end

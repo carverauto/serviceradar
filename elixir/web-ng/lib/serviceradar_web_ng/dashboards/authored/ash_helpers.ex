@@ -96,20 +96,6 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.AshHelpers do
         )
       end
 
-      defp clear_default_dashboard(scope) do
-        scope
-        |> list_dashboard_preferences()
-        |> Enum.filter(& &1.is_default)
-        |> Enum.reduce_while(:ok, fn preference, :ok ->
-          case preference
-               |> Ash.Changeset.for_update(:clear_default, %{})
-               |> update(scope) do
-            {:ok, _preference} -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        end)
-      end
-
       defp preference_attrs(scope, target_type, target_id, attrs) do
         attrs
         |> Map.put(:user_id, owner_id(scope))

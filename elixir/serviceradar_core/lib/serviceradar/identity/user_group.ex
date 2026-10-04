@@ -9,6 +9,8 @@ defmodule ServiceRadar.Identity.UserGroup do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
+  alias ServiceRadar.Identity.Changes.SetHomepage
+  alias ServiceRadar.Identity.Validations.HomepageTarget
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "identity.user_groups.view"}
@@ -32,6 +34,7 @@ defmodule ServiceRadar.Identity.UserGroup do
     define :list, action: :read
     define :create_group, action: :create
     define :update_group, action: :update
+    define :update_homepage, action: :update_homepage
   end
 
   actions do
@@ -43,6 +46,21 @@ defmodule ServiceRadar.Identity.UserGroup do
 
     update :update do
       accept @fields -- [:owner_id]
+    end
+
+    # Group homepage and its tie-break priority. A separate action so that
+    # saving a group's name or description never touches its homepage; it is
+    # gated by the same identity.user_groups.manage permission as :update.
+    update :update_homepage do
+      accept [:homepage_priority]
+
+      argument :homepage, :map do
+        allow_nil? true
+        description "A ServiceRadar.Identity.Homepage choice, or nil for no group homepage"
+      end
+
+      validate HomepageTarget
+      change SetHomepage
     end
 
     read :for_privilege_boundary do
@@ -87,7 +105,7 @@ defmodule ServiceRadar.Identity.UserGroup do
     action_with_permission(:for_role_profile_boundary, @rbac_manage_check)
 
     action_with_permission(
-      [:create, :update, :assign_role_profile, :clear_role_profile, :destroy],
+      [:create, :update, :update_homepage, :assign_role_profile, :clear_role_profile, :destroy],
       @manage_check
     )
 
@@ -119,6 +137,24 @@ defmodule ServiceRadar.Identity.UserGroup do
       allow_nil? false
       public? true
       default %{}
+    end
+
+    attribute :homepage, :map do
+      allow_nil? true
+      public? true
+      description "Homepage for members (ServiceRadar.Identity.Homepage), or nil for none"
+    end
+
+    attribute :homepage_priority, :integer do
+      allow_nil? false
+      public? true
+      default 100
+      constraints min: 0, max: 10_000
+
+      description """
+      Decides between a member's groups that all carry a homepage: lowest wins,
+      then case-insensitive name, then id.
+      """
     end
 
     create_timestamp :inserted_at

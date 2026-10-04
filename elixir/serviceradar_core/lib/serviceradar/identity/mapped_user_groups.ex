@@ -65,6 +65,44 @@ defmodule ServiceRadar.Identity.MappedUserGroups do
     end
   end
 
+  @doc """
+  The identity-provider group values whose mapping lands users in each of
+  `groups`, keyed by group id. Used to explain on the settings pages that an
+  IdP group reaches a homepage through the user group it maps to.
+  """
+  @spec idp_values_by_group([UserGroup.t()], ash_opts()) :: %{String.t() => [String.t()]}
+  def idp_values_by_group(groups, opts \\ []) when is_list(groups) do
+    ids_by_name = Map.new(groups, &{&1.name, to_string(&1.id)})
+
+    case AuthorizationSettings.get_settings(actor: actor(opts)) do
+      {:ok, %{role_mappings: mappings}} when is_list(mappings) ->
+        mappings
+        |> Enum.filter(&is_map/1)
+        |> Enum.reduce(%{}, &collect_idp_value(&1, &2, ids_by_name))
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp collect_idp_value(mapping, acc, ids_by_name) do
+    value =
+      mapping
+      |> RoleMappingSupport.get_key("value")
+      |> stringify()
+      |> RoleMappingSupport.presence()
+
+    group_id =
+      case mapping_user_group_id(mapping) do
+        id when is_binary(id) -> id
+        nil -> if groups_source?(mapping) and is_binary(value), do: Map.get(ids_by_name, value)
+      end
+
+    if is_binary(group_id) and is_binary(value),
+      do: Map.update(acc, group_id, [value], &Enum.uniq(&1 ++ [value])),
+      else: acc
+  end
+
   defp ids_for_mapping(mapping, actor) when is_map(mapping) do
     case mapping_user_group_id(mapping) do
       id when is_binary(id) -> [id]
