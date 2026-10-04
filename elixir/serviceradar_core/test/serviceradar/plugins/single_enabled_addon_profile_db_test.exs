@@ -98,7 +98,9 @@ defmodule ServiceRadar.Plugins.SingleEnabledAddonProfileDbTest do
            end)
   end
 
-  test "non-exclusive add-ons keep multiple enabled profiles with different targets", %{actor: actor} do
+  test "non-exclusive add-ons keep multiple enabled profiles with different targets", %{
+    actor: actor
+  } do
     package = approved_package("netprobe-profile-test", actor)
 
     assert {:ok, _first} = create_profile(package, "Netprobe A", true, actor)
