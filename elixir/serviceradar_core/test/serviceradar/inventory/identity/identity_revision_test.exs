@@ -154,18 +154,9 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionTest do
     |> Ash.Changeset.for_create(:create, %{
       uid: "sr:" <> Ecto.UUID.generate(),
       hostname: "identity-revision-test",
-      ip: unique_ip()
+      ip: TestSupport.unique_device_ip()
     })
     |> Ash.create(actor: actor)
-  end
-
-  # ocsf_devices has a unique-active-IP index, and the unboxed concurrency test
-  # commits its rows rather than rolling them back, so a counter that resets with
-  # the VM collides on a re-run against the same database. Random bytes give a
-  # fresh address every call.
-  defp unique_ip do
-    <<a, b, c>> = :crypto.strong_rand_bytes(3)
-    "10.#{a}.#{b}.#{rem(c, 254) + 1}"
   end
 
   defp destroy(uid) do
