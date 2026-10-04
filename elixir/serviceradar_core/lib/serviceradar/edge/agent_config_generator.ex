@@ -385,11 +385,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Ash.Query.load(:plugin_package)
       |> Ash.read!()
 
+    grant_mode = plugin_credential_grant_mode(agent_id, actor)
+
     assignments
     |> Enum.map(&ensure_plugin_package_loaded(&1, actor))
     |> Enum.filter(&has_approved_package?/1)
     |> Enum.uniq_by(&logical_plugin_id/1)
-    |> Enum.map(&build_plugin_assignment_config/1)
+    |> Enum.map(&build_plugin_assignment_config(&1, grant_mode))
     |> Enum.reject(&is_nil/1)
     |> attach_run_overrides(actor)
   rescue
@@ -1187,14 +1189,107 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  defp build_plugin_assignment_config(%PluginAssignment{} = assignment) do
+  @resolve_by_binding_capability "credential_broker_resolve_by_binding"
+
+  @doc """
+  The host binding `binding_id` of a Proxmox policy assignment, rebuilt from the
+  assignment as it is now, for resolving its credential at use.
+
+  Authorization is the assignment's: it must exist, be enabled, be a policy
+  assignment of a Proxmox host-authority package, and belong to `agent_id`.
+  The binding is rebuilt exactly as config delivery builds it for an agent
+  that resolves by binding, so a binding id the agent holds from an older
+  config that no longer matches the assignment is refused.
+  """
+  @spec plugin_host_binding_for_resolution(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, atom()}
+  def plugin_host_binding_for_resolution(assignment_id, agent_id, binding_id)
+      when is_binary(assignment_id) and is_binary(agent_id) and is_binary(binding_id) do
+    actor = SystemActor.system(:plugin_credential_resolve_by_binding)
+
+    with {:ok, %PluginAssignment{} = assignment} <-
+           load_assignment_for_resolution(assignment_id, actor),
+         :ok <- require_resolvable_assignment(assignment, agent_id),
+         %{host_params: %{"bindings" => bindings}} <-
+           build_plugin_assignment_config(assignment, :binding),
+         %{} = binding <- Enum.find(bindings, &(&1["binding_id"] == binding_id)) do
+      {:ok, binding}
+    else
+      {:error, reason} when is_atom(reason) -> {:error, reason}
+      _ -> {:error, :credential_binding_not_found}
+    end
+  end
+
+  def plugin_host_binding_for_resolution(_assignment_id, _agent_id, _binding_id),
+    do: {:error, :credential_binding_not_found}
+
+  defp load_assignment_for_resolution(assignment_id, actor) do
+    case Ecto.UUID.cast(assignment_id) do
+      {:ok, id} ->
+        PluginAssignment
+        |> Ash.Query.for_read(:read, %{}, actor: actor)
+        |> Ash.Query.filter(id == ^id)
+        |> Ash.Query.load(:plugin_package)
+        |> Ash.read_one(actor: actor)
+        |> case do
+          {:ok, %PluginAssignment{} = assignment} -> {:ok, assignment}
+          _ -> {:error, :credential_binding_not_found}
+        end
+
+      :error ->
+        {:error, :credential_binding_not_found}
+    end
+  end
+
+  defp require_resolvable_assignment(%PluginAssignment{} = assignment, agent_id) do
+    package = assignment.plugin_package
+
+    cond do
+      assignment.agent_uid != agent_id ->
+        {:error, :credential_binding_agent_mismatch}
+
+      assignment.enabled != true ->
+        {:error, :credential_binding_not_found}
+
+      not policy_assignment?(assignment) ->
+        {:error, :credential_binding_not_found}
+
+      not is_struct(package, PluginPackage) ->
+        {:error, :credential_binding_not_found}
+
+      not ProxmoxHostAuthority.assignment?(package.plugin_id, package.entrypoint) ->
+        {:error, :credential_binding_not_found}
+
+      true ->
+        :ok
+    end
+  end
+
+  # An agent that resolves by binding receives grant scope only; any other agent
+  # receives an embedded grant, as before, until it upgrades.
+  defp plugin_credential_grant_mode(agent_id, actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, %{capabilities: capabilities}} when is_list(capabilities) ->
+        if @resolve_by_binding_capability in normalize_string_list(capabilities),
+          do: :binding,
+          else: :embedded
+
+      _ ->
+        :embedded
+    end
+  rescue
+    _ -> :embedded
+  end
+
+  defp build_plugin_assignment_config(%PluginAssignment{} = assignment, grant_mode) do
     package = assignment.plugin_package
     manifest = normalize_map(package.manifest)
     config_schema = normalize_map(package.config_schema)
     download_request = StorageToken.download_request(package.id, package.wasm_object_key)
 
     with {:ok, source_scope} <- resolve_proxmox_assignment_scope(assignment, package),
-         resolved_params = resolve_plugin_params(config_schema, assignment.params, assignment),
+         resolved_params =
+           resolve_plugin_params(config_schema, assignment.params, assignment, grant_mode),
          {:ok, resolved_params} <-
            maybe_enrich_proxmox_host_authority_targets(
              resolved_params,
@@ -1596,22 +1691,29 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     if value == "", do: map, else: Map.put(map, key, value)
   end
 
-  defp resolve_plugin_params(config_schema, params, %PluginAssignment{} = assignment) do
+  defp resolve_plugin_params(config_schema, params, %PluginAssignment{} = assignment, grant_mode) do
     params = normalize_map(params)
     package = assignment.plugin_package
 
     if policy_assignment?(assignment) and
          ProxmoxHostAuthority.assignment?(package.plugin_id, package.entrypoint) do
       # Proxmox credentials are resolved only by the trusted agent-side broker
-      # connector. Config delivery refreshes the short-lived grant, but never
-      # resolves the referenced secret into control-plane params or Wasm memory.
-      {refreshed_params, _grant} =
-        CredentialBrokerDelivery.refresh_embedded_grant(params,
-          agent_id: assignment.agent_uid,
-          consumer_id: logical_plugin_id(assignment)
-        )
+      # connector, never into control-plane params or Wasm memory. An agent
+      # that resolves by binding gets the grant's scope and asks core for the
+      # credential at use; any other agent gets a refreshed embedded grant.
+      case grant_mode do
+        :binding ->
+          CredentialBrokerDelivery.scope_only(params)
 
-      refreshed_params
+        :embedded ->
+          {refreshed_params, _grant} =
+            CredentialBrokerDelivery.refresh_embedded_grant(params,
+              agent_id: assignment.agent_uid,
+              consumer_id: logical_plugin_id(assignment)
+            )
+
+          refreshed_params
+      end
     else
       config_schema = maybe_add_policy_credential_secret_fields(config_schema, params, assignment)
       params = materialize_controller_credentials(params, assignment)

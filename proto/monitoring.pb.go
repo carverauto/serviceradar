@@ -3997,8 +3997,12 @@ type CredentialBrokerResolveRequest struct {
 	ConsumerId          string                 `protobuf:"bytes,5,opt,name=consumer_id,json=consumerId,proto3" json:"consumer_id,omitempty"`
 	Purpose             string                 `protobuf:"bytes,6,opt,name=purpose,proto3" json:"purpose,omitempty"`
 	ResolutionLocation  string                 `protobuf:"bytes,7,opt,name=resolution_location,json=resolutionLocation,proto3" json:"resolution_location,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Resolve-by-binding: with grant_id empty, core authorizes against the
+	// current assignment and binding and reuses or issues the grant itself.
+	AssignmentId  string `protobuf:"bytes,8,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	BindingId     string `protobuf:"bytes,9,opt,name=binding_id,json=bindingId,proto3" json:"binding_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CredentialBrokerResolveRequest) Reset() {
@@ -4076,6 +4080,20 @@ func (x *CredentialBrokerResolveRequest) GetPurpose() string {
 func (x *CredentialBrokerResolveRequest) GetResolutionLocation() string {
 	if x != nil {
 		return x.ResolutionLocation
+	}
+	return ""
+}
+
+func (x *CredentialBrokerResolveRequest) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+func (x *CredentialBrokerResolveRequest) GetBindingId() string {
+	if x != nil {
+		return x.BindingId
 	}
 	return ""
 }
@@ -8235,7 +8253,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x06config\x18\x02 \x01(\v2\x1f.monitoring.AgentConfigResponseH\x00R\x06config\x12?\n" +
 	"\rconsole_frame\x18\x03 \x01(\v2\x18.monitoring.ConsoleFrameH\x00R\fconsoleFrame\x12A\n" +
 	"\fconfig_chunk\x18\x04 \x01(\v2\x1c.monitoring.AgentConfigChunkH\x00R\vconfigChunkB\t\n" +
-	"\apayload\"\x9b\x02\n" +
+	"\apayload\"\xdf\x02\n" +
 	"\x1eCredentialBrokerResolveRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x19\n" +
 	"\bgrant_id\x18\x02 \x01(\tR\agrantId\x122\n" +
@@ -8244,7 +8262,10 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vconsumer_id\x18\x05 \x01(\tR\n" +
 	"consumerId\x12\x18\n" +
 	"\apurpose\x18\x06 \x01(\tR\apurpose\x12/\n" +
-	"\x13resolution_location\x18\a \x01(\tR\x12resolutionLocation\"\xee\x02\n" +
+	"\x13resolution_location\x18\a \x01(\tR\x12resolutionLocation\x12#\n" +
+	"\rassignment_id\x18\b \x01(\tR\fassignmentId\x12\x1d\n" +
+	"\n" +
+	"binding_id\x18\t \x01(\tR\tbindingId\"\xee\x02\n" +
 	"\x1fCredentialBrokerResolveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x14\n" +

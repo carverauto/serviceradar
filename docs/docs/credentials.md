@@ -388,14 +388,21 @@ Nothing about this path hands raw secret material to the sandboxed plugin.
    alone.
 2. **The params template.** The assignment's `params` are rendered from the
    manifest's `provisioning.consumers[].params` template. It carries a
-   `credential_broker` grant envelope -- grant type, credential rule ID, secret
+   `credential_broker` grant scope -- grant type, credential rule ID, secret
    reference, consumer, target, resolution location, TTL, the header to inject,
    and an allow-list of methods and paths -- plus a `<field>_secret_ref`
-   placeholder such as `api_token_secret_ref`. No secret value is in the row.
-3. **Delivery.** At agent config generation, core checks the embedded grant is
-   still fresh, re-mints it through the broker if not, resolves
+   placeholder such as `api_token_secret_ref`. No secret value is in the row,
+   and no grant is minted here: the row records the scope a grant will be
+   issued for, without a grant id or expiry.
+3. **Delivery.** At agent config generation, core resolves
    `<field>_secret_ref` to `<field>` for host-brokered paths, and writes an audit
-   row for the resolution.
+   row for the resolution. Agents that resolve by binding receive the scope
+   with no grant id or expiry, so grant rotation does not change their config
+   version; core authorizes the binding against the current assignment and
+   issues (or reuses a live grant of identical scope) when the agent resolves
+   it at use. Other agents receive an embedded grant as before, except a live
+   grant of identical scope is delivered again rather than minting a new one
+   on every generation.
 4. **Use.** The Wasm guest calls out through the host, which applies the grant's
    injection and allow-list and the manifest's egress permissions. For
    host-brokered paths the guest never sees the material.

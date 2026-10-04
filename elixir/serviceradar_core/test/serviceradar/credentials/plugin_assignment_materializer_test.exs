@@ -1,7 +1,6 @@
 defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
@@ -68,7 +67,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
 
     assert %{
              "credential_broker" => %{
-               "grant_id" => "grant-1",
                "credential_secret_ref" => ref,
                "credential_rule_id" => "rule-1",
                "grant_type" => "example_api",
@@ -97,6 +95,11 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
            } = policy.params_template
 
     assert ref == "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
+
+    # The template carries scope only: the grant is issued when the credential
+    # is delivered or resolved, never by the reconcile.
+    refute Map.has_key?(policy.params_template["credential_broker"], "grant_id")
+    refute Map.has_key?(policy.params_template["credential_broker"], "expires_at")
   end
 
   test "renders public credential metadata only when the manifest requests it" do
@@ -118,18 +121,12 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert policy.params_template["credential_broker"]["resolution_location"] == "control_plane"
   end
 
-  test "manifest transport constraints fail closed before grant issuance" do
+  test "manifest transport constraints fail closed before materialization" do
     rule = credential_rule(%{tls_policy: :skip_verify})
 
-    grant_issuer = fn _attrs ->
-      send(self(), :grant_issued)
-      {:error, :unexpected_grant}
-    end
-
-    assert {:ok, summary} = materialize([rule], grant_issuer: grant_issuer)
+    assert {:ok, summary} = materialize([rule])
     assert summary.rules == 1
     assert summary.skips == %{credential_tls_policy_not_allowed: 1}
-    refute_receive :grant_issued
     refute_receive {:reconcile, _policy, _inputs, _opts}
   end
 
@@ -205,25 +202,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert opts[:target_agent_uid] == "agent-a"
   end
 
-  test "a non-system actor with no grant issuer is refused instead of given a grant" do
-    # Only a system actor may issue the persisted grant a materialized
-    # assignment carries. An unpersisted grant id would reach the agent as a
-    # grant it can never redeem, so the reconcile must stop before delivery.
-    assert {:error, :grant_issuer_requires_system_actor} =
-             PluginAssignmentMaterializer.reconcile_provider_for_agent(
-               profile(),
-               "agent-a",
-               "device_inventory",
-               rules: [credential_rule(%{})],
-               plugin_package: %{id: "pkg-example"},
-               reconciler: FakeReconciler,
-               test_pid: self(),
-               actor: %{id: "operator-1", role: :admin}
-             )
-
-    refute_receive {:reconcile, _policy, _input_defs, _opts}
-  end
-
   # Enters through reconcile_provider_for_agent/4, the function the reconcile
   # worker reaches through reconcile_all_for_agent/2. Injected rules are
   # filtered by provider and purpose exactly as the loaded path is.
@@ -240,16 +218,11 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
           rules: rules,
           plugin_package: %{id: "pkg-example"},
           reconciler: FakeReconciler,
-          grant_issuer: &fake_grant/1,
           test_pid: self()
         ],
         opts
       )
     )
-  end
-
-  defp fake_grant(attrs) do
-    {:ok, Map.put(CredentialBrokerGrant.issue_attrs(attrs), :id, "grant-1")}
   end
 
   defp credential_rule(attrs) do
