@@ -692,7 +692,7 @@ back. Writing a shared singleton from a branch is exactly what once left seven u
 migrations in it and turned every other pull request red. The test database guard rejects
 `sr_core_template` in every mode. The database itself was dropped from the fixture on
 2026-10-04 and removed from the protected-name lists
-(`openspec/changes/retire-legacy-shared-template`, tasks sections 4-5). Going back to the singleton lifecycle means reverting the retirement code first to
+(`openspec/changes/archive/2026-10-04-retire-legacy-shared-template`, tasks sections 4-5). Going back to the singleton lifecycle means reverting the retirement code first to
 restore the targets and their guards, then restoring the callers.
 
 For a one-lane loop, `//rust/integration-db:provision_generation_<lane>` clones only that
