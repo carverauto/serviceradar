@@ -259,6 +259,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/inventory/identity/reconciliation_run_test.exs": 1,
     "test/serviceradar/inventory/identity/source_reactivation_test.exs": 1,
     "test/serviceradar/inventory/identity/source_retirement_test.exs": 1,
+    "test/serviceradar/inventory/identity/source_succession_test.exs": 1,
     "test/serviceradar/inventory/identity_reconciler_mac_classification_test.exs": 1,
     "test/serviceradar/inventory/identity_reconciler_merge_guard_test.exs": 1,
     "test/serviceradar/inventory/identity_reconciler_merge_test.exs": 1,
