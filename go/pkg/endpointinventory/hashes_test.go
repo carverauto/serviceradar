@@ -1,7 +1,9 @@
 package endpointinventory
 
 import (
-	"strings"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -142,13 +144,77 @@ func TestComputeArtifactHashSortsComponentProperties(t *testing.T) {
 	}
 }
 
-func TestPackageSetHashUsesVersionPrefix(t *testing.T) {
-	hash := ComputePackageSetHash([]Package{{
-		Name:    testPackageOpenSSL,
-		Manager: PackageSourceDpkg,
-	}})
+// packageSetHashVectors is testdata/package_set_hash_v1.json, generated from
+// core's ServiceRadar.Inventory.EndpointInventoryPackageSet. Core tests against
+// the same file, so a mismatch here is a hash the server will reject.
+type packageSetHashVectors struct {
+	HashAlgorithm string `json:"hash_algorithm"`
+	Cases         []struct {
+		Name                 string    `json:"name"`
+		Packages             []Package `json:"packages"`
+		ExpectedPURLs        []*string `json:"expected_purls"`
+		ExpectedPackageCount int       `json:"expected_package_count"`
+		ExpectedHash         string    `json:"expected_hash"`
+	} `json:"cases"`
+}
 
-	if strings.TrimSpace(hash) == "" || len(hash) != 64 {
-		t.Fatalf("ComputePackageSetHash() = %q, want sha256 hex", hash)
+func TestPackageSetHashMatchesCoreVectors(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "package_set_hash_v1.json"))
+	if err != nil {
+		t.Fatalf("read vectors: %v", err)
+	}
+
+	var vectors packageSetHashVectors
+	if err := json.Unmarshal(data, &vectors); err != nil {
+		t.Fatalf("decode vectors: %v", err)
+	}
+	if vectors.HashAlgorithm != HashAlgorithm || len(vectors.Cases) == 0 {
+		t.Fatalf("vectors are for %q with %d cases, want %q", vectors.HashAlgorithm, len(vectors.Cases), HashAlgorithm)
+	}
+
+	for _, vector := range vectors.Cases {
+		t.Run(vector.Name, func(t *testing.T) {
+			if len(vector.ExpectedPURLs) != len(vector.Packages) {
+				t.Fatalf("%d expected purls for %d packages", len(vector.ExpectedPURLs), len(vector.Packages))
+			}
+			for index, pkg := range vector.Packages {
+				want := vector.ExpectedPURLs[index]
+				if want == nil {
+					continue // core drops the entry; covered by the count and hash
+				}
+				if got := CanonicalPackagePURL(pkg); got != *want {
+					t.Errorf("packages[%d] CanonicalPackagePURL() = %q, want %q", index, got, *want)
+				}
+			}
+			if got := len(packageSetIdentities(vector.Packages)); got != vector.ExpectedPackageCount {
+				t.Errorf("hashed %d packages, want %d", got, vector.ExpectedPackageCount)
+			}
+			if got := ComputePackageSetHash(vector.Packages); got != vector.ExpectedHash {
+				t.Errorf("ComputePackageSetHash() = %s, want %s", got, vector.ExpectedHash)
+			}
+		})
+	}
+}
+
+// The producer uploads JSON, and encoding/json turns each invalid UTF-8 byte
+// into U+FFFD before core sees it. The hash has to be taken over what core
+// receives, which the shared vectors cannot express (they are JSON too).
+func TestPackageSetHashUsesTheUploadedFormOfInvalidUTF8(t *testing.T) {
+	raw := []Package{{Name: "bad\xff\xfename", Version: "1.0\xc3", Manager: PackageSourceDpkg}}
+
+	uploaded, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var received []Package
+	if err := json.Unmarshal(uploaded, &received); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if received[0].Name != "bad\uFFFD\uFFFDname" {
+		t.Fatalf("encoding/json sent name %q, want one U+FFFD per invalid byte", received[0].Name)
+	}
+
+	if got, want := ComputePackageSetHash(raw), ComputePackageSetHash(received); got != want {
+		t.Fatalf("hash of raw packages = %s, hash of uploaded packages = %s", got, want)
 	}
 }

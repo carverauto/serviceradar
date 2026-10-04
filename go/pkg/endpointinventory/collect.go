@@ -38,7 +38,7 @@ const collectorName = "serviceradar-endpoint-inventory"
 // a scan to a concrete collector revision instead of showing an empty/"None"
 // version. ScaLibr now supersedes the retired native endpoint-inventory add-on,
 // but this shared package still emits the generic endpoint inventory payload.
-const collectorVersion = "0.1.1"
+const collectorVersion = "0.1.2"
 
 const (
 	scanStateFailed       = "scan_failed"

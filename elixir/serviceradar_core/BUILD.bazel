@@ -497,6 +497,10 @@ ex_unit_tests(
         "//go/pkg/agent/netprobe:discovery_golden_fixtures",
         "//elixir/serviceradar_core_elx:runtime_config",
         "//go/pkg/agent/netprobe:enrichment_golden_fixtures",
+        # Read at runtime by
+        # test/serviceradar/inventory/endpoint_inventory_package_set_hash_vectors_test.exs:
+        # the package_set_hash vectors shared with the Go producer.
+        "//go/pkg/endpointinventory:package_set_hash_golden",
         "//addons/anomaly-addon:anomaly_manifest",
         # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
         # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
