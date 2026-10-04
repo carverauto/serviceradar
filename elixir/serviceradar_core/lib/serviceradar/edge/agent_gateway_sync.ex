@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.LaunchEnvelopes
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.ProxmoxApiToken
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifactDelivery
   alias ServiceRadar.Edge.AgentReleaseManager
@@ -1895,8 +1896,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp expire_broker_grant(_grant, _actor), do: :ok
 
   defp credential_material(resolved) do
-    value = string_value(Map.get(resolved, :value))
-    fields = credential_material_fields(value, Map.get(resolved, :secret))
+    secret = Map.get(resolved, :secret)
+    value = resolved |> Map.get(:value) |> string_value() |> format_credential_value(secret)
+    fields = credential_material_fields(value, secret)
 
     %{
       value: value,
@@ -1905,6 +1907,16 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       lease_expires_at_unix: unix_seconds(Map.get(resolved, :lease_expires_at)),
       cache_status: string_value(Map.get(resolved, :cache_status))
     }
+  end
+
+  # The agent sends this value verbatim after `PVEAPIToken=`, so a secret that
+  # stores only the token secret must be joined with its token id here.
+  defp format_credential_value(value, secret) do
+    if ProxmoxApiToken.api_token_secret?(secret) do
+      ProxmoxApiToken.format(secret, value)
+    else
+      value
+    end
   end
 
   defp credential_material_fields(value, secret) do

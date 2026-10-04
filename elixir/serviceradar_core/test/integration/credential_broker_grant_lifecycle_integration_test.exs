@@ -201,6 +201,87 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
     assert inactive.target_id == grant.target_id
   end
 
+  # The agent sends the resolved value verbatim after `PVEAPIToken=`. A Proxmox
+  # secret that stores only the token secret has to come back joined with its
+  # token id, and a secret that already stores the whole token must keep it.
+  test "agent broker resolution returns a complete Proxmox token for both stored shapes" do
+    actor = SystemActor.system(:credential_broker_grant_lifecycle_test)
+    unique = System.unique_integer([:positive])
+
+    bare =
+      proxmox_secret!(actor, unique, "bare", "11111111-aaaa-4bbb-8ccc-#{unique}",
+        username: "svc@pve",
+        metadata: %{"token_id" => "svc@pve!inventory"}
+      )
+
+    full =
+      proxmox_secret!(
+        actor,
+        unique,
+        "full",
+        "svc@pve!inventory=22222222-dddd-4eee-8fff-#{unique}",
+        username: "svc"
+      )
+
+    assert {:ok, %{value: bare_value}} = resolve_for_agent(actor, bare, unique)
+    assert bare_value == "svc@pve!inventory=11111111-aaaa-4bbb-8ccc-#{unique}"
+
+    assert {:ok, %{value: full_value}} = resolve_for_agent(actor, full, unique)
+    assert full_value == "svc@pve!inventory=22222222-dddd-4eee-8fff-#{unique}"
+  end
+
+  defp proxmox_secret!(actor, unique, label, payload, attrs) do
+    {:ok, secret} =
+      NetworkCredentialSecret.create_secret(
+        Map.merge(
+          %{
+            name: "proxmox-#{label}-#{unique}",
+            provider: "proxmox",
+            credential_kind: :api_token,
+            source_type: :internal_encrypted,
+            secret_payload: payload
+          },
+          Map.new(attrs)
+        ),
+        actor: actor
+      )
+
+    secret
+  end
+
+  defp resolve_for_agent(actor, secret, unique) do
+    {:ok, grant} =
+      CredentialBrokerGrant.issue_grant(
+        CredentialBrokerGrant.issue_attrs(%{
+          secret_id: secret.id,
+          grant_type: "integration_test",
+          consumer_kind: :plugin,
+          consumer_id: "plugin-#{unique}-#{secret.id}",
+          purpose: "proxmox-inventory",
+          target_kind: "device",
+          target_id: "device-#{unique}",
+          agent_id: "agent-#{unique}",
+          resolution_location: :agent,
+          inject: %{
+            "type" => "http_header",
+            "name" => "Authorization",
+            "scheme" => "PVEAPIToken"
+          },
+          ttl_seconds: 300
+        }),
+        actor: actor
+      )
+
+    AgentGatewaySync.resolve_credential_broker_grant(%{
+      "agent_id" => grant.agent_id,
+      "grant_id" => grant.id,
+      "credential_secret_ref" => grant.secret_ref,
+      "consumer_kind" => "plugin",
+      "consumer_id" => grant.consumer_id,
+      "purpose" => grant.purpose
+    })
+  end
+
   defp credential_broker_grant_events(actor, grant_id) do
     OcsfEvent
     |> Ash.Query.for_read(:read, %{}, actor: actor)

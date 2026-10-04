@@ -6,6 +6,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
   executable serializers and never receive the submitted plaintext values.
   """
 
+  alias ServiceRadar.Credentials.ProxmoxApiToken
   alias ServiceRadar.Credentials.SshPrivateKeyCredential
 
   @credential_kinds %{
@@ -37,6 +38,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
          {:ok, normalized_values} <- validate_values(method, values),
          {:ok, payload} <- encode_payload(method, normalized_values),
          {:ok, credential_kind} <- credential_kind(method["credential_kind"]),
+         :ok <- validate_provider_payload(profile, credential_kind, normalized_values, payload),
          {:ok, public_fingerprint} <-
            public_fingerprint(credential_kind, method, normalized_values, payload) do
       metadata = %{
@@ -209,6 +211,13 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
         {:error, :invalid_credential_payload_encoding}
     end
   end
+
+  # A Proxmox API token renders one `user@realm!token=secret` string; a form value
+  # carrying its own `@` or `!` renders an identity Proxmox does not have.
+  defp validate_provider_payload(%{"provider" => "proxmox"}, :api_token, values, payload),
+    do: ProxmoxApiToken.validate_form(values, payload)
+
+  defp validate_provider_payload(_profile, _credential_kind, _values, _payload), do: :ok
 
   defp required_payload_value(values, field) do
     case Map.get(values, field) do
