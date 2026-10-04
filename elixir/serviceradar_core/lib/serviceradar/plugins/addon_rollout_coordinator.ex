@@ -406,8 +406,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         increment(stats, :skipped)
 
       match?([%AddonRollout{state: :paused}], active) ->
-        replace_paused_candidate(source, hd(active), packages, package_by_id, source_rollouts,
-          actor, now, stats)
+        replace_paused_candidate(
+          source,
+          hd(active),
+          packages,
+          package_by_id,
+          source_rollouts,
+          actor,
+          now,
+          stats
+        )
 
       active != [] ->
         increment(stats, :skipped)
@@ -421,59 +429,91 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
-  defp replace_paused_candidate(source, paused, packages, package_by_id, source_rollouts,
-         actor, now, stats) do
+  defp replace_paused_candidate(
+         source,
+         paused,
+         packages,
+         package_by_id,
+         source_rollouts,
+         actor,
+         now,
+         stats
+       ) do
     previous_candidate = Map.get(package_by_id, to_string(paused.candidate_package_id))
 
     with %AddonPackage{} <- previous_candidate,
-         {:ok, candidate} <- Eligibility.latest_candidate(previous_candidate, packages, source,
-           blocked_candidate_ids: blocked_candidate_ids(source_rollouts)),
+         {:ok, candidate} <-
+           Eligibility.latest_candidate(previous_candidate, packages, source,
+             blocked_candidate_ids: blocked_candidate_ids(source_rollouts)
+           ),
          {:ok, superseded} <- supersede_failed_candidate(paused, candidate, actor, now),
          {:ok, refreshed_source} <- source_for_rollout(superseded, actor) do
       # Re-read after clearing overrides. The failed candidate is never promoted;
       # the replacement must prove health before the stable source moves.
       current = Map.get(package_by_id, to_string(refreshed_source.addon_package_id))
-      rollouts = Enum.map(source_rollouts, fn rollout ->
-        if rollout.id == superseded.id, do: superseded, else: rollout
-      end)
+
+      rollouts =
+        Enum.map(source_rollouts, fn rollout ->
+          if rollout.id == superseded.id, do: superseded, else: rollout
+        end)
+
       start_next_candidate(refreshed_source, current, packages, rollouts, actor, now, stats)
     else
       {:error, reason} ->
         Logger.warning("Failed to replace paused native add-on rollout",
-          rollout_id: to_string(paused.id), reason: inspect(reason))
+          rollout_id: to_string(paused.id),
+          reason: inspect(reason)
+        )
+
         increment(stats, :skipped)
-      _ -> increment(stats, :skipped)
+
+      _ ->
+        increment(stats, :skipped)
     end
   end
 
   defp supersede_failed_candidate(paused, candidate, actor, now) do
     # Release overrides and unique target slots together with terminalizing the
     # old rollout. A failed write must leave the paused attempt recoverable.
-    result = Repo.transaction(fn ->
-      with {:ok, rollout} <- get_rollout(paused.id, actor),
-           true <- rollout.state == :paused,
-           {:ok, targets} <- rollout_targets(rollout.id, actor),
-           :ok <- clear_all_overrides(targets, actor),
-           :ok <- mark_targets_canceled(targets, actor, now),
-           {:ok, updated} <- update_rollout(rollout,
-             %{state: :superseded, completed_at: now, paused_at: nil,
-               blocked_reason: "newer_candidate_approved",
-               error: rollout.error || rollout.blocked_reason}, actor) do
-        updated
-      else
-        false -> Repo.rollback(:rollout_not_paused)
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+    result =
+      Repo.transaction(fn ->
+        with {:ok, rollout} <- get_rollout(paused.id, actor),
+             true <- rollout.state == :paused,
+             {:ok, targets} <- rollout_targets(rollout.id, actor),
+             :ok <- clear_all_overrides(targets, actor),
+             :ok <- mark_targets_canceled(targets, actor, now),
+             {:ok, updated} <-
+               update_rollout(
+                 rollout,
+                 %{
+                   state: :superseded,
+                   completed_at: now,
+                   paused_at: nil,
+                   blocked_reason: "newer_candidate_approved",
+                   error: rollout.error || rollout.blocked_reason
+                 },
+                 actor
+               ) do
+          updated
+        else
+          false -> Repo.rollback(:rollout_not_paused)
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
 
     case result do
       {:ok, updated} ->
-        details = %{replacement_candidate_version: candidate.version,
-          previous_blocked_reason: paused.blocked_reason}
+        details = %{
+          replacement_candidate_version: candidate.version,
+          previous_blocked_reason: paused.blocked_reason
+        }
+
         audit(:supersede, updated, details)
         emit(:superseded, updated, details)
         {:ok, updated}
-      {:error, reason} -> {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
