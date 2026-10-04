@@ -145,14 +145,24 @@ defmodule ServiceRadarWebNGWeb.Api.OAuthScopeAuthorizationDbTest do
       refute json_response(passed, 400)["error"] == "insufficient_scope"
     end
 
-    assert (read_token |> api_request() |> get("/api/admin/edge-packages")) |> json_response(200) |> is_list()
+    assert read_token |> api_request() |> get("/api/admin/edge-packages") |> json_response(200) |> is_list()
 
     auth_check = read_token |> api_request() |> get("/v1/field-survey/auth-check")
     assert json_response(auth_check, 200)["ok"] == true
 
     batch = %{"devices" => [%{"ip" => "10.255.255.254", "partition" => "default"}]}
-    assert read_token |> api_request() |> post("/api/v1/identity/resolve", batch) |> json_response(200) |> Map.has_key?("data")
-    assert write_token |> api_request() |> post("/api/v1/identity/resolve", batch) |> json_response(200) |> Map.has_key?("data")
+
+    assert read_token
+           |> api_request()
+           |> post("/api/v1/identity/resolve", batch)
+           |> json_response(200)
+           |> Map.has_key?("data")
+
+    assert write_token
+           |> api_request()
+           |> post("/api/v1/identity/resolve", batch)
+           |> json_response(200)
+           |> Map.has_key?("data")
 
     {:ok, access_token, _claims} = Guardian.create_api_token(viewer_user_fixture(), scopes: ["write"])
     forbidden = access_token |> api_request() |> post("/api/v1/scans", %{})
@@ -160,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.Api.OAuthScopeAuthorizationDbTest do
     assert json_response(forbidden, 403)["error"] != "insufficient_scope"
 
     {:ok, user_token, _claims} = Guardian.create_access_token(user)
-    assert (user_token |> api_request() |> get("/api/admin/edge-packages")) |> json_response(200) |> is_list()
+    assert user_token |> api_request() |> get("/api/admin/edge-packages") |> json_response(200) |> is_list()
   end
 
   defp client_token(user, scope) do

@@ -154,40 +154,6 @@ actions:
           # own scratch databases and drops the CNPG one.
           bazel test $FLAGS //elixir/web-ng:mtr_reader_parity_test
 
-  # God View browser acceptance, OUT of BazelCI and explicit-only (`triggers: {}`), like
-  # SrqlParity. These three targets drive a real WebGPU renderer in the digest-pinned Playwright
-  # executor and were the source of repeated intermittent BazelCI reds unrelated to the PR under
-  # test, while gating only one area. Dispatch it (BuildBuddy ExecuteWorkflow, action
-  # "GodViewAcceptance") when changing God View rendering; screenshots and traces land in
-  # TEST_UNDECLARED_OUTPUTS_DIR.
-  - name: "GodViewAcceptance"
-    triggers: {}
-    env:
-      OCI_REGISTRY: "registry.carverauto.dev"
-      OCI_AUTH_REQUIRED: "1"
-    self_hosted: true
-    pool: "workflows"
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
-    platform_properties:
-      OSFamily: "linux"
-      Arch: "amd64"
-      dockerNetwork: "bridge"
-    resource_requests:
-      memory: "32GB"
-      disk: "40GB"
-    steps:
-      - run: >-
-          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
-          --expected-commit "$(git rev-parse HEAD)"
-      - run: >-
-          bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth --verbose_failures
-      - run: >-
-          bazel test -c opt --config=ci
-          //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance
-          //elixir/web-ng/test/playwright:world_gpu_test
-          //elixir/web-ng/assets:million_world_browser_test
-          --test_output=errors --nocache_test_results --flaky_test_attempts=1
-
   - name: "BazelCI"
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
@@ -256,6 +222,52 @@ actions:
       - run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           //... --test_tag_filters=-integration_test,-acceptance_test,-benchmark
+
+      # The topology geometry acceptance target is intentionally excluded from the
+      # ordinary unit sweep. Run it once in the digest-pinned Playwright executor;
+      # its screenshots and traces are retained through TEST_UNDECLARED_OUTPUTS_DIR.
+      #
+      # PATH-GATED, GitHub-workflow `paths:` style: the scene this target renders
+      # is a static bundle -- the spec installs fixture DOM, with no server and no
+      # webServer in playwright.config.js -- so every Bazel input it declares lives
+      # under elixir/web-ng/test/playwright or elixir/web-ng/assets. The cone is
+      # those two packages, this file (it carries the invocation), and the godview
+      # NIF as a deliberately conservative in-area path. A PR outside that cone
+      # skips the browser run instead of paying for it (see #4165). BuildBuddy
+      # workflow steps have no native paths filter, hence the explicit git check
+      # against the staging fork point.
+      #
+      # FAIL-OPEN on every arm that cannot see the diff. The base ref is fetched
+      # first because the runner clones by SHA and need not leave a
+      # refs/remotes/origin/* ref behind; an unresolved merge-base and a failed
+      # diff both RUN the acceptance. A gate that cannot see the diff must never
+      # silently drop coverage.
+      - run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin \
+            +refs/heads/staging:refs/remotes/origin/staging 2>/dev/null || true
+          GOD_VIEW_GATE_BASE="$(git merge-base HEAD origin/staging 2>/dev/null || true)"
+          if [ -z "$GOD_VIEW_GATE_BASE" ]; then
+            echo "godview gate: no staging merge-base, running acceptance (fail-open)"
+          elif ! GOD_VIEW_GATE_CHANGED="$(git diff --name-only "$GOD_VIEW_GATE_BASE" HEAD -- \
+            elixir/web-ng/test/playwright \
+            elixir/web-ng/assets \
+            elixir/web-ng/native/god_view_nif \
+            elixir/web-ng/world_fixture.bzl \
+            elixir/web-ng/BUILD.bazel \
+            elixir/web-ng/lib/serviceradar_web_ng/topology \
+            elixir/web-ng/test/fixtures/world_browser_encoder.exs \
+            elixir/serviceradar_core/native/topology_atlas_nif \
+            rust/topology-atlas \
+            buildbuddy.yaml)"; then
+            echo "godview gate: diff unavailable, running acceptance (fail-open)"
+          elif [ -n "$GOD_VIEW_GATE_CHANGED" ]; then
+            echo "godview gate: godview-area changes detected, running acceptance"
+          else
+            echo "godview gate: no godview-area changes, skipping acceptance"
+            exit 0
+          fi
+          bazel test -c opt --config=ci //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance //elixir/web-ng/test/playwright:world_gpu_test //elixir/web-ng/assets:million_world_browser_test --test_output=errors --nocache_test_results --flaky_test_attempts=1
 
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
@@ -499,6 +511,8 @@ actions:
           bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test
           # Dgraph owns a separate scratch namespace and verifies its deletion.
           bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test
+          # The real worker reuses serial_0 and owns a separate Dgraph namespace.
+          bazel test $FLAGS //rust/dgraph-topology:world_worker_test
 
       # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
       #
@@ -549,12 +563,7 @@ actions:
       OCI_AUTH_REQUIRED: "1"
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
-    # Dedicated single-replica executor (carverauto-cluster release `buildbuddy-workflows-lig`,
-    # see //k8s/buildbuddy/values-workflows-lig.yaml). Sharing "workflows" with BazelCI made
-    # the two evict each other's warm runner, so ~45% of runs started cold. Not on farm01: its
-    # LAN path to the srql-fixtures DB timed the gate out on every run. Everything else stays
-    # on "workflows".
-    pool: "workflows-lig"
+    pool: "workflows"
     container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"
