@@ -11,6 +11,10 @@ import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
   TERMINAL_THEME,
+  TERMINAL_DARK_THEME,
+  TERMINAL_LIGHT_THEME,
+  getTerminalTheme,
+  resolveTerminalTheme,
 } from "../src/RemoteAccessTerminal.jsx"
 
 // Product mono stack from assets/css/app.css (--sr-font-mono). JetBrains Mono
@@ -23,6 +27,7 @@ const createdTerminals = []
 class FakeTerminal {
   constructor(options) {
     createdTerminals.push(options)
+    this.options = {...options}
     this.cols = 80
     this.rows = 24
   }
@@ -207,5 +212,75 @@ describe("RemoteAccessTerminal brand chrome", () => {
     expect(markup).not.toContain("slate-950")
     expect(markup).not.toContain("slate-900")
     expect(markup).not.toContain("slate-800")
+  })
+
+  it("provides high-contrast light mode tokens aligning with sr-canvas and sr-ink", () => {
+    expect(TERMINAL_LIGHT_THEME.background).toBe("#f7f9f8")
+    expect(TERMINAL_LIGHT_THEME.foreground).toBe("#0b1720")
+    expect(TERMINAL_LIGHT_THEME.cursor).toBe("#0b1720")
+    expect(TERMINAL_LIGHT_THEME.selectionBackground).toBe("#c8d3ce")
+    expect(TERMINAL_LIGHT_THEME.black).toBe("#0b1720")
+    expect(TERMINAL_LIGHT_THEME.green).toBe("#0b824d")
+    expect(Object.values(TERMINAL_LIGHT_THEME)).not.toContain("#0f172a")
+    expect(Object.values(TERMINAL_LIGHT_THEME)).not.toContain("#020617")
+  })
+
+  it("resolves terminal theme by name", () => {
+    expect(getTerminalTheme("light")).toBe(TERMINAL_LIGHT_THEME)
+    expect(getTerminalTheme("dark")).toBe(TERMINAL_DARK_THEME)
+    expect(getTerminalTheme("unknown")).toBe(TERMINAL_DARK_THEME)
+  })
+
+  it("resolves theme based on document data-theme attribute", () => {
+    document.documentElement.setAttribute("data-theme", "light")
+    expect(resolveTerminalTheme()).toBe(TERMINAL_LIGHT_THEME)
+
+    document.documentElement.setAttribute("data-theme", "dark")
+    expect(resolveTerminalTheme()).toBe(TERMINAL_DARK_THEME)
+
+    document.documentElement.removeAttribute("data-theme")
+  })
+
+  it("passes the light theme to xterm when data-theme is light", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket)
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver)
+    document.documentElement.setAttribute("data-theme", "light")
+
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        React.createElement(Component, {
+          sessionId: "session-1",
+          ticket: "srra-test-ticket",
+          websocketPath: "/api/remote-access/sessions/session-1/stream",
+          terminalModuleLoader,
+        })
+      )
+    })
+
+    expect(createdTerminals).toHaveLength(1)
+    expect(createdTerminals[0].theme.background).toBe("#f7f9f8")
+    expect(createdTerminals[0].theme.foreground).toBe("#0b1720")
+
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    document.documentElement.removeAttribute("data-theme")
+  })
+
+  it("renders container with font-mono class for xterm monospace protection", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(Component, {
+        title: "SSH remote access",
+        subtitle: "device-1",
+        terminalModuleLoader,
+      })
+    )
+
+    expect(markup).toContain("font-mono")
   })
 })

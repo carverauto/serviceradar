@@ -28,54 +28,73 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdentityRepair do
   @default_limit 5_000
   @maximum_limit 10_000
 
+  # The scope's identifiers and the ids the collection reported are read once each and meet in
+  # one window over the id, which marks an identifier current when the collection reported it.
+  # Only the device row is looked up per record, by uid through a subquery fenced with OFFSET 0,
+  # and the merge audit is counted for the rows returned (the query shape note in
+  # `ServiceRadar.Inventory.Identity.SourceRetirement`).
   @scoped_rows_sql """
-  WITH typed AS (
-    SELECT di.device_id,
-           array_agg(DISTINCT di.identifier_value ORDER BY di.identifier_value) AS typed_ids
+  WITH tagged AS (
+    SELECT di.device_id, di.identifier_value AS value, false AS reported
     FROM platform.device_identifiers di
-    WHERE di.identifier_type = $1::text
+    WHERE di.identifier_type = CAST($1 AS text)
       AND NULLIF(di.identifier_value, '') IS NOT NULL
-      AND right(di.partition, char_length($2::text)) = $2::text
-    GROUP BY di.device_id
+      AND right(di.partition, char_length(CAST($2 AS text))) = CAST($2 AS text)
+    UNION ALL
+    SELECT NULL, o.source_object_id, true
+    FROM platform.device_source_observations o
+    WHERE o.partition = CAST($3 AS text)
+      AND o.source = CAST($4 AS text)
+      AND o.source_instance = CAST($5 AS text)
+      AND o.collection_id = CAST($6 AS text)
+      AND o.present = true
   ),
-  current_ids AS (
-    SELECT source_object_id
-    FROM platform.device_source_observations
-    WHERE partition = $3::text
-      AND source = $4::text
-      AND source_instance = $5::text
-      AND collection_id = $6::text
-      AND present = true
+  marked AS (
+    SELECT device_id, value, bool_or(reported) OVER (PARTITION BY value) AS current
+    FROM tagged
+  ),
+  typed AS (
+    SELECT device_id,
+           array_agg(DISTINCT value ORDER BY value) AS typed_ids,
+           COALESCE(
+             array_agg(DISTINCT value ORDER BY value) FILTER (WHERE current),
+             ARRAY[]::text[]
+           ) AS current_ids
+    FROM marked
+    WHERE device_id IS NOT NULL
+    GROUP BY device_id
   ),
   classified AS (
     SELECT typed.device_id,
            typed.typed_ids,
-           ARRAY(
-             SELECT typed_id
-             FROM unnest(typed.typed_ids) AS typed_id
-             JOIN current_ids current ON current.source_object_id = typed_id
-             ORDER BY typed_id
-           ) AS current_ids,
-           (d.deleted_at IS NOT NULL) AS deleted,
-           (
-             SELECT count(*)
-             FROM platform.merge_audit audit
-             WHERE audit.from_device_id = typed.device_id
-                OR audit.to_device_id = typed.device_id
-           ) AS merge_audit_count
+           typed.current_ids,
+           d.deleted,
+           count(*) OVER () AS total_count
     FROM typed
-    JOIN platform.ocsf_devices d ON d.uid = typed.device_id
+    CROSS JOIN LATERAL (
+      SELECT d.deleted_at IS NOT NULL AS deleted
+      FROM platform.ocsf_devices d
+      WHERE d.uid = typed.device_id
+      OFFSET 0
+    ) AS d
+    WHERE cardinality(typed.typed_ids) > 1
+       OR cardinality(typed.current_ids) < cardinality(typed.typed_ids)
+    ORDER BY typed.device_id
+    LIMIT CAST($7 AS integer)
   )
   SELECT device_id,
          typed_ids,
          current_ids,
          deleted,
-         merge_audit_count,
-         count(*) OVER () AS total_count
+         (
+           SELECT count(*)
+           FROM platform.merge_audit audit
+           WHERE audit.from_device_id = classified.device_id
+              OR audit.to_device_id = classified.device_id
+         ) AS merge_audit_count,
+         total_count
   FROM classified
-  WHERE cardinality(typed_ids) > 1 OR cardinality(current_ids) < cardinality(typed_ids)
   ORDER BY device_id
-  LIMIT $7::integer
   """
 
   @doc """
