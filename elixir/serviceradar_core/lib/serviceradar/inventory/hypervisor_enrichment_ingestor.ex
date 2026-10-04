@@ -547,17 +547,17 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   defp live_canonical_device_uid(uid, actor) do
-    canonical_uid = IdentityReconciler.follow_canonical_device_id(uid, actor)
+    with {:ok, canonical_uid} <- IdentityReconciler.resolve_canonical_device_id(uid, actor) do
+      query =
+        Device
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(uid == ^canonical_uid and is_nil(deleted_at))
 
-    query =
-      Device
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(uid == ^canonical_uid and is_nil(deleted_at))
-
-    case Ash.read_one(query, actor: actor) do
-      {:ok, %Device{}} -> {:ok, canonical_uid}
-      {:ok, nil} -> {:skip, {:missing_or_inactive_virtualization_endpoint, canonical_uid}}
-      {:error, reason} -> {:error, reason}
+      case Ash.read_one(query, actor: actor) do
+        {:ok, %Device{}} -> {:ok, canonical_uid}
+        {:ok, nil} -> {:skip, {:missing_or_inactive_virtualization_endpoint, canonical_uid}}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

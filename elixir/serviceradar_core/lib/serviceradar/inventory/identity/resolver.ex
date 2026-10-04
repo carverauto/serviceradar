@@ -178,8 +178,6 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     end
   end
 
-  @max_canonical_follow_depth 5
-
   @doc """
   Follow the merge-audit canonical mapping for a device ID.
 
@@ -203,23 +201,46 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   source still carrying the old id would re-create the merged-away device.
   """
   @spec follow_canonical_device_id(String.t(), term()) :: String.t()
-  def follow_canonical_device_id(device_id, actor),
-    do: do_follow_canonical(device_id, actor, @max_canonical_follow_depth)
+  def follow_canonical_device_id(device_id, actor) do
+    case do_follow_canonical(device_id, actor, @max_canonical_follow_depth) do
+      {:ok, canonical_id} ->
+        canonical_id
 
-  defp do_follow_canonical(device_id, _actor, 0), do: device_id
+      {:error, unresolved_id, reason} ->
+        Logger.warning("Canonical follow failed for #{unresolved_id}: #{inspect(reason)}")
+        unresolved_id
+    end
+  end
+
+  @doc """
+  Resolve a canonical ID for callers that must establish identity before changing state.
+
+  Returns an error on failed reads or exhausted traversal, so incomplete resolution
+  cannot authorize retiring a hosted relationship. The legacy follow API remains
+  best-effort and returns the last reached ID in these cases.
+  """
+  @spec resolve_canonical_device_id(String.t(), term()) :: {:ok, String.t()} | {:error, term()}
+  def resolve_canonical_device_id(device_id, actor) do
+    case do_follow_canonical(device_id, actor, @max_canonical_follow_depth) do
+      {:ok, canonical_id} -> {:ok, canonical_id}
+      {:error, _unresolved_id, reason} -> {:error, reason}
+    end
+  end
+
+  defp do_follow_canonical(device_id, _actor, 0),
+    do: {:error, device_id, :canonical_resolution_depth_exceeded}
 
   defp do_follow_canonical(device_id, actor, depth) do
     with true <- Ids.serviceradar_uuid?(device_id),
-         canonical_id when is_binary(canonical_id) and canonical_id != device_id <-
+         {:ok, canonical_id} when is_binary(canonical_id) and canonical_id != device_id <-
            redirect_target(device_id, actor) do
       do_follow_canonical(canonical_id, actor, depth - 1)
     else
-      _ -> device_id
+      {:error, reason} -> {:error, device_id, reason}
+      _ -> {:ok, device_id}
     end
   rescue
-    e ->
-      Logger.warning("Canonical follow failed for #{device_id}: #{inspect(e)}")
-      device_id
+    e -> {:error, device_id, e}
   end
 
   # Where a merged-away id redirects, or nil when it does not.
@@ -229,18 +250,21 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
         latest_merge_target(device_id, actor)
 
       {:ok, %Device{}} ->
-        nil
+        {:ok, nil}
 
       {:ok, nil} ->
         purged_merge_target(device_id, actor)
 
       {:error, error} ->
-        if not_found?(error), do: purged_merge_target(device_id, actor)
+        if not_found?(error), do: purged_merge_target(device_id, actor), else: {:error, error}
     end
   end
 
   defp not_found?(%Ash.Error.Query.NotFound{}), do: true
-  defp not_found?(%Ash.Error.Invalid{errors: errors}), do: Enum.any?(errors, &not_found?/1)
+
+  defp not_found?(%Ash.Error.Invalid{errors: errors}),
+    do: errors != [] and Enum.all?(errors, &not_found?/1)
+
   defp not_found?(_error), do: false
 
   # No row at all. The newest merge row from the id redirects it, unless an
@@ -268,9 +292,10 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
           {created_unix(merge.created_at), not MapSet.member?(reversed, merge.event_id)}
         end)
 
-      if MapSet.member?(reversed, newest.event_id), do: nil, else: newest.to_device_id
+      {:ok, if(MapSet.member?(reversed, newest.event_id), do: nil, else: newest.to_device_id)}
     else
-      _ -> nil
+      {:ok, []} -> {:ok, nil}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -295,8 +320,9 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     |> Ash.Query.limit(1)
     |> Ash.read(query_opts)
     |> case do
-      {:ok, [%MergeAudit{to_device_id: to_device_id} | _]} -> to_device_id
-      _ -> nil
+      {:ok, [%MergeAudit{to_device_id: to_device_id} | _]} -> {:ok, to_device_id}
+      {:ok, []} -> {:ok, nil}
+      {:error, _reason} = error -> error
     end
   end
 
