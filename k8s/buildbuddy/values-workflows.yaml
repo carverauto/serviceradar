@@ -59,8 +59,8 @@ replicas: 1
 autoscaler:
   enabled: false
 
-# Sized for TWO concurrent runs of the actions in //buildbuddy.yaml (BazelCI and
-# LargeIngestionGate request 36GB each; the unmeasured benchmark actions still request 50GB).
+# Sized for TWO concurrent runs of BazelCI in //buildbuddy.yaml (36GB each; the unmeasured
+# benchmark actions still request 50GB).
 #
 # 2026-09-27: a run's non-reclaimable memory (cgroup `anon` of this pod, which includes the runner
 # containers) peaked at 31.2 GiB (~33.5 GB) over an hour of BazelCI/LargeIngestionGate runs; the
