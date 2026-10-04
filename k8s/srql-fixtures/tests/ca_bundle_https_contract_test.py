@@ -68,7 +68,8 @@ class SrqlFixtureCaHttpsContract(unittest.TestCase):
                 )
 
     def test_buildbuddy_allows_the_lan_gateway_vip(self):
-        # values-workflows-lig.yaml: LargeIngestionGate fetches the CA over HTTPS too.
+        # values-workflows-lig.yaml (carverauto cluster, like values-workflows.yaml):
+        # LargeIngestionGate fetches the CA from SRQL_FIXTURE_CA_URL over HTTPS too.
         for name in ("values.yaml", "values-workflows.yaml", "values-workflows-lig.yaml"):
             with self.subTest(values=name):
                 text = (REPO / "k8s" / "buildbuddy" / name).read_text()
