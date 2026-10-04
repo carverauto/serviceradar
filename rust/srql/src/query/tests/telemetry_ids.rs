@@ -315,10 +315,12 @@ fn rollup_stats_red_reads_spans_red_1h() {
         );
     }
     assert!(
-        response.sql.contains("bucket >= time_bucket('1 hour', $1::timestamptz)")
-            && response.sql.contains(
-                "bucket < time_bucket('1 hour', $2::timestamptz) + INTERVAL '1 hour'"
-            ),
+        response
+            .sql
+            .contains("bucket >= time_bucket('1 hour', $1::timestamptz)")
+            && response
+                .sql
+                .contains("bucket < time_bucket('1 hour', $2::timestamptz) + INTERVAL '1 hour'"),
         "expected bucket window binds: {}",
         response.sql
     );

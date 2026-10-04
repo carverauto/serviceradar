@@ -1,6 +1,6 @@
+use super::super::bucket_overlap_clause;
 use super::enforce_list_limit;
 use super::stats::{LogsStatsSql, SqlBindValue};
-use super::super::bucket_overlap_clause;
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
