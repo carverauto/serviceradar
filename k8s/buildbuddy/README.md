@@ -303,48 +303,66 @@ advertises the full `limits.memory` with no reduction (measured 2026-09-27 at 80
 `values-workflows.yaml`). Read the number off the log line rather than assuming either rule,
 and confirm it clears what `resource_requests` in `buildbuddy.yaml` asks for.
 
-### Dedicated LargeIngestionGate pool (farm01)
+### Dedicated LargeIngestionGate pool
 
 Pool `workflows` has members on two clusters: `buildbuddy-workflows` (and
 `buildbuddy-workflows-2`) here, and farm01's `buildbuddy-workflows` release (3 replicas,
-56Gi limits). A third release on farm01 serves a pool of its own:
+56Gi limits). A further release on this cluster serves a pool of its own:
 
 | cluster | release | values | pool | replicas | hostPath cache | runs |
 |---|---|---|---|---|---|---|
-| farm01 | `buildbuddy-workflows-lig` | `values-workflows-lig.yaml` | `workflows-lig` | 1, unscaled | `/mnt/buildbuddy/cache-workflows-lig`, `/mnt/buildbuddy/bazel-caches-workflows-lig` | LargeIngestionGate only |
+| carverauto | `buildbuddy-workflows-lig` | `values-workflows-lig.yaml` | `workflows-lig` | 1, unscaled | `/mnt/buildbuddy/cache-workflows-lig`, `/mnt/buildbuddy/bazel-caches-workflows-lig` | LargeIngestionGate only |
 
-Why: each farm01 workflow executor keeps a single warm runner (carverauto-cluster releases keep two; see Runner count below). LargeIngestionGate (each staging
-push plus nightly, ~16 runs/day, ~16 min) and BazelCI (PRs, ~49 runs/day, ~22 min) shared
-pool `workflows` and kept evicting each other's warm runner, so ~45% of runs started cold
-(cold `bazel build //...` up to 36 min against 1-5 min warm; one PR run hit BuildBuddy's 1h
-remote-run cap). `buildbuddy.yaml` now sends LargeIngestionGate to `pool: "workflows-lig"`;
-every other action stays on `workflows`. Deploy the executor BEFORE merging a pool change,
-or the next staging push fails with `no registered executors in pool "workflows-lig"`.
+Why a pool of its own: LargeIngestionGate (each staging push plus nightly, ~16 runs/day) and
+BazelCI (PRs, ~49 runs/day, ~22 min) shared pool `workflows` and kept evicting each other's
+warm runner, so ~45% of runs started cold (cold `bazel build //...` up to 36 min against 1-5
+min warm; one PR run hit BuildBuddy's 1h remote-run cap). `buildbuddy.yaml` sends
+LargeIngestionGate to `pool: "workflows-lig"`; every other action stays on `workflows`. Deploy
+the executor BEFORE merging a pool change, or the next staging push fails with
+`no registered executors in pool "workflows-lig"`.
 
-Runner count: the carverauto-cluster workflow releases run with
-`runner_pool.max_runner_count: 2`. farm01 stays at 1 on both of its workflow releases:
-56Gi pods on 64GB nodes cannot hold two ~20GB idle runners next to a 36GB run.
+Why this cluster and not farm01: the release first lived on farm01, and LargeIngestionGate
+failed there every time. farm01 reaches the srql-fixtures CNPG, which runs on this cluster,
+over a LAN bridge, and the gate's DB-heavy test timed out (>30 min, failed) on every farm01
+run -- three runs before the pool move and every run after it. On carverauto executors the
+same test passes in 3-4 min and the whole workflow takes 5-16 min. farm01 may host this pool
+again only once it has a local srql-fixtures instance (planned separately); until then, do
+not register a `workflows-lig` executor there, because BuildBuddy would hand it runs that
+cannot pass.
 
-farm01 has no `buildbuddy-api-key` Secret; reuse the key from its existing workflow release.
-The pod anti-affinity in the values file keeps this pod off nodes running `buildbuddy`,
-`buildbuddy-workflows` or another `buildbuddy-workflows-lig` pod.
+Sizing is the same as `buildbuddy-workflows` (72Gi requests / 80Gi limits, 12/16 CPU,
+`max_shutdown_duration: 3570s`), but `runner_pool.max_runner_count` is 1: only one
+non-concurrent action uses this pool, so a second warm slot would only park memory.
+
+Required pod anti-affinity on `kubernetes.io/hostname` keeps this pod off any node running
+`buildbuddy`, `buildbuddy-workflows`, `buildbuddy-workflows-2` or another
+`buildbuddy-workflows-lig` pod. Check that such a node still has 72Gi allocatable before
+installing; otherwise the pod stays `Pending` and the gate fails with the
+`no registered executors` message above.
+
+Install with the same API key the other releases on this cluster use:
 
 ```bash
-API_KEY=$(helm --kube-context farm01 get values buildbuddy-workflows -n buildbuddy -o json \
-  | jq -r .config.executor.api_key)
+API_KEY=$(kubectl --context carverauto get secret buildbuddy-api-key -n buildbuddy \
+  -o jsonpath='{.data.api-key}' | base64 -d)
 
-helm --kube-context farm01 upgrade --install buildbuddy-workflows-lig \
+helm --kube-context carverauto upgrade --install buildbuddy-workflows-lig \
   buildbuddy/buildbuddy-executor --version 0.0.461 \
   -n buildbuddy \
   -f k8s/buildbuddy/values-workflows-lig.yaml \
   --set config.executor.api_key="$API_KEY"
 
-kubectl --context farm01 exec -n buildbuddy <lig-pod> -- printenv MY_POOL
+kubectl --context carverauto exec -n buildbuddy <lig-pod> -- printenv MY_POOL
 #   workflows-lig
+
+kubectl --context carverauto logs -n buildbuddy \
+  -l app.kubernetes.io/instance=buildbuddy-workflows-lig --tail=200 \
+  | grep "Initialized task scheduler"
+#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 85,899,345,920 bytes allocated
 ```
 
 The same release-name/`-f` pairing warning as above applies: applying this file to
-`buildbuddy-workflows` moves all of farm01's `workflows` capacity into `workflows-lig`.
+`buildbuddy-workflows` moves that release's capacity out of `workflows` into `workflows-lig`.
 
 ## Workflows (`buildbuddy.yaml`)
 
