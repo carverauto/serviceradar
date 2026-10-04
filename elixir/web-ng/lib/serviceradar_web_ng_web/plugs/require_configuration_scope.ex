@@ -5,12 +5,16 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScope do
   Runs after ApiAuth and ConfineNarrowScope. Controllers still enforce each
   operation's RBAC permission. A user access token retains its user's authority;
   an API token must also grant the requested method. Existing narrow grants
-  remain confined to their explicit route allowlist. UserAuth also applies this
-  gate to verified API bearer tokens before an actor reaches controllers or Ash
-  JSON:API. Its audited read-only POST endpoints are passed as decoded path
+  remain confined to their explicit route allowlist. UserAuth applies this gate
+  to verified API bearer tokens before an actor reaches controllers or Ash
+  JSON:API, and the `:api_key_auth` pipeline applies it to every route it
+  authenticates. Audited read-only POST endpoints are passed as decoded path
   segments in `:read_only_post_paths`; configuration routes have no exceptions.
   `:path_prefixes` confines API grants to data routes, so they cannot authorize a
   browser flow that mints credentials with the owner's broader permissions.
+  `:allow_api_key_auth` keeps legacy static keys reachable on the general
+  pipeline; the configuration pipeline leaves it disabled so static keys
+  cannot provision.
   """
 
   @behaviour Plug
@@ -54,7 +58,13 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScope do
 
   # ApiAuth marks even an empty API bearer scope. Only an authenticated user
   # access token can reach this clause on the configuration API pipeline.
-  defp permitted?(conn, _opts), do: conn.assigns[:api_key_auth] != true
+  defp permitted?(conn, opts) do
+    if Keyword.get(opts, :allow_api_key_auth, false) do
+      true
+    else
+      conn.assigns[:api_key_auth] != true
+    end
+  end
 
   defp path_allowed?(conn, opts) do
     case Keyword.get(opts, :path_prefixes) do

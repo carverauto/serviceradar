@@ -114,6 +114,31 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
     assert run("POST", %{api_key_auth: true}).status == 403
   end
 
+  test "api_key_auth boundary gates coarse reads while keeping legacy reach" do
+    opts = [
+      read_only_post_paths: [["api", "v1", "identity", "resolve"]],
+      allow_api_key_auth: true
+    ]
+
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/v1/scans", opts).status == 403
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/admin/edge-packages", opts).status == 403
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/admin/collectors", opts).status == 403
+    assert run("POST", %{api_token_scope: "read"}, "/api/v1/scans", opts).status == 403
+    refute run("GET", %{oauth_token_scope: "read"}, "/api/v1/scans/synthetic-id", opts).halted
+    refute run("GET", %{oauth_token_scope: "read"}, "/api/admin/edge-packages", opts).halted
+    refute run("GET", %{oauth_token_scope: "read"}, "/v1/field-survey/auth-check", opts).halted
+    refute run("POST", %{oauth_token_scope: "read"}, "/api/v1/identity/resolve", opts).halted
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/v1/identity/resolve/extra", opts).status == 403
+    refute run("POST", %{oauth_token_scope: "write"}, "/api/v1/scans", opts).halted
+    refute run("POST", %{oauth_token_scope: "admin"}, "/api/admin/collectors", opts).halted
+    refute run("POST", %{oauth_token_scope: "plugins.manage"}, "/api/admin/plugin-assignments", opts).halted
+    assert run("POST", %{oauth_token_scope: "plugins.manage"}, "/api/v1/scans", opts).status == 403
+    assert run("POST", %{oauth_token_scope: ""}, "/api/v1/scans", opts).status == 403
+    assert run("POST", %{oauth_token_scope: "unknown.scope"}, "/api/v1/scans", opts).status == 403
+    refute run("POST", %{}, "/api/v1/scans", opts).halted
+    refute run("POST", %{api_key_auth: true}, "/api/v1/scans", opts).halted
+  end
+
   test "all credential and Ansible configuration routes mount the capability gate" do
     routes = Phoenix.Router.routes(ServiceRadarWebNGWeb.Router)
 

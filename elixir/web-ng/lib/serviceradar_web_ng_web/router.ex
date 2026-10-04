@@ -181,9 +181,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(SecurityHeaders)
     plug(ApiAuth)
     # Confines CLI device-flow tokens to the routes their narrow scope was
-    # granted for. Coarse client-credential scopes, API keys and sessions pass
-    # through untouched. See `Auth.NarrowScopes`.
+    # granted for. Coarse client-credential scopes pass through to the
+    # method-aware gate below. See `Auth.NarrowScopes`.
     plug(ConfineNarrowScope)
+    # A coarse `read` grant permits reads and the audited read-only POST
+    # exception only; `write`/`admin` reach mutations subject to resource RBAC.
+    # Narrow grants retain their exact allowlists. User access tokens and
+    # legacy static keys retain their existing reach on this pipeline.
+    plug(RequireConfigurationScope,
+      read_only_post_paths: [["api", "v1", "identity", "resolve"]],
+      allow_api_key_auth: true
+    )
   end
 
   pipeline :configuration_api do

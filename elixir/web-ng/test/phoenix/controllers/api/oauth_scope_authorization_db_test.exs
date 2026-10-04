@@ -127,6 +127,42 @@ defmodule ServiceRadarWebNGWeb.Api.OAuthScopeAuthorizationDbTest do
     end
   end
 
+  test "read OAuth clients cannot mutate api_key_auth routes even when their owners can" do
+    user = admin_user_fixture()
+    read_token = client_token(user, "read")
+    write_token = client_token(user, "write")
+
+    for path <- ["/api/v1/scans", "/api/admin/edge-packages", "/api/admin/collectors"] do
+      denied = read_token |> api_request() |> post(path, %{})
+      assert json_response(denied, 403)["error"] == "insufficient_scope"
+    end
+
+    denied_scan = read_token |> api_request() |> post("/api/v1/scans", %{"targets" => ["10.0.0.1"]})
+    assert json_response(denied_scan, 403)["error"] == "insufficient_scope"
+
+    for path <- ["/api/v1/scans", "/api/admin/collectors"] do
+      passed = write_token |> api_request() |> post(path, %{})
+      refute json_response(passed, 400)["error"] == "insufficient_scope"
+    end
+
+    assert (read_token |> api_request() |> get("/api/admin/edge-packages")) |> json_response(200) |> is_list()
+
+    auth_check = read_token |> api_request() |> get("/v1/field-survey/auth-check")
+    assert json_response(auth_check, 200)["ok"] == true
+
+    batch = %{"devices" => [%{"ip" => "10.255.255.254", "partition" => "default"}]}
+    assert read_token |> api_request() |> post("/api/v1/identity/resolve", batch) |> json_response(200) |> Map.has_key?("data")
+    assert write_token |> api_request() |> post("/api/v1/identity/resolve", batch) |> json_response(200) |> Map.has_key?("data")
+
+    {:ok, access_token, _claims} = Guardian.create_api_token(viewer_user_fixture(), scopes: ["write"])
+    forbidden = access_token |> api_request() |> post("/api/v1/scans", %{})
+    assert forbidden.status == 403
+    assert json_response(forbidden, 403)["error"] != "insufficient_scope"
+
+    {:ok, user_token, _claims} = Guardian.create_access_token(user)
+    assert (user_token |> api_request() |> get("/api/admin/edge-packages")) |> json_response(200) |> is_list()
+  end
+
   defp client_token(user, scope) do
     {:ok, client, secret} =
       Credentials.create_client(user.id,
@@ -149,6 +185,12 @@ defmodule ServiceRadarWebNGWeb.Api.OAuthScopeAuthorizationDbTest do
     build_conn()
     |> put_req_header("authorization", "Bearer #{token}")
     |> put_req_header("content-type", "application/vnd.api+json")
+  end
+
+  defp api_request(token) do
+    build_conn()
+    |> put_req_header("authorization", "Bearer #{token}")
+    |> put_req_header("content-type", "application/json")
   end
 
   defp payload(type, attrs), do: %{"data" => %{"type" => type, "attributes" => attrs}}
