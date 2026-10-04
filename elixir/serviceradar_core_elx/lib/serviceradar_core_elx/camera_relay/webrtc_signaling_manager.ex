@@ -99,7 +99,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   @impl true
   def handle_call({:create_session, relay_session_id, opts}, from, state) do
     with {:ok, _relay_session} <- available_relay_session(session_tracker(state).fetch_session(relay_session_id)),
-         {:ok, signaling} <- start_signaling(),
+         {:ok, signaling, signaling_monitor_ref} <- start_signaling(),
          :ok <- Signaling.register_peer(signaling, message_format: :json_data, pid: self()) do
       viewer_session_id = Ecto.UUID.generate()
       {expires_at, timer_ref} = schedule_expiry(viewer_session_id, state.session_ttl_ms)
@@ -115,6 +115,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
         offer_sdp: nil,
         signaling: signaling,
         signaling_pid: signaling.pid,
+        signaling_monitor_ref: signaling_monitor_ref,
         expires_at: expires_at,
         timer_ref: timer_ref,
         offer_timeout_ref: offer_timeout_ref,
@@ -140,7 +141,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
           {:noreply, put_in(state, [:sessions, viewer_session_id], session)}
 
         {:error, reason} ->
-          _ = close_signaling(signaling)
+          close_signaling(signaling, signaling_monitor_ref)
           {:reply, {:error, reason}, state}
       end
     else
@@ -263,9 +264,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   # A viewer's Signaling process stopped on its own (normally because its WebRTC
   # sink crashed). Release only that viewer; sessions already closed by this
   # manager are no longer tracked, so their DOWN is ignored.
-  def handle_info({:DOWN, _ref, :process, signaling_pid, reason}, state) do
+  def handle_info({:DOWN, monitor_ref, :process, signaling_pid, reason}, state) do
     case fetch_session_by_signaling(state, signaling_pid) do
-      {:ok, session} ->
+      {:ok, %{signaling_monitor_ref: ^monitor_ref} = session} ->
         Logger.warning(
           "Camera relay WebRTC signaling stopped: relay_session_id=#{session.relay_session_id} " <>
             "viewer_session_id=#{session.viewer_session_id} reason=#{inspect(reason)}"
@@ -275,7 +276,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
         maybe_reply_failure(session.pending_reply_to)
         {:noreply, %{state | sessions: Map.delete(state.sessions, session.viewer_session_id)}}
 
-      :error ->
+      _missing_or_stale ->
         {:noreply, state}
     end
   end
@@ -356,7 +357,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
     _ = cancel_timer(session.timer_ref)
     _ = cancel_timer(session.offer_timeout_ref)
     _ = pipeline_manager(state).remove_webrtc_viewer(session.relay_session_id, session.viewer_session_id)
-    _ = close_signaling(session.signaling)
+    _ = close_signaling(session.signaling, Map.get(session, :signaling_monitor_ref))
 
     :ok =
       relay_pubsub(state).viewer_leave(session.relay_session_id, session.viewer_session_id, %{
@@ -387,16 +388,24 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
   # viewer. The DOWN handler releases just that viewer.
   defp start_signaling do
     signaling = Signaling.start()
-    _ref = Process.monitor(signaling.pid)
-    {:ok, signaling}
+    {:ok, signaling, Process.monitor(signaling.pid)}
   end
 
   # The process may already be gone (its viewer crashed); GenServer.stop on a
   # dead pid would exit this manager.
-  defp close_signaling(signaling) do
-    Signaling.close(signaling)
-  catch
-    :exit, _reason -> :ok
+  defp close_signaling(signaling, signaling_monitor_ref) do
+    if is_reference(signaling_monitor_ref) do
+      _ = Process.demonitor(signaling_monitor_ref, [:flush])
+    end
+
+    try do
+      _ = Signaling.close(signaling)
+      :ok
+    rescue
+      _error -> :ok
+    catch
+      :exit, _reason -> :ok
+    end
   end
 
   defp apply_or_hold_candidate(%{answer_sdp: answer_sdp} = session, candidate) when is_binary(answer_sdp) do
