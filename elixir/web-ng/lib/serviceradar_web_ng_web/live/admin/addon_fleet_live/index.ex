@@ -42,10 +42,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "plugins.view") do
+      # No fleet reads here: mount also runs for the disconnected render, so the
+      # fleet loads once in handle_params after the socket connects.
       {:ok,
        socket
        |> assign(:can_manage_rollouts, RBAC.can?(scope, "plugins.assign"))
-       |> load_fleet(default_filters())}
+       |> assign_unloaded_fleet()}
     else
       {:ok,
        socket
@@ -54,32 +56,41 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     end
   end
 
+  # Filters and the agent page live in the URL, so a reload, a shared link, or
+  # browser back/forward lands on the same filtered page.
   @impl true
-  def handle_params(_params, url, socket) do
-    {:noreply, assign(socket, :current_path, URI.parse(url).path)}
+  def handle_params(params, url, socket) do
+    filters = filters_from_params(params)
+    page = Map.get(params, "page", 1)
+    socket = assign(socket, :current_path, URI.parse(url).path)
+
+    socket =
+      cond do
+        not connected?(socket) -> assign(socket, :filters, filters)
+        socket.assigns.fleet_loaded? -> apply_filters(socket, filters, page)
+        true -> load_fleet(socket, filters, page)
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("filter", %{"filter" => filter} = _params, socket) do
-    {:noreply, apply_filters(socket, Map.merge(default_filters(), filter), reset_page: true)}
+    filters = filters_from_params(filter)
+    {:noreply, push_patch(socket, to: fleet_path(filters, 1))}
   end
 
   def handle_event("clear_filters", _params, socket) do
-    {:noreply, apply_filters(socket, default_filters(), reset_page: true)}
+    {:noreply, push_patch(socket, to: fleet_path(default_filters(), 1))}
   end
 
   def handle_event("agent_page", %{"page" => page}, socket) do
-    groups = socket.assigns.agent_groups
-    page = clamp_page(page, length(groups), socket.assigns.agent_page_size)
-
-    {:noreply,
-     socket
-     |> assign(:agent_page, page)
-     |> assign(:paged_agent_groups, paginated_items(groups, page, socket.assigns.agent_page_size))}
+    page = clamp_page(page, socket.assigns.agent_group_total, socket.assigns.agent_page_size)
+    {:noreply, push_patch(socket, to: fleet_path(socket.assigns.filters, page))}
   end
 
   def handle_event("refresh", _params, socket) do
-    {:noreply, load_fleet(socket, socket.assigns.filters)}
+    {:noreply, load_fleet(socket, socket.assigns.filters, socket.assigns.agent_page)}
   end
 
   def handle_event("rollout_action", %{"id" => id, "operation" => operation}, socket) do
@@ -98,12 +109,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
         :ok ->
           socket
           |> put_flash(:info, "Rollout #{operation} accepted.")
-          |> load_fleet(socket.assigns.filters)
+          |> load_fleet(socket.assigns.filters, socket.assigns.agent_page)
 
         {:ok, _rollout} ->
           socket
           |> put_flash(:info, "Rollout #{operation} accepted.")
-          |> load_fleet(socket.assigns.filters)
+          |> load_fleet(socket.assigns.filters, socket.assigns.agent_page)
 
         {:error, reason} ->
           put_flash(socket, :error, "Rollout action failed: #{AddonRollouts.format_error(reason)}")
@@ -176,7 +187,26 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     {:noreply, assign(socket, :expanded_rows, expanded)}
   end
 
-  defp load_fleet(socket, filters) do
+  defp assign_unloaded_fleet(socket) do
+    socket
+    |> assign(:page_title, "Add-on Fleet")
+    |> assign(:current_path, @base_path)
+    |> assign(:fleet_loaded?, false)
+    |> assign(:all_rows, [])
+    |> assign(:catalog_only, [])
+    |> assign(:rollouts, [])
+    |> assign(:show_finished_rollouts, false)
+    |> assign(:finished_rollout_page, 1)
+    |> assign(:finished_rollout_page_size, @finished_rollout_page_size)
+    |> assign(:expanded_rows, MapSet.new())
+    |> assign(:expanded_rollouts, MapSet.new())
+    |> assign(:categories, @categories)
+    |> assign(:agent_options, [])
+    |> assign(:addon_options, [])
+    |> apply_filters(default_filters(), 1)
+  end
+
+  defp load_fleet(socket, filters, page) do
     %{rows: rows, catalog_only: catalog_only} =
       AddonFleet.overview(scope: socket.assigns.current_scope)
 
@@ -187,34 +217,25 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     finished_page = clamp_page(finished_page, finished_count, @finished_rollout_page_size)
 
     socket
-    |> assign(:page_title, "Add-on Fleet")
-    |> assign(:current_path, @base_path)
+    |> assign(:fleet_loaded?, true)
     |> assign(:all_rows, rows)
     |> assign(:catalog_only, catalog_only)
     |> assign(:rollouts, rollouts)
     |> assign(:show_finished_rollouts, show_finished)
     |> assign(:finished_rollout_page, finished_page)
-    |> assign(:finished_rollout_page_size, @finished_rollout_page_size)
     |> assign(:expanded_rows, MapSet.new())
     |> assign(:expanded_rollouts, MapSet.new())
-    |> assign(:categories, @categories)
     |> assign(:agent_options, AddonFleet.agents(rows))
     |> assign(:addon_options, AddonFleet.addon_ids(rows))
-    |> apply_filters(filters, reset_page: false)
+    |> apply_filters(filters, page)
   end
 
-  defp apply_filters(socket, filters, opts) do
+  # Filters run on the full fleet before paging, so counts, the summary and the
+  # page range all describe the filtered set.
+  defp apply_filters(socket, filters, page) do
     rows = AddonFleet.filter(socket.assigns.all_rows, filters)
     groups = group_rows_by_agent(rows)
     page_size = @agent_page_size
-
-    page =
-      if Keyword.get(opts, :reset_page, true) do
-        1
-      else
-        Map.get(socket.assigns, :agent_page, 1)
-      end
-
     page = clamp_page(page, length(groups), page_size)
 
     socket
@@ -235,6 +256,39 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       "category" => "",
       "attention_only" => "false"
     }
+  end
+
+  defp filters_from_params(params) do
+    text = fn key ->
+      case Map.get(params, key) do
+        value when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+    end
+
+    category = text.("category")
+
+    %{
+      "agent_uid" => text.("agent_uid"),
+      "addon_id" => text.("addon_id"),
+      "category" => if(category in @categories, do: category, else: ""),
+      "attention_only" => if(text.("attention_only") in ["true", "on"], do: "true", else: "false")
+    }
+  end
+
+  # Only non-default values go into the query string, so the unfiltered first
+  # page keeps the bare path.
+  defp fleet_path(filters, page) do
+    query =
+      filters
+      |> Enum.reject(fn {key, value} -> value == Map.fetch!(default_filters(), key) end)
+      |> Enum.sort()
+      |> then(fn params -> if page > 1, do: params ++ [{"page", page}], else: params end)
+
+    case query do
+      [] -> @base_path
+      query -> @base_path <> "?" <> URI.encode_query(query)
+    end
   end
 
   defp row_key(row), do: "#{row.agent_uid}|#{row.addon_id}"
@@ -565,7 +619,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
             </div>
           </:header>
 
-          <%= if @agent_group_total == 0 do %>
+          <div
+            :if={not @fleet_loaded?}
+            id="addon-fleet-loading"
+            class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-6 text-center text-sm text-sr-muted"
+          >
+            Loading agent add-on inventory...
+          </div>
+          <%= if @fleet_loaded? and @agent_group_total == 0 do %>
             <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-6 text-center">
               <div class="text-sm font-semibold text-sr-ink">
                 No matching add-on deployments
