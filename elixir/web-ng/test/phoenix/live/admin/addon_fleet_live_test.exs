@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       state: "degraded",
       active: true,
       version: "0.3.1",
-      reported_at: DateTime.add(DateTime.utc_now(), -30, :day)
+      reported_at: DateTime.shift(DateTime.utc_now(), day: -30)
     )
 
     {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
