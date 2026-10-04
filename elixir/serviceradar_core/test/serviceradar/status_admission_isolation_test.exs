@@ -36,7 +36,7 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
       Application.get_env(:serviceradar_core, :status_admission_held_plugin)
 
     Application.put_env(:serviceradar_core, StatusHandler,
-      flow_attribution_persister: {__MODULE__, :held_flow_persist, [parent, release_ref]}
+      flow_attribution_publisher: {__MODULE__, :held_flow_persist, [parent, release_ref]}
     )
 
     Application.put_env(:serviceradar_core, :plugin_result_ingestor, HeldPluginIngestor)
@@ -74,7 +74,7 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
       StatusHandler,
       Keyword.put(
         Application.get_env(:serviceradar_core, StatusHandler, []),
-        :flow_attribution_persister,
+        :flow_attribution_publisher,
         {__MODULE__, :persist_flow_immediately, [self()]}
       )
     )

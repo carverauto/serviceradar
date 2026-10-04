@@ -473,10 +473,6 @@ core:
     # timeseries_metrics_*_hourly), which back long-range charts and seasonal
     # anomaly baselines. Chunks older than 7 days are compressed. Minimum 7.
     hourlyRollupDays: 395
-    # Raw netprobe-to-process attribution observations are hot staging data used
-    # to correlate delayed NetFlow/IPFIX rows. Lower this to discard unmatched
-    # raw observations quickly; keep it at least 15 minutes.
-    flowAttributionMinutes: 60
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 24
     ocsfNetworkActivityChunkIntervalHours: 24
@@ -728,7 +724,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261005150102"
+    expectedVersion: "20261005153000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job

@@ -133,106 +133,16 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
       Keyword.put(prev, :cutover_datasets, [:flows])
     )
 
-    assert Correlation.flow_history_backend() == :starrocks
+    # One statement over the warehouse tables: the recent-flows leg reads the
+    # warehouse activity table, never CNPG current-state and never by ctid.
+    # Pass-level behavior (workload merge, versions, publish, failure
+    # propagation) is covered in correlation_test.exs against run_pass/1.
+    sql = Correlation.correlation_sql([], [])
 
-    query = fn sql ->
-      assert sql =~ "serviceradar.ocsf_network_activity"
-      refute sql =~ "platform.ocsf_network_activity"
-      refute sql =~ "ctid"
-      send(self(), {:attr_sql, sql})
-
-      {:ok,
-       %{
-         columns: ["id", "time", "src_endpoint_ip", "dst_endpoint_ip"],
-         rows: [["flow-alpha-0001", "1999-06-15 12:00:00", "192.0.2.10", "198.51.100.20"]]
-       }}
-    end
-
-    assert {:ok, [row]} = Correlation.recent_unattributed_flows(query: query)
-    assert row["id"] == "flow-alpha-0001"
-    assert_received {:attr_sql, _sql}
-  end
-
-  test "warehouse correlation publishes resolved flow IDs and assigned versions" do
-    query = fn _ ->
-      {:ok,
-       %{
-         columns: ["id", "time"],
-         rows: [
-           ["flow-alpha-0001", ~N[1999-06-15 12:00:00]],
-           ["flow-beta-0002", ~N[1999-06-15 12:00:01]]
-         ]
-       }}
-    end
-
-    repo_query = fn _sql, [flows] ->
-      assert flows == [
-               %{"id" => "flow-alpha-0001", "time" => ~N[1999-06-15 12:00:00]},
-               %{"id" => "flow-beta-0002", "time" => ~N[1999-06-15 12:00:01]}
-             ]
-
-      {:ok,
-       %{
-         columns: ["id", "pid", "attribution_version"],
-         rows: [["flow-alpha-0001", 42, 101], ["flow-beta-0002", 43, 102]]
-       }}
-    end
-
-    assert {:ok, 2} =
-             Correlation.correlate_starrocks(
-               query: query,
-               repo_query: repo_query,
-               publish: fn %{payload: payload} ->
-                 send(self(), {:update, payload})
-                 :ok
-               end
-             )
-
-    # `time` completes the warehouse primary key and must be the value StarRocks
-    # returned, not one re-derived by the CNPG matching query.
-    assert_received {:update,
-                     %{
-                       "id" => "flow-alpha-0001",
-                       "time" => ~N[1999-06-15 12:00:00],
-                       "pid" => 42,
-                       "attribution_version" => 101
-                     }}
-
-    assert_received {:update,
-                     %{
-                       "id" => "flow-beta-0002",
-                       "time" => ~N[1999-06-15 12:00:01],
-                       "pid" => 43,
-                       "attribution_version" => 102
-                     }}
-
-    assert {:error, :timeout} =
-             Correlation.correlate_starrocks(
-               query: query,
-               repo_query: repo_query,
-               publish: fn _ -> {:error, :timeout} end
-             )
-  end
-
-  test "warehouse correlation propagates matching failures and skips empty batches" do
-    assert {:ok, 0} =
-             Correlation.correlate_starrocks(
-               query: fn _ -> {:ok, %{columns: ["id"], rows: []}} end,
-               repo_query: fn _, _ -> flunk("empty batch matched") end
-             )
-
-    assert {:error, :unavailable} =
-             Correlation.correlate_starrocks(
-               query: fn _ ->
-                 {:ok,
-                  %{
-                    columns: ["id", "time"],
-                    rows: [["flow-alpha-0001", ~N[1999-06-15 12:00:00]]]
-                  }}
-               end,
-               repo_query: fn _, _ -> {:error, :unavailable} end,
-               publish: fn _ -> flunk("failed matches published") end
-             )
+    assert sql =~ "serviceradar.ocsf_network_activity"
+    assert sql =~ "serviceradar.flow_process_attribution_observations"
+    refute sql =~ "platform.ocsf_network_activity"
+    refute sql =~ "ctid"
   end
 
   test "warehouse observations are aggregated once per run and reused by every batch",

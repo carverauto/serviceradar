@@ -601,7 +601,7 @@ day-partitioned hourly rollups, waits for the rebuild; earlier migrations do
 not. Every table is copied before any old table is dropped, so peak storage is
 about twice the in-retention warehouse. A failure is logged as
 `StarRocks partition rebuild of <table> failed` and retried on the migrator's
-backoff, continuing from the days already copied; retention logs
+backoff, continuing from the hours already copied; retention logs
 `is not range partitioned` for a table until its rebuild completes. A fresh
 warehouse is partitioned from `0001` and is not affected.
 

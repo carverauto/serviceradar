@@ -83,7 +83,7 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionSitesTest do
     test "staling an alias bumps the alias owner, not the conflicting device", %{actor: actor} do
       {:ok, alias_owner} = create_device(actor)
       {:ok, other} = create_device(actor)
-      ip = unique_ip()
+      ip = TestSupport.unique_device_ip()
 
       {:ok, _} = create_alias_state(actor, alias_owner.uid, ip)
 
@@ -108,7 +108,7 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionSitesTest do
 
       assert :ok =
                AliasGuard.invalidate_ip_alias(
-                 unique_ip(),
+                 TestSupport.unique_device_ip(),
                  "default",
                  alias_owner.uid,
                  other.uid,
@@ -129,7 +129,7 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionSitesTest do
     |> Ash.Changeset.for_create(:create, %{
       uid: "sr:" <> Ecto.UUID.generate(),
       hostname: "revision-sites-test",
-      ip: unique_ip()
+      ip: TestSupport.unique_device_ip()
     })
     |> Ash.create(actor: actor)
   end
@@ -171,10 +171,5 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionSitesTest do
       partition: "default"
     })
     |> Ash.create(actor: actor)
-  end
-
-  defp unique_ip do
-    <<a, b, c>> = :crypto.strong_rand_bytes(3)
-    "10.#{a}.#{b}.#{rem(c, 254) + 1}"
   end
 end

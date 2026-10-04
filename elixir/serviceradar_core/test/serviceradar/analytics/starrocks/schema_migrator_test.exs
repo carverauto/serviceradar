@@ -25,7 +25,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
           ledger: [],
           columns: MapSet.new(),
           ddl: [],
-          fail_on: nil
+          fail_on: nil,
+          fail_with: "boom"
         },
         overrides
       )
@@ -57,7 +58,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   # partition_rebuild_test.exs covers a warehouse that needs one.
   defp answer(%{fail_on: fail_on} = state, "SELECT TABLE_NAME, PARTITION_KEY" <> _ = sql) do
     if fail_on && sql =~ fail_on,
-      do: {{:error, {:starrocks_mysql, "boom"}}, state},
+      do: {{:error, {:starrocks_mysql, state.fail_with}}, state},
       else: {result(["TABLE_NAME", "PARTITION_KEY"], []), state}
   end
 
@@ -72,7 +73,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   defp answer(state, sql) do
     cond do
       state.fail_on && sql =~ state.fail_on ->
-        {{:error, {:starrocks_mysql, "boom"}}, state}
+        {{:error, {:starrocks_mysql, state.fail_with}}, state}
 
       match = Regex.run(~r/ADD COLUMN `?([a-z_]+)`?/, sql) ->
         [_, column] = match
@@ -206,6 +207,29 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              attempts: 2,
              sleep: fn _ms -> :ok end
            ) == :ok
+  end
+
+  test "a warehouse out of memory is given minutes to recover, not the usual short retry" do
+    run_with = fn message ->
+      agent = start_warehouse(%{fail_on: ~r/ADD COLUMN comm/, fail_with: message})
+      {:ok, slept} = Agent.start_link(fn -> [] end)
+
+      SchemaMigrator.run(
+        query: query_fun(agent),
+        with_lock: fn fun -> fun.(fn -> :ok end) end,
+        migrations: @migrations,
+        database: "serviceradar",
+        attempts: 3,
+        sleep: fn ms -> Agent.update(slept, &(&1 ++ [ms])) end
+      )
+
+      Agent.get(slept, & &1)
+    end
+
+    assert run_with.("(5609) Memory of process exceed limit. Used: 2000, Limit: 1000.") ==
+             [600_000, 600_000]
+
+    assert run_with.("boom") == [5_000, 10_000]
   end
 
   test "quick migrations are not held behind the rebuild; only what needs partitioned tables waits" do

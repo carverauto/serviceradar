@@ -11,12 +11,9 @@ source addresses are spoofable; template-free v5 and sFlow over UDP remain
 available. Use mutually authenticated native IPFIX (v10) over TLS/TCP for template
 traffic. See [Flow Collector Scaling and Exporter Authentication](./flow-collector-scaling.md).
 
-Host process and workload attribution is not currently joined into this NetFlow
-pipeline. The [Host Network Visibility](./netprobe.md) and
-[Workload Identity](./workload-identity.md) add-ons can collect the two input data
-sets, but the former central `HostSliceSubscriber` / `AttributedFlowJoiner` runtime
-is not shipped in this release. Do not expect `in:attributed_flows` or attributed
-map output until the follow-up joiner work lands.
+Host process and workload attribution joins collected NetFlow/sFlow rows to
+netprobe observations in the warehouse; see [Host Network Visibility](./netprobe.md)
+for the observation path, the correlator, and the `in:attributed_flows` evidence.
 
 ## Architecture Overview
 

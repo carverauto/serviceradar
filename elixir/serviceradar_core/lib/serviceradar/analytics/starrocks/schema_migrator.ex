@@ -45,6 +45,10 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @ddl_timeout_ms 14_400_000
   @initial_delay_ms 5_000
   @max_delay_ms 60_000
+  # A warehouse that ran out of memory has just had compute nodes killed, and
+  # they serve every other query too. Retrying within a minute sends the next
+  # large statement at nodes still restarting, so this waits much longer.
+  @memory_exhausted_delay_ms 600_000
   @alter_poll_ms 1_000
   @alter_poll_attempts 600
   @max_replication 3
@@ -77,11 +81,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
         Logger.info("StarRocks schema migrated: applied #{Enum.join(applied, ", ")}")
 
       {:error, reason} when attempts_left == :infinity or attempts_left > 1 ->
-        Logger.warning(
-          "StarRocks schema not migrated, retrying in #{delay}ms: #{inspect(reason)}"
-        )
+        wait = if memory_exhausted?(reason), do: @memory_exhausted_delay_ms, else: delay
 
-        sleep.(delay)
+        Logger.warning("StarRocks schema not migrated, retrying in #{wait}ms: #{inspect(reason)}")
+
+        sleep.(wait)
         run_attempt(opts, remaining(attempts_left), min(delay * 2, @max_delay_ms), sleep)
 
       {:error, reason} ->
@@ -93,6 +97,18 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   defp remaining(:infinity), do: :infinity
   defp remaining(attempts), do: attempts - 1
+
+  # StarRocks reports a node over its process memory limit as error 5609,
+  # "Memory of process exceed limit". The failure arrives wherever in the
+  # error term the statement that hit it was, so the whole term is searched.
+  defp memory_exhausted?({:starrocks_mysql, message}) when is_binary(message),
+    do: message =~ ~r/memory of process exceed limit|mem usage has exceed the limit/i
+
+  defp memory_exhausted?(reason) when is_tuple(reason),
+    do: reason |> Tuple.to_list() |> Enum.any?(&memory_exhausted?/1)
+
+  defp memory_exhausted?(reason) when is_list(reason), do: Enum.any?(reason, &memory_exhausted?/1)
+  defp memory_exhausted?(_reason), do: false
 
   @doc """
   Applies every pending migration and returns the versions it applied.
@@ -170,8 +186,16 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
       ServiceRadar.Repo.transaction(
         fn ->
           # Another replica may hold this for as long as a rebuild takes. The
-          # default query timeout would raise here after 15s and take the
-          # migrator down with it, leaving nobody to resume if that replica dies.
+          # server's own limits would cancel the wait long before that: a role
+          # or database statement_timeout ends it as query_canceled, and the
+          # retry loop warns every few seconds on every waiting replica for
+          # the whole rebuild. Both are lifted for this transaction only.
+          ServiceRadar.Repo.query!("SET LOCAL statement_timeout = 0")
+          ServiceRadar.Repo.query!("SET LOCAL lock_timeout = 0")
+
+          # The client side has a timeout too: the default query timeout would
+          # raise here after 15s and take the migrator down with it, leaving
+          # nobody to resume if that replica dies.
           ServiceRadar.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock_key],
             timeout: :infinity
           )

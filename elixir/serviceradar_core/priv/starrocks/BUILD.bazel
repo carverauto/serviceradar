@@ -25,6 +25,8 @@
 # 0025 creates the two MTR hop rollups (all hops by the hour, and the
 # destination-hop view the dashboard card and sparklines read), partitioned by
 # day in step with their base tables.
+# 0026 creates the append-only (Duplicate Key) flow process attribution
+# observations table, partitioned by day and expired by partition count.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

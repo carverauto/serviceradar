@@ -24,6 +24,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
   alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAddonAssignment
+  alias ServiceRadar.Plugins.Validations.NotHeldByActiveRollout
 
   @mutable_fields [
     :addon_package_id,
@@ -80,7 +81,13 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
+
+    destroy :destroy do
+      primary? true
+      require_atomic? false
+      validate {NotHeldByActiveRollout, source_type: :assignment}
+    end
 
     read :by_package do
       argument :addon_package_id, :uuid, allow_nil?: false

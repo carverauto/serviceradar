@@ -6,10 +6,10 @@ defmodule ServiceRadar.StatusHandler do
 
   When `source == "flow-attribution"` the status message carries a
   `Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch` payload drained by the agent's
-  netprobe sidecar. Each contained `FlowAttributionEvent` is written to CNPG
-  with the gateway-derived partition and agent identity; the in-cluster
-  correlation worker joins it against collected flow rows without publishing a
-  `flow.attributed.*` read-back message.
+  netprobe sidecar. The batch is admitted through `FlowLane` and its events are
+  published, with the gateway-derived partition and agent identity, on
+  `flows.attribution.observations` (see `ServiceRadar.FlowAttribution`); the
+  correlator joins them against collected flow rows in the warehouse.
   """
 
   use GenServer
@@ -244,10 +244,11 @@ defmodule ServiceRadar.StatusHandler do
 
     case decode_batch(message) do
       {:ok, %FlowAttributionEventBatch{events: events, dropped_since_last: dropped}} ->
-        # Persist the pushed attributions to CNPG so the correlation worker can
-        # join them against collected NetFlow into attributed_flow rows. NetFlow
-        # stays the flow source; netprobe only supplies the process context.
-        case persist_flow_attribution(events || [], partition_id, agent_id) do
+        # Publish the pushed attributions on JetStream; EventWriter loads them
+        # into the warehouse, where the correlator joins them against collected
+        # NetFlow. NetFlow stays the flow source; netprobe only supplies the
+        # process context.
+        case publish_flow_attribution(events || [], partition_id, agent_id) do
           :ok ->
             committed_flow_result(events, dropped, partition_id, agent_id)
 
@@ -258,7 +259,7 @@ defmodule ServiceRadar.StatusHandler do
             error
 
           other ->
-            {:error, {:unexpected_flow_attribution_persist_result, other}}
+            {:error, {:unexpected_flow_attribution_publish_result, other}}
         end
 
       :error ->
@@ -315,18 +316,20 @@ defmodule ServiceRadar.StatusHandler do
      }}
   end
 
-  defp persist_flow_attribution(events, partition_id, agent_id) do
-    case flow_attribution_persister() do
+  defp publish_flow_attribution(events, partition_id, agent_id) do
+    case flow_attribution_publisher() do
       {mod, fun, extra_args} -> apply(mod, fun, [events, partition_id, agent_id | extra_args])
       fun when is_function(fun, 3) -> fun.(events, partition_id, agent_id)
-      mod when is_atom(mod) -> mod.persist(events, partition_id, agent_id)
     end
   end
 
-  defp flow_attribution_persister do
+  defp flow_attribution_publisher do
     :serviceradar_core
     |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:flow_attribution_persister, ServiceRadar.FlowAttribution)
+    |> Keyword.get(
+      :flow_attribution_publisher,
+      {ServiceRadar.FlowAttribution, :publish_observations, []}
+    )
   end
 
   defp handle_package_telemetry(status, producer_type, producer_id) do

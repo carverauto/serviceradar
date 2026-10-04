@@ -43,6 +43,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutTarget do
     table "addon_rollout_targets"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :assignment, on_delete: :nilify
+    end
   end
 
   actions do
@@ -67,7 +71,9 @@ defmodule ServiceRadar.Plugins.AddonRolloutTarget do
   attributes do
     uuid_primary_key :id
     attribute :rollout_id, :uuid, allow_nil?: false, public?: true
-    attribute :assignment_id, :uuid, allow_nil?: false, public?: true
+    # Nil once the assignment is deleted: the FK is ON DELETE SET NULL so a
+    # finished rollout's history outlives the assignment it targeted.
+    attribute :assignment_id, :uuid, allow_nil?: true, public?: true
     attribute :agent_uid, :string, allow_nil?: false, public?: true
     attribute :addon_id, :string, allow_nil?: false, public?: true
 
@@ -142,7 +148,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutTarget do
       source_attribute :assignment_id
       destination_attribute :id
       define_attribute? false
-      allow_nil? false
+      allow_nil? true
       public? true
     end
   end

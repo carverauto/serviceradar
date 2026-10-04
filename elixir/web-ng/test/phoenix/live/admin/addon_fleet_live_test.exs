@@ -23,6 +23,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     %{conn: log_in_user(conn, user), actor: actor_for_user(user)}
   end
 
+  # GitHub #4454: addon_statuses rows are never deleted, so an agent's last
+  # report from months ago kept rendering as a current red "degraded" badge.
+  test "a months-old status renders as stale, not as its last reported state",
+       %{conn: conn, actor: _actor} do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-stale-addon-#{unique}"
+    gateway = gateway_fixture(%{id: "fleet-gw-#{unique}", component_id: "fleet-comp-#{unique}"})
+    agent = agent_fixture(gateway, %{uid: "fleet-agent-#{unique}", name: "Fleet Agent #{unique}"})
+
+    report_status!(agent.uid, addon_id,
+      state: "degraded",
+      active: true,
+      version: "0.3.1",
+      reported_at: DateTime.add(DateTime.utc_now(), -30, :day)
+    )
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+
+    assert html =~ "stale: last degraded"
+  end
+
   test "one row per (agent, add-on): stale assignment collapses into detail and drift shows both sides",
        %{conn: conn, actor: actor} do
     unique = System.unique_integer([:positive])
@@ -659,7 +680,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
         state: Keyword.fetch!(opts, :state),
         active: Keyword.fetch!(opts, :active),
         version: Keyword.get(opts, :version),
-        reported_at: DateTime.utc_now()
+        reported_at: Keyword.get(opts, :reported_at, DateTime.utc_now())
       },
       actor: system_actor()
     )

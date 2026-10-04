@@ -31,18 +31,26 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   # At @batch_size a 2M-relation world reload needs 4,000 sequential round trips inside one
   # transaction; @stream_batch_size cuts that by 10x within the same @publication_timeout.
   @stream_batch_size 5_000
-  # A candidate stage writes every row of a world inside one transaction (three
-  # million rows for a million devices). At @batch_size that is ~6,000 upsert
-  # statements plus ~4,000 endpoint reads, which consumed most of
-  # @staging_timeout on a quiet database and exceeded it under load. Larger
-  # write batches cut the statements 4x and stay under PostgreSQL's 65,535
+  # A candidate stage commits one bounded batch per transaction, so a million-device
+  # world (three million rows) never holds a checkout for longer than one batch.
+  # Larger write batches still cut round trips 4x and stay under PostgreSQL's 65,535
   # bind-parameter limit (a relation row binds 17 columns).
   @stage_batch_size 2_000
-  # Initial million-device stages write three million rows without holding the
-  # active head. Leave time within WorldWorker's 15-minute deadline for source
-  # reads and placement; readers and visible publications retain a shorter lease.
+  # The deadline for any single stage statement or transaction, including the
+  # final whole-stage verification. Readers and visible publications keep a shorter lease.
   @staging_timeout to_timeout(minute: 10)
   @publication_timeout to_timeout(minute: 5)
+  # Prefixes the digest of a layout whose stage has not passed verification. The
+  # rest of the value is the staging attempt's token; see stage_candidate/4.
+  @unverified_digest "unverified-stage:"
+  @stage_fields [
+    :algorithm_version,
+    :zmax,
+    :source_digest,
+    :node_count,
+    :relation_count,
+    :pipeline_stats
+  ]
   @resources [WorldHead, WorldLayout, WorldPosition, WorldRelation]
   @manifest_fields [
     :layout_version,
@@ -75,19 +83,43 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     |> transaction_result()
   end
 
-  @doc "Replaces an unpublished retry stage with bounded candidate streams without locking the active head."
+  @doc """
+  Replaces an unpublished retry stage with bounded candidate streams without locking the active head.
+
+  Every write commits in its own transaction of at most #{@stage_batch_size} rows, so
+  no database checkout grows with the world. A building layout is invisible to
+  readers, so committed stage rows change nothing they see. Until the final
+  transaction verifies the whole stage, the layout's digest is
+  `#{@unverified_digest}<attempt token>` and `activate_relayout/2` refuses it: a
+  stage that fails or stops part-way can never be published. Every stage
+  transaction checks the token, so when a newer attempt starts on the same layout
+  the older one stops at its next batch with `{:error, :stage_superseded}`. A retry
+  clears earlier rows in bounded batches first; an abandoned stage is reclaimed
+  by `WorldRetention`.
+  """
   def stage_candidate(layout_version, metadata, positions, relations) do
-    attrs =
-      metadata
-      |> Map.take([
-        :algorithm_version,
-        :zmax,
-        :source_digest,
-        :node_count,
-        :relation_count,
-        :pipeline_stats
-      ])
-      |> Map.put(:layout_version, layout_version)
+    stage = %{layout_version: layout_version, token: @unverified_digest <> Ecto.UUID.generate()}
+
+    with :ok <- begin_stage(stage, Map.take(metadata, @stage_fields)),
+         :ok <- clear_stage(stage, "topology_world_relations", "relation_id"),
+         :ok <- clear_stage(stage, "topology_world_positions", "device_id"),
+         :ok <-
+           stage_batches(
+             stage,
+             positions,
+             &insert_positions(layout_version, &1, @stage_batch_size)
+           ),
+         :ok <- analyze_stage("topology_world_positions"),
+         :ok <- stage_batches(stage, relations, &stage_relations(layout_version, &1)),
+         :ok <- analyze_stage("topology_world_relations") do
+      finish_stage(stage, metadata)
+    end
+  end
+
+  # Claims the layout for this attempt. Writing the token supersedes any older
+  # attempt still running, whose next transaction then fails its token check.
+  defp begin_stage(%{layout_version: layout_version, token: token}, attrs) do
+    attrs = Map.merge(attrs, %{layout_version: layout_version, source_digest: token})
 
     @resources
     |> Ash.transact(
@@ -98,38 +130,90 @@ defmodule ServiceRadar.NetworkDiscovery.World do
                |> Ash.create(actor: actor()),
              {:ok, layout} <- locked_layout(layout_version),
              :ok <- building?(layout),
-             :ok <- clear_stage_rows(WorldRelation, layout_version),
-             :ok <- clear_stage_rows(WorldPosition, layout_version),
-             :ok <- insert_positions(layout_version, positions, @stage_batch_size),
-             :ok <- analyze_stage("topology_world_positions"),
-             :ok <- stage_relations(layout_version, relations),
-             :ok <- analyze_stage("topology_world_relations"),
-             :ok <- verify_staged_endpoints(layout_version),
-             :ok <-
-               verify_counts(
-                 layout,
-                 Map.fetch!(metadata, :node_count),
-                 Map.fetch!(metadata, :relation_count)
-               ),
-             {:ok, _layout} <-
-               update(
-                 layout,
-                 :publish,
-                 Map.take(metadata, [
-                   :algorithm_version,
-                   :zmax,
-                   :source_digest,
-                   :node_count,
-                   :relation_count,
-                   :pipeline_stats
-                 ])
-               ) do
+             {:ok, _layout} <- update(layout, :publish, %{source_digest: token}) do
           :ok
         end
       end,
       timeout: @staging_timeout
     )
     |> transaction_result()
+  end
+
+  defp finish_stage(%{layout_version: layout_version} = stage, metadata) do
+    within_stage(stage, fn layout ->
+      with :ok <- verify_staged_endpoints(layout_version),
+           :ok <-
+             verify_counts(
+               layout,
+               Map.fetch!(metadata, :node_count),
+               Map.fetch!(metadata, :relation_count)
+             ),
+           {:ok, _layout} <- update(layout, :publish, Map.take(metadata, @stage_fields)) do
+        :ok
+      end
+    end)
+  end
+
+  # Each stage transaction locks the layout row, as activate_relayout/2 does, so
+  # no batch can land in a layout after it has been published or claimed by a
+  # newer attempt.
+  defp within_stage(%{layout_version: layout_version, token: token}, fun) do
+    @resources
+    |> Ash.transact(
+      fn ->
+        with {:ok, layout} <- locked_layout(layout_version),
+             :ok <- building?(layout),
+             :ok <- stage_owner?(layout, token) do
+          fun.(layout)
+        end
+      end,
+      timeout: @staging_timeout
+    )
+    |> transaction_result()
+  end
+
+  defp stage_batches(stage, rows, write) do
+    rows
+    |> Stream.chunk_every(@stage_batch_size)
+    |> Enum.reduce_while(:ok, fn batch, :ok ->
+      case within_stage(stage, fn _layout -> write.(batch) end) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  # A retry starts from whatever an earlier attempt committed. Relations go
+  # first because their foreign keys reference the positions.
+  defp clear_stage(%{layout_version: layout_version} = stage, table, id_column)
+       when {table, id_column} in [
+              {"topology_world_relations", "relation_id"},
+              {"topology_world_positions", "device_id"}
+            ] do
+    sql = """
+    DELETE FROM platform.#{table}
+    WHERE layout_version = $1::uuid
+      AND #{id_column} IN (
+        SELECT #{id_column} FROM platform.#{table}
+        WHERE layout_version = $1::uuid
+        LIMIT $2
+      )
+    """
+
+    stage
+    |> within_stage(fn _layout ->
+      case Repo.query(sql, [Ecto.UUID.dump!(layout_version), @stage_batch_size],
+             timeout: @staging_timeout
+           ) do
+        {:ok, %{num_rows: 0}} -> :ok
+        {:ok, %{num_rows: _deleted}} -> {:ok, :more}
+        {:error, _reason} = error -> error
+      end
+    end)
+    |> case do
+      {:ok, :more} -> clear_stage(stage, table, id_column)
+      result -> result
+    end
   end
 
   @doc "Appends a bounded batch to an unpublished layout; positions must precede their relations."
@@ -149,7 +233,11 @@ defmodule ServiceRadar.NetworkDiscovery.World do
 
   def append_stage(_layout_version, _positions, _relations), do: {:error, :batch_too_large}
 
-  @doc "Activates a fully staged relayout only if its base publication is still current."
+  @doc """
+  Activates a fully staged relayout only if its base publication is still current.
+
+  Refuses a stage that never passed verification with `{:error, :incomplete_world}`.
+  """
   def activate_relayout(expected_generation, layout_version) do
     with :ok <- refresh_planner_statistics(),
          :ok <- ensure_head() do
@@ -160,6 +248,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
                :ok <- expected_generation?(head, expected_generation),
                {:ok, layout} <- locked_layout(layout_version),
                :ok <- building?(layout),
+               :ok <- verified?(layout),
                :ok <- verify_counts(layout, layout.node_count, layout.relation_count),
                :ok <- retire_layout(head.active_layout_version),
                {:ok, layout} <- update(layout, :publish, %{status: :active}),
@@ -327,14 +416,6 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     end
   end
 
-  defp clear_stage_rows(resource, layout_version) do
-    resource
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(layout_version == ^layout_version)
-    |> Ash.bulk_destroy(:discard, %{}, bulk_options())
-    |> bulk_result()
-  end
-
   defp locked_head(lock, scope \\ :system) do
     WorldHead
     |> Ash.Query.for_read(:read)
@@ -368,6 +449,10 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   defp present(result), do: result
   defp building?(%{status: :building}), do: :ok
   defp building?(_layout), do: reject(:layout_already_published)
+  defp verified?(%{source_digest: @unverified_digest <> _token}), do: reject(:incomplete_world)
+  defp verified?(_layout), do: :ok
+  defp stage_owner?(%{source_digest: token}, token), do: :ok
+  defp stage_owner?(_layout, _token), do: reject(:stage_superseded)
 
   defp expected_generation?(%{generation: generation}, generation), do: :ok
   defp expected_generation?(_head, _expected), do: reject(:stale_generation)
@@ -406,22 +491,18 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   # A candidate stage inserts every position before any relation, so the
   # endpoint check runs once over the whole stage (verify_staged_endpoints/1)
   # instead of one read per batch.
-  defp stage_relations(version, rows) do
-    each_batch(rows, @stage_batch_size, fn batch ->
-      batch
-      |> Enum.map(&Map.put(&1, :layout_version, version))
-      |> Ash.bulk_create(WorldRelation, :upsert, bulk_options(@stage_batch_size))
-      |> bulk_result()
-    end)
+  defp stage_relations(version, batch) do
+    batch
+    |> Enum.map(&Map.put(&1, :layout_version, version))
+    |> Ash.bulk_create(WorldRelation, :upsert, bulk_options(@stage_batch_size))
+    |> bulk_result()
   end
 
-  # Autovacuum cannot see rows this transaction has not committed, so until
-  # an ANALYZE the planner still sizes the staged tables from whatever they held
+  # Autovacuum analyzes a freshly staged table only after a delay, so until an
+  # ANALYZE the planner still sizes the staged tables from whatever they held
   # before -- often a handful of rows. On those statistics the endpoint check
   # probes positions by layout alone and filters every device id (quadratic in
-  # the stage), and plans for the next statements are chosen for a tiny table.
-  # ANALYZE inside the transaction samples this transaction's own rows and
-  # invalidates the cached plans, so later statements plan for the real size.
+  # the stage). ANALYZE samples a bounded number of rows however large the stage.
   defp analyze_stage(table)
        when table in ["topology_world_positions", "topology_world_relations"] do
     case Repo.query("ANALYZE platform.#{table}", [], timeout: @staging_timeout) do
