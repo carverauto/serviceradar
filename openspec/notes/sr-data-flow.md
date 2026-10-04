@@ -211,7 +211,7 @@ Foundational migrations:
   Many indexes (src/dst ip+time, proto+time, ports+time, GIN on payload, top-talkers/ports).
 - Config/enrichment: `netflow_{local_cidrs,provider_cidrs,oui_prefixes,settings,exporter_cache,interface_cache,app_classification_rules,port_anomaly_flags,port_scan_flags}`, dataset snapshots.
 - BGP: `bgp_routing_info`, `bmp_settings`, hypertable `bmp_routing_events` (`20260218235900`).
-- Flow→process attribution: `workload_identity_current` (CNPG); observations live in the StarRocks table `flow_process_attribution_observations` (fed from `flows.attribution.observations`); `flow_process_attribution_current` was dropped (`20261005140000`).
+- Flow→process attribution: `workload_identity_current` (CNPG); observations live in the StarRocks table `flow_process_attribution_observations` (fed from `flows.attribution.observations`); `flow_process_attribution_current` was dropped (`20261005140100`).
 - MTR/traceroute: `mtr_traces` + `mtr_hops` hypertables (`20260228090000`), `mtr_{settings,policies,dispatch_windows,bulk_job_targets}`.
 
 ### 5.4 Service status / monitoring
