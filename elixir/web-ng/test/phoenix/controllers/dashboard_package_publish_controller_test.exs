@@ -113,9 +113,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   describe "POST /api/v1/dashboard-packages — defense in depth" do
     test "JWT missing dashboard.publish scope is rejected with 403 insufficient_scope",
          %{conn: conn} do
+      # A coarse write grant reaches the publish-specific scope gate.
       conn =
         conn
-        |> auth_cli(:admin, ["read"])
+        |> auth_cli(:admin, ["write"])
         |> publish_multipart(manifest_for("com.test.scope", @renderer), @renderer, nil)
 
       body = json_response(conn, 403)
