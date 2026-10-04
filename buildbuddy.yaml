@@ -242,11 +242,20 @@ actions:
       # refs/remotes/origin/* ref behind; an unresolved merge-base and a failed
       # diff both RUN the acceptance. A gate that cannot see the diff must never
       # silently drop coverage.
+      #
+      # An API-dispatched run (ExecuteWorkflow, e.g. a BazelCI re-run) clones at depth 1, where
+      # merge-base has no history to walk and every re-run fell open into the browser suite.
+      # Unshallow first; --filter=blob:none keeps that to commits and trees. git's stderr stays
+      # visible so a fail-open line always comes with its cause.
       - run: |
           set -euo pipefail
-          git fetch --no-tags --quiet origin \
-            +refs/heads/staging:refs/remotes/origin/staging 2>/dev/null || true
-          GOD_VIEW_GATE_BASE="$(git merge-base HEAD origin/staging 2>/dev/null || true)"
+          GOD_VIEW_GATE_UNSHALLOW=""
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            GOD_VIEW_GATE_UNSHALLOW="--unshallow"
+          fi
+          git fetch --no-tags --quiet --filter=blob:none $GOD_VIEW_GATE_UNSHALLOW origin \
+            +refs/heads/staging:refs/remotes/origin/staging || true
+          GOD_VIEW_GATE_BASE="$(git merge-base HEAD origin/staging || true)"
           if [ -z "$GOD_VIEW_GATE_BASE" ]; then
             echo "godview gate: no staging merge-base, running acceptance (fail-open)"
           elif ! GOD_VIEW_GATE_CHANGED="$(git diff --name-only "$GOD_VIEW_GATE_BASE" HEAD -- \
