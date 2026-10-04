@@ -5,7 +5,6 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
-  alias ServiceRadar.FlowAttribution.WorkloadBackfill
 
   @schema "platform"
   @table "flow_process_attribution_current"
@@ -26,20 +25,30 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   # remaining backlog is drained over subsequent passes.
   @batch_limit 5_000
 
-  # Statement/transaction timeout for a correlation pass (ms).
+  # Server-side statement timeout for the matching statement (ms). The
+  # `serviceradar` role defaults to 30s, so this is applied with SET LOCAL
+  # inside the correlation transaction; without it the role default cancels
+  # the statement first and this value is never in effect. The client-side
+  # timeout is a few seconds longer, so the server cancels cleanly first.
   @correlation_timeout_ms 120_000
+  @client_timeout_ms @correlation_timeout_ms + 5_000
 
   # Flows are warehouse-only, so an installation that has not cut them over has
   # nothing to correlate. That is a configured state, not a failure: the pass
-  # reports itself inapplicable before doing the workload backfill, rather than
-  # discarding that work and raising an alarm every tick forever.
+  # reports itself inapplicable rather than raising an alarm every tick forever.
+  #
+  # Workload identity is not backfilled here. The matching statement merges
+  # `workload_identity_current` at match time, ingest merges it on insert, and a
+  # late workload is applied by key when it arrives
+  # (`FlowAttribution.backfill_current_workload_identity/1`). A full-table
+  # backfill on every pass re-read the whole attribution heap, locked rows the
+  # ingest upsert was writing, and, when it hit the role statement timeout,
+  # skipped the pass so flows aged out of the window unattributed.
   @spec correlate() :: {:ok, non_neg_integer() | :not_applicable} | {:error, term()}
   def correlate do
     case flow_history_backend() do
       :starrocks ->
-        with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity() do
-          correlate_starrocks()
-        end
+        correlate_starrocks()
 
       {:error, :starrocks_required} ->
         {:ok, :not_applicable}
@@ -699,10 +708,26 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   # would hold a pooled connection open across another system's network I/O.
   defp guarded_warehouse_query(sql, params) do
     case with_correlator_lock(fn ->
-           ServiceRadar.Repo.query(sql, params, timeout: @correlation_timeout_ms)
+           with :ok <- apply_matching_settings() do
+             ServiceRadar.Repo.query(sql, params, timeout: @client_timeout_ms)
+           end
          end) do
       {:ok, :contended} -> {:ok, %{columns: [], rows: []}}
       other -> other
+    end
+  end
+
+  # Transaction-local settings for the matching statement. JIT compilation cost
+  # more than half of each pass (the plan's cost is far above the JIT
+  # thresholds, so every function was inlined and optimized each time) for a
+  # statement that runs once per pass.
+  defp apply_matching_settings do
+    with {:ok, _} <- ServiceRadar.Repo.query("SET LOCAL jit = off", []),
+         {:ok, _} <-
+           ServiceRadar.Repo.query("SELECT set_config('statement_timeout', $1, true)", [
+             "#{@correlation_timeout_ms}ms"
+           ]) do
+      :ok
     end
   end
 
@@ -725,7 +750,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
             ServiceRadar.Repo.rollback(reason)
         end
       end,
-      timeout: @correlation_timeout_ms
+      timeout: @client_timeout_ms
     )
   end
 end

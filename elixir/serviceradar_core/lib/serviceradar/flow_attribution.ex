@@ -71,17 +71,6 @@ defmodule ServiceRadar.FlowAttribution do
   @spec correlate() :: {:ok, non_neg_integer() | :not_applicable} | {:error, term()}
   defdelegate correlate, to: Correlation
 
-  @doc """
-  Backfill workload identity into recent current-state attribution rows.
-
-  Workload snapshots can arrive after netprobe has already emitted a process/socket
-  observation. Keeping this backfill in core preserves the clean add-on split: the
-  edge does not need to replay process observations just because runtime metadata
-  arrived later.
-  """
-  @spec backfill_current_workload_identity() :: {:ok, non_neg_integer()} | {:error, term()}
-  defdelegate backfill_current_workload_identity, to: WorkloadBackfill
-
   @doc "Backfill recent current-state attribution rows for specific workload identity keys."
   @spec backfill_current_workload_identity([map()]) ::
           {:ok, non_neg_integer()} | {:error, term()}
