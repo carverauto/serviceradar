@@ -230,14 +230,24 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
         component_id: "fleet-rollout-#{unique}"
       })
 
+    # The retry below starts a fresh health-gated rollout, which only targets an
+    # agent that is connected, recently seen, and has a candidate artifact for its
+    # platform; otherwise the coordinator refuses with :no_eligible_targets.
     agent =
-      agent_fixture(gateway, %{
-        uid: "fleet-rollout-agent-#{unique}",
-        name: "Rollout Evidence Agent"
-      })
+      connected_agent!(gateway, "fleet-rollout-agent-#{unique}", "Rollout Evidence Agent")
 
     previous = create_addon_package!(actor, addon_id, "1.0.0")
-    candidate = create_addon_package!(actor, addon_id, "1.1.0")
+
+    candidate =
+      create_addon_package!(actor, addon_id, "1.1.0",
+        artifacts: %{
+          "linux/amd64" => %{
+            "object_key" => "addons/#{addon_id}/1.1.0/linux-amd64.tar.gz",
+            "sha256" => String.duplicate("c", 64)
+          }
+        }
+      )
+
     assignment = create_assignment!(actor, agent.uid, previous.id, enabled: true)
 
     rollout =
@@ -835,7 +845,26 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     html |> String.split(needle) |> length() |> Kernel.-(1)
   end
 
-  defp create_addon_package!(actor, addon_id, version) do
+  defp connected_agent!(gateway, uid, name) do
+    ServiceRadar.Infrastructure.Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: uid,
+        name: name,
+        gateway_id: gateway.id,
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{"os" => "linux", "arch" => "amd64"}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  defp create_addon_package!(actor, addon_id, version, opts \\ []) do
     attrs = %{
       addon_id: addon_id,
       name: "Fleet #{addon_id}",
@@ -848,7 +877,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       install_path: "/usr/local/lib/serviceradar/bin",
       capabilities: ["addon.run"],
       config_schema: %{},
-      artifacts: %{},
+      artifacts: Keyword.get(opts, :artifacts, %{}),
       requires: %{},
       source_type: :first_party,
       source_oci_ref: "registry.carverauto.dev/serviceradar/addon:test",

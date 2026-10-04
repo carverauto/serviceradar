@@ -1689,8 +1689,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
         scope: scope
       )
 
-    Process.sleep(200)
-    assert render(lv) =~ "1/1 healthy"
+    # The result's own target broadcast re-arms the page's 250ms refresh
+    # debounce, so wait for the refresh rather than a fixed interval shorter
+    # than it. Bounded well below the 5s active-rollout poll, so only the event
+    # path can satisfy it.
+    assert await_render(lv, "1/1 healthy", 2_000) =~ "1/1 healthy"
   end
 
   test "failed rollouts render failed status and hide cancel even if the rollout row is stale active",
@@ -1787,6 +1790,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     assert to == ~p"/settings/profile"
     assert flash["error"] == "You do not have access to agent release management"
+  end
+
+  defp await_render(lv, needle, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_await_render(lv, needle, deadline)
+  end
+
+  defp do_await_render(lv, needle, deadline) do
+    html = render(lv)
+
+    if html =~ needle or System.monotonic_time(:millisecond) >= deadline do
+      html
+    else
+      Process.sleep(50)
+      do_await_render(lv, needle, deadline)
+    end
   end
 
   # No agent control stream is connected in this suite, so the rollout leaves its

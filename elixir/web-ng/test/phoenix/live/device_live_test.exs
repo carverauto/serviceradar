@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
   @edge_saturation_profile_source Path.expand(
-                                    "../../../../../rust/anomaly-addon/src/addon.rs",
+                                    "../../../../../rust/anomaly-addon/src/metrics_classify.rs",
                                     __DIR__
                                   )
   @external_resource @edge_saturation_profile_source
@@ -130,7 +130,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> element(~s(button[aria-label="Toggle query builder"]))
     |> render_click()
 
-    assert has_element?(view, ~s([phx-click="srql_builder_apply"]))
+    # The builder opens on the restored baseline. It represents that query exactly, so
+    # it offers no "Replace query" action (shown only for unsupported or unsynced drafts).
+    assert render(view) =~ "Compose a query visually."
+    refute has_element?(view, ~s([phx-click="srql_builder_apply"]))
 
     view
     |> form("#srql-query-bar", %{q: "in:devices include_inactive:true"})
@@ -413,7 +416,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     list_html = render_until(list_view, "inactive-host", 10_000)
 
     assert list_html =~ "inactive-host"
-    assert list_html =~ "Out of service"
+    # The filter bar always offers an "Out of service" chip; the row itself must carry the badge.
+    assert table_row_for(list_html, "inactive-host") =~ "Out of service"
 
     {:ok, details_view, _details_html} = live(conn, ~p"/devices/#{uid}")
     # "Out of service" is also the label of the mark-inactive action shown while the
@@ -4074,6 +4078,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
+      # The interfaces tab loads asynchronously; wait for its rows before selecting one.
+      assert render_until(view, "#{device_uid}-eth0", 10_000) =~ "#{device_uid}-eth0"
+
       # Select an interface
       view
       |> element("input[phx-click='toggle_interface_select'][phx-value-uid='#{device_uid}-eth0']")
@@ -4753,7 +4760,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     source = File.read!(@edge_saturation_profile_source)
 
     # Parse the production `series_profile_for/1` match arms in
-    # rust/anomaly-addon/src/addon.rs. That function constructs the
+    # rust/anomaly-addon/src/metrics_classify.rs. That function constructs the
     # `SeriesProfile.saturation_gate.min_value` used by edge scoring; if those
     # Rust literals move to constants or a different shape, update this parser
     # rather than pointing it at the nearby Rust test fixtures.

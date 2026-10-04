@@ -745,7 +745,7 @@ ex_unit_test(
         "//elixir/serviceradar_core:test/db/integration_env_config.exs",
         # DeviceLiveTest parses the edge saturation gate floors from the add-on
         # source via Path.expand from __DIR__; it must be a declared runfile.
-        "//rust/anomaly-addon:src/addon.rs",
+        "//rust/anomaly-addon:src/metrics_classify.rs",
     ],
     elixir_opts = [
         "-r",

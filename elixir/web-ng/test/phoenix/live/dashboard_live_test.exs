@@ -185,7 +185,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "#srql-query-bar input[name='q'][value='#{expected_query}']")
     # The builder opens on the dashboards catalog entity, fully representable.
     assert html =~ "Query Builder"
-    assert has_element?(view, "select[name='builder[entity]'] option[value='dashboards'][selected]")
+    assert html =~ ~r/<option value="dashboards" selected/
     refute html =~ "can't be fully represented"
     refute html =~ "can’t be fully represented"
   end

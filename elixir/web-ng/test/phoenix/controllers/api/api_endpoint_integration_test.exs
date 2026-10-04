@@ -606,9 +606,15 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     end
 
     @tag :web_ng_shared_fixture_db
-    test "invalid request body returns 400 before touching live infra", ctx do
+    test "invalid request body returns 400 before touching live infra", %{owner: owner} do
+      # Opening a relay session is a write: a read-scoped token is refused with
+      # insufficient_scope before the body is validated.
+      {client, secret} = client_for_user(owner, owner, ["write"])
+
       conn =
-        post(authed(ctx), ~p"/api/camera-relay-sessions", %{"camera_source_id" => "not-a-uuid"})
+        post(authed(%{client: client, secret: secret}), ~p"/api/camera-relay-sessions", %{
+          "camera_source_id" => "not-a-uuid"
+        })
 
       body = json_response(conn, 400)
       assert body["error"] == "invalid_request"
@@ -623,9 +629,21 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     end
 
     @tag :web_ng_shared_fixture_db
-    test "bad input returns a clean 4xx (400/403/422), never a 500", ctx do
-      conn = post(authed(ctx), ~p"/api/proxmox/console-sessions", %{"device_uid" => ""})
-      assert conn.status in [400, 403, 422]
+    test "a blank device_uid is rejected as invalid_request before touching live infra", %{
+      owner: owner
+    } do
+      # Opening a console session is a write, and the admin owner holds both
+      # console permissions, so the request reaches body validation.
+      {client, secret} = client_for_user(owner, owner, ["write"])
+
+      conn =
+        post(authed(%{client: client, secret: secret}), ~p"/api/proxmox/console-sessions", %{
+          "device_uid" => ""
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] == "device_uid is required"
     end
   end
 

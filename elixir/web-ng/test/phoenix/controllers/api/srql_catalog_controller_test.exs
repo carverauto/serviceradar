@@ -85,9 +85,22 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       # Declared severity order is preserved (not alphabetized).
       assert log_enums["severity_text"] == ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"]
 
+      # Agent status values are curated (including `superseded`, which keeps a
+      # replaced identity out of default agent listings) in declared order.
+      assert response["entities"]["agents"]["enums"] == %{
+               "status" => [
+                 "connecting",
+                 "connected",
+                 "degraded",
+                 "disconnected",
+                 "unavailable",
+                 "superseded"
+               ]
+             }
+
       # Entities without curated values still advertise an (empty) enum map so
       # clients can rely on the key existing.
-      assert response["entities"]["agents"]["enums"] == %{}
+      assert response["entities"]["gateways"]["enums"] == %{}
     end
 
     test "returns 304 for a matching If-None-Match", %{conn: conn} do
