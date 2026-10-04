@@ -665,14 +665,14 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
 
   test "NOM config retrieval waits for devices without disarming inventory or unrelated secondary schedules" do
     for {config, retrieve_enabled} <- [
-      {%{}, false},
-      {%{"devices" => []}, false},
-      {%{"devices" => [], "device_id" => "1001", "device_uid" => "sr:host01.example.com"},
-       false},
-      {%{"devices" => [%{"device_id" => "1001", "device_uid" => "sr:host01.example.com"}]},
-       true},
-      {%{"device_id" => "1001", "device_uid" => "sr:host01.example.com"}, true}
-    ] do
+          {%{}, false},
+          {%{"devices" => []}, false},
+          {%{"devices" => [], "device_id" => "1001", "device_uid" => "sr:host01.example.com"},
+           false},
+          {%{"devices" => [%{"device_id" => "1001", "device_uid" => "sr:host01.example.com"}]},
+           true},
+          {%{"device_id" => "1001", "device_uid" => "sr:host01.example.com"}, true}
+        ] do
       profile = multi_schedule_profile()
 
       retrieve =

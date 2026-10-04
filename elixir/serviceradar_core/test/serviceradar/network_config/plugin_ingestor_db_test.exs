@@ -13,6 +13,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorDbTest do
     body = "interface GigabitEthernet0/1\n ip address 192.0.2.1 255.255.255.0\n!\n"
     hash = :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)
     actor = SystemActor.system(:network_config_ingest_test)
+
     payload = %{
       "labels" => %{
         "kind" => "running_config",

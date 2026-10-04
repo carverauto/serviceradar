@@ -601,6 +601,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
       case Map.fetch(params, "devices") do
         {:ok, devices} ->
           match?([_ | _], devices)
+
         :error ->
           is_binary(params["device_id"]) and params["device_id"] != "" and
             is_binary(params["device_uid"]) and params["device_uid"] != ""

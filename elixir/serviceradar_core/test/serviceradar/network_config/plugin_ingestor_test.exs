@@ -96,6 +96,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
   test "cleans every owned reference after an earlier batch download fails" do
     second_key = "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1002"
     {:ok, first} = PluginIngestor.extract(payload())
+
     batch = %{
       "labels" => %{"kind" => "running_config", "assignment_id" => "assign-01"},
       "details" => %{
@@ -117,6 +118,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
                  :ok
                end
              )
+
     assert_received {:deleted, @object_key}
     assert_received {:deleted, ^second_key}
   end
@@ -140,6 +142,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
                    :ok
                  end
                )
+
       assert_received {:deleted, @object_key}
     end
   end
@@ -168,6 +171,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
                  :ok
                end
              )
+
     assert_received {:deleted, @object_key}
   end
 
@@ -184,21 +188,22 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
                    :ok
                  end
                )
+
       assert_received {:deleted, ^key}
     end
   end
 
   test "cleanup cannot delete another agent's or another provider's artifact" do
     for key <- [
-      "agent-artifacts/agent-02/assign-01/opentext-nom/running-config/1001",
-      "agent-artifacts/agent-01/assign-02/opentext-nom/running-config/1001",
-      "agent-artifacts/agent-01/assign-01/other-plugin/report/1001",
-      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/../1001",
-      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/01001/" <>
-        String.duplicate("a", 32),
-      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1001/" <>
-        String.duplicate("A", 32)
-    ] do
+          "agent-artifacts/agent-02/assign-01/opentext-nom/running-config/1001",
+          "agent-artifacts/agent-01/assign-02/opentext-nom/running-config/1001",
+          "agent-artifacts/agent-01/assign-01/other-plugin/report/1001",
+          "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/../1001",
+          "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/01001/" <>
+            String.duplicate("a", 32),
+          "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1001/" <>
+            String.duplicate("A", 32)
+        ] do
       assert {:error, :running_config_artifact_cleanup_failed} =
                PluginIngestor.ingest(
                  payload(%{"object_key" => key, "sha256" => @sha256}),
@@ -211,6 +216,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
 
   test "cleanup continues after delete failure and reports failure" do
     second_key = "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1002"
+
     assert {:error, :running_config_artifact_cleanup_failed} =
              PluginIngestor.discard_artifacts(
                [payload(), payload(%{"object_key" => second_key})],
@@ -224,6 +230,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
                    :ok
                end
              )
+
     assert_received {:deleted, ^second_key}
   end
 

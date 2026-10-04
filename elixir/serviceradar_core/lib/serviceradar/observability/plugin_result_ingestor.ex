@@ -146,6 +146,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     |> case do
       [] ->
         {:error, :invalid_payload}
+
       [entry | remaining] ->
         result = ingest(entry, status)
 
@@ -542,6 +543,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                 retry_cleanup? =
                   handler_module(handler) == PluginIngestor and
                     reason == :running_config_artifact_cleanup_failed
+
                 {add_handler_failure(errors, handler, reason), cleanup_failed? or retry_cleanup?}
 
               other ->
@@ -566,6 +568,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
           if cleanup_failed?,
             do: :plugin_result_artifact_cleanup_failed,
             else: :plugin_result_handlers_failed
+
         {:error, {failure_kind, errors}}
     end
   end

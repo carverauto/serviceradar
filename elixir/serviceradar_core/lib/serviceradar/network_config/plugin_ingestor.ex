@@ -119,6 +119,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
       case cleanup do
         :ok ->
           result
+
         {:error, _reason} ->
           Logger.warning("Staged running-config cleanup failed")
           {:error, :running_config_artifact_cleanup_failed}
@@ -130,6 +131,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
     case Map.fetch(details_map(payload), "running_configs") do
       :error ->
         [payload]
+
       {:ok, entries} when is_list(entries) and entries != [] ->
         Enum.map(entries, fn entry ->
           %{
@@ -228,6 +230,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
     case String.split(key, "/") do
       ["agent-artifacts", agent, assignment, "opentext-nom", "running-config", device] ->
         nom_config_prefix?(agent, assignment) and legacy_nom_device?(device)
+
       ["agent-artifacts", agent, assignment, "opentext-nom", "running-config", device, attempt] ->
         nom_config_segments?(agent, assignment, device) and
           Regex.match?(~r/\A[0-9a-f]{32}\z/, attempt)

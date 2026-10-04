@@ -214,6 +214,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorFailureTest do
 
     assert [[false, _, ^failed_at]] = current_state_rows(status)
   end
+
   test "NOM cleanup failure stays retryable after a durable failure marker" do
     handler = ServiceRadar.NetworkConfig.PluginIngestor
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [handler])
@@ -234,6 +235,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorFailureTest do
 
     assert {:error, {:plugin_result_artifact_cleanup_failed, [{^handler, error_text}]}} =
              ResultsRouter.process_retained_plugin(retained_status)
+
     assert error_text =~ "running_config_artifact_cleanup_failed"
     assert [[false, _, _]] = current_state_rows(status)
     assert [_, [_, false, _, details]] = history_rows(status)
