@@ -284,7 +284,7 @@ fn legacy_only_datagram(mut bytes: &[u8]) -> bool {
         }
         let version = u16::from_be_bytes([bytes[0], bytes[1]]);
         let count = usize::from(u16::from_be_bytes([bytes[2], bytes[3]]));
-        let record_size = match version {
+        let record_size: usize = match version {
             5 => 48,
             7 => 52,
             _ => return false,
