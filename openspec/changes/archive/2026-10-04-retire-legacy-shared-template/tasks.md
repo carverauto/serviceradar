@@ -77,9 +77,11 @@
       rewrites only those sentences in the five files to the past tense and names
       `provision_generation_<lane>`, and re-points the `migrate_db_test.exs`/`template.rs`
       references in `docs/agent-runbooks.md` and `elixir/README.md` to the generation lifecycle.
-- [ ] 2.13 Run `gofmt`/`cargo fmt`/`mix format` as applicable, `cargo clippy` for
+- [x] 2.13 Run `gofmt`/`cargo fmt`/`mix format` as applicable, `cargo clippy` for
       `rust/integration-db` (all targets), `bazel build //rust/... //elixir/serviceradar_core/...`,
       `make lint`, `make test`, and `openspec validate retire-legacy-shared-template --strict`.
+      Done via PR #5096's CI (lint, Elixir Quality, Clippy, RustSec all green); the PR merged
+      before this box was ticked.
 
 ## 3. Verify the code phase
 
@@ -111,10 +113,12 @@
       access (a one-off statement, not a committed script).
       Done 2026-10-04 08:17 UTC by the owner; record in issue #4856 (451 migrations, max
       20260904120000, 45 MB). Absent on primary and replica immediately after.
-- [ ] 4.4 Re-query `pg_database` immediately, again after the next BazelCI and
+- [x] 4.4 Re-query `pg_database` immediately, again after the next BazelCI and
       `LargeIngestionGate` lifecycles, and again after the next hourly scratch-reaper pass. The
       row must be absent every time; if it reappears, stop and find the creator before any
       further step.
+      Done 2026-10-04: absent on primary and replica at 08:17, then on 16 checks 5 min apart
+      through 09:37, spanning 12 BazelCI and 8 LargeIngestionGate tasks and the 09:15 reaper pass.
 
 ## 5. Remove the protected name (after 4.4 is verified)
 
@@ -124,8 +128,12 @@
       `k8s/srql-fixtures/scratch-reaper.sql` and `scratch-reaper.yaml`; keep the `sr_tpl_`
       namespace protection. The mirror tests (`reaper_test.go`,
       `scratch_reaper_contract_test.py`, the lib.rs query test) must pass unchanged in intent.
-- [ ] 5.2 Open the matching `carverauto/gitops` PR for the deployed CronJob copies
+- [x] 5.2 Open the matching `carverauto/gitops` PR for the deployed CronJob copies
       (`k8s/srql-fixtures/` and `clusters/farm01/srql-fixtures/`); verify the live ConfigMap
       content after sync rather than the PR status.
-- [ ] 5.3 Final anchored grep: `\bsr_core_template\b` appears only in historical records and the
+      Done 2026-10-04: gitops #141 (k8s/srql-fixtures/base and clusters/farm01). Live ConfigMaps
+      verified on both clusters (carverauto after Argo synced 767a80b; farm01 applied by hand).
+- [x] 5.3 Final anchored grep: `\bsr_core_template\b` appears only in historical records and the
       retired-names contract. Then archive this change.
+      Done 2026-10-04: remaining matches are the guard's retired-names contract and dated
+      historical notes only.
