@@ -492,7 +492,9 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    assert length(reminted_grant_ids) == 2
+    # Both controllers carry an identical grant scope, so delivery reuses the
+    # one live grant it issues for the first instead of minting per payload.
+    assert length(reminted_grant_ids) == 1
     refute to_string(stale_grant_1.id) in reminted_grant_ids
     refute to_string(stale_grant_2.id) in reminted_grant_ids
 
@@ -791,12 +793,16 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     now = DateTime.utc_now()
     package_id = Ecto.UUID.generate()
     assignment_id = Ecto.UUID.generate()
-    policy_id = "network-credential-rule:#{rule.id}:inventory_enrichment"
+    # The unsuffixed form PluginAssignmentMaterializer.policy_id_for_rule/2
+    # writes for inventory_enrichment: the only form
+    # ProxmoxSourceScopeResolver accepts for a proxmox-inventory assignment.
+    policy_id = "network-credential-rule:#{rule.id}"
     secret_ref = SecretRefs.network_credential_ref(to_string(secret.id))
 
     scope =
       CredentialBrokerGrant.scope_payload(%{
         secret_id: secret.id,
+        secret_ref: secret_ref,
         credential_rule_id: rule.id,
         grant_type: "proxmox_api_token",
         consumer_kind: :plugin,
@@ -826,6 +832,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         name: "proxmox-inventory",
         version: "0.1.10",
         entrypoint: "run_check",
+        wasm_object_key: "plugins/proxmox-inventory/#{assignment_id}/plugin.wasm",
         status: "approved",
         outputs: "serviceradar.plugin_result.v1",
         manifest: %{},
