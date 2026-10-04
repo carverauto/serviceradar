@@ -115,6 +115,7 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
         String.contains?(subject, ".CONSUMER.DURABLE.CREATE.") and :atomics.get(mode, 1) == 0 ->
           # A permissions denial followed by a broker disconnect during setup.
           # The producer must survive both and recover after access is restored.
+          send(owner, {:denied, subject})
           :ok = :gen_tcp.send(socket, "-ERR 'Permissions Violation for Publish'\r\n")
 
           body =
@@ -122,8 +123,8 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
               "error" => %{"code" => 403, "description" => "subject permission denied"}
             })
 
-          :ok = :gen_tcp.send(socket, "MSG #{reply} 0 #{byte_size(body)}\r\n#{body}\r\n")
-          send(owner, {:denied, subject})
+          sid = sid_for(subscriptions, reply)
+          :ok = :gen_tcp.send(socket, "MSG #{reply} #{sid} #{byte_size(body)}\r\n#{body}\r\n")
           :gen_tcp.close(socket)
           :closed
 
@@ -158,10 +159,16 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
             end
 
           body = Jason.encode!(response)
-          :ok = :gen_tcp.send(socket, "MSG #{reply} 0 #{byte_size(body)}\r\n#{body}\r\n")
+          sid = sid_for(subscriptions, reply)
+          :ok = :gen_tcp.send(socket, "MSG #{reply} #{sid} #{byte_size(body)}\r\n#{body}\r\n")
           :continue
       end
     end
+
+    # NATS demultiplexes one connection by subscription SID: the server must
+    # echo the SID of the inbox SUB the requester created. A hardcoded 0 is
+    # unroutable, so the client drops the reply and every request times out.
+    defp sid_for(subscriptions, reply), do: Map.get(subscriptions, reply, 0)
   end
 
   defmodule Sink do
