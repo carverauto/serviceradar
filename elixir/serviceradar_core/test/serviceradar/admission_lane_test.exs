@@ -715,7 +715,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
       (previous_handler || [])
       |> Keyword.delete(:flow_lane)
       |> Keyword.put(
-        :flow_attribution_persister,
+        :flow_attribution_publisher,
         {__MODULE__, :hold_flow_persistence, [self(), worker_table]}
       )
 

@@ -338,117 +338,93 @@ one, and a correlator log line is supporting evidence rather than the success ga
    `tuple_extraction=accepted` and `owner_resolution=hit`. An owner miss is counted
    but is not emitted as process attribution.
 
-   Record the stimulus boundary and exact identity/tuple before querying CNPG. The
-   examples below use `psql` variables so an unrelated row cannot make a check pass:
+   Record the stimulus boundary and exact identity/tuple before querying the
+   warehouse. Attribution requires StarRocks; without it core stores no
+   observations and the EventWriter health reports
+   `attribution_disabled: starrocks_required`. The examples below run in a MySQL
+   client against the StarRocks Frontend and use session variables so an unrelated
+   row cannot make a check pass (times are UTC):
 
    ```sql
-   \set stimulus_started_at '2026-09-03T12:00:00Z'
-   \set partition 'default'
-   \set agent_id 'agent-example'
-   \set local_ip '192.0.2.10'
-   \set local_port '45678'
-   \set remote_ip '198.51.100.20'
-   \set remote_port '20000'
-   \set pid '1234'
+   SET @stimulus_started_at = '2026-09-03 12:00:00';
+   SET @agent_id = 'agent-example';
+   SET @local_ip = '192.0.2.10';
+   SET @local_port = 45678;
+   SET @remote_ip = '198.51.100.20';
+   SET @remote_port = 20000;
+   SET @pid = 1234;
    ```
 
-2. In CNPG, require a fresh producer row. This query always returns a row, including
-   an explicit zero count:
+2. Require a fresh observation. Core publishes each admitted batch on
+   `flows.attribution.observations` and EventWriter loads it into
+   `flow_process_attribution_observations`; this query always returns a row,
+   including an explicit zero count:
 
    ```sql
-   SELECT count(*) AS fresh_tcp_attributions,
+   SELECT count(*) AS fresh_tcp_observations,
           max(observed_at) AS newest_observed_at
-   FROM platform.flow_process_attribution_current
+   FROM serviceradar.flow_process_attribution_observations
    WHERE proto = 6
-     AND observed_at >= :'stimulus_started_at'::timestamptz
-     AND partition = :'partition'
-     AND agent_id = :'agent_id'
-     AND local_ip = :'local_ip'
-     AND local_port = :'local_port'::integer
-     AND remote_ip = :'remote_ip'
-     AND remote_port = :'remote_port'::integer
-     AND pid = :'pid'::integer;
+     AND observed_at >= @stimulus_started_at
+     AND `partition` = 'default'
+     AND agent_id = @agent_id
+     AND local_ip = @local_ip
+     AND local_port = @local_port
+     AND remote_ip = @remote_ip
+     AND remote_port = @remote_port
+     AND pid = @pid;
    ```
 
-3. Only after step 2 is non-zero, verify that the production-sized, newest-first
-   5,000-flow sample and the attribution window share an endpoint and tuple. Keep
-   the partition predicate when investigating a specific tenant:
+   Zero here with a healthy agent points at the publish path: check the core log
+   for `FlowAttribution observation publish failed` and the EventWriter consumer
+   for the `FLOW_ATTRIBUTION_OBSERVATIONS` durable on the `flows` stream.
+
+3. Only after step 2 is non-zero, verify that the newest-first 5,000-flow sample
+   the correlator reads still contains an unattributed flow with that tuple:
 
    ```sql
-   WITH recent_flows AS (
-     SELECT time, partition, protocol_num,
-            src_endpoint_ip, src_endpoint_port,
-            dst_endpoint_ip, dst_endpoint_port
-     FROM platform.ocsf_network_activity
-     WHERE time > now() - interval '15 minutes'
-       AND (ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
-     ORDER BY time DESC
-     LIMIT 5000
-   ),
-   controlled_flows AS (
-     SELECT *
-     FROM recent_flows
-     WHERE time >= :'stimulus_started_at'::timestamptz
-       AND partition = :'partition'
-       AND protocol_num = 6
-       AND (
-         (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
-           (:'local_ip', :'local_port'::integer, :'remote_ip', :'remote_port'::integer)
-         OR
-         (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
-           (:'remote_ip', :'remote_port'::integer, :'local_ip', :'local_port'::integer)
-       )
-   )
    SELECT count(*) AS exact_or_reverse_tcp_candidates
-   FROM controlled_flows f
-   JOIN platform.flow_process_attribution_current a
-     ON a.partition = f.partition
-    AND a.partition = :'partition'
-    AND a.agent_id = :'agent_id'
-    AND a.pid = :'pid'::integer
-    AND a.proto = f.protocol_num
-    AND a.observed_at >= :'stimulus_started_at'::timestamptz
-    AND a.observed_at BETWEEN f.time - interval '900 seconds'
-                          AND f.time + interval '900 seconds'
-    AND (
-      (a.local_ip, a.local_port, a.remote_ip, a.remote_port) =
-        (f.src_endpoint_ip, f.src_endpoint_port,
-         f.dst_endpoint_ip, f.dst_endpoint_port)
-      OR
-      (a.local_ip, a.local_port, a.remote_ip, a.remote_port) =
-        (f.dst_endpoint_ip, f.dst_endpoint_port,
-         f.src_endpoint_ip, f.src_endpoint_port)
-    )
-   WHERE f.protocol_num = 6;
+   FROM (
+     SELECT `time`, protocol_num, src_endpoint_ip, src_endpoint_port,
+            dst_endpoint_ip, dst_endpoint_port
+     FROM serviceradar.ocsf_network_activity
+     WHERE `time` > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)
+       AND pid IS NULL
+     ORDER BY `time` DESC, id DESC
+     LIMIT 5000
+   ) AS f
+   WHERE f.protocol_num = 6
+     AND f.`time` >= @stimulus_started_at
+     AND ((f.src_endpoint_ip = @local_ip AND f.src_endpoint_port = @local_port
+           AND f.dst_endpoint_ip = @remote_ip AND f.dst_endpoint_port = @remote_port)
+       OR (f.src_endpoint_ip = @remote_ip AND f.src_endpoint_port = @remote_port
+           AND f.dst_endpoint_ip = @local_ip AND f.dst_endpoint_port = @local_port));
    ```
 
-   Zero here means there is no eligible exact tuple in the bounded production
-   sample; inspect wildcard, relaxed UDP, node-SNAT, or public-endpoint topology as
-   appropriate rather than blaming the producer.
+   Zero here means the flow was already stamped, or is not in the bounded sample;
+   for a flow that never matches, inspect wildcard, relaxed UDP, node-SNAT, or
+   public-endpoint topology as appropriate rather than blaming the producer.
 
-4. Finally, gate success on the persisted OCSF artifact newer than the stimulus:
+4. Finally, gate success on the stamped flow newer than the stimulus:
 
    ```sql
    SELECT count(*) AS attributed_tcp_flows,
-          max(time) AS newest_attributed_flow
-   FROM platform.ocsf_network_activity
+          max(`time`) AS newest_attributed_flow
+   FROM serviceradar.ocsf_network_activity
    WHERE protocol_num = 6
-     AND time >= :'stimulus_started_at'::timestamptz
-     AND partition = :'partition'
-     AND (ocsf_payload ->> 'agent_id') = :'agent_id'
-     AND (ocsf_payload #>> '{attribution,pid}')::integer = :'pid'::integer
-     AND (
-       (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
-         (:'local_ip', :'local_port'::integer, :'remote_ip', :'remote_port'::integer)
-       OR
-       (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
-         (:'remote_ip', :'remote_port'::integer, :'local_ip', :'local_port'::integer)
-     )
-     AND (ocsf_payload ->> 'event_type') = 'attributed_flow';
+     AND `time` >= @stimulus_started_at
+     AND agent_id = @agent_id
+     AND pid = @pid
+     AND ((src_endpoint_ip = @local_ip AND src_endpoint_port = @local_port
+           AND dst_endpoint_ip = @remote_ip AND dst_endpoint_port = @remote_port)
+       OR (src_endpoint_ip = @remote_ip AND src_endpoint_port = @remote_port
+           AND dst_endpoint_ip = @local_ip AND dst_endpoint_port = @local_port))
+     AND event_type = 'attributed_flow';
    ```
 
    A stamped-count log without this row is not success. Re-run the final query after
-   the correlator pass to catch partial or stale observations.
+   the next correlator pass (every two minutes) to catch partial or stale
+   observations.
 
 ### Missing container or workload fields
 
@@ -465,13 +441,12 @@ fields usually points to Workload Identity collection or upstream join timing.
 ## Privacy and retention
 
 `netprobe` does not store packet payloads by default. It emits metadata needed for
-flow correlation, process attribution, passive evidence, and troubleshooting. Keep
-retention short for high-volume raw observations, and use chart/control-plane knobs to
-discard unmatched raw observations when a deployment does not need forensic history
-for delayed joins.
+flow correlation, process attribution, passive evidence, and troubleshooting.
 
-For SaaS-scale deployments, treat raw attribution observations as hot operational
-data. Retain them only as long as needed for delayed NetFlow joins and short
-investigation windows, aggregate current attribution state for UI queries, and move
-longer forensic history to cold storage rather than keeping every unmatched event in
-CNPG indefinitely.
+Raw attribution observations are kept in the StarRocks table
+`flow_process_attribution_observations`, an append-only table partitioned by day.
+They expire by whole partitions at the warehouse `attribution` retention (default
+30 days, minimum 1 day), so no row-level delete job runs. Correlation itself only
+needs the last 30 minutes; the longer default keeps observations available for
+incident investigation ("which process talked to this address last week"). Lower
+it when a deployment does not need that history.

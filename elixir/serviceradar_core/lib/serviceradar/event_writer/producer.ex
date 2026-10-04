@@ -758,7 +758,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp validate_resolved_stream(stream, resolved, expected) do
-    if Config.flow_stream?(stream) and resolved != expected and
+    if Config.flows_stream_consumer?(stream) and resolved != expected and
          Map.get(stream, :allow_stream_fallback, false) == false do
       {:error, {:unexpected_stream, expected: expected, resolved: resolved}}
     else
@@ -1145,7 +1145,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp ensure_durable_opts(stream, durable_name, ack_wait_ns, max_ack_pending, max_deliver) do
-    flow? = Config.flow_stream?(stream)
+    flow? = Config.flows_stream_consumer?(stream)
 
     [
       stream_name: expected_stream_name(stream),

@@ -299,7 +299,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
         "otel_metrics" => "365",
         "otel_metric_points" => "365",
         "otel_traces" => "365",
-        "bmp_routing_events" => "365"
+        "bmp_routing_events" => "365",
+        "flow_process_attribution_observations" => "30"
       }
 
       for {table, days} <- expected do

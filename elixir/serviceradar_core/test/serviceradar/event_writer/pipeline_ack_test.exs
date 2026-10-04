@@ -461,6 +461,40 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert %Message{batcher: :flows_raw} = Pipeline.handle_message(:default, message, %{})
   end
 
+  # A subject without a routing rule falls to :default, whose processor acks and
+  # drops it: observations would never reach the warehouse.
+  test "flow pipeline routes attribution observations to their own processor" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 500,
+      consumer_name: "test-consumer",
+      streams: [
+        %{name: "NETFLOW_RAW", stream_name: "flows", subject: "flows.raw.netflow"},
+        %{
+          name: "FLOW_ATTRIBUTION_OBSERVATIONS",
+          stream_name: "flows",
+          subject: "flows.attribution.observations"
+        }
+      ]
+    }
+
+    assert :flow_attribution_observations in Pipeline.configured_batcher_names(config)
+
+    message = %Message{
+      data: "{}",
+      metadata: %{subject: "flows.attribution.observations"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    assert %Message{batcher: :flow_attribution_observations} =
+             Pipeline.handle_message(:default, message, %{})
+
+    assert Pipeline.processor_for_batcher(:flow_attribution_observations) ==
+             ServiceRadar.EventWriter.Processors.FlowAttributionObservations
+  end
+
   describe "warehouse batch sizing" do
     @batchers [
       metrics: [batch_size: 100, batch_timeout: 1_000],

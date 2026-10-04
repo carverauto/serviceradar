@@ -17,6 +17,7 @@ defmodule ServiceRadar.EventWriter.Health do
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Producer
   alias ServiceRadar.EventWriter.Supervisor
+  alias ServiceRadar.FlowAttribution
 
   @doc """
   Returns the full health status of the EventWriter subsystem.
@@ -27,6 +28,8 @@ defmodule ServiceRadar.EventWriter.Health do
   - `pipeline` - Pipeline status (connected, message count, etc.)
   - `producer` - Producer status (NATS connection status)
   - `config` - Current configuration summary
+  - `flow_attribution` - `ServiceRadar.FlowAttribution.health/0`; reports
+    `attribution_disabled: :starrocks_required` without the warehouse
   """
   @spec status() :: map()
   def status do
@@ -35,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Health do
     base_status = %{
       enabled: config.enabled,
       running: supervisor_running?(),
+      flow_attribution: FlowAttribution.health(),
       timestamp: DateTime.utc_now()
     }
 

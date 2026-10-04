@@ -429,6 +429,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   # `Destination`), so their batch shape is the warehouse load shape.
   @warehouse_batchers [
     :flows_raw,
+    :flow_attribution_observations,
     :flow_attribution,
     :metrics,
     :telemetry,
@@ -593,7 +594,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       # subject (netflow/sflow/ipfix/extensions) must hit Processors.Flows.
       # flow.host-slice.* is intentionally excluded (attribution joining is
       # currently unsupported / out of scope for this pipeline).
-      {:flows_raw, &String.starts_with?(&1, "flows.raw.")}
+      {:flows_raw, &String.starts_with?(&1, "flows.raw.")},
+      {:flow_attribution_observations, &String.starts_with?(&1, "flows.attribution.observations")}
     ]
   end
 
@@ -678,6 +680,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
   defp get_processor(:flows_raw), do: Flows
+
+  defp get_processor(:flow_attribution_observations),
+    do: ServiceRadar.EventWriter.Processors.FlowAttributionObservations
+
   defp get_processor(:sflow_raw), do: Flows
   defp get_processor(:netflow_raw), do: Flows
   defp get_processor(_), do: ServiceRadar.EventWriter.Processors.Default

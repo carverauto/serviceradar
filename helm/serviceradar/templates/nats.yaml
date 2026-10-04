@@ -253,8 +253,9 @@ spec:
               },
               # Core platform service: manages JetStream streams/consumers,
               # publishes normalized platform subjects, and uses request/reply
-              # inboxes. Attributed-flow DB writes are in-process/in-cluster
-              # and no longer publish/read back through flow.attributed.*.
+              # inboxes. Flow attribution observations go out on
+              # flows.attribution.observations; nothing reads back through
+              # flow.attributed.*.
               {
                 user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
@@ -289,6 +290,12 @@ spec:
                       # The publish waits for a PubAck, so a missing entry here
                       # fails loudly rather than dropping traces.
                       "mtr.results.>",
+                      # Flow process attribution observations
+                      # (FlowAttribution.Observations). Core publishes them on
+                      # the flows stream; EventWriter loads them into the
+                      # warehouse. The publish waits for a PubAck, so a missing
+                      # entry fails the admitted batch instead of dropping it.
+                      "flows.attribution.observations",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"

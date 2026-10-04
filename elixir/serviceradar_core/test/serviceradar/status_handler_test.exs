@@ -206,7 +206,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         )
 
       Application.put_env(:serviceradar_core, StatusHandler,
-        flow_attribution_persister: {__MODULE__, :persist_flow_attribution, [self()]},
+        flow_attribution_publisher: {__MODULE__, :persist_flow_attribution, [self()]},
         flow_lane: lane
       )
 
@@ -261,7 +261,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         StatusHandler,
         Keyword.put(
           original,
-          :flow_attribution_persister,
+          :flow_attribution_publisher,
           {__MODULE__, :persist_flow_attribution_result, [self(), {:error, :deadlock_exhausted}]}
         )
       )
@@ -305,7 +305,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         StatusHandler,
         Keyword.put(
           Application.get_env(:serviceradar_core, StatusHandler, []),
-          :flow_attribution_persister,
+          :flow_attribution_publisher,
           {__MODULE__, :persist_flow_attribution_fail_once, [self(), attempt_counter]}
         )
       )
@@ -392,7 +392,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         |> Application.get_env(StatusHandler, [])
         |> Keyword.put(:flow_lane, lane)
         |> Keyword.put(
-          :flow_attribution_persister,
+          :flow_attribution_publisher,
           {__MODULE__, :persist_flow_attribution_after_release, [self(), release_ref]}
         )
       )
