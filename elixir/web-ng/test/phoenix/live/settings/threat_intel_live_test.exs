@@ -5,9 +5,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
@@ -125,8 +127,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     assert html =~ "198.51.100.23"
     assert html =~ "203.0.113.77"
     assert html =~ ~s(id="netflow-matches")
-    assert html =~ "in:devices"
+    assert html =~ "/devices"
+    assert html =~ "in%3Adevices"
     assert html =~ "/observability/netflows"
+    assert html =~ "in%3Anetflows"
     assert html =~ "Flows"
     assert html =~ "OTX test indicator"
     assert html =~ "pulse-liveview-1"
@@ -138,6 +142,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
   } do
     package = seed_approved_package()
     agent = seed_agent()
+    register_agent_control_session!(agent.uid)
 
     {:ok, lv, html} = live(conn, ~p"/settings/networks/threat-intel")
 
@@ -587,6 +592,42 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
   defp seed_agent do
     gateway = gateway_fixture()
     agent_fixture(gateway, %{uid: "edge-otx-agent-#{System.unique_integer([:positive])}"})
+  end
+
+  defp register_agent_control_session!(agent_uid) do
+    partition_id = "test"
+
+    assert {:ok, _pid} =
+             ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{
+                 agent_id: agent_uid,
+                 partition_id: partition_id,
+                 gateway_node: node(),
+                 capabilities: ["wasm"]
+               }
+             )
+
+    assert_control_session_live!(agent_uid, 40)
+
+    on_exit(fn ->
+      _ = ProcessRegistry.unregister({:agent_control, partition_id, agent_uid, node()})
+    end)
+  end
+
+  defp assert_control_session_live!(_agent_uid, 0) do
+    flunk("agent control session did not converge")
+  end
+
+  defp assert_control_session_live!(agent_uid, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(agent_uid) do
+      {:ok, %{agent_id: ^agent_uid}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_session_live!(agent_uid, attempts - 1)
+    end
   end
 
   defp otx_manifest(version) do
