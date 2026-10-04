@@ -404,10 +404,11 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     with_short_ownership_repo(fn ->
       TestSupport.checkout_repo!(%{sandbox: :unboxed})
 
-      assert {:error, %DBConnection.ConnectionError{message: message}} =
+      # The ownership timer fires mid-query and Postgres cancels the in-flight
+      # statement, so the caller sees 57014/query_canceled. The
+      # "ownership_timeout" text only appears in the server-side disconnect log.
+      assert {:error, %Postgrex.Error{postgres: %{code: :query_canceled}}} =
                Repo.query("SELECT pg_sleep($1::float8)", [@outlasting_query_s])
-
-      assert message =~ "ownership_timeout"
     end)
   end
 
@@ -419,8 +420,12 @@ defmodule ServiceRadar.TestSupportSandboxTest do
                Repo.query!("SELECT 1 FROM pg_sleep($1::float8)", [@outlasting_query_s])
 
       # Unboxed means no wrapping transaction, so each statement is its own transaction and
-      # commits like production code. Inside a sandbox BEGIN, now() would predate the statement.
-      assert %{rows: [[true]]} = Repo.query!("SELECT now() = statement_timestamp()")
+      # commits like production code. Inside a sandbox BEGIN, now() (transaction start,
+      # predating the pg_sleep above by >= 1s) would lag statement_timestamp(). Exact =
+      # is not guaranteed even in autocommit (microsecond clock granularity), so compare
+      # with a threshold the preceding 1s sleep separates deterministically.
+      assert %{rows: [[true]]} =
+               Repo.query!("SELECT statement_timestamp() - now() < interval '0.5 seconds'")
     end)
   end
 
