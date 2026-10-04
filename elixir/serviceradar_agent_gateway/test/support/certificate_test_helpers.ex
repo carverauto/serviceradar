@@ -6,6 +6,18 @@ defmodule ServiceRadarAgentGateway.CertificateTestHelpers do
 
   alias ServiceRadarAgentGateway.AgentCertificateRevocation
 
+  defmodule PeerCertAdapter do
+    @moduledoc false
+
+    def get_cert({:cert, cert_der}), do: cert_der
+    def get_peer(_payload), do: {{192, 0, 2, 10}, 50_051}
+  end
+
+  def cert_stream(cert_der) do
+    Code.ensure_loaded!(PeerCertAdapter)
+    %GRPC.Server.Stream{adapter: PeerCertAdapter, payload: {:cert, cert_der}}
+  end
+
   def ensure_revocation_store! do
     if Process.whereis(AgentCertificateRevocation) do
       :ok

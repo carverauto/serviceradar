@@ -179,7 +179,7 @@ func (p *PushLoop) buildEnrollmentHelloRequest() *proto.AgentHelloRequest {
 		hostname = ""
 	}
 
-	hostIP := p.getSourceIP()
+	hostIP, hostMACs := hostIdentity(cfg.HostIP, p.hostInventory)
 	return &proto.AgentHelloRequest{
 		AgentId:       agentID,
 		Version:       Version,
@@ -193,7 +193,7 @@ func (p *PushLoop) buildEnrollmentHelloRequest() *proto.AgentHelloRequest {
 		// correct device even when the TCP peer IP is NAT'd (external agents).
 		// Mirrors getSourceIP() used for PushStatus so the two agree.
 		HostIp:   hostIP,
-		HostMacs: hostInterfaceMACs(hostIP, p.hostInventory),
+		HostMacs: hostMACs,
 	}
 }
 
