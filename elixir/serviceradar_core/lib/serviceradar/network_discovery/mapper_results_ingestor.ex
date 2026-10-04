@@ -2156,6 +2156,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         aliases
         |> Enum.filter(&eligible_alias_partition?(&1.partition, partition))
         |> Enum.reject(&(&1.state in [:replaced, :archived]))
+        |> Enum.sort_by(& &1.device_id)
         |> Enum.sort_by(&alias_rank_key/1, :desc)
         |> Enum.find_value(&alias_device_uid(&1, actor))
         |> then(&{:ok, &1})
@@ -2194,6 +2195,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp normalize_partition(""), do: "default"
   defp normalize_partition(value), do: value
 
+  # Alias rows are per device, so the address's rows rank as DeviceAliasState.holder_sort/0
+  # orders them within a state: most recently seen first, then most sightings, then (by the
+  # stable sort after a device_id sort) lowest device id.
   defp alias_rank_key(alias_state) do
     state_rank =
       case alias_state.state do
@@ -2212,7 +2216,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         _ -> 0
       end
 
-    {state_rank, sighting_count, last_seen_unix}
+    {state_rank, last_seen_unix, sighting_count}
   end
 
   defp maybe_reactivate_alias(

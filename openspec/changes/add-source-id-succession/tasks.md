@@ -7,7 +7,8 @@ any test.
 
 ## Delivery order (D15)
 
-Eight pull requests, each green and safe on its own:
+Eight pull requests, each green and safe on its own, and the alias fixes (D16) between PR 4 and
+PR 5:
 
 | PR | Decisions | Tasks |
 | --- | --- | --- |
@@ -15,6 +16,7 @@ Eight pull requests, each green and safe on its own:
 | 2 | D1, D2 | 2, 3, 4 (4.2's `source_succession` exception goes with PR 5) |
 | 3 | D5, D6 | 6, 7 |
 | 4 | D7, D8 | 8 |
+| Alias | D16 | 15 |
 | 5 | D3, D4 | 5 |
 | 6 | D9 | 10, 11 |
 | 7 | D12, D13, D14 | 9 |
@@ -23,7 +25,8 @@ Eight pull requests, each green and safe on its own:
 Each fix pull request carries its part of 12.1 and its tests: 14.1 and 14.2 go with PR 2
 (14.2's corroborated succession with PR 5), 14.4 and 14.5 with PR 3, 14.6 with PR 4, 14.3 with
 PR 5, 14.9 with PR 6, 14.7 and 14.8 with PR 7, and 14.10 with PR 8. 14.12 and 14.13 apply to
-every pull request, and 2.4 to every one that adds a migration.
+every pull request, and 2.4 to every one that adds a migration. The alias pull request carries
+section 15.
 
 ## 1. Formal model first (D10)
 
@@ -107,8 +110,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       switches `armis_alias_pass_blind` and `foreign_sighting_confirms_alias` to `KnownBugs`
       and `CurrentBugs.ResolutionBugs`, the `aliasRow` variable the second needs, and the
       property `AliasFollowsSyncedDevice`, checked by every `resolution_goal_*` configuration.
-      Each switch has a witness expecting `violation:AliasFollowsSyncedDevice`. Which pull
-      request fixes them is an open question in `design.md`.
+      Each switch has a witness expecting `violation:AliasFollowsSyncedDevice`. D16 fixes both,
+      in the alias pull request (section 15).
 
 ## 2. Schema and settings (D1, D5, D6, D7)
 
@@ -261,7 +264,9 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       `retired_source_id_vetoes`. PR 3 removes no switch, since D5 and D6 had none; it adds the
       lifecycle trace `source_retired_returns` (see the design's revision paragraph). Done in
       PR 4 for `stale_holder_keeps_address` and `released_seed_stays_live`, which also adds
-      `resolution_vacuity_census_keeps_holder`.
+      `resolution_vacuity_census_keeps_holder`. Done in the alias pull request for
+      `armis_alias_pass_blind` and `foreign_sighting_confirms_alias`, with the `aliasRow`
+      variable only the second needed.
 - [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`.
 
@@ -309,6 +314,29 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.11 Extend the `add-hermetic-armis-dire-e2e` harness with the re-key scenarios.
 - [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
-      Done for PR 2, PR 3 and PR 4.
+      Done for PR 2, PR 3, PR 4 and the alias pull request.
 - [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run. Done for PR 2, PR 3 and PR 4.
+      check not run. Done for PR 2, PR 3, PR 4 and the alias pull request.
+
+## 15. Alias rows (D16)
+
+- [x] 15.1 `AliasEvents` records a sighting on the sighted device's own row
+      (`DeviceAliasState.lookup_for_device/4`), and `Sync.Aliases` looks an address's aliases up
+      under the device's partition (`AliasEvents.alias_partition/2`). Remove both alias switches
+      as 12.1 says, and regenerate `armis_dhcp` and `src_rekey_succession`.
+- [x] 15.2 `Sync.Aliases` and `AliasGuard` handle every confirmed holder of the address but the
+      device itself (`Resolver.lookup_alias_device_ids/4`, `except:`). Add the traces
+      `armis_dhcp_two_holders` and `mapper_prior_alias_holder`. With either fix reverted, its
+      trace differs from the committed one, and TLC cannot follow the recorded trace to its end.
+- [x] 15.3 Order every reader that picks one holder by `DeviceAliasState.holder_sort/0`. The
+      mapper ranks by state, then by the same order. The pending-alias fallback keeps the row
+      with the most sightings first, breaks a tie by first-seen time, then by device id, and
+      leaves out an `except:` device as the confirmed read does.
+- [x] 15.4 `Reassignments.reassign_alias_states/3` folds a row both records of a merge hold: the
+      merged record's row is `replaced` by the survivor's and carries its confirmation.
+- [x] 15.5 Tests, each shown to fail with its fix reverted: a device seen at an address another
+      device holds gets its own row, and its sightings confirm only that row; an Armis update
+      naming its sync source invalidates a MAC-owning holder's alias; the sync pass and
+      `AliasGuard` invalidate every other identified holder; readers return holders in order,
+      including a tie in recency; the pending-alias fallback leaves out an `except:` device; a
+      merge succeeds when both records hold a row of the address.

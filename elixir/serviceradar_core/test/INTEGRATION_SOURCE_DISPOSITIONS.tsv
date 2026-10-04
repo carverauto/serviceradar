@@ -344,6 +344,7 @@ test/serviceradar/http/egress_client_test.exs	-	not_selected	load_only	not_selec
 test/serviceradar/http/egress_proxy_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/access_credential_changes_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/alias_events_link_local_test.exs	ServiceRadar.Identity.AliasEventsLinkLocalTest	data_case	async	transaction_owner	DataCase owns caller-synchronous Ash writes; device uids and alias values are unique per test.
+test/serviceradar/identity/alias_events_per_device_test.exs	ServiceRadar.Identity.AliasEventsPerDeviceTest	data_case	async	transaction_owner	DataCase owns caller-synchronous Ash writes; device uids are unique per test.
 test/serviceradar/identity/alias_policy_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/assign_first_user_role_test.exs	ServiceRadar.Identity.AssignFirstUserRoleTest	data_case	serial	truncate	test:11 unboxed; test:19 and :22 truncate ng_users; test:34 uses concurrent Tasks
 test/serviceradar/identity/auth_settings_secret_test.exs	ServiceRadar.Identity.AuthSettingsSecretTest	data_case	async	transaction_owner	test:11 DataCase owner; no database child

@@ -486,8 +486,10 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp process_alias(update, alias_type, alias_value, actor, confirm_threshold) do
-    # Try to find existing alias
-    case lookup_alias_state(alias_type, alias_value, actor) do
+    # Rows are per device: a sighting is recorded on the observed device's own row for the value,
+    # never on a row another device holds there, and a device seen at a value it has no row for
+    # gets one even when other devices hold rows for that value.
+    case lookup_alias_state(update.device_id, alias_type, alias_value, actor) do
       {:ok, [existing | _]} ->
         # Record sighting and maybe transition state
         handle_existing_alias(existing, update, confirm_threshold, actor)
@@ -535,7 +537,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp handle_new_alias(update, alias_type, alias_value, actor) do
-    partition = pick_partition(update.partition, update.device_id)
+    partition = alias_partition(update.partition, update.device_id)
 
     attrs = %{
       device_id: update.device_id,
@@ -604,7 +606,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
   defp build_alias_event(update, current, previous) do
     lifecycle_event(
       update.device_id,
-      pick_partition(update.partition, update.device_id),
+      alias_partition(update.partition, update.device_id),
       action: "alias_updated",
       reason: "alias_change",
       timestamp: update_timestamp(update.timestamp),
@@ -662,7 +664,14 @@ defmodule ServiceRadar.Identity.AliasEvents do
     end
   end
 
-  defp pick_partition(partition, device_id) do
+  @doc """
+  The partition an alias row is recorded under: the update's device partition, or the partition
+  prefix of the device id when the update has none. It is never the partition the update's
+  identifiers are filed in (`Ids.identifier_partition/2`), which differs for a sync naming its
+  integration source.
+  """
+  @spec alias_partition(String.t() | nil, String.t() | nil) :: String.t()
+  def alias_partition(partition, device_id) do
     partition = String.trim(to_string(partition || ""))
 
     if partition == "" do
@@ -678,8 +687,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
   defp actor(opts), do: Keyword.get(opts, :actor)
   defp confirm_threshold(opts), do: Keyword.get(opts, :confirm_threshold, 3)
 
-  defp lookup_alias_state(alias_type, alias_value, actor) do
-    DeviceAliasState.lookup_by_value(alias_type, alias_value, actor: actor)
+  defp lookup_alias_state(device_id, alias_type, alias_value, actor) do
+    DeviceAliasState.lookup_for_device(device_id, alias_type, alias_value, actor: actor)
   end
 
   defp lifecycle_event(device_id, partition, opts) do

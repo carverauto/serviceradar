@@ -50,10 +50,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # #4609 and #4639 (fixed): a discovered device leaves an address; an Armis device leases it.
   # Steps: A (m1) is seen at p1 three times (alias confirmed); A releases p1; Armis device B
   # (a2, m2) leases p1 and is synced. Expected: no merge; B takes p1 and A, still live, releases
-  # it, and the address conflict is recorded. A's alias on p1 should go stale. It stays confirmed,
-  # a defect still open (armis_alias_pass_blind): the sync's alias pass looks for the alias under
-  # the source's partition, where the sync's identifiers are filed, and finds none. The knockout
-  # shows the code exhibits it.
+  # it, and the address conflict is recorded. A's alias on p1 goes stale: the sync's alias pass
+  # looks the alias up under the device's partition, where it is recorded, not the source's, where
+  # the sync's identifiers are filed (fixed: armis_alias_pass_blind).
   test "armis_dhcp", %{actor: actor} do
     world = two_devices(%{src_of: %{"h2" => "a2"}, src_ids: ["a2"]})
 
@@ -66,7 +65,47 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.lease("x1", "NoIp")
     |> DireTrace.lease("x2", "p1")
     |> DireTrace.armis("h2", "x2")
-    |> DireTrace.assert_golden!(tamper: true, demonstrates: "armis_alias_pass_blind")
+    |> DireTrace.assert_golden!(tamper: true)
+  end
+
+  # Alias rows are per device, so an address two devices held in turn carries a confirmed alias
+  # row of each. Steps: A (m1) is seen at p1 three times (alias confirmed) and releases p1; B (m2)
+  # does the same; Armis device C (a3, m3) leases p1 and is synced. Expected: no merge; C takes
+  # p1 from B, and the sync's alias pass invalidates both A's and B's aliases of p1, recording
+  # each, as the model's alias step does for every other live holder. The pass used to take only
+  # the first holder, leaving the other's alias confirmed.
+  test "armis_dhcp_two_holders", %{actor: actor} do
+    world = %{
+      phys: ["h1", "h2", "h3"],
+      ifaces: %{
+        "x1" => %{phys: "h1", mac: "m1"},
+        "x2" => %{phys: "h2", mac: "m2"},
+        "x3" => %{phys: "h3", mac: "m3"}
+      },
+      src_of: %{"h3" => "a3"},
+      armis_macs: true,
+      src_ids: ["a3"],
+      hw_ids: ["m1", "m2", "m3"],
+      laa_ids: [],
+      ips: ["p1"],
+      observers: ["Armis", "Arp"]
+    }
+
+    "armis_dhcp_two_holders"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.lease("x1", "NoIp")
+    |> DireTrace.lease("x2", "p1")
+    |> DireTrace.arp("h2", "x2")
+    |> DireTrace.arp("h2", "x2")
+    |> DireTrace.arp("h2", "x2")
+    |> DireTrace.lease("x2", "NoIp")
+    |> DireTrace.lease("x3", "p1")
+    |> DireTrace.armis("h3", "x3")
+    |> DireTrace.assert_golden!()
   end
 
   # #4610: an Armis device reported without MACs leaves an address; a discovered device leases
@@ -200,9 +239,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # A to a2; three collections report A under a2 alone; the retirement pass and then the
   # reconciler run. Today: the first a2 sync gets its own record, since its Armis id decides,
   # and takes p1; m1 stays with a1's record. The hostnames agree, so that sync also records the
-  # pair for de-duplication review (policy_block). The a2 syncs' sightings of p1 land on the
-  # alias row a1's sync created, so the second confirms p1 as an alias of a1's record and a2's
-  # record never gets one (foreign_sighting_confirms_alias). The three absences retire a1 from
+  # pair for de-duplication review (policy_block). The a2 syncs' sightings of p1 land on a2's
+  # record's own alias row, never on the row a1's sync created, so a2's record, not a1's, gets
+  # p1 confirmed (fixed: foreign_sighting_confirms_alias). The three absences retire a1 from
   # its record, which keeps it as history, so a2's record is the one record holding a source id
   # that describes A. Nothing joins the two yet (corroborated succession, D3): the reconciler
   # leaves both alone, as in src_attach_shared_mac.
@@ -230,7 +269,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.collect()
     |> DireTrace.retire()
     |> DireTrace.reconcile()
-    |> DireTrace.assert_golden!(demonstrates: "foreign_sighting_confirms_alias")
+    |> DireTrace.assert_golden!()
   end
 
   # #4612 (fixed): a router's interfaces are sighted one MAC at a time, then the mapper polls it.
@@ -357,6 +396,32 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.discovery("h1", "x1")
     |> DireTrace.lease("x1", "p2")
     |> DireTrace.lease("x2", "p1")
+    |> DireTrace.discovery("h2", "x2")
+    |> DireTrace.assert_golden!()
+  end
+
+  # Alias rows are per device, so the device a mapper poll resolves can hold a confirmed alias of
+  # the polled address itself. Steps: A (m1) is seen at p1 three times (alias confirmed) and
+  # releases p1; B (m2) leases p1 and is seen there four times, which confirms its own row and
+  # makes it the most sighted, so it is the address's first holder even when both rows were last
+  # seen in the same second; the mapper polls B at p1. Expected: AliasGuard skips B's own row and
+  # invalidates A's alias of p1, recording it. Reading only the first holder, it found B's own
+  # row and left A's alias confirmed.
+  test "mapper_prior_alias_holder", %{actor: actor} do
+    world = two_devices(%{ips: ["p1"], observers: ["Discovery", "Arp"]})
+
+    "mapper_prior_alias_holder"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.lease("x1", "NoIp")
+    |> DireTrace.lease("x2", "p1")
+    |> DireTrace.arp("h2", "x2")
+    |> DireTrace.arp("h2", "x2")
+    |> DireTrace.arp("h2", "x2")
+    |> DireTrace.arp("h2", "x2")
     |> DireTrace.discovery("h2", "x2")
     |> DireTrace.assert_golden!()
   end

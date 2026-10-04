@@ -509,8 +509,7 @@ Witness Configurations" requires.
 | `armis_alias_pass_blind` | `resolution_witness_armis_alias_pass_blind` | `violation:AliasFollowsSyncedDevice` |
 | `foreign_sighting_confirms_alias` | `resolution_witness_foreign_sighting_confirms_alias` | `violation:AliasFollowsSyncedDevice` |
 
-The traces found the last two. No decision in this document fixes them yet (see "Open
-questions").
+The traces found the last two, and D16 fixes them.
 
 A scratch copy of the model with the re-key action reproduced the split in five steps, with
 abstract constants only:
@@ -687,7 +686,8 @@ did not express. Each was confirmed against the code and added as a switch with 
   address as an alias of the old id's record, and the trace's knockout demonstrates it.
 
 Every goal configuration checks `AliasFollowsSyncedDevice`, which a model that keeps neither
-defect satisfies.
+defect satisfies. D16 fixes both, and the fix found three consequences of per-device rows that
+neither switch named; two new traces record them.
 
 **The revision the lifecycle trace made.** Recording the `source_retired_returns` trace from the
 code (task 12.1) found the lifecycle model out of step with D5 and with the code it drives:
@@ -883,6 +883,9 @@ drops as early as possible:
 8. Remediation, the runbook and the end-to-end test (D11), run by an operator after 2-7 are
    deployed.
 
+The alias fixes (D16) land as a pull request of their own between steps 4 and 5. The traces of
+step 1 found the defects, and no other step depends on them.
+
 Each fix pull request removes its switch, promotes its property and regenerates its traces, as
 "Fixing a Modeled Defect Promotes Its Invariant" requires.
 
@@ -890,6 +893,65 @@ Shipping the grace delete before succession has a cost: a predecessor whose grac
 before step 5 is deployed is soft-deleted as `source_retired` instead of being merged with its
 successor. That is reversible. `Device :restore` brings the record back, its archive rows are
 kept, and the next succession pass then treats it as a predecessor.
+
+### D16. An alias row belongs to one device
+
+`device_alias_states` is unique on device, type and value (`unique_device_alias`), so an address
+can carry a row for every device seen at it. The model gives each device its own row and handles
+every holder of an address. The code did neither, which the traces recorded as
+`foreign_sighting_confirms_alias` and `armis_alias_pass_blind` (D10). This decision brings the
+code to the model:
+
+- **A sighting counts toward the sighted device's own row.** `AliasEvents` looks a row up by
+  device and value (`DeviceAliasState.lookup_for_device/4`). A device seen at an address another
+  device holds a row of gets a row of its own, and the confirmation threshold counts one
+  device's sightings. Another device's row at the address is never touched.
+- **The sync's alias pass reads the device's partition.** `Sync.Aliases` looks an address's
+  aliases up under the partition `AliasEvents` records them under
+  (`AliasEvents.alias_partition/2`), not the source's, where the sync's identifiers are filed.
+
+Fixing the two found three consequences of per-device rows that neither switch named. Each lands
+with them:
+
+- **Every other holder is handled.** `Sync.Aliases` and `AliasGuard` read one holder of the
+  address and acted on it, so a second identified holder kept its confirmed alias. `AliasGuard`
+  could also read the resolved device's own row first, skip it, and handle no one. Both now read
+  every confirmed holder but the device itself (`Resolver.lookup_alias_device_ids/4`, `except:`)
+  and handle each by the rules they already had: an identified holder has its alias invalidated
+  and the decision recorded; an address-only holder is merged by the sync pass (#4609) and left
+  alone by `AliasGuard` (#4610). Trace `armis_dhcp_two_holders` records the sync pass with two
+  holders, and `mapper_prior_alias_holder` records `AliasGuard` reading the device's own row
+  first.
+- **Every reader takes an address's holders in one order.** The readers that pick one holder
+  (the sweep's `DeviceLookup`, `Sync.Lookups`, `Resolver.lookup_alias_device_id/4` and the SNMP
+  credential resolver) read the rows in no defined order, and the mapper ranked them its own way.
+  They now share `DeviceAliasState.holder_sort/0`: the most recently seen first, then the most
+  sightings, then the lowest device id, which makes the order total. Recency comes first because
+  an address follows the device most recently seen at it. The mapper still ranks by state first,
+  and within a state follows the same order. The fallback to a pending alias keeps the row with
+  the most sightings, the closest to confirmation, first, and breaks a tie by first-seen time,
+  then by device id. Like the confirmed read, it leaves out an `except:` device.
+- **A merge folds a colliding row.** `Reassignments.reassign_alias_states/3` moved every row of
+  the merged record onto the survivor in one update. When both held a row of one value, the move
+  broke the unique key and rolled the whole merge back. The merged record's row now stays with
+  it, `replaced` by the survivor's, and a confirmation it carried confirms the survivor's
+  detected or stale row. Every other row moves.
+
+Rejected: one row per address, re-pointed to the device seen last. It keeps the defect's shape:
+the row would carry one device's sightings toward another device's confirmation, and a merge or
+an unmerge could not tell whose sightings a row holds.
+
+Effects:
+
+- More addresses carry several confirmed holders, where one row used to stand for all of them.
+  The NetFlow exporter cache (`NetflowExporterCacheRefreshWorker`) leaves an address with more
+  than one confirmed holder unattributed, so it attributes fewer sampler addresses. That is the
+  side it is built to fail on: the one row could name the wrong device.
+- The sweep's fallback to a pending alias (`DeviceLookup.lookup_detected_aliases_by_ip`,
+  `confirm_from_sweep`) now chooses among the pending rows of several devices, in the fallback's
+  order.
+- When the survivor's row of the value is already `replaced` or `archived`, a confirmation the
+  merged record's row carried is lost: the survivor's row is not confirmed again.
 
 ## Risks and trade-offs
 
@@ -920,14 +982,6 @@ kept, and the next succession pass then treats it as a predecessor.
   retirement and succession. D13 makes its hold on expiry durable, so such a record stays until
   this is decided. Check classes 1-5 first, then decide whether to restore the identifier row
   from the latest exact collection or to retire the metadata value by the same absence rule.
-- **The two alias defects** (`armis_alias_pass_blind`, `foreign_sighting_confirms_alias`, D10).
-  A confirmed alias of a stale record lets a sweep resolve the address to that record
-  (`DeviceLookup.batch_lookup_by_ip/2` prefers a confirmed alias to the address's holder), so
-  the sweep keeps refreshing it. The candidate fixes are to look the alias up under the device's
-  partition, and to give each device at an address its own alias row, looked up by address and
-  device. The second also changes the sweep's fallback to a pending alias and what the
-  confirmation threshold counts. Whether this change carries either fix, and in which pull
-  request, is open. Until then the switches, their witnesses and the knockouts record them.
 - **Identifier partitions.** A source's identifiers, its MACs included, are filed under the
   source's partition (`Ids.identifier_partition/2`), and its device rows under the update's.
   `DuplicateSweep` pairs a device's MAC column only with a MAC filed under the device's own

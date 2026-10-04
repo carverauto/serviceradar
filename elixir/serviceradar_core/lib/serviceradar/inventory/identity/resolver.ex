@@ -546,10 +546,11 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   end
 
   @doc """
-  Lookup a confirmed/updated alias device ID for the given IP.
+  Lookup a confirmed/updated alias device ID for the given IP: the first of
+  `lookup_alias_device_ids/4`, whose `:except` it takes.
 
   If no confirmed/updated alias is found and `include_detected: true` is passed,
-  also checks for detected aliases as a fallback.
+  also checks for detected aliases as a fallback, leaving out the same device.
   """
   @spec lookup_alias_device_id(String.t(), String.t() | nil, term(), keyword()) ::
           {:ok, String.t() | nil} | {:error, term()}
@@ -562,25 +563,14 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   end
 
   defp do_lookup_alias_device_id(ip, partition, actor, opts) do
-    query_opts = if actor, do: [actor: actor], else: []
-    include_detected = Keyword.get(opts, :include_detected, false)
-
-    # First try confirmed/updated aliases
-    query =
-      DeviceAliasState
-      |> Ash.Query.filter(
-        alias_type == :ip and alias_value == ^ip and state in [:confirmed, :updated]
-      )
-      |> maybe_filter_alias_partition(partition)
-
-    case Ash.read(query, query_opts) do
-      {:ok, [%DeviceAliasState{device_id: device_id} | _]} ->
+    case read_alias_device_ids(ip, partition, actor, opts) do
+      {:ok, [device_id | _]} ->
         {:ok, device_id}
 
       {:ok, []} ->
         # No confirmed alias - check detected aliases if requested
-        if include_detected do
-          lookup_detected_alias_device_id(ip, partition, query_opts)
+        if Keyword.get(opts, :include_detected, false) do
+          lookup_detected_alias_device_id(ip, partition, actor, Keyword.get(opts, :except))
         else
           {:ok, nil}
         end
@@ -588,19 +578,55 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
       {:error, _} = error ->
         error
     end
+  end
+
+  @doc """
+  The devices holding a confirmed/updated alias of the given IP, best first
+  (`DeviceAliasState.holder_sort/0`). Rows are per device, so several devices can hold one.
+  `:except` leaves out one device's own row.
+  """
+  @spec lookup_alias_device_ids(String.t(), String.t() | nil, term(), keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def lookup_alias_device_ids(ip, partition, actor, opts \\ []) do
+    if AliasPolicy.valid_alias_ip?(ip) do
+      read_alias_device_ids(ip, partition, actor, opts)
+    else
+      {:ok, []}
+    end
+  end
+
+  defp read_alias_device_ids(ip, partition, actor, opts) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^ip and state in [:confirmed, :updated]
+      )
+      |> maybe_filter_alias_partition(partition)
+      |> maybe_exclude_alias_device(Keyword.get(opts, :except))
+      |> Ash.Query.sort(DeviceAliasState.holder_sort())
+
+    case Ash.read(query, query_opts) do
+      {:ok, rows} -> {:ok, rows |> Enum.map(& &1.device_id) |> Enum.uniq()}
+      {:error, _} = error -> error
+    end
   rescue
     e ->
       Logger.warning("Failed to lookup device by alias IP: #{inspect(e)}")
       {:error, e}
   end
 
-  defp lookup_detected_alias_device_id(ip, partition, query_opts) do
+  defp lookup_detected_alias_device_id(ip, partition, actor, except) do
+    query_opts = if actor, do: [actor: actor], else: []
+
     query =
       DeviceAliasState
       |> Ash.Query.filter(alias_type == :ip and alias_value == ^ip and state == :detected)
       |> maybe_filter_alias_partition(partition)
+      |> maybe_exclude_alias_device(except)
       # Prefer aliases with more sightings
-      |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc)
+      |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc, device_id: :asc)
 
     case Ash.read(query, query_opts) do
       {:ok, [%DeviceAliasState{device_id: device_id} | _]} -> {:ok, device_id}
@@ -612,6 +638,11 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
       Logger.warning("Failed to lookup detected alias for IP: #{inspect(e)}")
       {:error, e}
   end
+
+  defp maybe_exclude_alias_device(query, nil), do: query
+
+  defp maybe_exclude_alias_device(query, device_id),
+    do: Ash.Query.filter(query, device_id != ^device_id)
 
   def maybe_filter_alias_partition(query, nil), do: query
   def maybe_filter_alias_partition(query, ""), do: query

@@ -418,3 +418,50 @@ next run. A skipped component SHALL be counted in the run record as blocked and 
 - **GIVEN** blocked components recorded under one version of the reconciliation rules
 - **WHEN** a release changes the rules and the next run starts
 - **THEN** every blocked component SHALL be evaluated again once
+
+### Requirement: IP Alias Rows Belong To One Device
+The system SHALL keep an IP alias row per device: every device seen at an address SHALL have its own row of the address, filed under the device's partition, and only that device's sightings SHALL count toward confirming it.
+Where several devices hold a confirmed alias of one address, a source sync, an agent check-in or
+a mapper poll that resolves a device at the address SHALL handle every other holder by the rules
+of requirement "IP Alias Resolution", and every lookup that resolves the address to one confirmed
+holder SHALL take the most recently seen holder, then the one with the most sightings, then the
+lowest device id. A merge of two devices that both hold a row of one address SHALL NOT fail on
+it: the merged device's row SHALL be marked `replaced` by the survivor's, and a confirmation it
+carried SHALL confirm the survivor's row when that row is pending or stale.
+
+#### Scenario: A device seen at another device's alias gets its own row
+- **GIVEN** device X holds a confirmed IP alias of `192.0.2.20`
+- **WHEN** device Y is sighted at `192.0.2.20`
+- **THEN** DIRE SHALL record the sighting on a pending alias row of `192.0.2.20` for device Y
+- **AND** device X's row SHALL be left unchanged
+
+#### Scenario: Sightings confirm only the sighted device's row
+- **GIVEN** device X holds a pending IP alias of `192.0.2.21`
+- **WHEN** device Y is sighted at `192.0.2.21` as often as the confirmation threshold
+- **THEN** device Y's alias of `192.0.2.21` SHALL be confirmed
+- **AND** device X's alias SHALL remain pending with its own sighting count
+
+#### Scenario: Every identified holder of an address is handled
+- **GIVEN** identified devices X and Y each hold a confirmed IP alias of `192.0.2.22`
+- **WHEN** a source sync resolves device Z, identified by its source id, at `192.0.2.22`
+- **THEN** the aliases of both X and Y SHALL be invalidated
+- **AND** an `alias_invalidated` identity decision SHALL be recorded for each
+- **AND** no two of the three devices SHALL be merged
+
+#### Scenario: A device's own alias is not a conflict
+- **GIVEN** devices X and Y each hold a confirmed IP alias of `192.0.2.23`, and Y holds a strong identifier of its own
+- **WHEN** a mapper poll resolves device X at `192.0.2.23` by its interface MACs
+- **THEN** device X's alias SHALL be left unchanged
+- **AND** device Y's alias SHALL be invalidated
+
+#### Scenario: Every lookup takes the same holder
+- **GIVEN** devices X and Y each hold a confirmed IP alias of `192.0.2.24`, and Y's was seen more recently
+- **WHEN** the sweep, a sync, the resolver or the mapper resolves `192.0.2.24` to one holder
+- **THEN** each SHALL resolve it to device Y
+
+#### Scenario: A merge folds an alias both devices hold
+- **GIVEN** devices X and Y each hold an IP alias of `192.0.2.25`, X's confirmed and Y's pending
+- **WHEN** X is merged into Y
+- **THEN** the merge SHALL succeed
+- **AND** X's row SHALL be marked `replaced` by Y's
+- **AND** Y's row SHALL be confirmed

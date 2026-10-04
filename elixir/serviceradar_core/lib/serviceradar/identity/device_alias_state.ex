@@ -69,6 +69,11 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     define :list_by_device, action: :by_device, args: [:device_id]
     define :list_active_for_device, action: :active_for_device, args: [:device_id]
     define :lookup_by_value, action: :by_alias_value, args: [:alias_type, :alias_value]
+
+    define :lookup_for_device,
+      action: :for_device_alias,
+      args: [:device_id, :alias_type, :alias_value]
+
     define :create_detected, action: :detect
     define :record_sighting, action: :record_sighting
     define :confirm, action: :confirm
@@ -95,6 +100,22 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       argument :alias_type, :atom, allow_nil?: false
       argument :alias_value, :string, allow_nil?: false
       filter expr(alias_type == ^arg(:alias_type) and alias_value == ^arg(:alias_value))
+    end
+
+    read :for_device_alias do
+      description """
+      The row one device holds for an alias value. Rows are per device (the unique key is device,
+      type and value), so the rows other devices hold for the same value are never returned.
+      """
+
+      argument :device_id, :string, allow_nil?: false
+      argument :alias_type, :atom, allow_nil?: false
+      argument :alias_value, :string, allow_nil?: false
+
+      filter expr(
+               device_id == ^arg(:device_id) and alias_type == ^arg(:alias_type) and
+                 alias_value == ^arg(:alias_value)
+             )
     end
 
     read :stale do
@@ -383,4 +404,13 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
   identities do
     identity :unique_device_alias, [:device_id, :alias_type, :alias_value]
   end
+
+  @doc """
+  The order in which a reader takes the rows of one alias value, best first: the most recently
+  seen, then the most sightings, then the lowest device id. Rows are per device
+  (`ServiceRadar.Identity.AliasEvents`), so an address carries a row for every device seen at it,
+  and every reader that picks one picks the same.
+  """
+  @spec holder_sort() :: keyword()
+  def holder_sort, do: [last_seen_at: :desc, sighting_count: :desc_nils_last, device_id: :asc]
 end

@@ -436,6 +436,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       |> Ash.Query.filter(
         alias_type == :ip and alias_value == ^host and state in [:confirmed, :updated]
       )
+      |> Ash.Query.sort(DeviceAliasState.holder_sort())
       |> Ash.Query.limit(1)
 
     case Ash.read_one(query, actor: actor) do
