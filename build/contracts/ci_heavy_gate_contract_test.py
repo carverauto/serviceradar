@@ -924,7 +924,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     playwright_acceptance = (
         "bazel test -c opt --config=ci "
         + " ".join(playwright_targets)
-        + " --test_output=errors --nocache_test_results"
+        + " --test_output=errors --nocache_test_results --flaky_test_attempts=1"
     )
     heavy_provision = (
         'PROVISION_JSON="$(bazel run -c opt --config=ci '

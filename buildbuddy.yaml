@@ -186,7 +186,7 @@ actions:
           //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance
           //elixir/web-ng/test/playwright:world_gpu_test
           //elixir/web-ng/assets:million_world_browser_test
-          --test_output=errors --nocache_test_results
+          --test_output=errors --nocache_test_results --flaky_test_attempts=1
 
   - name: "BazelCI"
     env:
