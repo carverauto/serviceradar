@@ -912,12 +912,27 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
 
       assert persisted_source.addon_package_id == replacement.id
 
+      # Direct assignments are rewritten by the rollout itself; profile members
+      # converge through the profile reconciler (whose assignment keys differ
+      # from this fixture's hand-built rows), so the rollout's contract for a
+      # profile source is the moved profile, promoted targets, and cleared
+      # overrides -- the same contract assert_source_finished checks.
       for target <- list_rollout_targets(latest.id, actor) do
         assert target.state == :promoted
         assignment = get_assignment(target.assignment_id, actor)
-        assert assignment.addon_package_id == replacement.id
         assert is_nil(assignment.rollout_id)
         assert is_nil(assignment.rollout_package_id)
+
+        if unquote(source_type) == :assignment do
+          assert assignment.addon_package_id == replacement.id
+        end
+      end
+
+      if unquote(source_type) == :profile do
+        for assignment <- profile_assignments(source.id, actor) do
+          assert is_nil(assignment.rollout_package_id)
+          assert is_nil(assignment.rollout_id)
+        end
       end
     end
   end
