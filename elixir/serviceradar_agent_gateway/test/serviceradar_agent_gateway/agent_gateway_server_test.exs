@@ -142,14 +142,22 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         end
       end)
 
-      {:ok, peer, core_node} =
-        :peer.start_link(%{
-          name: String.to_atom(basename),
-          connection: :standard_io,
-          args: [~c"+S", ~c"2", ~c"-setcookie", Atom.to_charlist(Node.get_cookie())]
+      peer =
+        start_supervised!(%{
+          id: :host_identity_core_peer,
+          start:
+            {:peer, :start_link,
+             [
+               %{
+                 name: String.to_atom(basename),
+                 connection: :standard_io,
+                 args: [~c"+S", ~c"2", ~c"-setcookie", Atom.to_charlist(Node.get_cookie())]
+               }
+             ]},
+          restart: :temporary
         })
 
-      on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)
+      core_node = :peer.call(peer, :erlang, :node, [])
       :ok = :peer.call(peer, :code, :add_paths, [:code.get_path()])
       {:ok, _} = :peer.call(peer, Application, :ensure_all_started, [:elixir])
 
