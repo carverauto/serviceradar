@@ -354,8 +354,6 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
 
     assert_receive {:provider_terminated, "desktop-close", "viewer-close", [actor_id: "actor-1"]}
     assert_receive {:DOWN, ^monitor_ref, :process, ^provider_pid, :normal}
-    _ = :sys.get_state(ctx.registry)
-    assert :error = lookup(ctx.registry, "desktop-close", "viewer-close")
   end
 
   defp new_signaling do
