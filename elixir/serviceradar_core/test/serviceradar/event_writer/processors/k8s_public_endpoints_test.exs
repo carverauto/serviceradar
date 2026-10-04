@@ -100,6 +100,37 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
     assert K8sPublicEndpoints.parse_message(%{data: "not json", metadata: %{}}) == nil
   end
 
+  test "parse_message rejects a nested cluster identity that differs from the envelope" do
+    payload = snapshot(%{"cluster_id" => "cluster-example-foreign"})
+    assert K8sPublicEndpoints.parse_message(message(payload)) == nil
+  end
+
+  test "parse_message rejects partial agent-path provenance instead of using the direct path" do
+    msg =
+      snapshot()
+      |> message()
+      |> put_in([:metadata, :headers], [{"Sr-Agent-Id", "agent-example-1"}])
+
+    assert K8sPublicEndpoints.parse_message(msg) == nil
+  end
+
+  test "parse_message accepts complete matching gateway provenance" do
+    msg =
+      snapshot()
+      |> message()
+      |> put_in(
+        [:metadata, :headers],
+        [
+          {"Sr-Ingest-Identity", "agent:agent-example-1"},
+          {"Sr-Agent-Id", "agent-example-1"},
+          {"Sr-Partition", "SITE01"}
+        ]
+      )
+
+    assert %{source: %{mode: :agent, agent_id: "agent-example-1", partition_id: "SITE01"}} =
+             K8sPublicEndpoints.parse_message(msg)
+  end
+
   test "implements the EventWriter processor behaviour" do
     # Code.ensure_loaded! first: function_exported?/3 answers from the module's loaded
     # export table and returns false for a module that simply has not been loaded yet, so

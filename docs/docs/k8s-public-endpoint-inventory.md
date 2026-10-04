@@ -206,6 +206,30 @@ Customer cluster (no full ServiceRadar)
 Do **not** reuse one `clusterId` across clusters. Host DaemonSet agents never
 receive the inventory ServiceAccount token.
 
+Before an agent-spooled snapshot can change inventory, an administrator must
+create a Kubernetes inventory cluster binding in the ServiceRadar
+Infrastructure administration area. The binding contains:
+
+- the exact durable `clusterId` configured in the edge chart;
+- the enrolled cluster agent ID; and
+- the gateway partition used by that agent connection.
+
+Bindings are control-plane policy. ServiceRadar does not learn them from a
+snapshot, agent heartbeat, or existing endpoint row. An absent or mismatched
+binding rejects the whole snapshot before any row is inserted, updated, revived,
+or soft-deleted. The EventWriter rejection metric and log identify the cluster,
+agent, and partition that failed validation without logging snapshot contents.
+
+When replacing a cluster agent, update the existing binding to the new enrolled
+agent. The transfer revokes the old agent in the same database transaction used
+to authorize subsequent snapshots. Do not create a second `clusterId` merely to
+rotate the agent.
+
+The co-located `publishMode: nats` path uses the inventory service's platform
+NATS credential and does not use an agent binding. A message carrying any agent
+provenance is always treated as agent-forwarded and cannot fall back to the
+direct publisher path when its provenance is incomplete.
+
 ##### Helm: sensors-only chart
 
 Use **`helm/serviceradar-k8s-edge`** — not the full `helm/serviceradar` chart.
