@@ -32,6 +32,11 @@ defmodule ServiceRadarWebNG.ApiTokenUsage do
   @max_concurrent_writes 4
   @write_timeout_ms to_timeout(second: 15)
 
+  # shutdown must exceed @write_timeout_ms so terminate/2 can complete its flush
+  def child_spec(opts) do
+    %{super(opts) | shutdown: to_timeout(second: 20)}
+  end
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
