@@ -20,7 +20,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
     only: [
       admin_user_fixture: 0,
       api_token_with_raw_fixture: 2,
-      user_fixture: 0,
+      operator_user_fixture: 0,
       viewer_user_fixture: 0
     ]
 
@@ -110,18 +110,20 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   end
 
   describe "GET /api/admin/plugin-packages/:id" do
-    test "stays reachable for a viewer, which the publish pipeline would have blocked", %{conn: conn} do
-      viewer = user_fixture()
+    test "stays reachable for an operator, which the publish pipeline would have blocked", %{
+      conn: conn
+    } do
+      operator = operator_user_fixture()
 
       conn =
         conn
-        |> put_req_header("authorization", "Bearer " <> cli_token(viewer, "plugin.publish"))
+        |> put_req_header("authorization", "Bearer " <> cli_token(operator, "plugin.publish"))
         |> get(~p"/api/admin/plugin-packages/#{Ecto.UUID.generate()}")
 
-      # A viewer holds plugins.view but not plugins.stage. Mounting the publish
-      # pipeline on this read route would 403 them, which is why it was left on
-      # the general pipeline.
-      refute conn.status == 403
+      # An operator holds plugins.view but not plugins.stage (a viewer holds
+      # neither). Mounting the publish pipeline on this read route would 403
+      # them, which is why it was left on the general pipeline.
+      refute conn.status in [401, 403]
     end
   end
 end

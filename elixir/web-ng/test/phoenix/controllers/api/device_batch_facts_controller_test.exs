@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceBatchFactsControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = ServiceRadarWebNG.AccountsFixtures.user_fixture(%{role: :operator})
     device = device_fixture()

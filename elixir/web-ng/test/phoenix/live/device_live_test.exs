@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadar.Inventory.EndpointInventoryPackage
   alias ServiceRadar.Inventory.EndpointInventoryScan
   alias ServiceRadar.Inventory.EndpointPackage
+  alias ServiceRadar.Inventory.EndpointVulnerabilityAssessment
   alias ServiceRadar.Inventory.EndpointVulnerabilityMatch
   alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.IntegrationIdentity
@@ -42,6 +43,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                                     __DIR__
                                   )
   @external_resource @edge_saturation_profile_source
+
+  @enabled_flows_tab "button[phx-click='switch_tab'][phx-value-tab='flows']:not([disabled])"
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
@@ -75,7 +78,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   end
 
   @tag :web_ng_shared_fixture_db
-  test "device list and details render device tags", %{conn: conn} do
+  # The device list deliberately has no Tags column (IndexViewTableTagsTest owns
+  # that); tags are read on the device details summary.
+  test "device details render device tags", %{conn: conn} do
     uid = "test-device-tags-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
@@ -90,13 +95,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    {:ok, _lv, html} = live(conn, ~p"/devices?limit=10")
-    assert html =~ "Tags"
-    assert html =~ "env=prod"
-    assert html =~ "team=ops"
-
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
     summary_html = render_until(view, "tagged-host", 5_000)
+    assert summary_html =~ "Tags:"
     assert summary_html =~ "env=prod"
     assert summary_html =~ "team=ops"
   end
@@ -139,6 +140,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     params = path |> URI.parse() |> Map.get(:query) |> Kernel.||("") |> URI.decode_query()
     assert params["q"] =~ "in:devices"
     assert params["q"] =~ "include_inactive:true"
+
+    # The patch is applied by the LiveView after assert_patch/1 returns. Render once so the
+    # reload it triggers finishes inside the test (and its sandbox), and prove Run kept working.
+    assert render(view) =~ "include_inactive:true"
   end
 
   @tag :web_ng_shared_fixture_db
@@ -152,10 +157,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> form("#srql-query-bar", %{q: "in:bmp_events include_inactive:true router_ip:192.0.2.1"})
     |> render_submit()
 
-    assert_redirect(
-      view,
-      ~p"/observability/bmp?#{%{q: "in:bmp_events router_ip:192.0.2.1", limit: 20}}"
-    )
+    # Shareable SRQL navigation carries only the query intent; the page limit stays in SRQL.
+    assert_redirect(view, ~p"/observability/bmp?#{%{q: "in:bmp_events router_ip:192.0.2.1"}}")
   end
 
   @tag :web_ng_shared_fixture_db
@@ -167,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> form("#srql-query-bar", %{q: "in:wifi_sites site_code:ZZC"})
     |> render_submit()
 
-    assert_redirect(view, ~p"/devices/wifi?#{%{q: "in:wifi_sites site_code:ZZC", limit: 20}}")
+    assert_redirect(view, ~p"/devices/wifi?#{%{q: "in:wifi_sites site_code:ZZC"}}")
   end
 
   @tag :web_ng_shared_fixture_db
@@ -413,10 +416,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert list_html =~ "Out of service"
 
     {:ok, details_view, _details_html} = live(conn, ~p"/devices/#{uid}")
-    details_html = render_until(details_view, "Out of service")
+    # "Out of service" is also the label of the mark-inactive action shown while the
+    # row is still loading, so wait for the loaded compliance card instead.
+    details_html = render_until(details_view, "In Service", 10_000)
 
     assert details_html =~ "Out of service"
     assert details_html =~ "In Service"
+    assert details_html =~ ~s(phx-click="mark_device_active")
+    refute details_html =~ ~s(phx-click="mark_device_inactive")
     assert details_html =~ "No"
   end
 
@@ -814,7 +821,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: query, limit: "20"}}")
 
-    assert_receive {:srql_query, ~s|in:devices vendor_name:"Ubiquiti" stats:"count() as total"|},
+    # The inventory list includes inactive devices by default, so the count covers the
+    # same population as the page: control tokens (sort/limit) are stripped, filters kept.
+    assert_receive {:srql_query, ~s|in:devices vendor_name:"Ubiquiti" include_inactive:true stats:"count() as total"|},
                    1_000
 
     assert render(view) =~ "42 total"
@@ -976,7 +985,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> Ash.Changeset.for_create(:create, %{uid: uid, hostname: hostname, ip: "10.10.10.10"})
       |> Ash.create(scope: scope)
 
-    assert render(view) =~ hostname
+    # The list debounces device broadcasts (one reload per second), so wait for it.
+    assert render_until(view, hostname, 5_000) =~ hostname
   end
 
   @tag :web_ng_shared_fixture_db
@@ -1253,8 +1263,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
+    # Broadcast-driven refreshes are coalesced behind a cooldown that starts at the
+    # initial load; disable it so this update refreshes the page immediately.
+    previous_cooldown = Application.get_env(:serviceradar_web_ng, :device_refresh_cooldown_ms)
+    Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+    on_exit(fn -> restore_app_env(:device_refresh_cooldown_ms, previous_cooldown) end)
+
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    assert render(view) =~ initial_hostname
+    assert render_until(view, initial_hostname, 10_000) =~ initial_hostname
 
     {:ok, device} = Device.get_by_uid(uid, true, scope: scope)
 
@@ -1263,8 +1279,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> Ash.Changeset.for_update(:update, %{hostname: updated_hostname})
       |> Ash.update(scope: scope)
 
-    _ = :sys.get_state(view.pid)
-    assert render(view) =~ updated_hostname
+    assert render_until(view, updated_hostname, 10_000) =~ updated_hostname
   end
 
   @tag :web_ng_shared_fixture_db
@@ -1381,13 +1396,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    html = render_until(view, "CPU")
+    html = render_until(view, "farm01-snmp", 10_000)
 
-    assert html =~ "farm01-snmp"
-    assert html =~ "NOC Team"
-    assert html =~ "Datacenter B"
-    assert html =~ "UDM-Pro-Max 4.4.6"
-    refute html =~ "farm01-sys"
+    # The page also carries an "All metadata" card that deliberately lists every raw
+    # key (sys_name included), so judge the alias preference inside the SNMP card.
+    snmp_panel =
+      html
+      |> String.split(~s(<h3 class="text-sm font-semibold">SNMP</h3>), parts: 2)
+      |> List.last()
+      |> String.split(~s(<h3 class="text-sm font-semibold">Status</h3>), parts: 2)
+      |> List.first()
+
+    assert snmp_panel =~ "farm01-snmp"
+    assert snmp_panel =~ "NOC Team"
+    assert snmp_panel =~ "Datacenter B"
+    assert snmp_panel =~ "UDM-Pro-Max 4.4.6"
+    refute snmp_panel =~ "farm01-sys"
   end
 
   @tag :web_ng_shared_fixture_db
@@ -1501,8 +1525,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ ".1.3.6.1.4.1.11.2.3.7.11.153"
     assert html =~ "19d 12h"
     assert html =~ "All OT Boundaries"
-    assert html =~ "Risk Score"
-    assert html =~ "7 / 10"
+    assert html =~ ~s(aria-label="Risk score 7 out of 10")
     assert html =~ "In Service"
     assert html =~ "SN-123"
     assert html =~ "Plant 7"
@@ -1769,14 +1792,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    html = render_until(view, "CPU", 10_000)
+    html = render_until(view, "nginx", 10_000)
 
+    # The sysmon area charts CPU, memory and disk; process samples feed the Processes
+    # table (there is no separate process-count chart).
     assert html =~ "CPU"
     assert html =~ "42.4%"
     assert html =~ "Memory"
     assert html =~ "Disk"
-    assert html =~ "Process Count"
-    assert html =~ "avg observed processes"
     assert html =~ "Processes"
     assert html =~ "CPU Trend"
     assert html =~ "nginx"
@@ -1852,6 +1875,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid)
 
+    # Device findings are read from platform.anomaly_episodes (the default Ash
+    # source); capacity runway still comes through SRQL.
+    insert_anomaly_episode!(%{
+      episode_uid: "episode-fallback-#{unique}",
+      finding_uid: "finding-fallback-#{unique}",
+      device_uid: uid,
+      series_key: "sysmon:#{uid}:cpu.usage_percent",
+      metric_name: "cpu.usage_percent",
+      metric_class: "cpu",
+      if_index: 2,
+      peak_score: 4.8,
+      last_payload: %{
+        "finding_title" => "CPU saturation anomaly",
+        "reason" => "breach confirmed after 5/5 consecutive anomalous slots",
+        "metadata" => %{"anomaly" => %{"interface_uid" => "eth0", "value" => 97.4}}
+      }
+    })
+
+    # An agent-scoped finding must never be shown on the canonical device page.
+    insert_anomaly_episode!(%{
+      episode_uid: "episode-fallback-agent-#{unique}",
+      finding_uid: "finding-fallback-agent-#{unique}",
+      device_uid: agent_id,
+      series_key: "sysmon:#{agent_id}:cpu.usage_percent",
+      metric_name: "cpu.usage_percent",
+      metric_class: "cpu",
+      last_payload: %{
+        "finding_title" => "Unexpected connection to K8s API Server",
+        "reason" => "breach confirmed after 5/5 consecutive anomalous slots"
+      }
+    })
+
     Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
     Application.put_env(:serviceradar_web_ng, :device_live_srql_test_pid, self())
 
@@ -1866,49 +1921,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                  "hostname" => hostname,
                  "agent_id" => agent_id,
                  "is_available" => true
-               }
-             ],
-             "pagination" => %{}
-           }}
-
-        String.contains?(query, "in:events") and
-          String.contains?(query, "source_type:anomaly_detection") and
-            String.contains?(query, ~s|source_device_uid:"#{uid}"|) ->
-          {:ok,
-           %{
-             "results" => [
-               %{
-                 "time" => "2026-06-13T12:00:00Z",
-                 "message" => "breach pending confirmation at 3/5 consecutive anomalous slots",
-                 "metric_class" => "cpu",
-                 "metric_name" => "cpu.usage_percent",
-                 "source_type" => "anomaly_detection",
-                 "severity" => "High",
-                 "metadata" => %{
-                   "finding_info" => %{"title" => "CPU saturation anomaly"},
-                   "source_identity" => %{
-                     "metric_name" => "cpu.usage_percent",
-                     "series_key" => "sysmon:#{uid}:cpu.usage_percent",
-                     "interface_uid" => "eth0",
-                     "if_index" => 2
-                   },
-                   "anomaly" => %{"value" => 97.4, "score" => 4.8}
-                 }
-               }
-             ],
-             "pagination" => %{}
-           }}
-
-        String.contains?(query, "in:events") and String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
-          {:ok,
-           %{
-             "results" => [
-               %{
-                 "time" => "2026-06-13T12:05:00Z",
-                 "message" => "Unexpected connection to K8s API Server from container",
-                 "metric_class" => nil,
-                 "source_type" => "falco",
-                 "severity" => "Low"
                }
              ],
              "pagination" => %{}
@@ -1947,11 +1959,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end)
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    html = render_until(view, "Anomaly &amp; Capacity", 10_000)
+    html = render_until(view, "CPU saturation anomaly", 10_000)
     queries = drain_srql_queries()
 
+    assert html =~ "Anomaly &amp; Capacity"
     assert html =~ "CPU saturation anomaly"
-    assert html =~ "breach pending confirmation"
+    assert html =~ "breach confirmed after 5/5 consecutive anomalous slots"
     assert html =~ "cpu.usage_percent"
     assert html =~ "eth0 / ifIndex 2"
     assert html =~ "value 97.40"
@@ -1961,14 +1974,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "threshold 95.00%"
     assert html =~ "headroom 22.50%"
     assert html =~ "open_anomaly_capacity_detail"
-    assert html =~ "device source_device_uid=#{uid}"
+    assert html =~ "device service_radar_device_uid=#{uid}"
     assert html =~ "device resource_id=#{uid}"
-    assert html =~ "active"
-    assert Enum.any?(queries, &String.contains?(&1, ~s|source_device_uid:"#{uid}"|))
-    assert Enum.any?(queries, &String.contains?(&1, ~s|resource_id:"#{uid}"|))
-    refute Enum.any?(queries, &String.contains?(&1, "agent_id:"))
-    refute Enum.any?(queries, &String.contains?(&1, "host_id:"))
-    refute Enum.any?(queries, &String.contains?(&1, "resource_key:"))
+    capacity_queries = Enum.filter(queries, &String.starts_with?(&1, "in:capacity_forecasts"))
+    assert Enum.any?(capacity_queries, &String.contains?(&1, ~s|resource_id:"#{uid}"|))
+    refute Enum.any?(capacity_queries, &String.contains?(&1, ~s|resource_id:"#{agent_id}"|))
+    refute Enum.any?(capacity_queries, &String.contains?(&1, "host_id:"))
+    refute Enum.any?(capacity_queries, &String.contains?(&1, "resource_key:"))
   end
 
   @tag :web_ng_shared_fixture_db
@@ -2008,8 +2020,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     html = render_until(view, "Anomaly &amp; Capacity", 10_000)
 
     assert html =~ "No anomaly findings found for this device in the last 7 days."
-    assert html =~ "No capacity forecasts found for this device yet."
-    assert html =~ "normal"
+    assert html =~ "Capacity Runway"
+    assert html =~ "No projected capacity forecasts found for this device yet."
   end
 
   @tag :web_ng_shared_fixture_db
@@ -2031,6 +2043,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       "severity" => "High",
       "metric_name" => "cpu.usage_percent",
       "message" => "CPU saturation anomaly",
+      # CPU findings annotate the chart only once central disposition escalated them.
+      "anomaly_disposition" => %{"action" => "escalate"},
       "metadata" => %{
         "finding_info" => %{
           "dimensions" => %{
@@ -2080,6 +2094,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       "severity" => "warning",
       "metric_name" => "cpu.usage_percent",
       "message" => "CPU saturation anomaly",
+      # CPU findings annotate the chart only once central disposition escalated them.
+      "anomaly_disposition" => %{"action" => "escalate"},
       "metadata" => %{
         "source_identity" => %{"series_key" => "sysmon.cpu:host:CPU1"}
       }
@@ -2341,7 +2357,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
-    {:ok, _match} =
+    {:ok, match} =
       EndpointVulnerabilityMatch
       |> Ash.Changeset.for_create(
         :upsert,
@@ -2379,6 +2395,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           metadata: %{}
         }
       )
+      |> Ash.create(scope: scope)
+
+    # The Software tab renders adjudicated assessments; the raw match above is the
+    # supporting evidence the assessment cites.
+    {:ok, _assessment} =
+      EndpointVulnerabilityAssessment
+      |> Ash.Changeset.for_create(:upsert, %{
+        device_uid: uid,
+        package_identity_key: "pkgid:v1:zlib-sr-#{unique}",
+        agent_id: agent_id,
+        scan_ref: scan.id,
+        inventory_package_ref: package_row.id,
+        endpoint_package_ref: endpoint_package.id,
+        cve_id: "CVE-2026-#{unique}",
+        status: "active",
+        assessment: "confirmed",
+        disposition: "affected",
+        authority: "fixture:zlib-sr-#{unique}",
+        applicability_reason: "exact package range",
+        freshness: "fresh",
+        provider: "fixture",
+        feed_key: "cisa-kev",
+        package_manager: "dpkg",
+        package_name: "zlib-sr-#{unique}",
+        installed_version: "1.24.0-#{unique}",
+        fixed_version: "1.24.1-#{unique}",
+        severity: "critical",
+        cvss_score: 9.8,
+        kev: true,
+        exploit_available: true,
+        supporting_match_ids: [match.id],
+        evidence: %{},
+        metadata: %{},
+        first_seen_at: now,
+        last_seen_at: now
+      })
       |> Ash.create(scope: scope)
 
     {:ok, rpm_endpoint_package} =
@@ -2478,16 +2530,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "endpoint_inventory_query"
     assert html =~ "endpoint_inventory_cohort_query"
     assert html =~ "endpoint-inventory-package-filter"
-    assert html =~ "Vulnerability Matches"
-    assert html =~ "CVE-2026-#{unique}"
-    assert html =~ "1.24.1-#{unique}"
-    assert html =~ "cisa-kev"
-    assert html =~ "KEV"
+    assert html =~ ~s(data-testid="vulnerability-assessment-sections")
+    assert html =~ "Confirmed vulnerabilities"
+    assert has_element?(view, ~s([data-testid="cve-finding"][data-cve="CVE-2026-#{unique}"]), "KEV")
+    assert html =~ "fix 1.24.1-#{unique}"
+    assert html =~ "fixture:zlib-sr-#{unique}"
     assert html =~ "scanned"
     assert html =~ "complete"
     assert html =~ agent_id
     assert html =~ "serviceradar-endpoint-inventory test"
-    assert html =~ "Showing 2 of 2 loaded rows"
+    assert html =~ "Showing 1-2 of 2"
     assert html =~ "zlib-sr-#{unique}"
     assert html =~ "rpm-sr-#{unique}"
     assert html =~ "1.24.0-#{unique}"
@@ -2507,7 +2559,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> render_change()
 
     assert filtered_html =~ "Filtered"
-    assert filtered_html =~ "Showing 1 of 2 loaded rows"
+    assert filtered_html =~ "Showing 1-1 of 1"
+    assert filtered_html =~ "(of 2 total)"
     assert filtered_html =~ "rpm-sr-#{unique}"
     refute filtered_html =~ "zlib-sr-#{unique}</td>"
 
@@ -2658,7 +2711,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
-    {:ok, _nvd_match} =
+    {:ok, nvd_match} =
       EndpointVulnerabilityMatch
       |> Ash.Changeset.for_create(
         :upsert,
@@ -2693,7 +2746,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
-    {:ok, _kev_match} =
+    {:ok, kev_match} =
       EndpointVulnerabilityMatch
       |> Ash.Changeset.for_create(
         :upsert,
@@ -2728,8 +2781,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
+    # One adjudicated assessment for the package/CVE cites both feeds' raw matches.
+    {:ok, _assessment} =
+      EndpointVulnerabilityAssessment
+      |> Ash.Changeset.for_create(:upsert, %{
+        device_uid: uid,
+        package_identity_key: "pkgid:v1:openssl-#{unique}",
+        agent_id: agent_id,
+        scan_ref: scan.id,
+        inventory_package_ref: package_row.id,
+        endpoint_package_ref: endpoint_package.id,
+        cve_id: cve_id,
+        status: "active",
+        assessment: "confirmed",
+        disposition: "affected",
+        authority: "fixture:openssl-#{unique}",
+        applicability_reason: "exact package range",
+        freshness: "fresh",
+        provider: "nvd",
+        feed_key: "nist-nvd2",
+        package_manager: "dpkg",
+        package_name: "openssl-#{unique}",
+        installed_version: "3.0.13",
+        fixed_version: "3.0.14",
+        severity: "high",
+        cvss_score: 7.5,
+        kev: true,
+        exploit_available: true,
+        supporting_match_ids: [nvd_match.id, kev_match.id],
+        evidence: %{},
+        metadata: %{},
+        first_seen_at: now,
+        last_seen_at: now
+      })
+      |> Ash.create(scope: scope)
+
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=software")
-    html = render_until(view, "Vulnerability Matches", 10_000)
+    html = render_until(view, cve_id, 10_000)
 
     assert html =~ cve_id
     assert html =~ "KEV"
@@ -2762,15 +2850,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     grace_window_at = DateTime.shift(now, hour: -25)
     stale_at = DateTime.shift(now, hour: -27)
 
-    scenarios = [
+    # The agent-only Software tab is not offered for a device that hosts no agent
+    # and has no inventory.
+    no_agent_uid = "sr:test-device-endpoint-state-no-agent-#{unique}"
+
+    Repo.insert_all("ocsf_devices", [
       %{
-        suffix: "no-agent",
-        agent?: false,
-        scan: nil,
-        title: "No enrolled endpoint inventory agent",
-        detail: "cannot run until this device is associated with an enrolled agent",
-        empty: "No enrolled endpoint inventory agent or package inventory is available for this device."
-      },
+        uid: no_agent_uid,
+        type_id: 0,
+        hostname: "endpoint-state-no-agent-#{unique}",
+        is_available: true,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    {:ok, no_agent_view, _html} = live(conn, ~p"/devices/#{no_agent_uid}?tab=software")
+    assert render_until(no_agent_view, "endpoint-state-no-agent-#{unique}", 10_000) =~ "endpoint-state-no-agent"
+    refute has_element?(no_agent_view, "button[phx-click='switch_tab'][phx-value-tab='software']")
+    refute render(no_agent_view) =~ "Endpoint Software"
+
+    scenarios = [
       %{
         suffix: "no-scan",
         scan: nil,
@@ -2871,17 +2971,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     for scenario <- scenarios do
       uid = "sr:test-device-endpoint-state-#{scenario.suffix}-#{unique}"
       agent_id = "agent-endpoint-state-#{scenario.suffix}-#{unique}"
-      agent_id_value = if Map.get(scenario, :agent?, true), do: agent_id
 
       Repo.insert_all("ocsf_devices", [
         %{
           uid: uid,
           type_id: 0,
           hostname: "endpoint-state-#{scenario.suffix}-#{unique}",
-          agent_id: agent_id_value,
+          agent_id: agent_id,
           is_available: true,
           first_seen_time: now,
           last_seen_time: now
+        }
+      ])
+
+      # The device hosts the registered agent, which is what offers the Software tab.
+      Repo.insert_all("ocsf_agents", [
+        %{
+          uid: agent_id,
+          name: agent_id,
+          type_id: 0,
+          device_uid: uid,
+          capabilities: ["endpoint_inventory"],
+          status: "connected",
+          is_healthy: true,
+          first_seen_time: now,
+          last_seen_time: now,
+          created_time: now,
+          modified_time: now
         }
       ])
 
@@ -3429,7 +3545,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
-      html = render(view)
+      html = render_until(view, "No interface data yet.", 10_000)
       assert html =~ "No interface data yet."
       assert html =~ "mapper timeout"
       assert html =~ job.name
@@ -3445,7 +3561,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
-      html = render(view)
+      html = render_until(view, "Primary Ethernet", 10_000)
       assert html =~ "eth0"
       assert html =~ "Primary Ethernet"
     end
@@ -3459,7 +3575,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
-      html = render(view)
+      html = render_until(view, "#{device_uid}-lo0", 10_000)
       # ethernetCsmacd should be displayed as "Ethernet"
       assert html =~ "Ethernet"
       # softwareLoopback should be displayed as "Loopback"
@@ -3475,8 +3591,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
-      # Should have status badges
-      assert has_element?(view, ".badge")
+      assert render_until(view, "#{device_uid}-eth0", 10_000) =~ "#{device_uid}-eth0"
+
+      # Operational and admin status badges for each interface
+      assert has_element?(view, "[title='Operational Status']", "Up")
+      assert has_element?(view, "[title='Admin Status']")
     end
 
     @tag :web_ng_shared_fixture_db
@@ -3488,8 +3607,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
+      assert render_until(view, "#{device_uid}-eth0", 10_000) =~ "#{device_uid}-eth0"
+
       # Should have checkboxes for selection
-      assert has_element?(view, "input[type=checkbox]")
+      assert has_element?(
+               view,
+               "input[type=checkbox][phx-click='toggle_interface_select'][phx-value-uid='#{device_uid}-eth0']"
+             )
     end
 
     @tag :web_ng_shared_fixture_db
@@ -3564,14 +3688,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
+      assert render_until(view, "#{device_uid}-eth0", 10_000) =~ "#{device_uid}-eth0"
+
       # Click favorite star for first interface
       view
       |> element("button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']")
       |> render_click()
 
-      # Should show favorited state (star icon changes)
-      html = render(view)
-      assert html =~ "hero-star"
+      # The star flips to the favorited state for that interface
+      assert render_until(view, "Remove from favorites", 10_000) =~ "hero-star-solid"
+
+      assert has_element?(
+               view,
+               "button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0'][title='Remove from favorites']"
+             )
     end
 
     @tag :web_ng_shared_fixture_db
@@ -3579,14 +3709,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       insert_test_flow!(device_uid, "192.168.1.55")
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
 
-      assert has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='flows']")
+      # Flow availability is probed asynchronously; the tab becomes clickable once it lands.
+      assert await_element(view, @enabled_flows_tab)
 
       view
-      |> element("button[phx-click='switch_tab'][phx-value-tab='flows']")
+      |> element(@enabled_flows_tab)
       |> render_click()
 
-      assert has_element?(view, "a.btn.btn-ghost.btn-xs", "Details")
       html = render_until(view, "bidirectional")
+      assert has_element?(view, "a[href^='/observability/flows?']", "Details")
       assert html =~ "DNS"
       assert html =~ "bidirectional"
     end
@@ -3606,9 +3737,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       insert_test_flow!(device_uid, device_ip)
 
       {:ok, device_view, _html} = live(conn, ~p"/devices/#{device_uid}")
+      assert await_element(device_view, @enabled_flows_tab)
 
       device_view
-      |> element("button[phx-click='switch_tab'][phx-value-tab='flows']")
+      |> element(@enabled_flows_tab)
       |> render_click()
 
       device_html = render_until(device_view, "bidirectional")
@@ -3921,13 +4053,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
       |> render_click()
 
+      # The interfaces tab loads asynchronously; wait for its rows before selecting one.
+      assert render_until(view, "#{device_uid}-eth0", 10_000) =~ "#{device_uid}-eth0"
+      refute has_element?(view, "button[phx-click='open_interfaces_bulk_edit']")
+
       # Select an interface
       view
       |> element("input[phx-click='toggle_interface_select'][phx-value-uid='#{device_uid}-eth0']")
       |> render_click()
 
-      html = render(view)
-      assert html =~ "Bulk Edit" or html =~ "bulk"
+      assert has_element?(view, "button[phx-click='open_interfaces_bulk_edit']", "Bulk Edit")
+      assert render(view) =~ "1 selected"
     end
 
     @tag :web_ng_shared_fixture_db
@@ -4560,6 +4696,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   defp northbound_descriptor_id("device"), do: "018f2fd1-f0ff-7cf0-9dc0-000000000101"
   defp northbound_descriptor_id(_scope), do: "018f2fd1-f0ff-7cf0-9dc0-000000000202"
 
+  defp insert_anomaly_episode!(attrs) do
+    now = DateTime.utc_now()
+
+    attrs =
+      Map.merge(
+        %{
+          if_index: nil,
+          detector: "spike",
+          status: "open",
+          severity_id: 4,
+          peak_severity_id: 4,
+          peak_score: nil,
+          opened_at: DateTime.add(now, -300, :second),
+          last_seen_at: now,
+          occurrence_count: 1,
+          reopen_count: 0
+        },
+        attrs
+      )
+
+    Repo.query!(
+      """
+      INSERT INTO platform.anomaly_episodes (
+        episode_uid, finding_uid, device_uid, series_key, metric_name, if_index,
+        metric_class, detector, status, severity_id, peak_severity_id, peak_score,
+        opened_at, last_seen_at, occurrence_count, reopen_count, last_payload
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb)
+      """,
+      [
+        attrs.episode_uid,
+        attrs.finding_uid,
+        attrs.device_uid,
+        attrs.series_key,
+        attrs.metric_name,
+        attrs.if_index,
+        attrs.metric_class,
+        attrs.detector,
+        attrs.status,
+        attrs.severity_id,
+        attrs.peak_severity_id,
+        attrs.peak_score,
+        attrs.opened_at,
+        attrs.last_seen_at,
+        attrs.occurrence_count,
+        attrs.reopen_count,
+        attrs.last_payload
+      ]
+    )
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
@@ -5107,6 +5293,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       IntegrationIdentity.proxmox_v3_child_ref(identity.provider_instance_ref, kind, components)
 
     provider_ref
+  end
+
+  defp await_element(view, selector, timeout_ms \\ 10_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    await_element_until(view, selector, deadline)
+  end
+
+  defp await_element_until(view, selector, deadline) do
+    cond do
+      has_element?(view, selector) ->
+        true
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        false
+
+      true ->
+        Process.sleep(50)
+        await_element_until(view, selector, deadline)
+    end
   end
 
   defp render_until(view, expected, timeout_ms \\ 2_000) do

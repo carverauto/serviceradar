@@ -119,7 +119,11 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
             Process.get(:first_party_recent_release_requests, 0) + 1
           )
 
-          {:ok, %Req.Response{status: 200, body: [PackagesTest.first_party_release()]}}
+          if Process.get(:first_party_recent_releases_missing) do
+            {:ok, %Req.Response{status: 404, body: ""}}
+          else
+            {:ok, %Req.Response{status: 200, body: [PackagesTest.first_party_release()]}}
+          end
 
         String.contains?(
           url,
@@ -489,6 +493,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   end
 
   test "periodic first-party sync does not fail the job when GitHub has no plugin catalog" do
+    # Test-owned registry row: the worker only syncs registered repositories.
+    create_worker_registry!()
+
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.51")
     Process.put(:first_party_recent_releases_missing, true)
@@ -497,7 +504,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     assert :ok =
              FirstPartySyncWorker.perform(%Job{
-               args: %{"force" => true, "repo_url" => @repo_url, "limit" => 10}
+               args: %{"force" => true, "repo_url" => @worker_repo_url, "limit" => 10}
              })
 
     assert Process.get(:first_party_recent_release_requests) >= 1

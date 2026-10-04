@@ -80,6 +80,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
+    reference_source? false
     create_version_on_destroy? true
     ignore_attributes [:inserted_at, :updated_at, :archived_at]
   end

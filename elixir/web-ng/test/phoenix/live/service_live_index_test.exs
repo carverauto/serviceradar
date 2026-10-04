@@ -226,6 +226,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
   end
 
   defp plugin_assignment_fixture(agent_uid, package_id) do
+    # Assignment creation binds the partition from the agent's live control
+    # session; an agent with none is refused before anything is written.
+    register_control_session!(agent_uid, "default")
+
     PluginAssignment
     |> Ash.Changeset.for_create(
       :create,

@@ -118,7 +118,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
     assert html =~ "Baseline MTR automation always targets managed devices only."
     assert html =~ "25"
 
-    assert html =~
+    # The template wraps this sentence across source lines, so compare it with
+    # whitespace collapsed the way a browser renders it.
+    assert String.replace(html, ~r/\s+/, " ") =~
              "120 eligible managed device(s) match the SRQL query, and the selector limit caps each run at 25 target(s)."
   end
 
@@ -190,8 +192,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
       AgentCommand.complete(command, [result_payload: %{"total_targets" => total_targets}], actor: actor)
 
     ServiceRadar.Repo.query!(
-      "UPDATE platform.agent_commands SET inserted_at = $2, completed_at = $3 WHERE id = $1",
-      [command.id, inserted_at, completed_at]
+      "UPDATE platform.agent_commands SET inserted_at = $2, completed_at = $3 WHERE command_id = $1",
+      [Ecto.UUID.dump!(command.id), inserted_at, completed_at]
     )
 
     %{command | inserted_at: inserted_at, completed_at: completed_at}

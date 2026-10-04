@@ -350,9 +350,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
       })
       |> render_submit()
 
-      # Should show validation error
-      assert has_element?(lv, ".alert-error")
-      assert render(lv) =~ "At least one match condition must be enabled"
+      # Should show the validation error inside the still-open builder form
+      assert has_element?(
+               lv,
+               "#rule-builder-form span",
+               "At least one match condition must be enabled"
+             )
     end
   end
 

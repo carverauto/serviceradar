@@ -342,8 +342,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
       {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
 
-      assert has_element?(lv, "#log-source-ip", "Source IP")
-      assert has_element?(lv, "#log-source-ip", "192.0.2.10")
+      # The source IP renders as a fact that links to the log viewer filtered on it.
+      assert has_element?(lv, "span", "Source IP")
+
+      assert has_element?(
+               lv,
+               "a[title='Filter logs by Source IP: 192.0.2.10']",
+               "192.0.2.10"
+             )
     end
 
     @tag :web_ng_shared_fixture_db
@@ -439,8 +445,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
       {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
 
-      assert html =~ "badge-info"
-      assert html =~ ~r/badge-info[^>]*>\s*INFO\s*</
+      # The info variant of ui_badge carries the brand tint (bg-sr-brand/10).
+      assert html =~ ~r/class="[^"]*bg-sr-brand\/10[^"]*"[^>]*>\s*INFO\s*</
       # Neither the raw enum name nor an upcased copy of it may reach the badge.
       refute html =~ "SEVERITY_NUMBER_INFO"
       refute html =~ ">SEVERITY NUMBER INFO<"
@@ -457,8 +463,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
 
       # The trailing numbered-variant digit is stripped: WARN3 -> WARN.
-      assert html =~ "badge-warning"
-      assert html =~ ~r/badge-warning[^>]*>\s*WARN\s*</
+      # The warning variant of ui_badge carries the amber tint (bg-amber-500/10).
+      assert html =~ ~r/class="[^"]*bg-amber-500\/10[^"]*"[^>]*>\s*WARN\s*</
       refute html =~ "SEVERITY_NUMBER_WARN3"
     end
 

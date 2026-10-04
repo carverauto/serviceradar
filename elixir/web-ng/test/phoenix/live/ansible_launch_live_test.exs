@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
   alias ServiceRadar.Automation.Ansible.AwxTemplateBinding
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.Playbook
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.Accounts.Scope
@@ -140,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
         name: "launch-only-controller-#{suffix}",
         base_url: "https://awx.test.invalid",
         agent_id: "launch-only-agent-#{suffix}",
-        credential_secret_id: Ash.UUID.generate()
+        credential_secret_id: awx_secret_fixture!(suffix).id
       })
 
     playbook =
@@ -198,6 +199,27 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
     })
 
     {device_uid, playbook}
+  end
+
+  # The controller's credential reference is a real foreign key, so the fixture
+  # needs a stored AWX token rather than a random id.
+  defp awx_secret_fixture!(suffix) do
+    actor = AshTestHelpers.system_actor()
+
+    NetworkCredentialSecret
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Launch-only AWX token #{suffix}",
+        provider: "awx",
+        credential_kind: :api_token,
+        public_fingerprint: "sha256:test",
+        secret_payload: "awx-bearer-token",
+        metadata: %{"auth_method" => "bearer_token", "credential_purpose" => "sync"}
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
   end
 
   defp grant_permissions(user, permissions) do

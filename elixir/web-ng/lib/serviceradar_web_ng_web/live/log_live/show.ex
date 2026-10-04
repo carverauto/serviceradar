@@ -485,7 +485,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp stream_entry(log, idx) when is_map(log) do
-    body = log_message(log)
+    body = display_message(log)
     id = entry_id(log, idx)
 
     %{
@@ -508,7 +508,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp page_title_for(%{} = log, log_id) do
-    case log_headline(log_message(log)) do
+    case log_headline(display_message(log)) do
       nil -> "Log · #{String.slice(to_string(log_id), 0, 8)}"
       title -> title
     end
@@ -523,7 +523,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr(:can_create_rules?, :boolean, default: false)
 
   defp log_detail_header(assigns) do
-    body = log_message(assigns.log)
+    body = display_message(assigns.log)
     title = log_headline(body) || "Log entry"
 
     assigns =
@@ -711,7 +711,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr(:body_mode, :string, required: true)
 
   defp log_message_hero(assigns) do
-    body = redact_secret_text(log_message(assigns.log))
+    body = display_message(assigns.log)
     is_json = message_is_json?(body)
     pairs = extract_message_pairs(body)
     prefix = message_prefix(body) || wevent_message_prefix(body)
@@ -935,6 +935,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp log_message(log) when is_map(log), do: Map.get(log, "body") || Map.get(log, "message") || ""
 
   defp log_message(_), do: ""
+
+  # Every rendered copy of the body (page title, header headline, side-stream
+  # preview, message hero) goes through the same redaction, so a credential
+  # in the body cannot reach the page through a summary of it.
+  defp display_message(log), do: log |> log_message() |> redact_secret_text()
 
   defp message_is_json?(body) when is_binary(body) do
     t = String.trim(body)

@@ -13,9 +13,8 @@ ExUnit.configure(
 # 8 GodView stream cases are tagged :skip as known-divergent (product decisions
 # tracked in https://github.com/carverauto/serviceradar/issues/4988); they load
 # but never select.
-# Count from test run: 2384 total - 8 skipped - 2 excluded = 2374 selected.
-# (staging has 299; this PR adds the additional routed tests)
-expected_selected_tests = 2374
+# Pinned from the filtered BazelCI lane summary (total - excluded - skipped).
+expected_selected_tests = 2400
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

@@ -712,6 +712,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         "effective_severity" => effective_severity(row),
         "disposition" => disposition(row),
         "reason" => reason(row),
+        "opening_reason" => lifecycle_reason(row, "opening_reason"),
+        "resolution_reason" => lifecycle_reason(row, "resolution_reason"),
         "state" => anomaly_state(row),
         "status" => status_value(row),
         "consecutive_anomalous" => detection_value(row, "consecutive_anomalous"),
@@ -727,6 +729,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       |> project_seasonal_context(row)
 
     if operator_visible_anomaly_row?(projected), do: projected
+  end
+
+  # An episode keeps why it opened apart from why it cleared; the detail modal
+  # renders both, so the display projection must carry them through.
+  defp lifecycle_reason(row, key) do
+    first_present(row, [[key], ["anomaly", key], ["metadata", "anomaly", key]])
   end
 
   defp project_seasonal_context(projected, row) do

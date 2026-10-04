@@ -30,11 +30,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLiveTest do
 
     assert has_element?(view, "#authentication-settings-form input[name='settings[is_enabled]'][disabled]")
 
+    # The checkbox is disabled, so a browser never submits it. A stale or
+    # hand-crafted client still can; pass the contradictory flag outside the
+    # form's validated fields the way such a client would.
     view
-    |> form("#authentication-settings-form", %{
-      "settings" => %{"is_enabled" => "true", "mode" => "password_only"}
-    })
-    |> render_submit()
+    |> form("#authentication-settings-form", %{"settings" => %{"mode" => "password_only"}})
+    |> render_submit(%{"settings" => %{"is_enabled" => "true"}})
 
     assert %{rows: [[false]]} = Repo.query!("SELECT is_enabled FROM platform.auth_settings LIMIT 1")
   end

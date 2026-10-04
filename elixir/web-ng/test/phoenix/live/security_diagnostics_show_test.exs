@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
   test "event detail bounds direct event id lookup by time", %{conn: conn} do
     {:ok, _lv, _html} = live(conn, ~p"/events/falco-event-1")
 
-    assert_receive {:srql_query, ~s(in:events id:"falco-event-1" time:last_24h sort:time:desc limit:1)}
+    assert_receive {:srql_query, ~s(in:events id:"falco-event-1" time:last_7d limit:1)}
   end
 
   test "event detail renders Falco runtime diagnostics with partial attribution", %{conn: conn} do
@@ -43,9 +43,9 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
 
     {:ok, lv, html} = live(conn, ~p"/events/falco-event-1")
 
-    assert html =~ "Signal Details"
+    assert html =~ "Signal details"
     assert html =~ "Falco Evidence"
-    assert html =~ "Falco Runtime Event"
+    assert html =~ "Falco runtime event"
     assert html =~ "Drop and execute new binary in container"
     assert html =~ "/tmp/.build/tool --lint"
     assert html =~ "/workspace/carverauto/serviceradar"
@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
   test "event detail renders Trivy vulnerability findings from the display contract", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/events/trivy-event-1")
 
-    assert html =~ "Signal Details"
+    assert html =~ "Signal details"
     assert html =~ "Vulnerabilities"
     assert html =~ "CVE-2025-68121"
     assert html =~ "crypto/tls: Unexpected session resumption in crypto/tls"
@@ -82,8 +82,9 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
   test "alert detail renders stateful incident diagnostics and source samples", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/alerts/alert-1")
 
-    assert html =~ "Stateful Incident"
-    assert html =~ "falco-incident"
+    assert html =~ "Stateful incident"
+    # The incident rule name renders humanized in the Rule fact.
+    assert html =~ "Falco-incident"
     assert html =~ "rule=Drop and execute new binary in container|hostname=k8s-cp2-worker2"
     assert html =~ "/tmp/.build/tool --lint"
     assert html =~ "forgejo-runner"
@@ -95,11 +96,10 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
     {:ok, _lv, html} = live(conn, ~p"/events/syslog-event-1")
 
     assert html =~ "UniFi Network has updated to 10.4.57"
-    assert html =~ "Event Details"
-    assert html =~ "Unmapped"
-    assert html =~ "log_attributes"
-    refute html =~ "Signal Details"
-    refute html =~ "WAF Finding"
+    # Blank WAF attributes must not produce the WAF finding panel or a signal
+    # display (the redesigned detail page renders neither for plain syslog).
+    refute html =~ "Signal details"
+    refute html =~ "WAF finding"
     refute html =~ "View source log"
   end
 

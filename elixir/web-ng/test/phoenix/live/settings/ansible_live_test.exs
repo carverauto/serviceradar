@@ -248,7 +248,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
 
     refute html =~ "missing_awx_credential"
     refute html =~ "Ash.Error.Unknown"
-    assert html =~ "Controller \"#{controller_name}\" created."
+    assert has_element?(lv, "#flash-info", "Controller \"#{controller_name}\" created.")
 
     controller = controller_by_name!(controller_name)
     assert controller.sync_credential_secret_id

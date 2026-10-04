@@ -53,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
           media_ingest_id: nil,
           close_reason: nil,
           failure_reason: nil,
+          termination_kind: nil,
           lease_expires_at: DateTime.from_unix!(1_800_000_000),
           updated_at: DateTime.from_unix!(1_800_000_000)
         }

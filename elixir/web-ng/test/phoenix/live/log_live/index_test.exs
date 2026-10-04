@@ -139,10 +139,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     # SEVERITY_NUMBER_INFO -> INFO label + info color (was "SEVER" truncation +
     # ghost color before the fix).
-    assert html =~ "badge-info"
-    assert html =~ ~r/badge-info[^>]*>\s*INFO\s*</
-    # SEVERITY_NUMBER_WARN -> WARN label + warning color.
-    assert html =~ ~r/badge-warning[^>]*>\s*WARN\s*</
+    # ui_badge's info variant carries the brand tint (bg-sr-brand/10).
+    assert html =~ ~r/class="[^"]*bg-sr-brand\/10[^"]*"[^>]*>\s*INFO\s*</
+    # SEVERITY_NUMBER_WARN -> WARN label + warning color (bg-amber-500/10).
+    assert html =~ ~r/class="[^"]*bg-amber-500\/10[^"]*"[^>]*>\s*WARN\s*</
 
     # The raw enum name and its 5-char truncation must never reach the badge.
     refute html =~ "SEVERITY_NUMBER_INFO"
@@ -385,8 +385,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert has_element?(lv, "#logs-live-status", "On")
     _ = drain_srql_calls()
 
+    # Paging is a session-position event (cursor stays in assigns, not the URL).
     lv
-    |> element("a", "Next")
+    |> element("button[phx-click='srql_paginate']", "Next")
     |> render_click()
 
     assert has_element?(lv, "#logs-live-status", "Off")
@@ -450,8 +451,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert has_element?(lv, "#events-live-status", "On")
     _ = drain_srql_calls()
 
+    # Paging is a session-position event (cursor stays in assigns, not the URL).
     lv
-    |> element("a", "Next")
+    |> element("button[phx-click='srql_paginate']", "Next")
     |> render_click()
 
     assert has_element?(lv, "#events-live-status", "Off")

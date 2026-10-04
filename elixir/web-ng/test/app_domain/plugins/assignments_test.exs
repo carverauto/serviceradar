@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
 
   import ServiceRadarWebNG.AshTestHelpers, only: [register_control_session!: 2, system_actor: 0]
 
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -81,7 +82,19 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
       }
     }
 
-    secret_ref = "credentialref:network-credential-secret:#{Ecto.UUID.generate()}"
+    # Stored secret references bind to a real credential row (foreign key).
+    secret =
+      NetworkCredentialSecret.create_secret!(
+        %{
+          name: "Assignment upgrade key #{System.unique_integer([:positive])}",
+          provider: "otx",
+          credential_kind: :api_token,
+          secret_payload: "synthetic-otx-api-key"
+        },
+        actor: system_actor()
+      )
+
+    secret_ref = "credentialref:network-credential-secret:#{secret.id}"
 
     params =
       SecretRefs.prepare_params_for_storage(target_schema, %{

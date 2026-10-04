@@ -31,7 +31,13 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLiveTest do
   end
 
   describe "authenticated visitor with cli.session.create" do
-    setup :register_and_log_in_user
+    # A freshly registered user defaults to viewer, which does not hold
+    # cli.session.create; operator is the lowest built-in role that does.
+    setup do
+      user = AccountsFixtures.user_fixture(%{role: :operator})
+      conn = log_in_user(Phoenix.ConnTest.build_conn(), user)
+      %{conn: conn, user: user}
+    end
 
     test "no code in URL renders the prompt form", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cli/auth/device")

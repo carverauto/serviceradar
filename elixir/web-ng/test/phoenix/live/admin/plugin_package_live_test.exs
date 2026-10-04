@@ -200,6 +200,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       trusted_upload_signing_keys: %{"live-test" => Base.encode64(public_key)}
     )
 
+    # The catalog reads repository records, not config. The migration-seeded
+    # built-in row carries the production signing key, which cannot verify this
+    # suite's bundles, and the shared fixture database is not guaranteed to hold
+    # it at all; own the default row for the sandboxed duration of each test.
+    put_builtin_repository!(Base.encode64(public_key))
+
     Application.put_env(
       :serviceradar_web_ng,
       :first_party_plugin_import_http_client,
@@ -1715,6 +1721,27 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  # Builtin rows reject :update by design, so the fixture writes the row directly.
+  defp put_builtin_repository!(public_key) do
+    Repo.query!(
+      """
+      INSERT INTO platform.plugin_repositories
+        (id, name, repo_url, artifact_kind, index_asset_name, signing_key_id,
+         signing_public_key, enabled, builtin, is_default, inserted_at, updated_at)
+      VALUES
+        (gen_random_uuid(), 'ServiceRadar', $1, 'wasm_plugin',
+         'serviceradar-wasm-plugin-index.json', 'live-test', $2, true, true, true, now(), now())
+      ON CONFLICT (repo_url) DO UPDATE
+        SET signing_key_id = EXCLUDED.signing_key_id,
+            signing_public_key = EXCLUDED.signing_public_key,
+            enabled = true,
+            builtin = true,
+            is_default = true
+      """,
+      [@repo_url, public_key]
+    )
+  end
 
   defp create_repository!(name, repo_url) do
     {public_key, _private_key} = :crypto.generate_key(:eddsa, :ed25519)

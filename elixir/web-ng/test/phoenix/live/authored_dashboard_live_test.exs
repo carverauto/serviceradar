@@ -457,9 +457,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
     html = render_async(view, 5_000)
 
-    assert html =~ "badge-error"
+    # status "down" renders as an error-variant ui_badge (bg-red-500/15) and the
+    # boolean true as a success-variant ui_badge (bg-emerald-500/10).
+    assert html =~ ~r/class="[^"]*bg-red-500\/15[^"]*" title="down"/
     assert html =~ "down"
-    assert html =~ "badge-success"
+    assert html =~ ~r/class="[^"]*bg-emerald-500\/10[^"]*" title="true"/
     assert html =~ "noc"
     assert html =~ "aria-label=\"sparkline\""
     refute html =~ "{&quot;owner&quot;"

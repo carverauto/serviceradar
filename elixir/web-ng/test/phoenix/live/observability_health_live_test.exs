@@ -48,8 +48,9 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
     refute html =~ "Negative disk"
     refute html =~ "No runway disk"
     assert has_element?(view, "a[href='/observability/health']", "Health")
-    assert has_element?(view, "a[href*='has_exhaustion%3Atrue']", "Open SRQL")
-    assert has_element?(view, "a[href*='status%3Aprojected']", "Open SRQL")
+    # The runway's query link carries the projected-exhaustion filters.
+    assert has_element?(view, "a[href*='has_exhaustion%3Atrue']", "Refresh query")
+    assert has_element?(view, "a[href*='status%3Aprojected']", "Refresh query")
     refute html =~ "at_risk%2Cexhaustion_projected"
     assert has_element?(view, "a[href*='event_type%3A%28anomaly%2Canomaly_detection%29']", "Open events")
 
@@ -72,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
 
     # The default query is bounded to recent runs so retired projections cannot
     # linger for months.
-    assert has_element?(view, "a[href*='time%3Alast_24h']", "Open SRQL")
+    assert has_element?(view, "a[href*='time%3Alast_24h']", "Refresh query")
   end
 
   test "hides the skipped-series summary when no series were skipped", %{conn: conn} do

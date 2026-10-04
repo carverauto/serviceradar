@@ -550,6 +550,7 @@ ex_unit_test(
         "test/phoenix/controllers/api/configuration_authentication_db_test.exs",
         "test/phoenix/controllers/api/configuration_lifecycle_db_test.exs",
         "test/phoenix/controllers/api/device_controller_test.exs",
+        "test/phoenix/controllers/api/device_batch_facts_controller_test.exs",
         "test/phoenix/controllers/api/device_facts_controller_test.exs",
         "test/phoenix/controllers/api/edge_controller_test.exs",
         "test/phoenix/controllers/api/field_survey_stream_controller_test.exs",
@@ -742,6 +743,9 @@ ex_unit_test(
         "//elixir/serviceradar_core:test/db/fixture_config.exs",
         "//elixir/serviceradar_core:test/db/integration_env.exs",
         "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+        # DeviceLiveTest parses the edge saturation gate floors from the add-on
+        # source via Path.expand from __DIR__; it must be a declared runfile.
+        "//rust/anomaly-addon:src/addon.rs",
     ],
     elixir_opts = [
         "-r",

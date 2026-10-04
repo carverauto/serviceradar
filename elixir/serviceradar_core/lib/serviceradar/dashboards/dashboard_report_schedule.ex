@@ -51,6 +51,7 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
+    reference_source? false
     create_version_on_destroy? true
     ignore_attributes [:inserted_at, :updated_at, :last_due_at, :last_delivered_at, :next_due_at]
   end

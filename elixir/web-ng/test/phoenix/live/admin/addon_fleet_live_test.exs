@@ -306,7 +306,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert row_html =~ "never reported healthy on 1.1.0"
     assert row_html =~ "left on 1.0.0"
     refute row_html =~ to_string(assignment.id)
-    refute row_html =~ "assignment ·"
+    # The caption names the agent ("Direct assignment · <agent uid>"); it must
+    # never fall back to a shortened assignment id.
+    refute row_html =~ ~r/assignment · [0-9a-f]{8}/
 
     # Desired 1.0.0 is running. A finished canary must not paint the agent as blocked.
     fleet_html = fleet_table_html(html)
@@ -420,7 +422,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert row_html =~ "Profile Canary #{unique}"
     assert row_html =~ "reported 2.1.0 as unhealthy"
     refute row_html =~ to_string(profile.id)
-    refute row_html =~ "profile ·"
+    # The caption counts agents ("Add-on profile · 1 agent"); it must never fall
+    # back to a shortened profile id.
+    refute row_html =~ ~r/profile · [0-9a-f]{8}/
   end
 
   test "finished rollouts paginate so a long tail stays reachable", %{
@@ -441,7 +445,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     previous = create_addon_package!(actor, addon_id, "1.0.0")
     candidate = create_addon_package!(actor, addon_id, "1.1.0")
     assignment = create_assignment!(actor, agent.uid, previous.id, enabled: true)
-    active_assignment = create_assignment!(actor, agent.uid, candidate.id, enabled: true)
+
+    # One enabled assignment per (agent, add-on): the active rollout's source
+    # is a second agent's assignment.
+    active_agent =
+      agent_fixture(gateway, %{uid: "fleet-pages-active-#{unique}", name: "Pages Active #{unique}"})
+
+    active_assignment = create_assignment!(actor, active_agent.uid, candidate.id, enabled: true)
 
     base = DateTime.utc_now()
 

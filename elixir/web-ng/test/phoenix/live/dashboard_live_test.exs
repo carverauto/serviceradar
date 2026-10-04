@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.VirtualizationDatastore
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
@@ -26,9 +27,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "a[aria-current='page'][href='/dashboard']")
     assert has_element?(view, "#ops-traffic-map[phx-hook='OperationsTrafficMap']")
     assert has_element?(view, "select[name='map_view']", "NetFlow Map")
-    assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
+    # Full Screen carries the panel's NetFlow window (default last_15m).
+    assert has_element?(view, "a[href='/netflow-map?window=last_15m']", "Full Screen")
     assert has_element?(view, "#ops-traffic-map[data-topology-links]")
-    assert has_element?(view, "a.sr-ops-topbar-icon[href='/observability?tab=alerts'][aria-label='Alerts']")
+    assert has_element?(view, "a.sr-ops-topbar-icon[href='/observability/alerts'][aria-label='Alerts']")
     assert has_element?(view, "#ops-topbar")
     assert has_element?(view, "#ops-brand-logo")
     assert has_element?(view, ".sr-ops-brand-mark")
@@ -43,17 +45,17 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     {:ok, view, _html} = live(conn, ~p"/dashboard")
 
     assert has_element?(view, "a.sr-ops-kpi-card[href='/devices']", "Total Assets")
-    assert has_element?(view, "a.sr-ops-kpi-card[href='/observability?tab=events']", "Threat Level")
+    assert has_element?(view, "a.sr-ops-kpi-card[href='/observability/events']", "Threat Level")
     assert has_element?(view, "a.sr-ops-kpi-card[href='/services']", "Network Health")
-    assert has_element?(view, "a.sr-ops-kpi-card[href='/observability?tab=alerts']", "Active Alerts")
-    assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Window")
-    assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Conversations")
+    assert has_element?(view, "a.sr-ops-kpi-card[href='/observability/alerts']", "Active Alerts")
+    assert has_element?(view, "a.sr-ops-small-stat[href^='/observability/netflows?']", "Window")
+    assert has_element?(view, "a.sr-ops-small-stat[href^='/observability/netflows?']", "Conversations")
     assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Destination Latency")
     assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Destination Loss")
     assert has_element?(view, "a.sr-ops-metric-card[href='/services']", "Service Health")
     assert has_element?(view, "[data-testid='threat-intel-summary']")
     assert has_element?(view, "a[href='/settings/networks/threat-intel']", "Manage")
-    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/observability?tab=alerts']")
+    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/observability/alerts']")
   end
 
   test "dashboard data hydrates while camera previews are still opening", %{conn: conn} do
@@ -122,7 +124,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     {:ok, view, _html} = live(conn, ~p"/dashboard")
 
     assert_receive {:camera_preview_open_started, preview_task}, 10_000
-    assert has_element?(view, "[data-testid='alerts-feed'] a[href='/alerts/#{alert.id}']")
+
+    # Dashboard slices hydrate asynchronously; the feed must arrive while the
+    # camera preview task is still blocked.
+    assert eventually_has_element?(
+             view,
+             "[data-testid='alerts-feed'] a[href='/alerts/#{alert.id}']",
+             5_000
+           )
 
     send(preview_task, :finish_camera_preview)
     _html = render_async(view, 5_000)
@@ -146,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     html = render_hook(view, "select_map_view", %{"map_view" => "unsupported"})
 
     assert html =~ "NetFlow Map"
-    assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
+    assert has_element?(view, "a[href='/netflow-map?window=last_15m']", "Full Screen")
   end
 
   test "dashboard selects the default dashboard package map view", %{conn: conn} do
@@ -174,7 +183,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     html = render_click(view, "srql_builder_toggle", %{})
 
     assert has_element?(view, "#srql-query-bar input[name='q'][value='#{expected_query}']")
-    assert html =~ "Entity"
+    # The builder opens on the dashboards catalog entity, fully representable.
+    assert html =~ "Query Builder"
+    assert has_element?(view, "select[name='builder[entity]'] option[value='dashboards'][selected]")
     refute html =~ "can't be fully represented"
     refute html =~ "can’t be fully represented"
   end
@@ -204,11 +215,26 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       }
     ])
 
-    {:ok, host} =
-      VirtualizationHost
-      |> Ash.Changeset.for_create(:create, %{
+    # New Proxmox rows must carry an authoritative v3 identity (insert guard).
+    integration_id = Ecto.UUID.generate()
+    controller_id = Ecto.UUID.generate()
+    cluster = "dashboard-cluster-#{unique}"
+
+    {:ok, host_identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        integration_id,
+        controller_id,
+        cluster,
+        "node",
+        "dashboard-pve-#{unique}"
+      )
+
+    {:ok, guest_identity} =
+      IntegrationIdentity.proxmox_v3_fields(integration_id, controller_id, cluster, "qemu", 100)
+
+    host_attrs =
+      Map.merge(host_identity, %{
         provider: "proxmox",
-        provider_ref: "proxmox:node:dashboard-pve-#{unique}",
         device_uid: host_uid,
         name: "dashboard-pve-#{unique}",
         status: "online",
@@ -217,13 +243,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         memory_total_bytes: 100,
         observed_at: observed_at
       })
+
+    {:ok, host} =
+      VirtualizationHost
+      |> Ash.Changeset.for_create(:create, host_attrs)
       |> Ash.create(actor: system_actor())
 
-    {:ok, _guest} =
-      VirtualizationGuest
-      |> Ash.Changeset.for_create(:create, %{
+    guest_attrs =
+      Map.merge(guest_identity, %{
         provider: "proxmox",
-        provider_ref: "proxmox:guest:dashboard-pve-#{unique}:qemu:100",
         host_id: host.id,
         device_uid: guest_uid,
         name: "dashboard-vm-#{unique}",
@@ -237,6 +265,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         disk_total_bytes: 10,
         observed_at: observed_at
       })
+
+    {:ok, _guest} =
+      VirtualizationGuest
+      |> Ash.Changeset.for_create(:create, guest_attrs)
       |> Ash.create(actor: system_actor())
 
     {:ok, _datastore} =
@@ -316,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       SET triggered_at = $2, created_at = $2
       WHERE id = $1
       """,
-      [alert.id, observed_at]
+      [Ecto.UUID.dump!(alert.id), observed_at]
     )
 
     {:ok, view, _html} = live(conn, ~p"/dashboard")
@@ -324,7 +356,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
     refute has_element?(view, "[data-testid='alerts-feed'] a[href='/alerts/#{alert.id}']")
     assert has_element?(view, "[data-testid='alerts-feed-empty']", "No alerts in the last 24 hours")
-    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/observability?tab=alerts']")
+    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/observability/alerts']")
   end
 
   defp create_dashboard_instance!(route_slug) do
@@ -381,6 +413,25 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       content_hash: String.duplicate("a", 64),
       verification_status: "verified"
     }
+  end
+
+  defp eventually_has_element?(view, selector, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    poll_has_element?(view, selector, deadline)
+  end
+
+  defp poll_has_element?(view, selector, deadline) do
+    cond do
+      has_element?(view, selector) ->
+        true
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        false
+
+      true ->
+        Process.sleep(50)
+        poll_has_element?(view, selector, deadline)
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

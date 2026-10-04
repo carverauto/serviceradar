@@ -65,7 +65,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:recent_repo_releases, [])
        |> assign(:recent_repo_release_error, nil)
        |> assign(:release_form, release_form())
-       |> assign(:rollout_form, rollout_form())
+       # No form yet: handle_params/3 builds it once the releases are loaded, so
+       # the version defaults to the newest published release. A form built here
+       # would carry an explicit blank version that then survives every reload.
+       |> assign(:rollout_form, nil)
        |> assign(:releases, [])
        |> assign(:rollouts, [])
        |> assign(:rollout_page, 1)
@@ -1666,7 +1669,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp normalize_release_import_form(_other), do: release_import_form()
 
-  defp rollout_form(params \\ %{}, releases \\ []) do
+  defp rollout_form(params, releases) do
     default_version =
       Map.get(params, "version") ||
         releases
