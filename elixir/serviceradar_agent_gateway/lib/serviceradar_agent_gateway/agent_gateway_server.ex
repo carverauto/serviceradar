@@ -41,6 +41,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadarAgentGateway.AgentRegistryProxy
+  alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ConfigChunks
@@ -1387,7 +1388,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     # Prefer nodes with ClusterHealth (core coordinator process), then fall back
     # to the configured core node basename. The basename fallback still avoids
     # selecting gateway/web nodes when the coordinator lock is temporarily absent.
-    coordinators = find_nodes_with_process(remote_nodes, ServiceRadar.ClusterHealth)
+    coordinators = ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth)
     core_nodes = if coordinators == [], do: named_core_nodes(remote_nodes), else: coordinators
 
     if core_nodes == [] and remote_nodes != [] do
@@ -1399,24 +1400,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
 
     core_nodes
-  end
-
-  defp find_nodes_with_process(nodes, process_name) do
-    Enum.filter(nodes, fn node ->
-      case :rpc.call(node, Process, :whereis, [process_name], 5_000) do
-        pid when is_pid(pid) ->
-          true
-
-        {:badrpc, reason} ->
-          Logger.debug("RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}")
-
-          false
-
-        other ->
-          Logger.debug("Process #{inspect(process_name)} not found on #{node}: #{inspect(other)}")
-          false
-      end
-    end)
   end
 
   defp named_core_nodes(nodes) do
