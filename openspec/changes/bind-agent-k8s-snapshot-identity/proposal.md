@@ -8,6 +8,7 @@ Agent-gateway authenticates the reporting agent over mTLS, but Kubernetes invent
 
 - Add a control-plane binding that assigns each Kubernetes inventory `cluster_id` to one enrolled agent and partition.
 - Require agent-forwarded snapshots to match the gateway-attested agent and partition before EventWriter can upsert or soft-delete inventory rows.
+- Treat the authorized body `cluster_id` as the sole effective cluster identity for every endpoint row: reject an agent-forwarded snapshot whose nested per-endpoint `cluster_id` is present and differs from the authorized body `cluster_id` before opening the reconciliation transaction, and never honor a nested override in row-key construction.
 - Persist the authenticated agent and partition as snapshot provenance for audit and incident response.
 - Reject unbound, mismatched, or provenance-free agent-path snapshots without changing inventory state.
 - Preserve the direct in-cluster inventory publisher path and durable operator-configured `cluster_id` values.

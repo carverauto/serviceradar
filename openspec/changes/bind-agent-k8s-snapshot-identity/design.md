@@ -45,6 +45,8 @@ Agent-gateway will continue to stamp the authenticated agent and partition. Even
 2. an active binding exists for the body `cluster_id`, and
 3. the binding's agent and partition exactly match the authenticated provenance.
 
+The authorized body `cluster_id` is then the sole effective cluster identity for every endpoint row. A nested per-endpoint `cluster_id` that is present and differs from the authorized body `cluster_id` rejects the snapshot before parsing rows or starting the database transaction, and row-key construction must not honor a nested override.
+
 Failure drops or negatively acknowledges the snapshot according to the existing poison-message policy, emits a bounded security event/metric, and performs no upsert or soft delete. The check occurs again in the same database transaction that applies the snapshot so a concurrent ownership transfer cannot authorize a stale writer.
 
 Checking only in agent-gateway would leave other consumers and replay paths dependent on a remote policy lookup. The state-changing consumer has the database transaction and remains the final authorization boundary.

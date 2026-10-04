@@ -12,9 +12,9 @@
 ## 3. EventWriter enforcement
 
 - [ ] 3.1 Classify agent-forwarded and direct publisher messages without allowing malformed agent provenance to fall back to direct mode.
-- [ ] 3.2 Lock and verify the cluster binding in the same transaction as snapshot upsert and soft deletion.
+- [ ] 3.2 Lock and verify the cluster binding in the same transaction as snapshot upsert and soft deletion; reject nested per-endpoint `cluster_id` values that differ from the authorized body `cluster_id` before opening the transaction and never honor them in row-key construction.
 - [ ] 3.3 Persist authenticated agent/partition provenance and emit bounded rejection telemetry without logging snapshot contents.
-- [ ] 3.4 Ensure rejected, unbound, and concurrently transferred snapshots perform no insert, update, resurrection, or soft deletion.
+- [ ] 3.4 Ensure rejected, unbound, mismatched, nested-override, and concurrently transferred snapshots perform no insert, update, resurrection, or soft deletion.
 
 ## 4. Operator workflow and documentation
 
@@ -25,7 +25,7 @@
 ## 5. Validation
 
 - [ ] 5.1 Add focused unit coverage for provenance parsing, exact binding matches, mismatches, missing bindings, and malformed agent-path headers.
-- [ ] 5.2 Add database regression coverage proving a mismatched enrolled agent cannot alter or delete another synthetic cluster's rows.
+- [ ] 5.2 Add database regression coverage proving a mismatched enrolled agent cannot alter or delete another synthetic cluster's rows, including a bound envelope carrying a foreign per-endpoint `cluster_id` that must cause zero inserts, updates, resurrections, or deletions.
 - [ ] 5.3 Add transfer coverage proving the old agent loses authority atomically and the replacement gains it.
 - [ ] 5.4 Run the affected remote CI targets and the no-mistakes pipeline; inspect BuildBuddy invocations with `bb view <invocationId>` from the primary checkout.
 - [ ] 5.5 Validate one authorized and one rejected synthetic snapshot through the supported remote path after rollout, with explicit failure branches and post-run row queries.

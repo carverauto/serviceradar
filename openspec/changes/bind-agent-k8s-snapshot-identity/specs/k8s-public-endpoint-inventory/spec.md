@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Agent-forwarded snapshots require an approved cluster binding
-The system SHALL apply an agent-forwarded Kubernetes inventory snapshot only when its body `cluster_id` is bound to the gateway-authenticated agent and partition in control-plane state.
+The system SHALL apply an agent-forwarded Kubernetes inventory snapshot only when its body `cluster_id` is bound to the gateway-authenticated agent and partition in control-plane state, and every endpoint row's effective `cluster_id` equals that bound body `cluster_id`.
 
 #### Scenario: Bound agent publishes its cluster
 - **WHEN** an authenticated agent publishes a snapshot whose `cluster_id`, agent identity, and partition exactly match an active control-plane binding
@@ -10,6 +10,11 @@ The system SHALL apply an agent-forwarded Kubernetes inventory snapshot only whe
 
 #### Scenario: Agent claims another cluster
 - **WHEN** an authenticated agent publishes a snapshot whose body `cluster_id` is unbound or belongs to a different agent or partition
+- **THEN** the system rejects the snapshot before applying inventory changes
+- **AND** no endpoint row is inserted, updated, resurrected, or soft-deleted
+
+#### Scenario: Bound envelope carries a foreign per-endpoint cluster
+- **WHEN** an authenticated agent publishes a snapshot whose body `cluster_id` matches its binding but a nested endpoint carries a `cluster_id` that is present and differs from the body `cluster_id`
 - **THEN** the system rejects the snapshot before applying inventory changes
 - **AND** no endpoint row is inserted, updated, resurrected, or soft-deleted
 
