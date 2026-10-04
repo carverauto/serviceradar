@@ -284,15 +284,20 @@ fn legacy_only_datagram(mut bytes: &[u8]) -> bool {
         }
         let version = u16::from_be_bytes([bytes[0], bytes[1]]);
         let count = usize::from(u16::from_be_bytes([bytes[2], bytes[3]]));
-        let (record_size, maximum) = match version {
-            5 => (48, 30),
-            7 => (52, 28),
+        let record_size = match version {
+            5 => 48,
+            7 => 52,
             _ => return false,
         };
-        if count == 0 || count > maximum {
+        if count == 0 {
             return false;
         }
-        let size = 24 + record_size * count;
+        let Some(size) = record_size
+            .checked_mul(count)
+            .and_then(|payload| payload.checked_add(24))
+        else {
+            return false;
+        };
         let Some(remaining) = bytes.get(size..) else {
             return false;
         };
@@ -387,6 +392,72 @@ mod tests {
             let _ = task.await;
             assert_eq!(metrics.source_count.load(Ordering::Relaxed), 0);
         }
+    }
+
+    #[tokio::test]
+    async fn udp_secure_defaults_admit_jumbo_legacy_datagrams() {
+        use crate::test_packets::{ipfix, legacy};
+        fn jumbo(version: u16, count: u16) -> Vec<u8> {
+            let base = legacy(version);
+            let record = if version == 7 { 52 } else { 48 };
+            let mut out = vec![0u8; 24 + record * usize::from(count)];
+            out[..24].copy_from_slice(&base[..24]);
+            out[2..4].copy_from_slice(&count.to_be_bytes());
+            for i in 0..usize::from(count) {
+                out[24 + i * record..24 + (i + 1) * record]
+                    .copy_from_slice(&base[24..24 + record]);
+            }
+            out
+        }
+        let config: ListenerConfig = serde_json::from_value(serde_json::json!({
+            "protocol": "netflow", "listen_addr": "127.0.0.1:0", "subject": "flows.raw.netflow",
+            "allow_unauthenticated_templates": false
+        }))
+        .unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let metrics = Arc::new(ListenerMetrics::new("netflow", addr.to_string()));
+        let (tx, mut rx) = mpsc::channel(64);
+        let listener = Listener::new(
+            build_handler(&config, Arc::clone(&metrics)),
+            socket,
+            65536,
+            "flows.raw.netflow".into(),
+            Arc::new(HostSliceRouter::default()),
+            tx,
+            Arc::clone(&metrics),
+            Arc::new(SubjectDropRegistry::new()),
+        );
+        let task = tokio::spawn(listener.run());
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        for (version, count) in [(5u16, 31u16), (7u16, 29u16)] {
+            sender
+                .send_to(&jumbo(version, count), addr)
+                .await
+                .unwrap();
+            for _ in 0..count {
+                let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(FlowMessage::decode(bytes.as_slice()).unwrap().bytes, 111);
+            }
+        }
+        assert_eq!(metrics.udp_template_rejections.load(Ordering::Relaxed), 0);
+        let mut prefixed = jumbo(5, 31);
+        prefixed.extend_from_slice(&ipfix(1, Some(&[(1, 4)]), &999u32.to_be_bytes()));
+        sender.send_to(&prefixed, addr).await.unwrap();
+        timeout(Duration::from_secs(3), async {
+            while metrics.udp_template_rejections.load(Ordering::Relaxed) != 1 {
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("jumbo legacy prefix hid a trailing template packet");
+        assert!(rx.try_recv().is_err());
+        task.abort();
+        let _ = task.await;
+        assert_eq!(metrics.source_count.load(Ordering::Relaxed), 0);
     }
 
     struct StaticFlowHandler;
