@@ -165,7 +165,7 @@ a user leaves a group, and the Microsoft Entra specifics -- see
 
 After signing in, a user lands on the first of these that applies:
 
-1. The page they were trying to open (a deep link or `return_to`).
+1. The page they were trying to open (a deep link or `return_to`). An unsafe or invalid `return_to` is ignored and the next applicable homepage below is used.
 2. Their own homepage, set under **Settings > Profile > Default homepage**.
    Marking a dashboard **Set as default** on the dashboards hub sets the same value.
 3. The homepage of one of their user groups, set under **Settings > User Groups**.
