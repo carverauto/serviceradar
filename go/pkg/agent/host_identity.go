@@ -21,16 +21,40 @@ func defaultHostInventory() []hostInterface {
 	return local
 }
 
-// Only report the interface that owns the announced IP. Enumerating every MAC
-// would also claim bridges, guest veths and unrelated network namespaces.
-// inventory may be nil, in which case it falls back to defaultHostInventory.
-func hostInterfaceMACs(hostIP string, inventory func() []hostInterface) []string {
+// hostIdentity selects the announced IP and its MACs from one inventory snapshot.
+// A nil inventory uses the same operating-system interfaces as getSourceIP.
+func hostIdentity(configured string, inventory func() []hostInterface) (string, []string) {
 	if inventory == nil {
 		inventory = defaultHostInventory
 	}
-	return selectHostInterfaceMACs(net.ParseIP(hostIP), inventory())
+	return selectHostIdentity(configured, inventory())
 }
 
+func selectHostIdentity(configured string, interfaces []hostInterface) (string, []string) {
+	var ips []net.IP
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		for _, address := range iface.addresses {
+			var ip net.IP
+			switch value := address.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			}
+			if ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+				ips = append(ips, ip)
+			}
+		}
+	}
+	hostIP := selectSourceIP(configured, ips)
+	return hostIP, selectHostInterfaceMACs(net.ParseIP(hostIP), interfaces)
+}
+
+// Only report the interface that owns the announced IP. Enumerating every MAC
+// would also claim bridges, guest veths and unrelated network namespaces.
 func selectHostInterfaceMACs(hostIP net.IP, interfaces []hostInterface) []string {
 	if hostIP == nil || hostIP.IsLoopback() || hostIP.IsUnspecified() || hostIP.IsMulticast() {
 		return nil
