@@ -98,11 +98,58 @@ defmodule ServiceRadar.Plugins.SingleEnabledAddonProfileDbTest do
            end)
   end
 
-  test "non-exclusive add-ons keep multiple enabled profiles", %{actor: actor} do
+  test "non-exclusive add-ons keep multiple enabled profiles with different targets", %{actor: actor} do
     package = approved_package("netprobe-profile-test", actor)
 
     assert {:ok, _first} = create_profile(package, "Netprobe A", true, actor)
-    assert {:ok, _second} = create_profile(package, "Netprobe B", true, actor)
+
+    assert {:ok, _second} =
+             create_profile(package, "Netprobe B", true, actor, "in:agents uid:agent-b")
+  end
+
+  # GitHub #4453: identical enabled profiles for one add-on each reconciled the
+  # same agents and started competing rollouts.
+  test "a second enabled profile with the same target query is rejected", %{actor: actor} do
+    package = approved_package("netprobe-duplicate-test", actor)
+    newer = approved_package("netprobe-duplicate-test", actor)
+
+    {:ok, first} = create_profile(package, "Netprobe A", true, actor)
+
+    assert {:error, %Invalid{} = error} =
+             create_profile(newer, "Netprobe B", true, actor, "  in:agents ")
+
+    assert Exception.message(error) =~ "already targets"
+    assert Exception.message(error) =~ first.name
+
+    {:ok, second} = create_profile(newer, "Netprobe B", false, actor)
+    assert {:error, %Invalid{}} = update_profile(second, %{enabled: true}, actor)
+
+    {:ok, other} = create_profile(newer, "Netprobe C", true, actor, "in:agents uid:agent-c")
+
+    assert {:error, %Invalid{}} =
+             update_profile(other, %{target_query: "in:agents"}, actor)
+
+    {:ok, _first} = update_profile(first, %{enabled: false}, actor)
+    assert {:ok, _second} = update_profile(second, %{enabled: true}, actor)
+  end
+
+  test "existing duplicate profiles stay editable", %{actor: actor} do
+    package = approved_package("netprobe-legacy-duplicate-test", actor)
+
+    {:ok, first} = create_profile(package, "Netprobe A", true, actor)
+    {:ok, second} = create_profile(package, "Netprobe B", true, actor, "in:agents uid:agent-b")
+
+    # Legacy rows that predate the rule, written past validation.
+    Repo.update_all(
+      from(p in AddonProfile, where: p.id == ^second.id),
+      [set: [target_query: first.target_query]],
+      prefix: "platform"
+    )
+
+    second = Ash.get!(AddonProfile, second.id, actor: actor)
+
+    assert {:ok, updated} = update_profile(second, %{description: "still editable"}, actor)
+    assert updated.description == "still editable"
   end
 
   defp approved_package(addon_id, actor) do
@@ -139,14 +186,14 @@ defmodule ServiceRadar.Plugins.SingleEnabledAddonProfileDbTest do
     package
   end
 
-  defp create_profile(package, name, enabled, actor) do
+  defp create_profile(package, name, enabled, actor, target_query \\ "in:agents") do
     AddonProfile
     |> Ash.Changeset.for_create(
       :create,
       %{
         name: name,
         addon_package_id: package.id,
-        target_query: "in:agents",
+        target_query: target_query,
         enabled: enabled
       },
       actor: actor
