@@ -147,10 +147,17 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorkerTest do
   defp set_execution_mode!(mode) do
     actor = SystemActor.system(:threat_intel_otx_sync_worker_test)
 
-    secret = ServiceRadar.Credentials.NetworkCredentialSecret.create_secret!(%{
-      name: "Synthetic OTX #{System.unique_integer([:positive])}", provider: "alienvault-otx-core",
-      credential_kind: :api_token, secret_payload: "synthetic-otx-key"
-    }, actor: actor)
+    secret =
+      ServiceRadar.Credentials.NetworkCredentialSecret.create_secret!(
+        %{
+          name: "Synthetic OTX #{System.unique_integer([:positive])}",
+          provider: "alienvault-otx-core",
+          credential_kind: :api_token,
+          secret_payload: "synthetic-otx-key"
+        },
+        actor: actor
+      )
+
     attrs = %{otx_enabled: true, otx_execution_mode: mode, otx_credential_secret_id: secret.id}
 
     case NetflowSettings.get_settings(actor: actor) do

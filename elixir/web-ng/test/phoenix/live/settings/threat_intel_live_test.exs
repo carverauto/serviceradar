@@ -32,10 +32,17 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
   end
 
   test "selects and clears a canonical OTX credential without echoing its key", %{conn: conn, scope: scope} do
-    secret = ServiceRadar.Credentials.NetworkCredentialSecret.create_secret!(%{
-      name: "Invented core OTX", provider: "alienvault-otx-core", credential_kind: :api_token,
-      secret_payload: "otx-liveview-secret"
-    }, scope: scope)
+    secret =
+      ServiceRadar.Credentials.NetworkCredentialSecret.create_secret!(
+        %{
+          name: "Invented core OTX",
+          provider: "alienvault-otx-core",
+          credential_kind: :api_token,
+          secret_payload: "otx-liveview-secret"
+        },
+        scope: scope
+      )
+
     {:ok, lv, html} = live(conn, ~p"/settings/networks/threat-intel")
 
     assert html =~ "Threat Intel"
