@@ -16,6 +16,14 @@ defmodule ServiceRadar.Identity.HomepageDbTest do
   alias ServiceRadar.Repo.Migrations.AddConfigurableHomepages
   alias ServiceRadar.TestSupport
 
+  @migration_path Path.expand(
+                    "../../../priv/repo/migrations/20261006140000_add_configurable_homepages.exs",
+                    __DIR__
+                  )
+  @external_resource @migration_path
+
+  Code.require_file(@migration_path)
+
   @moduletag :integration
 
   setup_all do
