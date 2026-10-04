@@ -710,15 +710,30 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
                   <div>
                     <label for="otx-credential" class="text-sm font-medium text-sr-ink">Core OTX credential</label>
-                    <select id="otx-credential" name="settings[otx_credential_secret_id]" class={ui_select_class(class: "w-full")}>
+                    <select
+                      id="otx-credential"
+                      name="settings[otx_credential_secret_id]"
+                      class={ui_select_class(class: "w-full")}
+                    >
                       <option value="">No credential selected</option>
-                      <option :if={@otx_settings_form["otx_credential_secret_id"] not in [nil, ""] and
-                        not Enum.any?(@otx_credentials, &(&1.id == @otx_settings_form["otx_credential_secret_id"]))}
-                        value={@otx_settings_form["otx_credential_secret_id"]} selected>
+                      <option
+                        :if={
+                          @otx_settings_form["otx_credential_secret_id"] not in [nil, ""] and
+                            not Enum.any?(
+                              @otx_credentials,
+                              &(&1.id == @otx_settings_form["otx_credential_secret_id"])
+                            )
+                        }
+                        value={@otx_settings_form["otx_credential_secret_id"]}
+                        selected
+                      >
                         Selected credential (access restricted)
                       </option>
-                      <option :for={credential <- @otx_credentials} value={credential.id}
-                        selected={@otx_settings_form["otx_credential_secret_id"] == credential.id}>
+                      <option
+                        :for={credential <- @otx_credentials}
+                        value={credential.id}
+                        selected={@otx_settings_form["otx_credential_secret_id"] == credential.id}
+                      >
                         {credential.name}
                       </option>
                     </select>
@@ -991,11 +1006,22 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       fetch_page(socket)
     else
       assign(socket,
-        page_title: "Threat Intel", plugin_id: @plugin_id,
-        agents: [], packages: [], latest_package: nil, approved_package: nil,
-        assignments: [], sync_statuses: [], retrohunt_runs: [], retrohunt_findings: [],
-        indicators: [], source_objects: [], otx_credentials: [], otx_settings: nil,
-        otx_settings_form: @default_settings_form, assignment_form: @default_form,
+        page_title: "Threat Intel",
+        plugin_id: @plugin_id,
+        agents: [],
+        packages: [],
+        latest_package: nil,
+        approved_package: nil,
+        assignments: [],
+        sync_statuses: [],
+        retrohunt_runs: [],
+        retrohunt_findings: [],
+        indicators: [],
+        source_objects: [],
+        otx_credentials: [],
+        otx_settings: nil,
+        otx_settings_form: @default_settings_form,
+        assignment_form: @default_form,
         netflow_findings: %{matched_ips: 0, indicator_matches: 0, max_severity: nil, sources: [], recent: []}
       )
     end

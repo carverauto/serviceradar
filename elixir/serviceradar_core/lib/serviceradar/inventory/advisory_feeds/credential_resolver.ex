@@ -71,7 +71,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver do
       consumer_kind: :service_monitoring,
       consumer_id: if(provider == "vulncheck", do: @consumer_id, else: "threat-intel:otx"),
       purpose: purpose,
-      target_kind: if(provider == "vulncheck", do: "vulnerability_feed", else: "threat_intel_feed"),
+      target_kind:
+        if(provider == "vulncheck", do: "vulnerability_feed", else: "threat_intel_feed"),
       target_id: provider,
       resolution_location: :control_plane,
       allowed_methods: ["GET"],
@@ -102,7 +103,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver do
     provider = Map.get(secret, :provider) || Map.get(secret, "provider")
     kind = Map.get(secret, :credential_kind) || Map.get(secret, "credential_kind")
 
-    allowed_kinds = if expected_provider == "vulncheck", do: [:api_token, :opaque, "api_token", "opaque"], else: [:api_token, "api_token"]
+    allowed_kinds =
+      if expected_provider == "vulncheck",
+        do: [:api_token, :opaque, "api_token", "opaque"],
+        else: [:api_token, "api_token"]
 
     if provider == expected_provider and kind in allowed_kinds do
       :ok

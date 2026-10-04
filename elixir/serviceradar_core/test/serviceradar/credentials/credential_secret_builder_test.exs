@@ -344,11 +344,20 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
 
     test "core feed descriptors build scalar inventory tokens with native provenance" do
       for {profile, provider} <- [
-        {NativeDescriptors.vulncheck(), "vulncheck"},
-        {NativeDescriptors.otx(), "alienvault-otx-core"}
-      ] do
-        assert {:ok, attrs} = CredentialSecretBuilder.build(profile, "api_token",
-          %{"api_token" => "invented-feed-token"}, %{name: "Invented feed", description: nil})
+            {NativeDescriptors.vulncheck(), "vulncheck"},
+            {NativeDescriptors.otx(), "alienvault-otx-core"}
+          ] do
+        assert {:ok, attrs} =
+                 CredentialSecretBuilder.build(
+                   profile,
+                   "api_token",
+                   %{"api_token" => "invented-feed-token"},
+                   %{
+                     name: "Invented feed",
+                     description: nil
+                   }
+                 )
+
         assert attrs.provider == provider
         assert attrs.credential_kind == :api_token
         assert attrs.secret_payload == "invented-feed-token"

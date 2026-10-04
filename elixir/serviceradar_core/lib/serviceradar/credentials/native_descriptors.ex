@@ -39,7 +39,12 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
 
   @doc "Every native descriptor, keyed by provider."
   @spec all() :: %{String.t() => map()}
-  def all, do: %{@snmp_provider => snmp(), @vulncheck_provider => vulncheck(), "alienvault-otx-core" => otx()}
+  def all,
+    do: %{
+      @snmp_provider => snmp(),
+      @vulncheck_provider => vulncheck(),
+      "alienvault-otx-core" => otx()
+    }
 
   @doc "Fetch a native descriptor by provider, if one exists."
   @spec fetch(String.t() | nil) :: {:ok, map()} | :error
@@ -193,8 +198,7 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
 
   @doc "Core OTX feed credential; the singleton feed defines scope, not device-query rules."
   def otx do
-    vulncheck()
-    |> Map.merge(%{
+    Map.merge(vulncheck(), %{
       "provider" => "alienvault-otx-core",
       "label" => "AlienVault OTX (core)",
       "description" => "API token for the core-hosted OTX subscribed-pulse feed.",

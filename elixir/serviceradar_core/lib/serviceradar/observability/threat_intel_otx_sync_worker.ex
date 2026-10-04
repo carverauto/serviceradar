@@ -280,9 +280,16 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
 
   defp core_sync_enabled? do
     case read_settings() do
-      %NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker",
-        otx_credential_secret_id: id} when is_binary(id) -> true
-      _ -> false
+      %NetflowSettings{
+        otx_enabled: true,
+        otx_execution_mode: "core_worker",
+        otx_credential_secret_id: id
+      }
+      when is_binary(id) ->
+        true
+
+      _ ->
+        false
     end
   end
 
@@ -375,8 +382,12 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
   defp provider_config do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     # Only the credential broker supplies authentication, even when tuning is configured.
-    tuning = config |> Keyword.get(:provider_config, %{}) |> Map.new()
+    tuning =
+      config
+      |> Keyword.get(:provider_config, %{})
+      |> Map.new()
       |> Map.drop(["api_key", :api_key, "base_url", :base_url])
+
     Keyword.put(config, :provider_config, Map.merge(tuning, settings_provider_config()))
   end
 
@@ -417,7 +428,9 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
 
   defp otx_token(secret_id) do
     case ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver.resolve_otx(secret_id) do
-      {:ok, token} -> token
+      {:ok, token} ->
+        token
+
       {:error, reason} ->
         Logger.warning("AlienVault OTX credential resolution failed", error: error_kind(reason))
         nil

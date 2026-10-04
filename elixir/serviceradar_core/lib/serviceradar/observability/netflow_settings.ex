@@ -388,10 +388,23 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
   defp validate_core_otx_endpoint(changeset) do
     case URI.parse(Ash.Changeset.get_attribute(changeset, :otx_base_url) || "") do
-      %URI{scheme: "https", host: "otx.alienvault.com", port: 443, userinfo: nil,
-        query: nil, fragment: nil, path: path} when path in [nil, "", "/"] -> changeset
-      _ -> Ash.Changeset.add_error(changeset, field: :otx_base_url,
-             message: "Core OTX credentials may only be sent to https://otx.alienvault.com")
+      %URI{
+        scheme: "https",
+        host: "otx.alienvault.com",
+        port: 443,
+        userinfo: nil,
+        query: nil,
+        fragment: nil,
+        path: path
+      }
+      when path in [nil, "", "/"] ->
+        changeset
+
+      _ ->
+        Ash.Changeset.add_error(changeset,
+          field: :otx_base_url,
+          message: "Core OTX credentials may only be sent to https://otx.alienvault.com"
+        )
     end
   end
 
@@ -399,14 +412,24 @@ defmodule ServiceRadar.Observability.NetflowSettings do
     Ash.Changeset.before_action(changeset, fn changeset ->
       case {Ash.Changeset.changing_attribute?(changeset, :otx_credential_secret_id),
             Ash.Changeset.get_attribute(changeset, :otx_credential_secret_id)} do
-        {false, _} -> changeset
-        {_, nil} -> changeset
+        {false, _} ->
+          changeset
+
+        {_, nil} ->
+          changeset
+
         {true, id} ->
           opts = [actor: changeset.context[:private][:actor]]
+
           case ServiceRadar.Credentials.NetworkCredentialSecret.get_by_id(id, opts) do
-            {:ok, %{provider: "alienvault-otx-core", credential_kind: :api_token}} -> changeset
-            _ -> Ash.Changeset.add_error(changeset, field: :otx_credential_secret_id,
-                   message: "Select an accessible core OTX API-token credential")
+            {:ok, %{provider: "alienvault-otx-core", credential_kind: :api_token}} ->
+              changeset
+
+            _ ->
+              Ash.Changeset.add_error(changeset,
+                field: :otx_credential_secret_id,
+                message: "Select an accessible core OTX API-token credential"
+              )
           end
       end
     end)

@@ -25,8 +25,8 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
   alias ServiceRadar.Inventory.VulnerabilityFeedDefinition
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
-  alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Notifications.NotificationChannel
+  alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginRepository
   alias ServiceRadar.Plugins.PluginTargetPolicy
