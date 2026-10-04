@@ -1371,8 +1371,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             stale_drift(status)
           else
             case management_mode do
-              :required -> addon_drift(nil, %{enabled: true}, status, agent)
-              :observed -> {:observed_unmanaged, "Reported by the agent without an assignment or required-runtime policy."}
+              :required ->
+                addon_drift(nil, %{enabled: true}, status, agent)
+
+              :observed ->
+                {:observed_unmanaged, "Reported by the agent without an assignment or required-runtime policy."}
             end
           end
 
