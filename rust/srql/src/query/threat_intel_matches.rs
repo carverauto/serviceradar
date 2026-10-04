@@ -134,20 +134,14 @@ fn build_sql(plan: &QueryPlan) -> Result<BuiltSql> {
             })
             .collect::<Result<Vec<_>>>()?;
         let select = if groups.is_empty() {
-            format!(
-                "SELECT jsonb_build_object('{}', COUNT(*)) AS payload",
-                stats.alias
-            )
+            "SELECT jsonb_build_object(?::text, COUNT(*)) AS payload".to_string()
         } else {
             let pairs = groups
                 .iter()
                 .map(|(key, expr)| format!("'{key}', {expr}"))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!(
-                "SELECT jsonb_build_object({pairs}, '{}', COUNT(*)) AS payload",
-                stats.alias
-            )
+            format!("SELECT jsonb_build_object({pairs}, ?::text, COUNT(*)) AS payload")
         };
         let group_by = if groups.is_empty() {
             String::new()
@@ -161,6 +155,7 @@ fn build_sql(plan: &QueryPlan) -> Result<BuiltSql> {
                     .join(", ")
             )
         };
+        binds.insert(0, BindParam::Text(stats.alias));
         binds.push(BindParam::Int(plan.limit));
         binds.push(BindParam::Int(plan.offset));
         return Ok(BuiltSql {
