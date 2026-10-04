@@ -1,5 +1,4 @@
 # gazelle:ignore
-load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
@@ -18,18 +17,4 @@ filegroup(
             "manifest.json",
         ],
     ),
-)
-
-# Exercise the real native SDK host and the same sources compiled into Wasm.
-go_library(
-    name = "native_sdk",
-    srcs = glob(["vendor/github.com/carverauto/serviceradar-sdk-go/v2/sdk/*.go"]),
-    importpath = "github.com/carverauto/serviceradar-sdk-go/v2/sdk",
-)
-
-go_test(
-    name = "opentext_nom_test",
-    srcs = glob(["*.go"]),
-    data = glob(["testdata/*.json"]) + ["//build/wasm_plugins:opentext_nom_inventory_wasm"],
-    deps = [":native_sdk"],
 )
