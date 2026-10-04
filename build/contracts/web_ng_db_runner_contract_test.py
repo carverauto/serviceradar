@@ -60,6 +60,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/settings/network_credential_rules_live_test.exs",
     "test/phoenix/live/settings/networks_live_test.exs",
     "test/phoenix/live/settings/snmp_profiles_live/profile_lifecycle_test.exs",
+    "test/phoenix/live/settings/threat_intel_live_test.exs",
     "test/phoenix/live/settings/notifications_live_test.exs",
     "test/phoenix/live/settings/rbac_live_test.exs",
     "test/phoenix/live/trace_live/show_test.exs",
