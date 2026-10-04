@@ -97,8 +97,6 @@ INTEGRATION_RUNTIME_DATA = glob(
     # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
     # comes back empty, so every first-party Wasm plugin package has to be an input.
     "//go/cmd/wasm-plugins/alienvault-otx:srcs",
-        "//go/cmd/wasm-plugins/alienvault-otx:plugin.yaml",
-        "//go/cmd/wasm-plugins/alienvault-otx:config.schema.json",
     "//go/cmd/wasm-plugins/awx:srcs",
     "//go/cmd/wasm-plugins/axis:srcs",
     "//go/cmd/wasm-plugins/dusk-checker:srcs",

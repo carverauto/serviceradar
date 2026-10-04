@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
@@ -48,8 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "threat_intel_enabled" => "false",
     "otx_execution_mode" => "edge_plugin",
     "otx_base_url" => "https://otx.alienvault.com",
-    "otx_api_key" => "",
-    "clear_otx_api_key" => "false",
+    "otx_credential_secret_id" => "",
     "otx_sync_interval_seconds" => "21600",
     "otx_page_size" => "100",
     "otx_timeout_ms" => "120000",
@@ -709,34 +709,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="flex items-center justify-between gap-2">
-                      <span class="text-sm font-medium text-sr-ink">Core OTX API Key</span>
-                    </label>
-                    <input
-                      type="password"
-                      name="settings[otx_api_key]"
-                      value=""
-                      class={ui_field_class(class: "w-full")}
-                      autocomplete="off"
-                      placeholder={
-                        if otx_api_key_present?(@otx_settings),
-                          do: "Leave blank to keep stored key",
-                          else: ""
-                      }
-                    />
-                    <label
-                      :if={otx_api_key_present?(@otx_settings)}
-                      class="mt-2 flex items-center gap-2 text-xs text-sr-muted"
-                    >
-                      <input type="hidden" name="settings[clear_otx_api_key]" value="false" />
-                      <input
-                        type="checkbox"
-                        name="settings[clear_otx_api_key]"
-                        value="true"
-                        class={ui_checkbox_class(size: "xs")}
-                        checked={@otx_settings_form["clear_otx_api_key"] == "true"}
-                      /> Clear stored key
-                    </label>
+                    <label for="otx-credential" class="text-sm font-medium text-sr-ink">Core OTX credential</label>
+                    <select id="otx-credential" name="settings[otx_credential_secret_id]" class={ui_select_class(class: "w-full")}>
+                      <option value="">No credential selected</option>
+                      <option :if={@otx_settings_form["otx_credential_secret_id"] not in [nil, ""] and
+                        not Enum.any?(@otx_credentials, &(&1.id == @otx_settings_form["otx_credential_secret_id"]))}
+                        value={@otx_settings_form["otx_credential_secret_id"]} selected>
+                        Selected credential (access restricted)
+                      </option>
+                      <option :for={credential <- @otx_credentials} value={credential.id}
+                        selected={@otx_settings_form["otx_credential_secret_id"] == credential.id}>
+                        {credential.name}
+                      </option>
+                    </select>
+                    <.link navigate={~p"/settings/networks/credentials"} class="text-xs text-sr-muted">Manage reusable credentials</.link>
                   </div>
 
                   <div>
@@ -988,7 +974,34 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     """
   end
 
+  defp list_otx_credentials(scope) do
+    NetworkCredentialSecret
+    |> Ash.Query.for_read(:by_provider, %{provider: "alienvault-otx-core"})
+    |> Ash.Query.filter(credential_kind == :api_token)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, credentials} -> credentials
+      {:error, _} -> []
+    end
+  end
+
   defp load_page(socket) do
+    if connected?(socket) do
+      fetch_page(socket)
+    else
+      assign(socket,
+        page_title: "Threat Intel", plugin_id: @plugin_id,
+        agents: [], packages: [], latest_package: nil, approved_package: nil,
+        assignments: [], sync_statuses: [], retrohunt_runs: [], retrohunt_findings: [],
+        indicators: [], source_objects: [], otx_credentials: [], otx_settings: nil,
+        otx_settings_form: @default_settings_form, assignment_form: @default_form,
+        netflow_findings: %{matched_ips: 0, indicator_matches: 0, max_severity: nil, sources: [], recent: []}
+      )
+    end
+  end
+
+  defp fetch_page(socket) do
     scope = socket.assigns.current_scope
     packages = Packages.list(%{"plugin_id" => @plugin_id, "limit" => 20}, scope: scope)
     approved_package = Enum.find(packages, &(&1.status == :approved))
@@ -1009,6 +1022,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     |> assign(:netflow_findings, netflow_findings_summary(scope))
     |> assign(:indicators, list_indicators(scope))
     |> assign(:source_objects, list_source_objects(scope))
+    |> assign(:otx_credentials, list_otx_credentials(scope))
     |> assign(:otx_settings, otx_settings)
     |> assign(:otx_settings_form, otx_settings_to_form(otx_settings))
     |> assign(:assignment_form, @default_form)
@@ -1205,8 +1219,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       "threat_intel_enabled" => settings.threat_intel_enabled |> truthy() |> to_string(),
       "otx_execution_mode" => settings.otx_execution_mode || "edge_plugin",
       "otx_base_url" => settings.otx_base_url || "https://otx.alienvault.com",
-      "otx_api_key" => "",
-      "clear_otx_api_key" => "false",
+      "otx_credential_secret_id" => settings.otx_credential_secret_id || "",
       "otx_sync_interval_seconds" => to_string(settings.otx_sync_interval_seconds || 21_600),
       "otx_page_size" => to_string(settings.otx_page_size || 100),
       "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 120_000),
@@ -1237,13 +1250,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
       otx_retrohunt_window_seconds: to_int(Map.get(params, "otx_retrohunt_window_seconds"), 7_776_000),
       threat_intel_match_window_seconds: to_int(Map.get(params, "threat_intel_match_window_seconds"), 86_400),
-      clear_otx_api_key: truthy_param?(Map.get(params, "clear_otx_api_key"))
+      otx_credential_secret_id: blank_to_nil(Map.get(params, "otx_credential_secret_id"))
     }
 
-    case blank_to_nil(Map.get(params, "otx_api_key")) do
-      nil -> attrs
-      api_key -> Map.put(attrs, :otx_api_key, api_key)
-    end
+    attrs
   end
 
   defp build_otx_settings_attrs(_params), do: %{}

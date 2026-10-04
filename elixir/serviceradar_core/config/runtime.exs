@@ -1048,15 +1048,8 @@ if config_env() == :prod do
     end
   end
 
-  otx_api_key =
-    read_secret_env.(
-      "SERVICERADAR_OTX_API_KEY",
-      "SERVICERADAR_OTX_API_KEY_FILE"
-    )
-
   otx_provider_config =
     %{
-      "api_key" => otx_api_key,
       "base_url" => otx_env.("SERVICERADAR_OTX_BASE_URL"),
       "modified_since" => otx_env.("SERVICERADAR_OTX_MODIFIED_SINCE"),
       "limit" => parse_int_env.("SERVICERADAR_OTX_PAGE_SIZE", nil),

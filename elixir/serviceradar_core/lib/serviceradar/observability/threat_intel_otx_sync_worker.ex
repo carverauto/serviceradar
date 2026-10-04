@@ -2,8 +2,8 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
   @moduledoc """
   Core-hosted AlienVault OTX sync worker.
 
-  This is the non-edge execution path. Secrets are read from application
-  configuration at execution time and are never stored in Oban job args.
+  This is the non-edge execution path. Secrets are resolved through persisted credential-broker grants
+  at execution time and are never stored in Oban job args.
   """
 
   use Oban.Worker,
@@ -280,23 +280,10 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
 
   defp core_sync_enabled? do
     case read_settings() do
-      %NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker"} = settings ->
-        has_api_key?(settings_config(settings)) or env_api_key?()
-
-      %NetflowSettings{} ->
-        false
-
-      _ ->
-        env_api_key?()
+      %NetflowSettings{otx_enabled: true, otx_execution_mode: "core_worker",
+        otx_credential_secret_id: id} when is_binary(id) -> true
+      _ -> false
     end
-  end
-
-  defp env_api_key? do
-    :serviceradar_core
-    |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:provider_config, %{})
-    |> Map.new()
-    |> has_api_key?()
   end
 
   defp record_failure(reason) do
@@ -387,16 +374,10 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
 
   defp provider_config do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
-    env_provider_config = config |> Keyword.get(:provider_config, %{}) |> Map.new()
-
-    provider_config =
-      if has_api_key?(env_provider_config) do
-        env_provider_config
-      else
-        Map.merge(settings_provider_config(), env_provider_config)
-      end
-
-    Keyword.put(config, :provider_config, provider_config)
+    # Only the credential broker supplies authentication, even when tuning is configured.
+    tuning = config |> Keyword.get(:provider_config, %{}) |> Map.new()
+      |> Map.drop(["api_key", :api_key, "base_url", :base_url])
+    Keyword.put(config, :provider_config, Map.merge(tuning, settings_provider_config()))
   end
 
   defp settings_provider_config do
@@ -411,8 +392,8 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
 
   defp settings_config(%NetflowSettings{} = settings) do
     %{
-      "api_key" => settings.otx_api_key,
-      "base_url" => settings.otx_base_url,
+      "api_key" => otx_token(settings.otx_credential_secret_id),
+      "base_url" => "https://otx.alienvault.com",
       "modified_since" => settings.otx_modified_since,
       "limit" => settings.otx_page_size,
       "timeout_ms" => settings.otx_timeout_ms
@@ -434,10 +415,10 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
       nil
   end
 
-  defp has_api_key?(%{} = config) do
-    case Map.get(config, "api_key") || Map.get(config, :api_key) do
-      value when is_binary(value) -> String.trim(value) != ""
-      _ -> false
+  defp otx_token(secret_id) do
+    case ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver.resolve_otx(secret_id) do
+      {:ok, token} -> token
+      {:error, _reason} -> nil
     end
   end
 

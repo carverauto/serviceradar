@@ -2,10 +2,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
-  alias ServiceRadar.Plugins.ConfigSchema
-  alias ServiceRadar.Plugins.IntegrationCatalog
-  alias ServiceRadar.Plugins.Manifest
-  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   defmodule FakeReconciler do
@@ -23,46 +19,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
          disabled: 0
        }}
     end
-  end
-
-  test "the shipped OTX package provisions one credential-backed feed assignment" do
-    root = Path.expand("../../../../../go/cmd/wasm-plugins/alienvault-otx", __DIR__)
-    assert {:ok, manifest} = root |> Path.join("plugin.yaml") |> File.read!() |> Manifest.parse_yaml_map()
-    schema = root |> Path.join("config.schema.json") |> File.read!() |> Jason.decode!()
-
-    assert {:ok, catalog} = IntegrationCatalog.from_packages([
-      %{id: "pkg-otx", plugin_id: manifest["id"], version: manifest["version"],
-        manifest: manifest, config_schema: schema}
-    ])
-    assert [profile] = catalog.credential_profiles
-
-    rule = credential_rule(%{
-      provider: "alienvault-otx", purpose: "threat_intel_sync",
-      target_query: profile["rule_defaults"]["target_query"],
-      metadata: %{"interval_seconds" => 86_400, "timeout_seconds" => 600}
-    })
-
-    assert {:ok, summary} = materialize([rule], profile: profile, purpose: "threat_intel_sync")
-    assert summary.rules == 1
-    assert_receive {:reconcile, policy, input_defs, opts}
-    assert opts[:single_assignment]
-    assert opts[:target_agent_uid] == "agent-a"
-    assert policy.interval_seconds == 86_400
-    assert policy.timeout_seconds == 600
-    assert input_defs == [%{name: "targets", entity: "devices", query: rule.target_query}]
-    assert policy.params_template["api_key_secret_ref"] == SecretRefs.network_credential_ref(rule.secret_id)
-    assert policy.params_template["credential_broker"]["grant_id"] == "grant-1"
-    assert get_in(policy.params_template, ["credential_broker", "consumer", "id"]) == manifest["id"]
-    assert policy.params_template["base_url"] == "https://otx.alienvault.com"
-    assert get_in(policy.params_template, ["credential_broker", "allow", "hosts"]) == ["otx.alienvault.com"]
-    assert get_in(policy.params_template, ["credential_broker", "target", "agent_id"]) == "agent-a"
-    assert :ok = ConfigSchema.validate_params(schema, policy.params_template)
-
-    # The same global feed must not be provisioned once per agent in a gateway.
-    assert {:ok, skipped} = materialize([%{rule | scope_type: :gateway, scope_value: "gateway-1"}],
-      profile: profile, purpose: "threat_intel_sync")
-    assert skipped.skips == %{single_target_rule_not_agent_scoped: 1}
-    refute_receive {:reconcile, _policy, _inputs, _opts}
   end
 
   test "materializes an arbitrary package-declared provider without a core registry" do

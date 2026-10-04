@@ -31,7 +31,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     assert to == ~p"/settings/profile"
   end
 
-  test "saves and clears OTX settings without echoing the API key", %{conn: conn, scope: scope} do
+  test "selects and clears a canonical OTX credential without echoing its key", %{conn: conn, scope: scope} do
+    secret = ServiceRadar.Credentials.NetworkCredentialSecret.create_secret!(%{
+      name: "Invented core OTX", provider: "alienvault-otx-core", credential_kind: :api_token,
+      secret_payload: "otx-liveview-secret"
+    }, scope: scope)
     {:ok, lv, html} = live(conn, ~p"/settings/networks/threat-intel")
 
     assert html =~ "Threat Intel"
@@ -46,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "threat_intel_enabled" => "false",
         "otx_execution_mode" => "core_worker",
         "otx_base_url" => "https://otx.alienvault.com",
-        "otx_api_key" => "otx-liveview-secret",
+        "otx_credential_secret_id" => secret.id,
         "otx_sync_interval_seconds" => "900",
         "otx_page_size" => "75",
         "otx_timeout_ms" => "15000",
@@ -66,10 +70,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
              otx_enabled: true,
              threat_intel_enabled: true,
              otx_execution_mode: "core_worker",
-             otx_api_key: "otx-liveview-secret",
+             otx_credential_secret_id: secret_id,
              otx_api_key_present: true,
              otx_raw_payload_archive_enabled: true
            } = load_settings!(scope)
+
+    assert secret_id == secret.id
 
     lv
     |> form("#otx-settings-form", %{
@@ -78,7 +84,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "threat_intel_enabled" => "true",
         "otx_execution_mode" => "core_worker",
         "otx_base_url" => "https://otx.alienvault.com",
-        "clear_otx_api_key" => "true",
+        "otx_credential_secret_id" => "",
         "otx_sync_interval_seconds" => "900",
         "otx_page_size" => "75",
         "otx_timeout_ms" => "15000",
@@ -269,6 +275,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
       SET otx_enabled = false,
           otx_execution_mode = 'edge_plugin',
           encrypted_otx_api_key = NULL,
+          otx_credential_secret_id = NULL,
           otx_raw_payload_archive_enabled = false,
           updated_at = now()
       """,
