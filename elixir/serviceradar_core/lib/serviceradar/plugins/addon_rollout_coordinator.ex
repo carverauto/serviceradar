@@ -934,7 +934,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp tolerated_failures?(%AddonRollout{source_type: :profile} = rollout, targets) do
     tolerated = rollout.policy["tolerated_failures"] || 0
-    rolled_back = Enum.count(targets, &(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
+
+    rolled_back =
+      Enum.count(targets, &(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
+
     rolled_back > 0 and rolled_back <= tolerated
   end
 
@@ -1541,7 +1544,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       attrs =
         cond do
           deleted_slot_holder?(target) ->
-            %{state: :canceled, reason_code: "assignment_deleted", completed_at: DateTime.utc_now()}
+            %{
+              state: :canceled,
+              reason_code: "assignment_deleted",
+              completed_at: DateTime.utc_now()
+            }
 
           target.state == :succeeded ->
             %{state: :promoted, completed_at: target.completed_at || DateTime.utc_now()}
