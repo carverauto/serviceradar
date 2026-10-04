@@ -47,9 +47,15 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
       try do
         ingest_payload(payload, status, opts)
       rescue
-        _error -> {:error, :running_config_ingest_failed}
+        error ->
+          Logger.error("Staged running-config ingest failed: #{inspect(error.__struct__)}")
+          Logger.error(Exception.message(error))
+          {:error, :running_config_ingest_failed}
       catch
-        _kind, _reason -> {:error, :running_config_ingest_failed}
+        kind, reason ->
+          Logger.error("Staged running-config ingest caught #{inspect(kind)}")
+          Logger.error(inspect(reason))
+          {:error, :running_config_ingest_failed}
       end
 
     case discard_artifacts(payload, status, opts) do
