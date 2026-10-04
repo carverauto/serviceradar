@@ -103,12 +103,6 @@ export function resolveTerminalTheme() {
   if (dataTheme === "light") {
     return TERMINAL_LIGHT_THEME
   }
-  if (dataTheme === "dark") {
-    return TERMINAL_DARK_THEME
-  }
-  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) {
-    return TERMINAL_LIGHT_THEME
-  }
   return TERMINAL_DARK_THEME
 }
 
