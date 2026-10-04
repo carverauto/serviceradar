@@ -121,6 +121,25 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
     assert Enum.all?(rows, fn row -> byte_size(row["cmdline"]) <= 65_533 end)
   end
 
+  test "rows with invalid UTF-8 bytes publish as valid UTF-8" do
+    bad_comm = <<0xFF, 0xFE>>
+    bad_arg = <<0xFF, 0xFE>>
+
+    assert :ok =
+             FlowAttribution.publish_observations(
+               [event(comm: bad_comm, redacted_cmdline: ["curl", bad_arg])],
+               "default",
+               "agent-a",
+               enabled: true,
+               publish: capture(self())
+             )
+
+    assert_received {:published, _subject, body}
+    assert {:ok, [row]} = Observations.decode(body)
+    assert String.valid?(row["comm"])
+    assert String.valid?(row["cmdline"])
+  end
+
   # The admission lane reports the batch as failed to the gateway, which keeps
   # it for redelivery, only if the publish failure surfaces.
   test "a refused publish fails the batch" do

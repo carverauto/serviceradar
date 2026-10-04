@@ -83,15 +83,39 @@ defmodule ServiceRadar.FlowAttribution.Observations do
     ])
   end
 
-  defp bound_row(%{cmdline: cmdline} = row) when is_binary(cmdline) do
+  defp bound_row(row) when is_map(row) do
+    row |> scrub_binaries() |> truncate_cmdline()
+  end
+
+  defp scrub_binaries(row) do
+    Map.new(row, fn {key, value} -> {key, scrub_value(value)} end)
+  end
+
+  defp scrub_value(value) when is_binary(value), do: String.replace_invalid(value)
+
+  defp scrub_value(value) when is_map(value) do
+    if is_struct(value) do
+      value
+    else
+      Map.new(value, fn {key, inner} -> {scrub_key(key), scrub_value(inner)} end)
+    end
+  end
+
+  defp scrub_value(value) when is_list(value), do: Enum.map(value, &scrub_value/1)
+  defp scrub_value(value), do: value
+
+  defp scrub_key(key) when is_binary(key), do: String.replace_invalid(key)
+  defp scrub_key(key), do: key
+
+  defp truncate_cmdline(%{cmdline: cmdline} = row) when is_binary(cmdline) do
     %{row | cmdline: truncate_binary(cmdline, @max_cmdline_bytes)}
   end
 
-  defp bound_row(%{"cmdline" => cmdline} = row) when is_binary(cmdline) do
+  defp truncate_cmdline(%{"cmdline" => cmdline} = row) when is_binary(cmdline) do
     %{row | "cmdline" => truncate_binary(cmdline, @max_cmdline_bytes)}
   end
 
-  defp bound_row(row), do: row
+  defp truncate_cmdline(row), do: row
 
   defp truncate_binary(value, max_bytes) do
     value |> binary_part(0, min(max_bytes, byte_size(value))) |> trim_incomplete_utf8()
