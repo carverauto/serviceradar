@@ -828,7 +828,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "message",
         "short_message"
       ],
-      numeric_fields: ["class_uid", "category_uid", "type_uid", "activity_id", "severity_id", "status_id"],
+      numeric_fields: [
+        "class_uid",
+        "category_uid",
+        "type_uid",
+        "activity_id",
+        "severity_id",
+        "status_id"
+      ],
       downsample: false
     },
     %{
@@ -860,7 +867,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "message",
         "short_message"
       ],
-      numeric_fields: ["class_uid", "category_uid", "type_uid", "activity_id", "severity_id", "status_id"],
+      numeric_fields: [
+        "class_uid",
+        "category_uid",
+        "type_uid",
+        "activity_id",
+        "severity_id",
+        "status_id"
+      ],
       downsample: false
     },
     %{
@@ -892,7 +906,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "message",
         "short_message"
       ],
-      numeric_fields: ["class_uid", "category_uid", "type_uid", "activity_id", "severity_id", "status_id"],
+      numeric_fields: [
+        "class_uid",
+        "category_uid",
+        "type_uid",
+        "activity_id",
+        "severity_id",
+        "status_id"
+      ],
       downsample: false
     },
     %{
@@ -1523,6 +1544,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "protocol_group",
         "protocol_name",
         "protocol_num",
+        "proto",
         "direction",
         "app",
         "sampler_address",
@@ -1571,6 +1593,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_port",
         "protocol_name",
         "protocol_num",
+        "proto",
         "protocol_group",
         "app",
         "direction",
@@ -1666,6 +1689,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "endpoint_port",
         "protocol_name",
         "protocol_num",
+        "proto",
         "protocol_group",
         "direction",
         "app",
@@ -1686,7 +1710,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_endpoint_port",
         "port",
         "endpoint_port",
-        "protocol_num"
+        "protocol_num",
+        "proto"
       ],
       address_fields: [
         "src_endpoint_ip",
@@ -2777,7 +2802,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   defp canonical_json(value) when is_map(value) do
     value
     |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
-    |> Enum.map_join(",", fn {key, nested} -> Jason.encode!(to_string(key)) <> ":" <> canonical_json(nested) end)
+    |> Enum.map_join(",", fn {key, nested} ->
+      Jason.encode!(to_string(key)) <> ":" <> canonical_json(nested)
+    end)
     |> then(&("{" <> &1 <> "}"))
   end
 
