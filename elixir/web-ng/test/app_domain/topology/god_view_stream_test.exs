@@ -3460,13 +3460,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     secondary_switch_uid = "sr:cluster-dedup-switch-secondary-#{suffix}"
 
     create_topology_device(actor, primary_switch_uid, "cluster-dedup-primary-#{suffix}", %{
-      ip: "192.0.3.10",
+      ip: "192.0.2.210",
       type_id: 10,
       is_available: true
     })
 
     create_topology_device(actor, secondary_switch_uid, "cluster-dedup-secondary-#{suffix}", %{
-      ip: "192.0.3.11",
+      ip: "192.0.2.211",
       type_id: 10,
       is_available: true
     })
@@ -3474,7 +3474,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     endpoint_specs =
       Enum.map(1..4, fn idx ->
         uid = "sr:cluster-dedup-endpoint-#{suffix}-#{idx}"
-        ip = "192.0.3.#{40 + idx}"
+        ip = "192.0.2.#{220 + idx}"
         mac = "02:00:00:20:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
 
         create_topology_device(actor, uid, nil, %{
@@ -3497,7 +3497,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     primary_row = fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
       %{
         local_device_id: primary_switch_uid,
-        local_device_ip: "192.0.3.10",
+        local_device_ip: "192.0.2.210",
         local_if_name: nil,
         local_if_index: 1,
         neighbor_if_name: endpoint_mac,
@@ -3535,7 +3535,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
             [
               %{
                 local_device_id: secondary_switch_uid,
-                local_device_ip: "192.0.3.11",
+                local_device_ip: "192.0.2.211",
                 local_if_name: nil,
                 local_if_index: 1,
                 neighbor_if_name: endpoint_mac,
@@ -4990,21 +4990,21 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     ap_uid = "sr:shadowed-cluster-ap-#{suffix}"
 
     create_topology_device(actor, preferred_switch_uid, "shadowed-cluster-preferred-switch-#{suffix}", %{
-      ip: "198.51.104.1",
+      ip: "192.0.2.141",
       type_id: 10,
       is_available: true,
       metadata: %{"type" => "switch"}
     })
 
     create_topology_device(actor, secondary_switch_uid, "shadowed-cluster-secondary-switch-#{suffix}", %{
-      ip: "198.51.104.2",
+      ip: "192.0.2.142",
       type_id: 10,
       is_available: true,
       metadata: %{"type" => "switch"}
     })
 
     create_topology_device(actor, ap_uid, "shadowed-cluster-ap-#{suffix}", %{
-      ip: "198.51.104.10",
+      ip: "192.0.2.150",
       type_id: 99,
       is_available: true,
       metadata: %{"type" => "access point"}
@@ -5014,20 +5014,20 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       Enum.map(1..4, fn idx ->
         %{
           uid: "sr:shadowed-cluster-shared-#{suffix}-#{idx}",
-          ip: "198.51.104.#{20 + idx}",
+          ip: "192.0.2.#{160 + idx}",
           mac: "02:00:00:b1:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:aa"
         }
       end)
 
     preferred_only_spec = %{
       uid: "sr:shadowed-cluster-preferred-only-#{suffix}",
-      ip: "198.51.104.30",
+      ip: "192.0.2.170",
       mac: "02:00:00:b2:01:bb"
     }
 
     secondary_only_spec = %{
       uid: "sr:shadowed-cluster-secondary-only-#{suffix}",
-      ip: "198.51.104.31",
+      ip: "192.0.2.171",
       mac: "02:00:00:b3:01:cc"
     }
 
@@ -5044,7 +5044,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
         List.duplicate(
           %{
             local_device_id: preferred_switch_uid,
-            local_device_ip: "198.51.104.1",
+            local_device_ip: "192.0.2.141",
             local_if_name: nil,
             local_if_index: 2,
             neighbor_if_name: endpoint_mac,
@@ -5079,7 +5079,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       Enum.map(shared_specs ++ [secondary_only_spec], fn %{uid: endpoint_uid, ip: endpoint_ip, mac: endpoint_mac} ->
         %{
           local_device_id: secondary_switch_uid,
-          local_device_ip: "198.51.104.2",
+          local_device_ip: "192.0.2.142",
           local_if_name: nil,
           local_if_index: 7,
           neighbor_if_name: endpoint_mac,
@@ -5110,13 +5110,13 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
 
     ap_row = %{
       local_device_id: secondary_switch_uid,
-      local_device_ip: "198.51.104.2",
+      local_device_ip: "192.0.2.142",
       local_if_name: nil,
       local_if_index: 7,
       neighbor_if_name: "4c:5e:0c:11:22:33",
       neighbor_if_index: nil,
       neighbor_device_id: ap_uid,
-      neighbor_mgmt_addr: "198.51.104.10",
+      neighbor_mgmt_addr: "192.0.2.150",
       protocol: "snmp-l2",
       evidence_class: "inferred-segment",
       confidence_tier: "medium",
@@ -8503,7 +8503,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       switch_uid,
       "cluster-unresolved-placeholder-switch-#{suffix}",
       %{
-        ip: "198.51.104.10",
+        ip: "192.0.2.150",
         type_id: 10,
         is_available: true
       }
@@ -8516,7 +8516,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       Enum.map(Enum.with_index(endpoint_ids, 1), fn {endpoint_uid, idx} ->
         %{
           local_device_id: switch_uid,
-          local_device_ip: "198.51.104.10",
+          local_device_ip: "192.0.2.150",
           local_if_name: "edge7",
           local_if_index: 17,
           # Named but identity-free: a nil ifname would trip the weak
@@ -9022,8 +9022,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     suffix = System.unique_integer([:positive])
     switch_uid = "sr:cluster-known-infra-switch-#{suffix}"
     ap_uid = "sr:cluster-known-infra-ap-#{suffix}"
-    switch_ip = "198.51.104.2"
-    ap_ip = "198.51.104.151"
+    switch_ip = "192.0.2.142"
+    ap_ip = "192.0.2.291"
 
     create_topology_device(actor, switch_uid, "cluster-known-infra-switch-#{suffix}", %{
       ip: switch_ip,
@@ -9042,7 +9042,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       Enum.map(1..3, fn idx ->
         %{
           uid: "sr:cluster-known-infra-endpoint-#{suffix}-#{idx}",
-          ip: "198.51.104.#{20 + idx}",
+          ip: "192.0.2.#{160 + idx}",
           mac: "02:00:00:61:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:bb"
         }
       end)
