@@ -18,11 +18,11 @@
 - [ ] 3.4 Grep the workspace (web-ng, SRQL, docs, Helm) for remaining references and remove them.
 
 ## 4. Data retention settings (all warehouse datasets)
-- [ ] 4.1 CNPG settings resource: one row per dataset (days, updated_by/at, last applied value, status, error); migration.
-- [ ] 4.2 Seed rows from `Env` (`SERVICERADAR_STARROCKS_RETENTION_DAYS_<DATASET>`, Helm `analytics.starrocks.retentionDays`, Compose) when absent; add `attribution` (default 30) to Env, Helm values, Compose and docs; demo Helm values set attribution to 1.
-- [ ] 4.3 `Retention` reads the stored settings, re-applies a dataset on change without restart, keeps retry/backoff, records outcome on the row, and enforces per-dataset floors (attribution: 1 day, never fewer than 2 live partitions).
-- [ ] 4.4 web-ng "Data retention" Settings page, RBAC view/manage permissions: effective value, seed default, last applied status/time per dataset; floor validation; storage warning for large values.
-- [ ] 4.5 Tests: seed from env; a saved change issues the ALTER for that dataset only and records `applied`; Frontend unavailable records `pending` and retries; below-floor values rejected; attribution default 30. Update the Helm checksum pin if the defaults block changes.
+- [x] 4.1 CNPG settings resource: one row per dataset (days, updated_by/at, last applied value, status, error); migration.
+- [x] 4.2 Seed rows from `Env` (`SERVICERADAR_STARROCKS_RETENTION_DAYS_<DATASET>`, Helm `analytics.starrocks.retentionDays`, Compose) when absent; add `attribution` (default 30) to Env, Helm values, Compose and docs; demo Helm values set attribution to 1.
+- [x] 4.3 `Retention` reads the stored settings, re-applies a dataset on change without restart, keeps retry/backoff, records outcome on the row, and enforces per-dataset floors (attribution: 1 day, never fewer than 2 live partitions).
+- [x] 4.4 web-ng "Data retention" Settings page, RBAC view/manage permissions: effective value, seed default, last applied status/time per dataset; floor validation; storage warning for large values.
+- [x] 4.5 Tests: seed from env; a saved change issues the ALTER for that dataset only and records `applied`; Frontend unavailable records `pending` and retries; below-floor values rejected; attribution default 30. Update the Helm checksum pin if the defaults block changes.
 
 ## 5. Observability
 - [ ] 5.1 Emit correlator pass duration, flows read, matches by strategy, stamped count, observation lag, ingest rate and live partition count as metrics through JetStream.

@@ -106,7 +106,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Analytics.StarRocks.Destination
-  alias ServiceRadar.Analytics.StarRocks.Env, as: StarRocksEnv
+  alias ServiceRadar.Analytics.StarRocks.Retention
   alias ServiceRadar.Analytics.StarRocks.TraceSummaries, as: WarehouseSummaries
   alias ServiceRadar.Observability.OtelPubSub
   alias ServiceRadar.Repo
@@ -968,11 +968,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   defp warehouse?, do: Destination.enabled?()
 
-  defp warehouse_retention_days do
-    StarRocksEnv.config()
-    |> Keyword.get(:retention_days, [])
-    |> Keyword.get(:traces, Keyword.fetch!(StarRocksEnv.default_retention_days(), :traces))
-  end
+  # The traces dataset's effective retention (Settings -> Data retention), so
+  # summaries are pruned to the window the spans themselves are kept for.
+  defp warehouse_retention_days, do: Retention.dataset_days(:traces)
 
   defp cleanup_batch_size do
     config_positive_integer(:cleanup_batch_size, @default_cleanup_batch_size)

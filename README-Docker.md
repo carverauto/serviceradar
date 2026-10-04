@@ -189,12 +189,21 @@ Every dataset defaults to 365 days: `STARROCKS_RETENTION_DAYS_FLOWS`,
 and hops together), `STARROCKS_RETENTION_DAYS_OTEL` (OTel metric samples and
 points together), `STARROCKS_RETENTION_DAYS_TRACES` (OTel spans and trace
 summaries together) and `STARROCKS_RETENTION_DAYS_BMP` (BMP routing events).
+`STARROCKS_RETENTION_DAYS_ATTRIBUTION` (process attribution observations, the
+flow correlator's join input) defaults to 30 days, and the warehouse always
+keeps at least two of its daily partitions.
+These values are seeds: the first time core starts with the warehouse enabled
+it stores each dataset's retention in the database, and from then on the value
+saved in Settings -> System -> Data retention wins. Changing an environment
+value afterwards does not change the stored setting; change it on that page,
+which applies it to the warehouse without a restart and shows whether the
+warehouse took it.
 Warehouse loads are sized by `STARROCKS_STREAM_LOAD_MAX_AGE_MS` (flush a
 batch after this long, default 2000), `STARROCKS_STREAM_LOAD_MAX_ROWS` (50000)
 and `STARROCKS_STREAM_LOAD_MAX_BYTES` (33554432) per load, and
 `STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT` (4) loads at once. Each Stream Load is a
 warehouse transaction, so fewer, larger loads are cheaper than many small ones.
-Retention values are re-applied at every core start: core retries with backoff until the warehouse
+The stored retention values are re-applied at every core start: core retries with backoff until the warehouse
 accepts them, so a slow Frontend does not leave the tables on their DDL
 default. With the warehouse enabled, MTR traces and hops, OTel metric samples
 and points, OTel spans and trace summaries, and BMP routing events are stored

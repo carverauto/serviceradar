@@ -704,6 +704,26 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "settings.data_retention.view",
+          section: "settings",
+          resource: "settings.data_retention",
+          action: "view",
+          label: "View data retention",
+          description: "View warehouse retention per dataset and whether it was applied",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "settings.data_retention.manage",
+          section: "settings",
+          resource: "settings.data_retention",
+          action: "manage",
+          label: "Manage data retention",
+          description:
+            "Change how many days of each telemetry dataset the warehouse keeps; " <>
+              "shortening it drops older data",
+          default_roles: @admin_roles
+        },
+        %{
           key: "settings.prefix_tags.manage",
           section: "settings",
           resource: "settings.prefix_tags",

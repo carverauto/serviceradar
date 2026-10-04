@@ -23,7 +23,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   # warehouse holds defaults to one year: the warehouse is what makes long
   # history affordable, so it does not inherit CNPG's shorter raw windows.
   # Tables created from DDL with a smaller `partition_live_number` are raised to
-  # these values by `Retention` at core start.
+  # these values by `Retention` at core start. These are seed defaults: once
+  # core has stored a dataset's setting in CNPG (`WarehouseRetentionSetting`),
+  # the stored value wins and these only describe a fresh install. Process
+  # attribution observations are raw, high-volume join inputs whose value
+  # decays within days, so they default to a month rather than a year.
   @default_retention_days [
     flows: 365,
     metrics: 365,
@@ -32,7 +36,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     mtr: 365,
     otel: 365,
     traces: 365,
-    bmp: 365
+    bmp: 365,
+    attribution: 30
   ]
 
   # How far an hourly materialized view may lag its source table before a

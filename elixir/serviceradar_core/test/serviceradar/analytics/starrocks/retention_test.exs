@@ -3,6 +3,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
 
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Retention
+  alias ServiceRadar.Analytics.StarRocks.RetentionSettings
 
   @moduletag :db_free
 
@@ -15,7 +16,46 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL
     SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES
     SERVICERADAR_STARROCKS_RETENTION_DAYS_BMP
+    SERVICERADAR_STARROCKS_RETENTION_DAYS_ATTRIBUTION
   )
+
+  # The settings rows as CNPG would hold them, keyed by dataset name. Stands in
+  # for `Retention.Store` so the reconcile decisions run without a database.
+  defmodule FakeStore do
+    @moduledoc false
+    use Agent
+
+    def start_link(rows), do: Agent.start_link(fn -> rows end, name: __MODULE__)
+    def rows, do: Agent.get(__MODULE__, & &1)
+    def row(dataset), do: Map.fetch!(rows(), dataset)
+
+    def put(dataset, attrs),
+      do: Agent.update(__MODULE__, &Map.update!(&1, dataset, fn r -> Map.merge(r, attrs) end))
+
+    def list, do: {:ok, Map.values(rows())}
+
+    def seed(dataset, days) do
+      row = %{
+        dataset: dataset,
+        days: days,
+        seed_days: days,
+        last_applied_days: nil,
+        last_applied_status: "pending",
+        last_applied_error: nil
+      }
+
+      Agent.update(__MODULE__, &Map.put(&1, dataset, row))
+      {:ok, row}
+    end
+
+    def record_seed(row, attrs), do: update(row, attrs)
+    def record_outcome(row, attrs), do: update(row, attrs)
+
+    defp update(row, attrs) do
+      put(row.dataset, attrs)
+      {:ok, row(row.dataset)}
+    end
+  end
 
   setup do
     original = Map.new(@env_vars, &{&1, System.get_env(&1)})
@@ -31,164 +71,278 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     :ok
   end
 
-  test "each dataset keeps its own retention, defaulting to the shipped policy" do
-    assert Env.config()[:retention_days] == [
-             flows: 365,
-             metrics: 365,
-             logs: 365,
-             events: 365,
-             mtr: 365,
-             otel: 365,
-             traces: 365,
-             bmp: 365
-           ]
+  defp applied_rows(overrides \\ %{}) do
+    Map.new(Retention.datasets(), fn dataset ->
+      days = Map.get(overrides, dataset, Retention.default_days(dataset))
+      name = Atom.to_string(dataset)
 
-    System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", "30")
-    System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS", "730")
-
-    # Raw NetFlow can be bounded without also shortening log history, which one
-    # shared value could not express.
-    assert Env.config()[:retention_days] == [
-             flows: 30,
-             metrics: 365,
-             logs: 730,
-             events: 365,
-             mtr: 365,
-             otel: 365,
-             traces: 365,
-             bmp: 365
-           ]
-
-    for invalid <- ["", "0", "-5", "forever"] do
-      System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", invalid)
-      assert Env.config()[:retention_days][:flows] == 365
-    end
+      {name,
+       %{
+         dataset: name,
+         days: days,
+         seed_days: Retention.default_days(dataset),
+         last_applied_days: days,
+         last_applied_status: "applied",
+         last_applied_error: nil
+       }}
+    end)
   end
 
-  test "every partitioned telemetry table is retained at its dataset's depth" do
-    statements = Retention.statements(retention_days: [flows: 30, logs: 730])
-
-    assert length(statements) == length(Retention.tables())
-
-    expected = %{
-      "ocsf_network_activity" => "30",
-      "logs" => "730",
-      "timeseries_metrics" => "365",
-      "events" => "365",
-      "mtr_traces" => "365",
-      "mtr_hops" => "365",
-      "otel_metrics" => "365",
-      "otel_metric_points" => "365",
-      "otel_traces" => "365",
-      "bmp_routing_events" => "365"
-    }
-
-    for {table, days} <- expected do
-      assert Enum.any?(statements, fn sql ->
-               sql =~ "ALTER TABLE `#{table}`" and
-                 sql =~ ~s("partition_live_number" = "#{days}")
-             end),
-             "no retention statement for #{table} at #{days} days"
-    end
-
-    # Unqualified table names: the connection already selects the configured
-    # database, so a non-default SERVICERADAR_STARROCKS_DATABASE still applies.
-    refute Enum.any?(statements, &String.contains?(&1, "serviceradar."))
-  end
-
-  # A trace without its hops, or hops without their trace, is not an MTR
-  # record, so the two tables share one setting.
-  test "MTR traces and hops are retained together at the one MTR setting" do
-    System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR", "14")
-    assert Env.config()[:retention_days][:mtr] == 14
-
-    days = Map.new(Retention.days_by_table(Env.config()))
-    assert days["mtr_traces"] == 14
-    assert days["mtr_hops"] == 14
-    assert days["logs"] == 365
-  end
-
-  # OTel samples and points are one metrics signal with one setting.
-  test "OTel metric samples and points are retained together at the one OTel setting" do
-    System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL", "90")
-    assert Env.config()[:retention_days][:otel] == 90
-
-    days = Map.new(Retention.days_by_table(Env.config()))
-    assert days["otel_metrics"] == 90
-    assert days["otel_metric_points"] == 90
-    assert days["mtr_traces"] == 365
-  end
-
-  test "applying retention stops at the first failure and reports it" do
-    executed = :counters.new(1, [])
-
-    assert {:error, :connect_failed} =
-             Retention.apply_retention(
-               config: [retention_days: [flows: 90]],
-               query: fn _sql ->
-                 :counters.add(executed, 1, 1)
-                 {:error, :connect_failed}
-               end
-             )
-
-    assert :counters.get(executed, 1) == 1
-  end
-
-  test "a slow warehouse is retried with growing backoff rather than given up on" do
+  defp recording_query(result \\ {:ok, %{}}) do
     parent = self()
 
-    assert :ok =
-             Retention.run(
-               config: [retention_days: [flows: 90]],
-               attempts: 4,
-               sleep: fn delay -> send(parent, {:slept, delay}) end,
-               query: fn _ -> {:error, :connect_failed} end
-             )
-
-    assert_received {:slept, 5_000}
-    assert_received {:slept, 10_000}
-    assert_received {:slept, 20_000}
-    refute_received {:slept, _}
+    fn sql ->
+      send(parent, {:sql, sql})
+      if is_function(result, 0), do: result.(), else: result
+    end
   end
 
-  test "retention lands on an answer that arrives after the FE finishes starting" do
-    attempt = :counters.new(1, [])
-    applied = :counters.new(1, [])
-
-    assert :ok =
-             Retention.run(
-               config: [retention_days: [flows: 45]],
-               sleep: fn _ -> :ok end,
-               query: fn sql ->
-                 :counters.add(attempt, 1, 1)
-
-                 if :counters.get(attempt, 1) <= 20 do
-                   {:error, :connect_failed}
-                 else
-                   assert sql =~ "partition_live_number"
-                   :counters.add(applied, 1, 1)
-                   {:ok, %{}}
-                 end
-               end
-             )
-
-    assert :counters.get(applied, 1) == length(Retention.tables())
+  defp sent_sql do
+    receive do
+      {:sql, sql} -> [sql | sent_sql()]
+    after
+      0 -> []
+    end
   end
 
-  test "retention is applied once the warehouse answers" do
-    applied = :counters.new(1, [])
+  describe "seed defaults" do
+    test "each dataset keeps its own seed, defaulting to the shipped policy" do
+      assert Env.config()[:retention_days] == [
+               flows: 365,
+               metrics: 365,
+               logs: 365,
+               events: 365,
+               mtr: 365,
+               otel: 365,
+               traces: 365,
+               bmp: 365,
+               attribution: 30
+             ]
 
-    assert :ok =
-             Retention.run(
-               config: [retention_days: [flows: 45]],
-               attempts: 3,
-               sleep: fn _ -> flunk("retried a successful apply") end,
-               query: fn sql ->
-                 :counters.add(applied, 1, 1)
-                 {:ok, %{}}
-               end
-             )
+      System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", "30")
+      System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_ATTRIBUTION", "1")
 
-    assert :counters.get(applied, 1) == length(Retention.tables())
+      assert Env.config()[:retention_days][:flows] == 30
+      assert Env.config()[:retention_days][:attribution] == 1
+      assert Env.config()[:retention_days][:logs] == 365
+
+      for invalid <- ["", "0", "-5", "forever"] do
+        System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", invalid)
+        assert Env.config()[:retention_days][:flows] == 365
+      end
+    end
+
+    test "a dataset with no stored row is seeded from the environment and applied" do
+      start_supervised!({FakeStore, %{}})
+      seeds = Keyword.put(Env.default_retention_days(), :logs, 180)
+
+      assert :ok =
+               Retention.reconcile(
+                 store: FakeStore,
+                 seeds: seeds,
+                 query: recording_query(),
+                 force: true
+               )
+
+      assert %{days: 180, seed_days: 180, last_applied_status: "applied", last_applied_days: 180} =
+               FakeStore.row("logs")
+
+      assert %{days: 365, last_applied_status: "applied"} = FakeStore.row("metrics")
+      assert %{days: 30, seed_days: 30} = FakeStore.row("attribution")
+
+      sql = sent_sql()
+      assert ~s|ALTER TABLE `logs` SET ("partition_live_number" = "180")| in sql
+      assert length(sql) == length(Retention.tables())
+    end
+
+    test "a stored value wins over a changed seed, which is only recorded" do
+      start_supervised!({FakeStore, applied_rows(%{logs: 90})})
+      seeds = Keyword.put(Env.default_retention_days(), :logs, 180)
+
+      assert :ok = Retention.reconcile(store: FakeStore, seeds: seeds, query: recording_query())
+
+      assert %{days: 90, seed_days: 180, last_applied_days: 90} = FakeStore.row("logs")
+      assert sent_sql() == []
+    end
+  end
+
+  describe "applying a change" do
+    test "a saved change issues the ALTER for that dataset only and records it applied" do
+      start_supervised!({FakeStore, applied_rows()})
+      FakeStore.put("events", %{days: 90, last_applied_status: "pending"})
+
+      assert :ok =
+               Retention.reconcile(
+                 store: FakeStore,
+                 seeds: Env.default_retention_days(),
+                 query: recording_query()
+               )
+
+      assert sent_sql() == [~s|ALTER TABLE `events` SET ("partition_live_number" = "90")|]
+
+      assert %{
+               last_applied_status: "applied",
+               last_applied_days: 90,
+               last_applied_at: %DateTime{}
+             } =
+               FakeStore.row("events")
+    end
+
+    test "an unanswering Frontend leaves the dataset pending at its last applied value" do
+      start_supervised!({FakeStore, applied_rows()})
+      FakeStore.put("events", %{days: 90, last_applied_status: "pending"})
+
+      assert :retry =
+               Retention.reconcile(
+                 store: FakeStore,
+                 seeds: Env.default_retention_days(),
+                 query: recording_query({:error, :connect_failed})
+               )
+
+      assert %{last_applied_status: "pending", last_applied_days: 365, last_applied_error: error} =
+               FakeStore.row("events")
+
+      assert error =~ "did not answer"
+    end
+
+    test "a warehouse that refuses the statement records the dataset failed with its message" do
+      start_supervised!({FakeStore, applied_rows()})
+      FakeStore.put("mtr", %{days: 30, last_applied_status: "pending"})
+
+      assert :retry =
+               Retention.reconcile(
+                 store: FakeStore,
+                 seeds: Env.default_retention_days(),
+                 query:
+                   recording_query({:error, {:starrocks_mysql, "Unknown table 'mtr_traces'"}})
+               )
+
+      assert %{last_applied_status: "failed", last_applied_error: "Unknown table 'mtr_traces'"} =
+               FakeStore.row("mtr")
+    end
+
+    test "the applier retries an unanswering warehouse and applies a broadcast change without a restart" do
+      start_supervised!({FakeStore, applied_rows()})
+      attempts = :counters.new(1, [])
+
+      query =
+        recording_query(fn ->
+          :counters.add(attempts, 1, 1)
+          if :counters.get(attempts, 1) <= 3, do: {:error, :connect_failed}, else: {:ok, %{}}
+        end)
+
+      opts = [
+        name: :retention_under_test,
+        store: FakeStore,
+        seeds: Env.default_retention_days(),
+        query: query,
+        subscribe: false,
+        initial_delay_ms: 5,
+        interval_ms: 60_000
+      ]
+
+      pid =
+        start_supervised!(%{id: :retention_under_test, start: {Retention, :start_link, [opts]}})
+
+      # The start-up pass applies every dataset; the first three statements fail,
+      # so the rows only all read applied again after a backed-off retry.
+      wait_until(fn ->
+        :counters.get(attempts, 1) > 3 and
+          Enum.all?(Map.values(FakeStore.rows()), &applied_or_tableless?/1)
+      end)
+
+      _ = sent_sql()
+
+      FakeStore.put("logs", %{days: 45, last_applied_status: "pending"})
+      send(pid, {:warehouse_retention_changed, "logs"})
+
+      assert_receive {:sql, ~s|ALTER TABLE `logs` SET ("partition_live_number" = "45")|}, 1_000
+      wait_until(fn -> FakeStore.row("logs").last_applied_days == 45 end)
+    end
+  end
+
+  describe "floors" do
+    test "a value below the dataset's floor is rejected before anything is stored" do
+      assert {:error, "must be at least 1 day"} =
+               RetentionSettings.save("attribution", 0, actor: nil)
+
+      assert {:error, "must be at least 1 day"} = RetentionSettings.save("logs", -3, actor: nil)
+      assert {:error, "unknown dataset" <> _} = RetentionSettings.save("nope", 30, actor: nil)
+    end
+
+    test "process attribution never keeps fewer than two daily partitions" do
+      assert Retention.partitions(:attribution, 1) == 2
+      assert Retention.partitions(:attribution, 10) == 10
+      assert Retention.partitions(:logs, 1) == 1
+    end
+
+    test "values far above the default warn" do
+      refute Retention.storage_warning?(:logs, 730)
+      assert Retention.storage_warning?(:logs, 731)
+      assert Retention.storage_warning?(:attribution, 61)
+    end
+  end
+
+  describe "statements" do
+    test "every partitioned telemetry table is retained at its dataset's depth" do
+      statements = Retention.statements(retention_days: [flows: 30, logs: 730])
+
+      assert length(statements) == length(Retention.tables())
+
+      expected = %{
+        "ocsf_network_activity" => "30",
+        "logs" => "730",
+        "timeseries_metrics" => "365",
+        "events" => "365",
+        "mtr_traces" => "365",
+        "mtr_hops" => "365",
+        "otel_metrics" => "365",
+        "otel_metric_points" => "365",
+        "otel_traces" => "365",
+        "bmp_routing_events" => "365"
+      }
+
+      for {table, days} <- expected do
+        assert Enum.any?(statements, fn sql ->
+                 sql =~ "ALTER TABLE `#{table}`" and
+                   sql =~ ~s("partition_live_number" = "#{days}")
+               end),
+               "no retention statement for #{table} at #{days} days"
+      end
+
+      # Unqualified table names: the connection already selects the configured
+      # database, so a non-default SERVICERADAR_STARROCKS_DATABASE still applies.
+      refute Enum.any?(statements, &String.contains?(&1, "serviceradar."))
+    end
+
+    # A trace without its hops, or hops without their trace, is not an MTR
+    # record; OTel samples and points are one signal. Each pair shares a setting.
+    test "multi-table datasets are retained together at their one setting" do
+      days = Map.new(Retention.days_by_table(retention_days: [mtr: 14, otel: 90]))
+
+      assert days["mtr_traces"] == 14
+      assert days["mtr_hops"] == 14
+      assert days["otel_metrics"] == 90
+      assert days["otel_metric_points"] == 90
+      assert days["logs"] == 365
+    end
+  end
+
+  defp applied_or_tableless?(row) do
+    row.last_applied_status == "applied" or (row.last_applied_error || "") =~ "applies once"
+  end
+
+  defp wait_until(fun, attempts \\ 100) do
+    cond do
+      fun.() ->
+        :ok
+
+      attempts == 0 ->
+        flunk("condition not reached")
+
+      true ->
+        Process.sleep(10)
+        wait_until(fun, attempts - 1)
+    end
   end
 end
