@@ -60,7 +60,9 @@ defmodule ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker do
     (
       SELECT min(bucket)
       FROM logs_severity_stats_5m
-      WHERE bucket >= now() - INTERVAL '24 hours'
+      -- A row covers [bucket, bucket + 5 minutes): start at the bucket holding
+      -- the window start so it is compared against raw_min, not skipped.
+      WHERE bucket >= time_bucket(INTERVAL '5 minutes', now() - INTERVAL '24 hours')
     ) AS rollup_min,
     (
       SELECT watermark

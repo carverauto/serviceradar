@@ -107,6 +107,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/visibility_profile_audit_test.exs",
     "test/serviceradar/inventory/vulnerability_advisory_ingestor_test.exs",
     "test/serviceradar/jobs/prune_stale_agents_worker_test.exs",
+    "test/serviceradar/jobs/refresh_logs_severity_stats_worker_db_test.exs",
     "test/serviceradar/jobs/self_scheduling_worker_uniqueness_test.exs",
     "test/serviceradar/network_config/plugin_ingestor_db_test.exs",
     "test/serviceradar/network_discovery/mapper_device_creation_test.exs",
