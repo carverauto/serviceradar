@@ -1,35 +1,19 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/bazelbuild/rules_go/go/runfiles"
-	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
 // These fixtures are invented independently of any controller. Exercising the
 // built Wasm is essential: native Go runs package initializers, whereas the
 // agent calls run_check without WASI _start, which would close the module.
 func TestAWXPreflightWithoutWASIStart(t *testing.T) {
-	wasmPath, err := runfiles.Rlocation(filepath.Join(os.Getenv("TEST_WORKSPACE"), "build/wasm_plugins/awx.wasm"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wasm, err := os.ReadFile(wasmPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	wasm := loadBuiltWasm(t, "awx.wasm")
 	for _, tc := range []struct {
 		name           string
 		extraField     bool
@@ -112,98 +96,25 @@ func awxRuntimeResponses(surveyVariable string) map[string]any {
 
 func runAWXWasm(t *testing.T, wasm []byte, config map[string]any, responses map[string]any) (map[string]any, int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	runtime := wazero.NewRuntime(ctx)
-	defer func() {
-		if err := runtime.Close(ctx); err != nil {
-			t.Error(err)
-		}
-	}()
-	if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
-		t.Fatal(err)
-	}
-	compiled, err := runtime.CompileModule(ctx, wasm)
-	if err != nil {
-		t.Fatal(err)
-	}
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var result map[string]any
-	calls := 0
-	builder := runtime.NewHostModuleBuilder("env")
-	for _, definition := range compiled.ImportedFunctions() {
-		module, name, _ := definition.Import()
-		if module != "env" {
-			continue
+	host := &wasmHost{config: configJSON, http: func(t *testing.T, request wasmHTTPRequest) (int, []byte) {
+		path := strings.TrimPrefix(request.URL, "https://controller.example.com")
+		body, exists := responses[path]
+		if !exists || request.Method != http.MethodGet || request.ResponseMode != "status_body" {
+			t.Fatalf("unexpected HTTP request: %+v", request)
 		}
-		builder.NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
-			switch name {
-			case "get_config":
-				if uint64(len(configJSON)) > stack[1] || !module.Memory().Write(uint32(stack[0]), configJSON) {
-					t.Fatal("config exceeds guest buffer")
-				}
-				stack[0] = uint64(len(configJSON))
-			case "submit_result":
-				raw, ok := module.Memory().Read(uint32(stack[0]), uint32(stack[1]))
-				if !ok {
-					t.Fatal("invalid result pointer")
-				}
-				if result != nil {
-					t.Fatal("duplicate result")
-				}
-				if err := json.Unmarshal(raw, &result); err != nil {
-					t.Fatal(err)
-				}
-				stack[0] = 0
-			case "log":
-			case "http_request":
-				calls++
-				raw, ok := module.Memory().Read(uint32(stack[0]), uint32(stack[1]))
-				if !ok {
-					t.Fatal("invalid request pointer")
-				}
-				var request struct {
-					Method       string `json:"method"`
-					URL          string `json:"url"`
-					ResponseMode string `json:"response_mode"`
-				}
-				if err := json.Unmarshal(raw, &request); err != nil {
-					t.Fatal(err)
-				}
-				path := strings.TrimPrefix(request.URL, "https://controller.example.com")
-				body, exists := responses[path]
-				if !exists || request.Method != http.MethodGet || request.ResponseMode != "status_body" {
-					t.Fatalf("unexpected HTTP request: %+v", request)
-				}
-				encoded, err := json.Marshal(body)
-				if err != nil {
-					t.Fatal(err)
-				}
-				response := append([]byte("200\n"), encoded...)
-				if uint64(len(response)) > stack[3] || !module.Memory().Write(uint32(stack[2]), response) {
-					t.Fatal("response exceeds guest buffer")
-				}
-				stack[0] = uint64(len(response))
-			default:
-				t.Fatalf("unexpected host call %s", name)
-			}
-		}), definition.ParamTypes(), definition.ResultTypes()).Export(name)
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return http.StatusOK, encoded
+	}}
+	host.run(t, wasm, "run_check")
+	if len(host.results) != 1 {
+		t.Fatalf("expected one result, got %d", len(host.results))
 	}
-	if _, err := builder.Instantiate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	module, err := runtime.InstantiateModule(ctx, compiled, wazero.NewModuleConfig().WithStartFunctions().WithSysWalltime().WithSysNanotime())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := module.ExportedFunction("run_check").Call(ctx); err != nil {
-		t.Fatal(fmt.Errorf("run_check: %w", err))
-	}
-	if result == nil {
-		t.Fatal("plugin did not submit a result")
-	}
-	return result, calls
+	return host.results[0], host.httpCalls
 }
