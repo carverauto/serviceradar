@@ -41,6 +41,14 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
     end
   end
 
+  defp collect_published(acc) do
+    receive do
+      {:published, _subject, body} -> collect_published([body | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   test "admitted events are published on the observation subject as decodable rows" do
     assert :ok =
              FlowAttribution.publish_observations([event()], "site-a", "agent-a",
@@ -87,6 +95,29 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
     assert {:ok, first_rows} = Observations.decode(first)
     assert {:ok, second_rows} = Observations.decode(second)
     assert length(first_rows) + length(second_rows) == 501
+  end
+
+  test "rows with large cmdlines split into messages under the byte budget" do
+    big = String.duplicate("x", 70_000)
+    events = for port <- 1..20, do: event(local_port: port, redacted_cmdline: [big])
+
+    assert :ok =
+             FlowAttribution.publish_observations(events, "default", "agent-a",
+               enabled: true,
+               publish: capture(self())
+             )
+
+    bodies = collect_published([])
+    assert length(bodies) > 1
+
+    rows = Enum.flat_map(bodies, fn body ->
+      assert byte_size(body) <= 524_288
+      assert {:ok, decoded} = Observations.decode(body)
+      decoded
+    end)
+
+    assert length(rows) == 20
+    assert Enum.all?(rows, fn row -> byte_size(row["cmdline"]) <= 65_533 end)
   end
 
   # The admission lane reports the batch as failed to the gateway, which keeps

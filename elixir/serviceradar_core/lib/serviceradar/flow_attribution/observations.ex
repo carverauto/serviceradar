@@ -8,16 +8,21 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   table `flow_process_attribution_observations`. Core never writes the
   observations to a database itself.
 
-  One message carries at most `@max_rows_per_message` rows, so a large edge
-  batch stays well under the NATS payload limit. The publish waits for the
-  JetStream PubAck: a message the server refused (for example a subject the
-  NATS user may not publish) fails the batch instead of vanishing.
+  One message carries at most `@max_rows_per_message` rows and at most
+  `@max_message_bytes` bytes when encoded, so a large edge batch stays under
+  the NATS payload limit. Each row's `cmdline` is truncated UTF-8-safely to
+  the warehouse column width before encoding, so one row can never exceed the
+  budget on its own. The publish waits for the JetStream PubAck: a message
+  the server refused (for example a subject the NATS user may not publish)
+  fails the batch instead of vanishing.
   """
 
   alias ServiceRadar.NATS.JetStreamPublish
 
   @subject "flows.attribution.observations"
   @max_rows_per_message 500
+  @max_message_bytes 524_288
+  @max_cmdline_bytes 65_533
 
   @spec subject() :: String.t()
   def subject, do: @subject
@@ -32,7 +37,8 @@ defmodule ServiceRadar.FlowAttribution.Observations do
     publish = Keyword.get(opts, :publish, &JetStreamPublish.publish/2)
 
     rows
-    |> Enum.chunk_every(@max_rows_per_message)
+    |> Enum.map(&bound_row/1)
+    |> split_messages()
     |> Enum.reduce_while(:ok, fn chunk, :ok ->
       case publish.(@subject, Jason.encode!(%{"rows" => chunk})) do
         :ok -> {:cont, :ok}
@@ -40,6 +46,59 @@ defmodule ServiceRadar.FlowAttribution.Observations do
         other -> {:halt, {:error, {:unexpected_publish_result, other}}}
       end
     end)
+  end
+
+  defp split_messages([]), do: []
+
+  defp split_messages(rows) do
+    {chunks, current} =
+      Enum.reduce(rows, {[], []}, fn row, {done, current} ->
+        candidate = [row | current]
+
+        if length(candidate) > @max_rows_per_message or
+             message_bytes(candidate) > @max_message_bytes do
+          case current do
+            [] -> {[Enum.reverse(candidate) | done], []}
+            _ -> {[Enum.reverse(current) | done], [row]}
+          end
+        else
+          {done, candidate}
+        end
+      end)
+
+    chunks =
+      case current do
+        [] -> chunks
+        _ -> [Enum.reverse(current) | chunks]
+      end
+
+    Enum.reverse(chunks)
+  end
+
+  defp message_bytes(chunk) do
+    chunk |> Enum.reverse() |> then(&%{"rows" => &1}) |> Jason.encode!() |> byte_size()
+  end
+
+  defp bound_row(%{cmdline: cmdline} = row) when is_binary(cmdline) do
+    %{row | cmdline: truncate_binary(cmdline, @max_cmdline_bytes)}
+  end
+
+  defp bound_row(%{"cmdline" => cmdline} = row) when is_binary(cmdline) do
+    %{row | "cmdline" => truncate_binary(cmdline, @max_cmdline_bytes)}
+  end
+
+  defp bound_row(row), do: row
+
+  defp truncate_binary(value, max_bytes) do
+    value |> binary_part(0, min(max_bytes, byte_size(value))) |> trim_incomplete_utf8()
+  end
+
+  defp trim_incomplete_utf8(value) do
+    if String.valid?(value) do
+      value
+    else
+      trim_incomplete_utf8(binary_part(value, 0, byte_size(value) - 1))
+    end
   end
 
   @doc "Decodes one observation message into its rows, or `:error`."
