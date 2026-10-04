@@ -58,7 +58,7 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
     system: system,
     assignment_id: assignment_id
   } do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     payload = %{
       "status" => "succeeded",
