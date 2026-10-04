@@ -100,7 +100,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLive do
   defp load(socket) do
     case RetentionSettings.list(scope: socket.assigns.current_scope) do
       {:ok, entries} ->
-        if Enum.any?(entries, &(&1.stored? and &1.last_applied_status == "pending")) do
+        if Enum.any?(
+             entries,
+             &(&1.stored? and &1.last_applied_status == "pending" and &1.tables != [])
+           ) do
           Process.send_after(self(), :refresh, @refresh_ms)
         end
 
