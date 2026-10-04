@@ -1,6 +1,6 @@
 id: alienvault-otx-threat-intel
 name: AlienVault OTX Threat Intel
-version: 0.3.3
+version: 0.3.4
 description: Collects AlienVault OTX export pages and emits normalized threat-intel indicators
 entrypoint: run_check
 runtime: wasi-preview1
@@ -27,3 +27,71 @@ resources:
   requested_memory_mb: 256
   requested_cpu_ms: 15000
   max_open_connections: 2
+integrations:
+  credential_profiles:
+    - provider: alienvault-otx
+      label: AlienVault OTX
+      description: Collect the subscribed OTX feed on one selected agent using a reusable API token. Set the rule interval to 86400 seconds; completed pulls also self-throttle to one day.
+      supports_rules: true
+      auth_methods:
+        - id: api_token
+          label: API token
+          credential_kind: api_token
+          fields:
+            - id: api_key
+              label: OTX API key
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: scalar
+            field: api_key
+      purposes:
+        - threat_intel_sync
+      scope_types:
+        - agent
+      rule_defaults:
+        auth_method: api_token
+        purposes:
+          - threat_intel_sync
+        # The feed is global: this bounded target is a delivery gate, not an
+        # endpoint filter. Single cardinality prevents repeated whole-feed pulls.
+        target_query: in:devices sort:uid:asc limit:1
+        scope_type: agent
+        allowed_ports: "443"
+        tls_policy: verify
+      rule_controls:
+        target_query: true
+      provisioning:
+        mode: target_policy
+        consumers:
+          - purpose: threat_intel_sync
+            plugin_id: alienvault-otx-threat-intel
+            auth_methods:
+              - api_token
+            constraints: {}
+            target_cardinality: single
+            grant:
+              grant_type: alienvault_otx_api_token
+              resolution_location: control_plane
+              ttl_seconds: 300
+              allow:
+                methods:
+                  - GET
+                hosts:
+                  - otx.alienvault.com
+                ports:
+                  - 443
+            params:
+              credential_broker:
+                $source: grant
+              api_key_secret_ref:
+                $source: secret_ref
+              credential_rule_id:
+                $source: rule
+                field: id
+              base_url: https://otx.alienvault.com
+              limit: 100
+              timeout_ms: 120000
+              max_pages: 25
