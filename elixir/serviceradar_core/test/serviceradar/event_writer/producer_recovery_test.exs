@@ -206,10 +206,19 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     assert_receive {:connection, :connected, _, %{producer: ServiceRadar.EventWriter.FlowProducer}}, 3_000
     assert Health.check() == :ok
 
+    old_conns =
+      (Broadway.producer_names(ServiceRadar.EventWriter.Pipeline) ++
+         Broadway.producer_names(ServiceRadar.EventWriter.FlowPipeline))
+      |> Enum.map(&(:sys.get_state(&1).conn))
+      |> Enum.filter(&is_pid/1)
+
+    assert old_conns != []
+
     old = Process.whereis(ServiceRadar.EventWriter.Supervisor)
     monitor = Process.monitor(old)
     :ok = Supervisor.stop(old, :shutdown)
     assert_receive {:DOWN, ^monitor, :process, ^old, :shutdown}
+    Enum.each(old_conns, &refute(Process.alive?(&1)))
     assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
     assert_receive {:connection, :connected, _, %{producer: ServiceRadar.EventWriter.FlowProducer}}, 3_000
     refute Process.whereis(ServiceRadar.EventWriter.Supervisor) == old
