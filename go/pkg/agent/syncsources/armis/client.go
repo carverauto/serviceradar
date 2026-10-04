@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
@@ -34,6 +35,14 @@ import (
 const (
 	accessTokenPath = "/api/v1/access_token/"
 	searchPath      = "/api/v1/search/"
+
+	// requestTimeout bounds one Armis request, response body included. A run
+	// context deadline still applies on top of it; whichever is sooner wins.
+	// Without it a stalled API held the run, and so the source, forever.
+	requestTimeout = 2 * time.Minute
+
+	maxIdleConnsPerHost = 4
+	idleConnTimeout     = 90 * time.Second
 )
 
 var (
@@ -45,6 +54,7 @@ var (
 type client struct {
 	endpoint           string
 	insecureSkipVerify bool
+	http               *http.Client
 }
 
 type requestError struct {
@@ -72,9 +82,43 @@ func isUnauthorized(err error) bool {
 }
 
 func newClient(source models.SourceConfig) *client {
+	return newClientWithTimeout(source, requestTimeout)
+}
+
+// newClientWithTimeout builds the client and its one HTTP client and
+// transport, reused by every request of a run so connections are pooled
+// rather than leaked per page.
+func newClientWithTimeout(source models.SourceConfig, timeout time.Duration) *client {
 	return &client{
 		endpoint:           strings.TrimRight(source.Endpoint, "/"),
 		insecureSkipVerify: source.InsecureSkipVerify,
+		http:               newHTTPClient(source.InsecureSkipVerify, timeout),
+	}
+}
+
+func newHTTPClient(insecureSkipVerify bool, timeout time.Duration) *http.Client {
+	transport := cloneDefaultTransport()
+	transport.MaxIdleConnsPerHost = maxIdleConnsPerHost
+	transport.IdleConnTimeout = idleConnTimeout
+	if insecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+
+	return &http.Client{Transport: transport, Timeout: timeout}
+}
+
+func cloneDefaultTransport() *http.Transport {
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		return base.Clone()
+	}
+
+	return &http.Transport{Proxy: http.ProxyFromEnvironment}
+}
+
+// close releases the run's idle connections.
+func (c *client) close() {
+	if c.http != nil {
+		c.http.CloseIdleConnections()
 	}
 }
 
@@ -209,12 +253,9 @@ func (c *client) resolveURL(path string) (string, error) {
 }
 
 func (c *client) httpClient() *http.Client {
-	transport := http.DefaultTransport
-	if c.insecureSkipVerify {
-		transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+	if c.http == nil {
+		c.http = newHTTPClient(c.insecureSkipVerify, requestTimeout)
 	}
 
-	return &http.Client{Transport: transport}
+	return c.http
 }
