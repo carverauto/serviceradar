@@ -18,8 +18,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.SecureTempCapture do
 
   @spec allocate_path(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def allocate_path(prefix, extension \\ ".h264") when is_binary(prefix) and is_binary(extension) do
-    File.mkdir_p!(base_dir())
-    do_allocate_path(String.trim(prefix), normalize_extension(extension), @retry_attempts)
+    case File.mkdir_p(base_dir()) do
+      :ok -> do_allocate_path(String.trim(prefix), normalize_extension(extension), @retry_attempts)
+      {:error, reason} -> {:error, {:base_dir_unavailable, reason}}
+    end
   end
 
   @spec with_payload_file(String.t(), binary(), String.t(), (String.t() -> result)) :: result when result: var
