@@ -43,22 +43,28 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager do
     if get_in(state.branches, [relay_session_id, branch_id]) do
       {:reply, {:error, :already_exists}, state}
     else
-      worker_opts =
-        attrs
-        |> Map.put(:output_path, sidecar_output_path(attrs, relay_session_id, branch_id))
-        |> maybe_put(:result_ingestor, state.result_ingestor)
-        |> maybe_put(:telemetry_module, state.telemetry_module)
-
-      case DynamicSupervisor.start_child(state.supervisor, {BoomboxSidecarWorker, worker_opts}) do
-        {:ok, pid} ->
-          ref = Process.monitor(pid)
-          branch = build_branch(worker_opts, pid, ref)
-          next_state = put_branch(state, relay_session_id, branch_id, branch)
-          {:reply, {:ok, branch}, next_state}
-
+      case sidecar_output_path(attrs, relay_session_id, branch_id) do
         {:error, reason} ->
-          maybe_cleanup_allocated_path(attrs, worker_opts.output_path)
           {:reply, {:error, reason}, state}
+
+        {:ok, output_path} ->
+          worker_opts =
+            attrs
+            |> Map.put(:output_path, output_path)
+            |> maybe_put(:result_ingestor, state.result_ingestor)
+            |> maybe_put(:telemetry_module, state.telemetry_module)
+
+          case DynamicSupervisor.start_child(state.supervisor, {BoomboxSidecarWorker, worker_opts}) do
+            {:ok, pid} ->
+              ref = Process.monitor(pid)
+              branch = build_branch(worker_opts, pid, ref)
+              next_state = put_branch(state, relay_session_id, branch_id, branch)
+              {:reply, {:ok, branch}, next_state}
+
+            {:error, reason} ->
+              maybe_cleanup_allocated_path(attrs, worker_opts.output_path)
+              {:reply, {:error, reason}, state}
+          end
       end
     end
   end
@@ -95,11 +101,11 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager do
   defp sidecar_output_path(attrs, relay_session_id, branch_id) do
     case Map.get(attrs, :output_path) do
       path when is_binary(path) and path != "" ->
-        path
+        {:ok, path}
 
       _ ->
         prefix = "serviceradar-boombox-sidecar-#{relay_session_id}-#{branch_id}"
-        SecureTempCapture.allocate_path!(prefix, ".h264")
+        SecureTempCapture.allocate_path(prefix, ".h264")
     end
   end
 
