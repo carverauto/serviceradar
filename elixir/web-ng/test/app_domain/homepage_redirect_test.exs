@@ -75,8 +75,12 @@ defmodule ServiceRadarWebNG.HomepageRedirectTest do
   end
 
   defp function_forms(module, function) do
+    # :beam_lib resolves a module atom against the working directory rather
+    # than the code path, so locate the compiled beam through the code server.
+    {:module, ^module} = Code.ensure_loaded(module)
+
     {:ok, {^module, [{:abstract_code, {:raw_abstract_v1, forms}}]}} =
-      :beam_lib.chunks(module, [:abstract_code])
+      :beam_lib.chunks(:code.which(module), [:abstract_code])
 
     matched =
       Enum.filter(forms, fn
