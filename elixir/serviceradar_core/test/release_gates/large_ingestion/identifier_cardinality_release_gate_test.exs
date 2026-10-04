@@ -32,6 +32,10 @@ defmodule ServiceRadar.Inventory.IdentifierCardinalityGateTest do
     :ok
   end
 
+  # Each 500-device round is a full ingest against the shared fixture; under fixture load a
+  # round has taken tens of seconds, so three rounds exceed the 60-second ExUnit default.
+  # Above 120 seconds, the tag also lengthens the rollback owner's ownership timeout.
+  @tag timeout: 600_000
   test "identifier rows stay bounded across churned ingest rounds" do
     actor = SystemActor.system(:identifier_cardinality_gate_test)
     run = System.unique_integer([:positive])
