@@ -105,7 +105,7 @@ Target roughly ten pinned paths total; below that the fence is decoration.
       the default read (`include_deleted: false`) excludes those devices automatically, the way
       `sweep_jobs/sweep_results_ingestor.ex` does on its live read path; do NOT pin with
       `include_deleted: true`.
-- [x] 5.2 ~~`event_writer/processors/sweep.ex`~~ **Historical target only — unregistered processor removed; active sweep work is `sweep_jobs/sweep_results_ingestor.ex`**
+- [x] 5.2 ~~`event_writer/processors/sweep.ex`~~ **Historical target only -- unregistered processor removed; active sweep work is `sweep_jobs/sweep_results_ingestor.ex`**
 - [ ] 5.3 `event_writer/processors/metrics.ex` -- highest write volume of the set;
       `observe_many/2` emits one telemetry event per pinned device, so measure the emit cost
       before enabling here.
