@@ -28,10 +28,10 @@
 - [x] 5.1 Emit correlator pass duration, flows read, matches by strategy, stamped count, observation lag, ingest rate and live partition count as metrics through JetStream.
 
 ## 6. Load-test gate
-- [ ] 6.1 Replay demo-scale observation and flow rates against a warehouse for several hours.
-- [ ] 6.2 Gate: correlation p95 well under the pass interval, zero failed passes, observation table size flat at steady state (bounded by live partitions), attribution coverage no worse than the CNPG path.
-- [ ] 6.3 Record the numbers in the PR, including storage per day of observations.
-- [ ] 6.4 Only if the load test shows observation volume matters: coalesce duplicate `(partition, attribution_key)` rows within an EventWriter batch.
+- [x] 6.1 Replay demo-scale observation and flow rates against a warehouse for several hours.
+- [x] 6.2 Gate: correlation p95 well under the pass interval, zero failed passes, observation table size flat at steady state (bounded by live partitions), attribution coverage no worse than the CNPG path.
+- [x] 6.3 Record the numbers in the PR, including storage per day of observations.
+- [x] 6.4 (Not needed: correlation p95 stayed under 1 s with duplicates included; see PR #5164.) Only if the load test shows observation volume matters: coalesce duplicate `(partition, attribution_key)` rows within an EventWriter batch.
 
 ## 7. Cutover
 - [ ] 7.1 Ship in one release; verify on demo that observations land, passes succeed and flows are stamped.
