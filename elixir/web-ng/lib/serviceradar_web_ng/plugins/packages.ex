@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
   alias ServiceRadar.Plugins.SNMPRequirementCatalog
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
@@ -250,10 +251,12 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
           {:ok, PluginPackage.t()} | {:error, term()}
   def upload_blob(package, payload, opts \\ [])
 
-  def upload_blob(%PluginPackage{} = package, payload, opts) when is_binary(payload) do
+  def upload_blob(%PluginPackage{id: id}, payload, opts) when is_binary(payload) do
     content_hash = Storage.sha256(payload)
 
-    store_wasm_blob(package, payload, content_hash, opts)
+    with_locked_staged_package(id, opts, fn package, ash_opts ->
+      store_wasm_blob(package, payload, content_hash, ash_opts)
+    end)
   end
 
   def upload_blob(_package, _payload, _opts), do: {:error, :invalid_attributes}
@@ -398,9 +401,11 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
           {:ok, PluginPackage.t()} | {:error, term()}
   def upload_blob_file(package, path, opts \\ [])
 
-  def upload_blob_file(%PluginPackage{} = package, path, opts) when is_binary(path) do
+  def upload_blob_file(%PluginPackage{id: id}, path, opts) when is_binary(path) do
     with {:ok, content_hash} <- Storage.sha256_file(path) do
-      store_wasm_blob_file(package, path, content_hash, opts)
+      with_locked_staged_package(id, opts, fn package, ash_opts ->
+        store_wasm_blob_file(package, path, content_hash, ash_opts)
+      end)
     end
   end
 
@@ -647,14 +652,14 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp store_wasm_blob(package, payload, content_hash, opts) do
     object_key = Storage.object_key_for(package)
 
-    with :ok <- Storage.put_blob(object_key, payload),
-         {:ok, updated} <-
+    with {:ok, updated} <-
            package
            |> Ash.Changeset.for_update(:update, %{
              wasm_object_key: object_key,
              content_hash: content_hash
            })
-           |> update_resource_with_opts(opts) do
+           |> update_resource_with_opts(opts),
+         :ok <- Storage.put_blob(object_key, payload) do
       mirror_plugin_artifact(updated, object_key, payload)
       {:ok, updated}
     end
@@ -663,16 +668,45 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp store_wasm_blob_file(package, path, content_hash, opts) do
     object_key = Storage.object_key_for(package)
 
-    with :ok <- Storage.put_blob_file(object_key, path),
-         {:ok, updated} <-
+    with {:ok, updated} <-
            package
            |> Ash.Changeset.for_update(:update, %{
              wasm_object_key: object_key,
              content_hash: content_hash
            })
-           |> update_resource_with_opts(opts) do
+           |> update_resource_with_opts(opts),
+         :ok <- Storage.put_blob_file(object_key, path) do
       mirror_plugin_artifact_from_storage(updated, object_key)
       {:ok, updated}
+    end
+  end
+
+  defp with_locked_staged_package(id, opts, upload) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
+
+    case Repo.transaction(fn ->
+           result =
+             PluginPackage
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(id == ^id)
+             |> Ash.Query.lock(:for_update)
+             |> Ash.read_one(ash_opts)
+             |> case do
+               {:ok, %PluginPackage{status: :staged} = package} -> upload.(package, ash_opts)
+               {:ok, %PluginPackage{}} -> {:error, :package_not_staged}
+               {:ok, nil} -> {:error, :not_found}
+               {:error, error} -> {:error, error}
+             end
+
+           case result do
+             {:ok, package} -> package
+             {:error, error} -> Repo.rollback(error)
+           end
+         end) do
+      {:ok, package} -> {:ok, package}
+      {:error, error} -> {:error, error}
     end
   end
 

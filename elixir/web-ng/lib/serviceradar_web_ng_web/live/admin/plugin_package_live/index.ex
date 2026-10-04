@@ -1878,6 +1878,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       <.details_modal
         :if={@show_details_modal}
         package={@selected_package}
+        can_stage_plugins={@can_stage_plugins}
         can_approve_plugins={@can_approve_plugins}
         review_form={@review_form}
         assignments={@assignments}
@@ -2408,7 +2409,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="text-xs">{@package.verification_status || "unknown"}</div>
             </div>
 
-            <div class="rounded-xl border border-sr-line p-4 space-y-3">
+            <div
+              :if={@can_stage_plugins and @package.status == :staged}
+              class="rounded-xl border border-sr-line p-4 space-y-3"
+            >
               <div class="text-sm font-semibold">Upload Wasm Blob</div>
               <p class="text-xs text-sr-muted">
                 Upload the compiled `.wasm` binary to complete this package.
@@ -2467,24 +2471,26 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
             <div class="rounded-xl border border-sr-line p-4 space-y-2">
               <div class="text-sm font-semibold">Wasm Package Requests</div>
-              <div class="text-xs text-sr-muted">
-                Upload endpoint expires
-                <.user_time
-                  id="admin-plugin-upload-endpoint-expires-at"
-                  value={@upload_expires_at}
-                  timezone={@current_scope.user.timezone || "Etc/UTC"}
-                  style={:compact}
-                />
-              </div>
-              <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+              <div :if={@can_stage_plugins and @package.status == :staged} class="space-y-2">
+                <div class="text-xs text-sr-muted">
+                  Upload endpoint expires
+                  <.user_time
+                    id="admin-plugin-upload-endpoint-expires-at"
+                    value={@upload_expires_at}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                  />
+                </div>
+                <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @upload_url %>
     </pre>
-              <div class="text-xs text-sr-muted">
-                Upload token
-              </div>
-              <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+                <div class="text-xs text-sr-muted">
+                  Upload token
+                </div>
+                <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @upload_token %>
     </pre>
+              </div>
               <div class="text-xs text-sr-muted">
                 Download endpoint expires
                 <.user_time
@@ -4145,15 +4151,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp assign_package_urls(socket, package, scope) do
-    case ensure_object_key(package, scope) do
+    case prepare_package_for_urls(socket, package, scope) do
       {:ok, package} ->
-        {upload_token, upload_expires_at} =
-          Storage.sign_token(
-            :upload,
-            package.id,
-            package.wasm_object_key,
-            Storage.upload_ttl_seconds()
-          )
+        {upload_url, upload_token, upload_expires_at} = upload_access(socket, package)
 
         {download_token, download_expires_at} =
           Storage.sign_token(
@@ -4165,7 +4165,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
         socket
         |> assign(:selected_package, package)
-        |> assign(:upload_url, Storage.upload_url(package.id))
+        |> assign(:upload_url, upload_url)
         |> assign(:upload_token, upload_token)
         |> assign(:upload_expires_at, upload_expires_at)
         |> assign(:download_url, Storage.download_url(package.id))
@@ -4182,6 +4182,30 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:blob_present, nil)
     end
   end
+
+  defp prepare_package_for_urls(%{assigns: %{can_stage_plugins: true}}, package, scope) do
+    ensure_object_key(package, scope)
+  end
+
+  defp prepare_package_for_urls(_socket, %{wasm_object_key: key} = package, _scope)
+       when is_binary(key) and key != "",
+       do: {:ok, package}
+
+  defp prepare_package_for_urls(_socket, _package, _scope), do: {:error, :missing_object_key}
+
+  defp upload_access(%{assigns: %{can_stage_plugins: true}}, %{status: :staged} = package) do
+    {token, expires_at} =
+      Storage.sign_token(
+        :upload,
+        package.id,
+        package.wasm_object_key,
+        Storage.upload_ttl_seconds()
+      )
+
+    {Storage.upload_url(package.id), token, expires_at}
+  end
+
+  defp upload_access(_socket, _package), do: {nil, nil, nil}
 
   defp ensure_object_key(package, scope) do
     if package.wasm_object_key in [nil, ""] do
