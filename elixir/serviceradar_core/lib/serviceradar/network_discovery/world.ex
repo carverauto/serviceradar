@@ -233,7 +233,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
 
   def append_stage(_layout_version, _positions, _relations), do: {:error, :batch_too_large}
 
-  @doc "Activates a fully staged relayout only if its base publication is still current."
+  @doc "Activates a fully staged relayout only if its base publication is still current. Refuses a stage that never passed verification with `{:error, :incomplete_world}`."
   def activate_relayout(expected_generation, layout_version) do
     with :ok <- refresh_planner_statistics(),
          :ok <- ensure_head() do
