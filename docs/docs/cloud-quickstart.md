@@ -657,8 +657,8 @@ This page configures **AlienVault OTX** collection and matching against recent
 flows:
 
 1. Enable OTX and select a **Core OTX credential** where prompted.
-2. Ensure an **approved AlienVault OTX** plugin package exists; assign the edge
-   collector to an agent that can reach OTX (Wasm plugin assignment).
+2. For **Edge Plugin** mode only, ensure an **approved AlienVault OTX** plugin package exists; assign the edge
+   collector to an agent that can reach OTX (Wasm plugin assignment). Core Worker mode needs no edge assignment.
 3. Queue **OTX sync** and confirm indicators appear in local inventory counts.
 4. Optionally run **retrohunt** over retained telemetry when available.
 5. Confirm NetFlow detail panels show threat-intel hits after the match cache
