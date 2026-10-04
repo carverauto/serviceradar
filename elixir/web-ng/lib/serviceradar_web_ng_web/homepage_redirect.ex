@@ -33,7 +33,10 @@ defmodule ServiceRadarWebNGWeb.HomepageRedirect do
         end
 
       {:fallback, choice, :unavailable} ->
-        {path_for(user, choice) || ~p"/dashboard", @fallback_notice}
+        case path_for(user, choice) do
+          path when is_binary(path) -> {path, @fallback_notice}
+          :error -> {~p"/dashboard", @fallback_notice}
+        end
     end
   rescue
     exception ->
