@@ -397,9 +397,15 @@ fn build_bucket_time_clause(
         return String::new();
     };
 
+    // A row covers [bucket, bucket + 1h), so keep every bucket that overlaps the
+    // window: comparing `bucket` against the raw start drops the hour holding
+    // the start whole, which empties `time:last_1h` right after the hour turns.
     let start_idx = push_bind(binds, SqlBindValue::Timestamp(*start));
     let end_idx = push_bind(binds, SqlBindValue::Timestamp(*end));
-    format!("bucket >= ${start_idx} AND bucket <= ${end_idx}")
+    format!(
+        "bucket >= time_bucket('1 hour', ${start_idx}::timestamptz) \
+         AND bucket < time_bucket('1 hour', ${end_idx}::timestamptz) + INTERVAL '1 hour'"
+    )
 }
 
 fn text_clause(column: &str, filter: &Filter, binds: &mut Vec<SqlBindValue>) -> Result<String> {
