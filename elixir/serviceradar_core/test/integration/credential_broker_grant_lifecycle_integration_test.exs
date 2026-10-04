@@ -219,7 +219,9 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
         actor,
         unique,
         "full",
-        "svc@pve!inventory=22222222-dddd-4eee-8fff-#{unique}", username: "svc")
+        "svc@pve!inventory=22222222-dddd-4eee-8fff-#{unique}",
+        username: "svc"
+      )
 
     assert {:ok, %{value: bare_value}} = resolve_for_agent(actor, bare, unique)
     assert bare_value == "svc@pve!inventory=11111111-aaaa-4bbb-8ccc-#{unique}"
