@@ -179,6 +179,7 @@ class DgraphEndpointContract(unittest.TestCase):
         self.assertEqual(len(ca), 1, "ci/certificate.yaml must define one dgraph-ci-ca Certificate")
         self.assertRegex(ca[0], r"(?m)^\s+rotationPolicy:\s*Never\s*$")
         self.assertRegex(ca[0], r"(?m)^\s+duration:\s*87600h\s*$")
+        self.assertRegex(ca[0], r"(?m)^\s+renewBefore:\s*2160h\s*$")
 
     def test_ci_ca_httproute_uses_the_config_hostname(self):
         route = (K8S / "ci" / "httproute-ca.yaml").read_text()
