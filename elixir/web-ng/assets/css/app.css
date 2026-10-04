@@ -7441,7 +7441,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
  * Stops daisy/base/preflight from leaking system UI faces per-route.
  */
 .sr-ops-content,
-.sr-ops-content *:not(code):not(kbd):not(pre):not(samp):not(.font-mono) {
+.sr-ops-content *:not(code):not(kbd):not(pre):not(samp):not(.font-mono):not(.terminal):not(.terminal *):not(.xterm):not(.xterm *) {
   font-family: var(--sr-font-sans) !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -7452,8 +7452,21 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-content pre,
 .sr-ops-content samp,
 .sr-ops-content .font-mono,
-.sr-ops-content .font-mono * {
+.sr-ops-content .font-mono *,
+.sr-ops-content .terminal,
+.sr-ops-content .terminal *,
+.sr-ops-content .xterm,
+.sr-ops-content .xterm * {
   font-family: var(--sr-font-mono) !important;
+}
+
+/* Ensure xterm and web terminal elements always preserve monospace geometry */
+.terminal,
+.terminal *,
+.xterm,
+.xterm * {
+  font-family: var(--sr-font-mono) !important;
+  letter-spacing: 0 !important;
 }
 
 /* Security workbench — type scale (family comes from .sr-ops-content) */

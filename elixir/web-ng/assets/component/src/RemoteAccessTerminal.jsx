@@ -29,34 +29,87 @@ function decodeBase64(value) {
 
 // ServiceRadar brand terminal options. The font stack mirrors --sr-font-mono
 // from assets/css/app.css: JetBrains Mono is not bundled with the product, so
-// it must not head the stack. The surface colors mirror the dark sr-canvas
-// palette (deep teal-slate), not the slate blue scale.
+// it must not head the stack. The surface colors mirror the sr-canvas
+// palette (deep teal-slate in dark mode, light canvas in light mode).
 export const TERMINAL_FONT_FAMILY =
   '"SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace'
 
 export const TERMINAL_FONT_SIZE = 14
 
-export const TERMINAL_THEME = {
+export const TERMINAL_DARK_THEME = {
   background: "#0a1114",
   foreground: "#edf5f1",
   cursor: "#edf5f1",
+  cursorAccent: "#0a1114",
   selectionBackground: "#26363a",
-  black: "#0a1114",
+  selectionForeground: "#edf5f1",
+  black: "#3b4c50",
   red: "#ef4444",
-  green: "#22c55e",
-  yellow: "#facc15",
-  blue: "#60a5fa",
+  green: "#3ecf87",
+  yellow: "#f1ca78",
+  blue: "#8bc8e0",
   magenta: "#c084fc",
   cyan: "#22d3ee",
-  white: "#e5e7eb",
+  white: "#edf5f1",
   brightBlack: "#587169",
   brightRed: "#f87171",
-  brightGreen: "#4ade80",
+  brightGreen: "#5bde9b",
   brightYellow: "#fde047",
   brightBlue: "#93c5fd",
   brightMagenta: "#d8b4fe",
   brightCyan: "#67e8f9",
   brightWhite: "#ffffff",
+}
+
+export const TERMINAL_LIGHT_THEME = {
+  background: "#f7f9f8",
+  foreground: "#0b1720",
+  cursor: "#0b1720",
+  cursorAccent: "#f7f9f8",
+  selectionBackground: "#c8d3ce",
+  selectionForeground: "#0b1720",
+  black: "#0b1720",
+  red: "#c23b42",
+  green: "#0b824d",
+  yellow: "#754700",
+  blue: "#245c77",
+  magenta: "#7c3aed",
+  cyan: "#0e7490",
+  white: "#5d6977",
+  brightBlack: "#5d6977",
+  brightRed: "#dc2626",
+  brightGreen: "#076b3e",
+  brightYellow: "#a16207",
+  brightBlue: "#1a5fb4",
+  brightMagenta: "#9333ea",
+  brightCyan: "#0284c7",
+  brightWhite: "#0b1720",
+}
+
+export const TERMINAL_THEME = TERMINAL_DARK_THEME
+
+export function getTerminalTheme(themeName) {
+  if (themeName === "light") {
+    return TERMINAL_LIGHT_THEME
+  }
+  return TERMINAL_DARK_THEME
+}
+
+export function resolveTerminalTheme() {
+  if (typeof document === "undefined") {
+    return TERMINAL_DARK_THEME
+  }
+  const dataTheme = document.documentElement?.getAttribute("data-theme")
+  if (dataTheme === "light") {
+    return TERMINAL_LIGHT_THEME
+  }
+  if (dataTheme === "dark") {
+    return TERMINAL_DARK_THEME
+  }
+  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+    return TERMINAL_LIGHT_THEME
+  }
+  return TERMINAL_DARK_THEME
 }
 
 function statusClass(status) {
@@ -89,6 +142,7 @@ export function Component({
   onHostKeyFailure = null,
   onDisconnect = null,
   socketControlRef = null,
+  theme = null,
 }) {
   const containerRef = useRef(null)
   const terminalRef = useRef(null)
@@ -108,6 +162,7 @@ export function Component({
     let disposed = false
     let dataDisposable = null
     let resizeObserver = null
+    let themeObserver = null
     let socket = null
     let term = null
 
@@ -124,13 +179,35 @@ export function Component({
         return
       }
 
+      const effectiveTheme =
+        typeof theme === "object" && theme !== null
+          ? theme
+          : typeof theme === "string"
+            ? getTerminalTheme(theme)
+            : resolveTerminalTheme()
+
       term = new Terminal({
         cursorBlink: true,
         convertEol: true,
         fontFamily: TERMINAL_FONT_FAMILY,
         fontSize: TERMINAL_FONT_SIZE,
-        theme: TERMINAL_THEME,
+        theme: effectiveTheme,
+        letterSpacing: 0,
       })
+
+      if (typeof MutationObserver !== "undefined" && typeof document !== "undefined" && document.documentElement) {
+        themeObserver = new MutationObserver(() => {
+          if (disposed || !terminalRef.current || (typeof theme === "object" && theme !== null)) {
+            return
+          }
+          const nextTheme = typeof theme === "string" ? getTerminalTheme(theme) : resolveTerminalTheme()
+          terminalRef.current.options.theme = nextTheme
+        })
+        themeObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ["data-theme"],
+        })
+      }
 
       const fitAddon = new FitAddon()
       const clipboardAddon = new ClipboardAddon()
@@ -260,6 +337,7 @@ export function Component({
       disposed = true
       dataDisposable?.dispose()
       resizeObserver?.disconnect()
+      themeObserver?.disconnect()
 
       if (resizeTimerRef.current) {
         clearTimeout(resizeTimerRef.current)
@@ -289,6 +367,7 @@ export function Component({
     socketControlRef,
     streamLabel,
     terminalModuleLoader,
+    theme,
     ticket,
     websocketPath,
   ])
@@ -321,7 +400,10 @@ export function Component({
           {error}
         </div>
       ) : null}
-      <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden p-2" />
+      <div
+        ref={containerRef}
+        className="min-h-0 flex-1 overflow-hidden p-2 font-mono bg-sr-canvas"
+      />
     </div>
   )
 }
