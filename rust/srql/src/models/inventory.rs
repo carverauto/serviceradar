@@ -35,6 +35,9 @@ pub struct AgentRow {
     pub release_rollout_state: Option<String>,
     pub last_update_at: Option<DateTime<Utc>>,
     pub last_update_error: Option<String>,
+    pub status: String,
+    pub superseded_by: Option<String>,
+    pub superseded_at: Option<DateTime<Utc>>,
 }
 
 impl AgentRow {
@@ -66,6 +69,9 @@ impl AgentRow {
             "release_rollout_state": self.release_rollout_state,
             "last_update_at": self.last_update_at,
             "last_update_error": self.last_update_error,
+            "status": self.status,
+            "superseded_by": self.superseded_by,
+            "superseded_at": self.superseded_at,
         })
     }
 }

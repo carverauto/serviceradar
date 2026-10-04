@@ -28,8 +28,9 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
   require Logger
 
   # Every decision kind that leaves two devices unreconciled; listed so a future kind is a
-  # deliberate choice. A retirement and a reactivation name one device and decide its
-  # identity, so they open nothing.
+  # deliberate choice. A retirement, a reactivation, and an agent supersession name one
+  # device and decide its identity, so they open nothing. `:agent_supersession` stays off
+  # this list on purpose.
   @taskable_kinds [
     :policy_block,
     :guard_block,

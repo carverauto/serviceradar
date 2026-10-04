@@ -32,6 +32,9 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
       new record, because no record could take it back.
     * `:succession_review` - a retired identifier and a new one may be one device, on evidence
       too weak to merge them automatically.
+    * `:agent_supersession` - an agent uid on a device was superseded, kept because it was
+      still live, or revived after reporting in again. One device, so it opens no
+      de-duplication task.
 
   Every decision naming two or more devices, other than a retirement or a reactivation, also
   opens or updates the de-duplication task for that device set
@@ -60,7 +63,8 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
     :source_id_retired,
     :source_id_reactivated,
     :source_id_reissued,
-    :succession_review
+    :succession_review,
+    :agent_supersession
   ]
 
   postgres do

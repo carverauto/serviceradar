@@ -22,6 +22,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.ReleaseArtifactDelivery
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.AgentSupersession
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -1028,16 +1029,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  # Live: not retired, and seen within the window the `:connected` read uses. A recent
-  # disconnect still counts, so a stream reconnect does not move the address. Unknown
-  # liveness (a failed read) counts as live: the address stays where it is.
+  # Live: not retired or superseded, and seen within the window the `:connected`
+  # read uses. A recent disconnect still counts, so a stream reconnect does not
+  # move the address. Unknown liveness (a failed read) counts as live: the
+  # address stays where it is. A superseded identity has been replaced and must
+  # not keep holding an address.
   defp live_agent?(agent_id, actor) do
     agent_id = normalize_optional_string(agent_id)
     cutoff = DateTime.add(DateTime.utc_now(), -@agent_live_window_minutes * 60, :second)
 
     Agent
     |> Ash.Query.for_read(:read, %{})
-    |> Ash.Query.filter(uid == ^agent_id and status != :unavailable and last_seen_time > ^cutoff)
+    |> Ash.Query.filter(
+      uid == ^agent_id and status != :unavailable and status != :superseded and
+        last_seen_time > ^cutoff
+    )
     |> Ash.exists(actor: actor)
     |> case do
       {:ok, live?} -> live?
@@ -1223,73 +1229,22 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp retire_superseded_agents(agent_id, device_uid, attrs, actor) do
-    source_ip = agent_source_ip(attrs)
-    canonical_agent_id = canonicalize_agent_uid(agent_id)
-
-    query = superseded_agent_query(device_uid, source_ip, actor)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, agents} ->
-        agents
-        |> Enum.reject(&(&1.uid == agent_id))
-        |> Enum.filter(fn agent ->
-          canonicalize_agent_uid(agent.uid) == canonical_agent_id or
-            matching_source?(agent, source_ip)
-        end)
-        |> Enum.each(&mark_agent_superseded(&1, agent_id, actor))
-
-      {:error, reason} ->
-        Logger.warning(
-          "Failed to lookup superseded agents for #{agent_id} on #{device_uid}: #{inspect(reason)}"
-        )
-    end
+  # Same device only. A shared address is not a host: two devices behind one
+  # NAT address must not retire each other. Side effects run only for a row
+  # that was actually superseded, including one the pruner already marked
+  # unavailable.
+  defp retire_superseded_agents(agent_id, device_uid, _attrs, actor) do
+    agent_id
+    |> AgentSupersession.on_check_in(device_uid, actor)
+    |> Enum.each(&finish_superseded_agent(&1, agent_id, actor))
   end
 
-  defp superseded_agent_query(device_uid, source_ip, actor) do
-    query = Ash.Query.for_read(Agent, :read, %{}, actor: actor)
+  defp finish_superseded_agent(agent, replacement_agent_id, actor) do
+    cancel_superseded_release_targets(agent.uid, replacement_agent_id, actor)
+    mark_superseded_release_state(agent, actor)
+    transfer_superseded_assignments(agent.uid, replacement_agent_id, actor)
 
-    if present_string?(source_ip) do
-      Ash.Query.filter(
-        query,
-        expr(device_uid == ^device_uid or ip == ^source_ip or host == ^source_ip)
-      )
-    else
-      Ash.Query.filter(query, expr(device_uid == ^device_uid))
-    end
-  end
-
-  defp matching_source?(_agent, nil), do: true
-
-  defp matching_source?(%Agent{ip: ip, host: host}, source_ip),
-    do: ip == source_ip or host == source_ip
-
-  defp mark_agent_superseded(%Agent{status: :unavailable}, _replacement_agent_id, _actor), do: :ok
-
-  defp mark_agent_superseded(agent, replacement_agent_id, actor) do
-    reason = "superseded by reenrollment: #{replacement_agent_id}"
-
-    case agent
-         |> Ash.Changeset.for_update(:mark_unavailable, %{reason: reason})
-         |> Ash.update(actor: actor) do
-      {:ok, updated} ->
-        cancel_superseded_release_targets(agent.uid, replacement_agent_id, actor)
-        mark_superseded_release_state(updated, actor)
-        transfer_superseded_assignments(agent.uid, replacement_agent_id, actor)
-
-        Logger.info(
-          "Marked superseded agent #{agent.uid} unavailable in favor of #{replacement_agent_id}"
-        )
-
-        :ok
-
-      {:error, reason} ->
-        Logger.warning(
-          "Failed to mark superseded agent #{agent.uid} unavailable: #{inspect(reason)}"
-        )
-
-        :ok
-    end
+    Logger.info("Superseded agent #{agent.uid} in favor of #{replacement_agent_id}")
   end
 
   defp mark_superseded_release_state(agent, actor) do
@@ -1440,21 +1395,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       count -> {:ok, count}
     end
   end
-
-  defp canonicalize_agent_uid(uid) when is_binary(uid) do
-    uid
-    |> String.split("-", trim: true)
-    |> collapse_duplicate_prefix()
-    |> Enum.join("-")
-  end
-
-  defp canonicalize_agent_uid(uid), do: uid
-
-  defp collapse_duplicate_prefix([prefix, prefix | rest]) do
-    collapse_duplicate_prefix([prefix | rest])
-  end
-
-  defp collapse_duplicate_prefix(parts), do: parts
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
@@ -1652,11 +1592,22 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  defp heartbeat_agent_record(%Agent{status: :superseded} = agent, attrs, actor) do
+    case AgentSupersession.revive(agent, actor) do
+      {:ok, revived} -> apply_heartbeat(revived, attrs, actor)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp heartbeat_agent_record(agent, attrs, actor) do
     if agent.status != :connected or agent.is_healthy != true do
       restore_connected_agent(agent, actor)
     end
 
+    apply_heartbeat(agent, attrs, actor)
+  end
+
+  defp apply_heartbeat(agent, attrs, actor) do
     heartbeat_attrs =
       attrs
       |> Map.take([:capabilities, :is_healthy, :config_source, :gateway_id, :ip])

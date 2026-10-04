@@ -540,6 +540,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   end
 
   defp target_specs(_source, candidate, assignments, agents, direct_overrides, policy, now) do
+    # Drop superseded identities before a target row exists. Classifying them
+    # as excluded would still insert a row, and a rollout that counts every
+    # target would keep waiting on an identity that will not report.
+    assignments = Enum.reject(assignments, &superseded_assignment?(&1, agents))
+
     classified =
       assignments
       |> Enum.sort_by(& &1.agent_uid)
@@ -566,6 +571,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     Enum.map(classified, fn spec ->
       Map.put(spec, :batch_index, Map.get(batch_by_assignment, spec.assignment.id, 0))
     end)
+  end
+
+  defp superseded_assignment?(assignment, agents) do
+    case Map.get(agents, assignment.agent_uid) do
+      %{status: :superseded} -> true
+      %{status: "superseded"} -> true
+      %{"status" => "superseded"} -> true
+      %{"status" => :superseded} -> true
+      _ -> false
+    end
   end
 
   defp batch_indexes(specs, policy) do

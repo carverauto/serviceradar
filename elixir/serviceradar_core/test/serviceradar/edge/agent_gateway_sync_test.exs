@@ -1015,7 +1015,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       )
     end
 
-    test "marks older duplicate-prefix agent unavailable when reenrollment resolves to same device",
+    test "supersedes an older duplicate-prefix agent when reenrollment resolves to the same device",
          %{
            unique_id: unique_id,
            actor: actor
@@ -1039,6 +1039,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(old_agent_id, attrs)
 
+      set_agent_last_seen!(
+        old_agent_id,
+        DateTime.add(DateTime.utc_now(), -86_400, :second),
+        actor
+      )
+
       :ok =
         AgentGatewaySync.upsert_agent(replacement_agent_id, %{
           host: source_ip,
@@ -1051,12 +1057,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
       {:ok, replacement_agent} = Agent.get_by_uid(replacement_agent_id, actor: actor)
 
-      assert old_agent.status == :unavailable
+      assert old_agent.status == :superseded
+      assert old_agent.superseded_by == replacement_agent_id
       assert replacement_agent.status == :connected
       assert replacement_agent.device_uid == device_uid
     end
 
-    test "marks older renamed agent unavailable when reenrollment resolves to same device",
+    test "supersedes an older renamed agent when reenrollment resolves to the same device",
          %{
            unique_id: unique_id,
            actor: actor
@@ -1080,6 +1087,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(old_agent_id, attrs)
 
+      set_agent_last_seen!(
+        old_agent_id,
+        DateTime.add(DateTime.utc_now(), -86_400, :second),
+        actor
+      )
+
       :ok =
         AgentGatewaySync.upsert_agent(replacement_agent_id, %{
           host: source_ip,
@@ -1092,12 +1105,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
       {:ok, replacement_agent} = Agent.get_by_uid(replacement_agent_id, actor: actor)
 
-      assert old_agent.status == :unavailable
+      assert old_agent.status == :superseded
+      assert old_agent.superseded_by == replacement_agent_id
       assert replacement_agent.status == :connected
       assert replacement_agent.device_uid == device_uid
     end
 
-    test "retires unlinked same-host stale agent and transfers active assignments",
+    test "supersedes a quiet same-device agent and transfers active assignments",
          %{
            unique_id: unique_id,
            actor: actor
@@ -1131,6 +1145,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
                Agent
                |> Ash.Query.for_read(:by_uid, %{uid: old_agent_id})
                |> Ash.read_one(actor: assignment_actor)
+
+      # The host MAC is what makes the replacement the same device. A shared
+      # address alone must not retire the previous identity.
+      host_mac = "00:00:5e:00:53:4c"
+
+      {:ok, device_uid} =
+        AgentGatewaySync.ensure_device_for_agent(old_agent_id, %{
+          hostname: "current-#{unique_id}",
+          source_ip: source_ip,
+          partition: partition,
+          capabilities: ["mapper", "sweep"],
+          host_macs: [host_mac]
+        })
 
       {:ok, mapper_job} =
         MapperJob
@@ -1219,12 +1246,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         )
         |> Ash.create(actor: assignment_actor)
 
-      assert {:ok, _device_uid} =
+      set_agent_last_seen!(
+        old_agent_id,
+        DateTime.add(DateTime.utc_now(), -86_400, :second),
+        actor
+      )
+
+      assert {:ok, ^device_uid} =
                AgentGatewaySync.ensure_device_for_agent(replacement_agent_id, %{
                  hostname: "current-#{unique_id}",
                  source_ip: source_ip,
                  partition: partition,
-                 capabilities: ["mapper", "sweep"]
+                 capabilities: ["mapper", "sweep"],
+                 host_macs: [host_mac]
                })
 
       {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
@@ -1237,7 +1271,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, updated_replacement_present_group} =
         Ash.get(SweepGroup, replacement_present_group.id, actor: actor)
 
-      assert old_agent.status == :unavailable
+      assert old_agent.status == :superseded
+      assert old_agent.superseded_by == replacement_agent_id
       assert updated_mapper_job.agent_id == replacement_agent_id
       assert updated_first_member_group.agent_ids == [replacement_agent_id, late_other_agent_id]
 

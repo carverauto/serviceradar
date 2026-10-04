@@ -51,6 +51,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/identity/saml_consumed_assertion_test.exs",
     "test/serviceradar/identity/saml_pending_request_test.exs",
     "test/serviceradar/infrastructure/agent_health_test.exs",
+    "test/serviceradar/infrastructure/agent_supersession_test.exs",
     "test/serviceradar/infrastructure/agent_test.exs",
     "test/serviceradar/infrastructure/state_machine_test.exs",
     "test/serviceradar/integrations/armis_northbound_oban_reaper_test.exs",

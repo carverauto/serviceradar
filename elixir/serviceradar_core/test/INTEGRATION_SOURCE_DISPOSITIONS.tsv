@@ -371,6 +371,7 @@ test/serviceradar/identity/validations/current_password_test.exs	-	not_selected	
 test/serviceradar/identity/validations/password_confirmation_matches_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/validations/profile_timezone_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/infrastructure/agent_health_test.exs	ServiceRadar.Infrastructure.AgentHealthTest	data_case	async	transaction_owner	test:12 DataCase owner; no database child
+test/serviceradar/infrastructure/agent_supersession_test.exs	ServiceRadar.Infrastructure.AgentSupersessionTest	data_case	async	transaction_owner	test:6 DataCase owner; AgentGatewaySync, AgentSupersession and AddonRolloutCoordinator calls run in the test process
 test/serviceradar/infrastructure/agent_test.exs	ServiceRadar.Infrastructure.AgentTest	data_case	async	transaction_owner	test:9 DataCase owner; no database child
 test/serviceradar/infrastructure/event_publisher_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/infrastructure/health_event_migration_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.

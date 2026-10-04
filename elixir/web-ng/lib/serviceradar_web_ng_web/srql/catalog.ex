@@ -156,8 +156,20 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "ip",
         "type_id",
         "capabilities",
-        "config_source"
+        "config_source",
+        "status",
+        "superseded_by"
       ],
+      known_values: %{
+        "status" => [
+          "connecting",
+          "connected",
+          "degraded",
+          "disconnected",
+          "unavailable",
+          "superseded"
+        ]
+      },
       array_fields: ["capabilities"],
       downsample: false
     },
@@ -502,7 +514,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
           "source_id_retired",
           "source_id_reactivated",
           "source_id_reissued",
-          "succession_review"
+          "succession_review",
+          "agent_supersession"
         ]
       },
       downsample: false
