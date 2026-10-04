@@ -2,29 +2,30 @@ mod config;
 mod error;
 pub mod flowpb;
 mod host_slice;
+mod ipfix_tls;
 mod listener;
 mod metrics;
 mod nats_client;
 mod netflow;
 mod publisher;
 mod sflow;
-mod template_store;
+#[cfg(test)]
+mod test_packets;
 
 use anyhow::Result;
 use clap::Parser;
-use config::{Config, TemplateStoreConfig};
+use config::{Config, ListenerConfig};
 use host_slice::HostSliceRouter;
-use listener::{Listener, build_handler};
+use ipfix_tls::IpfixTlsListener;
+use listener::{FlowOutput, Listener, build_handler};
 use metrics::{
     HostSliceMetricsRegistry, ListenerMetrics, MetricsReporter, SubjectDropRegistry,
     run_prometheus_server,
 };
-use netflow_parser::TemplateStore;
 use publisher::{OutboundFlow, Publisher, ready_marker_path};
 use std::sync::Arc;
 use std::sync::Once;
 use std::time::{Duration, Instant};
-use template_store::NatsKvTemplateStore;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -102,21 +103,6 @@ async fn main() -> Result<()> {
     );
     let publisher_handle = tokio::spawn(async move { publisher.run().await });
 
-    // If a template store is configured, open a separate NATS connection
-    // for KV access and bootstrap the bucket. Kept independent of the
-    // publisher's connection so KV failures cannot stall publishing and
-    // vice versa.
-    let template_store = match config.template_store.as_ref() {
-        Some(ts_config) => {
-            log::info!(
-                "Template store enabled (NATS KV bucket: {})",
-                ts_config.kv_bucket
-            );
-            Some(bootstrap_template_store(&config, ts_config).await?)
-        }
-        None => None,
-    };
-
     // Spawn listeners
     let mut listener_handles: Vec<JoinHandle<()>> = Vec::new();
     let mut all_metrics: Vec<Arc<ListenerMetrics>> = Vec::new();
@@ -128,15 +114,6 @@ async fn main() -> Result<()> {
             listener_cfg.listen_addr().to_string(),
         ));
         all_metrics.push(Arc::clone(&metrics));
-
-        let handler = build_handler(listener_cfg, template_store.clone(), Arc::clone(&metrics));
-
-        let socket = UdpSocket::bind(listener_cfg.listen_addr()).await?;
-        log::info!(
-            "{} listener bound to {}",
-            listener_cfg.protocol_name(),
-            listener_cfg.listen_addr()
-        );
 
         // Per-listener bounded channel. Capacity defaults to the global
         // `channel_size` but can be overridden per listener so operators can
@@ -166,24 +143,42 @@ async fn main() -> Result<()> {
             }
         }));
 
-        let listener = Listener::new(
-            handler,
-            socket,
-            listener_cfg.buffer_size(),
-            listener_cfg.subject().to_string(),
-            Arc::clone(&host_slice_router),
-            listener_tx,
-            metrics,
-            Arc::clone(&subject_drops),
-        );
-
         let protocol = listener_cfg.protocol_name().to_string();
         let addr = listener_cfg.listen_addr().to_string();
-        listener_handles.push(tokio::spawn(async move {
-            if let Err(e) = listener.run().await {
-                log::error!("[{}@{}] Listener error: {}", protocol, addr, e);
-            }
-        }));
+        if let ListenerConfig::IpfixTls { tls, .. } = listener_cfg {
+            let output = FlowOutput::new(
+                listener_cfg.subject().to_string(),
+                Arc::clone(&host_slice_router),
+                listener_tx,
+                metrics,
+                Arc::clone(&subject_drops),
+            );
+            let listener =
+                IpfixTlsListener::bind(listener_cfg.listen_addr(), tls.clone(), output).await?;
+            listener_handles.push(tokio::spawn(async move {
+                if let Err(e) = listener.run().await {
+                    log::error!("[{}@{}] Listener error: {}", protocol, addr, e);
+                }
+            }));
+        } else {
+            let handler = build_handler(listener_cfg, Arc::clone(&metrics));
+            let socket = UdpSocket::bind(listener_cfg.listen_addr()).await?;
+            let listener = Listener::new(
+                handler,
+                socket,
+                listener_cfg.buffer_size(),
+                listener_cfg.subject().to_string(),
+                Arc::clone(&host_slice_router),
+                listener_tx,
+                metrics,
+                Arc::clone(&subject_drops),
+            );
+            listener_handles.push(tokio::spawn(async move {
+                if let Err(e) = listener.run().await {
+                    log::error!("[{}@{}] Listener error: {}", protocol, addr, e);
+                }
+            }));
+        }
     }
 
     // Drop the original publisher sender so the publisher will shut down when
@@ -328,26 +323,6 @@ fn ensure_rustls_provider_installed() {
     INIT.call_once(|| {
         let _ = rustls::crypto::ring::default_provider().install_default();
     });
-}
-
-/// Connect to NATS, get-or-create the JetStream KV bucket, and wrap it in
-/// a [`NatsKvTemplateStore`]. The connection is independent of the
-/// publisher's connection so KV health and publish health can fail
-/// independently — but it shares the publisher's TLS/creds settings via
-/// `nats_client::connect_with_retry`, otherwise mTLS / creds-protected
-/// NATS clusters would silently fail at TLS handshake here.
-///
-/// The connection target is `cfg.nats_url` if set, otherwise the
-/// top-level `config.nats_url`, allowing template state to live on a
-/// different NATS cluster from publish traffic.
-async fn bootstrap_template_store(
-    config: &Config,
-    cfg: &TemplateStoreConfig,
-) -> Result<Arc<dyn TemplateStore>> {
-    Ok(Arc::new(NatsKvTemplateStore::connect(
-        config.clone(),
-        cfg.clone(),
-    )?))
 }
 
 #[cfg(test)]

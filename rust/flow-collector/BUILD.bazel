@@ -49,8 +49,6 @@ rust_binary(
         normal = True,
     ) + [
         ":build_script",
-        "//rust/config-bootstrap:config_bootstrap",
-        "//rust/kvutil",
     ],
 )
 
@@ -58,4 +56,9 @@ rust_test(
     name = "flow_collector_test",
     compile_data = ["flow-collector.json"],
     crate = ":flow-collector",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ),
 )
