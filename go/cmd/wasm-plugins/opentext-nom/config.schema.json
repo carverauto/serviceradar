@@ -6,6 +6,22 @@
   "additionalProperties": false,
   "required": ["instance_id", "api_url"],
   "properties": {
+    "devices": {
+      "type": "array",
+      "maxItems": 32,
+      "title": "Running-config devices",
+      "description": "Devices for config retrieve. All configs are retrieved before any artifact is staged. An empty list keeps the retrieve schedule disabled.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["device_id", "device_uid"],
+        "properties": {
+          "device_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 19},
+          "device_uid": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      },
+      "x-serviceradar-ui-advanced": true
+    },
     "device_id": {
       "type": "string",
       "minLength": 1,

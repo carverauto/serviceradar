@@ -33,11 +33,14 @@ defmodule ServiceRadar.ResultsRouterAdmissionTest do
     assert :ok = ResultsRouter.process_retained_plugin(status())
   end
 
-  test "preserves retryable persistence failures" do
-    error = {:error, {:plugin_result_status_persistence_failed, "database unavailable"}}
-    Application.put_env(:serviceradar_core, :plugin_result_ingestor_test_result, error)
-
-    assert ^error = ResultsRouter.process_retained_plugin(status())
+  test "preserves retryable persistence and artifact cleanup failures" do
+    for error <- [
+      {:error, {:plugin_result_status_persistence_failed, "database unavailable"}},
+      {:error, {:plugin_result_artifact_cleanup_failed, [{TestPluginIngestor, "cleanup failed"}]}}
+    ] do
+      Application.put_env(:serviceradar_core, :plugin_result_ingestor_test_result, error)
+      assert ^error = ResultsRouter.process_retained_plugin(status())
+    end
   end
 
   defp status do

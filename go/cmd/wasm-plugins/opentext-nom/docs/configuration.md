@@ -169,7 +169,7 @@ package bounds, or trigger **Run Now** from that rule.
 
 The `opentext-nom.config.retrieve` producer schedule (default daily, minimum
 `3600` seconds, 5-minute timeout) retrieves the configuration Network
-Automation most recently stored for one device. It reads NA's database and never
+Automation most recently stored for the configured devices. It reads NA's database and never
 opens a session to the device: `list config -deviceid <id>` lists the stored
 revisions, the newest `configuration` revision by `createDate` is chosen, and
 `show config -id <revision> -mask` returns it with passwords and SNMP
@@ -355,3 +355,24 @@ Before enabling the daily schedule:
 Rollback consists of disabling the schedule or revoking the package. Existing
 source observations remain available for audit and canonical devices are not
 deleted.
+
+## Running-config artifact lifecycle
+
+Configure `devices` with up to 32 entries containing a positive Network Automation
+`device_id` and a ServiceRadar `device_uid`. The existing single-device fields
+remain supported. Config retrieval stays disabled until devices are configured;
+other producer schedules do not depend on this list.
+
+The plugin retrieves all masked stored configurations before staging any
+artifact. A retrieval failure stages nothing. A later staging failure reports a
+critical, incomplete result containing the references already committed, so core
+can delete them without ingesting a partial run. Core deletes staged NOM objects
+after both successful and failed ingestion, including download/hash failures.
+Each upload has a unique per-attempt key, so delayed cleanup cannot delete a newer run.
+Core binds reads and deletes to the host-attested agent and assignment.
+Cleanup failure remains retryable through retained plugin-result admission. The operator-only revision is
+the retained config; status details carry references, never config bodies.
+
+Delivery loss after a remote commit but before its reference is returned remains
+an uploader lifecycle limitation: the plugin cannot delete an object whose
+commit receipt it never received.

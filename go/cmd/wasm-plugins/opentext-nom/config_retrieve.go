@@ -48,9 +48,11 @@ func (c *Collector) RetrieveRunningConfig(
 		return RunningConfig{}, runError("opentext_nom_config_invalid")
 	}
 	deviceID = strings.TrimSpace(deviceID)
-	if deviceID == "" {
+	parsedID, valid := parseDeviceID(deviceID)
+	if !valid {
 		return RunningConfig{}, runError("opentext_nom_config_device_id_invalid")
 	}
+	deviceID = strconv.FormatInt(parsedID, 10)
 	// Core records the revision against device_uid; without one the result
 	// could only be rejected downstream.
 	deviceUID = strings.TrimSpace(deviceUID)

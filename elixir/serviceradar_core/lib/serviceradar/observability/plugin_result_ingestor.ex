@@ -100,7 +100,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                 {:error, {:plugin_result_handler_success_persistence_failed, error_text}}
             end
 
-          {:error, {:plugin_result_handlers_failed, errors}} = handler_error ->
+          {:error, {failure_kind, errors}} = handler_error
+          when failure_kind in [:plugin_result_handlers_failed, :plugin_result_artifact_cleanup_failed] ->
             case persist_handler_failure(
                    service_status_attributes(reported_status),
                    payload,
@@ -122,12 +123,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         end
 
       {:error, persistence_error} ->
+        ServiceRadar.NetworkConfig.PluginIngestor.discard_artifacts(payload, status)
         error_text = handler_error_text(persistence_error)
         Logger.error("Plugin result status persistence failed: #{error_text}")
         {:error, {:plugin_result_status_persistence_failed, error_text}}
     end
   rescue
     e ->
+      ServiceRadar.NetworkConfig.PluginIngestor.discard_artifacts(payload, status)
       error_text = handler_error_text(e)
       Logger.error("Plugin result ingest failed: #{error_text}")
       {:error, {:plugin_result_ingest_failed, error_text}}
@@ -135,10 +138,17 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   def ingest(payload, status) when is_list(payload) do
     payload
-    |> Enum.find(&is_map/1)
+    |> Enum.filter(&is_map/1)
     |> case do
-      nil -> {:error, :invalid_payload}
-      entry -> ingest(entry, status)
+      [] -> {:error, :invalid_payload}
+      [entry | remaining] ->
+        result = ingest(entry, status)
+
+        case ServiceRadar.NetworkConfig.PluginIngestor.discard_artifacts(remaining, status) do
+          :ok -> result
+          {:error, reason} ->
+            {:error, {:plugin_result_artifact_cleanup_failed, [{ServiceRadar.NetworkConfig.PluginIngestor, handler_error_text(reason)}]}}
+        end
     end
   end
 
@@ -511,32 +521,37 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp ingest_registered_handlers(handlers, payload, status, observed_at, actor) do
-    errors =
-      Enum.reduce(handlers, [], fn handler, errors ->
+    {errors, cleanup_failed?} =
+      Enum.reduce(handlers, {[], false}, fn handler, {errors, cleanup_failed?} ->
         case handler_support(handler, payload, status) do
           {:ok, true} ->
             case ingest_handler(handler, payload, status, observed_at, actor) do
               :ok ->
-                errors
+                {errors, cleanup_failed?}
 
               {:error, reason} ->
-                add_handler_failure(errors, handler, reason)
+                retry_cleanup? =
+                  handler_module(handler) == ServiceRadar.NetworkConfig.PluginIngestor and
+                    reason == :running_config_artifact_cleanup_failed
+                {add_handler_failure(errors, handler, reason), cleanup_failed? or retry_cleanup?}
 
               other ->
-                add_handler_failure(errors, handler, {:unexpected_handler_result, other})
+                {add_handler_failure(errors, handler, {:unexpected_handler_result, other}), cleanup_failed?}
             end
 
           {:ok, false} ->
-            errors
+            {errors, cleanup_failed?}
 
           {:error, reason} ->
-            add_handler_failure(errors, handler, reason)
+            {add_handler_failure(errors, handler, reason), cleanup_failed?}
         end
       end)
 
     case Enum.reverse(errors) do
       [] -> :ok
-      errors -> {:error, {:plugin_result_handlers_failed, errors}}
+      errors ->
+        failure_kind = if cleanup_failed?, do: :plugin_result_artifact_cleanup_failed, else: :plugin_result_handlers_failed
+        {:error, {failure_kind, errors}}
     end
   end
 
