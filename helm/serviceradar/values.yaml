@@ -1859,6 +1859,9 @@ trapd:
 flowCollector:
   enabled: false
   replicaCount: 1
+  # Optional listener server cert/key and exporter client CA, mounted read-only
+  # at /etc/serviceradar/ipfix-tls. See docs/docs/flow-collector-scaling.md.
+  ipfixTlsSecretName: ""
   # Must match FLOW_COLLECTOR_READY_PATH / readinessProbe (default path).
   readyPath: "/var/lib/serviceradar/flow-collector.ready"
   terminationGracePeriodSeconds: 45
@@ -1885,16 +1888,9 @@ flowCollector:
     # service.ports.metrics.targetPort below. Unset it to disable the
     # in-process HTTP server entirely.
     metrics_addr: "0.0.0.0:50046"
-    # Shared NetFlow/IPFIX template store, persisted in a NATS JetStream KV
-    # bucket. Lets a restarted pod restore learned templates instead of
-    # dropping flows until each exporter re-announces (~60s, RFC 3954).
-    # Omit this block to fall back to in-process-only template caching.
-    # The platform creds must allow create-or-update on KV buckets, or
-    # pre-create the bucket with: nats kv add flow_templates --history=1
-    template_store:
-      kv_bucket: "flow_templates"
-      kv_history: 1
-      kv_ttl_secs: 0
+    # Shared template persistence is retired. Remove any previous override;
+    # a non-null template_store fails collector startup. TLS state is per session.
+    template_store: null
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
@@ -1903,6 +1899,8 @@ flowCollector:
         listen_addr: "0.0.0.0:6343"
         subject: "flows.raw.sflow"
       - protocol: "netflow"
+        # v9/IPFIX UDP is rejected unless explicitly accepting spoofable ingress.
+        allow_unauthenticated_templates: false
         listen_addr: "0.0.0.0:2055"
         subject: "flows.raw.netflow"
         # Distinct transport/domain identities this listener tracks. Unset uses
@@ -1944,6 +1942,11 @@ flowCollector:
         port: 4739
         targetPort: 4739
         protocol: UDP
+      ipfixTls:
+        enabled: false
+        port: 4740
+        targetPort: 4740
+        protocol: TCP
       metrics:
         enabled: true
         port: 50046

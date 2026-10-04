@@ -103,6 +103,11 @@ spec:
           containerPort: {{ .Values.flowCollector.service.ports.ipfix.targetPort | default 4739 }}
           protocol: {{ .Values.flowCollector.service.ports.ipfix.protocol | default "UDP" }}
         {{- end }}
+        {{- if .Values.flowCollector.service.ports.ipfixTls.enabled }}
+        - name: ipfix-tls
+          containerPort: {{ .Values.flowCollector.service.ports.ipfixTls.targetPort | default 4740 }}
+          protocol: TCP
+        {{- end }}
         {{- if .Values.flowCollector.service.ports.metrics.enabled }}
         - name: metrics
           containerPort: {{ .Values.flowCollector.service.ports.metrics.targetPort | default 50046 }}
@@ -179,6 +184,11 @@ spec:
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
           readOnly: true
+        {{- if .Values.flowCollector.ipfixTlsSecretName }}
+        - name: ipfix-tls
+          mountPath: /etc/serviceradar/ipfix-tls
+          readOnly: true
+        {{- end }}
         - name: flow-collector-data
           mountPath: /var/lib/serviceradar
         - name: logs
@@ -233,6 +243,11 @@ spec:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
           items:
 {{ include "serviceradar.runtimeCertItems" (list "root.pem" "ca.crt" "flow-collector.pem" "flow-collector-key.pem") | indent 12 }}
+      {{- if .Values.flowCollector.ipfixTlsSecretName }}
+      - name: ipfix-tls
+        secret:
+          secretName: {{ .Values.flowCollector.ipfixTlsSecretName | quote }}
+      {{- end }}
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds
@@ -291,6 +306,12 @@ spec:
     port: {{ .Values.flowCollector.service.ports.ipfix.port | default 4739 }}
     targetPort: {{ .Values.flowCollector.service.ports.ipfix.targetPort | default 4739 }}
     protocol: {{ .Values.flowCollector.service.ports.ipfix.protocol | default "UDP" }}
+  {{- end }}
+  {{- if .Values.flowCollector.service.ports.ipfixTls.enabled }}
+  - name: ipfix-tls
+    port: {{ .Values.flowCollector.service.ports.ipfixTls.port | default 4740 }}
+    targetPort: {{ .Values.flowCollector.service.ports.ipfixTls.targetPort | default 4740 }}
+    protocol: TCP
   {{- end }}
   {{- if .Values.flowCollector.service.ports.metrics.enabled }}
   - name: metrics

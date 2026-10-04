@@ -86,19 +86,16 @@ pub struct Listener {
     handler: Box<dyn FlowHandler>,
     socket: UdpSocket,
     buffer_size: usize,
-    /// Per-listener bounded mpsc to the publisher fan-in. Each listener owns
-    /// its own sender so a noisy protocol cannot starve a quiet one when the
-    /// shared NATS publisher batches behind. The downstream consumer pattern
-    /// is `DropNewest` (tokio `mpsc::try_send` rejects the incoming message
-    /// when the channel is full); see `config.rs` for why we do not expose
-    /// a `DropOldest` policy.
+    output: FlowOutput,
+}
+
+/// The shared bounded publication path for UDP and authenticated IPFIX.
+#[derive(Clone)]
+pub struct FlowOutput {
     tx: mpsc::Sender<OutboundFlow>,
     subject: String,
     host_slice_router: Arc<HostSliceRouter>,
-    metrics: Arc<ListenerMetrics>,
-    /// Records per-NATS-subject channel-full drops so operators can see
-    /// *which* listener and *which* subject is overflowing — not just an
-    /// aggregate counter.
+    pub metrics: Arc<ListenerMetrics>,
     subject_drops: Arc<SubjectDropRegistry>,
 }
 
@@ -118,11 +115,7 @@ impl Listener {
             handler,
             socket,
             buffer_size,
-            tx,
-            subject,
-            host_slice_router,
-            metrics,
-            subject_drops,
+            output: FlowOutput::new(subject, host_slice_router, tx, metrics, subject_drops),
         }
     }
 
@@ -136,39 +129,13 @@ impl Listener {
         loop {
             match self.socket.recv_from(&mut buf).await {
                 Ok((len, peer_addr)) => {
-                    self.metrics
+                    self.output
+                        .metrics
                         .packets_received
                         .fetch_add(1, Ordering::Relaxed);
                     let messages = self.handler.parse_datagram(&buf[..len], len, peer_addr);
 
-                    for flow_msg in messages {
-                        let encoded = flow_to_bytes(&flow_msg);
-
-                        if !self
-                            .publish_encoded(protocol, self.subject.clone(), encoded.clone())
-                            .await?
-                        {
-                            continue;
-                        }
-
-                        for target in self.host_slice_router.targets_for_flow(&flow_msg) {
-                            let host_slice_encoded = host_slice_flow_to_bytes(
-                                &flow_msg,
-                                target.agent_id.as_ref(),
-                                target.partition.as_ref(),
-                            );
-                            if !self
-                                .publish_encoded(
-                                    protocol,
-                                    target.subject.to_string(),
-                                    host_slice_encoded,
-                                )
-                                .await?
-                            {
-                                break;
-                            }
-                        }
-                    }
+                    self.output.publish(protocol, messages)?;
                 }
                 Err(e) => {
                     error!("[{}] Error receiving UDP packet: {}", protocol, e);
@@ -176,14 +143,53 @@ impl Listener {
             }
         }
     }
+}
 
-    async fn publish_encoded(
-        &self,
-        protocol: &str,
+impl FlowOutput {
+    pub fn new(
         subject: String,
-        encoded: Vec<u8>,
-    ) -> Result<bool> {
-        // Stamp ingress at UDP accept so publisher never-attempted TTL bounds
+        host_slice_router: Arc<HostSliceRouter>,
+        tx: mpsc::Sender<OutboundFlow>,
+        metrics: Arc<ListenerMetrics>,
+        subject_drops: Arc<SubjectDropRegistry>,
+    ) -> Self {
+        Self {
+            subject,
+            host_slice_router,
+            tx,
+            metrics,
+            subject_drops,
+        }
+    }
+
+    pub fn publish(&self, protocol: &str, messages: Vec<FlowMessage>) -> Result<()> {
+        for flow_msg in messages {
+            let encoded = flow_to_bytes(&flow_msg);
+
+            if !self.publish_encoded(protocol, self.subject.clone(), encoded.clone())? {
+                continue;
+            }
+
+            for target in self.host_slice_router.targets_for_flow(&flow_msg) {
+                let host_slice_encoded = host_slice_flow_to_bytes(
+                    &flow_msg,
+                    target.agent_id.as_ref(),
+                    target.partition.as_ref(),
+                );
+                if !self.publish_encoded(
+                    protocol,
+                    target.subject.to_string(),
+                    host_slice_encoded,
+                )? {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn publish_encoded(&self, protocol: &str, subject: String, encoded: Vec<u8>) -> Result<bool> {
+        // Stamp ingress at transport accept so publisher never-attempted TTL bounds
         // hold time across both channel layers.
         match self.tx.try_send((subject, encoded, Instant::now())) {
             Ok(_) => Ok(true),
@@ -211,13 +217,8 @@ impl Listener {
 }
 
 /// Construct the appropriate FlowHandler from a ListenerConfig variant.
-///
-/// `template_store` is supplied by `main` when a NATS KV bucket is
-/// configured and is shared across all NetFlow listeners. sFlow ignores it
-/// because sFlow is template-less.
 pub fn build_handler(
     config: &ListenerConfig,
-    template_store: Option<Arc<dyn netflow_parser::TemplateStore>>,
     metrics: Arc<ListenerMetrics>,
 ) -> Box<dyn FlowHandler> {
     match config {
@@ -225,23 +226,88 @@ pub fn build_handler(
             max_samples_per_datagram,
             ..
         } => Box::new(SflowHandler::new(*max_samples_per_datagram, metrics)),
+        ListenerConfig::IpfixTls { .. } => unreachable!("TLS listener owns session-local parsers"),
         ListenerConfig::Netflow {
+            allow_unauthenticated_templates,
             max_templates,
             pending_flows,
             default_sampling_rate,
             sampling_rate_overrides,
             max_sources,
             ..
-        } => Box::new(NetflowHandler::new(
-            *max_templates,
-            pending_flows.as_ref(),
-            *default_sampling_rate,
-            sampling_rate_overrides.clone(),
-            *max_sources,
-            template_store,
-            metrics,
-        )),
+        } => Box::new(UdpNetflowHandler {
+            allow_templates: *allow_unauthenticated_templates,
+            metrics: Arc::clone(&metrics),
+            parser: NetflowHandler::new(
+                *max_templates,
+                pending_flows.as_ref(),
+                *default_sampling_rate,
+                sampling_rate_overrides.clone(),
+                *max_sources,
+                metrics,
+            ),
+        }),
     }
+}
+
+struct UdpNetflowHandler {
+    parser: NetflowHandler,
+    allow_templates: bool,
+    metrics: Arc<ListenerMetrics>,
+}
+
+impl FlowHandler for UdpNetflowHandler {
+    fn parse_datagram(&self, buf: &[u8], len: usize, peer: SocketAddr) -> Vec<FlowMessage> {
+        // A legacy packet prefix must not hide a trailing template packet from
+        // netflow_parser's multi-packet iterator. Validate every packet boundary.
+        let sflow = buf.starts_with(&[0, 0, 0, 5]);
+        if !self.allow_templates && !sflow && !legacy_only_datagram(buf) {
+            self.metrics
+                .udp_template_rejections
+                .fetch_add(1, Ordering::Relaxed);
+            return Vec::new();
+        }
+        self.parser.parse_datagram(buf, len, peer)
+    }
+    fn protocol_name(&self) -> &'static str {
+        "netflow"
+    }
+}
+
+fn legacy_only_datagram(mut bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    while !bytes.is_empty() {
+        if bytes.len() < 24 {
+            return false;
+        }
+        let version = u16::from_be_bytes([bytes[0], bytes[1]]);
+        let count = usize::from(u16::from_be_bytes([bytes[2], bytes[3]]));
+        // Per-PDU caps match the locked parser (v5: 30, v7: 28). A jumbo
+        // datagram is only legitimate as concatenated individually bounded
+        // PDUs, never as one PDU carrying more records than the parser
+        // accepts.
+        let (record_size, max_count): (usize, usize) = match version {
+            5 => (48, 30),
+            7 => (52, 28),
+            _ => return false,
+        };
+        if count == 0 || count > max_count {
+            return false;
+        }
+        let Some(size) = record_size
+            .checked_mul(count)
+            .and_then(|payload| payload.checked_add(24))
+        else {
+            return false;
+        };
+        let Some(remaining) = bytes.get(size..) else {
+            return false;
+        };
+        bytes = remaining;
+    }
+    true
 }
 
 #[cfg(test)]
@@ -250,6 +316,197 @@ mod tests {
     use crate::config::{Config, HostNetworkVisibilityStatus, HostSliceConfig, ListenerConfig};
     use std::net::{IpAddr, Ipv4Addr};
     use tokio::time::{Duration, sleep, timeout};
+
+    #[tokio::test]
+    async fn udp_secure_defaults_reject_template_packets_before_publication() {
+        use crate::test_packets::{ipfix, legacy};
+        for insecure in [false, true] {
+            let config: ListenerConfig = serde_json::from_value(serde_json::json!({
+                "protocol": "netflow", "listen_addr": "127.0.0.1:0", "subject": "flows.raw.netflow",
+                "allow_unauthenticated_templates": insecure
+            }))
+            .unwrap();
+            let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let addr = socket.local_addr().unwrap();
+            let metrics = Arc::new(ListenerMetrics::new("netflow", addr.to_string()));
+            let (tx, mut rx) = mpsc::channel(16);
+            let listener = Listener::new(
+                build_handler(&config, Arc::clone(&metrics)),
+                socket,
+                65536,
+                "flows.raw.netflow".into(),
+                Arc::new(HostSliceRouter::default()),
+                tx,
+                Arc::clone(&metrics),
+                Arc::new(SubjectDropRegistry::new()),
+            );
+            let task = tokio::spawn(listener.run());
+            let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let template = ipfix(1, Some(&[(1, 4)]), &999u32.to_be_bytes());
+            let mut prefixed = legacy(5);
+            prefixed.extend_from_slice(&template);
+            // One valid v9 template plus flow, invented from the wire layout.
+            let mut v9 = vec![0, 9, 0, 1];
+            for value in [1000u32, 1_893_456_000, 1, 1] {
+                v9.extend(value.to_be_bytes());
+            }
+            v9.extend_from_slice(&[0, 0, 0, 12, 1, 0, 0, 1, 0, 1, 0, 4, 1, 0, 0, 8]);
+            v9.extend(999u32.to_be_bytes());
+            for (packet, count) in [(&template, 1), (&prefixed, 2), (&v9, 1)] {
+                sender.send_to(packet, addr).await.unwrap();
+                if insecure {
+                    let mut values = Vec::new();
+                    for _ in 0..count {
+                        let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
+                            .await
+                            .unwrap()
+                            .unwrap();
+                        values.push(FlowMessage::decode(bytes.as_slice()).unwrap().bytes);
+                    }
+                    assert!(values.contains(&999));
+                }
+            }
+            if !insecure {
+                timeout(Duration::from_secs(3), async {
+                    while metrics.udp_template_rejections.load(Ordering::Relaxed) != 3 {
+                        sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await
+                .expect("default UDP listener admitted a template packet");
+                assert_eq!(metrics.source_count.load(Ordering::Relaxed), 0);
+                assert!(rx.try_recv().is_err());
+            }
+            // Template-free v5 and concatenated v5 packets remain valid.
+            for (packet, expected) in [(legacy(5), 1), ([legacy(5), legacy(5)].concat(), 2)] {
+                sender.send_to(&packet, addr).await.unwrap();
+                for _ in 0..expected {
+                    let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(FlowMessage::decode(bytes.as_slice()).unwrap().bytes, 111);
+                }
+            }
+            // v7 is structurally legacy (never template traffic) but the
+            // converter has no V7 branch, so it publishes nothing.
+            let rejections_before = metrics.udp_template_rejections.load(Ordering::Relaxed);
+            sender.send_to(&legacy(7), addr).await.unwrap();
+            sleep(Duration::from_millis(300)).await;
+            assert_eq!(
+                metrics.udp_template_rejections.load(Ordering::Relaxed),
+                rejections_before,
+                "structurally valid v7 must not count as template traffic"
+            );
+            assert!(rx.try_recv().is_err());
+            assert_eq!(
+                metrics.udp_template_rejections.load(Ordering::Relaxed),
+                if insecure { 0 } else { 3 }
+            );
+            task.abort();
+            let _ = task.await;
+            assert_eq!(metrics.source_count.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn udp_secure_defaults_admit_jumbo_legacy_datagrams() {
+        use crate::test_packets::{ipfix, legacy};
+        // One PDU carrying exactly `count` records; callers must respect
+        // the parser's per-PDU caps (v5: 30, v7: 28). A legitimate jumbo
+        // datagram concatenates individually bounded PDUs.
+        fn bounded_pdu(version: u16, count: u16) -> Vec<u8> {
+            let base = legacy(version);
+            let record = if version == 7 { 52 } else { 48 };
+            let mut out = vec![0u8; 24 + record * usize::from(count)];
+            out[..24].copy_from_slice(&base[..24]);
+            out[2..4].copy_from_slice(&count.to_be_bytes());
+            for i in 0..usize::from(count) {
+                out[24 + i * record..24 + (i + 1) * record].copy_from_slice(&base[24..24 + record]);
+            }
+            out
+        }
+        let config: ListenerConfig = serde_json::from_value(serde_json::json!({
+            "protocol": "netflow", "listen_addr": "127.0.0.1:0", "subject": "flows.raw.netflow",
+            "allow_unauthenticated_templates": false
+        }))
+        .unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let metrics = Arc::new(ListenerMetrics::new("netflow", addr.to_string()));
+        let (tx, mut rx) = mpsc::channel(64);
+        let listener = Listener::new(
+            build_handler(&config, Arc::clone(&metrics)),
+            socket,
+            65536,
+            "flows.raw.netflow".into(),
+            Arc::new(HostSliceRouter::default()),
+            tx,
+            Arc::clone(&metrics),
+            Arc::new(SubjectDropRegistry::new()),
+        );
+        let task = tokio::spawn(listener.run());
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        // A bounded jumbo PDU publishes every record.
+        sender.send_to(&bounded_pdu(5, 30), addr).await.unwrap();
+        for _ in 0..30 {
+            let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(FlowMessage::decode(bytes.as_slice()).unwrap().bytes, 111);
+        }
+        // A legitimate jumbo datagram concatenates bounded PDUs.
+        let concat = [bounded_pdu(5, 30), bounded_pdu(5, 30)].concat();
+        sender.send_to(&concat, addr).await.unwrap();
+        for _ in 0..60 {
+            let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(FlowMessage::decode(bytes.as_slice()).unwrap().bytes, 111);
+        }
+        assert_eq!(metrics.udp_template_rejections.load(Ordering::Relaxed), 0);
+        // One PDU over the parser cap is denied even with exact byte
+        // layout, as are zero counts and truncation.
+        let mut zero_count = legacy(5);
+        zero_count[2..4].copy_from_slice(&0u16.to_be_bytes());
+        let truncated = bounded_pdu(5, 30)[..100].to_vec();
+        let mut expected_rejections = 0u64;
+        for bad in [
+            bounded_pdu(5, 31),
+            bounded_pdu(7, 29),
+            zero_count,
+            truncated,
+        ] {
+            sender.send_to(&bad, addr).await.unwrap();
+            expected_rejections += 1;
+            timeout(Duration::from_secs(3), async {
+                while metrics.udp_template_rejections.load(Ordering::Relaxed) != expected_rejections
+                {
+                    sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("over-cap or malformed legacy datagram was admitted");
+            assert!(rx.try_recv().is_err());
+        }
+        let mut prefixed = [bounded_pdu(5, 30), bounded_pdu(5, 30)].concat();
+        prefixed.extend_from_slice(&ipfix(1, Some(&[(1, 4)]), &999u32.to_be_bytes()));
+        sender.send_to(&prefixed, addr).await.unwrap();
+        expected_rejections += 1;
+        timeout(Duration::from_secs(3), async {
+            while metrics.udp_template_rejections.load(Ordering::Relaxed) != expected_rejections {
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("jumbo legacy prefix hid a trailing template packet");
+        assert!(rx.try_recv().is_err());
+        task.abort();
+        let _ = task.await;
+        assert_eq!(metrics.source_count.load(Ordering::Relaxed), 0);
+    }
 
     struct StaticFlowHandler;
 

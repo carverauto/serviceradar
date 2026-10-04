@@ -6580,10 +6580,14 @@ dependencies = [
  "log",
  "netflow_parser",
  "prost",
+ "rcgen",
  "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
+ "tokio-rustls",
  "tonic-prost-build",
 ]
 

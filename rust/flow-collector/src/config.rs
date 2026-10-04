@@ -65,14 +65,9 @@ pub struct Config {
     pub host_slices: Vec<HostSliceConfig>,
     #[serde(default)]
     pub host_slice_allowlist: Vec<String>,
-    /// Optional shared template store for NetFlow / IPFIX templates.
-    /// When configured, every NetFlow listener writes through learned
-    /// templates to this store and consults it on cache miss, allowing
-    /// multiple flow-collector replicas to share template state behind
-    /// a UDP load balancer. Leaving this `None` keeps the legacy
-    /// in-process-only behavior.
+    /// Retired shared template persistence. Any non-null value fails startup.
     #[serde(default)]
-    pub template_store: Option<TemplateStoreConfig>,
+    pub template_store: Option<serde_json::Value>,
 
     // Listeners
     pub listeners: Vec<ListenerConfig>,
@@ -108,42 +103,6 @@ pub enum HostNetworkVisibilityStatus {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TemplateStoreConfig {
-    /// NATS JetStream KV bucket name (must already exist or will be
-    /// created/updated on startup).
-    pub kv_bucket: String,
-    /// Number of historical revisions to retain per key. Templates rarely
-    /// change so 1 is fine; larger values support audit/debug. NATS KV
-    /// caps history at 64. Validated at config load.
-    #[serde(default = "default_kv_history")]
-    pub kv_history: u8,
-    /// Shared bucket storage limit, including retained revisions.
-    #[serde(default = "default_kv_max_bytes")]
-    pub kv_max_bytes: i64,
-    /// Optional TTL (seconds) for entries in the KV bucket. NATS will
-    /// expire stale templates automatically. `0` disables TTL. Default 0.
-    #[serde(default)]
-    pub kv_ttl_secs: u64,
-    /// Optional NATS URL override for the template store. When unset
-    /// (default), the top-level `nats_url` is used. Setting this lets
-    /// template state live on a different NATS cluster from publish
-    /// traffic — useful for multi-tenant or split-fault-domain setups.
-    #[serde(default)]
-    pub nats_url: Option<String>,
-}
-
-fn default_kv_max_bytes() -> i64 {
-    1024 * 1024 * 1024
-}
-
-fn default_kv_history() -> u8 {
-    1
-}
-
-/// NATS KV server-side cap.
-const NATS_KV_MAX_HISTORY: u8 = 64;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "protocol", rename_all = "lowercase")]
 pub enum ListenerConfig {
     Sflow {
@@ -158,7 +117,20 @@ pub enum ListenerConfig {
         #[serde(default)]
         max_samples_per_datagram: Option<u32>,
     },
+    #[serde(rename = "ipfix_tls")]
+    IpfixTls {
+        #[serde(default = "default_ipfix_tls_addr")]
+        listen_addr: String,
+        subject: String,
+        #[serde(default)]
+        channel_size: Option<usize>,
+        #[serde(flatten)]
+        tls: IpfixTlsConfig,
+    },
     Netflow {
+        /// Explicit insecure compatibility mode; source addresses are not identities.
+        #[serde(default)]
+        allow_unauthenticated_templates: bool,
         listen_addr: String,
         subject: String,
         #[serde(default = "default_buffer_size")]
@@ -196,14 +168,17 @@ impl ListenerConfig {
     pub fn listen_addr(&self) -> &str {
         match self {
             ListenerConfig::Sflow { listen_addr, .. } => listen_addr,
-            ListenerConfig::Netflow { listen_addr, .. } => listen_addr,
+            ListenerConfig::Netflow { listen_addr, .. }
+            | ListenerConfig::IpfixTls { listen_addr, .. } => listen_addr,
         }
     }
 
     pub fn subject(&self) -> &str {
         match self {
             ListenerConfig::Sflow { subject, .. } => subject,
-            ListenerConfig::Netflow { subject, .. } => subject,
+            ListenerConfig::Netflow { subject, .. } | ListenerConfig::IpfixTls { subject, .. } => {
+                subject
+            }
         }
     }
 
@@ -211,6 +186,7 @@ impl ListenerConfig {
         match self {
             ListenerConfig::Sflow { buffer_size, .. } => *buffer_size,
             ListenerConfig::Netflow { buffer_size, .. } => *buffer_size,
+            ListenerConfig::IpfixTls { tls, .. } => tls.max_message_size,
         }
     }
 
@@ -219,7 +195,8 @@ impl ListenerConfig {
     pub fn channel_size(&self, default: usize) -> usize {
         let override_value = match self {
             ListenerConfig::Sflow { channel_size, .. } => *channel_size,
-            ListenerConfig::Netflow { channel_size, .. } => *channel_size,
+            ListenerConfig::Netflow { channel_size, .. }
+            | ListenerConfig::IpfixTls { channel_size, .. } => *channel_size,
         };
         override_value.unwrap_or(default)
     }
@@ -228,7 +205,118 @@ impl ListenerConfig {
         match self {
             ListenerConfig::Sflow { .. } => "sflow",
             ListenerConfig::Netflow { .. } => "netflow",
+            ListenerConfig::IpfixTls { .. } => "ipfix_tls",
         }
+    }
+}
+
+fn default_ipfix_tls_addr() -> String {
+    "0.0.0.0:4740".into()
+}
+fn default_tls_sessions() -> usize {
+    64
+}
+fn default_exporter_sessions() -> usize {
+    2
+}
+fn default_handshake_timeout() -> u64 {
+    10
+}
+fn default_read_timeout() -> u64 {
+    60
+}
+fn default_message_size() -> usize {
+    65535
+}
+fn default_tls_sources() -> usize {
+    128
+}
+fn default_sampling_rate() -> u64 {
+    1
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IpfixTlsConfig {
+    pub cert_file: PathBuf,
+    pub key_file: PathBuf,
+    pub client_ca_file: PathBuf,
+    /// Lowercase SHA-256 leaf certificate fingerprints -> approved exporter ID.
+    pub exporters: HashMap<String, String>,
+    #[serde(default = "default_tls_sessions")]
+    pub max_sessions: usize,
+    #[serde(default = "default_exporter_sessions")]
+    pub max_sessions_per_exporter: usize,
+    #[serde(default = "default_handshake_timeout")]
+    pub handshake_timeout_secs: u64,
+    #[serde(default = "default_read_timeout")]
+    pub read_timeout_secs: u64,
+    #[serde(default = "default_message_size")]
+    pub max_message_size: usize,
+    #[serde(default = "default_tls_sources")]
+    pub max_sources: usize,
+    #[serde(default = "default_max_templates")]
+    pub max_templates: usize,
+    #[serde(default)]
+    pub pending_flows: Option<PendingFlowsCacheConfig>,
+    #[serde(default = "default_sampling_rate")]
+    pub default_sampling_rate: u64,
+}
+
+impl IpfixTlsConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.cert_file.as_os_str().is_empty()
+            || self.key_file.as_os_str().is_empty()
+            || self.client_ca_file.as_os_str().is_empty()
+        {
+            anyhow::bail!("IPFIX TLS requires server cert/key and client CA paths");
+        }
+        if self.exporters.is_empty() || self.exporters.len() > 4096 {
+            anyhow::bail!("IPFIX TLS exporters must contain 1..=4096 certificate identities");
+        }
+        for (fingerprint, identity) in &self.exporters {
+            if fingerprint.len() != 64
+                || !fingerprint
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                anyhow::bail!(
+                    "IPFIX TLS exporter fingerprints must be 64 lowercase SHA-256 hex digits"
+                );
+            }
+            if identity.is_empty()
+                || identity.len() > 64
+                || !identity
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            {
+                anyhow::bail!(
+                    "IPFIX TLS exporter IDs must be 1..=64 ASCII letters, digits, dot, dash or underscore"
+                );
+            }
+        }
+        if !(1..=4096).contains(&self.max_sessions)
+            || self.max_sessions_per_exporter == 0
+            || self.max_sessions_per_exporter > self.max_sessions
+        {
+            anyhow::bail!(
+                "IPFIX TLS session limits must be positive, per-exporter <= total <= 4096"
+            );
+        }
+        if !(1..=600).contains(&self.handshake_timeout_secs)
+            || !(1..=3600).contains(&self.read_timeout_secs)
+        {
+            anyhow::bail!("IPFIX TLS handshake/read deadlines must be 1..=600 / 1..=3600 seconds");
+        }
+        if !(16..=65535).contains(&self.max_message_size)
+            || !(1..=10000).contains(&self.max_sources)
+            || !(1..=10000).contains(&self.max_templates)
+            || self.default_sampling_rate == 0
+        {
+            anyhow::bail!(
+                "IPFIX TLS message, parser and sampling limits are outside supported bounds"
+            );
+        }
+        Ok(())
     }
 }
 
@@ -340,7 +428,8 @@ fn default_max_entries_per_template() -> usize {
 }
 
 fn default_max_entry_size_bytes() -> usize {
-    65535
+    // Must match netflow_parser's PendingFlowCache limit (u16::MAX - 4).
+    65531
 }
 
 fn default_pending_ttl_secs() -> u64 {
@@ -462,25 +551,10 @@ impl Config {
         if self.listeners.is_empty() {
             anyhow::bail!("at least one listener is required");
         }
-        if let Some(ts) = &self.template_store {
-            if ts.kv_max_bytes <= 0 {
-                anyhow::bail!("template_store.kv_max_bytes must be > 0");
-            }
-            if ts.kv_bucket.is_empty() {
-                anyhow::bail!("template_store.kv_bucket cannot be empty");
-            }
-            if ts.kv_history < 1 || ts.kv_history > NATS_KV_MAX_HISTORY {
-                anyhow::bail!(
-                    "template_store.kv_history must be in 1..={} (got {})",
-                    NATS_KV_MAX_HISTORY,
-                    ts.kv_history
-                );
-            }
-            if let Some(url) = &ts.nats_url
-                && url.is_empty()
-            {
-                anyhow::bail!("template_store.nats_url, if set, cannot be empty");
-            }
+        if self.template_store.is_some() {
+            anyhow::bail!(
+                "shared template_store is unsupported: remove it and use authenticated IPFIX TLS; insecure UDP templates are listener-local only"
+            );
         }
 
         // Check for duplicate listen addresses
@@ -508,9 +582,21 @@ impl Config {
                 anyhow::bail!("listener[{}]: channel_size must be > 0", i);
             }
 
+            if let ListenerConfig::IpfixTls { tls, .. } = listener {
+                tls.validate()?;
+            }
+
             // Validate netflow-specific pending_flows config
             if let ListenerConfig::Netflow {
                 pending_flows: Some(pf),
+                ..
+            }
+            | ListenerConfig::IpfixTls {
+                tls:
+                    IpfixTlsConfig {
+                        pending_flows: Some(pf),
+                        ..
+                    },
                 ..
             } = listener
             {
@@ -526,9 +612,9 @@ impl Config {
                         i
                     );
                 }
-                if pf.max_entry_size_bytes == 0 || pf.max_entry_size_bytes > 1_048_576 {
+                if pf.max_entry_size_bytes == 0 || pf.max_entry_size_bytes > 65_531 {
                     anyhow::bail!(
-                        "listener[{}]: pending_flows.max_entry_size_bytes must be 1..=1,048,576",
+                        "listener[{}]: pending_flows.max_entry_size_bytes must be 1..=65,531",
                         i
                     );
                 }
@@ -744,6 +830,45 @@ mod tests {
         let config: Config = serde_json::from_str(json).unwrap();
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("duplicate listen_addr"));
+    }
+
+    #[test]
+    fn pending_entry_size_bounds_match_parser_limit() {
+        // The locked netflow_parser accepts pending entries of 1..=65531
+        // (u16::MAX - 4, reserving the FlowSet header) and panics the
+        // handler build otherwise; startup validation must enforce the same
+        // bound so a default or configured value can never panic at runtime.
+        let defaults: PendingFlowsCacheConfig =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(defaults.max_entry_size_bytes, 65_531);
+        fn config_with_entry_size(size: serde_json::Value) -> Config {
+            serde_json::from_value(serde_json::json!({
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "listeners": [{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow",
+                    "pending_flows": { "max_entry_size_bytes": size }
+                }]
+            }))
+            .unwrap()
+        }
+        for size in [1, 65_531] {
+            config_with_entry_size(serde_json::json!(size))
+                .validate()
+                .unwrap();
+        }
+        for size in [0, 65_532, 65_535, 1_048_576] {
+            let err = config_with_entry_size(serde_json::json!(size))
+                .validate()
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("max_entry_size_bytes"),
+                "size={size} err={err}"
+            );
+        }
     }
 
     #[test]
@@ -1138,39 +1263,51 @@ mod tests {
     }
 
     #[test]
-    fn template_store_block_deserializes() {
-        // Mirrors what the kustomize manifest and Helm values render.
-        let json = r#"{
-            "nats_url": "nats://localhost:4222",
-            "stream_name": "events",
-            "template_store": {
-                "kv_bucket": "flow_templates",
-                "kv_history": 1,
-                "kv_ttl_secs": 0
-            },
-            "listeners": [
-                {
-                    "protocol": "netflow",
-                    "listen_addr": "0.0.0.0:2055",
-                    "subject": "flows.raw.netflow"
-                }
-            ]
-        }"#;
-        let cfg: Config = serde_json::from_str(json).expect("deserialize");
-        let ts = cfg.template_store.expect("template_store should parse");
-        assert_eq!(ts.kv_bucket, "flow_templates");
-        assert_eq!(ts.kv_history, 1);
-        assert_eq!(ts.kv_ttl_secs, 0);
-        assert_eq!(ts.kv_max_bytes, 1024 * 1024 * 1024);
-        for limit in [-1, 0, 4096] {
-            let mut value: serde_json::Value = serde_json::from_str(json).unwrap();
-            value["template_store"]["kv_max_bytes"] = limit.into();
-            let result = Config::from_json_with_env(&value.to_string(), |_| None);
-            assert_eq!(result.is_ok(), limit > 0);
-            if let Ok(cfg) = result {
-                assert_eq!(cfg.template_store.unwrap().kv_max_bytes, limit);
-            }
+    fn authenticated_listener_requires_explicit_identities_and_bounded_configuration() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(include_str!("../flow-collector.json")).unwrap();
+        value["listeners"] = serde_json::json!([{
+            "protocol": "ipfix_tls", "subject": "flows.raw.ipfix", "cert_file": "server.pem",
+            "key_file": "server-key.pem", "client_ca_file": "client-ca.pem", "exporters": { "a".repeat(64): "exporter-a" }
+        }]);
+        let control = Config::from_json_with_env(&value.to_string(), |_| None).unwrap();
+        assert_eq!(control.listeners[0].listen_addr(), "0.0.0.0:4740");
+        for (key, invalid) in [
+            ("exporters", serde_json::json!({})),
+            ("exporters", serde_json::json!({"invalid": "exporter-a"})),
+            ("exporters", serde_json::json!({"a".repeat(64): ""})),
+            ("cert_file", serde_json::json!("")),
+            ("client_ca_file", serde_json::json!("")),
+            ("max_sessions", serde_json::json!(0)),
+            ("max_sessions_per_exporter", serde_json::json!(65)),
+            ("handshake_timeout_secs", serde_json::json!(0)),
+            ("read_timeout_secs", serde_json::json!(3601)),
+            ("max_message_size", serde_json::json!(65536)),
+            ("max_sources", serde_json::json!(0)),
+            ("max_templates", serde_json::json!(0)),
+            ("default_sampling_rate", serde_json::json!(0)),
+            ("pending_flows", serde_json::json!({"max_pending_flows": 0})),
+        ] {
+            let mut changed = value.clone();
+            changed["listeners"][0][key] = invalid;
+            assert!(
+                Config::from_json_with_env(&changed.to_string(), |_| None).is_err(),
+                "accepted invalid TLS {key}"
+            );
         }
+    }
+
+    #[test]
+    fn legacy_shared_store_fails_closed_at_config_load() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(include_str!("../flow-collector.json")).unwrap();
+        value["template_store"] = serde_json::json!({"kv_bucket": "test_templates"});
+        let error = Config::from_json_with_env(&value.to_string(), |_| None).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("shared template_store is unsupported")
+        );
     }
 
     #[test]

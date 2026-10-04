@@ -9,13 +9,13 @@ use converter::{Converter, SamplerRates};
 use log::{debug, info, warn};
 use netflow_parser::scoped_parser::{DEFAULT_MAX_SOURCES, ScopingInfo, extract_scoping_info};
 use netflow_parser::{
-    AutoScopedParser, IpfixSourceKey, NetflowParserBuilder, ParserCacheInfo, PendingFlowsConfig,
-    TemplateEvent, TemplateStore, V9SourceKey,
+    AutoScopedParser, IpfixSourceKey, NetflowParserBuilder, PendingFlowsConfig, TemplateEvent,
+    V9SourceKey,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -99,6 +99,7 @@ pub struct NetflowHandler {
     sampling_rates_by_exporter_sampler_id: Mutex<SamplerRates>,
     sources: Mutex<SourceAdmission>,
     max_sources: usize,
+    live_sources: AtomicU64,
     default_sampling_rate: u64,
     sampling_rate_overrides: HashMap<IpAddr, u64>,
     sflow_fallback: SflowHandler,
@@ -112,11 +113,9 @@ impl NetflowHandler {
         default_sampling_rate: Option<u64>,
         sampling_rate_overrides: HashMap<IpAddr, u64>,
         max_sources: Option<usize>,
-        template_store: Option<Arc<dyn TemplateStore>>,
         metrics: Arc<ListenerMetrics>,
     ) -> Self {
         let pending_enabled = pending_flows.is_some();
-        let store_enabled = template_store.is_some();
         let mut builder = NetflowParserBuilder::default()
             .with_cache_size(max_templates)
             .on_template_event(make_template_event_callback(pending_enabled));
@@ -131,12 +130,6 @@ impl NetflowHandler {
             builder = builder.with_pending_flows(pf_config);
         }
 
-        if let Some(store) = template_store {
-            // AutoScopedParser sets the per-source scope itself
-            // (e.g. "v9:1.2.3.4:2055/0"); we just hand it the store.
-            builder = builder.with_template_store(store);
-        }
-
         let parser =
             AutoScopedParser::try_with_builder(builder).expect("failed to build netflow parser");
         let parser = if let Some(max) = max_sources {
@@ -148,23 +141,9 @@ impl NetflowHandler {
         };
         let parser = Arc::new(Mutex::new(parser));
 
-        // Spawn a background ticker that aggregates per-source CacheMetrics
-        // into the listener-level Prometheus counters once a second. This
-        // keeps the parse_datagram hot path free of O(sources) work and
-        // (combined with retired-source accounting in the ticker) makes
-        // the surfaced counters monotonically increasing - required for
-        // Prometheus rate() semantics. Only spawned when a template store
-        // is configured, since the counters are no-ops otherwise.
-        if store_enabled {
-            let parser_for_ticker = Arc::clone(&parser);
-            let metrics_for_ticker = Arc::clone(&metrics);
-            tokio::runtime::Handle::current().spawn(async move {
-                run_metrics_ticker(parser_for_ticker, metrics_for_ticker).await;
-            });
-        }
-
         Self {
             parser,
+            live_sources: AtomicU64::new(0),
             sampling_rates_by_exporter_sampler_id: Mutex::new(SamplerRates::default()),
             sources: Mutex::new(SourceAdmission::default()),
             max_sources: max_sources.unwrap_or(DEFAULT_MAX_SOURCES),
@@ -186,6 +165,10 @@ impl NetflowHandler {
         };
         // Pressure removes only the in-process parser. It must not
         // masquerade as an exporter-requested shared withdrawal.
+        self.sampling_rates_by_exporter_sampler_id
+            .lock()
+            .unwrap()
+            .remove_source(&removed);
         let retired = match removed {
             SourceId::Ipfix(key) => parser.remove_ipfix_source(&key),
             SourceId::V9(key) => parser.remove_v9_source(&key),
@@ -232,8 +215,7 @@ impl FlowHandler for NetflowHandler {
         let packets: Vec<_> = {
             let mut parser = self.parser.lock().unwrap();
             self.admit_source(&mut parser, peer, buf);
-            let _store_budget = crate::template_store::DatagramBudget::begin();
-            match parser.iter_packets_from_source(peer, buf) {
+            let packets = match parser.iter_packets_from_source(peer, buf) {
                 Ok(iter) => iter.collect(),
                 Err(e) => {
                     // The datagram could not be scoped as NetFlow/IPFIX at all,
@@ -252,7 +234,19 @@ impl FlowHandler for NetflowHandler {
                         .fetch_add(1, Ordering::Relaxed);
                     return vec![];
                 }
+            };
+            let count = parser.source_count() as u64;
+            let previous = self.live_sources.swap(count, Ordering::Relaxed);
+            if count >= previous {
+                self.metrics
+                    .source_count
+                    .fetch_add(count - previous, Ordering::Relaxed);
+            } else {
+                self.metrics
+                    .source_count
+                    .fetch_sub(previous - count, Ordering::Relaxed);
             }
+            packets
         };
 
         let mut all_messages = Vec::new();
@@ -305,41 +299,7 @@ fn is_sflow_datagram(buf: &[u8]) -> bool {
     )
 }
 
-/// Per-source `template_store_*` snapshot used by the metrics ticker to
-/// detect deltas between ticks (and to remember evicted sources' last
-/// known values so the listener-level counters stay monotonic).
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
-struct StoreCounters {
-    restored: u64,
-    codec_errors: u64,
-    backend_errors: u64,
-}
-
-impl StoreCounters {
-    /// Sum across both the V9 and IPFIX `CacheMetrics` views of a single
-    /// per-source NetflowParser.
-    fn from_info(info: &ParserCacheInfo) -> Self {
-        Self {
-            restored: info.v9.metrics.template_store_restored
-                + info.ipfix.metrics.template_store_restored,
-            codec_errors: info.v9.metrics.template_store_codec_errors
-                + info.ipfix.metrics.template_store_codec_errors,
-            backend_errors: info.v9.metrics.template_store_backend_errors
-                + info.ipfix.metrics.template_store_backend_errors,
-        }
-    }
-}
-
-impl std::ops::AddAssign for StoreCounters {
-    fn add_assign(&mut self, rhs: Self) {
-        self.restored += rhs.restored;
-        self.codec_errors += rhs.codec_errors;
-        self.backend_errors += rhs.backend_errors;
-    }
-}
-
-/// Wrapper enum so the ticker can keep a single `HashMap` keyed across
-/// all three of `AutoScopedParser`'s scoping paths.
+/// Exact identities for all three AutoScopedParser scoping paths.
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 enum SourceId {
     Ipfix(IpfixSourceKey),
@@ -426,106 +386,12 @@ impl SourceAdmission {
     }
 }
 
-/// Mutable state carried across ticker iterations.
-#[derive(Default)]
-struct DeltaState {
-    /// Last observed counters per still-present source. On the next tick,
-    /// any `SourceId` missing from the parser's current source set is
-    /// considered evicted and its last counters are folded into `retired`.
-    last_known: HashMap<SourceId, StoreCounters>,
-    /// Cumulative counters captured from sources that were evicted from
-    /// the parser. This is what makes the listener-level total monotonic
-    /// even when the parser drops sources.
-    retired: StoreCounters,
-}
-
-/// Background metrics ticker — runs forever, polling the parser at 1Hz.
-/// O(sources) per tick instead of per datagram. Logs a single info line
-/// when started so operators can confirm it spun up.
-async fn run_metrics_ticker(parser: Arc<Mutex<AutoScopedParser>>, metrics: Arc<ListenerMetrics>) {
-    let mut state = DeltaState::default();
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
-    info!(
-        "Template-store metrics ticker started for {}",
-        metrics.listen_addr
-    );
-    loop {
-        interval.tick().await;
-        // Snapshot under the parser lock; release it before doing the
-        // hashmap work and the atomic stores.
-        let snapshot = {
-            let p = parser.lock().unwrap();
-            collect_snapshot(&p)
-        };
-        apply_snapshot(snapshot, &mut state, &metrics);
+impl Drop for NetflowHandler {
+    fn drop(&mut self) {
+        self.metrics
+            .source_count
+            .fetch_sub(self.live_sources.load(Ordering::Relaxed), Ordering::Relaxed);
     }
-}
-
-/// Collect each per-source `StoreCounters` plus the live source count.
-/// Holds the parser lock — keep this small.
-fn collect_snapshot(parser: &AutoScopedParser) -> (HashMap<SourceId, StoreCounters>, u64) {
-    let mut map: HashMap<SourceId, StoreCounters> = HashMap::new();
-    for (key, info) in parser.ipfix_info() {
-        map.insert(SourceId::Ipfix(*key), StoreCounters::from_info(&info));
-    }
-    for (key, info) in parser.v9_info() {
-        map.insert(SourceId::V9(*key), StoreCounters::from_info(&info));
-    }
-    for (addr, info) in parser.legacy_info() {
-        map.insert(SourceId::Legacy(*addr), StoreCounters::from_info(&info));
-    }
-    let count = parser.source_count() as u64;
-    (map, count)
-}
-
-/// Reconcile the snapshot with the running delta state and write the
-/// monotonic totals into the listener atomics.
-///
-/// Edge cases:
-/// * Sources that disappeared between ticks have their last-observed
-///   counters added to `retired` so the listener total never decreases.
-/// * Sources that returned after eviction restart from a fresh parser
-///   (counters at 0); their new growth accumulates *on top* of the
-///   already-retired contribution from their previous lifetime.
-/// * Counter increments that occur between an observation and an
-///   eviction in the same tick window can be lost (we only see the
-///   pre-eviction value at the next tick). Acceptable: these are rare
-///   events and the loss is bounded.
-fn apply_snapshot(
-    snapshot: (HashMap<SourceId, StoreCounters>, u64),
-    state: &mut DeltaState,
-    metrics: &ListenerMetrics,
-) {
-    let (current, source_count) = snapshot;
-
-    // Fold the last-known counters of evicted sources into `retired`.
-    for (id, last) in &state.last_known {
-        if !current.contains_key(id) {
-            state.retired += *last;
-        }
-    }
-
-    // Sum current and add retired to get the monotonic total.
-    let mut live = StoreCounters::default();
-    for v in current.values() {
-        live += *v;
-    }
-    let total_restored = live.restored + state.retired.restored;
-    let total_codec = live.codec_errors + state.retired.codec_errors;
-    let total_backend = live.backend_errors + state.retired.backend_errors;
-
-    metrics
-        .template_store_restored
-        .store(total_restored, Ordering::Relaxed);
-    metrics
-        .template_store_codec_errors
-        .store(total_codec, Ordering::Relaxed);
-    metrics
-        .template_store_backend_errors
-        .store(total_backend, Ordering::Relaxed);
-    metrics.source_count.store(source_count, Ordering::Relaxed);
-
-    state.last_known = current;
 }
 
 #[cfg(test)]
@@ -569,7 +435,6 @@ mod tests {
             None,
             HashMap::new(),
             Some(2),
-            None,
             Arc::clone(&metrics),
         );
         let legitimate: SocketAddr = "192.0.2.1:2055".parse().unwrap();
@@ -617,7 +482,6 @@ mod tests {
             Some(7),
             HashMap::new(),
             Some(2),
-            None,
             Arc::clone(&metrics),
         );
         let peer: SocketAddr = "192.0.2.1:2055".parse().unwrap();
@@ -665,8 +529,7 @@ mod tests {
                 .sampling_rates_by_exporter_sampler_id
                 .lock()
                 .unwrap()
-                .entries
-                .len(),
+                .entry_count,
             65_536
         );
     }
@@ -688,81 +551,5 @@ mod tests {
     #[test]
     fn ignores_short_datagrams() {
         assert!(!is_sflow_datagram(&[0x00, 0x00, 0x00]));
-    }
-
-    fn fake_id(n: u8) -> SourceId {
-        SourceId::Legacy(format!("10.0.0.{n}:2055").parse().unwrap())
-    }
-
-    fn ctrs(r: u64, c: u64, b: u64) -> StoreCounters {
-        StoreCounters {
-            restored: r,
-            codec_errors: c,
-            backend_errors: b,
-        }
-    }
-
-    fn snap(
-        pairs: &[(SourceId, StoreCounters)],
-        count: u64,
-    ) -> (HashMap<SourceId, StoreCounters>, u64) {
-        let mut m = HashMap::new();
-        for (k, v) in pairs {
-            m.insert(k.clone(), *v);
-        }
-        (m, count)
-    }
-
-    #[test]
-    fn delta_state_is_monotonic_across_eviction() {
-        let m = ListenerMetrics::new("netflow", "0.0.0.0:2055".into());
-        let mut state = DeltaState::default();
-
-        // Tick 1: source A has restored=10
-        apply_snapshot(snap(&[(fake_id(1), ctrs(10, 0, 0))], 1), &mut state, &m);
-        assert_eq!(m.template_store_restored.load(Ordering::Relaxed), 10);
-
-        // Tick 2: source A grows to 15
-        apply_snapshot(snap(&[(fake_id(1), ctrs(15, 0, 0))], 1), &mut state, &m);
-        assert_eq!(m.template_store_restored.load(Ordering::Relaxed), 15);
-
-        // Tick 3: source A is evicted — counter must NOT decrease
-        apply_snapshot(snap(&[], 0), &mut state, &m);
-        assert_eq!(m.template_store_restored.load(Ordering::Relaxed), 15);
-
-        // Tick 4: source A reappears (fresh parser, counter starts at 0).
-        // The total should be retired (15) + new live (0) = 15.
-        apply_snapshot(snap(&[(fake_id(1), ctrs(0, 0, 0))], 1), &mut state, &m);
-        assert_eq!(m.template_store_restored.load(Ordering::Relaxed), 15);
-
-        // Tick 5: source A's new lifetime ticks up to 3.
-        apply_snapshot(snap(&[(fake_id(1), ctrs(3, 0, 0))], 1), &mut state, &m);
-        assert_eq!(m.template_store_restored.load(Ordering::Relaxed), 18);
-    }
-
-    #[test]
-    fn delta_state_handles_multiple_sources_and_kinds() {
-        let m = ListenerMetrics::new("netflow", "0.0.0.0:2055".into());
-        let mut state = DeltaState::default();
-
-        let a = fake_id(1);
-        let b = fake_id(2);
-
-        apply_snapshot(
-            snap(&[(a.clone(), ctrs(5, 1, 0)), (b.clone(), ctrs(3, 0, 2))], 2),
-            &mut state,
-            &m,
-        );
-        assert_eq!(m.template_store_restored.load(Ordering::Relaxed), 8);
-        assert_eq!(m.template_store_codec_errors.load(Ordering::Relaxed), 1);
-        assert_eq!(m.template_store_backend_errors.load(Ordering::Relaxed), 2);
-        assert_eq!(m.source_count.load(Ordering::Relaxed), 2);
-
-        // B evicted; A grows
-        apply_snapshot(snap(&[(a, ctrs(7, 1, 0))], 1), &mut state, &m);
-        assert_eq!(m.template_store_restored.load(Ordering::Relaxed), 10); // 7 + retired 3
-        assert_eq!(m.template_store_codec_errors.load(Ordering::Relaxed), 1);
-        assert_eq!(m.template_store_backend_errors.load(Ordering::Relaxed), 2); // 0 + retired 2
-        assert_eq!(m.source_count.load(Ordering::Relaxed), 1);
     }
 }

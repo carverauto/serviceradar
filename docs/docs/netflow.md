@@ -6,6 +6,11 @@ title: NetFlow Ingest Guide
 
 ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and application reachability trends. The flow collector is a high-performance Rust daemon that receives NetFlow v5/v9/IPFIX and sFlow exports from network devices and processes them through the ServiceRadar pipeline.
 
+Template-based NetFlow v9/IPFIX over UDP is rejected by default because exporter
+source addresses are spoofable; template-free v5 and sFlow over UDP remain
+available. Use mutually authenticated native IPFIX (v10) over TLS/TCP for template
+traffic. See [Flow Collector Scaling and Exporter Authentication](./flow-collector-scaling.md).
+
 Host process and workload attribution is not currently joined into this NetFlow
 pipeline. The [Host Network Visibility](./netprobe.md) and
 [Workload Identity](./workload-identity.md) add-ons can collect the two input data
@@ -76,7 +81,7 @@ NetFlow v9 and IPFIX exports can carry BGP information elements (AS numbers, com
 
 ### Components
 
-- **Listener**: Receives UDP packets on port 2055 (default), parses NetFlow v5/v9/IPFIX
+- **Listener**: Receives UDP packets on port 2055 (default); template-based v9/IPFIX over UDP is rejected unless explicitly opted in, and parses NetFlow v5, sFlow, and opted-in template traffic (authenticated IPFIX (v10) arrives over TLS/TCP 4740)
 - **Parser**: AutoScopedParser with per-source template caching (prevents collisions)
 - **Publisher**: Batches flows and publishes to NATS JetStream (default: 100 flows/batch)
 - **Metrics Reporter**: Logs template cache statistics every 30 seconds
@@ -152,7 +157,7 @@ Network devices (routers, switches, firewalls) must be configured to export NetF
 
 1. **Destination IP**: ServiceRadar collector IP address
 2. **Port**: 2055/udp (default, configurable)
-3. **Protocol**: NetFlow v5, v9, or IPFIX (IPFIX recommended)
+3. **Protocol**: NetFlow v5 or sFlow over UDP; IPFIX (v10) over mutually authenticated TLS/TCP for template traffic (convert NetFlow v9 to IPFIX, or use the explicit insecure UDP opt-in)
 4. **Timeouts**: Active 60s, Inactive 15s (recommended)
 5. **Interfaces**: Which interfaces to monitor
 
@@ -279,7 +284,7 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
       "pending_flows": {
         "max_pending_flows": 256,
         "max_entries_per_template": 1024,
-        "max_entry_size_bytes": 65535,
+        "max_entry_size_bytes": 65531,
         "ttl_secs": 300
       }
     },
@@ -326,7 +331,7 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 - `buffer_size`: UDP socket receive buffer (default: 65,536) — applies to both `netflow` and `sflow` listeners
 - `max_templates` (netflow only): Template cache size per source (default: 2,000)
 - `max_template_fields` (netflow only): Max fields per template for security (default: 10,000)
-- `pending_flows` (netflow only): Optional cache for flow data that arrives before its template. Fields: `max_pending_flows` (1–10,000, default 256), `max_entries_per_template` (1–100,000, default 1,024), `max_entry_size_bytes` (1–1,048,576, default 65,535), `ttl_secs` (1–3,600, default 300)
+- `pending_flows` (netflow only): Optional cache for flow data that arrives before its template. Fields: `max_pending_flows` (1–10,000, default 256), `max_entries_per_template` (1–100,000, default 1,024), `max_entry_size_bytes` (1–65,531, default 65,531), `ttl_secs` (1–3,600, default 300)
 - `max_samples_per_datagram` (sflow only): Optional cap on samples parsed per datagram
 
 ### Tuning for High Volume
@@ -583,6 +588,10 @@ The Rust flow collector is designed for high-throughput ingest with bounded memo
 - Restrict UDP 2055 to known exporter IPs via firewall
 - Use VPN or private network for exporter-to-collector communication
 - Monitor for unusual sources in logs
+- v9/IPFIX template traffic over UDP is spoofable even behind allowlists; keep
+  the secure default or restrict any `allow_unauthenticated_templates` listener
+  to a separately protected network. See
+  [Flow Collector Scaling and Exporter Authentication](./flow-collector-scaling.md).
 
 **Template Validation:**
 - Max template fields enforced (default: 10,000)

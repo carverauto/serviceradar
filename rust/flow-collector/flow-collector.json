@@ -16,7 +16,8 @@
     {
       "protocol": "netflow",
       "listen_addr": "0.0.0.0:2055",
-      "subject": "flows.raw.netflow"
+      "subject": "flows.raw.netflow",
+      "allow_unauthenticated_templates": false
     }
   ],
   "rehome_state_path": "/var/lib/serviceradar/flow-collector-rehome.json",
