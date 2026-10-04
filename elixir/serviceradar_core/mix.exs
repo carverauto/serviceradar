@@ -154,8 +154,8 @@ defmodule ServiceRadarCore.MixProject do
       {:opentelemetry_semantic_conventions, "~> 1.27", override: true},
 
       # OTLP log export via OTP :logger handler
-      {:opentelemetry_experimental, "~> 0.5"},
-      {:opentelemetry_api_experimental, "~> 0.5"},
+      {:opentelemetry_experimental, "~> 0.5.1"},
+      {:opentelemetry_api_experimental, "~> 0.5.1"},
 
       # Utilities
       {:jason, "~> 1.4"},
