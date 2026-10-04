@@ -1,6 +1,6 @@
 //! Query execution for endpoint package inventory rows.
 
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, bucket_overlap_clause};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -397,14 +397,13 @@ fn build_bucket_time_clause(
         return String::new();
     };
 
-    // A row covers [bucket, bucket + 1h), so keep every bucket that overlaps the
-    // window: comparing `bucket` against the raw start drops the hour holding
-    // the start whole, which empties `time:last_1h` right after the hour turns.
     let start_idx = push_bind(binds, SqlBindValue::Timestamp(*start));
     let end_idx = push_bind(binds, SqlBindValue::Timestamp(*end));
-    format!(
-        "bucket >= time_bucket('1 hour', ${start_idx}::timestamptz) \
-         AND bucket < time_bucket('1 hour', ${end_idx}::timestamptz) + INTERVAL '1 hour'"
+    bucket_overlap_clause(
+        "bucket",
+        "1 hour",
+        &format!("${start_idx}"),
+        &format!("${end_idx}"),
     )
 }
 

@@ -1,4 +1,4 @@
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, bucket_overlap_clause};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -310,10 +310,11 @@ FROM services_availability_5m"#,
 
     // Add time range filter
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        where_clauses.push(format!(
-            "bucket >= ${} AND bucket <= ${}",
-            bind_idx,
-            bind_idx + 1
+        where_clauses.push(bucket_overlap_clause(
+            "bucket",
+            "5 minutes",
+            &format!("${bind_idx}"),
+            &format!("${}", bind_idx + 1),
         ));
         binds.push(SqlBindValue::Timestamptz(*start));
         binds.push(SqlBindValue::Timestamptz(*end));
