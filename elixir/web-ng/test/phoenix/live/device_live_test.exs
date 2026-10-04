@@ -147,6 +147,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     # The patch is applied by the LiveView after assert_patch/1 returns. Render once so the
     # reload it triggers finishes inside the test (and its sandbox), and prove Run kept working.
     assert render(view) =~ "include_inactive:true"
+
+    # Device-list refreshes are debounced timers. Stop the LiveView inside the sandbox so a
+    # timer that fires after the last assertion cannot reload against a released connection.
+    :ok = GenServer.stop(view.pid)
   end
 
   @tag :web_ng_shared_fixture_db

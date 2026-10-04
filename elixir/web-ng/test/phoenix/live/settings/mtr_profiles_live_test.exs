@@ -170,8 +170,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
         "192.0.2.#{rem(idx, 254) + 1}"
       end)
 
-    inserted_at = DateTime.shift(DateTime.utc_now(), minute: -1)
-    completed_at = DateTime.shift(inserted_at, second: 30)
+    # completed_at is a second-precision column while inserted_at keeps microseconds;
+    # start on a whole second so the stored duration is exactly 30s.
+    inserted_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.add(-60, :second)
+    completed_at = DateTime.add(inserted_at, 30, :second)
 
     {:ok, command} =
       AgentCommand.create_command(
