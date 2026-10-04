@@ -127,6 +127,37 @@ defmodule ServiceRadar.TestSupport do
     end
   end
 
+  # 10.244.0.0/14 with host octets 0 and 255 skipped: 4 * 256 * 254 addresses.
+  @unique_device_ip_space 4 * 256 * 254
+
+  @doc """
+  Returns a device IP that no other caller in this test VM has been given.
+
+  Devices carry a unique index on their active IP, so drawing fixture IPs at random
+  eventually hands two devices the same address and fails the insert. Addresses
+  come from a monotonic counter inside 10.244.0.0/14, a range no other fixture
+  uses, so they never repeat within one VM.
+
+  The counter starts at an offset derived from the VM's OS process id. Unboxed tests
+  commit their rows, and a counter that restarted at the same address every run
+  would collide with rows a previous run left against the same database.
+  """
+  def unique_device_ip do
+    n =
+      rem(
+        unique_device_ip_offset() + System.unique_integer([:positive, :monotonic]),
+        @unique_device_ip_space
+      )
+
+    subnet = div(n, 254)
+
+    "10.#{244 + div(subnet, 256)}.#{rem(subnet, 256)}.#{rem(n, 254) + 1}"
+  end
+
+  defp unique_device_ip_offset do
+    :erlang.phash2(System.pid(), @unique_device_ip_space)
+  end
+
   @doc false
   def stop_repo_owner(owner, shared: false) do
     if Process.alive?(owner), do: Sandbox.stop_owner(owner)
