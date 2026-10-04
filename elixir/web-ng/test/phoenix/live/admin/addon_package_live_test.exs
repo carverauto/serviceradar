@@ -837,7 +837,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
 
-    assert [agent_uid] == Regex.scan(~r/#{Regex.escape(agent_uid)}/, html) |> List.flatten()
+    assert [agent_uid] == ~r/#{Regex.escape(agent_uid)}/ |> Regex.scan(html) |> List.flatten()
     assert html =~ "Manual"
     assert html =~ "managed by profile"
     assert html =~ "Global Edge Profile"
@@ -855,13 +855,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert html =~ "Global Edge Profile"
     refute html =~ "Manual"
 
-    assert {:error, %Ash.Error.Query.NotFound{}} =
-             AddonAssignment
-             |> Ash.get(manual_assignment.id, actor: actor)
+    assert {:error, %Ash.Error.Query.NotFound{}} = Ash.get(AddonAssignment, manual_assignment.id, actor: actor)
 
-    assert {:ok, _} =
-             AddonAssignment
-             |> Ash.get(profile_assignment.id, actor: actor)
+    assert {:ok, _} = Ash.get(AddonAssignment, profile_assignment.id, actor: actor)
   end
 
   defp create_addon_package!(actor, attrs) do
