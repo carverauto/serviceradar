@@ -92,8 +92,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     @resources
     |> Ash.transact(
       fn ->
-        with :ok <- tune_unanalyzed_stage(),
-             {:ok, _layout} <-
+        with {:ok, _layout} <-
                WorldLayout
                |> Ash.Changeset.for_create(:initialize_stage, attrs)
                |> Ash.create(actor: actor()),
@@ -102,7 +101,9 @@ defmodule ServiceRadar.NetworkDiscovery.World do
              :ok <- clear_stage_rows(WorldRelation, layout_version),
              :ok <- clear_stage_rows(WorldPosition, layout_version),
              :ok <- insert_positions(layout_version, positions, @stage_batch_size),
+             :ok <- analyze_stage("topology_world_positions"),
              :ok <- stage_relations(layout_version, relations),
+             :ok <- analyze_stage("topology_world_relations"),
              :ok <- verify_staged_endpoints(layout_version),
              :ok <-
                verify_counts(
@@ -414,51 +415,42 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     end)
   end
 
-  # Planner statistics still describe an empty table for the whole stage
-  # transaction: autovacuum has not seen these rows. A sequential scan of
-  # positions (foreign-key checks while relations are inserted) or a nested
-  # loop of the anti-join does not finish inside @staging_timeout. The settings
-  # are local to this transaction. work_mem is a cap, not a reservation.
-  defp tune_unanalyzed_stage do
-    case Repo.query(
-           """
-           SELECT set_config('enable_seqscan', 'off', true),
-                  set_config('enable_nestloop', 'off', true),
-                  set_config('work_mem', '256MB', true)
-           """,
-           [],
-           timeout: @staging_timeout
-         ) do
+  # Autovacuum cannot see rows this transaction has not committed, so until
+  # an ANALYZE the planner still sizes the staged tables from whatever they held
+  # before -- often a handful of rows. On those statistics the endpoint check
+  # probes positions by layout alone and filters every device id (quadratic in
+  # the stage), and plans for the next statements are chosen for a tiny table.
+  # ANALYZE inside the transaction samples this transaction's own rows and
+  # invalidates the cached plans, so later statements plan for the real size.
+  defp analyze_stage(table)
+       when table in ["topology_world_positions", "topology_world_relations"] do
+    case Repo.query("ANALYZE platform.#{table}", [], timeout: @staging_timeout) do
       {:ok, _} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
   # Same rule as verify_relation_endpoints/2: every active relation's source and
-  # target must be an active position in the same layout.
+  # target must be an active position in the same layout. The relation foreign
+  # keys already guarantee each endpoint exists in the layout (a missing one fails
+  # the insert; see transaction_result/1), so only an inactive endpoint is left to
+  # find. Start from the stage's inactive positions, usually none, and look up
+  # active relations naming them through the source and target indexes.
   defp verify_staged_endpoints(version) do
     case Repo.query(
            """
            SELECT EXISTS (
              SELECT 1
-             FROM (
-               SELECT r.source_id AS device_id
-               FROM platform.topology_world_relations r
-               WHERE r.layout_version = $1::uuid
-                 AND r.active
-               UNION ALL
-               SELECT r.target_id
-               FROM platform.topology_world_relations r
-               WHERE r.layout_version = $1::uuid
-                 AND r.active
-             ) AS endpoint
-             WHERE NOT EXISTS (
-               SELECT 1
-               FROM platform.topology_world_positions p
-               WHERE p.layout_version = $1::uuid
-                 AND p.device_id = endpoint.device_id
-                 AND p.active
-             )
+             FROM platform.topology_world_positions p
+             WHERE p.layout_version = $1::uuid
+               AND NOT p.active
+               AND EXISTS (
+                 SELECT 1
+                 FROM platform.topology_world_relations r
+                 WHERE r.layout_version = p.layout_version
+                   AND r.active
+                   AND (r.source_id = p.device_id OR r.target_id = p.device_id)
+               )
            )
            """,
            [Ecto.UUID.dump!(version)],

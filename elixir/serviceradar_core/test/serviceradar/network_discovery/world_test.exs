@@ -205,6 +205,30 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
              )
 
     assert {:error, :incomplete_world} = World.activate_relayout(1, orphaned.layout_version)
+
+    # The endpoint exists but is inactive: the foreign key accepts it, the stage must not.
+    assert {:ok, dormant} =
+             World.stage_relayout(scope(), %{
+               source_digest: "synthetic-inactive-endpoint",
+               node_count: 1,
+               relation_count: 1
+             })
+
+    assert {:error, :invalid_relation_endpoint} =
+             World.stage_candidate(
+               dormant.layout_version,
+               %{
+                 algorithm_version: "invented-orphan-check-v1",
+                 zmax: 12,
+                 source_digest: "synthetic-inactive-endpoint",
+                 node_count: 1,
+                 relation_count: 1
+               },
+               [position(7), Map.put(position(8), :active, false)],
+               [relation("inactive-target", 7, 8)]
+             )
+
+    assert {:error, :incomplete_world} = World.activate_relayout(1, dormant.layout_version)
     assert {:ok, %{layout_version: active, generation: 1}} = World.active_manifest(scope())
     assert active == layout.layout_version
 
