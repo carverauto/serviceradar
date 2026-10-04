@@ -27,22 +27,6 @@ defmodule ServiceRadarAgentGateway.CoreHandlerDiscoveryTest do
     StatusHandlerTestHelpers.unregister_quietly(ServiceRadar.StatusHandler)
     on_exit(fn -> StatusHandlerTestHelpers.restore(ServiceRadar.StatusHandler, existing) end)
 
-    previous_otlp = Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_module)
-
-    Application.put_env(
-      :serviceradar_agent_gateway,
-      :otlp_relay_publisher_module,
-      __MODULE__.DisabledOtlpRelayPublisherStub
-    )
-
-    on_exit(fn ->
-      if previous_otlp do
-        Application.put_env(:serviceradar_agent_gateway, :otlp_relay_publisher_module, previous_otlp)
-      else
-        Application.delete_env(:serviceradar_agent_gateway, :otlp_relay_publisher_module)
-      end
-    end)
-
     # Connected first, so it is probed no later than the node that answers.
     {spare_peer, spare_node} = start_peer(:discovery_spare)
     {core_peer, core_node} = start_peer(:discovery_core)
@@ -192,8 +176,4 @@ defmodule ServiceRadarAgentGateway.CoreHandlerDiscoveryTest do
     end
   end
 
-  defmodule DisabledOtlpRelayPublisherStub do
-    @moduledoc false
-    def publish_relay(_status), do: :disabled
-  end
 end
