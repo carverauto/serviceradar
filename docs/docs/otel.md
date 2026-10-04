@@ -417,9 +417,10 @@ exits nonzero if any of these checks stays at zero: span count and distinct trac
 All tables live in CNPG (TimescaleDB hypertables), except `otel_metrics`,
 `otel_metric_points`, `otel_traces` and `otel_trace_summaries`: with the optional
 StarRocks warehouse enabled, EventWriter writes those to the warehouse only. SRQL
-and the `/api/v2` JSON:API indexes read them from there, retained by
-`STARROCKS_RETENTION_DAYS_OTEL` (metrics) and
-`STARROCKS_RETENTION_DAYS_TRACES` (spans and summaries) (see `README-Docker.md`) instead
+and the `/api/v2` JSON:API indexes read them from there, retained by the `otel`
+(metrics) and `traces` (spans and summaries) datasets in Settings -> System ->
+Data retention, seeded from `STARROCKS_RETENTION_DAYS_OTEL` and
+`STARROCKS_RETENTION_DAYS_TRACES` (see `README-Docker.md`), instead
 of the defaults below. Retention for tables that stay on CNPG is enforced by the daily
 `DataRetentionWorker` (03:17); defaults below are per-deployment configurable.
 

@@ -2832,10 +2832,15 @@ analytics:
     # Telemetry retention in days, per dataset. The warehouse tables are
     # partitioned by day, so each value is the number of daily partitions
     # StarRocks keeps; anything older is dropped. Every dataset, mtr (traces
-    # and hops together) included, defaults to one year.
-    # Re-applied on every core rollout, so changing it here is
-    # enough. A warehouse created before partitioning is rebuilt onto daily
-    # partitions by core at startup, online; retention applies once that is done.
+    # and hops together) included, defaults to one year; process attribution
+    # observations default to 30 days.
+    # These are SEED values: core stores each dataset's retention in CNPG the
+    # first time it starts with the warehouse enabled, and from then on the
+    # value saved in Settings -> System -> Data retention wins. Changing a value
+    # here after that does not change the stored setting; change it on the page,
+    # which applies it without a restart. A warehouse created before
+    # partitioning is rebuilt onto daily partitions by core at startup, online;
+    # retention applies once that is done.
     # The MTR retention set in Settings -> Networks -> MTR governs the CNPG
     # tables only; with the warehouse enabled, mtr here is the one that applies.
     retentionDays:
@@ -2850,6 +2855,9 @@ analytics:
       traces: 365
       # BMP routing events.
       bmp: 365
+      # Process attribution observations (the flow correlator's join input).
+      # Never fewer than two daily partitions are kept, whatever this says.
+      attribution: 30
     # How far an hourly materialized view may lag its own source table before
     # readers stop trusting it and compile from the raw warehouse tables
     # instead. The views are REFRESH ASYNC with no schedule, so this is the

@@ -87,6 +87,11 @@ analytics:
       - flows
       - metrics
       - events
+    # Seed for the stored retention setting (Settings -> System -> Data
+    # retention wins once core has stored it). Demo keeps one day of process
+    # attribution observations; the applier still keeps two daily partitions.
+    retentionDays:
+      attribution: 1
     sharedData:
       objectStorageBucket: serviceradar-demo-analytics
       objectStorageEndpoint: https://us-ord-10.linodeobjects.com

@@ -666,6 +666,29 @@ otherwise they read the raw tables. A bucket shorter than an hour stays on
 the raw tables and keeps its cutoff. Retention of `mtr_traces` and `mtr_hops`
 stays `analytics.starrocks.retentionDays.mtr`, as `0019` describes.
 
+## Retention
+
+Each `analytics.starrocks.retentionDays.<dataset>` value is a seed, not an
+override. The first time core starts with the warehouse enabled it stores
+every dataset's retention in CNPG (`platform.warehouse_retention_settings`),
+seeded from these values; from then on the value saved in
+Settings -> System -> Data retention wins, and changing Helm alone changes
+nothing. Saving on that page applies `partition_live_number` to the dataset's
+tables without a restart (core retries with backoff while the Frontend does
+not answer) and the page shows the last applied value, status and time. Core
+still re-applies every stored value at startup, so a warehouse rebuilt from
+DDL defaults converges again. Datasets: `flows`, `metrics`, `logs`, `events`,
+`mtr`, `otel`, `traces` and `bmp` default to 365 days; `attribution` (process
+attribution observations) defaults to 30 and always keeps at least two daily
+partitions, because the correlator's skew window straddles midnight.
+
+To see what core stored and applied:
+
+```sql
+SELECT dataset, days, seed_days, last_applied_days, last_applied_status, last_applied_at
+FROM platform.warehouse_retention_settings ORDER BY dataset;
+```
+
 Metric, log and event panels stay on CNPG until explicitly cut over. For the
 flow-specific defaults and delivery contract, see
 [NetFlow: Flow cutover and delivery](../../docs/docs/netflow.md#flow-cutover-and-delivery).

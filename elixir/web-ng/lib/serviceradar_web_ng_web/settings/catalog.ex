@@ -256,6 +256,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
+    %{
+      id: :data_retention,
+      category: :system,
+      parent_group: :sys_cluster,
+      subgroup: nil,
+      title: "Data retention",
+      description: "Set how many days of each telemetry dataset the warehouse keeps.",
+      icon: "hero-archive-box",
+      route: "/settings/data-retention",
+      live_view: ServiceRadarWebNGWeb.Settings.DataRetentionLive,
+      permission: ["settings.data_retention.view", "settings.data_retention.manage"],
+      order: 40,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["retention", "ttl", "warehouse", "starrocks", "storage", "partitions"],
+      badge: nil,
+      hidden_from_nav: false
+    },
 
     # === System · Security · Users & Access ==================================
     %{
