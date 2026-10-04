@@ -1367,9 +1367,13 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         management_mode = AddonRuntimePolicy.management_mode(status.addon_id, false)
 
         {drift_state, drift_reason} =
-          case management_mode do
-            :required -> addon_drift(nil, %{enabled: true}, status, agent)
-            :observed -> {:observed_unmanaged, "Reported by the agent without an assignment or required-runtime policy."}
+          if AddonFleet.stale_status?(status, DateTime.utc_now()) do
+            stale_drift(status)
+          else
+            case management_mode do
+              :required -> addon_drift(nil, %{enabled: true}, status, agent)
+              :observed -> {:observed_unmanaged, "Reported by the agent without an assignment or required-runtime policy."}
+            end
           end
 
         %{
@@ -1392,7 +1396,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp addon_drift(package, _assignment, %AddonStatus{} = status, agent) do
     cond do
       AddonFleet.stale_status?(status, DateTime.utc_now()) ->
-        {:stale, "Last reported #{status.state} at #{status.reported_at}; no current report."}
+        stale_drift(status)
 
       addon_arch_unsupported?(package, status, agent) ->
         {:arch_unsupported, "No package artifact matches the reported or agent platform."}
@@ -1410,6 +1414,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         {:healthy, nil}
     end
   end
+
+  defp stale_drift(%AddonStatus{} = status),
+    do: {:stale, "Last reported #{status.state} at #{status.reported_at}; no current report."}
 
   defp addon_drift(_package, _assignment, nil, _agent) do
     {:assigned_not_installed, "Assignment exists, but the agent has not reported installed or active status."}
@@ -1476,17 +1483,29 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp management_mode_text(:observed), do: "unmanaged runtime"
   defp management_mode_text(_mode), do: "unknown"
 
-  defp runtime_badge_variant(%AddonStatus{active: true}), do: "success"
+  defp runtime_badge_variant(%AddonStatus{} = status) do
+    cond do
+      AddonFleet.stale_status?(status, DateTime.utc_now()) -> "ghost"
+      status.active == true -> "success"
+      status.state in ["unhealthy", "failed", "circuit_open"] -> "error"
+      true -> "warning"
+    end
+  end
 
-  defp runtime_badge_variant(%AddonStatus{state: state}) when state in ["unhealthy", "failed", "circuit_open"],
-    do: "error"
-
-  defp runtime_badge_variant(%AddonStatus{}), do: "warning"
   defp runtime_badge_variant(nil), do: "ghost"
 
-  defp runtime_state_text(%AddonStatus{active: true}), do: "running"
-  defp runtime_state_text(%AddonStatus{state: state}) when is_binary(state), do: state
-  defp runtime_state_text(%AddonStatus{}), do: "not active"
+  defp runtime_state_text(%AddonStatus{} = status) do
+    if AddonFleet.stale_status?(status, DateTime.utc_now()) do
+      if is_binary(status.state), do: "stale: last #{status.state}", else: "stale"
+    else
+      cond do
+        status.active == true -> "running"
+        is_binary(status.state) -> status.state
+        true -> "not active"
+      end
+    end
+  end
+
   defp runtime_state_text(nil), do: "not reported"
 
   defp drift_badge_variant(:healthy), do: "success"
