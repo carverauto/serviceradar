@@ -22,6 +22,9 @@ backend exists for a managed TURN service.
     web-ng.
   - `cloudflare`: short-lived credentials minted per viewer through
     Cloudflare's TURN key API, fetched via `ServiceRadar.HTTP.EgressClient`.
+    Operators bring their own account: they enter a Cloudflare API token in
+    **Settings -> Media relay (TURN)** and ServiceRadar provisions, rotates
+    and revokes the TURN key for them.
 - Use the provider for **both** camera relay WebRTC viewers and remote
   desktop WebRTC. Each viewer session gets its own minted credential, and
   the browser and core-elx's ExWebRTC peer each get only what they need.
@@ -37,8 +40,15 @@ backend exists for a managed TURN service.
   - Wired to the same operator-owned shared-secret Secret.
   - Denies relaying to cluster and private CIDRs, except its own relay
     addresses and core-elx pods.
-- Add chart configuration for the Cloudflare backend (key ID plus an
-  operator-owned token Secret) and render-time validation for both backends.
+- Store the Cloudflare API token and the provisioned TURN key secret as
+  integration credentials in `platform.network_credential_secrets` (new native
+  descriptor `cloudflare`), referenced directly by a deployment-level WebRTC
+  relay settings record with restrictive foreign keys, credential-usage
+  inventory entries and guarded deletion. No Helm value carries the token.
+- Add a **usage dashboard**: mint and connection-outcome metrics plus
+  Cloudflare TURN usage polled from Cloudflare's analytics API, all published
+  to JetStream (`metrics.timeseries.webrtc.*`) and persisted by EventWriter,
+  with a relay-bytes threshold alert.
 - Define failure behavior: when the provider cannot mint, the viewer falls
   back to STUN-only ICE and then the websocket transports, and the failure
   is visible to operators.
@@ -51,16 +61,24 @@ backend exists for a managed TURN service.
   - New capability `webrtc-ice-relay`: provider, backends, TURN server,
     secrets, observability.
 - Affected code:
-  - New provider modules under `elixir/serviceradar_core/lib/serviceradar/webrtc/`.
+  - New provider modules under `elixir/serviceradar_core/lib/serviceradar/webrtc/`,
+    the WebRTC relay settings resource, the Cloudflare provisioning and usage
+    poller jobs.
+  - `elixir/serviceradar_core/lib/serviceradar/credentials/{native_descriptors.ex,credential_usage.ex,changes/guard_credential_destroy.ex}`
+    and the RBAC catalog (`settings.webrtc.manage`, `settings.webrtc.view`).
+  - web-ng Settings -> Media relay (TURN) page and settings catalog entry.
+  - Helm NATS permissions (`metrics.timeseries.webrtc.>` for core and web-ng).
   - `elixir/web-ng/lib/serviceradar_web_ng/{camera_relay_webrtc.ex,remote_desktop_webrtc.ex,remote_desktop_webrtc_config.ex}`.
   - `elixir/serviceradar_core_elx/lib/serviceradar_core_elx/camera_relay/{pipeline.ex,webrtc_signaling_manager.ex}`.
   - `elixir/serviceradar_core_elx/lib/serviceradar_core_elx/remote_desktop/data_channel_provider.ex`.
   - Helm `templates/` (TURN server Deployment, Service, ConfigMap and
     NetworkPolicy; Secret mounts), `values.yaml`, `values-demo.yaml`.
-- Secrets: the TURN shared secret and the Cloudflare API token are
-  ServiceRadar infrastructure secrets (Kubernetes Secret or OpenBao), **not**
-  device or integration credentials. They do not belong in
+- Secrets: the self-hosted TURN shared secret is a ServiceRadar
+  infrastructure secret (Kubernetes Secret or OpenBao). The Cloudflare API
+  token and provisioned TURN key secret are integration credentials in
   `platform.network_credential_secrets`; see `design.md`.
+- Related: carverauto/serviceradar-control#156 (tenant console setup and
+  usage).
 - Compatibility:
   - The pending `add-remote-access-desktop-rdp` requirement
     "TURN credentials are short-lived and file-backed" stays satisfied: the

@@ -25,24 +25,55 @@ It SHALL reject usernames, credentials, shared secrets and userinfo supplied in 
 - **WHEN** an operator sets an ICE server entry that includes a `credential` key in Helm values
 - **THEN** chart rendering SHALL fail with an error naming the rejected key
 
-### Requirement: Relay secrets are deployment infrastructure secrets
-The system SHALL read the TURN REST shared secret and the Cloudflare TURN API token only from operator-owned Kubernetes Secret files mounted into the web-ng and core-elx workloads.
-It SHALL NOT store them in `platform.network_credential_secrets`.
-It SHALL NOT return, log or persist them.
-These secrets authenticate ServiceRadar to its own media-relay infrastructure, not to a monitored device or integration.
+### Requirement: TURN shared secret is a deployment infrastructure secret
+The system SHALL read the TURN REST shared secret only from an operator-owned Kubernetes Secret file mounted into the web-ng, core-elx and TURN server workloads.
+It SHALL NOT store the shared secret in `platform.network_credential_secrets`, and SHALL NOT return, log or persist it.
 
 #### Scenario: Secret never reaches the browser
 - **GIVEN** the `static_secret` backend is enabled
 - **WHEN** any viewer receives ICE servers
 - **THEN** the response SHALL contain only public URLs, an expiring username and a derived credential
-- **AND** neither the shared secret nor the Cloudflare token SHALL appear in responses, logs or persisted records
+- **AND** neither the shared secret nor any Cloudflare token or key secret SHALL appear in responses, logs or persisted records other than the encrypted credential store
+
+### Requirement: Cloudflare credentials use the unified credential model
+The system SHALL store the operator's Cloudflare API token and every provisioned Cloudflare TURN key secret encrypted in `platform.network_credential_secrets` under the native descriptor `cloudflare`.
+The deployment WebRTC relay settings SHALL reference them directly with restrictive foreign keys, appear as their consumer in the credential-usage inventory, and block their deletion while referenced.
+No Helm value or mounted file SHALL supply the Cloudflare token.
+
+#### Scenario: Credential deletion is guarded while referenced
+- **GIVEN** the relay settings reference a `cloudflare` API-token credential
+- **WHEN** an operator tries to delete that credential
+- **THEN** the deletion SHALL be refused
+- **AND** the credential's usage view SHALL list "Media relay (TURN)" as a consumer with a link to its settings
+
+### Requirement: Cloudflare TURN key provisioning
+The system SHALL let an operator with `settings.webrtc.manage` select a `cloudflare` credential in Settings -> Media relay (TURN) and provision, rotate and revoke the TURN key through Cloudflare's API via `ServiceRadar.HTTP.EgressClient`.
+Provisioning SHALL be idempotent per attempt and SHALL NOT leave an untracked TURN key in the operator's account.
+
+#### Scenario: Provisioning succeeds
+- **GIVEN** a valid Cloudflare API token credential with Realtime edit permission
+- **WHEN** the operator clicks Provision
+- **THEN** a TURN key SHALL be created in the operator's account
+- **AND** its secret SHALL be stored as a `cloudflare` credential referenced by the relay settings
+- **AND** the settings status SHALL become `provisioned` and the `cloudflare` backend SHALL become selectable
+
+#### Scenario: Provisioning failure leaves no orphan key
+- **GIVEN** Cloudflare creates the TURN key but storing its secret fails
+- **WHEN** the provisioning job handles the failure
+- **THEN** it SHALL delete the created key on Cloudflare before reporting `failed`
+- **AND** if that delete fails, the attempt SHALL be recorded as `orphaned_key` with the key ID and a cleanup job SHALL retry the delete
+
+#### Scenario: Retried attempt reuses its key
+- **GIVEN** a provisioning attempt created a key and the job was retried before recording it
+- **WHEN** the retry runs
+- **THEN** it SHALL find the key it created by its attempt-derived name instead of creating a second key
 
 ### Requirement: Cloudflare TURN backend
 When the `cloudflare` backend is selected, the system SHALL mint per-viewer credentials by calling Cloudflare's TURN key credential API through `ServiceRadar.HTTP.EgressClient`, with a bounded TTL and a request timeout.
 It SHALL pass through only returned ICE server URLs that use an allowed scheme.
 
 #### Scenario: Cloudflare mint succeeds
-- **GIVEN** the `cloudflare` backend with a valid key ID and mounted token
+- **GIVEN** the `cloudflare` backend with a provisioned TURN key
 - **WHEN** a viewer starts negotiation
 - **THEN** the provider SHALL request credentials with the configured TTL through the egress client
 - **AND** SHALL return the validated ICE servers to that viewer only
@@ -103,3 +134,21 @@ The system SHALL emit telemetry for every credential mint attempt (backend, resu
 #### Scenario: Viewer connects over a relay
 - **WHEN** a viewer's selected ICE candidate pair uses a relay candidate
 - **THEN** a candidate-pair telemetry event SHALL record type `relay` for that feature
+
+### Requirement: Relay usage flows through JetStream
+The system SHALL publish WebRTC mint, connection-outcome and Cloudflare TURN usage metrics to JetStream subjects under `metrics.timeseries.webrtc`, persisted by EventWriter, and SHALL NOT write them to a database directly.
+The chart SHALL grant the core and web-ng NATS identities publish permission on exactly `metrics.timeseries.webrtc.>`.
+
+#### Scenario: Usage samples arrive via JetStream
+- **GIVEN** the `cloudflare` backend is provisioned
+- **WHEN** the usage poller runs
+- **THEN** it SHALL publish TURN usage samples to `metrics.timeseries.webrtc.cloudflare`
+- **AND** the samples SHALL become queryable only after EventWriter persists them
+
+### Requirement: Relay usage dashboard
+The system SHALL show, on Settings -> Media relay (TURN), the relay share of successful viewer connections, mint failures by reason class and, for Cloudflare, relayed bytes per day over 30 days, and SHALL raise an alert when relayed bytes cross an operator-set monthly threshold.
+
+#### Scenario: Dashboard shows relay share
+- **GIVEN** viewer-connection metrics with 3 relay and 7 direct or srflx outcomes in the selected window
+- **WHEN** an operator opens the usage panel
+- **THEN** the panel SHALL show a relay share of 30%
