@@ -32,7 +32,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeFirstSeenTest do
   @recent ~U[2020-06-07 08:09:10Z]
 
   setup_all do
-    ServiceRadar.TestSupport.start_core!()
+    TestSupport.start_core!()
     :ok
   end
 
