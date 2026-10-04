@@ -29,8 +29,6 @@ defmodule ServiceRadarWebNG.Homepage do
     deps: [ServiceRadarWebNG, ServiceRadarWebNG.Dashboards],
     exports: :all
 
-  require Ash.Query
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.Homepage
@@ -39,11 +37,17 @@ defmodule ServiceRadarWebNG.Homepage do
   alias ServiceRadar.Identity.UserGroupMembership
   alias ServiceRadarWebNG.Dashboards
 
+  require Ash.Query
+
   @fallback_path "/dashboard"
   @overview_path "/dashboard"
   @dashboards_index_path "/dashboards"
 
-  @type result :: %{path: String.t(), source: :user | :group | :deployment | :fallback, user_homepage_unavailable?: boolean()}
+  @type result :: %{
+          path: String.t(),
+          source: :user | :group | :deployment | :fallback,
+          user_homepage_unavailable?: boolean()
+        }
 
   @doc "The path used when nothing else applies."
   @spec fallback_path() :: String.t()
@@ -188,14 +192,20 @@ defmodule ServiceRadarWebNG.Homepage do
   Sets (or clears) a user group's homepage and tie-break priority. Requires
   `identity.user_groups.manage`, enforced by the resource policy.
   """
-  @spec set_group_homepage(term(), String.t(), Homepage.t() | map() | nil, integer() | String.t() | nil) ::
-          {:ok, UserGroup.t()} | {:error, term()}
+  @spec set_group_homepage(
+          term(),
+          String.t(),
+          Homepage.t() | map() | nil,
+          integer() | String.t() | nil
+        ) :: {:ok, UserGroup.t()} | {:error, term()}
   def set_group_homepage(scope, group_id, homepage, priority) when is_binary(group_id) do
     with {:ok, group} <- Ash.get(UserGroup, group_id, scope: scope) do
+      priority = if priority in [nil, ""], do: group.homepage_priority, else: priority
+
       group
       |> Ash.Changeset.for_update(
         :update_homepage,
-        %{homepage: homepage, homepage_priority: if(priority in [nil, ""], do: group.homepage_priority, else: priority)},
+        %{homepage: homepage, homepage_priority: priority},
         scope: scope
       )
       |> Ash.update()
@@ -223,11 +233,20 @@ defmodule ServiceRadarWebNG.Homepage do
   @spec audience_gap?(term(), Homepage.t() | nil, String.t() | nil) :: boolean()
   def audience_gap?(scope, homepage, group_id) do
     case Homepage.load_target(homepage || %{}, scope: scope) do
-      {:ok, {_type, %{visibility: :public}}} -> false
-      {:ok, {_type, _target}} when is_nil(group_id) -> true
-      {:ok, {:authored, dashboard}} -> not granted_to_group?(fn -> Dashboards.list_authored_access_grants(scope, dashboard.id) end, group_id)
-      {:ok, {:package, instance}} -> not granted_to_group?(fn -> Dashboards.list_instance_access_grants(scope, instance.id) end, group_id)
-      :error -> false
+      {:ok, {_type, %{visibility: :public}}} ->
+        false
+
+      {:ok, {_type, _target}} when is_nil(group_id) ->
+        true
+
+      {:ok, {:authored, dashboard}} ->
+        not granted_to_group?(fn -> Dashboards.list_authored_access_grants(scope, dashboard.id) end, group_id)
+
+      {:ok, {:package, instance}} ->
+        not granted_to_group?(fn -> Dashboards.list_instance_access_grants(scope, instance.id) end, group_id)
+
+      :error ->
+        false
     end
   end
 

@@ -94,7 +94,9 @@ defmodule ServiceRadar.Identity.HomepageDbTest do
              group
              |> Ash.Changeset.for_update(
                :update_homepage,
-               %{homepage: overview, homepage_priority: 10}, actor: admin)
+               %{homepage: overview, homepage_priority: 10},
+               actor: admin
+             )
              |> Ash.update()
 
     assert updated.homepage == overview

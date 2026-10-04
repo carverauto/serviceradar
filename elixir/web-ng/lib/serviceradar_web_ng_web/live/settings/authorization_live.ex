@@ -405,8 +405,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
               </.form>
               <p class="text-xs text-sr-muted mt-3">
                 To route SSO users by IdP group, map the IdP group to a user group in a
-                mapping row, then set that group's homepage on
-                <.link navigate={~p"/settings/user-groups"} class="text-sr-brand hover:underline">
+                mapping row, then set that group's homepage on <.link
+                  navigate={~p"/settings/user-groups"}
+                  class="text-sr-brand hover:underline"
+                >
                   User Groups
                 </.link>. Memberships sync before the redirect, so the first sign-in lands there.
               </p>

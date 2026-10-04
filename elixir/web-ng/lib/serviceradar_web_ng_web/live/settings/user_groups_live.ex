@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Identity.MappedUserGroups
   alias ServiceRadar.Identity.Homepage, as: HomepageValue
+  alias ServiceRadar.Identity.MappedUserGroups
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Homepage
   alias ServiceRadarWebNG.RBAC

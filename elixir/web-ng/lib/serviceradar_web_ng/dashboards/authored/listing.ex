@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Listing do
     quote do
       alias ServiceRadar.Dashboards.AuthoredDashboard
       alias ServiceRadar.Dashboards.DashboardUserPreference
+      alias ServiceRadar.Identity.User
 
       require Ash.Query
 
@@ -59,13 +60,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Listing do
       # (add-configurable-default-homepage, D6): this writes the user's
       # homepage, which drives sign-in, and keeps the dashboard a favorite.
       @spec set_default_dashboard(term(), atom(), String.t()) ::
-              {:ok, ServiceRadar.Identity.User.t()} | {:error, term()}
-      def set_default_dashboard(%{user: %ServiceRadar.Identity.User{} = user} = scope, target_type, target_id)
+              {:ok, User.t()} | {:error, term()}
+      def set_default_dashboard(%{user: %User{} = user} = scope, target_type, target_id)
           when target_type in [:authored, :package] and is_binary(target_id) do
         homepage = %{"kind" => "dashboard", "target_type" => Atom.to_string(target_type), "target_id" => target_id}
         attrs = preference_attrs(scope, target_type, target_id, %{favorite: true})
 
-        with {:ok, user} <- ServiceRadar.Identity.User.update_homepage_preference(user, homepage, scope: scope),
+        with {:ok, user} <- User.update_homepage_preference(user, homepage, scope: scope),
              {:ok, _preference} <-
                DashboardUserPreference
                |> Ash.Changeset.for_create(:upsert, attrs)
