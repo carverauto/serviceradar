@@ -764,10 +764,100 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
 
     assert html =~ "agent-profile-owned"
-    assert html =~ "profile: Inventory everywhere"
+    assert html =~ "managed by profile"
+    assert html =~ "Inventory everywhere"
     assert html =~ "failed"
     assert html =~ "agent capability missing"
-    refute html =~ "manual override"
+    refute html =~ "Manual"
+  end
+
+  test "groups assignments by agent and removes only the manual assignment for duplicate host", %{
+    conn: conn,
+    actor: actor
+  } do
+    package =
+      create_addon_package!(actor, %{
+        addon_id: "endpoint-inventory-grouped-#{System.unique_integer([:positive])}",
+        name: "Endpoint Inventory Grouped",
+        status: :approved,
+        approved_capabilities: ["endpoint.inventory"]
+      })
+
+    profile =
+      AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Global Edge Profile",
+          target_query: "in:agents",
+          priority: 50,
+          max_targets: 1000,
+          addon_package_id: package.id,
+          params: %{},
+          args: []
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    agent_uid = "agent-multi-assignment-#{System.unique_integer([:positive])}"
+
+    manual_assignment =
+      AddonAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          addon_package_id: package.id,
+          source: :manual,
+          source_key: "manual:#{package.id}:#{agent_uid}",
+          params: %{},
+          args: []
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    profile_assignment =
+      AddonAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          addon_package_id: package.id,
+          source: :profile,
+          source_key: "profile:#{profile.id}:#{package.id}:#{agent_uid}",
+          addon_profile_id: profile.id,
+          params: %{},
+          args: []
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+
+    assert [agent_uid] == ~r/#{Regex.escape(agent_uid)}/ |> Regex.scan(html) |> List.flatten()
+    assert html =~ "Manual"
+    assert html =~ "managed by profile"
+    assert html =~ "Global Edge Profile"
+    assert html =~ ~s(href="#profile-#{profile.id}")
+    assert html =~ ~s(phx-value-id="#{manual_assignment.id}")
+    refute html =~ ~s(phx-value-id="#{profile_assignment.id}")
+
+    html =
+      lv
+      |> element(~s(button[phx-click="delete_assignment"][phx-value-id="#{manual_assignment.id}"]))
+      |> render_click()
+
+    assert html =~ "Assignment removed."
+    assert html =~ agent_uid
+    assert html =~ "Global Edge Profile"
+    refute html =~ "Manual"
+
+    assert {:error, %Ash.Error.Query.NotFound{}} = Ash.get(AddonAssignment, manual_assignment.id, actor: actor)
+
+    assert {:ok, _} = Ash.get(AddonAssignment, profile_assignment.id, actor: actor)
   end
 
   defp create_addon_package!(actor, attrs) do
