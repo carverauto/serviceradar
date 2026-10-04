@@ -94,6 +94,7 @@ defmodule ServiceRadar.EventWriter.Health do
 
   defp health_result(false, _running, _pipelines), do: :ok
   defp health_result(true, false, _pipelines), do: {:error, :supervisor_not_running}
+
   defp health_result(true, true, pipelines) when map_size(pipelines) == 0,
     do: {:error, :no_streams_configured}
 

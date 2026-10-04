@@ -228,8 +228,15 @@ defmodule ServiceRadar.ClusterHealth do
       }
     rescue
       _ ->
-        %{enabled: true, running: false, healthy: false, reason: "health_check_failed",
-          pipelines: %{}, pipeline: nil, producer: nil}
+        %{
+          enabled: true,
+          running: false,
+          healthy: false,
+          reason: "health_check_failed",
+          pipelines: %{},
+          pipeline: nil,
+          producer: nil
+        }
     end
   end
 

@@ -3,6 +3,8 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
 
   alias ServiceRadar.Cluster.CoordinatorChildren
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.FlowPipeline
+  alias ServiceRadar.EventWriter.FlowProducer
   alias ServiceRadar.EventWriter.Health
   alias ServiceRadar.EventWriter.Producer
 
@@ -11,6 +13,7 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
   # An external NATS protocol fixture, not a replacement producer. The real
   # Gnat connection, consumer setup, GenStage demand and retry timers all run.
   defmodule Broker do
+    @moduledoc false
     use GenServer
 
     def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
@@ -19,8 +22,12 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
 
     @impl true
     def init(opts) do
-      {:ok, listener} = :gen_tcp.listen(Keyword.get(opts, :port, 0),
-        [:binary, packet: :line, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+      {:ok, listener} =
+        :gen_tcp.listen(
+          Keyword.get(opts, :port, 0),
+          [:binary, packet: :line, active: false, reuseaddr: true, ip: {127, 0, 0, 1}]
+        )
+
       {:ok, {_address, port}} = :inet.sockname(listener)
       mode = :atomics.new(1, [])
       :atomics.put(mode, 1, if(Keyword.get(opts, :deny, false), do: 0, else: 1))
@@ -31,6 +38,7 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
 
     @impl true
     def handle_call(:port, _from, state), do: {:reply, state.port, state}
+
     def handle_call(:allow, _from, state) do
       :atomics.put(state.mode, 1, 1)
       {:reply, :ok, state}
@@ -45,18 +53,24 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     defp accept(listener, mode, owner) do
       case :gen_tcp.accept(listener) do
         {:ok, socket} ->
-          worker = spawn_link(fn -> receive do
-            {:socket, socket} -> serve(socket, mode, owner)
-          end end)
+          worker =
+            spawn_link(fn ->
+              receive do
+                {:socket, socket} -> serve(socket, mode, owner)
+              end
+            end)
+
           :ok = :gen_tcp.controlling_process(socket, worker)
           send(worker, {:socket, socket})
           accept(listener, mode, owner)
-        {:error, :closed} -> :ok
+
+        {:error, :closed} ->
+          :ok
       end
     end
 
     defp serve(socket, mode, owner) do
-      :ok = :gen_tcp.send(socket, "INFO {\"server_id\":\"invented-broker\",\"headers\":false}\r\n")
+      :ok = :gen_tcp.send(socket, ~s(INFO {"server_id":"invented-broker","headers":false}\r\n))
       commands(socket, mode, owner, %{})
     end
 
@@ -66,25 +80,33 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
           case String.split(String.trim(line)) do
             ["SUB", subject, sid] ->
               commands(socket, mode, owner, Map.put(subscriptions, subject, sid))
+
             ["PUB", subject, reply, bytes] ->
               :ok = :inet.setopts(socket, packet: :raw)
               {:ok, payload} = :gen_tcp.recv(socket, String.to_integer(bytes) + 2)
               :ok = :inet.setopts(socket, packet: :line)
               payload = binary_part(payload, 0, String.to_integer(bytes))
+
               if respond(socket, subject, reply, payload, mode, owner, subscriptions) == :continue do
                 commands(socket, mode, owner, subscriptions)
               end
+
             ["PUB", _subject, bytes] ->
               :ok = :inet.setopts(socket, packet: :raw)
               {:ok, _payload} = :gen_tcp.recv(socket, String.to_integer(bytes) + 2)
               :ok = :inet.setopts(socket, packet: :line)
               commands(socket, mode, owner, subscriptions)
+
             ["PING"] ->
               :ok = :gen_tcp.send(socket, "PONG\r\n")
               commands(socket, mode, owner, subscriptions)
-            _ -> commands(socket, mode, owner, subscriptions)
+
+            _ ->
+              commands(socket, mode, owner, subscriptions)
           end
-        {:error, :closed} -> :ok
+
+        {:error, :closed} ->
+          :ok
       end
     end
 
@@ -94,26 +116,47 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
           # A permissions denial followed by a broker disconnect during setup.
           # The producer must survive both and recover after access is restored.
           :ok = :gen_tcp.send(socket, "-ERR 'Permissions Violation for Publish'\r\n")
-          body = Jason.encode!(%{"error" => %{"code" => 403, "description" => "subject permission denied"}})
+
+          body =
+            Jason.encode!(%{
+              "error" => %{"code" => 403, "description" => "subject permission denied"}
+            })
+
           :ok = :gen_tcp.send(socket, "MSG #{reply} 0 #{byte_size(body)}\r\n#{body}\r\n")
           send(owner, {:denied, subject})
           :gen_tcp.close(socket)
           :closed
+
         String.contains?(subject, ".CONSUMER.MSG.NEXT.") ->
           if String.contains?(reply, ".pull.recovery.") do
             sid = Map.fetch!(subscriptions, reply)
             body = "invented-event"
-            :ok = :gen_tcp.send(socket,
-              "MSG events.test.recovery #{sid} $JS.ACK.TEST_EVENTS.recovery.1.1.1.0.0 #{byte_size(body)}\r\n#{body}\r\n")
+
+            :ok =
+              :gen_tcp.send(
+                socket,
+                "MSG events.test.recovery #{sid} $JS.ACK.TEST_EVENTS.recovery.1.1.1.0.0 #{byte_size(body)}\r\n#{body}\r\n"
+              )
           end
+
           :continue
+
         true ->
-          response = cond do
-            String.ends_with?(subject, ".STREAM.NAMES") -> %{"streams" => []}
-            String.contains?(subject, ".STREAM.INFO.") -> %{"error" => %{"code" => 404, "err_code" => 10_059}}
-            String.contains?(subject, ".CONSUMER.INFO.") -> %{"error" => %{"code" => 404}}
-            true -> %{}
-          end
+          response =
+            cond do
+              String.ends_with?(subject, ".STREAM.NAMES") ->
+                %{"streams" => []}
+
+              String.contains?(subject, ".STREAM.INFO.") ->
+                %{"error" => %{"code" => 404, "err_code" => 10_059}}
+
+              String.contains?(subject, ".CONSUMER.INFO.") ->
+                %{"error" => %{"code" => 404}}
+
+              true ->
+                %{}
+            end
+
           body = Jason.encode!(response)
           :ok = :gen_tcp.send(socket, "MSG #{reply} 0 #{byte_size(body)}\r\n#{body}\r\n")
           :continue
@@ -122,7 +165,9 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
   end
 
   defmodule Sink do
+    @moduledoc false
     use GenStage
+
     def start_link({producer, owner}), do: GenStage.start_link(__MODULE__, {producer, owner})
     @impl true
     def init({producer, owner}), do: {:consumer, owner, subscribe_to: [{producer, max_demand: 1}]}
@@ -136,11 +181,19 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
   setup do
     owner = self()
     id = "producer-recovery-#{System.unique_integer([:positive])}"
-    :telemetry.attach_many(id,
-      [[:serviceradar, :event_writer, :connection_failed], [:serviceradar, :event_writer, :connected]],
+
+    :telemetry.attach_many(
+      id,
+      [
+        [:serviceradar, :event_writer, :connection_failed],
+        [:serviceradar, :event_writer, :connected]
+      ],
       fn event, measurements, metadata, _ ->
         send(owner, {:connection, List.last(event), measurements, metadata})
-      end, nil)
+      end,
+      nil
+    )
+
     on_exit(fn -> :telemetry.detach(id) end)
     :ok
   end
@@ -188,28 +241,39 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter)
     previous_enabled = System.get_env("EVENT_WRITER_ENABLED")
     System.put_env("EVENT_WRITER_ENABLED", "true")
+
     Application.put_env(:serviceradar_core, ServiceRadar.EventWriter,
-      enabled: true, nats: [host: "127.0.0.1", port: Broker.port(broker), tls: false],
-      streams: config(Broker.port(broker)).streams, batch_size: 1, batch_timeout: 100)
+      enabled: true,
+      nats: [host: "127.0.0.1", port: Broker.port(broker), tls: false],
+      streams: config(Broker.port(broker)).streams,
+      batch_size: 1,
+      batch_timeout: 100
+    )
+
     on_exit(fn ->
-      if previous == nil, do: Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter),
+      if previous == nil,
+        do: Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter),
         else: Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
-      if previous_enabled == nil, do: System.delete_env("EVENT_WRITER_ENABLED"),
+
+      if previous_enabled == nil,
+        do: System.delete_env("EVENT_WRITER_ENABLED"),
         else: System.put_env("EVENT_WRITER_ENABLED", previous_enabled)
     end)
 
-    spec = CoordinatorChildren.children()
+    spec =
+      CoordinatorChildren.children()
       |> Enum.map(&Supervisor.child_spec(&1, []))
       |> Enum.find(&(&1.id == ServiceRadar.EventWriter.Supervisor))
-    start_supervised!({Supervisor, { [spec], strategy: :one_for_one }})
+
+    start_supervised!({Supervisor, {[spec], strategy: :one_for_one}})
     assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
-    assert_receive {:connection, :connected, _, %{producer: ServiceRadar.EventWriter.FlowProducer}}, 3_000
+    assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 3_000
     assert Health.check() == :ok
 
     old_conns =
       (Broadway.producer_names(ServiceRadar.EventWriter.Pipeline) ++
-         Broadway.producer_names(ServiceRadar.EventWriter.FlowPipeline))
-      |> Enum.map(&(:sys.get_state(&1).conn))
+         Broadway.producer_names(FlowPipeline))
+      |> Enum.map(&:sys.get_state(&1).conn)
       |> Enum.filter(&is_pid/1)
 
     assert old_conns != []
@@ -220,24 +284,38 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     assert_receive {:DOWN, ^monitor, :process, ^old, :shutdown}
     Enum.each(old_conns, &refute(Process.alive?(&1)))
     assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
-    assert_receive {:connection, :connected, _, %{producer: ServiceRadar.EventWriter.FlowProducer}}, 3_000
+    assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 3_000
     refute Process.whereis(ServiceRadar.EventWriter.Supervisor) == old
     assert Health.check() == :ok
 
-    [flow] = Broadway.producer_names(ServiceRadar.EventWriter.FlowPipeline)
+    [flow] = Broadway.producer_names(FlowPipeline)
     :ok = :sys.suspend(flow)
+
     try do
-      assert {:error, {:producer_not_ready, ServiceRadar.EventWriter.FlowPipeline}} = Health.check()
+      assert {:error, {:producer_not_ready, FlowPipeline}} = Health.check()
     after
       :sys.resume(flow)
     end
+
     assert Health.healthy?()
   end
 
   defp config(port) do
-    %Config{enabled: true, nats: %{host: "127.0.0.1", port: port, tls: false},
-      consumer_name: "recovery", retired_consumers: [], max_ack_pending: 8,
+    %Config{
+      enabled: true,
+      nats: %{host: "127.0.0.1", port: port, tls: false},
+      consumer_name: "recovery",
+      retired_consumers: [],
+      max_ack_pending: 8,
       consumer_pull_batch_size: 1,
-      streams: [%{name: "TEST_EVENTS", stream_name: "TEST_EVENTS", subject: "events.test.recovery", ensure_stream: false}]}
+      streams: [
+        %{
+          name: "TEST_EVENTS",
+          stream_name: "TEST_EVENTS",
+          subject: "events.test.recovery",
+          ensure_stream: false
+        }
+      ]
+    }
   end
 end

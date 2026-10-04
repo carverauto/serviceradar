@@ -948,8 +948,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   @doc false
   # Bound transport and setup retries alike. The consecutive failure counter
   # resets only after a successful connection with usable consumers.
-  def reconnect_delay(_reason, setup_failures),
-    do: consumer_retry_delay(max(setup_failures, 1))
+  def reconnect_delay(_reason, setup_failures), do: consumer_retry_delay(max(setup_failures, 1))
 
   @doc false
   # Backoff before retry `attempt` of a failed stream: 5 s doubling to 60 s.
