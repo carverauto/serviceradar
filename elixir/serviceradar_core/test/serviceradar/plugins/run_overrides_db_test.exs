@@ -58,7 +58,9 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
     system: system,
     assignment_id: assignment_id
   } do
-    now = ~U[2026-09-27 12:00:00.000000Z]
+    # Anchor to the wall clock: delivery keeps overrides only until 7 days after they
+    # expire, so a fixed date stops being deliverable a week after it was written.
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     payload = %{
       "status" => "succeeded",
