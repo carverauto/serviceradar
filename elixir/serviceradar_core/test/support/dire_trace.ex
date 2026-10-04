@@ -366,6 +366,11 @@ defmodule ServiceRadar.DireTrace do
   """
   def rekey(trace, h, a) do
     src_of = if a == "NoId", do: Map.delete(trace.src_of, h), else: Map.put(trace.src_of, h, a)
+    # The sync stamps a record's creation time to the second, and a succession keeps the record
+    # created first, or the lower uid of two created in one second. In a deployment a re-key
+    # comes long after the device's first record, so a record the new id lands on must be
+    # created in a later second than the trace's records so far.
+    if a != "NoId", do: Process.sleep(1_100)
     record(%{trace | src_of: src_of}, quiet_act("Rekey"))
   end
 

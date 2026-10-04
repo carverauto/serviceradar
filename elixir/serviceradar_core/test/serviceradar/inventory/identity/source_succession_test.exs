@@ -76,7 +76,21 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
   defp retired(trace) do
     trace = DireTrace.retire(trace)
     DireTrace.stop(trace)
-    %{predecessor: uid!(trace, "a1"), successor: uid!(trace, "a2"), current: trace.real.src["a2"]}
+
+    world = %{
+      predecessor: uid!(trace, "a1"),
+      successor: uid!(trace, "a2"),
+      current: trace.real.src["a2"]
+    }
+
+    # The re-key lands a2 on a record created in a later second (DireTrace.rekey/3), so a1's
+    # record is the one created first.
+    assert DateTime.before?(
+             device(world.predecessor, trace.actor).created_time,
+             device(world.successor, trace.actor).created_time
+           )
+
+    world
   end
 
   defp uid!(trace, name),
@@ -104,6 +118,18 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
                  "WHERE device_id = $1 AND identifier_type = 'armis_device_id' " <>
                  "AND metadata ->> CAST($2 AS text) IS NOT NULL",
                [uid, key]
+             )
+  end
+
+  # Moves a record's creation an hour before another's, as when another source created the
+  # record that the source's new id later landed on.
+  defp created_before!(uid, other) do
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "UPDATE platform.ocsf_devices SET created_time = " <>
+                 "(SELECT created_time - interval '1 hour' FROM platform.ocsf_devices " <>
+                 "WHERE uid = $2) WHERE uid = $1",
+               [uid, other]
              )
   end
 
@@ -169,6 +195,27 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
     assert [%{"field" => "first_seen"}] = audit.details["corroboration"]
     assert [%{"collection_ids" => [_ | _]}] = audit.details["retired_ids"]
     assert audit.details["succession"]["ip_transferred"]
+  end
+
+  test "a successor created first survives, keeping the current id and its address",
+       %{actor: actor} do
+    world = rekeyed(actor)
+    created_before!(world.successor, world.predecessor)
+    before = device(world.successor, actor)
+
+    assert {:ok, %{merged: 1}} = SourceSuccession.run(actor: actor, max_successions: 10)
+
+    assert device(world.predecessor, actor).deleted_at
+    survivor = device(world.successor, actor)
+    assert survivor.deleted_at == nil
+    assert survivor.ip == before.ip
+    assert survivor.metadata["armis_device_id"] == world.current
+
+    assert {:ok, [audit]} = MergeAudit.get_merged_to(world.predecessor, actor: actor)
+    assert audit.reason == "source_succession"
+    assert audit.to_device_id == world.successor
+    assert audit.details["predecessor"] == world.predecessor
+    refute audit.details["succession"]["ip_transferred"]
   end
 
   test "marks the de-duplication task the sync opened for the pair merged", %{actor: actor} do
@@ -397,6 +444,25 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
 
       assert review.reason == :overlapping_hostname
       assert review.device_uids == ["sr:current-1", "sr:retired"]
+    end
+
+    test "the record created first survives, whichever side it is on, and of two created together the lower uid" do
+      retired = retired_record("sr:retired", ["00:00:5E:00:53:0A"])
+      current = current_record("sr:current-1", ["00:00:5E:00:53:0A"], "host-a", @later)
+
+      survivor = fn retired_created, current_created ->
+        predecessors = [put_in(retired.device.created_time, retired_created)]
+        currents = [put_in(current.device.created_time, current_created)]
+
+        assert %{successive: [pair]} =
+                 SourceSuccession.classify(snapshot(predecessors, currents))
+
+        pair.survivor
+      end
+
+      assert survivor.(@first_seen, @later) == "sr:retired"
+      assert survivor.(@later, @first_seen) == "sr:current-1"
+      assert survivor.(@later, @later) == "sr:current-1"
     end
   end
 
