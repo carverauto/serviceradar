@@ -70,7 +70,7 @@ defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
     )
 
     Code.require_file(
-      "../../../priv/repo/migrations/20261005140000_move_core_otx_credential_to_inventory.exs",
+      "../../../priv/repo/migrations/20261005150102_move_core_otx_credential_to_inventory.exs",
       __DIR__
     )
 

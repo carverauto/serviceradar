@@ -14,6 +14,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
 
   require Ash.Query
 
+  # The database-free unit tier loads this file but cannot run it. This tag is
+  # what assigns the cases to //elixir/web-ng:networks_live_db_test, the lane
+  # that has a database; without it they would be silently excluded.
+  @moduletag :web_ng_shared_fixture_db
+
   @plugin_id "alienvault-otx-threat-intel"
 
   setup :register_and_log_in_admin_user
