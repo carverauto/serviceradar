@@ -201,9 +201,11 @@ exceptions (`/api/query`, `/api/admin/topology/route-analysis`, and
 `/api/v1/identity/resolve` batch resolution); every other mutation requires
 `write` or `admin` as well as the credential owner's resource permissions.
 Empty grants and narrow CLI grants cannot inherit the owner's full authority
-on these routes. API bearer tokens are confined to data routes under `/api`,
-`/topology`, and `/v1/stream` and cannot enter browser credential
-authorization. Browser sessions and user access tokens retain their existing
+on these routes. Through the UserAuth boundary, API bearer tokens are confined
+to data routes under `/api`, `/topology`, and `/v1/stream` and cannot enter
+browser credential authorization; routes mounted on `:api_key_auth` (including
+`/v1/field-survey` reads) keep their mounted reach subject to the same
+method gate. Browser sessions and user access tokens retain their existing
 resource authorization.
 
 Telemetry collections use bounded offset pagination even when no page is
