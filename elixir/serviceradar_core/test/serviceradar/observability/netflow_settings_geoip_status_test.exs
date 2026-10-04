@@ -56,45 +56,38 @@ defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
              )
   end
 
-  test "admin can set and clear encrypted OTX API key" do
-    system = SystemActor.system(:netflow_otx_settings_test_seed)
-    settings = ensure_settings(system)
-    admin = %{id: "user:admin", role: :admin, permissions: ["settings.netflow.manage"]}
-    token = "otx_test_token_#{System.unique_integer([:positive])}"
+  test "legacy OTX ciphertext migrates to a guarded reusable credential without key re-entry" do
+    actor = SystemActor.system(:otx_credential_upgrade_test)
+    settings = ensure_settings(actor)
+    token = "invented-otx-upgrade-token"
+    ciphertext = AshCloak.do_encrypt(NetflowSettings, :otx_api_key, token)
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.netflow_settings SET encrypted_otx_api_key = $1, otx_credential_secret_id = NULL WHERE id = $2",
+      [ciphertext, Ecto.UUID.dump!(settings.id)])
 
-    assert {:ok, %NetflowSettings{} = updated} =
-             NetflowSettings.update_settings(
-               settings,
-               %{
-                 otx_enabled: true,
-                 otx_execution_mode: "core_worker",
-                 otx_api_key: token,
-                 otx_base_url: "https://otx.alienvault.com",
-                 otx_retrohunt_window_seconds: 7_776_000
-               },
-               actor: admin
-             )
+    Code.require_file("../../../priv/repo/migrations/20261005140000_move_core_otx_credential_to_inventory.exs", __DIR__)
+    ServiceRadar.Repo.Migrations.MoveCoreOtxCredentialToInventory.migrate_legacy_tokens(ServiceRadar.Repo)
+    ServiceRadar.Repo.Migrations.MoveCoreOtxCredentialToInventory.migrate_legacy_tokens(ServiceRadar.Repo)
 
-    assert updated.otx_enabled == true
-    assert updated.otx_execution_mode == "core_worker"
-    assert updated.otx_api_key == token
-    assert is_binary(updated.encrypted_otx_api_key)
-    refute updated.encrypted_otx_api_key == token
+    assert {:ok, %NetflowSettings{} = migrated} = NetflowSettings.get_settings(actor: actor)
+    assert migrated.encrypted_otx_api_key == nil
+    assert migrated.otx_api_key_present
+    assert {:ok, secret} = ServiceRadar.Credentials.NetworkCredentialSecret.get_by_id(migrated.otx_credential_secret_id, actor: actor)
+    assert {:error, deletion_error} = secret
+      |> Ash.Changeset.for_destroy(:destroy_permanently, %{confirm_secret_id: secret.id})
+      |> Ash.destroy(actor: actor)
+    assert Exception.message(deletion_error) =~ "credential_in_use"
+    assert {:ok, ^token} = ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver.resolve_otx(migrated.otx_credential_secret_id)
 
-    assert {:ok, %NetflowSettings{} = fetched} = NetflowSettings.get_settings(actor: admin)
-    assert fetched.otx_api_key == token
-    assert fetched.otx_api_key_present == true
+    assert {:ok, usage} = ServiceRadar.Credentials.CredentialUsage.for_secret(migrated.otx_credential_secret_id, actor: actor)
+    assert Enum.any?(usage.consumers, &(&1.kind == :otx_settings and &1.id == settings.id))
 
-    assert {:ok, %NetflowSettings{}} =
-             NetflowSettings.update_settings(
-               fetched,
-               %{clear_otx_api_key: true},
-               actor: admin
-             )
-
-    assert {:ok, %NetflowSettings{} = cleared} = NetflowSettings.get_settings(actor: admin)
+    manager = %{id: "credential-manager", role: :admin, permissions: ["settings.netflow.manage", "settings.credentials.manage"]}
+    assert {:ok, %NetflowSettings{} = cleared} = NetflowSettings.update_settings(migrated, %{otx_credential_secret_id: nil}, actor: manager)
     refute cleared.otx_api_key_present
-    assert cleared.otx_api_key in [nil, ""]
+    # Clearing the consumer reference never deletes or decrypts the inventory credential.
+    assert {:ok, %{id: id}} = ServiceRadar.Credentials.NetworkCredentialSecret.get_by_id(migrated.otx_credential_secret_id, actor: manager)
+    assert id == migrated.otx_credential_secret_id
   end
 
   test "actor without settings permission cannot read settings" do

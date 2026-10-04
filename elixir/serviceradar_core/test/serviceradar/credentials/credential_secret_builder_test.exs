@@ -342,21 +342,20 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
   describe "native VulnCheck descriptor" do
     alias ServiceRadar.Credentials.NativeDescriptors
 
-    test "stores the API token as a scalar payload" do
-      assert {:ok, attrs} =
-               CredentialSecretBuilder.build(
-                 NativeDescriptors.vulncheck(),
-                 "api_token",
-                 %{"api_token" => "vc-community-token"},
-                 %{name: "VulnCheck community", description: nil}
-               )
-
-      assert attrs.provider == "vulncheck"
-      assert attrs.credential_kind == :api_token
-      assert attrs.secret_payload == "vc-community-token"
-      assert attrs.metadata["plugin_id"] == "vulncheck"
-      assert attrs.metadata["plugin_version"] == "native"
-      assert attrs.metadata["auth_method"] == "api_token"
+    test "core feed descriptors build scalar inventory tokens with native provenance" do
+      for {profile, provider} <- [
+        {NativeDescriptors.vulncheck(), "vulncheck"},
+        {NativeDescriptors.otx(), "alienvault-otx-core"}
+      ] do
+        assert {:ok, attrs} = CredentialSecretBuilder.build(profile, "api_token",
+          %{"api_token" => "invented-feed-token"}, %{name: "Invented feed", description: nil})
+        assert attrs.provider == provider
+        assert attrs.credential_kind == :api_token
+        assert attrs.secret_payload == "invented-feed-token"
+        assert attrs.metadata["plugin_id"] == provider
+        assert attrs.metadata["plugin_version"] == "native"
+        assert attrs.metadata["auth_method"] == "api_token"
+      end
     end
 
     test "rejects an empty token" do

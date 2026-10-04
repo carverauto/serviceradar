@@ -25,6 +25,7 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
   alias ServiceRadar.Inventory.VulnerabilityFeedDefinition
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
+  alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Notifications.NotificationChannel
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginRepository
@@ -122,6 +123,7 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
 
   defp load_direct_consumers(ids) do
     loaders = [
+      {:otx_settings, &load_otx_settings/1},
       {:credential_rules, &load_credential_rules/1},
       {:snmp_profiles, &load_snmp_profiles/1},
       {:snmp_targets, &load_snmp_targets/1},
@@ -161,6 +163,16 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
     _error -> :error
   catch
     _kind, _reason -> :error
+  end
+
+  defp load_otx_settings(ids) do
+    NetflowSettings
+    |> read_selected(
+      Ash.Query.filter(NetflowSettings, otx_credential_secret_id in ^ids),
+      [:id, :otx_credential_secret_id],
+      unload: [:ipinfo_api_key, :otx_api_key]
+    )
+    |> map_direct(:otx_settings, :otx_credential_secret_id, fn _ -> "Core OTX feed" end)
   end
 
   defp load_credential_rules(ids) do
