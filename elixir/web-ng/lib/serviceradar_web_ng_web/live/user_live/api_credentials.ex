@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   @api_credentials_permission Constants.api_credentials_manage_permission()
 
-  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
+  on_mount({ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode})
 
   @impl true
   def render(assigns) do
@@ -323,13 +323,14 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
           <label class="flex items-center justify-between gap-2">
             <span class="text-sm font-medium text-sr-ink">Scopes</span>
           </label>
+          <% scopes = List.wrap(@form[:scopes].value || ["read"]) %>
           <div class="space-y-2">
             <label class="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 name="client[scopes][]"
                 value="read"
-                checked
+                checked={"read" in scopes}
                 class={ui_checkbox_class()}
               />
               <span class="text-sm font-medium text-sr-ink">Read</span>
@@ -342,6 +343,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                 type="checkbox"
                 name="client[scopes][]"
                 value="write"
+                checked={"write" in scopes}
                 class={ui_checkbox_class()}
               />
               <span class="text-sm font-medium text-sr-ink">Write</span>
@@ -352,6 +354,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                 type="checkbox"
                 name="client[scopes][]"
                 value="mcp"
+                checked={"mcp" in scopes}
                 class={ui_checkbox_class()}
               />
               <span class="text-sm font-medium text-sr-ink">MCP</span>
@@ -488,7 +491,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
        |> assign(:show_create_modal, false)
        |> assign(:show_secret_modal, false)
        |> assign(:show_revoke_modal, false)
-       |> assign(:create_form, to_form(%{"name" => "", "description" => "", "scopes" => ["read"]}))
+       |> assign(
+         :create_form,
+         to_form(%{"name" => "", "description" => "", "scopes" => ["read"]})
+       )
        |> assign(:new_client, nil)
        |> assign(:new_secret, nil)
        |> assign(:client_to_revoke, nil)
@@ -511,6 +517,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   end
 
   def handle_event("validate_create", %{"client" => params}, socket) do
+    params = Map.put_new(params, "scopes", [])
     {:noreply, assign(socket, :create_form, to_form(params))}
   end
 
