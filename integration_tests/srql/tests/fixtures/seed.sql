@@ -1612,6 +1612,17 @@ FROM unnest(ARRAY[
     TIMESTAMPTZ '2026-01-05 12:00:00+00'
 ]) AS probe(bucket);
 
+INSERT INTO logs_severity_stats_5m (
+    bucket, service_name,
+    total_count, fatal_count, error_count, warning_count, info_count, debug_count
+)
+SELECT bucket, 'overlap-probe', 1, 0, 0, 0, 1, 0
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:05:00+00',
+    TIMESTAMPTZ '2026-01-05 10:15:00+00'
+]) AS probe(bucket);
+
 TRUNCATE timeseries_metrics;
 TRUNCATE timeseries_metrics_hourly;
 WITH base AS (

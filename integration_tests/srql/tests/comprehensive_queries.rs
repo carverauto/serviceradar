@@ -242,6 +242,13 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:logs time:[2026-01-05T10:07:30Z,2026-01-05T10:12:00Z] rollup_stats:severity service_name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 1, "body: {body}");
+            })),
+        },
+        TestCase {
             query: "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:current-package-set",
             expected_count: 1,
             validator: Some(Box::new(|body| {

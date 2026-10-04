@@ -1,5 +1,6 @@
 use super::enforce_list_limit;
 use super::stats::{LogsStatsSql, SqlBindValue};
+use super::super::bucket_overlap_clause;
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
@@ -28,11 +29,9 @@ fn build_severity_rollup_stats(plan: &QueryPlan) -> Result<Option<LogsStatsSql>>
     let mut binds = Vec::new();
     let mut clauses = Vec::new();
 
-    // Apply time range filter on bucket column
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push("bucket >= ?".to_string());
+        clauses.push(bucket_overlap_clause("bucket", "5 minutes", "?", "?"));
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push("bucket < ?".to_string());
         binds.push(SqlBindValue::Timestamp(*end));
     }
 

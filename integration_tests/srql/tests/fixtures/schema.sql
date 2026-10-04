@@ -542,6 +542,18 @@ CREATE TABLE spans_red_1h (
     max_duration_ms        DOUBLE PRECISION
 );
 
+DROP TABLE IF EXISTS logs_severity_stats_5m;
+CREATE TABLE logs_severity_stats_5m (
+    bucket         TIMESTAMPTZ NOT NULL,
+    service_name   TEXT        NOT NULL,
+    total_count    BIGINT      NOT NULL,
+    fatal_count    BIGINT      NOT NULL,
+    error_count    BIGINT      NOT NULL,
+    warning_count  BIGINT      NOT NULL,
+    info_count     BIGINT      NOT NULL,
+    debug_count    BIGINT      NOT NULL
+);
+
 -- CASCADE: platform.discovered_interfaces (created at the end of this file) is a
 -- view over this table, and seeding retries re-run this file over a populated schema.
 DROP TABLE IF EXISTS discovered_interfaces CASCADE;
