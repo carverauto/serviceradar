@@ -11,7 +11,7 @@ on your role — see [Roles & Permissions](./rbac-and-roles.md).
 
 ## Monitoring & inventory
 
-- **Dashboard** — the landing page. A high-level summary of fleet health,
+- **Dashboard** — the default landing page (your sign-in homepage may differ; see [Default Homepage After Sign-In](./auth-configuration.md#default-homepage-after-sign-in)). A high-level summary of fleet health,
   recent activity, and key metrics.
 - **Devices** — the device inventory. Browse, filter, and search all monitored
   devices; open a device to see its details, interfaces, services, metrics, and
