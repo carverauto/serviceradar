@@ -245,7 +245,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
               </p>
               <div class="flex flex-wrap gap-2">
                 <.button variant="primary" phx-disable-with="Saving...">Save homepage</.button>
-                <.button type="button" variant="neutral" phx-click="clear_homepage">
+                <.button type="button" phx-click="clear_homepage">
                   Clear
                 </.button>
               </div>
