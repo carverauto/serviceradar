@@ -217,7 +217,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     defaults = %{
       name: "Test Token #{unique}",
-      scope: :full_access,
+      scope: "admin",
       user_id: user.id,
       token: raw_token
     }

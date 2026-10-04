@@ -125,7 +125,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
           :create,
           %{
             name: "Test Token",
-            scope: :full_access,
+            scope: "admin",
             user_id: admin.id,
             token: raw_token
           },
@@ -147,7 +147,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
           :create,
           %{
             name: "My Token",
-            scope: :read_only,
+            scope: "read",
             user_id: viewer.id,
             token: raw_token
           },
@@ -170,7 +170,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
           :create,
           %{
             name: "My Token",
-            scope: :read_only,
+            scope: "read",
             user_id: viewer.id,
             token: raw_token
           },
