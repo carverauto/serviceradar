@@ -77,10 +77,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
     actor = Keyword.get(opts, :actor)
 
     with {:ok, profile} <- get(id, scope: scope),
-         # Checked before any assignment is destroyed, so a refusal leaves the
-         # profile and all of its assignments intact.
          :ok <- NotHeldByActiveRollout.check(:profile, profile.id),
-         :ok <- destroy_profile_assignments(profile, scope, actor) do
+         {:ok, assignments} <- list_profile_assignments(profile, scope),
+         :ok <- check_profile_assignments(assignments),
+         :ok <- destroy_assignments(assignments, scope, actor) do
       profile
       |> Ash.Changeset.for_destroy(:destroy)
       |> Ash.destroy(ash_opts(scope, actor))
@@ -127,11 +127,23 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
 
   def preview(_id, _opts), do: {:error, :invalid_attributes}
 
-  defp destroy_profile_assignments(profile, scope, actor) do
+  defp list_profile_assignments(profile, scope) do
     AddonAssignment
     |> Ash.Query.for_read(:by_profile, %{addon_profile_id: profile.id})
-    |> read(scope)
-    |> Enum.reduce_while(:ok, fn assignment, :ok ->
+    |> Ash.read(ash_opts(scope, nil))
+  end
+
+  defp check_profile_assignments(assignments) do
+    Enum.reduce_while(assignments, :ok, fn assignment, :ok ->
+      case NotHeldByActiveRollout.check(:assignment, assignment.id) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp destroy_assignments(assignments, scope, actor) do
+    Enum.reduce_while(assignments, :ok, fn assignment, :ok ->
       case assignment
            |> Ash.Changeset.for_destroy(:destroy)
            |> Ash.destroy(ash_opts(scope, actor)) do

@@ -260,17 +260,25 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # promoted rather than canceled.
   defp release_superseded_slots(targets, actor, now) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      if target.state in @slot_holding_target_states do
-        case update_target(
-               target,
-               %{state: :promoted, completed_at: target.completed_at || now},
-               actor
-             ) do
-          {:ok, _} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      else
-        {:cont, :ok}
+      cond do
+        deleted_slot_holder?(target) ->
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        target.state in @slot_holding_target_states ->
+          case update_target(
+                 target,
+                 %{state: :promoted, completed_at: target.completed_at || now},
+                 actor
+               ) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        true ->
+          {:cont, :ok}
       end
     end)
   end
@@ -642,7 +650,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     targets
     |> Enum.reduce_while({:ok, []}, fn target, {:ok, acc} ->
       result =
-        case target.state do
+        if deleted_slot_holder?(target) do
+          cancel_deleted_target(target, actor, now)
+        else
+          case target.state do
           state when state in [:waiting_health, :healthy_soak] ->
             evaluate_candidate_target(
               rollout,
@@ -664,6 +675,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
           _ ->
             {:ok, target}
+        end
         end
 
       case result do
@@ -922,7 +934,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp tolerated_failures?(%AddonRollout{source_type: :profile} = rollout, targets) do
     tolerated = rollout.policy["tolerated_failures"] || 0
-    rolled_back = Enum.count(targets, &(&1.state == :rolled_back))
+    rolled_back = Enum.count(targets, &(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
     rolled_back > 0 and rolled_back <= tolerated
   end
 
@@ -997,6 +1009,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp begin_whole_rollback(targets, actor, now, health_timeout_seconds) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
       cond do
+        deleted_slot_holder?(target) ->
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
         target.state in [:waiting_health, :healthy_soak, :succeeded] ->
           with :ok <- clear_assignment_override(target, actor),
                {:ok, _} <-
@@ -1394,6 +1412,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp clear_assignment_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: :ok
 
+  defp deleted_slot_holder?(%AddonRolloutTarget{assignment_id: nil, state: state}),
+    do: state in @slot_holding_target_states
+
+  defp deleted_slot_holder?(_target), do: false
+
+  defp cancel_deleted_target(target, actor, now) do
+    update_target(
+      target,
+      %{state: :canceled, reason_code: "assignment_deleted", completed_at: now},
+      actor
+    )
+  end
+
   defp clear_assignment_override(target, actor) do
     with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
       if assignment.rollout_id == target.rollout_id do
@@ -1446,13 +1477,22 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp mark_targets_promoted(targets, actor, now) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      if target.state == :succeeded do
-        case update_target(target, %{state: :promoted, completed_at: now}, actor) do
-          {:ok, _} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      else
-        {:cont, :ok}
+      cond do
+        deleted_slot_holder?(target) ->
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        target.state == :succeeded ->
+        target.state == :succeeded ->
+          case update_target(target, %{state: :promoted, completed_at: now}, actor) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        true ->
+          {:cont, :ok}
       end
     end)
   end
@@ -1492,10 +1532,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp vacate_target_slot(target, actor) do
     if target.state in @slot_holding_target_states do
       attrs =
-        if target.state == :succeeded do
-          %{state: :promoted, completed_at: target.completed_at || DateTime.utc_now()}
-        else
-          %{state: :canceled, completed_at: DateTime.utc_now()}
+        cond do
+          deleted_slot_holder?(target) ->
+            %{state: :canceled, reason_code: "assignment_deleted", completed_at: DateTime.utc_now()}
+
+          target.state == :succeeded ->
+            %{state: :promoted, completed_at: target.completed_at || DateTime.utc_now()}
+
+          true ->
+            %{state: :canceled, completed_at: DateTime.utc_now()}
         end
 
       case update_target(target, attrs, actor) do
