@@ -147,6 +147,31 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     refute has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']")
   end
 
+  test "related netflows link omits ephemeral source port and includes endpoints and dst port", %{
+    conn: conn
+  } do
+    {:ok, lv, html} = live(conn, ~p"/events/dns-rpz-1")
+
+    assert html =~ "Related netflow"
+    assert html =~ "src 192.0.2.10"
+    assert html =~ "dst 198.51.100.53"
+    assert html =~ "dport 53"
+    refute html =~ "sport 43244"
+
+    link_html =
+      lv
+      |> element("a", "src 192.0.2.10 · dst 198.51.100.53 · dport 53")
+      |> render()
+
+    assert link_html =~ ~s(href="/observability/netflows?q=)
+    assert link_html =~ "src_endpoint_ip%3A%22192.0.2.10%22"
+    assert link_html =~ "dst_endpoint_ip%3A%22198.51.100.53%22"
+    assert link_html =~ "dst_endpoint_port%3A53"
+    assert link_html =~ "time%3Alast_24h"
+    refute link_html =~ "src_endpoint_port"
+    refute link_html =~ "43244"
+  end
+
   @tag :web_ng_shared_fixture_db
   test "SNMP anomaly finding shows device/interface/SNMP links and metric context", %{conn: conn} do
     _device = device_fixture(%{uid: @device_uid, hostname: "core-sw-01"})
@@ -435,6 +460,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         String.contains?(query, "in:events") and String.contains?(query, "no-device") ->
           {:ok, %{"results" => [non_device_event()], "pagination" => %{}, "error" => nil}}
 
+        String.contains?(query, "in:events") and String.contains?(query, "dns-rpz-1") ->
+          {:ok, %{"results" => [dns_rpz_event()], "pagination" => %{}, "error" => nil}}
+
         String.contains?(query, "in:events") and String.contains?(query, "snmp-anomaly-1") ->
           {:ok, %{"results" => [snmp_anomaly_event()], "pagination" => %{}, "error" => nil}}
 
@@ -453,6 +481,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
     def event_fixture("stateful-fired-1"), do: stateful_fired_event()
     def event_fixture("no-device"), do: non_device_event()
+    def event_fixture("dns-rpz-1"), do: dns_rpz_event()
     def event_fixture("snmp-anomaly-1"), do: snmp_anomaly_event()
     def event_fixture("capacity-forecast-1"), do: capacity_forecast_event()
     def event_fixture(_id), do: proxmox_event()
@@ -531,6 +560,35 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         "log_provider" => "ns03",
         "message" => "RPZ blocked suspicious.example",
         "unmapped" => %{"condition_key" => "powerdns:rpz:suspicious.example"}
+      }
+    end
+
+    defp dns_rpz_event do
+      %{
+        "id" => "dns-rpz-1",
+        "time" => "2026-07-04T12:00:00Z",
+        "severity" => "Medium",
+        "log_provider" => "ns03",
+        "message" => "PowerDNS RPZ NXDOMAIN match for malware.example",
+        "src_endpoint" => %{
+          "ip" => "192.0.2.10",
+          "port" => 43_244
+        },
+        "dst_endpoint" => %{
+          "ip" => "198.51.100.53",
+          "port" => 53
+        },
+        "metadata" => %{
+          "service_radar" => %{
+            "signal_schema" => %{
+              "producer_id" => "powerdns",
+              "producer_version" => "0.1.7",
+              "schema_id" => "com.carverauto.powerdns.dns_activity",
+              "schema_version" => "1.0.0"
+            }
+          }
+        },
+        "unmapped" => %{"condition_key" => "powerdns:rpz:malware.example"}
       }
     end
 
