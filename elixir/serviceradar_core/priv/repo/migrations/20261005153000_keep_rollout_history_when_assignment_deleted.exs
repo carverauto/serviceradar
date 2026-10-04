@@ -48,8 +48,6 @@ defmodule ServiceRadar.Repo.Migrations.KeepRolloutHistoryWhenAssignmentDeleted d
     # whose assignment was deleted under ON DELETE SET NULL; those rows cannot
     # satisfy the restored NOT NULL constraint and there is no assignment to
     # point them back at, so they must be removed before re-adding NOT NULL.
-    # Rows whose assignment was deleted under SET NULL cannot satisfy the old
-    # NOT NULL constraint; there is no assignment to point them back at.
     execute("""
     DELETE FROM platform.addon_rollout_targets WHERE assignment_id IS NULL
     """)
