@@ -182,6 +182,29 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
 
     assert :ok = World.append_stage(staged.layout_version, [position(3)], [])
     assert {:error, :incomplete_world} = World.activate_relayout(1, staged.layout_version)
+
+    assert {:ok, orphaned} =
+             World.stage_relayout(scope(), %{
+               source_digest: "synthetic-orphaned-relation",
+               node_count: 1,
+               relation_count: 1
+             })
+
+    assert {:error, :invalid_relation_endpoint} =
+             World.stage_candidate(
+               orphaned.layout_version,
+               %{
+                 algorithm_version: "invented-orphan-check-v1",
+                 zmax: 12,
+                 source_digest: "synthetic-orphaned-relation",
+                 node_count: 1,
+                 relation_count: 1
+               },
+               [position(5)],
+               [relation("orphaned-target", 5, 6)]
+             )
+
+    assert {:error, :incomplete_world} = World.activate_relayout(1, orphaned.layout_version)
     assert {:ok, %{layout_version: active, generation: 1}} = World.active_manifest(scope())
     assert active == layout.layout_version
 
