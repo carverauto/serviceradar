@@ -73,8 +73,8 @@ defmodule ServiceRadar.FlowAttribution.CorrelationTest do
       :ok
     end
 
-    assert {:ok, 2} =
-             Correlation.correlate(
+    assert {{:ok, 2}, %{0 => 2}} =
+             Correlation.run_pass(
                enabled: true,
                repo_query: &cnpg(&1, &2, workload_rows, parent),
                query: fn sql ->

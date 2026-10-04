@@ -8,7 +8,8 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
   one node. The next tick is scheduled only *after* the current pass finishes,
   so a slow pass cannot pile up overlapping ticks. Observations expire with
   their warehouse partitions, so there is nothing to prune here. Without
-  StarRocks a pass is a no-op (`{:ok, :not_applicable}`).
+  StarRocks a pass is a no-op (`{:ok, :not_applicable}`); otherwise every pass,
+  successful or not, reports its health through `PassMetrics`.
 
   A runtime kill switch (`FLOW_ATTRIBUTION_CORRELATOR_ENABLED`, or the
   `:flow_attribution_correlator_enabled` app env) lets operators pause just this
@@ -17,7 +18,8 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
 
   use GenServer
 
-  alias ServiceRadar.FlowAttribution
+  alias ServiceRadar.FlowAttribution.Correlation
+  alias ServiceRadar.FlowAttribution.PassMetrics
 
   require Logger
 
@@ -68,7 +70,11 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
   end
 
   defp run_once do
-    case FlowAttribution.correlate() do
+    started_at = System.monotonic_time(:millisecond)
+    {result, matches_by_rank} = Correlation.run_pass()
+    duration_ms = System.monotonic_time(:millisecond) - started_at
+
+    case result do
       {:ok, :not_applicable} ->
         :ok
 
@@ -80,6 +86,10 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
 
       {:error, reason} ->
         Logger.warning("FlowAttribution.Correlator correlate failed: #{inspect(reason)}")
+    end
+
+    if result != {:ok, :not_applicable} do
+      PassMetrics.report(result, duration_ms, matches_by_rank)
     end
   end
 

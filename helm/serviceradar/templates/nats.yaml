@@ -296,6 +296,10 @@ spec:
                       # warehouse. The publish waits for a PubAck, so a missing
                       # entry fails the admitted batch instead of dropping it.
                       "flows.attribution.observations",
+                      # Flow attribution correlator health
+                      # (FlowAttribution.PassMetrics), a metric envelope that
+                      # EventWriter persists from the metrics stream.
+                      "metrics.flow_attribution",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"

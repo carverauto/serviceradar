@@ -103,11 +103,20 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   `Attribution.publish_updates/2`).
   """
   @spec correlate(keyword()) :: {:ok, non_neg_integer() | :not_applicable} | {:error, term()}
-  def correlate(opts \\ []) do
+  def correlate(opts \\ []), do: opts |> run_pass() |> elem(0)
+
+  @doc """
+  Runs one pass like `correlate/1` and also returns the matches it found per
+  `match_rank` (empty when the pass failed before matching), for `PassMetrics`.
+  """
+  @spec run_pass(keyword()) ::
+          {{:ok, non_neg_integer() | :not_applicable} | {:error, term()},
+           %{non_neg_integer() => non_neg_integer()}}
+  def run_pass(opts \\ []) do
     if Keyword.get_lazy(opts, :enabled, &FlowAttribution.enabled?/0) do
       run(opts)
     else
-      {:ok, :not_applicable}
+      {{:ok, :not_applicable}, %{}}
     end
   end
 
@@ -118,11 +127,19 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
     with {:ok, agent_ips} <- rows(repo_query.(@agent_ips_sql, [])),
          {:ok, backends} <- rows(repo_query.(@public_endpoint_backends_sql, [])),
          sql = correlation_sql(agent_ips, backends),
-         {:ok, matches} <- maps(query.(sql)),
-         {:ok, matches} <- with_workload_identity(matches, repo_query),
-         {:ok, updates} <- with_versions(matches, repo_query),
-         :ok <- Attribution.publish_updates(updates, opts) do
-      {:ok, length(updates)}
+         {:ok, matches} <- maps(query.(sql)) do
+      by_rank = Enum.frequencies_by(matches, &to_integer(&1["match_rank"]))
+
+      result =
+        with {:ok, matches} <- with_workload_identity(matches, repo_query),
+             {:ok, updates} <- with_versions(matches, repo_query),
+             :ok <- Attribution.publish_updates(updates, opts) do
+          {:ok, length(updates)}
+        end
+
+      {result, by_rank}
+    else
+      {:error, _reason} = error -> {error, %{}}
     end
   end
 
@@ -136,6 +153,19 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
     do: {:ok, Enum.map(rows, &Map.new(Enum.zip(columns, &1)))}
 
   defp maps({:error, _reason} = error), do: error
+
+  @doc "How far back the pass reads unattributed flows, in minutes."
+  @spec flows_window_minutes() :: pos_integer()
+  def flows_window_minutes, do: @correlation_window_minutes
+
+  @doc "How far back the pass reads observations (window plus skew), in seconds."
+  @spec observations_window_seconds() :: pos_integer()
+  def observations_window_seconds,
+    do: @correlation_window_minutes * 60 + @correlation_skew_seconds
+
+  @doc "The most flows one pass reads."
+  @spec batch_limit() :: pos_integer()
+  def batch_limit, do: @batch_limit
 
   @doc """
   The correlation statement.
@@ -394,9 +424,11 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
   defp backend_row(_row), do: nil
 
-  # A StarRocks string literal. Backslash is the escape character in StarRocks
-  # (MySQL) string literals, so it is escaped before the quote.
-  @doc false
+  @doc """
+  A StarRocks string literal. Backslash is the escape character in StarRocks
+  (MySQL) string literals, so it is escaped before the quote.
+  """
+  @spec literal(String.t()) :: String.t()
   def literal(value) when is_binary(value) do
     escaped =
       value

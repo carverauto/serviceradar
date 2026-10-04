@@ -339,6 +339,7 @@ test/serviceradar/exunit_interruption_guard_test.exs	-	not_selected	load_only	no
 test/serviceradar/flow_attribution/event_rows_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/flow_attribution/correlation_test.exs	-	not_selected	load_only	not_selected	Pure async unit coverage with injected CNPG/StarRocks query functions; no app, database, :integration or :requires_app identities.
 test/serviceradar/flow_attribution/observations_test.exs	-	not_selected	load_only	not_selected	Database-free unit coverage with an injected JetStream publish; mutates only the StarRocks application env; no :integration or :requires_app identities.
+test/serviceradar/flow_attribution/pass_metrics_test.exs	-	not_selected	load_only	not_selected	Pure async unit coverage with injected warehouse queries and publish; no app, database, :integration or :requires_app identities.
 test/serviceradar/dgraph_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/graph_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/http/egress_client_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.

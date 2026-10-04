@@ -14,11 +14,10 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   NATS user may not publish) fails the batch instead of vanishing.
   """
 
-  alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.NATS.JetStreamPublish
 
   @subject "flows.attribution.observations"
   @max_rows_per_message 500
-  @publish_timeout_ms 5_000
 
   @spec subject() :: String.t()
   def subject, do: @subject
@@ -30,7 +29,7 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   """
   @spec publish([map()], keyword()) :: :ok | {:error, term()}
   def publish(rows, opts \\ []) when is_list(rows) do
-    publish = Keyword.get(opts, :publish, &jetstream_publish/2)
+    publish = Keyword.get(opts, :publish, &JetStreamPublish.publish/2)
 
     rows
     |> Enum.chunk_every(@max_rows_per_message)
@@ -72,17 +71,4 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   end
 
   defp valid_row?(_row), do: false
-
-  defp jetstream_publish(subject, body) do
-    with {:ok, conn} <- Connection.get(),
-         {:ok, %{body: ack}} <-
-           Gnat.request(conn, subject, body, receive_timeout: @publish_timeout_ms),
-         {:ok, %{"stream" => stream, "seq" => seq}} when is_binary(stream) and is_integer(seq) <-
-           Jason.decode(ack) do
-      :ok
-    else
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:invalid_jetstream_ack, other}}
-    end
-  end
 end
