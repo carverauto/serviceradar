@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
           </div>
         </.ui_alert>
 
-        <div class="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           <.ui_panel id="threat-intel-matches">
             <:header>
               <div class="min-w-0">
