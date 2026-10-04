@@ -12,7 +12,9 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
     notifiers: [ServiceRadar.Identity.AuthorizationSettingsNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.Changes.SetHomepage
   alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.Validations.HomepageTarget
   alias ServiceRadar.Identity.Validations.RoleMappings
 
   @allowed_roles Constants.allowed_roles()
@@ -39,6 +41,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
     define :create_settings, action: :create
     define :update_settings, action: :update
     define :save_cli_policy, action: :save_cli_policy
+    define :save_default_homepage, action: :save_default_homepage, args: [:homepage]
   end
 
   actions do
@@ -63,6 +66,23 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       validate RoleMappings
     end
 
+    # Upserts the singleton so the default can be set before any other
+    # authorization setting has been saved.
+    create :save_default_homepage do
+      accept []
+
+      argument :homepage, :map do
+        allow_nil? true
+        description "A ServiceRadar.Identity.Homepage choice, or nil for no deployment default"
+      end
+
+      change set_attribute(:key, "default")
+      validate HomepageTarget
+      change {SetHomepage, attribute: :default_homepage}
+      upsert? true
+      upsert_fields [:default_homepage, :updated_at]
+    end
+
     create :save_cli_policy do
       accept @cli_settings_fields
       change set_attribute(:key, "default")
@@ -78,7 +98,10 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
 
     read_with_permission(@auth_manage_check)
 
-    action_with_permission([:create, :update, :save_cli_policy], @auth_manage_check)
+    action_with_permission(
+      [:create, :update, :save_cli_policy, :save_default_homepage],
+      @auth_manage_check
+    )
   end
 
   attributes do
@@ -126,6 +149,16 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       public? true
 
       description "Scopes the CLI device-code flow may request; out-of-list scopes 400 with invalid_scope"
+    end
+
+    attribute :default_homepage, :map do
+      allow_nil? true
+      public? true
+
+      description """
+      Deployment-wide default homepage (ServiceRadar.Identity.Homepage), used
+      when neither the user nor any of their groups sets one.
+      """
     end
 
     timestamps()

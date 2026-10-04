@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
 
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadar.Dashboards.DashboardInstance
+  alias ServiceRadar.Identity.Homepage
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
@@ -67,8 +68,12 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
     scope = socket.assigns.current_scope
 
     with {:ok, target_type} <- target_type(type),
-         {:ok, _preference} <- Dashboards.set_default_dashboard(scope, target_type, id) do
-      {:noreply, reload(socket)}
+         {:ok, user} <- Dashboards.set_default_dashboard(scope, target_type, id) do
+      {:noreply,
+       socket
+       |> assign(:current_scope, %{scope | user: user})
+       |> put_flash(:info, "Default dashboard set. You'll land on it after signing in.")
+       |> reload()}
     else
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Default update failed: #{format_error(reason)}")}
@@ -345,15 +350,17 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
         {{preference.target_type, preference.target_id}, preference}
       end)
 
+    default_target = default_target(scope)
+
     authored =
       scope
       |> Dashboards.list_authored_dashboards(%{status: [:draft, :active], limit: 200})
-      |> Enum.map(&authored_item(&1, preferences))
+      |> Enum.map(&authored_item(&1, preferences, default_target))
 
     packages =
       [scope: scope]
       |> Dashboards.enabled_package_instances()
-      |> Enum.map(&package_item(&1, preferences))
+      |> Enum.map(&package_item(&1, preferences, default_target))
 
     system_default_available? =
       Enum.any?(packages, &(&1.type == "package" and &1.id == @system_default_slug))
@@ -373,7 +380,19 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
     }
   end
 
-  defp authored_item(%AuthoredDashboard{} = dashboard, preferences) do
+  # The user's own homepage, when it is a dashboard, is "the default" here
+  # (add-configurable-default-homepage, D6).
+  defp default_target(%{user: user}) do
+    case Homepage.stored(Map.get(user || %{}, :homepage)) do
+      %{"kind" => "dashboard", "target_type" => "authored", "target_id" => id} -> {:authored, id}
+      %{"kind" => "dashboard", "target_type" => "package", "target_id" => slug} -> {:package, slug}
+      _other -> nil
+    end
+  end
+
+  defp default_target(_scope), do: nil
+
+  defp authored_item(%AuthoredDashboard{} = dashboard, preferences, default_target) do
     preference = Map.get(preferences, {:authored, dashboard.id})
 
     %{
@@ -392,12 +411,12 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       kind_label: if(system_report?(dashboard), do: "Report", else: "Authored"),
       report?: system_report?(dashboard),
       favorite?: favorite?(preference),
-      default?: default?(preference),
+      default?: default_target == {:authored, to_string(dashboard.id)},
       updated_at: dashboard.updated_at
     }
   end
 
-  defp package_item(%DashboardInstance{} = instance, preferences) do
+  defp package_item(%DashboardInstance{} = instance, preferences, default_target) do
     package = instance.dashboard_package
     preference = Map.get(preferences, {:package, instance.route_slug})
 
@@ -424,7 +443,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       kind_label: "Package",
       report?: false,
       favorite?: favorite?(preference),
-      default?: default?(preference) or instance.is_default,
+      default?: default_target == {:package, instance.route_slug} or instance.is_default,
       updated_at: instance.updated_at
     }
   end
@@ -455,9 +474,6 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
 
   defp favorite?(%{favorite: true}), do: true
   defp favorite?(_preference), do: false
-
-  defp default?(%{is_default: true}), do: true
-  defp default?(_preference), do: false
 
   defp sort_key(item), do: {not item.default?, not item.favorite?, item.title}
 

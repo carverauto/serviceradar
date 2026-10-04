@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   alias ServiceRadar.Identity.User
   alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.Accounts
+  alias ServiceRadarWebNG.Homepage
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -194,6 +195,28 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
             </div>
           </.ui_panel>
 
+          <.ui_panel>
+            <:header>
+              <div>
+                <div class="text-sm font-semibold">Default homepage</div>
+                <p class="text-xs text-sr-muted">
+                  Where you land after signing in. Inherit uses your user group's homepage, or the deployment default.
+                </p>
+              </div>
+            </:header>
+
+            <.form for={@homepage_form} id="homepage_form" phx-submit="update_homepage">
+              <.input
+                field={@homepage_form[:choice]}
+                id="user_homepage"
+                type="select"
+                label="Homepage"
+                options={@homepage_options}
+              />
+              <.button variant="primary" phx-disable-with="Saving...">Save Homepage</.button>
+            </.form>
+          </.ui_panel>
+
           <%= if not @idp_managed_identity and @can_change_password and has_password?(@current_scope.user) do %>
             <.ui_panel>
               <:header>
@@ -291,10 +314,31 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       |> assign(:timezone_catalog, timezone_catalog)
       |> assign(:timezone_catalog_warning, timezone_catalog_warning)
       |> assign(:timezone_preview_at, DateTime.utc_now())
+      |> assign_homepage(user)
       |> assign(:trigger_submit, false)
       |> assign(:sudo_at, mount_sudo_at(session))
 
     {:ok, socket}
+  end
+
+  # Dashboard options need a database read, so they load only once the socket
+  # is connected; the disconnected render shows the current choice alone.
+  defp assign_homepage(socket, user) do
+    current = Homepage.encode_choice(ServiceRadar.Identity.Homepage.stored(user.homepage))
+
+    dashboards =
+      if connected?(socket), do: Homepage.dashboard_choices(socket.assigns.current_scope), else: []
+
+    options = [{"Inherit (group or deployment default)", ""}] ++ Homepage.page_choices() ++ dashboards
+
+    options =
+      if current == "" or List.keymember?(options, current, 1),
+        do: options,
+        else: options ++ [{"Unavailable dashboard (skipped at sign-in)", current}]
+
+    socket
+    |> assign(:homepage_options, options)
+    |> assign(:homepage_form, to_form(%{"choice" => current}, as: "homepage"))
   end
 
   defp mount_sudo_at(session) do
@@ -420,6 +464,22 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     end
   end
 
+  def handle_event("update_homepage", %{"homepage" => %{"choice" => choice}}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, homepage} <- Homepage.decode_choice(choice),
+         {:ok, updated_user} <- Homepage.set_user_homepage(scope, homepage) do
+      {:noreply,
+       socket
+       |> assign(:current_scope, %{scope | user: updated_user})
+       |> assign_homepage(updated_user)
+       |> put_flash(:info, "Homepage updated successfully.")}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Homepage was not saved: #{homepage_error(reason)}")}
+    end
+  end
+
   def handle_event("validate_password", _params, %{assigns: %{can_change_password: false}} = socket) do
     {:noreply, socket}
   end
@@ -469,4 +529,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
        |> push_navigate(to: ~p"/settings/profile")}
     end
   end
+
+  defp homepage_error(message) when is_binary(message), do: "homepage " <> message
+  defp homepage_error(%{errors: [_ | _] = errors}), do: Enum.map_join(errors, "; ", &Exception.message/1)
+  defp homepage_error(reason), do: inspect(reason)
 end

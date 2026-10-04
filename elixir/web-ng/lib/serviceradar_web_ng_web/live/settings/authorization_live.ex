@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadarWebNG.AdminApi
+  alias ServiceRadarWebNG.Homepage
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -60,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
        |> assign(:role_profiles, list_role_profiles(scope))
        |> assign(:user_groups, list_user_groups(scope))
        |> assign(:groups_claim_notices, groups_claim_notices(settings))
+       |> assign_default_homepage(settings, connected?(socket))
        |> maybe_put_flash(settings_flash)}
     else
       {:ok,
@@ -157,10 +159,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     end
   end
 
+  def handle_event("save_default_homepage", %{"default_homepage" => %{"choice" => choice}}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, homepage} <- Homepage.decode_choice(choice),
+         {:ok, updated} <- Homepage.set_deployment_homepage(scope, homepage) do
+      {:noreply,
+       socket
+       |> assign(:settings, updated)
+       |> assign_default_homepage(updated, true)
+       |> put_flash(:info, "Default homepage saved")}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, "Default homepage #{message}")}
+
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, format_ash_error(error))}
+    end
+  end
+
   @impl true
   def event_mapping do
     Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
       "save" => :update,
+      "save_default_homepage" => :update,
       "validate" => :read,
       "dry_run" => :read,
       "add_mapping" => :read,
@@ -357,6 +379,45 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
           </section>
 
           <section class="space-y-4">
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
+              <h2 class="text-sm font-semibold">Default homepage</h2>
+              <p class="text-xs text-sr-muted mt-2">
+                Where users land after signing in when neither they nor any of their user
+                groups chose a homepage. Users can still pick their own on their profile.
+              </p>
+              <.form
+                for={@default_homepage_form}
+                id="default-homepage-form"
+                phx-submit="save_default_homepage"
+                class="mt-3 space-y-3"
+              >
+                <.input
+                  field={@default_homepage_form[:choice]}
+                  id="default_homepage_choice"
+                  type="select"
+                  label="Deployment default"
+                  options={@default_homepage_options}
+                />
+                <p :if={@default_homepage_gap?} class="text-xs text-amber-700" role="status">
+                  This dashboard is not public; users who cannot open it land on the overview.
+                </p>
+                <.button variant="primary" phx-disable-with="Saving...">Save Default Homepage</.button>
+              </.form>
+              <p class="text-xs text-sr-muted mt-3">
+                To route SSO users by IdP group, map the IdP group to a user group in a
+                mapping row, then set that group's homepage on
+                <.link navigate={~p"/settings/user-groups"} class="text-sr-brand hover:underline">
+                  User Groups
+                </.link>. Memberships sync before the redirect, so the first sign-in lands there.
+              </p>
+              <ul :if={@homepage_mapping_rows != []} class="mt-2 space-y-1 text-xs text-sr-muted">
+                <li :for={row <- @homepage_mapping_rows}>
+                  IdP group <span class="font-medium text-sr-ink">{row.idp}</span>
+                  → {row.group} → <span class="font-medium text-sr-ink">{row.homepage}</span>
+                </li>
+              </ul>
+            </div>
+
             <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
               <h2 class="text-sm font-semibold">Roles versus role profiles</h2>
               <p class="text-xs text-sr-muted mt-2">
@@ -798,4 +859,37 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   defp format_ash_error(:auth_settings_unavailable), do: "Authentication settings are not configured"
 
   defp format_ash_error(_), do: "Unexpected error"
+
+  # Dashboard choices and the IdP-to-homepage summary need reads, so they load
+  # once the socket is connected.
+  defp assign_default_homepage(socket, settings, connected?) do
+    scope = socket.assigns.current_scope
+    current = ServiceRadar.Identity.Homepage.stored(Map.get(settings, :default_homepage))
+    choice = Homepage.encode_choice(current)
+    dashboards = if connected?, do: Homepage.dashboard_choices(scope), else: []
+    options = [{"None (overview)", ""}] ++ Homepage.page_choices() ++ dashboards
+
+    options =
+      if choice == "" or List.keymember?(options, choice, 1),
+        do: options,
+        else: options ++ [{"Unavailable dashboard (skipped at sign-in)", choice}]
+
+    socket
+    |> assign(:default_homepage_form, to_form(%{"choice" => choice}, as: "default_homepage"))
+    |> assign(:default_homepage_options, options)
+    |> assign(:default_homepage_gap?, connected? and Homepage.audience_gap?(scope, current, nil))
+    |> assign(:homepage_mapping_rows, if(connected?, do: homepage_mapping_rows(socket, dashboards), else: []))
+  end
+
+  defp homepage_mapping_rows(socket, dashboards) do
+    groups = Map.get(socket.assigns, :user_groups, [])
+    idp_values = MappedUserGroups.idp_values_by_group(groups)
+
+    for group <- groups,
+        homepage = ServiceRadar.Identity.Homepage.stored(Map.get(group, :homepage)),
+        not is_nil(homepage),
+        idp <- Map.get(idp_values, to_string(group.id), []) do
+      %{idp: idp, group: group.name, homepage: Homepage.describe(homepage, dashboards)}
+    end
+  end
 end

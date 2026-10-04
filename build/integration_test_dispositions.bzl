@@ -46,6 +46,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/identity/alias_events_per_device_test.exs",
     "test/serviceradar/identity/auth_settings_secret_test.exs",
     "test/serviceradar/identity/authorization_settings_validation_test.exs",
+    "test/serviceradar/identity/homepage_db_test.exs",
     "test/serviceradar/identity/idp_group_permission_mapping_db_test.exs",
     "test/serviceradar/identity/mapped_user_groups_test.exs",
     "test/serviceradar/identity/saml_consumed_assertion_test.exs",

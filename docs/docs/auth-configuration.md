@@ -161,6 +161,36 @@ profile, or a ServiceRadar user group -- including how grants are revoked when
 a user leaves a group, and the Microsoft Entra specifics -- see
 [Group Permission Mapping](./group-permission-mapping.md).
 
+## Default Homepage After Sign-In
+
+After signing in, a user lands on the first of these that applies:
+
+1. The page they were trying to open (a deep link or `return_to`).
+2. Their own homepage, set under **Settings > Profile > Default homepage**.
+   Marking a dashboard **Set as default** on the dashboards hub sets the same value.
+3. The homepage of one of their user groups, set under **Settings > User Groups**.
+4. The deployment default, set under **Settings > Authorization > Default homepage**.
+5. The overview dashboard (`/dashboard`).
+
+A homepage is a choice, not a URL: the overview, the dashboards list, or a specific
+dashboard. Opening `/` follows the same order.
+
+**Groups that disagree.** Each user group has a homepage priority (default 100). Among a
+user's groups that set a homepage, the lowest priority wins; ties go to the group name,
+compared case-insensitively, and then the group id.
+
+**Dashboards the user cannot open.** A dashboard homepage is re-checked as the signing-in
+user every time. If it was deleted, archived, disabled, or is not shared with them, it is
+skipped and the next level applies, so a group whose dashboard a member cannot open never
+hides a working one. A user whose own homepage is skipped sees a one-time notice. When you
+set a group or deployment homepage to a dashboard that is not public or shared with that
+audience, the settings page warns you.
+
+**SSO users.** No extra claim setup is needed: map the identity-provider group to a user
+group (see [Group Permission Mapping](./group-permission-mapping.md)) and set that group's
+homepage. Group memberships sync before the redirect is chosen, so a user's first SSO
+sign-in lands on the group homepage.
+
 ## Hostname And Redirects
 
 SSO redirect URIs and SAML metadata are built from the configured web-ng base URL.
