@@ -33,12 +33,15 @@ defmodule ServiceRadarWebNGWeb.Api.RawBodyReader do
   keep in step.
   """
 
+  alias ServiceRadarWebNGWeb.NotificationCallbackBody
+
   @callback_prefixes [
     "/api/northbound/action-callbacks/",
     "/api/notifications/callbacks/"
   ]
 
   @raw_body_private_key :serviceradar_raw_body_chunks
+  @notification_body_limit NotificationCallbackBody.limit()
 
   @doc "The path prefixes whose request bodies are buffered verbatim."
   @spec callback_prefixes() :: [String.t()]
@@ -56,6 +59,15 @@ defmodule ServiceRadarWebNGWeb.Api.RawBodyReader do
   def buffered?(_request_path), do: false
 
   def read_body(conn, opts) do
+    opts =
+      if NotificationCallbackBody.callback?(conn) do
+        opts
+        |> Keyword.update(:length, @notification_body_limit, &min(&1, @notification_body_limit))
+        |> Keyword.update(:read_length, 65_536, &min(&1, 65_536))
+      else
+        opts
+      end
+
     case Plug.Conn.read_body(conn, opts) do
       {:ok, body, conn} -> {:ok, body, maybe_store_raw_body(conn, body)}
       {:more, body, conn} -> {:more, body, maybe_store_raw_body(conn, body)}
@@ -72,10 +84,16 @@ defmodule ServiceRadarWebNGWeb.Api.RawBodyReader do
 
   defp maybe_store_raw_body(%{request_path: request_path} = conn, body)
        when is_binary(request_path) and is_binary(body) do
-    if buffered?(request_path) do
-      Plug.Conn.put_private(conn, @raw_body_private_key, [
-        body | Map.get(conn.private, @raw_body_private_key, [])
-      ])
+    notification_callback? = NotificationCallbackBody.callback?(conn)
+
+    if notification_callback? or buffered?(request_path) do
+      chunks = [body | Map.get(conn.private, @raw_body_private_key, [])]
+
+      if notification_callback? and IO.iodata_length(chunks) > @notification_body_limit do
+        raise Plug.Parsers.RequestTooLargeError
+      end
+
+      Plug.Conn.put_private(conn, @raw_body_private_key, chunks)
     else
       conn
     end

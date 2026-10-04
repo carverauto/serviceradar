@@ -68,7 +68,8 @@ class SrqlFixtureCaHttpsContract(unittest.TestCase):
                 )
 
     def test_buildbuddy_allows_the_lan_gateway_vip(self):
-        for name in ("values.yaml", "values-workflows.yaml"):
+        # values-workflows-lig.yaml: LargeIngestionGate fetches the CA over HTTPS too.
+        for name in ("values.yaml", "values-workflows.yaml", "values-workflows-lig.yaml"):
             with self.subTest(values=name):
                 text = (REPO / "k8s" / "buildbuddy" / name).read_text()
                 self.assertIn(LAN_GATEWAY_VIP, text, name)

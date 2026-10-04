@@ -115,4 +115,61 @@ defmodule ServiceRadar.Inventory.SyncIngestorAgentIdTest do
       assert {:ok, [_identifier]} = Ash.read(armis_query, actor: actor)
     end
   end
+
+  describe "failed identity lookups" do
+    test "a failed identifier lookup does not ingest the batch", %{actor: actor} do
+      agent_id = "lookup-fail-agent-#{System.unique_integer([:positive])}"
+      partition = "lookup-fail-#{System.unique_integer([:positive])}"
+
+      update = %{
+        "ip" => documentation_ip(),
+        "hostname" => "host01.example.com",
+        "source" => "agent",
+        "partition" => partition,
+        "metadata" => %{"agent_id" => agent_id}
+      }
+
+      parent = self()
+
+      spawn(fn ->
+        send(parent, {:ingested, SyncIngestor.ingest_updates([update], actor: actor)})
+      end)
+
+      assert_receive {:ingested, {:error, {:identifier_lookup_failed, _reason}}}, 30_000
+
+      query =
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+          identifier_type: :agent_id,
+          identifier_value: agent_id,
+          partition: partition
+        })
+
+      assert {:ok, []} = Ash.read(query, actor: actor)
+    end
+
+    test "a failed address lookup does not ingest the batch", %{actor: actor} do
+      partition = "lookup-fail-ip-#{System.unique_integer([:positive])}"
+      ip = documentation_ip()
+
+      update = %{
+        "ip" => ip,
+        "hostname" => "host02.example.com",
+        "source" => "scan",
+        "partition" => partition
+      }
+
+      parent = self()
+
+      spawn(fn ->
+        send(parent, {:ingested, SyncIngestor.ingest_updates([update], actor: actor)})
+      end)
+
+      assert_receive {:ingested, {:error, {:ip_lookup_failed, _reason}}}, 30_000
+    end
+  end
+
+  defp documentation_ip do
+    octet = rem(System.unique_integer([:positive]), 250) + 1
+    "192.0.2.#{octet}"
+  end
 end

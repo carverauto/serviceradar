@@ -21,6 +21,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -370,6 +371,11 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       assert IdentityReconciler.follow_canonical_device_id(device_from.uid, actor) ==
                device_to.uid
 
+      assert {:ok, canonical_uid} =
+               IdentityReconciler.resolve_canonical_device_id(device_from.uid, actor)
+
+      assert canonical_uid == device_to.uid
+
       # An update still carrying the merged-away ID resolves to the survivor
       # instead of resurrecting the tombstone.
       assert {:ok, resolved} =
@@ -387,11 +393,87 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       assert resolved == device_to.uid
     end
 
+    test "bounded canonical resolution never returns an unchecked merge-chain endpoint", %{
+      actor: actor
+    } do
+      devices =
+        Enum.map(0..6, fn index ->
+          {:ok, device} = create_device(actor, "bounded-follow-#{index}")
+          device
+        end)
+
+      for [from, to] <- Enum.chunk_every(devices, 2, 1, :discard) do
+        assert :ok =
+                 IdentityReconciler.merge_devices(from.uid, to.uid,
+                   actor: actor,
+                   reason: "manual_merge"
+                 )
+      end
+
+      [first, at_limit, within_limit, _, _, unchecked, survivor] = devices
+
+      for device <- [first, at_limit] do
+        assert {:error, :canonical_resolution_depth_exceeded} =
+                 IdentityReconciler.resolve_canonical_device_id(device.uid, actor)
+      end
+
+      assert IdentityReconciler.follow_canonical_device_id(first.uid, actor) == unchecked.uid
+      assert IdentityReconciler.follow_canonical_device_id(at_limit.uid, actor) == survivor.uid
+
+      assert {:ok, canonical_uid} =
+               IdentityReconciler.resolve_canonical_device_id(within_limit.uid, actor)
+
+      assert canonical_uid == survivor.uid
+    end
+
+    test "canonical read failures remain errors for merged and purged endpoints", %{actor: actor} do
+      {:ok, merged} = create_device(actor, "failed-follow-from")
+      {:ok, survivor} = create_device(actor, "failed-follow-to")
+
+      assert :ok =
+               IdentityReconciler.merge_devices(merged.uid, survivor.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      missing_uid = "sr:failed-follow-missing-#{Ash.UUID.generate()}"
+
+      for {table, device_uids} <- [
+            {"merge_audit", [merged.uid, missing_uid]},
+            {"ocsf_devices", [merged.uid, survivor.uid]}
+          ],
+          device_uid <- device_uids do
+        # No Repo.transaction wrapper: inside one, Ash rolls the transaction back
+        # on a read error and the throw would bypass the resolver's return value.
+        Repo.query!("ALTER TABLE platform.#{table} RENAME TO _canonical_read_hidden")
+
+        try do
+          assert {:error, _reason} =
+                   IdentityReconciler.resolve_canonical_device_id(device_uid, actor)
+        after
+          Repo.query!("ALTER TABLE platform._canonical_read_hidden RENAME TO #{table}")
+        end
+      end
+
+      assert {:ok, canonical_uid} =
+               IdentityReconciler.resolve_canonical_device_id(merged.uid, actor)
+
+      assert canonical_uid == survivor.uid
+
+      assert {:ok, ^missing_uid} =
+               IdentityReconciler.resolve_canonical_device_id(missing_uid, actor)
+    end
+
     test "a live (recreated) device is returned unchanged", %{actor: actor} do
       {:ok, device_live} = create_device(actor, "follow-live")
 
       assert IdentityReconciler.follow_canonical_device_id(device_live.uid, actor) ==
                device_live.uid
+
+      assert {:ok, canonical_uid} =
+               IdentityReconciler.resolve_canonical_device_id(device_live.uid, actor)
+
+      assert canonical_uid == device_live.uid
     end
 
     test "an unmerge audit is cooldown evidence, not a canonical redirect", %{actor: actor} do

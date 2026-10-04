@@ -1,5 +1,11 @@
 {
   "listen_addr": "0.0.0.0:11019",
+  "max_connections": 16,
+  "read_timeout_secs": 30,
+  "metrics_addr": "0.0.0.0:9092",
+  "publish_messages_per_second": 1000,
+  "publish_bytes_per_second": 4194304,
+  "stream_discard_policy": "new",
   "nats_url": "tls://nats:4222",
   "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "nats_tls_required": true,

@@ -148,8 +148,14 @@ jobs:
             --set global.imageTag=v1.0.0 \
             -f helm/serviceradar/values-demo-staging.yaml \
             --show-only templates/spire-postgres.yaml)"
+          # grep -q exits at the first match. Under pipefail that closes the
+          # pipe while echo is still writing and the shell reports the setting
+          # missing (exit 141) even though the manifest contains it.
           for want in '"max_slot_wal_keep_size": "5GB"' '"max_wal_size": "1GB"' '"min_wal_size": "256MB"'; do
-            echo "$out" | grep -qF "$want" || { echo "missing $want in spire-postgres render" >&2; exit 1; }
+            if ! printf '%s\n' "$out" | grep -F "$want" >/dev/null; then
+              echo "missing $want in spire-postgres render" >&2
+              exit 1
+            fi
           done
           echo "SPIRE CNPG WAL budget is present"
 

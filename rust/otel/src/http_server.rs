@@ -17,17 +17,20 @@ use std::convert::Infallible;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::conn::auto::Builder as ConnBuilder;
 use log::{debug, info};
 use prost::Message;
 use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
+use tokio::time::timeout;
 
 use crate::ServiceRadarCollector;
 use crate::auth::IngestAuth;
@@ -38,6 +41,18 @@ use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest
 use crate::output::IngestContext;
 
 const CONTENT_TYPE_PROTOBUF: &str = "application/x-protobuf";
+const MAX_HTTP_CONNECTIONS: usize = 64;
+const MAX_HTTP2_STREAMS: u32 = 8;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_CONNECTION_AGE: Duration = Duration::from_secs(300);
+// Allow for compressed bytes, expanded bytes and decoded data. Admission is
+// shared by every connection/HTTP2 stream, including anonymous deployments.
+const REQUEST_MEMORY_BUDGET: usize = 128 * 1024 * 1024;
+
+fn request_concurrency(max_request_bytes: usize) -> usize {
+    (REQUEST_MEMORY_BUDGET / max_request_bytes.saturating_mul(3).max(1)).clamp(1, 16)
+}
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -129,44 +144,68 @@ pub async fn start_http_server(
         options.max_request_bytes
     );
 
+    let connections = Arc::new(Semaphore::new(MAX_HTTP_CONNECTIONS));
+    let requests = Arc::new(Semaphore::new(request_concurrency(
+        options.max_request_bytes,
+    )));
     let shared = Arc::new((options, collector));
 
     loop {
         let (stream, peer) = listener.accept().await?;
+        let Ok(connection_permit) = Arc::clone(&connections).try_acquire_owned() else {
+            drop(stream);
+            continue;
+        };
+        let requests = Arc::clone(&requests);
         let shared = Arc::clone(&shared);
         let tls_acceptor = tls_acceptor.clone();
 
         tokio::spawn(async move {
+            let _connection_permit = connection_permit;
             let service = service_fn(move |req: Request<Incoming>| {
                 let shared = Arc::clone(&shared);
+                let requests = Arc::clone(&requests);
                 async move {
                     let (options, collector) = &*shared;
-                    Ok::<_, Infallible>(handle_request(req, options, collector).await)
+                    Ok::<_, Infallible>(handle_request(req, options, collector, &requests).await)
                 }
             });
 
-            let builder = ConnBuilder::new(hyper_util::rt::TokioExecutor::new());
-            let result = match tls_acceptor {
-                Some(acceptor) => match acceptor.accept(stream).await {
-                    Ok(tls_stream) => {
+            let mut builder = ConnBuilder::new(hyper_util::rt::TokioExecutor::new());
+            builder
+                .http1()
+                .timer(TokioTimer::new())
+                .header_read_timeout(HANDSHAKE_TIMEOUT);
+            builder.http2().max_concurrent_streams(MAX_HTTP2_STREAMS);
+            let connection = async {
+                match tls_acceptor {
+                    Some(acceptor) => {
+                        match timeout(HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await {
+                            Ok(Ok(tls_stream)) => {
+                                builder
+                                    .serve_connection(TokioIo::new(tls_stream), service)
+                                    .await
+                            }
+                            result => {
+                                let _ = result;
+                                debug!("OTLP/HTTP TLS handshake from {peer} failed or timed out");
+                                Ok(())
+                            }
+                        }
+                    }
+                    None => {
                         builder
-                            .serve_connection(TokioIo::new(tls_stream), service)
+                            .serve_connection(TokioIo::new(stream), service)
                             .await
                     }
-                    Err(e) => {
-                        debug!("OTLP/HTTP TLS handshake from {peer} failed: {e}");
-                        return;
-                    }
-                },
-                None => {
-                    builder
-                        .serve_connection(TokioIo::new(stream), service)
-                        .await
                 }
             };
-
-            if let Err(e) = result {
-                debug!("OTLP/HTTP connection from {peer} ended with error: {e:?}");
+            // Also bounds peers stalled before auto-protocol detection or on
+            // HTTP2 headers, where HTTP1's header timer does not apply.
+            match timeout(MAX_CONNECTION_AGE, connection).await {
+                Ok(Err(e)) => debug!("OTLP/HTTP connection from {peer} ended with error: {e:?}"),
+                Err(_) => debug!("OTLP/HTTP connection from {peer} reached maximum age"),
+                Ok(Ok(())) => {}
             }
         });
     }
@@ -192,11 +231,16 @@ fn build_tls_acceptor(identity: &TlsIdentityPem) -> Result<tokio_rustls::TlsAcce
     Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
 }
 
-async fn handle_request(
-    req: Request<Incoming>,
+async fn handle_request<B>(
+    req: Request<B>,
     options: &HttpServerOptions,
     collector: &ServiceRadarCollector,
-) -> Response<Full<Bytes>> {
+    requests: &Semaphore,
+) -> Response<Full<Bytes>>
+where
+    B: hyper::body::Body<Data = Bytes> + Send,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     let origin = req
         .headers()
         .get(header::ORIGIN)
@@ -205,61 +249,82 @@ async fn handle_request(
     let cors_origin = resolve_cors_origin(&options.allowed_origins, origin.as_deref());
 
     let (parts, body) = req.into_parts();
-    let body = match Limited::new(body, options.max_request_bytes)
-        .collect()
-        .await
-    {
-        Ok(collected) => collected.to_bytes(),
-        Err(e) => {
-            return if e
-                .downcast_ref::<http_body_util::LengthLimitError>()
-                .is_some()
-            {
-                error_response(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    format!(
-                        "request body exceeds max_request_bytes ({})",
-                        options.max_request_bytes
-                    ),
-                    cors_origin,
-                )
-            } else {
-                error_response(
-                    StatusCode::BAD_REQUEST,
-                    "failed to read request body".to_string(),
-                    cors_origin,
-                )
-            };
-        }
-    };
-
-    handle_otlp(
+    if let Err(response) = admit_request(
         &parts.method,
         parts.uri.path(),
         &parts.headers,
-        body,
         options,
-        collector,
-        cors_origin,
-    )
-    .await
+        cors_origin.clone(),
+    ) {
+        return *response;
+    }
+    let Ok(_permit) = requests.try_acquire() else {
+        return retryable_error_response(
+            "OTLP/HTTP request capacity exhausted".to_owned(),
+            cors_origin,
+        );
+    };
+
+    let operation = async {
+        let body = match Limited::new(body, options.max_request_bytes)
+            .collect()
+            .await
+        {
+            Ok(collected) => collected.to_bytes(),
+            Err(e) => {
+                return if e
+                    .downcast_ref::<http_body_util::LengthLimitError>()
+                    .is_some()
+                {
+                    error_response(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        format!(
+                            "request body exceeds max_request_bytes ({})",
+                            options.max_request_bytes
+                        ),
+                        cors_origin.clone(),
+                    )
+                } else {
+                    error_response(
+                        StatusCode::BAD_REQUEST,
+                        "failed to read request body".to_owned(),
+                        cors_origin.clone(),
+                    )
+                };
+            }
+        };
+        handle_otlp(
+            &parts.method,
+            parts.uri.path(),
+            &parts.headers,
+            body,
+            options,
+            collector,
+            cors_origin.clone(),
+        )
+        .await
+    };
+    match timeout(REQUEST_TIMEOUT, operation).await {
+        Ok(response) => response,
+        Err(_) => error_response(
+            StatusCode::REQUEST_TIMEOUT,
+            "OTLP/HTTP request timed out".to_owned(),
+            cors_origin,
+        ),
+    }
 }
 
-/// Transport-independent OTLP/HTTP request handler (body already collected),
-/// kept separate from hyper plumbing so it is directly unit-testable.
-async fn handle_otlp(
+fn admit_request(
     method: &Method,
     path: &str,
     headers: &HeaderMap,
-    body: Bytes,
     options: &HttpServerOptions,
-    collector: &ServiceRadarCollector,
     cors_origin: Option<String>,
-) -> Response<Full<Bytes>> {
+) -> Result<IngestContext, Box<Response<Full<Bytes>>>> {
     // CORS preflight stays unauthenticated so browser SDKs can negotiate
     // before sending credentialed exports.
     if method == Method::OPTIONS {
-        return preflight_response(cors_origin);
+        return Err(Box::new(preflight_response(cors_origin)));
     }
 
     // Ingestion authentication (no-op when [auth] enforcement is off; a
@@ -268,28 +333,28 @@ async fn handle_otlp(
     let ctx = match options.auth.authenticate(credential.as_deref()) {
         Ok(identity) => IngestContext { identity },
         Err(e) => {
-            return error_response(
+            return Err(Box::new(error_response(
                 StatusCode::UNAUTHORIZED,
                 e.message().to_string(),
                 cors_origin,
-            );
+            )));
         }
     };
 
     if method != Method::POST {
-        return error_response(
+        return Err(Box::new(error_response(
             StatusCode::METHOD_NOT_ALLOWED,
             "only POST is supported on OTLP/HTTP endpoints".to_string(),
             cors_origin,
-        );
+        )));
     }
 
     if !matches!(path, "/v1/traces" | "/v1/logs" | "/v1/metrics") {
-        return error_response(
+        return Err(Box::new(error_response(
             StatusCode::NOT_FOUND,
             "unknown path; OTLP/HTTP endpoints are /v1/traces, /v1/logs, /v1/metrics".to_string(),
             cors_origin,
-        );
+        )));
     }
 
     // Content-Type: binary protobuf only. OTLP/JSON would require canonical
@@ -306,24 +371,56 @@ async fn handle_otlp(
     match content_type.as_str() {
         CONTENT_TYPE_PROTOBUF | "application/protobuf" => {}
         "application/json" => {
-            return error_response(
+            return Err(Box::new(error_response(
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "OTLP/JSON is not supported; send binary OTLP protobuf (Content-Type: \
                  application/x-protobuf) or use OTLP/gRPC on the gRPC port"
                     .to_string(),
                 cors_origin,
-            );
+            )));
         }
         other => {
-            return error_response(
+            return Err(Box::new(error_response(
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 format!("unsupported content-type '{other}'; expected application/x-protobuf"),
                 cors_origin,
-            );
+            )));
         }
     }
 
     // Content-Encoding: identity or gzip (the OTel SDK/Collector default).
+    let content_encoding = headers
+        .get(header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(content_encoding.as_str(), "" | "identity" | "gzip") {
+        return Err(Box::new(error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            format!("unsupported content-encoding '{content_encoding}'; use gzip or identity"),
+            cors_origin,
+        )));
+    }
+    Ok(ctx)
+}
+
+/// Transport-independent OTLP/HTTP request handler (body already collected),
+/// kept separate from hyper plumbing so it is directly unit-testable.
+async fn handle_otlp(
+    method: &Method,
+    path: &str,
+    headers: &HeaderMap,
+    body: Bytes,
+    options: &HttpServerOptions,
+    collector: &ServiceRadarCollector,
+    cors_origin: Option<String>,
+) -> Response<Full<Bytes>> {
+    // Repeat admission after collection for the transport-independent path.
+    let ctx = match admit_request(method, path, headers, options, cors_origin.clone()) {
+        Ok(ctx) => ctx,
+        Err(response) => return *response,
+    };
     let content_encoding = headers
         .get(header::CONTENT_ENCODING)
         .and_then(|v| v.to_str().ok())
@@ -561,6 +658,184 @@ mod tests {
 
     async fn response_bytes(response: Response<Full<Bytes>>) -> Bytes {
         response.into_body().collect().await.unwrap().to_bytes()
+    }
+
+    struct UnreadBody;
+
+    impl hyper::body::Body for UnreadBody {
+        type Data = Bytes;
+        type Error = Infallible;
+
+        fn poll_frame(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Infallible>>> {
+            panic!("rejected request body must not be polled");
+        }
+    }
+
+    #[tokio::test]
+    async fn header_rejections_and_saturation_do_not_read_bodies() {
+        let collector = test_collector().await;
+        let enforced = test_options_with_auth();
+        let anonymous = test_options();
+        let requests = Semaphore::new(1);
+        for (options, method, path, content_type, encoding, expected) in [
+            (
+                &enforced,
+                Method::POST,
+                "/v1/traces",
+                CONTENT_TYPE_PROTOBUF,
+                "identity",
+                StatusCode::UNAUTHORIZED,
+            ),
+            (
+                &enforced,
+                Method::OPTIONS,
+                "/v1/traces",
+                "",
+                "",
+                StatusCode::NO_CONTENT,
+            ),
+            (
+                &anonymous,
+                Method::GET,
+                "/v1/traces",
+                CONTENT_TYPE_PROTOBUF,
+                "identity",
+                StatusCode::METHOD_NOT_ALLOWED,
+            ),
+            (
+                &anonymous,
+                Method::POST,
+                "/unknown",
+                CONTENT_TYPE_PROTOBUF,
+                "identity",
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                &anonymous,
+                Method::POST,
+                "/v1/traces",
+                "application/json",
+                "identity",
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ),
+            (
+                &anonymous,
+                Method::POST,
+                "/v1/traces",
+                CONTENT_TYPE_PROTOBUF,
+                "unknown",
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ),
+        ] {
+            let request = Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::CONTENT_TYPE, content_type)
+                .header(header::CONTENT_ENCODING, encoding)
+                .body(UnreadBody)
+                .unwrap();
+            let response = handle_request(request, options, &collector, &requests).await;
+            assert_eq!(response.status(), expected);
+            assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+        }
+        let held = requests.acquire().await.unwrap();
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .body(UnreadBody)
+            .unwrap();
+        assert_eq!(
+            handle_request(request, &anonymous, &collector, &requests)
+                .await
+                .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        drop(held);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .header("x-serviceradar-ingestion-key", "secret-a")
+            .body(Full::new(empty_traces_body()))
+            .unwrap();
+        assert_eq!(
+            handle_request(request, &enforced, &collector, &requests)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(requests.available_permits(), 1);
+    }
+
+    struct PendingBody;
+
+    impl hyper::body::Body for PendingBody {
+        type Data = Bytes;
+        type Error = Infallible;
+
+        fn poll_frame(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Infallible>>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stalled_body_times_out_and_releases_admission() {
+        let collector = test_collector().await;
+        let options = test_options();
+        let requests = Semaphore::new(1);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .body(PendingBody)
+            .unwrap();
+        assert_eq!(
+            handle_request(request, &options, &collector, &requests)
+                .await
+                .status(),
+            StatusCode::REQUEST_TIMEOUT
+        );
+        assert_eq!(requests.available_permits(), 1);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .body(Full::new(empty_traces_body()))
+            .unwrap();
+        assert_eq!(
+            handle_request(request, &options, &collector, &requests)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn body_limit_rejection_releases_request_admission() {
+        let collector = test_collector().await;
+        let mut options = test_options();
+        options.max_request_bytes = 8;
+        let requests = Semaphore::new(1);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .body(Full::new(Bytes::from_static(b"synthetic")))
+            .unwrap();
+        assert_eq!(
+            handle_request(request, &options, &collector, &requests)
+                .await
+                .status(),
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+        assert_eq!(requests.available_permits(), 1);
     }
 
     #[tokio::test]

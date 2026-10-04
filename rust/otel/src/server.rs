@@ -91,7 +91,7 @@ pub async fn start_server(
     info!("OTEL Collector listening on {addr} (max request size: {max_request_bytes} bytes)");
     debug!("Starting gRPC server");
 
-    let mut server_builder = Server::builder();
+    let mut server_builder = Server::builder().max_concurrent_streams(8);
 
     // Configure gRPC TLS if enabled
     if let Some(tls) = grpc_tls_config {

@@ -12,6 +12,7 @@ use std::sync::mpsc::SyncSender;
 const DEFAULT_LISTEN: &str = "0.0.0.0:514";
 const MAX_UDP_PACKET_SIZE: usize = 65_527;
 const MAX_COMPRESSION_RATIO: usize = 5;
+const MAX_DECOMPRESSED_SIZE: usize = MAX_UDP_PACKET_SIZE * MAX_COMPRESSION_RATIO;
 
 /// UDP input structure for flowgger
 /// It will receive messages from the network, decode them and reencoded them as configured
@@ -109,14 +110,26 @@ pub fn handle_record_maybe_compressed(
     if line.len() >= 8
         && (line[0] == 0x78 && (line[1] == 0x01 || line[1] == 0x9c || line[1] == 0xda))
     {
-        let mut decompressed = Vec::with_capacity(MAX_UDP_PACKET_SIZE * MAX_COMPRESSION_RATIO);
-        match ZlibDecoder::new(line).read_to_end(&mut decompressed) {
+        let mut decompressed = Vec::new();
+        match ZlibDecoder::new(line)
+            .take((MAX_DECOMPRESSED_SIZE + 1) as u64)
+            .read_to_end(&mut decompressed)
+        {
+            Ok(_) if decompressed.len() > MAX_DECOMPRESSED_SIZE => {
+                Err("Decompressed UDP record exceeds size limit")
+            }
             Ok(_) => handle_record(&decompressed, src, tx, decoder, encoder),
             Err(_) => Err("Corrupted compressed (zlib) record"),
         }
     } else if line.len() >= 24 && (line[0] == 0x1f && line[1] == 0x8b && line[2] == 0x08) {
-        let mut decompressed = Vec::with_capacity(MAX_UDP_PACKET_SIZE * MAX_COMPRESSION_RATIO);
-        match GzDecoder::new(line).read_to_end(&mut decompressed) {
+        let mut decompressed = Vec::new();
+        match GzDecoder::new(line)
+            .take((MAX_DECOMPRESSED_SIZE + 1) as u64)
+            .read_to_end(&mut decompressed)
+        {
+            Ok(_) if decompressed.len() > MAX_DECOMPRESSED_SIZE => {
+                Err("Decompressed UDP record exceeds size limit")
+            }
             Ok(_) => handle_record(&decompressed, src, tx, decoder, encoder),
             Err(_) => Err("Corrupted compressed (gzip) record"),
         }
@@ -257,6 +270,63 @@ mod test {
         .unwrap();
         let transmitted = rx.recv().unwrap();
         assert_eq!(str::from_utf8(&transmitted).unwrap(), line);
+    }
+
+    #[test]
+    fn compressed_records_respect_expanded_size_limit() {
+        let config = Config::from_string("").unwrap();
+        let decoder = crate::flowgger::decoder::AutoDecoder::new(&config);
+        let encoder = crate::flowgger::encoder::GelfEncoder::new(&config);
+        let (tx, rx) = sync_channel(1);
+        for size in [MAX_DECOMPRESSED_SIZE, MAX_DECOMPRESSED_SIZE + 1] {
+            let input = "x".repeat(size);
+            let mut gzip = GzEncoder::new(Vec::new(), Compression::default());
+            gzip.write_all(input.as_bytes()).unwrap();
+            let mut zlib = ZlibEncoder::new(Vec::new(), Compression::default());
+            zlib.write_all(input.as_bytes()).unwrap();
+            for compressed in [gzip.finish().unwrap(), zlib.finish().unwrap()] {
+                let result = handle_record_maybe_compressed(
+                    &compressed,
+                    "192.0.2.1:514".parse().unwrap(),
+                    &tx,
+                    &decoder,
+                    &encoder,
+                );
+                if size == MAX_DECOMPRESSED_SIZE {
+                    result.unwrap();
+                    let record: serde_json::Value =
+                        serde_json::from_slice(&rx.recv().unwrap()).unwrap();
+                    assert_eq!(record["short_message"].as_str(), Some(input.as_str()));
+                } else {
+                    assert_eq!(result, Err("Decompressed UDP record exceeds size limit"));
+                    assert!(matches!(
+                        rx.try_recv(),
+                        Err(std::sync::mpsc::TryRecvError::Empty)
+                    ));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn syslog_transport_address_survives_structured_data_collisions() {
+        let config =
+            Config::from_string("[output.gelf_extra]\n_remote_addr = \"198.51.100.2\"\n").unwrap();
+        let decoder = crate::flowgger::decoder::AutoDecoder::new(&config);
+        let encoder = crate::flowgger::encoder::GelfEncoder::new(&config);
+        let (tx, rx) = sync_channel(1);
+        let line = br#"<13>1 2030-01-02T03:04:05Z host01.example.com app - - [test@1 remote_addr="198.51.100.1" detail="synthetic"] message"#;
+        handle_record_maybe_compressed(
+            line,
+            "192.0.2.1:514".parse().unwrap(),
+            &tx,
+            &decoder,
+            &encoder,
+        )
+        .unwrap();
+        let record: serde_json::Value = serde_json::from_slice(&rx.recv().unwrap()).unwrap();
+        assert_eq!(record["_remote_addr"], "192.0.2.1");
+        assert_eq!(record["_detail"], "synthetic");
     }
 
     #[test]

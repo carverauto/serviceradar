@@ -1687,7 +1687,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             'OCI_AUTH_REQUIRED: "1"',
             'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
             "self_hosted: true",
-            'pool: "workflows"',
+            'pool: "workflows-lig"',
             "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5\"",
             'OSFamily: "linux"',
             'Arch: "amd64"',

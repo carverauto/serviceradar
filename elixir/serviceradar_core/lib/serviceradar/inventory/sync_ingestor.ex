@@ -140,8 +140,18 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp ingest_normalized([], _actor, _defer_state_events?, _attempt), do: :ok
 
   defp ingest_normalized(normalized_updates, actor, defer_state_events?, attempt) do
-    {resolved, reactivation} = resolve_updates(normalized_updates, actor)
+    case resolve_updates(normalized_updates, actor) do
+      {:ok, {resolved, reactivation}} ->
+        write_resolved_batch(resolved, reactivation, actor, defer_state_events?, attempt)
 
+      # The existing-identity lookups could not be answered. Nothing is resolved or written:
+      # resolving against an empty lookup would mint a device per update.
+      {:error, _} = error ->
+        finalize_ingest_results(error, :ok, :ok, :ok, :ok)
+    end
+  end
+
+  defp write_resolved_batch(resolved, reactivation, actor, defer_state_events?, attempt) do
     pins = Fence.pin_batch(Enum.map(elem(resolved, 0), fn {_update, uid} -> uid end))
     run_test_hook(:sync_ingestor_after_pin)
 
@@ -449,14 +459,43 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp resolve_updates(normalized_updates, actor) do
     all_identifiers = Lookups.extract_all_identifiers(normalized_updates)
-    existing_mappings = Lookups.bulk_lookup_identifiers(all_identifiers)
+
+    # bulk_lookup_identifiers/1 and bulk_lookup_by_ip/1 answer %{} when the store cannot be
+    # read. BatchResolver then mints a device for every update in the batch. The strict
+    # lookups fail this batch instead, so the ingest is retried.
+    with {:ok, existing_mappings} <- strict_identifier_mappings(all_identifiers),
+         {:ok, existing_ip_to_device} <- strict_ip_mappings(normalized_updates) do
+      {:ok, resolve_against(normalized_updates, existing_mappings, existing_ip_to_device, actor)}
+    else
+      {:error, _} = error ->
+        Logger.error(
+          "SyncIngestor: identity lookup failed; the batch is not resolved: #{inspect(error)}"
+        )
+
+        error
+    end
+  end
+
+  defp strict_identifier_mappings(identifiers) do
+    case Lookups.lookup_identifiers_strict(identifiers) do
+      {:ok, mappings} -> {:ok, mappings}
+      {:error, reason} -> {:error, {:identifier_lookup_failed, reason}}
+    end
+  end
+
+  defp strict_ip_mappings(updates) do
+    case Lookups.lookup_ips_strict(updates) do
+      {:ok, mappings} -> {:ok, mappings}
+      {:error, reason} -> {:error, {:ip_lookup_failed, reason}}
+    end
+  end
+
+  defp resolve_against(normalized_updates, existing_mappings, existing_ip_to_device, actor) do
     # Resolved BEFORE the enrichment gate, not after. An enrichment-only source
     # whose only subject key is an IP -- a passive fingerprint -- has no strong
     # identifier at all, so an identifier-only gate discards 100% of its updates
     # and says so at debug level. The IP map is built from the unfiltered list,
     # which is a harmless superset for BatchResolver below.
-    existing_ip_to_device = Lookups.bulk_lookup_by_ip(normalized_updates)
-
     normalized_updates =
       drop_unmatched_enrichment_updates(
         normalized_updates,

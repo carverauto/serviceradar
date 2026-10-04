@@ -1,0 +1,163 @@
+# Dedicated executor for the LargeIngestionGate workflow action. Deployed on the farm01
+# cluster as its OWN helm release, `buildbuddy-workflows-lig`, beside farm01's
+# `buildbuddy-workflows` (3 replicas, pool `workflows`). See "Dedicated LargeIngestionGate
+# pool" in ./README.md for the install command. The rationale for nearly every key below
+# (runner recycling, hostPath ownership, OCI mounts, private-IP allowlist) is written out in
+# ./values-workflows.yaml and is not repeated here.
+#
+# WHY THIS POOL EXISTS.
+#
+# Each workflow executor keeps a single warm runner (max_runner_count below). LargeIngestionGate
+# (every staging push plus nightly, ~16 runs/day, ~16 min) and BazelCI (PRs, ~49 runs/day,
+# ~22 min) used to share pool `workflows`, so each kept evicting the other's warm runner and
+# ~45% of runs started cold: a cold `bazel build //...` takes up to 36 min against 1-5 min
+# warm, and one PR run hit BuildBuddy's 1h remote-run cap. //buildbuddy.yaml now sends
+# LargeIngestionGate to `pool: "workflows-lig"`; every other action stays on `workflows`.
+#
+# THE RELEASE NAME AND THE `-f` MUST MATCH, AND NOTHING ENFORCES IT. Applying this file to
+# `buildbuddy-workflows` would move all of farm01's `workflows` capacity into this pool.
+# Check what is actually deployed:
+#
+#   helm --kube-context farm01 get values buildbuddy-workflows-lig -n buildbuddy \
+#     | grep -E 'poolName|replicas'
+#
+# DRIFT NOTE (2026-10-03). The live release was installed from a copy of farm01's
+# `buildbuddy-workflows` values, which lag ./values-workflows.yaml: they warm runner image
+# v1.0.24.3, their init container still creates /bazel-caches/disk, and they carry no
+# terminationGracePeriodSeconds. This file follows the current conventions of
+# ./values-workflows.yaml instead; the next `helm upgrade` from it converges the release.
+
+# Top-level, NOT under config.executor (nested there it is silently ignored). Must equal
+# `pool:` on the LargeIngestionGate action in //buildbuddy.yaml.
+poolName: workflows-lig
+
+image:
+  repository: gcr.io/flame-public/buildbuddy-executor-enterprise
+  # Kept in lockstep with ./values.yaml and ./values-workflows.yaml.
+  tag: enterprise-v2.290.0
+  imagePullPolicy: IfNotPresent
+
+# One pod. LargeIngestionGate does not set allow_concurrent_runs, so a second push queues.
+replicas: 1
+
+autoscaler:
+  enabled: false
+
+# farm01 sizing, same as its `buildbuddy-workflows` replicas: 56Gi pods on 64GB nodes. The
+# executor advertises the full limit (60,129,542,144 bytes), which fits one 36GB
+# LargeIngestionGate run but NOT two ~20GB idle runners alongside it -- hence
+# max_runner_count: 1 below, unlike the carverauto-cluster workflow releases.
+resources:
+  requests:
+    cpu: "6"
+    memory: "40Gi"
+    ephemeral-storage: "45Gi"
+  limits:
+    cpu: "14"
+    memory: "56Gi"
+    ephemeral-storage: "50Gi"
+
+# One workflow executor per node. The hostPaths below are distinct, but the nodes cannot hold
+# two 56Gi pods, and keeping off the build executors keeps RBE capacity intact.
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/instance
+              operator: In
+              values:
+                - buildbuddy-workflows
+                - buildbuddy
+                - buildbuddy-workflows-lig
+        topologyKey: kubernetes.io/hostname
+
+extraVolumes:
+  # Own hostPaths: BuildBuddy's filecache assumes it owns its directory, so no two executors
+  # may share one (see ./values-workflows.yaml).
+  - name: cache-volume
+    hostPath:
+      path: /mnt/buildbuddy/cache-workflows-lig
+      type: DirectoryOrCreate
+  - name: bazel-cache-volume
+    hostPath:
+      path: /mnt/buildbuddy/bazel-caches-workflows-lig
+      type: DirectoryOrCreate
+  - name: dockerhub-auth
+    secret:
+      secretName: dockerhub-auth
+      items:
+        - key: .dockerconfigjson
+          path: config.json
+
+extraVolumeMounts:
+  - name: cache-volume
+    mountPath: /cache
+  - name: bazel-cache-volume
+    mountPath: /bazel-caches
+  - name: dockerhub-auth
+    mountPath: /root/.docker
+    readOnly: true
+
+# Same init container as ./values-workflows.yaml: the hostPath is created root-owned and the
+# runner is uid 1001.
+extraInitContainers:
+  - name: bazel-cache-perms
+    image: gcr.io/flame-public/buildbuddy-executor-enterprise:enterprise-v2.290.0
+    securityContext:
+      runAsUser: 0
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /bazel-caches/repo /bazel-caches/repo-contents
+        chown 1001:1001 /bazel-caches /bazel-caches/repo /bazel-caches/repo-contents
+        find /bazel-caches -xdev ! -user 1001 -exec chown -h 1001:1001 {} +
+    volumeMounts:
+      - name: bazel-cache-volume
+        mountPath: /bazel-caches
+
+# Drain an in-flight run on rollout instead of SIGKILLing it.
+terminationGracePeriodSeconds: 3600
+
+config:
+  max_shutdown_duration: 3570s
+  executor:
+    enable_local_snapshot_sharing: true
+    app_target: grpcs://carverauto.buildbuddy.io:443
+    cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
+    task_allowed_private_ips:
+      - 10.42.0.0/16 # pod CIDR
+      - 10.43.0.0/16 # service CIDR
+      - 192.168.6.87/32 # LAN shared-gateway VIP
+    enable_oci: true
+    default_isolation_type: oci
+    default_task_size:
+      estimated_milli_cpu: 2000
+      estimated_memory_bytes: 2147483648 # 2 GiB
+    runner_pool:
+      max_runner_memory_usage_bytes: -1
+      max_runner_disk_size_bytes: 100000000000 # 100 GB workspace bind
+      # The single warm runner this pool exists to protect. Stays 1 on farm01 (see resources).
+      max_runner_count: 1
+    image_pull_timeout: 15m
+    startup_warmup_max_wait_secs: 300
+    warmup_timeout_secs: 300
+    # KEEP IN STEP with the LargeIngestionGate container_image in //buildbuddy.yaml.
+    warmup_additional_images:
+      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5
+    oci:
+      dns: "10.43.0.10"
+      mounts:
+        - source: /bazel-caches
+          destination: /bazel-cache
+          type: bind
+          options:
+            - rbind
+            - rw
+    local_cache_directory: /cache
+    local_cache_size_bytes: 100000000000
+    root_directory: /cache/remotebuilds/
+    # Never committed. Supplied at install time with --set; see ./README.md.
+    api_key: ""

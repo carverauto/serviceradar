@@ -16,15 +16,16 @@ use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::Once;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
 #[derive(Clone)]
 pub struct Publisher {
     config: Arc<Config>,
     js: jetstream::Context,
+    budget: Arc<Mutex<PublishBudget>>,
 }
 
 impl Publisher {
@@ -70,7 +71,11 @@ impl Publisher {
 
         ensure_stream(&config, &js).await?;
 
-        Ok(Self { config, js })
+        Ok(Self {
+            config,
+            js,
+            budget: Arc::new(Mutex::new(PublishBudget::default())),
+        })
     }
 
     async fn publish_update(&self, update: &Update) -> Result<()> {
@@ -91,35 +96,78 @@ impl Publisher {
     async fn publish_update_once(&self, update: &Update) -> Result<()> {
         let subject = subject_for_update(&self.config.subject_prefix, update);
         let payload = serde_json::to_vec(&model::to_payload(update))?;
-        let ack = self
-            .js
-            .publish(subject.clone(), payload.into())
-            .await
-            .with_context(|| {
-                format!(
-                    "failed publishing update router={} peer={} prefix={}/{} to {}",
-                    update.router_addr,
-                    update.peer_addr,
-                    update.prefix_addr,
-                    update.prefix_len,
-                    subject
-                )
-            })?;
-
-        timeout(Duration::from_millis(self.config.publish_timeout_ms), ack)
-            .await
-            .with_context(|| {
-                format!(
-                    "publish ack timeout for subject {} after {}ms",
-                    subject, self.config.publish_timeout_ms
-                )
-            })??;
+        loop {
+            let wait = {
+                let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
+                budget.admit(payload.len() as u64, &self.config)?
+            };
+            if wait.is_zero() {
+                break;
+            }
+            crate::metrics::THROTTLED_PUBLISHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            tokio::time::sleep(wait).await;
+        }
+        timeout(
+            Duration::from_millis(self.config.publish_timeout_ms),
+            async {
+                let ack = self
+                    .js
+                    .publish(subject.clone(), payload.into())
+                    .await
+                    .with_context(|| format!("failed publishing update to {subject}"))?;
+                ack.await?;
+                Ok::<(), anyhow::Error>(())
+            },
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "publish timeout for subject {subject} after {}ms",
+                self.config.publish_timeout_ms
+            )
+        })??;
 
         debug!(
             "published arancini update router={} peer={} prefix={}/{} to {}",
             update.router_addr, update.peer_addr, update.prefix_addr, update.prefix_len, subject
         );
         Ok(())
+    }
+}
+
+struct PublishBudget {
+    since: Instant,
+    messages: u64,
+    bytes: u64,
+}
+impl Default for PublishBudget {
+    fn default() -> Self {
+        Self {
+            since: Instant::now(),
+            messages: 0,
+            bytes: 0,
+        }
+    }
+}
+impl PublishBudget {
+    fn admit(&mut self, bytes: u64, cfg: &Config) -> Result<Duration> {
+        if bytes > cfg.publish_bytes_per_second {
+            crate::metrics::REJECTED_PUBLISHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            anyhow::bail!("BMP update exceeds the serialized byte budget");
+        }
+        let mut elapsed = self.since.elapsed();
+        if elapsed >= Duration::from_secs(1) {
+            *self = Self::default();
+            elapsed = Duration::ZERO;
+        }
+        if self.messages >= cfg.publish_messages_per_second
+            || bytes > cfg.publish_bytes_per_second - self.bytes
+        {
+            return Ok(Duration::from_secs(1) - elapsed);
+        }
+        self.messages += 1;
+        self.bytes += bytes;
+        Ok(Duration::ZERO)
     }
 }
 
@@ -273,7 +321,7 @@ struct StreamReconcile {
 }
 
 /// The config bmp-collector creates its stream with when it is absent: claimed, at
-/// the configured size and replicas, discard-old.
+/// the configured size, replicas, and explicit discard policy.
 fn desired_stream_config(config: &Config) -> jetstream::stream::Config {
     jetstream::stream::Config {
         name: config.stream_name.clone(),
@@ -282,7 +330,7 @@ fn desired_stream_config(config: &Config) -> jetstream::stream::Config {
         max_bytes: config.stream_max_bytes,
         max_age: Duration::from_secs(24 * 60 * 60),
         num_replicas: config.stream_replicas,
-        discard: DiscardPolicy::Old,
+        discard: config.stream_discard_policy,
         metadata: HashMap::from([(OWNER_METADATA_KEY.to_string(), OWNER.to_string())]),
         ..Default::default()
     }
@@ -292,8 +340,8 @@ fn desired_stream_config(config: &Config) -> jetstream::stream::Config {
 /// `ARANCINI_CAUSAL` while it runs, so it always writes its claim (whatever claim, if
 /// any, the stream carries), keeps the union of existing and required subjects, and
 /// sets `max_bytes` and `num_replicas` to the configured values. The stream is a
-/// discard-old buffer, so `max_bytes` is reconciled even below the bytes stored: NATS
-/// evicts the oldest messages. Every other setting, including other metadata keys, is
+/// discard-new buffer by default; incoming messages fail when full. Operators can
+/// explicitly choose discard-old. Every other setting, including other metadata keys, is
 /// left as found. Returns `None` when the stream already matches.
 fn plan_stream_reconcile(
     existing: &jetstream::stream::Config,
@@ -312,7 +360,7 @@ fn plan_stream_reconcile(
         .insert(OWNER_METADATA_KEY.to_string(), OWNER.to_string());
     desired.max_bytes = config.stream_max_bytes;
     desired.num_replicas = config.stream_replicas;
-    desired.discard = DiscardPolicy::Old;
+    desired.discard = config.stream_discard_policy;
 
     if desired == *existing {
         return None;
@@ -386,9 +434,14 @@ async fn reconcile_existing_stream(
     };
 
     if u64::try_from(plan.after.max_bytes).is_ok_and(|cap| stored_bytes > cap) {
+        if plan.after.discard == DiscardPolicy::New {
+            anyhow::bail!(
+                "configured BMP stream cap is below retained usage; increase the cap or explicitly remove retained records before reconciliation"
+            );
+        }
         warn!(
             "JetStream stream {} stores {} bytes, above the configured max_bytes {}; \
-             NATS will evict the oldest messages (discard-old)",
+             review retention and stored data before lowering the limit",
             config.stream_name, stored_bytes, plan.after.max_bytes
         );
     }
@@ -445,6 +498,108 @@ mod tests {
         .expect("valid synthetic config")
     }
 
+    #[tokio::test]
+    async fn publisher_clones_share_message_and_serialized_byte_budgets() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            socket.write_all(b"INFO {\"server_id\":\"synthetic\",\"version\":\"2.10.0\",\"proto\":1,\"host\":\"127.0.0.1\",\"port\":4222,\"max_payload\":1048576}\r\n").await.unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut sid = String::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap() == 0 {
+                    break;
+                }
+                let fields: Vec<_> = line.split_whitespace().collect();
+                match fields.first().copied() {
+                    Some("PING") => reader.get_mut().write_all(b"PONG\r\n").await.unwrap(),
+                    Some("SUB") => sid = fields.last().unwrap().to_string(),
+                    Some("PUB") => {
+                        let length: usize = fields.last().unwrap().parse().unwrap();
+                        let mut payload = vec![0; length + 2];
+                        reader.read_exact(&mut payload).await.unwrap();
+                        let ack = r#"{"stream":"SYNTHETIC_BMP_TEST","seq":1}"#;
+                        let response =
+                            format!("MSG {} {} {}\r\n{}\r\n", fields[2], sid, ack.len(), ack);
+                        reader
+                            .get_mut()
+                            .write_all(response.as_bytes())
+                            .await
+                            .unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        });
+        let client = async_nats::connect(format!("nats://{address}"))
+            .await
+            .unwrap();
+        let mut config = collector_config(GIB, 1);
+        config.publish_messages_per_second = 1;
+        let config = Arc::new(config);
+        let publisher = Publisher {
+            config: config.clone(),
+            js: jetstream::new(client),
+            budget: Arc::new(Mutex::new(PublishBudget::default())),
+        };
+        let update = Update {
+            time_received_ns: chrono::DateTime::from_timestamp(1_893_456_000, 0).unwrap(),
+            time_bmp_header_ns: chrono::DateTime::from_timestamp(1_893_456_000, 0).unwrap(),
+            router_addr: "192.0.2.1".parse().unwrap(),
+            router_port: 11019,
+            peer_addr: "192.0.2.2".parse().unwrap(),
+            peer_bgp_id: "192.0.2.2".parse().unwrap(),
+            peer_asn: 64512,
+            is_post_policy: false,
+            is_adj_rib_out: false,
+            synthetic: false,
+            prefix_addr: "192.0.2.0".parse().unwrap(),
+            prefix_len: 24,
+            announced: true,
+            attrs: Arc::new(arancini_lib::update::UpdateAttributes::default()),
+        };
+        publisher.send(update.clone()).await.unwrap();
+        publisher.budget.lock().unwrap().since = Instant::now();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(20),
+                publisher.clone().send(update.clone())
+            )
+            .await
+            .is_err(),
+            "clone bypassed the message budget"
+        );
+        publisher.budget.lock().unwrap().since -= Duration::from_secs(1);
+        publisher.clone().send(update.clone()).await.unwrap();
+        let mut byte_config = (*config).clone();
+        byte_config.publish_messages_per_second = 10;
+        byte_config.publish_bytes_per_second = serde_json::to_vec(&model::to_payload(&update))
+            .unwrap()
+            .len() as u64;
+        let bytes_publisher = Publisher {
+            config: Arc::new(byte_config),
+            js: publisher.js.clone(),
+            budget: Arc::new(Mutex::new(PublishBudget::default())),
+        };
+        bytes_publisher.send(update.clone()).await.unwrap();
+        bytes_publisher.budget.lock().unwrap().since = Instant::now();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(20),
+                bytes_publisher.clone().send(update.clone())
+            )
+            .await
+            .is_err(),
+            "clone bypassed the byte budget"
+        );
+        bytes_publisher.budget.lock().unwrap().since -= Duration::from_secs(1);
+        bytes_publisher.clone().send(update).await.unwrap();
+        server.abort();
+    }
+
     /// An existing `ARANCINI_CAUSAL` as another writer (or an older release) left it.
     fn existing_stream(
         max_bytes: i64,
@@ -478,7 +633,7 @@ mod tests {
         assert_eq!(plan.before.max_bytes, 10 * GIB);
         assert_eq!(plan.after.max_bytes, 2 * GIB);
         assert_eq!(plan.config.max_bytes, 2 * GIB);
-        assert_eq!(plan.config.discard, DiscardPolicy::Old);
+        assert_eq!(plan.config.discard, DiscardPolicy::New);
     }
 
     #[test]
@@ -582,7 +737,7 @@ mod tests {
         assert_eq!(created.name, "ARANCINI_CAUSAL");
         assert_eq!(created.max_bytes, 2 * GIB);
         assert_eq!(created.num_replicas, 3);
-        assert_eq!(created.discard, DiscardPolicy::Old);
+        assert_eq!(created.discard, DiscardPolicy::New);
         assert_eq!(
             created.metadata.get(OWNER_METADATA_KEY).map(String::as_str),
             Some(OWNER)

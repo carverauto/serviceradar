@@ -467,10 +467,12 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # The provider segment is part of the path so each provider gets a distinct URL
-  # to register with, and so the prefix stays under
-  # `/api/notifications/callbacks/` - RawBodyReader matches on
-  # `String.starts_with?`, so a route at the bare `/api/notifications/callbacks`
-  # would NOT be buffered and every signature check would fail confusingly.
+  # to register with. RawBodyReader buffers notification callbacks two ways:
+  # `buffered?/1` matches the `/api/notifications/callbacks/` prefix on the raw
+  # `request_path`, and `NotificationCallbackBody.callback?/1` matches the
+  # URI-decoded `path_info` segments (so percent-encoded spellings of the
+  # callback path get the same 1 MiB envelope and exact raw-byte retention for
+  # signature verification, including the bare callbacks path).
   scope "/api/notifications/callbacks", ServiceRadarWebNGWeb.Api do
     pipe_through([:notification_callback, :rate_limit_notification_callback])
 
