@@ -4660,7 +4660,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <tbody>
           <tr :if={@traces == []}>
             <td colspan="6" class="text-sm text-sr-muted py-8 text-center">
-              No traces found.
+              <%= if multi_span_active?(@query) do %>
+                No multi-span traces found. Single-span traces are excluded by this filter.
+              <% else %>
+                No traces found.
+              <% end %>
             </td>
           </tr>
 

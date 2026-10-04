@@ -727,6 +727,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     refute has_element?(lv, "#traces-row-1[phx-click]")
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "Multi-span toggles a numeric summary query and explains an empty filtered result", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    assert has_element?(lv, "#traces-row-1", "orphan summary")
+    drain_srql_calls()
+
+    lv |> element("#traces-multi-span-toggle") |> render_click()
+    assert has_element?(lv, "#traces-multi-span-toggle[title='Show all traces']")
+    refute has_element?(lv, "#traces-row-1")
+    assert has_element?(lv, "#traces-row-0 td:nth-child(5)", "3")
+    assert Enum.any?(drain_srql_calls(), &String.contains?(&1.query, "span_count:>1"))
+
+    lv |> element("#traces-multi-span-toggle") |> render_click()
+    assert has_element?(lv, "#traces-row-1", "orphan summary")
+    refute Enum.any?(drain_srql_calls(), &String.contains?(&1.query, "span_count:>1"))
+
+    :persistent_term.put({__MODULE__, :empty_trace_summaries?}, true)
+    on_exit(fn -> :persistent_term.erase({__MODULE__, :empty_trace_summaries?}) end)
+    lv |> element("#traces-multi-span-toggle") |> render_click()
+    assert has_element?(lv, "#traces", "No multi-span traces found. Single-span traces are excluded by this filter.")
+    refute has_element?(lv, "#traces-row-0")
+    refute Enum.any?(drain_srql_calls(), &String.starts_with?(&1.query, "in:traces "))
+  end
+
   test "default traces tab falls back to raw spans when summaries are stale", %{conn: conn} do
     :persistent_term.put({__MODULE__, :empty_trace_summaries?}, true)
 
@@ -810,7 +834,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           String.contains?(query, "rollup_stats:severity") -> [logs_severity_rollup_payload()]
           String.contains?(query, "rollup_stats:red") -> [red_rollup_payload()]
           String.contains?(query, "rollup_stats:summary") -> [traces_rollup_payload()]
-          String.starts_with?(query, "in:otel_trace_summaries") -> maybe_sample_trace_summaries()
+          String.starts_with?(query, "in:otel_trace_summaries") -> maybe_sample_trace_summaries(query)
           String.starts_with?(query, "in:traces") -> sample_raw_traces()
           String.starts_with?(query, "in:otel_metric_points") -> otlp_points_results(query)
           String.starts_with?(query, "in:otel_metrics") -> sample_metrics()
@@ -1002,11 +1026,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       })
     end
 
-    defp maybe_sample_trace_summaries do
+    defp maybe_sample_trace_summaries(query) do
       if :persistent_term.get({IndexTest, :empty_trace_summaries?}, false) do
         []
       else
-        sample_traces()
+        if String.contains?(query, "span_count:>1"),
+          do: Enum.filter(sample_traces(), &(Map.get(&1, "span_count", 0) > 1)),
+          else: sample_traces()
       end
     end
 
