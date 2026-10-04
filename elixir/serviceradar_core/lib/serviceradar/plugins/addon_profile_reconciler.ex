@@ -421,7 +421,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
       not Eligibility.hostable_addon?(package_supervision(profile), compatibility_row) ->
         {"cannot_host_native_addons",
-         "target does not accept native add-on assignments (containerized agent)"}
+         "target cannot host this add-on's supervision model (systemd add-ons need a bare-metal agent)"}
 
       true ->
         nil

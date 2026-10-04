@@ -404,10 +404,11 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		capabilities = append(capabilities, capabilitySweepBannerGrabUnavailable)
 	}
 
-	// Reported as an explicit pair. A containerized agent installs no native add-on
-	// at all (applyAddonAssignments returns early), so the control plane must be told
-	// outright rather than left to infer it from deployment type -- otherwise it keeps
-	// such an agent in rollout target sets where it can never report health.
+	// Reported as an explicit pair. A containerized agent cannot install systemd-
+	// supervised native add-ons, so the control plane must be told outright rather than
+	// left to infer it from deployment type -- otherwise it keeps such an agent in
+	// rollout target sets for systemd add-ons where it can never report health. It
+	// still runs agent-sidecar add-ons, which the control plane keeps targeting.
 	if options.nativeAddonHost {
 		capabilities = append(capabilities, capabilityAddonNativeHost)
 	} else {
