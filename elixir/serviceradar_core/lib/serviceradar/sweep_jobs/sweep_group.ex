@@ -38,6 +38,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   use Ash.Resource,
     domain: ServiceRadar.SweepJobs,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     notifiers: [
       ServiceRadar.AgentConfig.DependencyNotifier,
       ServiceRadar.SweepJobs.DeclaredTargetsNotifier
@@ -82,6 +83,22 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
       index [:agent_ids], name: "sweep_groups_agent_ids_gin_idx", using: "gin"
     end
+  end
+
+  # Append-only. Versions keep no foreign key, so deleting a group leaves the
+  # assignment history. `record_execution` and `run_now` are omitted: they fire
+  # on every sweep and are not assignment changes.
+  paper_trail do
+    primary_key_type :uuid
+    table_name "sweep_group_versions"
+    reference_source? false
+    change_tracking_mode :full_diff
+    on_actions [:create, :update, :enable, :disable]
+    store_action_name? true
+    store_action_inputs? true
+    create_version_on_destroy? true
+    ignore_attributes [:inserted_at, :updated_at]
+    mixin {ServiceRadar.SweepJobs.SweepGroup.PaperTrailMixin, :mixin, []}
   end
 
   actions do

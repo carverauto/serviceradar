@@ -177,6 +177,69 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     assert drain_agent_lookup_query_count(0) == 1
   end
 
+  test "an assignment update records the previous scanners and the actor", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    agent_a = register_agent("agent-audit-a-#{suffix}", actor)
+    agent_b = register_agent("agent-audit-b-#{suffix}", actor)
+    agent_c = register_agent("agent-audit-c-#{suffix}", actor)
+
+    {:ok, group} =
+      create_group(
+        "Audit #{suffix}",
+        %{agent_ids: [agent_a.uid, agent_b.uid]},
+        actor
+      )
+
+    {:ok, updated} =
+      update_group(group, %{agent_ids: [agent_c.uid, agent_b.uid]}, actor)
+
+    assert updated.agent_ids == [agent_b.uid, agent_c.uid]
+
+    [first] = assignment_versions(group.id, "update")
+    assert first.actor_id == to_string(actor.id)
+    assert assignment_delta(first.changes) == {[agent_a.uid], [agent_c.uid]}
+
+    {:ok, narrowed} = update_group(updated, %{agent_ids: [agent_c.uid]}, actor)
+    [still_first, second] = assignment_versions(group.id, "update")
+    assert still_first == first
+    assert assignment_delta(second.changes) == {[agent_b.uid], []}
+    assert narrowed.agent_ids == [agent_c.uid]
+
+    assert {:ok, _ran} =
+             narrowed
+             |> Ash.Changeset.for_update(:record_execution, %{}, actor: actor)
+             |> Ash.update()
+
+    assert assignment_versions(group.id, "record_execution") == []
+    assert assignment_versions(group.id, "update") == [still_first, second]
+  end
+
+  defp assignment_versions(group_id, action) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT version_action_name, actor_id, changes
+        FROM platform.sweep_group_versions
+        WHERE version_source_id = ($1::text)::uuid
+          AND version_action_name = $2
+        ORDER BY version_inserted_at ASC, id ASC
+        """,
+        [to_string(group_id), action]
+      )
+
+    Enum.map(rows, fn [action_name, actor_id, changes] ->
+      %{action: action_name, actor_id: actor_id, changes: changes}
+    end)
+  end
+
+  defp assignment_delta(%{"agent_ids" => %{"to" => items}}) when is_list(items) do
+    removed = for %{"from" => uid} <- items, is_binary(uid), do: uid
+    added = for %{"to" => uid} <- items, is_binary(uid), do: uid
+    {Enum.sort(removed), Enum.sort(added)}
+  end
+
   defp create_group(name, attrs, actor) do
     SweepGroup
     |> Ash.Changeset.for_create(
