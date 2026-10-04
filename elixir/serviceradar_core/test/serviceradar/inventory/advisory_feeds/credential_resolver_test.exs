@@ -7,9 +7,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolverTest do
 
   test "core feeds resolve credential UUIDs through provider-scoped audited broker grants" do
     test_pid = self()
-    for {resolve, provider, host, purpose} <- [
-      {&CredentialResolver.resolve/2, "vulncheck", "api.vulncheck.com", "vulnerability_feed_download"},
-      {&CredentialResolver.resolve_otx/2, "alienvault-otx-core", "otx.alienvault.com", "threat_intel_sync"}
+    for {resolve, provider, host, purpose, invalid_credential} <- [
+      {&CredentialResolver.resolve/2, "vulncheck", "api.vulncheck.com", "vulnerability_feed_download", :invalid_vulncheck_credential},
+      {&CredentialResolver.resolve_otx/2, "alienvault-otx-core", "otx.alienvault.com", "threat_intel_sync", :invalid_otx_credential}
     ] do
       issuer = fn attrs, _actor ->
         send(test_pid, {:grant_attrs, attrs})
@@ -28,7 +28,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolverTest do
       wrong_provider = fn _grant, _opts ->
         {:ok, %{value: "wrong-token", secret: %{provider: "proxmox", credential_kind: :api_token}}}
       end
-      assert {:error, :invalid_vulncheck_credential} = resolve.(@secret_id, grant_issuer: issuer, secret_resolver: wrong_provider)
+      assert {:error, ^invalid_credential} = resolve.(@secret_id, grant_issuer: issuer, secret_resolver: wrong_provider)
     end
   end
 
