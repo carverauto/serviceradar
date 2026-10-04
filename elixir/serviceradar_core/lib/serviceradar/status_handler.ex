@@ -19,6 +19,7 @@ defmodule ServiceRadar.StatusHandler do
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
+  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.DiscoveryIngestor
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection
@@ -499,7 +500,7 @@ defmodule ServiceRadar.StatusHandler do
   defp publish_generic_ocsf_event(event, record, batch, metadata) do
     with {:ok, enriched} <- enrich_ocsf_event(event, record, batch, metadata),
          {:ok, json} <- Jason.encode(enriched),
-         :ok <- publish(addon_telemetry_publisher(), ocsf_subject(metadata), json) do
+         :ok <- publish(addon_telemetry_publisher(), ocsf_subject(metadata, enriched), json) do
       :ok
     else
       {:error, reason} ->
@@ -722,8 +723,30 @@ defmodule ServiceRadar.StatusHandler do
     end
   end
 
-  defp ocsf_subject(%{producer_type: :plugin}), do: @plugin_ocsf_subject
-  defp ocsf_subject(_metadata), do: @addon_ocsf_subject
+  # Only DNS Activity belongs on the PowerDNS subject: its EventWriter processor keeps
+  # class 4003 and drops everything else. Any other add-on event (an otel-addon spool
+  # alert, an anomaly-addon shed notice) goes to the generic OCSF event stream, the
+  # same one plugins use; routing it to pdns.ocsf discarded it.
+  defp ocsf_subject(%{producer_type: :plugin}, _event), do: @plugin_ocsf_subject
+
+  defp ocsf_subject(_metadata, event) do
+    if dns_activity?(event), do: @addon_ocsf_subject, else: @plugin_ocsf_subject
+  end
+
+  defp dns_activity?(%{"class_uid" => class_uid}) do
+    case class_uid do
+      value when is_integer(value) ->
+        value == OCSF.class_dns_activity()
+
+      value when is_binary(value) ->
+        String.trim(value) == Integer.to_string(OCSF.class_dns_activity())
+
+      _ ->
+        false
+    end
+  end
+
+  defp dns_activity?(_event), do: false
 
   defp otel_log_subject(%{producer_type: :plugin}), do: @plugin_otel_log_subject
   defp otel_log_subject(_metadata), do: @addon_otel_log_subject
