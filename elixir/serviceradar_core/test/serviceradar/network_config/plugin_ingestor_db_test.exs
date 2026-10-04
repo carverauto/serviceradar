@@ -23,6 +23,9 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorDbTest do
       "details" => %{"artifact" => %{"object_key" => key, "sha256" => hash}}
     }
 
+    # CI intentionally excludes the network-config NIF, so parse through the
+    # existing Ingest.submit :parser seam with an invented fact. Revision
+    # storage, readback, and staged-artifact deletion below stay real.
     assert :ok =
              PluginIngestor.ingest(payload, %{agent_id: "agent-01"},
                actor: actor,
@@ -30,6 +33,20 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorDbTest do
                artifact_deleter: fn ^key ->
                  send(self(), :transport_deleted)
                  :ok
+               end,
+               parser: fn _body ->
+                 {:ok,
+                  [
+                    %{
+                      if_name: "GigabitEthernet0/1",
+                      ipv4_prefix: "192.0.2.0/24",
+                      ipv6_prefix: nil,
+                      vlan: nil,
+                      description: nil,
+                      shutdown: false,
+                      vrf: nil
+                    }
+                  ]}
                end,
                projector: fn _uid, _revision, _facts -> :ok end
              )
