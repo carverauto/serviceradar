@@ -8,7 +8,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup.PaperTrailMixin do
       end
 
       changes do
-        change ServiceRadar.SweepJobs.SweepGroup.Changes.StampAuditContext, on: :create
+        change ServiceRadar.Security.Changes.StampAuditActor, on: :create
       end
 
       attributes do

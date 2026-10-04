@@ -199,6 +199,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
 
     [first] = assignment_versions(group.id, "update")
     assert first.actor_id == to_string(actor.id)
+    assert first.action_inputs["actor_id"] == to_string(actor.id)
+    assert first.action_inputs["actor"]["id"] == to_string(actor.id)
+    assert first.action_inputs["actor"]["email"] == actor.email
     assert assignment_delta(first.changes) == {[agent_a.uid], [agent_c.uid]}
 
     {:ok, narrowed} = update_group(updated, %{agent_ids: [agent_c.uid]}, actor)
@@ -220,7 +223,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     %{rows: rows} =
       Repo.query!(
         """
-        SELECT version_action_name, actor_id, changes
+        SELECT version_action_name, actor_id, changes, version_action_inputs
         FROM platform.sweep_group_versions
         WHERE version_source_id = ($1::text)::uuid
           AND version_action_name = $2
@@ -229,8 +232,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
         [to_string(group_id), action]
       )
 
-    Enum.map(rows, fn [action_name, actor_id, changes] ->
-      %{action: action_name, actor_id: actor_id, changes: changes}
+    Enum.map(rows, fn [action_name, actor_id, changes, action_inputs] ->
+      %{action: action_name, actor_id: actor_id, changes: changes, action_inputs: action_inputs}
     end)
   end
 
