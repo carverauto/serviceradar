@@ -76,6 +76,8 @@ defmodule ServiceRadarWebNGWeb.Api.OpenapiControllerTest do
       # Operation paths carry the /api/v2 mount prefix so the console targets
       # the right URLs.
       assert Map.has_key?(body["paths"], "/api/v2/devices")
+      assert Map.has_key?(body["paths"], "/api/v2/notification-channels")
+      assert Map.has_key?(body["paths"], "/api/v2/notification-routes")
     end
 
     test "requires authentication (401 for anonymous callers)", %{conn: conn} do
