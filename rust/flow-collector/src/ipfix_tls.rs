@@ -57,7 +57,14 @@ impl IpfixTlsListener {
                 accepted = self.socket.accept() => accepted,
                 _ = sessions.join_next(), if !sessions.is_empty() => continue,
             };
-            let (stream, _) = accepted?;
+            let (stream, _) = match accepted {
+                Ok(accepted) => accepted,
+                Err(error) => {
+                    log::warn!("IPFIX TLS accept failed: {error}");
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    continue;
+                }
+            };
             let Ok(permit) = Arc::clone(&limit).try_acquire_owned() else {
                 self.output
                     .metrics
