@@ -1,10 +1,15 @@
 """Host TinyGo repository rule for first-party Wasm plugin builds."""
 
+# 0.41 is a floor, not a preference. Up to 0.40.x, reflect's AssignableTo/Implements against an
+# interface with methods panicked "unimplemented" (fixed by tinygo#5304), and encoding/json asks
+# exactly that question of every type it encodes. A plugin binary that also linked errors.As
+# then panicked on its first json.Marshal; proxmox-inventory died on its first successful
+# inventory batch. //build/wasm_plugins:plugin_runtime_test fails if the pin regresses.
 _TINYGO_SHA256 = {
-    "darwin_amd64": "36c9423a63f9548d142908b06c67e198d878a0fed076b8ec5dbf8a3350a73eb4",
-    "darwin_arm64": "a20841a616de3b3403e52e3789cb60c147ab52b3fe6c33b31fdffba0164ae031",
-    "linux_amd64": "064fc0c07f4d71f7369b168c337caa88ef32a6b00b16449cea44790ccadfc2b4",
-    "linux_arm64": "4720693b333826569d5c1ed746a735c4d1983719c95af5bdd4d9dfeaa755e933",
+    "darwin_amd64": "1a8e62a234d3aea20793ada2c4a628de96ed7533384f0f5dc3c3f2ffa84f9bab",
+    "darwin_arm64": "c684d154d89a452cc9c7fc5dc5fc80cb6a42445b3e44b3c12ed048692de0f341",
+    "linux_amd64": "e156d1d93a376eef639a4143d13be07e8c463fb6cf2d7d447698ed4474d23e91",
+    "linux_arm64": "789733bc3b5bace0bd1835a267b3ea267804a7ef1cfe69bc522c295f5226d624",
 }
 
 # TinyGo's Linux release tarballs ship wasm-opt in tinygo/bin, right next to the tinygo binary,
@@ -21,7 +26,7 @@ _TINYGO_SHA256 = {
 # then discovers it exactly as it does on Linux, which is why neither defs.bzl nor
 # build_wasm_binary.sh needs to know this happened.
 #
-# version_116 is not arbitrary. TinyGo v0.40.1 pins lib/binaryen at commit
+# version_116 is not arbitrary. TinyGo v0.41.1 pins lib/binaryen at commit
 # 11dba9b1c2ad988500b329727f39f4d8786918c5, and that commit IS the version_116 tag, so a Mac
 # optimises with the same binaryen revision CI's bundled copy was built from. When the TinyGo
 # version above moves, re-check the submodule -- a mismatched optimiser would still produce
@@ -122,6 +127,6 @@ tinygo_platform_repository = repository_rule(
     implementation = _tinygo_platform_repository_impl,
     attrs = {
         "platform": attr.string(mandatory = True, values = sorted(_TINYGO_SHA256)),
-        "version": attr.string(default = "0.40.1"),
+        "version": attr.string(default = "0.41.1"),
     },
 )

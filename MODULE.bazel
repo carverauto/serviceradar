@@ -1128,7 +1128,7 @@ filegroup(
     tinygo_platform_repository(
         name = "tinygo_" + tinygo_platform,
         platform = tinygo_platform,
-        version = "0.40.1",
+        version = "0.41.1",
     )
     for tinygo_platform in [
         "darwin_amd64",
