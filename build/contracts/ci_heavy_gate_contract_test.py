@@ -1449,6 +1449,61 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             ),
         )
 
+    def test_go_race_step_uses_a_private_output_base_and_shuts_it_down(self):
+        """Race flags stay off the parked default Bazel server.
+
+        ci_runner keeps that server alive, and pure/race change its analysis
+        cache key. The next pull request then reanalyzes //... . This step
+        uses its own output base and shuts that server down after the tests,
+        including when they fail. The base sits on the runner home, outside
+        the workspace recycle limit.
+        """
+        action = named_action("BazelCI")
+        output_base = "/home/buildbuddy/output-base-race"
+        race_flag = "--@io_bazel_rules_go//go/config:race"
+        shell = sole_literal_run_body(
+            action,
+            f"={output_base}",
+            "Go race step on its private output base",
+        )
+        self.assertNotIn("cleanup() {", shell)
+        self.assertNotIn("/buildbuddy-execroot", shell)
+        self.assertNotIn("$HOME", shell)
+        self.assertNotIn("~", shell)
+
+        lines = normalized_shell_lines(shell)
+        assignments = [line for line in lines if line.endswith("=" + output_base)]
+        self.assertEqual([f"race_output_base={output_base}"], assignments)
+        variable = "race_output_base"
+        startup = f'--output_base="${variable}"'
+        race_test = (
+            f"bazel {startup} test -c opt --config=ci //go/... "
+            "--@io_bazel_rules_go//go/config:pure=false "
+            f"{race_flag} "
+            "--test_tag_filters=-integration_test,-acceptance_test,-benchmark "
+            "--test_timeout=600 "
+            "--flaky_test_attempts=1 "
+            "--test_arg=-test.count=5 "
+            "--test_arg=-test.short "
+            "--test_arg=-test.shuffle=on"
+        )
+        shutdown = f"bazel {startup} shutdown"
+        self.assertEqual(
+            (
+                "set -euo pipefail",
+                f"{variable}={output_base}",
+                "set +e",
+                race_test,
+                "status=$?",
+                "set -e",
+                shutdown,
+                'exit "$status"',
+            ),
+            lines,
+        )
+        self.assertEqual(1, action.count(race_flag))
+        self.assertNotIn("bazel shutdown", action)
+
     def test_god_view_acceptance_runs_only_on_explicit_dispatch(self):
         """The browser acceptance is out of BazelCI and lives in its own explicit-only action.
 
