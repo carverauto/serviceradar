@@ -323,7 +323,8 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   def handle_info({:DOWN, _ref, :process, pid, reason}, %{conn: conn} = state) when pid == conn do
     Logger.warning("NATS connection process died: #{inspect(reason)}")
-    delay = reconnect_delay(reason, 1)
+    setup_failures = state.setup_failures + 1
+    delay = reconnect_delay(reason, setup_failures)
     Process.send_after(self(), :connect, delay)
 
     :telemetry.execute(
@@ -341,7 +342,8 @@ defmodule ServiceRadar.EventWriter.Producer do
          pull_inflight: 0,
          pull_inflight_by_subject: %{},
          pull_inflight_started_at: %{},
-         failed_streams: %{}
+         failed_streams: %{},
+         setup_failures: setup_failures
      }}
   end
 
