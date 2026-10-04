@@ -313,7 +313,7 @@ Pool `workflows` has members on two clusters: `buildbuddy-workflows` (and
 |---|---|---|---|---|---|---|
 | farm01 | `buildbuddy-workflows-lig` | `values-workflows-lig.yaml` | `workflows-lig` | 1, unscaled | `/mnt/buildbuddy/cache-workflows-lig`, `/mnt/buildbuddy/bazel-caches-workflows-lig` | LargeIngestionGate only |
 
-Why: every workflow executor keeps a single warm runner. LargeIngestionGate (each staging
+Why: each farm01 workflow executor keeps a single warm runner (carverauto-cluster releases keep two; see Runner count below). LargeIngestionGate (each staging
 push plus nightly, ~16 runs/day, ~16 min) and BazelCI (PRs, ~49 runs/day, ~22 min) shared
 pool `workflows` and kept evicting each other's warm runner, so ~45% of runs started cold
 (cold `bazel build //...` up to 36 min against 1-5 min warm; one PR run hit BuildBuddy's 1h

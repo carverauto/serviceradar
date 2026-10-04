@@ -7,7 +7,7 @@
 #
 # WHY THIS POOL EXISTS.
 #
-# Each workflow executor keeps a single warm runner (max_runner_count below). LargeIngestionGate
+# Each farm01 workflow executor keeps a single warm runner (max_runner_count below). LargeIngestionGate
 # (every staging push plus nightly, ~16 runs/day, ~16 min) and BazelCI (PRs, ~49 runs/day,
 # ~22 min) used to share pool `workflows`, so each kept evicting the other's warm runner and
 # ~45% of runs started cold: a cold `bazel build //...` takes up to 36 min against 1-5 min

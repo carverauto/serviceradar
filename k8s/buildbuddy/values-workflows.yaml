@@ -313,7 +313,11 @@ config:
       max_runner_disk_size_bytes: 100000000000 # 100 GB workspace bind; disk cache is outside it
       # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
       # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.
-      max_runner_count: 1
+      # 2, not 1: with one slot, BazelCI and every other workflow on this pool evict each other's
+      # warm runner, and a cold `bazel build //...` costs up to ~36 min against 1-5 warm. A paused
+      # runner holds ~20 GB, so two idle plus one active build fit the 80Gi limit; farm01's 56Gi
+      # pods do not (see README).
+      max_runner_count: 2
 
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
