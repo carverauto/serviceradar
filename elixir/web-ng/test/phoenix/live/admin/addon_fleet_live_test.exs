@@ -513,6 +513,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert html =~ "no diagnostics reported"
 
     html = render_click(view, "agent_page", %{"page" => "2"})
+    assert_patch(view, fleet_path(addon_id: addon_id, page: 2))
     assert has_element?(view, agent_card(last.uid))
     refute has_element?(view, agent_card(first.uid))
     refute html =~ "What to do"
@@ -543,6 +544,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     html =
       filter_fleet(view, %{"agent_uid" => first.uid, "addon_id" => addon_id})
 
+    assert_patch(view, fleet_path(addon_id: addon_id, agent_uid: first.uid))
     assert html =~ "1 agent(s) · 1 add-on(s)"
     assert has_element?(view, agent_card(first.uid))
     refute has_element?(view, agent_card(last.uid))
@@ -559,6 +561,33 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert count_occurrences(html, ~s(data-role="agent-addon-card")) == 0
     assert html =~ "0 agent(s) · 0 add-on(s)"
   end
+
+  @tag :web_ng_shared_fixture_db
+  test "a fleet URL restores its filters and agent page, and the static render holds no fleet rows",
+       %{conn: conn, actor: actor} do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-url-page-#{unique}"
+    agents = seed_paged_agents!(actor, unique, addon_id, 11)
+    first = hd(agents)
+    last = List.last(agents)
+    path = fleet_path(addon_id: addon_id, page: 2)
+
+    static_html = conn |> get(path) |> html_response(200)
+    assert static_html =~ ~s(id="addon-fleet-loading")
+    refute static_html =~ ~s(data-role="agent-addon-card")
+
+    {:ok, view, html} = live(conn, path)
+    assert html =~ "11 agent(s) · 11 add-on(s)"
+    assert html =~ "Showing 11-11 of 11"
+    assert has_element?(view, agent_card(last.uid))
+    refute has_element?(view, agent_card(first.uid))
+    refute has_element?(view, "#addon-fleet-loading")
+
+    render_click(view, "clear_filters", %{})
+    assert_patch(view, "/settings/agents/addons/fleet")
+  end
+
+  defp fleet_path(params), do: "/settings/agents/addons/fleet?" <> URI.encode_query(params)
 
   defp seed_paged_agents!(actor, unique, addon_id, count) do
     package = create_addon_package!(actor, addon_id, "1.0.0")
