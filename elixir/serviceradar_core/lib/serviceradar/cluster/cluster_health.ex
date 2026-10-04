@@ -220,13 +220,16 @@ defmodule ServiceRadar.ClusterHealth do
       %{
         enabled: status.enabled,
         running: status.running,
-        healthy: EventWriterHealth.healthy?(),
+        healthy: status.healthy,
+        reason: inspect(status.reason),
+        pipelines: status.pipelines,
         pipeline: Map.get(status, :pipeline),
         producer: Map.get(status, :producer)
       }
     rescue
       _ ->
-        %{enabled: false, running: false, healthy: true, pipeline: nil, producer: nil}
+        %{enabled: true, running: false, healthy: false, reason: "health_check_failed",
+          pipelines: %{}, pipeline: nil, producer: nil}
     end
   end
 
@@ -243,7 +246,8 @@ defmodule ServiceRadar.ClusterHealth do
         node_count: state.node_count,
         gateway_count: state.gateway_count,
         agent_count: state.agent_count,
-        event_writer_running: if(event_writer_running, do: 1, else: 0)
+        event_writer_running: if(event_writer_running, do: 1, else: 0),
+        event_writer_healthy: if(state.event_writer && state.event_writer.healthy, do: 1, else: 0)
       },
       %{status: state.status}
     )
@@ -253,7 +257,9 @@ defmodule ServiceRadar.ClusterHealth do
     base = %{
       enabled: event_writer.enabled,
       running: event_writer.running,
-      healthy: event_writer.healthy
+      healthy: event_writer.healthy,
+      reason: event_writer.reason,
+      pipelines: event_writer.pipelines
     }
 
     # Add pipeline details if available
