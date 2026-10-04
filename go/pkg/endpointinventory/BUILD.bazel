@@ -40,5 +40,15 @@ go_test(
         "stabilize_test.go",
         "upload_test.go",
     ],
+    data = [":package_set_hash_golden"],
     embed = [":endpointinventory"],
+)
+
+# package_set_hash vectors generated from core's Elixir implementation. Both
+# this package's tests and //elixir/serviceradar_core read them, so the Go
+# producer and the server cannot drift apart without one side failing.
+filegroup(
+    name = "package_set_hash_golden",
+    srcs = ["testdata/package_set_hash_v1.json"],
+    visibility = ["//visibility:public"],
 )
