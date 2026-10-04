@@ -175,5 +175,4 @@ defmodule ServiceRadarAgentGateway.CoreHandlerDiscoveryTest do
       System.cmd("kill", ["-CONT", to_string(os_pid)])
     end
   end
-
 end
