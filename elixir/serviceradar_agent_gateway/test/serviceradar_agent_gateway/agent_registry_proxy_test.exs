@@ -89,6 +89,18 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
     assert AgentRegistryProxy.delivery_capabilities(ctx.partition_id, ctx.agent_id) == []
   end
 
+  test "a control session that shuts down normally marks the agent :disconnected via terminate/2", ctx do
+    connect_agent(ctx)
+    session = start_control_session!(ctx)
+
+    assert agent_status(ctx.agent_id) == :connected
+
+    stop_and_await(session)
+
+    assert_eventually(fn -> agent_status(ctx.agent_id) == :disconnected end)
+    assert AgentRegistry.find_available_agent_for_domain(ctx.domain) == nil
+  end
+
   test "an agent with a live control session is never swept as stale", ctx do
     connect_agent(ctx, [@retained_plugin_capability])
     _session = start_control_session!(ctx, [@retained_plugin_capability])
@@ -138,6 +150,12 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 1_000
+  end
+
+  defp stop_and_await(pid) do
+    ref = Process.monitor(pid)
+    :ok = GenServer.stop(pid, :normal)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
   end
 
   defp assert_eventually(check, attempts \\ 40) do

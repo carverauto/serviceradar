@@ -236,8 +236,12 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
 
   defp forget_agent(agent_id, state) do
     case ProcessRegistry.lookup({:agent, agent_id, node()}) do
-      [{_pid, %{status: :connected}} | _] -> AgentRegistry.unregister_agent(agent_id)
-      _other -> ProcessRegistry.unregister_agent(agent_id)
+      [{_pid, %{status: :connected}} | _] ->
+        ProcessRegistry.unregister_agent(agent_id)
+        broadcast({:agent_disconnected, agent_id})
+
+      _other ->
+        ProcessRegistry.unregister_agent(agent_id)
     end
 
     Logger.debug("Unregistered stale agent #{agent_id}")
