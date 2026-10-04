@@ -1575,6 +1575,43 @@ SELECT base.now_ts - INTERVAL '10 minutes',
     'default',
     base.now_ts
 FROM base;
+-- Fixed-clock rollup buckets around mid-bucket windows: services and trace
+-- summaries use 5-minute buckets (window 10:07:30-10:12:00 overlaps only the
+-- 10:05 bucket), RED uses hourly buckets (window 10:30-11:15 overlaps only the
+-- 10:00 bucket). The neighbours bound the overlap on both sides.
+INSERT INTO services_availability_5m (
+    bucket, gateway_id, agent_id, service_name, service_type,
+    total_count, available_count, unavailable_count
+)
+SELECT bucket, 'gateway-1', 'agent-1', 'overlap-probe', 'http', 1, 1, 0
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:05:00+00',
+    TIMESTAMPTZ '2026-01-05 10:15:00+00'
+]) AS probe(bucket);
+
+INSERT INTO traces_stats_5m (
+    bucket, service_name, total_count, error_count, avg_duration_ms, p95_duration_ms
+)
+SELECT bucket, 'overlap-probe', 1, 0, 10.0, 10.0
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:05:00+00',
+    TIMESTAMPTZ '2026-01-05 10:15:00+00'
+]) AS probe(bucket);
+
+INSERT INTO spans_red_1h (
+    bucket, service_name, service_namespace, deployment_environment,
+    total_count, error_count, slow_count,
+    avg_duration_ms, p50_duration_ms, p95_duration_ms, max_duration_ms
+)
+SELECT bucket, 'overlap-probe', 'default', 'test', 1, 0, 0, 10.0, 10.0, 10.0, 10.0
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 09:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 12:00:00+00'
+]) AS probe(bucket);
+
 TRUNCATE timeseries_metrics;
 TRUNCATE timeseries_metrics_hourly;
 WITH base AS (

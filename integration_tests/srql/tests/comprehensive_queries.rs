@@ -218,6 +218,30 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // Only the 10:05 bucket (10:05-10:10) overlaps 10:07:30-10:12:00.
+            query: "in:services time:[2026-01-05T10:07:30Z,2026-01-05T10:12:00Z] rollup_stats:availability service_name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 1, "body: {body}");
+            })),
+        },
+        TestCase {
+            // Only the 10:05 bucket (10:05-10:10) overlaps 10:07:30-10:12:00.
+            query: "in:traces time:[2026-01-05T10:07:30Z,2026-01-05T10:12:00Z] rollup_stats:summary service_name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 1, "body: {body}");
+            })),
+        },
+        TestCase {
+            // Only the 10:00 bucket (10:00-11:00) overlaps 10:30-11:15.
+            query: "in:traces time:[2026-01-05T10:30:00Z,2026-01-05T11:15:00Z] rollup_stats:red service_name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 1, "body: {body}");
+            })),
+        },
+        TestCase {
             query: "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:current-package-set",
             expected_count: 1,
             validator: Some(Box::new(|body| {

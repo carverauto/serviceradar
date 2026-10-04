@@ -503,6 +503,45 @@ CREATE TABLE service_status (
     PRIMARY KEY (timestamp, gateway_id, service_name)
 );
 
+-- Plain-table stand-ins for the services/traces continuous aggregates. SRQL
+-- reads them only through rollup_stats, so the fixture seeds buckets directly.
+DROP TABLE IF EXISTS services_availability_5m;
+CREATE TABLE services_availability_5m (
+    bucket            TIMESTAMPTZ NOT NULL,
+    gateway_id        TEXT        NOT NULL,
+    agent_id          TEXT,
+    service_name      TEXT        NOT NULL,
+    service_type      TEXT,
+    total_count       BIGINT      NOT NULL,
+    available_count   BIGINT      NOT NULL,
+    unavailable_count BIGINT      NOT NULL
+);
+
+DROP TABLE IF EXISTS traces_stats_5m;
+CREATE TABLE traces_stats_5m (
+    bucket          TIMESTAMPTZ      NOT NULL,
+    service_name    TEXT             NOT NULL,
+    total_count     BIGINT           NOT NULL,
+    error_count     BIGINT           NOT NULL,
+    avg_duration_ms DOUBLE PRECISION,
+    p95_duration_ms DOUBLE PRECISION
+);
+
+DROP TABLE IF EXISTS spans_red_1h;
+CREATE TABLE spans_red_1h (
+    bucket                 TIMESTAMPTZ      NOT NULL,
+    service_name           TEXT             NOT NULL,
+    service_namespace      TEXT,
+    deployment_environment TEXT,
+    total_count            BIGINT           NOT NULL,
+    error_count            BIGINT           NOT NULL,
+    slow_count             BIGINT           NOT NULL,
+    avg_duration_ms        DOUBLE PRECISION,
+    p50_duration_ms        DOUBLE PRECISION,
+    p95_duration_ms        DOUBLE PRECISION,
+    max_duration_ms        DOUBLE PRECISION
+);
+
 -- CASCADE: platform.discovered_interfaces (created at the end of this file) is a
 -- view over this table, and seeding retries re-run this file over a populated schema.
 DROP TABLE IF EXISTS discovered_interfaces CASCADE;
