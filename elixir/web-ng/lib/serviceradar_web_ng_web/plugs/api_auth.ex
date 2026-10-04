@@ -45,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.ApiTokenUsage
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.ClientIP
 
@@ -244,16 +245,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     end
   end
 
+  # Counted in ETS and written at most once per token per minute; see ApiTokenUsage.
   defp record_token_usage(api_token, conn) do
-    client_ip = ClientIP.get(conn)
-    actor = SystemActor.system(:api_auth)
-
-    # Record usage asynchronously to not block the request
-    Task.start(fn ->
-      api_token
-      |> Ash.Changeset.for_update(:record_use, %{last_used_ip: client_ip})
-      |> Ash.update(actor: actor, authorize?: false)
-    end)
+    ApiTokenUsage.record(api_token, ClientIP.get(conn))
   end
 
   defp validate_legacy_api_key(conn, key) do

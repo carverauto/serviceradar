@@ -1469,13 +1469,26 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         opts
       ),
       max_concurrency: endpoint_inventory_cohort_concurrency(opts),
-      timeout: @send_timeout + 1_000,
+      timeout: endpoint_inventory_cohort_dispatch_timeout_ms(opts),
+      # A dispatch that outlives its bound is reported as failed for that target.
+      # Without :kill_task the timeout exits the caller instead, which crashed the
+      # LiveView that runs cohort queries.
+      on_timeout: :kill_task,
+      zip_input_on_exit: true,
       ordered: false
     )
     |> Enum.map(fn
-      {:ok, dispatch} -> dispatch
-      {:exit, reason} -> %{agent_id: nil, status: :failed, reason: {:dispatch_exit, reason}}
+      {:ok, dispatch} ->
+        dispatch
+
+      {:exit, {session, reason}} ->
+        %{agent_id: session.agent_id, status: :failed, reason: {:dispatch_exit, reason}}
     end)
+  end
+
+  # Bounds one target's dispatch, which includes the control-session call.
+  defp endpoint_inventory_cohort_dispatch_timeout_ms(opts) do
+    Keyword.get(opts, :dispatch_timeout_ms, @send_timeout + 1_000)
   end
 
   defp dispatch_endpoint_inventory_cohort_target(
