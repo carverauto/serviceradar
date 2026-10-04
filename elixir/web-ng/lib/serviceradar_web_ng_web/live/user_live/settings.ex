@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.HomepageForm
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   # Viewing the profile must not require sudo mode. Sensitive submits
@@ -194,6 +195,63 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
             </div>
           </.ui_panel>
 
+          <.ui_panel>
+            <:header>
+              <div>
+                <div class="text-sm font-semibold">Default homepage</div>
+                <p class="text-xs text-sr-muted">
+                  Used after sign-in when you did not open a specific page. Inherit follows a user group, then the platform home. Picking a dashboard does not share it.
+                </p>
+              </div>
+            </:header>
+
+            <.form
+              for={@homepage_form}
+              id="homepage_form"
+              phx-change="change_homepage"
+              phx-submit="update_homepage"
+            >
+              <.input
+                field={@homepage_form[:choice]}
+                id="homepage_choice"
+                type="select"
+                label="Homepage"
+                options={@homepage_choices}
+              />
+              <.input
+                :if={@homepage_form[:choice].value == "dashboard"}
+                field={@homepage_form[:query]}
+                id="homepage_query"
+                type="text"
+                label="Filter dashboards"
+                placeholder="Filter by name"
+              />
+              <.input
+                :if={@homepage_form[:choice].value == "dashboard"}
+                field={@homepage_form[:dashboard]}
+                id="homepage_dashboard"
+                type="select"
+                label="Dashboard"
+                prompt="Select a dashboard"
+                options={@homepage_dashboard_options}
+              />
+              <p
+                :if={
+                  @homepage_form[:choice].value == "dashboard" and @homepage_dashboard_options == []
+                }
+                class="mb-3 text-sm text-sr-muted"
+              >
+                No dashboards you can open are available.
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <.button variant="primary" phx-disable-with="Saving...">Save homepage</.button>
+                <.button type="button" variant="neutral" phx-click="clear_homepage">
+                  Clear
+                </.button>
+              </div>
+            </.form>
+          </.ui_panel>
+
           <%= if not @idp_managed_identity and @can_change_password and has_password?(@current_scope.user) do %>
             <.ui_panel>
               <:header>
@@ -276,6 +334,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     password_ash_form = if can_change_password, do: build_password_form(user, scope)
     timezone_ash_form = build_timezone_form(user, scope)
     {timezone_catalog, timezone_catalog_warning} = timezone_catalog(socket, user)
+    homepage_params = HomepageForm.params_from(user.homepage_kind, user.homepage_target)
+    homepage_catalog = if connected?(socket), do: HomepageForm.catalog(scope), else: []
 
     socket =
       socket
@@ -291,6 +351,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       |> assign(:timezone_catalog, timezone_catalog)
       |> assign(:timezone_catalog_warning, timezone_catalog_warning)
       |> assign(:timezone_preview_at, DateTime.utc_now())
+      |> assign(:homepage_params, homepage_params)
+      |> assign(:homepage_catalog, homepage_catalog)
+      |> assign(:homepage_choices, HomepageForm.profile_choices())
+      |> assign_homepage_form()
       |> assign(:trigger_submit, false)
       |> assign(:sudo_at, mount_sudo_at(session))
 
@@ -324,6 +388,46 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       as: "user",
       scope: scope
     )
+  end
+
+  defp assign_homepage_form(socket) do
+    params = socket.assigns.homepage_params
+
+    socket
+    |> assign(:homepage_form, to_form(params, as: :homepage))
+    |> assign(:homepage_dashboard_options, HomepageForm.select_options(socket.assigns.homepage_catalog, params))
+  end
+
+  defp save_homepage(socket, params) do
+    scope = socket.assigns.current_scope
+
+    case HomepageForm.attrs_from(params) do
+      {:ok, attrs} ->
+        case User.update_homepage_preference(scope.user, attrs, scope: scope) do
+          {:ok, updated_user} ->
+            updated_scope = %{scope | user: updated_user}
+            homepage_params = HomepageForm.params_from(updated_user.homepage_kind, updated_user.homepage_target)
+
+            {:noreply,
+             socket
+             |> assign(:current_scope, updated_scope)
+             |> assign(:homepage_params, homepage_params)
+             |> assign_homepage_form()
+             |> put_flash(:info, "Homepage updated.")}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Could not save the homepage: #{format_homepage_error(reason)}")}
+        end
+
+      :error ->
+        {:noreply, put_flash(socket, :error, "Choose a platform page or a dashboard you can open.")}
+    end
+  end
+
+  defp format_homepage_error(reason) do
+    reason
+    |> Ash.Error.to_error_class()
+    |> Exception.message()
   end
 
   defp build_timezone_form(user, scope) do
@@ -418,6 +522,21 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
          |> assign(:timezone_ash_form, timezone_ash_form)
          |> assign(:timezone_form, to_form(timezone_ash_form))}
     end
+  end
+
+  def handle_event("change_homepage", %{"homepage" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:homepage_params, params)
+     |> assign_homepage_form()}
+  end
+
+  def handle_event("clear_homepage", _params, socket) do
+    save_homepage(socket, %{"choice" => "inherit"})
+  end
+
+  def handle_event("update_homepage", %{"homepage" => params}, socket) do
+    save_homepage(socket, params)
   end
 
   def handle_event("validate_password", _params, %{assigns: %{can_change_password: false}} = socket) do

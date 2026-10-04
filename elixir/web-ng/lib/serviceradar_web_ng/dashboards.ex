@@ -101,6 +101,7 @@ defmodule ServiceRadarWebNG.Dashboards do
   defdelegate list_user_groups(scope), to: Authored
   defdelegate list_user_group_memberships(scope, group_id \\ nil), to: Authored
   defdelegate create_user_group(scope, attrs), to: Authored
+  defdelegate update_user_group_homepage(scope, group, attrs), to: Authored
   defdelegate add_user_group_member(scope, attrs), to: Authored
   defdelegate list_share_principals(scope), to: Authored
 

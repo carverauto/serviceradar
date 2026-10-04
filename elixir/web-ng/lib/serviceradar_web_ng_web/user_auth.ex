@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.TokenRevocation
+  alias ServiceRadarWebNGWeb.HomepageRedirect
   alias ServiceRadarWebNGWeb.Plugs.ApiAuth
   alias ServiceRadarWebNGWeb.Plugs.RequireConfigurationScope
 
@@ -55,8 +56,12 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   broadcasting disconnects on logout.
   """
   def log_in_user(conn, user, params \\ %{}) do
-    raw_return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/dashboard"
-    return_to = sanitize_return_path(raw_return_to)
+    raw_return_to = get_session(conn, :user_return_to) || params["return_to"]
+
+    {return_to, notice} =
+      login_destination(raw_return_to, fn -> HomepageRedirect.resolve(user) end)
+
+    conn = maybe_note_homepage_fallback(conn, notice)
 
     case put_user_session(conn, user, params) do
       {:ok, conn} ->
@@ -579,13 +584,49 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     Enum.any?(@sensitive_identity_claim_keys, &String.contains?(key, &1))
   end
 
-  @doc "Returns the path to redirect to after log in."
-  # the user was already logged in, redirect to dashboard
-  def signed_in_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: %{id: _}}}}) do
-    ~p"/dashboard"
+  @doc """
+  Chooses the post-login path.
+
+  A non-blank return path wins and is still passed through the open-redirect
+  check. Anything else asks `homepage_fun`, which returns `{path, notice}`.
+  """
+  @spec login_destination(term(), (-> {String.t(), String.t() | nil})) ::
+          {String.t(), String.t() | nil}
+  def login_destination(raw_return_to, homepage_fun) when is_function(homepage_fun, 0) do
+    if explicit_return_to?(raw_return_to) do
+      {sanitize_return_path(raw_return_to), nil}
+    else
+      case homepage_fun.() do
+        {path, notice} when is_binary(path) -> {path, notice}
+        path when is_binary(path) -> {path, nil}
+      end
+    end
+  end
+
+  @doc "Returns the path to redirect to when a user who is already signed in asks for a home path."
+  def signed_in_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: %{id: _} = user}}}) do
+    {path, _notice} = login_destination(nil, fn -> HomepageRedirect.resolve(user) end)
+    path
   end
 
   def signed_in_path(_), do: ~p"/"
+
+  defp explicit_return_to?(path) when is_binary(path), do: String.trim(path) != ""
+  defp explicit_return_to?(_path), do: false
+
+  defp maybe_note_homepage_fallback(conn, notice) when is_binary(notice) and notice != "" do
+    existing = Phoenix.Flash.get(conn.assigns[:flash] || %{}, :info)
+
+    message =
+      case existing do
+        text when is_binary(text) and text != "" -> text <> " " <> notice
+        _other -> notice
+      end
+
+    put_flash(conn, :info, message)
+  end
+
+  defp maybe_note_homepage_fallback(conn, _notice), do: conn
 
   @doc """
   Plug for routes that require the user to be authenticated.

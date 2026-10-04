@@ -9,7 +9,11 @@ defmodule ServiceRadar.Identity.UserGroup do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
+  alias ServiceRadar.Identity.Homepage
+  alias ServiceRadar.Identity.Validations.HomepagePreference
   alias ServiceRadar.Policies.Checks.ActorHasPermission
+
+  Code.ensure_compiled!(Homepage)
 
   @view_check {ActorHasPermission, permission: "identity.user_groups.view"}
   @manage_check {ActorHasPermission, permission: "identity.user_groups.manage"}
@@ -26,12 +30,19 @@ defmodule ServiceRadar.Identity.UserGroup do
       reference :owner, on_delete: :nilify
       reference :role_profile, on_delete: :restrict
     end
+
+    check_constraints do
+      check_constraint :homepage_kind, "user_groups_homepage_preference_check",
+        check: Homepage.preference_check_sql(),
+        message: "must be a platform page or a dashboard id"
+    end
   end
 
   code_interface do
     define :list, action: :read
     define :create_group, action: :create
     define :update_group, action: :update
+    define :update_homepage_preference, action: :update_homepage_preference
   end
 
   actions do
@@ -43,6 +54,25 @@ defmodule ServiceRadar.Identity.UserGroup do
 
     update :update do
       accept @fields -- [:owner_id]
+    end
+
+    update :update_homepage_preference do
+      description "Set or clear this group's homepage without changing its name or membership"
+      accept []
+
+      argument :homepage_kind, :atom do
+        allow_nil? true
+        constraints one_of: [:platform, :dashboards, :authored, :package]
+      end
+
+      argument :homepage_target, :string do
+        allow_nil? true
+        constraints max_length: 200, allow_empty?: true
+      end
+
+      change set_attribute(:homepage_kind, arg(:homepage_kind))
+      change set_attribute(:homepage_target, arg(:homepage_target))
+      validate HomepagePreference
     end
 
     read :for_privilege_boundary do
@@ -87,7 +117,14 @@ defmodule ServiceRadar.Identity.UserGroup do
     action_with_permission(:for_role_profile_boundary, @rbac_manage_check)
 
     action_with_permission(
-      [:create, :update, :assign_role_profile, :clear_role_profile, :destroy],
+      [
+        :create,
+        :update,
+        :update_homepage_preference,
+        :assign_role_profile,
+        :clear_role_profile,
+        :destroy
+      ],
       @manage_check
     )
 
@@ -119,6 +156,23 @@ defmodule ServiceRadar.Identity.UserGroup do
       allow_nil? false
       public? true
       default %{}
+    end
+
+    attribute :homepage_kind, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: [:platform, :dashboards, :authored, :package]
+
+      description """
+      Homepage for members who have not chosen their own. Null means this group
+      does not set one. Choosing a dashboard does not share that dashboard.
+      """
+    end
+
+    attribute :homepage_target, :string do
+      allow_nil? true
+      public? true
+      description "Authored dashboard id or package route slug. Null for every other kind."
     end
 
     create_timestamp :inserted_at

@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
   alias ServiceRadar.Identity.MappedUserGroups
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.HomepageForm
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   @current_path "/settings/user-groups"
@@ -25,6 +26,9 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
       |> assign(:can_view_share_principals?, can_view_share_principals?(scope))
       |> assign(:group_params, default_group_params())
       |> assign(:membership_params, default_membership_params())
+      |> assign(:homepage_catalog, [])
+      |> assign(:group_homepage_overrides, %{})
+      |> assign(:group_homepage_choices, HomepageForm.group_choices())
       |> assign_group_forms()
 
     socket =
@@ -121,6 +125,24 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
     end
   end
 
+  def handle_event("change_group_homepage", %{"group_homepage" => params}, socket) do
+    group_id = params["group_id"]
+
+    {:noreply,
+     assign(socket, :group_homepage_overrides, Map.put(socket.assigns.group_homepage_overrides, group_id, params))}
+  end
+
+  def handle_event("update_group_homepage", %{"group_homepage" => params}, socket) do
+    case authorize_manage_groups(socket) do
+      :ok ->
+        group = Enum.find(socket.assigns.user_groups, &(&1.id == params["group_id"]))
+        persist_group_homepage(socket, group, params)
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -146,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
               <p class="text-sm font-medium text-sr-brand">Settings</p>
               <h1 class="mt-1 text-2xl font-semibold tracking-normal">User Groups</h1>
               <p class="mt-2 max-w-3xl text-sm text-sr-ink/65">
-                Manage reusable groups for dashboard sharing and future access-controlled workflows.
+                Manage reusable groups for dashboard sharing. A group's homepage is what members see after sign-in when they have not chosen their own, including people mapped from an identity provider.
               </p>
             </div>
             <.ui_button navigate={~p"/analytics"} size="sm" variant="ghost">
@@ -179,11 +201,25 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                       <p class="mt-1 text-xs text-sr-ink/55">
                         {group.description || "No description"}
                       </p>
+                      <p class="mt-1 text-xs text-sr-ink/55">
+                        Homepage: {HomepageForm.summary(
+                          group.homepage_kind,
+                          group.homepage_target,
+                          @homepage_catalog
+                        )}
+                      </p>
                     </div>
                     <.ui_badge size="sm" variant="outline">
                       {membership_count(@user_group_memberships, group.id)} members
                     </.ui_badge>
                   </div>
+                  <.group_homepage_editor
+                    :if={@can_manage_groups?}
+                    group={group}
+                    overrides={@group_homepage_overrides}
+                    catalog={@homepage_catalog}
+                    choices={@group_homepage_choices}
+                  />
                   <div class="mt-3 flex flex-wrap gap-2">
                     <span
                       :for={membership <- memberships_for(@user_group_memberships, group.id)}
@@ -261,7 +297,14 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
         {[], []}
       end
 
-    %{users: users, user_groups: groups, user_group_memberships: memberships}
+    catalog = if assigns.can_manage_groups?, do: HomepageForm.catalog(scope), else: []
+
+    %{
+      users: users,
+      user_groups: groups,
+      user_group_memberships: memberships,
+      homepage_catalog: catalog
+    }
   end
 
   defp reload_access_controls(socket) do
@@ -274,6 +317,80 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
     socket
     |> assign(:group_form, to_form(socket.assigns.group_params, as: :group))
     |> assign(:membership_form, to_form(socket.assigns.membership_params, as: :membership))
+  end
+
+  attr :group, :map, required: true
+  attr :overrides, :map, required: true
+  attr :catalog, :list, required: true
+  attr :choices, :list, required: true
+
+  defp group_homepage_editor(assigns) do
+    params = group_homepage_params(assigns.overrides, assigns.group)
+
+    assigns =
+      assigns
+      |> assign(:params, params)
+      |> assign(:form, to_form(params, as: :group_homepage))
+
+    ~H"""
+    <.form
+      for={@form}
+      id={"group-homepage-#{@group.id}"}
+      phx-change="change_group_homepage"
+      phx-submit="update_group_homepage"
+      class="mt-4 space-y-3"
+    >
+      <input type="hidden" name="group_homepage[group_id]" value={@group.id} />
+      <.input field={@form[:choice]} type="select" label="Group homepage" options={@choices} />
+      <.input
+        :if={@params["choice"] == "dashboard"}
+        field={@form[:query]}
+        type="text"
+        label="Filter dashboards"
+        placeholder="Filter by name"
+      />
+      <.input
+        :if={@params["choice"] == "dashboard"}
+        field={@form[:dashboard]}
+        type="select"
+        label="Dashboard"
+        prompt="Select a dashboard"
+        options={HomepageForm.select_options(@catalog, @params)}
+      />
+      <p class="text-xs text-sr-ink/55">
+        Newest membership wins. The same assignment time uses the group name in alphabetical order. Choosing a dashboard does not share it. A member who cannot open it continues to the next homepage.
+      </p>
+      <.ui_button type="submit" size="sm" variant="neutral">Save homepage</.ui_button>
+    </.form>
+    """
+  end
+
+  defp persist_group_homepage(socket, nil, _params) do
+    {:noreply, put_flash(socket, :error, "That user group is no longer on this page.")}
+  end
+
+  defp persist_group_homepage(socket, group, params) do
+    case HomepageForm.attrs_from(params) do
+      {:ok, attrs} ->
+        case Dashboards.update_user_group_homepage(socket.assigns.current_scope, group, attrs) do
+          {:ok, _group} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Group homepage updated.")
+             |> assign(:group_homepage_overrides, Map.delete(socket.assigns.group_homepage_overrides, group.id))
+             |> reload_access_controls()}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Could not save the group homepage: #{format_error(reason)}")}
+        end
+
+      :error ->
+        {:noreply, put_flash(socket, :error, "Choose a platform page or a dashboard you can open.")}
+    end
+  end
+
+  defp group_homepage_params(overrides, group) do
+    Map.get(overrides, group.id) || HomepageForm.params_from(group.homepage_kind, group.homepage_target)
   end
 
   defp default_group_params, do: %{"name" => "", "description" => ""}

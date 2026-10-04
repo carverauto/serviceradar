@@ -385,9 +385,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       _ = UserAuthEvents.record_login(conn, user, :saml)
 
-      # The stored path from the pending request; log_in_user/3 keeps it same-origin.
-      return_to = return_to || ~p"/dashboard"
-
+      # Only a path the browser actually asked for. A missing path must stay
+      # missing so log_in_user can apply the user or group homepage.
       identity_claims =
         user_info.attributes
         |> Map.merge(%{
@@ -399,12 +398,16 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         })
         |> Map.put("service_radar_auth_method", "saml")
 
+      login_params =
+        if is_binary(return_to) and String.trim(return_to) != "" do
+          %{"return_to" => return_to, "identity_claims" => identity_claims}
+        else
+          %{"identity_claims" => identity_claims}
+        end
+
       conn
       |> put_flash(:info, "Signed in successfully via SAML.")
-      |> UserAuth.log_in_user(user, %{
-        "return_to" => return_to,
-        "identity_claims" => identity_claims
-      })
+      |> UserAuth.log_in_user(user, login_params)
     else
       {:error, :unsafe_account_linking} ->
         Logger.warning("SAML authentication rejected implicit email-based account linking")

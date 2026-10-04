@@ -34,13 +34,16 @@ defmodule ServiceRadar.Identity.User do
   alias ServiceRadar.Identity.Changes.NormalizeTimezonePreference
   alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
   alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.Homepage
   alias ServiceRadar.Identity.PasswordHash
   alias ServiceRadar.Identity.Validations.CurrentPassword
+  alias ServiceRadar.Identity.Validations.HomepagePreference
   alias ServiceRadar.Identity.Validations.PasswordConfirmationMatches
   alias ServiceRadar.Identity.Validations.ProfileTimezone
   alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Policies.Checks.ActorIsNil
 
+  Code.ensure_compiled!(Homepage)
   @allowed_roles Constants.allowed_roles()
   @auth_manage_permission Constants.auth_manage_permission()
   @password_manage_permission Constants.password_manage_permission()
@@ -73,6 +76,12 @@ defmodule ServiceRadar.Identity.User do
     table "ng_users"
     repo ServiceRadar.Repo
     schema "platform"
+
+    check_constraints do
+      check_constraint :homepage_kind, "ng_users_homepage_preference_check",
+        check: Homepage.preference_check_sql(),
+        message: "must be a platform page or a dashboard id"
+    end
   end
 
   code_interface do
@@ -83,6 +92,7 @@ defmodule ServiceRadar.Identity.User do
     define :provision_sso_user
     define :update
     define :update_timezone_preference, action: :update_timezone_preference
+    define :update_homepage_preference, action: :update_homepage_preference
     define :change_password
     define :record_authentication
     define :record_login
@@ -230,6 +240,25 @@ defmodule ServiceRadar.Identity.User do
       accept [:timezone]
       change NormalizeTimezonePreference
       validate ProfileTimezone
+    end
+
+    update :update_homepage_preference do
+      description "Set or clear only the acting user's homepage"
+      accept []
+
+      argument :homepage_kind, :atom do
+        allow_nil? true
+        constraints one_of: [:platform, :dashboards, :authored, :package]
+      end
+
+      argument :homepage_target, :string do
+        allow_nil? true
+        constraints max_length: 200, allow_empty?: true
+      end
+
+      change set_attribute(:homepage_kind, arg(:homepage_kind))
+      change set_attribute(:homepage_target, arg(:homepage_target))
+      validate HomepagePreference
     end
 
     update :update_email do
@@ -409,6 +438,10 @@ defmodule ServiceRadar.Identity.User do
       authorize_if expr(id == ^actor(:id))
     end
 
+    policy action(:update_homepage_preference) do
+      authorize_if expr(id == ^actor(:id))
+    end
+
     # Password is IdP-owned for SSO-linked accounts. Local accounts must both
     # be changing their own password and hold settings.password.manage — the
     # previous single policy ORed those, so a custom profile that omitted the
@@ -471,6 +504,27 @@ defmodule ServiceRadar.Identity.User do
       default "Etc/UTC"
       public? true
       description "IANA timezone used to display this user's local times"
+    end
+
+    attribute :homepage_kind, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: [:platform, :dashboards, :authored, :package]
+
+      description """
+      Where this user lands after sign-in. Null inherits a user-group homepage,
+      then the platform home. This is not a free-text URL.
+      """
+    end
+
+    attribute :homepage_target, :string do
+      allow_nil? true
+      public? true
+
+      description """
+      Authored dashboard id or package route slug for homepage_kind authored or
+      package. Null for every other kind.
+      """
     end
 
     attribute :role, :atom do

@@ -133,6 +133,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Sharing do
 
       def create_user_group(_scope, _attrs), do: {:error, :invalid_attributes}
 
+      @spec update_user_group_homepage(term(), UserGroup.t(), map()) ::
+              {:ok, UserGroup.t()} | {:error, term()}
+      def update_user_group_homepage(scope, %UserGroup{} = group, attrs) when is_map(attrs) do
+        group
+        |> Ash.Changeset.for_update(:update_homepage_preference, attrs)
+        |> update(scope)
+      end
+
+      def update_user_group_homepage(_scope, _group, _attrs), do: {:error, :invalid_attributes}
+
       @spec add_user_group_member(term(), map()) ::
               {:ok, UserGroupMembership.t()} | {:error, term()}
       def add_user_group_member(scope, attrs) when is_map(attrs) do
