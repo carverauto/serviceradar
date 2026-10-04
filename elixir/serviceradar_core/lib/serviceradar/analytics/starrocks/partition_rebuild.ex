@@ -350,7 +350,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     with statement when is_binary(statement) <- last_statement(state, pattern),
          [_, time_column] <-
            Regex.run(~r/PARTITION\s+BY\s+date_trunc\('day',\s*`?(\w+)`?\)/i, statement),
-         [_, keys] <- Regex.run(~r/PRIMARY\s+KEY\s*\(([^)]+)\)/i, statement) do
+         [_, keys] <-
+           Regex.run(~r/(?:PRIMARY|UNIQUE|DUPLICATE|AGGREGATE)\s+KEY\s*\(([^)]+)\)/i, statement) do
       copy = table <> @suffix
 
       create_copy =
