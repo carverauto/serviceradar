@@ -428,7 +428,8 @@ fn default_max_entries_per_template() -> usize {
 }
 
 fn default_max_entry_size_bytes() -> usize {
-    65535
+    // Must match netflow_parser's PendingFlowCache limit (u16::MAX - 4).
+    65531
 }
 
 fn default_pending_ttl_secs() -> u64 {
@@ -611,9 +612,9 @@ impl Config {
                         i
                     );
                 }
-                if pf.max_entry_size_bytes == 0 || pf.max_entry_size_bytes > 1_048_576 {
+                if pf.max_entry_size_bytes == 0 || pf.max_entry_size_bytes > 65_531 {
                     anyhow::bail!(
-                        "listener[{}]: pending_flows.max_entry_size_bytes must be 1..=1,048,576",
+                        "listener[{}]: pending_flows.max_entry_size_bytes must be 1..=65,531",
                         i
                     );
                 }
@@ -829,6 +830,45 @@ mod tests {
         let config: Config = serde_json::from_str(json).unwrap();
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("duplicate listen_addr"));
+    }
+
+    #[test]
+    fn pending_entry_size_bounds_match_parser_limit() {
+        // The locked netflow_parser accepts pending entries of 1..=65531
+        // (u16::MAX - 4, reserving the FlowSet header) and panics the
+        // handler build otherwise; startup validation must enforce the same
+        // bound so a default or configured value can never panic at runtime.
+        let defaults: PendingFlowsCacheConfig =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(defaults.max_entry_size_bytes, 65_531);
+        fn config_with_entry_size(size: serde_json::Value) -> Config {
+            serde_json::from_value(serde_json::json!({
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "listeners": [{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow",
+                    "pending_flows": { "max_entry_size_bytes": size }
+                }]
+            }))
+            .unwrap()
+        }
+        for size in [1, 65_531] {
+            config_with_entry_size(serde_json::json!(size))
+                .validate()
+                .unwrap();
+        }
+        for size in [0, 65_532, 65_535, 1_048_576] {
+            let err = config_with_entry_size(serde_json::json!(size))
+                .validate()
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("max_entry_size_bytes"),
+                "size={size} err={err}"
+            );
+        }
     }
 
     #[test]

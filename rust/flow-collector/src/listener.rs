@@ -284,12 +284,16 @@ fn legacy_only_datagram(mut bytes: &[u8]) -> bool {
         }
         let version = u16::from_be_bytes([bytes[0], bytes[1]]);
         let count = usize::from(u16::from_be_bytes([bytes[2], bytes[3]]));
-        let record_size: usize = match version {
-            5 => 48,
-            7 => 52,
+        // Per-PDU caps match the locked parser (v5: 30, v7: 28). A jumbo
+        // datagram is only legitimate as concatenated individually bounded
+        // PDUs, never as one PDU carrying more records than the parser
+        // accepts.
+        let (record_size, max_count): (usize, usize) = match version {
+            5 => (48, 30),
+            7 => (52, 28),
             _ => return false,
         };
-        if count == 0 {
+        if count == 0 || count > max_count {
             return false;
         }
         let Some(size) = record_size
@@ -373,10 +377,10 @@ mod tests {
                 assert_eq!(metrics.source_count.load(Ordering::Relaxed), 0);
                 assert!(rx.try_recv().is_err());
             }
-            // Legacy versions and concatenated legacy packets remain valid.
-            for packet in [legacy(5), legacy(7), [legacy(5), legacy(7)].concat()] {
+            // Template-free v5 and concatenated v5 packets remain valid.
+            for (packet, expected) in [(legacy(5), 1), ([legacy(5), legacy(5)].concat(), 2)] {
                 sender.send_to(&packet, addr).await.unwrap();
-                for _ in 0..if packet.len() > 100 { 2 } else { 1 } {
+                for _ in 0..expected {
                     let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
                         .await
                         .unwrap()
@@ -384,6 +388,17 @@ mod tests {
                     assert_eq!(FlowMessage::decode(bytes.as_slice()).unwrap().bytes, 111);
                 }
             }
+            // v7 is structurally legacy (never template traffic) but the
+            // converter has no V7 branch, so it publishes nothing.
+            let rejections_before = metrics.udp_template_rejections.load(Ordering::Relaxed);
+            sender.send_to(&legacy(7), addr).await.unwrap();
+            sleep(Duration::from_millis(300)).await;
+            assert_eq!(
+                metrics.udp_template_rejections.load(Ordering::Relaxed),
+                rejections_before,
+                "structurally valid v7 must not count as template traffic"
+            );
+            assert!(rx.try_recv().is_err());
             assert_eq!(
                 metrics.udp_template_rejections.load(Ordering::Relaxed),
                 if insecure { 0 } else { 3 }
@@ -397,15 +412,17 @@ mod tests {
     #[tokio::test]
     async fn udp_secure_defaults_admit_jumbo_legacy_datagrams() {
         use crate::test_packets::{ipfix, legacy};
-        fn jumbo(version: u16, count: u16) -> Vec<u8> {
+        // One PDU carrying exactly `count` records; callers must respect
+        // the parser's per-PDU caps (v5: 30, v7: 28). A legitimate jumbo
+        // datagram concatenates individually bounded PDUs.
+        fn bounded_pdu(version: u16, count: u16) -> Vec<u8> {
             let base = legacy(version);
             let record = if version == 7 { 52 } else { 48 };
             let mut out = vec![0u8; 24 + record * usize::from(count)];
             out[..24].copy_from_slice(&base[..24]);
             out[2..4].copy_from_slice(&count.to_be_bytes());
             for i in 0..usize::from(count) {
-                out[24 + i * record..24 + (i + 1) * record]
-                    .copy_from_slice(&base[24..24 + record]);
+                out[24 + i * record..24 + (i + 1) * record].copy_from_slice(&base[24..24 + record]);
             }
             out
         }
@@ -430,25 +447,56 @@ mod tests {
         );
         let task = tokio::spawn(listener.run());
         let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        for (version, count) in [(5u16, 31u16), (7u16, 29u16)] {
-            sender
-                .send_to(&jumbo(version, count), addr)
+        // A bounded jumbo PDU publishes every record.
+        sender.send_to(&bounded_pdu(5, 30), addr).await.unwrap();
+        for _ in 0..30 {
+            let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
                 .await
+                .unwrap()
                 .unwrap();
-            for _ in 0..count {
-                let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
-                    .await
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(FlowMessage::decode(bytes.as_slice()).unwrap().bytes, 111);
-            }
+            assert_eq!(FlowMessage::decode(bytes.as_slice()).unwrap().bytes, 111);
+        }
+        // A legitimate jumbo datagram concatenates bounded PDUs.
+        let concat = [bounded_pdu(5, 30), bounded_pdu(5, 30)].concat();
+        sender.send_to(&concat, addr).await.unwrap();
+        for _ in 0..60 {
+            let (_, bytes, _) = timeout(Duration::from_secs(3), rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(FlowMessage::decode(bytes.as_slice()).unwrap().bytes, 111);
         }
         assert_eq!(metrics.udp_template_rejections.load(Ordering::Relaxed), 0);
-        let mut prefixed = jumbo(5, 31);
+        // One PDU over the parser cap is denied even with exact byte
+        // layout, as are zero counts and truncation.
+        let mut zero_count = legacy(5);
+        zero_count[2..4].copy_from_slice(&0u16.to_be_bytes());
+        let truncated = bounded_pdu(5, 30)[..100].to_vec();
+        let mut expected_rejections = 0u64;
+        for bad in [
+            bounded_pdu(5, 31),
+            bounded_pdu(7, 29),
+            zero_count,
+            truncated,
+        ] {
+            sender.send_to(&bad, addr).await.unwrap();
+            expected_rejections += 1;
+            timeout(Duration::from_secs(3), async {
+                while metrics.udp_template_rejections.load(Ordering::Relaxed) != expected_rejections
+                {
+                    sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("over-cap or malformed legacy datagram was admitted");
+            assert!(rx.try_recv().is_err());
+        }
+        let mut prefixed = [bounded_pdu(5, 30), bounded_pdu(5, 30)].concat();
         prefixed.extend_from_slice(&ipfix(1, Some(&[(1, 4)]), &999u32.to_be_bytes()));
         sender.send_to(&prefixed, addr).await.unwrap();
+        expected_rejections += 1;
         timeout(Duration::from_secs(3), async {
-            while metrics.udp_template_rejections.load(Ordering::Relaxed) != 1 {
+            while metrics.udp_template_rejections.load(Ordering::Relaxed) != expected_rejections {
                 sleep(Duration::from_millis(5)).await;
             }
         })

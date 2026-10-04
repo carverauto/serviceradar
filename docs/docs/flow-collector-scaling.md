@@ -12,7 +12,7 @@ not close this local poisoning path.
 
 Template-based UDP is rejected before parser admission by default. The whole
 datagram is checked, including trailing packets after a valid legacy prefix.
-Template-free NetFlow v5/v7 and sFlow UDP remain supported.
+Template-free NetFlow v5 and sFlow UDP remain available.
 
 Before upgrading:
 
