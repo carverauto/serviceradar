@@ -29,6 +29,12 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
                                   "BlobRetentionWorker"
                                 ])
 
+  @dashboard_package_retention_worker Module.concat([
+                                        "ServiceRadarWebNG",
+                                        "Dashboards",
+                                        "PackageRetentionWorker"
+                                      ])
+
   setup do
     original = Application.get_env(:serviceradar_web_ng, :job_catalog_integration_source_module)
 
@@ -85,6 +91,18 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     assert plugin_job.args_filter == %{"manual" => true}
   end
 
+  test "manual_jobs exposes dashboard package retention entry" do
+    jobs = JobCatalog.manual_jobs()
+
+    assert job = Enum.find(jobs, &(&1.id == "manual:dashboard_package_retention"))
+    assert job.name == "Dashboard package retention"
+    assert job.source == :manual
+    assert job.cron == "manual"
+    assert job.queue == :web_maintenance
+    assert job.worker == @dashboard_package_retention_worker
+    assert job.args_filter == %{"manual" => true}
+  end
+
   test "get_job can resolve manual Armis entries from the unified catalog" do
     assert {:ok, job} = JobCatalog.get_job("manual:armis_northbound:source-1")
     assert job.source == :manual
@@ -134,6 +152,13 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
 
     refute release_reason == :no_worker
     refute plugin_reason == :no_worker
+  end
+
+  test "trigger_job delegates dashboard package retention to its worker" do
+    job = Enum.find(JobCatalog.manual_jobs(), &(&1.id == "manual:dashboard_package_retention"))
+
+    assert {:error, reason} = JobCatalog.trigger_job(job)
+    refute reason == :no_worker
   end
 
   @tag :db_free

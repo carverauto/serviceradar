@@ -28,6 +28,12 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   require Logger
 
+  @dashboard_package_retention_worker Module.concat([
+                                        "ServiceRadarWebNG",
+                                        "Dashboards",
+                                        "PackageRetentionWorker"
+                                      ])
+
   @plugin_blob_retention_worker Module.concat([
                                   "ServiceRadarWebNG",
                                   "Plugins",
@@ -356,6 +362,12 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   end
 
   def trigger_job(%{source: :manual, worker: worker}) when worker == @plugin_blob_retention_worker do
+    apply(worker, :enqueue_manual, [])
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  def trigger_job(%{source: :manual, worker: worker}) when worker == @dashboard_package_retention_worker do
     apply(worker, :enqueue_manual, [])
   rescue
     e -> {:error, Exception.message(e)}
@@ -691,6 +703,22 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
         resource: nil,
         action: nil,
         last_run_at: get_last_run(@plugin_blob_retention_worker),
+        next_run_at: nil,
+        args_filter: %{"manual" => true},
+        integration_source_id: nil
+      },
+      %{
+        id: "manual:dashboard_package_retention",
+        name: "Dashboard package retention",
+        description: "Manually queue cleanup of old dashboard package versions and their WASM blobs.",
+        source: :manual,
+        cron: "manual",
+        queue: :web_maintenance,
+        enabled: true,
+        worker: @dashboard_package_retention_worker,
+        resource: nil,
+        action: nil,
+        last_run_at: get_last_run(@dashboard_package_retention_worker),
         next_run_at: nil,
         args_filter: %{"manual" => true},
         integration_source_id: nil
