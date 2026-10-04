@@ -824,36 +824,50 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       |> Enum.take(policy["max_parallel"])
 
     selected
-    |> Enum.reduce_while(:ok, fn target, :ok ->
-      deadline = DateTime.add(now, policy["health_timeout_seconds"])
-
-      with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
-           {:ok, _} <-
-             update_assignment(
-               assignment,
-               :apply_rollout_override,
-               %{
-                 rollout_package_id: target.candidate_package_id,
-                 rollout_id: rollout.id,
-                 rollout_started_at: now
-               },
-               actor
-             ),
-           {:ok, _} <-
-             update_target(
+    |> Enum.reduce_while(:ok, fn
+      # The assignment was deleted after this target was created (its FK is
+      # ON DELETE SET NULL). There is nothing left to override, so the target
+      # stops holding its slot instead of pausing the whole rollout.
+      %AddonRolloutTarget{assignment_id: nil} = target, :ok ->
+        case update_target(
                target,
-               %{
-                 state: :waiting_health,
-                 override_applied_at: now,
-                 deadline_at: deadline,
-                 reason_code: "waiting_for_fresh_candidate_health"
-               },
+               %{state: :canceled, reason_code: "assignment_deleted", completed_at: now},
                actor
              ) do
-        {:cont, :ok}
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
+          {:ok, _} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      target, :ok ->
+        deadline = DateTime.add(now, policy["health_timeout_seconds"])
+
+        with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
+             {:ok, _} <-
+               update_assignment(
+                 assignment,
+                 :apply_rollout_override,
+                 %{
+                   rollout_package_id: target.candidate_package_id,
+                   rollout_id: rollout.id,
+                   rollout_started_at: now
+                 },
+                 actor
+               ),
+             {:ok, _} <-
+               update_target(
+                 target,
+                 %{
+                   state: :waiting_health,
+                   override_applied_at: now,
+                   deadline_at: deadline,
+                   reason_code: "waiting_for_fresh_candidate_health"
+                 },
+                 actor
+               ) do
+          {:cont, :ok}
+        else
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
     end)
     |> case do
       :ok ->
@@ -921,7 +935,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
        ) do
     if tolerated_failures?(rollout, targets) do
       targets
-      |> Enum.filter(&(&1.state == :rolled_back))
+      |> Enum.filter(&(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
       |> Enum.reduce_while(:ok, fn target, :ok ->
         with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
              {:ok, _} <-
@@ -1377,6 +1391,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     |> Ash.Changeset.for_update(action, attrs)
     |> Ash.update(actor: actor, authorize?: true)
   end
+
+  defp clear_assignment_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: :ok
 
   defp clear_assignment_override(target, actor) do
     with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do

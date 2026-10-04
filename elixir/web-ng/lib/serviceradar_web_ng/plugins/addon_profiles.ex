@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
 
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonProfile
+  alias ServiceRadar.Plugins.Validations.NotHeldByActiveRollout
 
   require Ash.Query
 
@@ -76,6 +77,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
     actor = Keyword.get(opts, :actor)
 
     with {:ok, profile} <- get(id, scope: scope),
+         # Checked before any assignment is destroyed, so a refusal leaves the
+         # profile and all of its assignments intact.
+         :ok <- NotHeldByActiveRollout.check(:profile, profile.id),
          :ok <- destroy_profile_assignments(profile, scope, actor) do
       profile
       |> Ash.Changeset.for_destroy(:destroy)
