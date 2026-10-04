@@ -265,9 +265,8 @@ def sole_literal_run_body(action: str, marker: str, description: str) -> str:
 def database_lifecycle_shell(action: str) -> str:
     """The measured database lifecycle shell: the `|` block owning cleanup().
 
-    Scoped by content, not by count: the godview acceptance path gate (#4165)
-    is also a literal `|` block, so "exactly one" no longer selects the
-    lifecycle. Only the lifecycle defines cleanup().
+    Scoped by content, not by count: only the lifecycle defines cleanup(), so
+    a future literal `|` step cannot be mistaken for it.
     """
     return sole_literal_run_body(action, "cleanup() {", "database lifecycle shell")
 
@@ -508,109 +507,6 @@ def normalized_cpu_diagnostic_action(action: str) -> str:
 def declared_test_output_modes(action: str) -> tuple[str, ...]:
     """Every --test_output mode an action declares, in source order."""
     return tuple(re.findall(r"--test_output=(\S+)", action))
-
-
-def godview_gate_shell(action: str) -> str:
-    """The BazelCI path-gate shell guarding the browser acceptance run."""
-    return sole_literal_run_body(action, "godview gate:", "godview acceptance gate")
-
-
-def run_godview_gate(
-    changed: tuple[str, ...],
-    *,
-    origin_reachable: bool = True,
-    remote_tracking_ref: bool = False,
-    shallow_runner_clone: bool = False,
-) -> tuple[int, str, tuple[str, ...]]:
-    """Execute the real gate shell against a synthetic repository.
-
-    Builds an `origin` holding `staging`, forks a feature commit touching
-    `changed`, and runs the gate with a stub `bazel` on PATH. Returns the exit
-    status, the gate's output, and the bazel command lines it issued.
-
-    `remote_tracking_ref` defaults to False because the workflow runner clones
-    by SHA: refs/remotes/origin/staging is absent until the gate fetches it.
-
-    `shallow_runner_clone` reproduces an API-dispatched run: the runner fetches
-    only the feature commit at depth 1, and staging has moved past the fork, so
-    the fork point is outside the clone until the gate deepens it.
-    """
-    shell = godview_gate_shell(named_action("BazelCI"))
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp = Path(temp_dir)
-        env = {
-            **os.environ,
-            "HOME": str(temp),
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_SYSTEM": os.devnull,
-            "GIT_AUTHOR_NAME": "gate probe",
-            "GIT_AUTHOR_EMAIL": "gate@example.com",
-            "GIT_COMMITTER_NAME": "gate probe",
-            "GIT_COMMITTER_EMAIL": "gate@example.com",
-        }
-
-        def git(cwd: Path, *args: str) -> None:
-            subprocess.run(
-                ("git", *args), cwd=cwd, env=env, check=True, capture_output=True
-            )
-
-        origin = temp / "origin"
-        origin.mkdir()
-        git(origin, "init", "--quiet", "--initial-branch=staging")
-        (origin / "README.md").write_text("seed\n", encoding="utf-8")
-        git(origin, "add", "README.md")
-        git(origin, "commit", "--quiet", "-m", "base")
-
-        work = temp / "work"
-        git(temp, "clone", "--quiet", str(origin), str(work))
-        git(work, "checkout", "--quiet", "-b", "feature")
-        for path in changed:
-            target = work / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("changed\n", encoding="utf-8")
-        git(work, "add", "--all")
-        git(work, "commit", "--quiet", "-m", "feature")
-
-        if shallow_runner_clone:
-            git(work, "push", "--quiet", "origin", "feature")
-            (origin / "README.md").write_text("staging moved on\n", encoding="utf-8")
-            git(origin, "commit", "--quiet", "-am", "staging after the fork")
-            runner = temp / "runner"
-            runner.mkdir()
-            git(runner, "init", "--quiet")
-            git(runner, "remote", "add", "origin", origin.as_uri())
-            git(runner, "fetch", "--quiet", "--depth=1", "origin", "feature")
-            git(runner, "checkout", "--quiet", "--force", "-B", "feature", "FETCH_HEAD")
-            work = runner
-        elif not remote_tracking_ref:
-            git(work, "update-ref", "-d", "refs/remotes/origin/staging")
-        if not origin_reachable:
-            git(work, "remote", "remove", "origin")
-
-        bin_dir = temp / "bin"
-        bin_dir.mkdir()
-        invocations = temp / "bazel-invocations"
-        stub = bin_dir / "bazel"
-        stub.write_text(
-            f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >>"{invocations}"\n',
-            encoding="utf-8",
-        )
-        stub.chmod(0o755)
-
-        result = subprocess.run(
-            ["/bin/bash", "-c", shell],
-            cwd=work,
-            check=False,
-            capture_output=True,
-            text=True,
-            env={**env, "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}"},
-        )
-        recorded = (
-            tuple(invocations.read_text(encoding="utf-8").splitlines())
-            if invocations.exists()
-            else ()
-        )
-        return result.returncode, result.stdout + result.stderr, recorded
 
 
 def with_test_output_mode(action: str, index: int, mode: str) -> str:
@@ -1020,15 +916,16 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
     topology_db_suite = "bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test"
     dgraph_schema_suite = "bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test"
+    playwright_targets = (
+        "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance",
+        "//elixir/web-ng/test/playwright:world_gpu_test",
+        "//elixir/web-ng/assets:million_world_browser_test",
+    )
     playwright_acceptance = (
         "bazel test -c opt --config=ci "
-        "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
-        "//elixir/web-ng/test/playwright:world_gpu_test "
-        "//elixir/web-ng/assets:million_world_browser_test "
-        "--test_output=errors --nocache_test_results --flaky_test_attempts=1"
+        + " ".join(playwright_targets)
+        + " --test_output=errors --nocache_test_results --flaky_test_attempts=1"
     )
-    # The same command as a stub `bazel` on PATH records it: argv without argv[0].
-    acceptance_invocation = playwright_acceptance.split(" ", 1)[1]
     heavy_provision = (
         'PROVISION_JSON="$(bazel run -c opt --config=ci '
         "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
@@ -1552,24 +1449,19 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             ),
         )
 
-    def test_bazel_ci_runs_the_browser_acceptance_gate_once_before_database_setup(self):
-        action = named_action("BazelCI")
-        normalized_action = " ".join(action.split())
-        unit_suite = (
-            "bazel test -c opt --config=ci --//build:enable_integration_tests "
-            "//... --test_tag_filters=-integration_test,-acceptance_test,-benchmark"
-        )
+    def test_god_view_acceptance_runs_only_on_explicit_dispatch(self):
+        """The browser acceptance is out of BazelCI and lives in its own explicit-only action.
 
-        self.assertEqual(1, normalized_action.count(self.playwright_acceptance))
-        self.assertLess(
-            normalized_action.index(unit_suite),
-            normalized_action.index(self.playwright_acceptance),
-        )
-        # The browser gate runs before the run id that pins keyed preflight and measurement.
-        self.assertLess(
-            normalized_action.index(self.playwright_acceptance),
-            normalized_action.index('RUN_ID="$(od -An -tx1 -N4 /dev/urandom'),
-        )
+        It drives a real WebGPU renderer and kept failing PR runs it had nothing to do with,
+        so no automatic trigger may run it; dispatching GodViewAcceptance still does.
+        """
+        bazel_ci = " ".join(named_action("BazelCI").split())
+        for target in self.playwright_targets:
+            self.assertNotIn(target, bazel_ci)
+
+        action = named_action("GodViewAcceptance")
+        self.assertIn("    triggers: {}\n", action)
+        self.assertEqual(1, " ".join(action.split()).count(self.playwright_acceptance))
 
     def test_browser_gate_uses_only_the_digest_pinned_executor_browser(self):
         module_source = MODULE_FILE.read_text(encoding="utf-8")
@@ -1582,83 +1474,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn(f'"container-image": "{PLAYWRIGHT_EXECUTOR_IMAGE}"', target_source)
         self.assertIn('"no-local"', target_source)
         self.assertIn('"no-remote-cache"', target_source)
-
-    def test_godview_gate_runs_the_acceptance_for_an_in_area_change(self):
-        """#4165: a godview-area PR still pays for the browser run."""
-        for changed in (
-            "elixir/web-ng/test/playwright/god_view_elk_scene.playwright.js",
-            "elixir/web-ng/assets/js/lib/god_view/topology_overview_projection.js",
-            "elixir/web-ng/native/god_view_nif/src/lib.rs",
-            "elixir/web-ng/world_fixture.bzl",
-            "elixir/web-ng/BUILD.bazel",
-            "elixir/web-ng/lib/serviceradar_web_ng/topology/world_tile.ex",
-            "elixir/web-ng/test/fixtures/world_browser_encoder.exs",
-            "elixir/serviceradar_core/native/topology_atlas_nif/src/lib.rs",
-            "rust/topology-atlas/src/tiles.rs",
-            "buildbuddy.yaml",
-        ):
-            with self.subTest(changed=changed):
-                status, log, invocations = run_godview_gate(
-                    (changed, "rust/srql/src/main.rs")
-                )
-                self.assertEqual(0, status, log)
-                self.assertEqual((self.acceptance_invocation,), invocations)
-
-    def test_godview_gate_skips_the_acceptance_for_unrelated_changes(self):
-        """#4165: the browser run is the cost an unrelated PR must not pay.
-
-        The remote-tracking ref is absent by default, as it is on the runner:
-        a gate that does not fetch its own base cannot reach this arm at all.
-        """
-        for remote_tracking_ref in (False, True):
-            with self.subTest(remote_tracking_ref=remote_tracking_ref):
-                status, log, invocations = run_godview_gate(
-                    (
-                        "go/cmd/tools/ubuntu-feed-merge/main.go",
-                        "elixir/serviceradar_core/lib/serviceradar/foo.ex",
-                        "elixir/web-ng/lib/serviceradar_web_ng_web/live/other_live.ex",
-                        "elixir/web-ng/test/app_domain/topology/god_view_stream_test.exs",
-                        "rust/srql/src/main.rs",
-                        "helm/serviceradar/values.yaml",
-                        ".github/workflows/web-ng-lint.yml",
-                        "build/contracts/ci_heavy_gate_contract_test.py",
-                    ),
-                    remote_tracking_ref=remote_tracking_ref,
-                )
-                self.assertEqual(0, status, log)
-                self.assertEqual((), invocations)
-                self.assertIn("skipping acceptance", log)
-
-    def test_godview_gate_resolves_the_base_from_a_depth_one_runner_clone(self):
-        """An API-dispatched re-run clones at depth 1; the gate must still see the diff.
-
-        Without deepening, merge-base finds nothing and every re-run of an
-        unrelated PR falls open into the browser suite.
-        """
-        for changed, expected in (
-            (("rust/srql/src/main.rs",), ()),
-            (
-                ("elixir/web-ng/assets/js/lib/god_view/topology_overview_projection.js",),
-                (self.acceptance_invocation,),
-            ),
-        ):
-            with self.subTest(changed=changed):
-                status, log, invocations = run_godview_gate(
-                    changed, shallow_runner_clone=True
-                )
-                self.assertEqual(0, status, log)
-                self.assertEqual(expected, invocations, log)
-                self.assertNotIn("fail-open", log)
-
-    def test_godview_gate_fails_open_when_the_base_cannot_be_resolved(self):
-        """A gate that cannot see the diff runs, never skips."""
-        status, log, invocations = run_godview_gate(
-            ("rust/srql/src/main.rs",), origin_reachable=False
-        )
-
-        self.assertEqual(0, status, log)
-        self.assertEqual((self.acceptance_invocation,), invocations)
-        self.assertIn("fail-open", log)
 
     def test_large_ingestion_gate_has_exact_independent_trigger(self):
         action = named_action("LargeIngestionGate")
