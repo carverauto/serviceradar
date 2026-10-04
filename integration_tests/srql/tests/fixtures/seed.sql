@@ -1034,6 +1034,42 @@ SELECT
     1
 FROM base;
 
+-- Fixed-clock buckets around the absolute window 10:30-11:15: only the 10:00
+-- bucket overlaps it, so the 09:00 and 12:00 buckets bound the overlap logic on
+-- both sides without depending on when the fixture was seeded.
+INSERT INTO endpoint_inventory_package_counts_hourly (
+    bucket,
+    coordinate_hash,
+    package_manager,
+    ecosystem,
+    name,
+    version,
+    architecture,
+    purl_canonical,
+    max_host_count,
+    min_host_count,
+    net_count_delta,
+    sample_count
+)
+SELECT
+    bucket,
+    'coord:apk:overlap-probe:1.0.0:x86_64',
+    'apk',
+    'apk',
+    'overlap-probe',
+    '1.0.0',
+    'x86_64',
+    'pkg:apk/overlap-probe@1.0.0',
+    1,
+    1,
+    0,
+    1
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 09:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 12:00:00+00'
+]) AS probe(bucket);
+
 WITH base AS (
     SELECT NOW() AS now_ts
 )

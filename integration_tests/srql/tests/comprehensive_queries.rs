@@ -205,6 +205,19 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // The 10:00 bucket covers 10:00-11:00 and overlaps a window starting at
+            // 10:30; the 09:00 and 12:00 buckets lie wholly outside it.
+            query: "in:endpoint_packages time:[2026-01-05T10:30:00Z,2026-01-05T11:15:00Z] rollup_stats:package_counts_hourly name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let bucket = body["results"][0]["bucket"].as_str().unwrap_or_default();
+                assert!(
+                    bucket.starts_with("2026-01-05T10:00:00"),
+                    "expected the overlapping 10:00 bucket, got {bucket}"
+                );
+            })),
+        },
+        TestCase {
             query: "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:current-package-set",
             expected_count: 1,
             validator: Some(Box::new(|body| {
