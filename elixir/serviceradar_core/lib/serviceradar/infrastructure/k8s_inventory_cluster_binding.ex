@@ -11,6 +11,7 @@ defmodule ServiceRadar.Infrastructure.K8sInventoryClusterBinding do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  alias ServiceRadar.Infrastructure.Changes.ScrubK8sBindingEndpoints
   alias ServiceRadar.Infrastructure.Changes.StampK8sBindingActor
 
   postgres do
@@ -37,7 +38,12 @@ defmodule ServiceRadar.Infrastructure.K8sInventoryClusterBinding do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
+
+    destroy :destroy do
+      require_atomic? false
+      change ScrubK8sBindingEndpoints
+    end
 
     create :create do
       accept [:cluster_id, :agent_id, :partition_id]

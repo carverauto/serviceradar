@@ -2,6 +2,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsBindingTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
+  alias ServiceRadar.Infrastructure.K8sInventoryClusterBinding
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -79,6 +80,42 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsBindingTest do
     assert %{rows: [[1]]} = endpoint_count(context.cluster)
     assert %{rows: [["service-example"]]} = active_services(context.cluster)
     assert %{rows: [[0]]} = endpoint_count(foreign_cluster)
+  end
+
+  test "destroying a binding retires only its own cluster rows", context do
+    sibling = "cluster-sibling-#{Ash.UUID.generate()}"
+
+    Repo.query!(
+      """
+      INSERT INTO platform.k8s_inventory_cluster_bindings
+        (cluster_id, agent_id, partition_id, changed_by, inserted_at, updated_at)
+      VALUES ($1, $2, 'SITE01', 'test-operator', now(), now())
+      """,
+      [sibling, context.agent_a]
+    )
+
+    assert {:ok, 1} = process(context.cluster, context.agent_a, 1)
+    assert {:ok, 1} = process(sibling, context.agent_a, 1)
+
+    actor = %{role: :system}
+
+    binding = Ash.get!(K8sInventoryClusterBinding, context.cluster, actor: actor)
+    assert :ok = Ash.destroy(binding, actor: actor)
+
+    assert %{rows: []} =
+             Repo.query!(
+               "SELECT cluster_id FROM platform.k8s_inventory_cluster_bindings WHERE cluster_id = $1",
+               [context.cluster]
+             )
+
+    assert %{rows: [[0]]} = endpoint_count(context.cluster)
+    assert %{rows: [[1]]} = endpoint_count(sibling)
+
+    assert {:error, :k8s_inventory_cluster_binding_mismatch} =
+             process(context.cluster, context.agent_a, 2, [])
+
+    assert %{rows: [[0]]} = endpoint_count(context.cluster)
+    assert %{rows: [[1]]} = endpoint_count(sibling)
   end
 
   test "ownership transfer revokes the previous agent atomically", context do
