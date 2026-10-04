@@ -47,6 +47,9 @@ pub struct ListenerMetrics {
     /// Number of distinct exporters (sources) currently tracked by the
     /// AutoScopedParser for this listener. NetFlow only.
     pub source_count: AtomicU64,
+    pub sampler_rate_rejections: AtomicU64,
+    pub source_creator_evictions: AtomicU64,
+    pub source_global_evictions: AtomicU64,
 }
 
 impl ListenerMetrics {
@@ -64,6 +67,9 @@ impl ListenerMetrics {
             template_store_codec_errors: AtomicU64::new(0),
             template_store_backend_errors: AtomicU64::new(0),
             source_count: AtomicU64::new(0),
+            sampler_rate_rejections: AtomicU64::new(0),
+            source_creator_evictions: AtomicU64::new(0),
+            source_global_evictions: AtomicU64::new(0),
         }
     }
 }
@@ -271,6 +277,81 @@ fn escape_label(value: &str) -> String {
     out
 }
 
+/// Emit one row per listener. `filter` lets a metric opt out of
+/// listeners where it's structurally always zero (e.g. sFlow has no
+/// templates, so template_store_* rows would be noise).
+fn emit(
+    out: &mut String,
+    name: &str,
+    ms: &[Arc<ListenerMetrics>],
+    filter: impl Fn(&ListenerMetrics) -> bool,
+    get: impl Fn(&ListenerMetrics) -> u64,
+) {
+    for m in ms {
+        if !filter(m) {
+            continue;
+        }
+        let _ = writeln!(
+            out,
+            "{}{{protocol=\"{}\",listen_addr=\"{}\"}} {}",
+            name,
+            escape_label(m.protocol),
+            escape_label(&m.listen_addr),
+            get(m),
+        );
+    }
+}
+
+fn render_admission_metrics(out: &mut String, listeners: &[Arc<ListenerMetrics>]) {
+    type AdmissionValue = fn(&ListenerMetrics) -> u64;
+    let admission_counters: [(&str, &str, AdmissionValue); 3] = [
+        (
+            "flow_collector_sampler_rate_rejections_total",
+            "Sampler rate inserts rejected at capacity",
+            |m: &ListenerMetrics| m.sampler_rate_rejections.load(Ordering::Relaxed),
+        ),
+        (
+            "flow_collector_source_creator_evictions_total",
+            "Parser evictions owned by the creating exporter IP",
+            |m: &ListenerMetrics| m.source_creator_evictions.load(Ordering::Relaxed),
+        ),
+        (
+            "flow_collector_source_global_evictions_total",
+            "Global parser evictions for new exporter IPs",
+            |m: &ListenerMetrics| m.source_global_evictions.load(Ordering::Relaxed),
+        ),
+    ];
+    for (name, help, value) in admission_counters {
+        let _ = writeln!(out, "# HELP {name} {help}\n# TYPE {name} counter");
+        emit(out, name, listeners, |m| m.protocol == "netflow", value);
+    }
+
+    let (rejected, failed, bytes) = crate::template_store::metrics();
+    for (name, help, kind, value) in [
+        (
+            "flow_collector_template_store_budget_rejections_total",
+            "Store calls rejected before enqueue by operation or value-size budgets",
+            "counter",
+            rejected,
+        ),
+        (
+            "flow_collector_template_store_mutation_failures_total",
+            "Failed or expired NATS KV mutations",
+            "counter",
+            failed,
+        ),
+        (
+            "flow_collector_template_store_bucket_bytes",
+            "Bytes in the shared NATS KV template bucket",
+            "gauge",
+            bytes,
+        ),
+    ] {
+        let _ = writeln!(out, "# HELP {name} {help}\n# TYPE {name} {kind}");
+        let _ = writeln!(out, "{name} {value}");
+    }
+}
+
 /// Render the current ListenerMetrics snapshot in Prometheus text exposition
 /// format (https://prometheus.io/docs/instrumenting/exposition_formats/).
 ///
@@ -286,32 +367,10 @@ pub fn render_prometheus(listeners: &[Arc<ListenerMetrics>]) -> String {
         }};
     }
 
-    /// Emit one row per listener. `filter` lets a metric opt out of
-    /// listeners where it's structurally always zero (e.g. sFlow has no
-    /// templates, so template_store_* rows would be noise).
-    fn emit(
-        out: &mut String,
-        name: &str,
-        ms: &[Arc<ListenerMetrics>],
-        filter: impl Fn(&ListenerMetrics) -> bool,
-        get: impl Fn(&ListenerMetrics) -> u64,
-    ) {
-        for m in ms {
-            if !filter(m) {
-                continue;
-            }
-            let _ = writeln!(
-                out,
-                "{}{{protocol=\"{}\",listen_addr=\"{}\"}} {}",
-                name,
-                escape_label(m.protocol),
-                escape_label(&m.listen_addr),
-                get(m),
-            );
-        }
-    }
     let any = |_: &ListenerMetrics| true;
     let netflow_only = |m: &ListenerMetrics| m.protocol == "netflow";
+
+    render_admission_metrics(&mut out, listeners);
 
     help_type!(
         "flow_collector_packets_received_total",

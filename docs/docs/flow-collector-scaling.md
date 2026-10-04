@@ -77,11 +77,12 @@ in `flow-collector.json`.
 | Setting | Default | What it does | When to change |
 |---|---|---|---|
 | `template_store.kv_bucket` | `flow_templates` | NATS KV bucket name | Multi-tenant clusters where you want isolated buckets per tenant |
+| `template_store.kv_max_bytes` | `1073741824` (1 GiB) | Server-enforced shared bucket limit, including revisions | Size for legitimate templates across all collector replicas; must be positive |
 | `template_store.kv_history` | `1` | Revisions retained per key (1-64) | Bump to 5-10 if you want template change history for audit |
 | `template_store.kv_ttl_secs` | `0` (forever) | Auto-expire stale entries | Set to `86400` (24h) if exporters churn frequently and you do not want orphan entries |
 | `template_store.nats_url` | inherits `nats_url` | Override NATS endpoint for template state only | Split-fault-domain setups where template state lives on a different cluster |
 | `listeners[].max_templates` | `2000` | Per-source LRU cache size | Increase if a single exporter announces >2000 templates (rare) |
-| `listeners[].max_sources` | library default `10000` | Distinct exporters tracked per listener; evicts (LRU) past the cap | Raise when `flow_collector_sources` approaches it |
+| `listeners[].max_sources` | library default `10000` | Distinct transport/domain identities per listener; prefers eviction from the creating exporter IP, then global LRU | Raise when `flow_collector_sources` approaches it |
 | `channel_size` | `10000` | Backpressure buffer to publisher | Raise if `flow_collector_flows_dropped_total` rises under burst |
 | `batch_size` | `100` | NATS publish batch | Mostly fine; raise for higher throughput at the cost of per-message latency |
 | `publish_timeout_ms` | `5000` | NATS ack timeout | Lower if you want fast-fail on NATS hiccups |
@@ -101,6 +102,43 @@ For HA, pre-create it with the replication you want (`--replicas=3`); the
 collector's bootstrap defaults to 1 replica and will not downgrade an existing
 bucket's replication.
 
+## Input and persistence budgets
+
+The learned sampler-rate cache holds at most 65,536 exporter-IP/sampler-ID
+pairs per listener. At capacity, new pairs are not retained; existing pairs
+can still be updated. A rate included in the current record always wins,
+followed by a retained sampler rate and then the configured fallback.
+
+When `max_sources` is reached, a new source identity first replaces the oldest
+identity belonging to its own exporter IP. Changing the UDP source port or
+observation domain therefore does not let an established exporter repeatedly
+remove another exporter's templates. An IP with no retained identity uses the
+global oldest source as a fallback. Capacity eviction drops only the local
+parser; it does not delete that source's shared templates.
+
+Shared template persistence is best effort. Every packet gets at most 16 KV
+operations and a combined 100 ms deadline, including reads, writes,
+withdrawals, and implicit invalidations. The shared adapter additionally
+allows at most 128 operations per one-second window per collector process.
+The worker queue holds 64 operations; a full queue rejects the call before
+NATS sees it and counts as a backend error. Queued operations carry the packet deadline and expire before
+backend work starts. A template value larger than 1 MiB is rejected before enqueueing,
+and NATS enforces that value limit and `kv_max_bytes` on the shared bucket.
+
+These limits can reduce shared restoration during a burst. An ordinary IPFIX
+template installation uses three invalidations and one write, so one packet
+can persist at most four such templates before its operation allowance is
+exhausted. Local parsing continues when persistence fails. A rejected
+withdrawal can leave an older shared template available for later restoration;
+monitor rejection and mutation-failure counters and choose a finite TTL when
+stale entries must expire. The byte cap includes entries from all replicas and
+historical revisions; inspect existing bucket usage before reducing it.
+
+UDP source addresses remain unauthenticated. Source scoping and creator
+preference do not prevent packets that spoof an exporter's complete transport
+identity from changing its templates. Shared persistence should run behind
+protected ingress; authenticating exporter transport is a separate requirement.
+
 ## Metrics to Monitor
 
 The flow collector exposes Prometheus metrics on `metrics_addr` (default
@@ -116,17 +154,25 @@ The flow collector exposes Prometheus metrics on `metrics_addr` (default
 | `flow_collector_sources` | Stable | Approaching the netflow_parser `max_sources` cap (10,000 default in the library) -> eviction churn imminent |
 | `flow_collector_template_store_restored_total` | Brief spike on pod restart, near-zero steady-state | Continuous non-zero rate -> templates are not staying cached |
 | `flow_collector_template_store_codec_errors_total` | 0 always | Non-zero **ever** -> corrupted KV entries (drain bucket; possible netflow_parser version mismatch) |
-| `flow_collector_template_store_backend_errors_total` | 0 | Sustained non-zero rate -> NATS unhealthy (parsing degrades gracefully to local-only) |
+| `flow_collector_template_store_backend_errors_total` | 0 | Sustained non-zero rate -> backend failures or persistence admission limits; parsing continues locally |
+| `flow_collector_sampler_rate_rejections_total` | 0 | New sampler identities exceed the retained-state cap |
+| `flow_collector_source_creator_evictions_total` | Low | One exporter is churning ports or domains at capacity |
+| `flow_collector_source_global_evictions_total` | Low | New exporter IPs displace existing sources at capacity |
+| `flow_collector_template_store_budget_rejections_total` | 0 | Packet/rate limits or an oversized template prevented enqueueing |
+| `flow_collector_template_store_mutation_failures_total` | 0 | NATS rejected a write/delete or a queued mutation expired |
+| `flow_collector_template_store_bucket_bytes` | Below `kv_max_bytes` | The shared bucket is nearing its storage limit; sampled every 30 seconds |
 
-The `template_store_*` and `sources` rows are emitted only for NetFlow
-listeners. sFlow is template-less, so those values are structurally zero and
-are filtered out rather than reported as a misleading 0.
+The listener-level template, source, and sampler-rate metrics apply only to
+NetFlow. The adapter budget, mutation-failure, and bucket-byte metrics
+describe the shared store across listeners and have no listener labels.
 
 Alerting suggestions:
 
 - **`template_store_codec_errors_total > 0`**, ever: page on first occurrence.
   This is corruption, not degradation.
-- **`template_store_backend_errors_total` rate > 1/min for >5 min**: NATS is sick.
+- **`template_store_backend_errors_total` rate > 1/min for >5 min**: shared-store
+  calls are failing. Read `template_store_budget_rejections_total` and
+  `template_store_mutation_failures_total` to separate admission from NATS.
 - **`flows_dropped_total` rate > 0.1% of received**: backpressure -- investigate
   the publish path.
 - **`sources` near `max_sources`**: raise the limit or shard the deployment.

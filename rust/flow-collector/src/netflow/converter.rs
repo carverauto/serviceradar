@@ -10,6 +10,14 @@ use netflow_parser::variable_versions::v9::lookup::V9Field;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 
+pub const MAX_SAMPLER_RATE_ENTRIES: usize = 65_536;
+
+#[derive(Default)]
+pub struct SamplerRates {
+    pub(super) entries: HashMap<(IpAddr, u64), u64>,
+    pub(super) rejected_inserts: u64,
+}
+
 pub struct Converter {
     pub packet: NetflowPacket,
     sampler_addr: SocketAddr,
@@ -34,7 +42,7 @@ impl Converter {
 
     pub fn convert_with_sampler_rates(
         &self,
-        sampler_rates: &mut HashMap<(IpAddr, u64), u64>,
+        sampler_rates: &mut SamplerRates,
     ) -> Vec<flowpb::FlowMessage> {
         match &self.packet {
             NetflowPacket::V5(v5) => self.convert_v5(v5),
@@ -103,7 +111,7 @@ impl Converter {
     pub fn convert_v9(
         &self,
         packet: &netflow_parser::variable_versions::v9::V9,
-        sampler_rates: &mut HashMap<(IpAddr, u64), u64>,
+        sampler_rates: &mut SamplerRates,
     ) -> Vec<flowpb::FlowMessage> {
         use netflow_parser::variable_versions::v9::FlowSetBody;
 
@@ -265,7 +273,7 @@ impl Converter {
     pub fn convert_ipfix(
         &self,
         packet: &netflow_parser::variable_versions::ipfix::IPFix,
-        sampler_rates: &mut HashMap<(IpAddr, u64), u64>,
+        sampler_rates: &mut SamplerRates,
     ) -> Vec<flowpb::FlowMessage> {
         use netflow_parser::variable_versions::ipfix::FlowSetBody;
 
@@ -593,16 +601,25 @@ impl Converter {
         msg: &mut flowpb::FlowMessage,
         sampler_id: Option<u64>,
         record_sampling_rate: Option<u64>,
-        sampler_rates: &mut HashMap<(IpAddr, u64), u64>,
+        sampler_rates: &mut SamplerRates,
     ) {
         let exporter = self.sampler_addr.ip();
 
         if let (Some(id), Some(rate)) = (sampler_id, record_sampling_rate) {
-            sampler_rates.insert((exporter, id), rate);
+            let key = (exporter, id);
+            if let Some(existing) = sampler_rates.entries.get_mut(&key) {
+                *existing = rate;
+            } else if sampler_rates.entries.len() < MAX_SAMPLER_RATE_ENTRIES {
+                sampler_rates.entries.insert(key, rate);
+            } else {
+                sampler_rates.rejected_inserts = sampler_rates.rejected_inserts.saturating_add(1);
+            }
         }
 
         msg.sampling_rate = record_sampling_rate
-            .or_else(|| sampler_id.and_then(|id| sampler_rates.get(&(exporter, id)).copied()))
+            .or_else(|| {
+                sampler_id.and_then(|id| sampler_rates.entries.get(&(exporter, id)).copied())
+            })
             .unwrap_or(self.fallback_sampling_rate)
             .max(1);
     }
