@@ -54,7 +54,8 @@ defmodule ServiceRadar.FlowAttribution.Observations do
 
   defp split_messages(encoded_rows) do
     {bodies, current, _count, _size} =
-      Enum.reduce(encoded_rows, {[], [], 0, @envelope_bytes}, fn row, {done, current, count, size} ->
+      Enum.reduce(encoded_rows, {[], [], 0, @envelope_bytes}, fn row,
+                                                                 {done, current, count, size} ->
         size_with_row = size + byte_size(row) + if(count == 0, do: 0, else: 1)
 
         if count > 0 and
@@ -75,7 +76,11 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   end
 
   defp encode_body(reversed_rows) do
-    IO.iodata_to_binary(["{\"rows\":[", reversed_rows |> Enum.reverse() |> Enum.intersperse(","), "]}"])
+    IO.iodata_to_binary([
+      "{\"rows\":[",
+      reversed_rows |> Enum.reverse() |> Enum.intersperse(","),
+      "]}"
+    ])
   end
 
   defp bound_row(%{cmdline: cmdline} = row) when is_binary(cmdline) do

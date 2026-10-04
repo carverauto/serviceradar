@@ -110,11 +110,12 @@ defmodule ServiceRadar.FlowAttribution.ObservationsTest do
     bodies = collect_published([])
     assert length(bodies) > 1
 
-    rows = Enum.flat_map(bodies, fn body ->
-      assert byte_size(body) <= 524_288
-      assert {:ok, decoded} = Observations.decode(body)
-      decoded
-    end)
+    rows =
+      Enum.flat_map(bodies, fn body ->
+        assert byte_size(body) <= 524_288
+        assert {:ok, decoded} = Observations.decode(body)
+        decoded
+      end)
 
     assert length(rows) == 20
     assert Enum.all?(rows, fn row -> byte_size(row["cmdline"]) <= 65_533 end)
