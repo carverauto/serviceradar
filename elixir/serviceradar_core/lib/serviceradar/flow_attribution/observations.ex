@@ -23,6 +23,7 @@ defmodule ServiceRadar.FlowAttribution.Observations do
   @max_rows_per_message 500
   @max_message_bytes 524_288
   @max_cmdline_bytes 65_533
+  @envelope_bytes 11
 
   @spec subject() :: String.t()
   def subject, do: @subject
@@ -38,9 +39,10 @@ defmodule ServiceRadar.FlowAttribution.Observations do
 
     rows
     |> Enum.map(&bound_row/1)
+    |> Enum.map(&Jason.encode!/1)
     |> split_messages()
-    |> Enum.reduce_while(:ok, fn chunk, :ok ->
-      case publish.(@subject, Jason.encode!(%{"rows" => chunk})) do
+    |> Enum.reduce_while(:ok, fn body, :ok ->
+      case publish.(@subject, body) do
         :ok -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
         other -> {:halt, {:error, {:unexpected_publish_result, other}}}
@@ -50,33 +52,30 @@ defmodule ServiceRadar.FlowAttribution.Observations do
 
   defp split_messages([]), do: []
 
-  defp split_messages(rows) do
-    {chunks, current} =
-      Enum.reduce(rows, {[], []}, fn row, {done, current} ->
-        candidate = [row | current]
+  defp split_messages(encoded_rows) do
+    {bodies, current, _count, _size} =
+      Enum.reduce(encoded_rows, {[], [], 0, @envelope_bytes}, fn row, {done, current, count, size} ->
+        size_with_row = size + byte_size(row) + if(count == 0, do: 0, else: 1)
 
-        if length(candidate) > @max_rows_per_message or
-             message_bytes(candidate) > @max_message_bytes do
-          case current do
-            [] -> {[Enum.reverse(candidate) | done], []}
-            _ -> {[Enum.reverse(current) | done], [row]}
-          end
+        if count > 0 and
+             (count + 1 > @max_rows_per_message or size_with_row > @max_message_bytes) do
+          {[encode_body(current) | done], [row], 1, @envelope_bytes + byte_size(row)}
         else
-          {done, candidate}
+          {done, [row | current], count + 1, size_with_row}
         end
       end)
 
-    chunks =
+    bodies =
       case current do
-        [] -> chunks
-        _ -> [Enum.reverse(current) | chunks]
+        [] -> bodies
+        _ -> [encode_body(current) | bodies]
       end
 
-    Enum.reverse(chunks)
+    Enum.reverse(bodies)
   end
 
-  defp message_bytes(chunk) do
-    chunk |> Enum.reverse() |> then(&%{"rows" => &1}) |> Jason.encode!() |> byte_size()
+  defp encode_body(reversed_rows) do
+    IO.iodata_to_binary(["{\"rows\":[", reversed_rows |> Enum.reverse() |> Enum.intersperse(","), "]}"])
   end
 
   defp bound_row(%{cmdline: cmdline} = row) when is_binary(cmdline) do
