@@ -260,6 +260,24 @@ nats:
     # before changing it on a live install.
     size: 36Gi
     storageClassName: ""
+  # Edge-site NATS leaf servers dial this listener. When enabled, nats.conf
+  # gets a leafnodes {} block and the serviceradar-nats Service exposes `port`.
+  # TLS terminates in nats-server using the runtime NATS certificate (nats.pem).
+  # Leaf client certificates are verified against the internal CA (root.pem),
+  # and a leaf is bound to the SERVICERADAR platform account only when its
+  # certificate carries the role URI SAN
+  # spiffe://serviceradar.local/nats-leaf/<partitionId>, which the agent-gateway
+  # CA issues to provisioned edge-site leaves.
+  #
+  # The certificate the leaf dials must name the public host. The chart's
+  # certificate generator adds hostedRuntime.publicEndpoints.natsLeafHost and
+  # tls.extraDnsNames to nats.pem. In hosted mode the control plane issues
+  # nats.pem and must include the same names.
+  leafnodes:
+    enabled: false
+    port: 7422
+    tls:
+      extraDnsNames: []
 certs:
   runtimeSecretName: serviceradar-runtime-certs
   # Empty preserves the self-managed single-Secret bootstrap. Hosted values
@@ -2281,6 +2299,19 @@ gatewayApi:
       servicePort: 50053
       routeName: ""
       parentRefs: []
+  natsLeaf:
+    # Route edge-site NATS leafnode connections through the Gateway API gateway
+    # to nats.leafnodes.port as raw TCP. TLS terminates in nats-server, so the
+    # gateway never holds the NATS key. Requires nats.leafnodes.enabled=true.
+    enabled: false
+    # Namespace where the gateway's envoy proxy pods run. Used only by the
+    # NetworkPolicy template when networkPolicy.enabled=true.
+    envoyGatewayNamespace: envoy-gateway-system
+    listenerName: nats-leaf
+    port: 7422
+    servicePort: 7422
+    routeName: ""
+    parentRefs: []
   backendTrafficPolicy:
     enabled: false
     requestTimeout: ""

@@ -9,6 +9,9 @@
 {{- $persistence := default (dict) $nats.persistence -}}
 {{- $jetstream := default (dict) $nats.jetstream -}}
 {{- $replicas := int (default 1 $nats.replicas) -}}
+{{- $leafnodes := default (dict) $nats.leafnodes -}}
+{{- $leafnodesEnabled := default false $leafnodes.enabled -}}
+{{- $leafnodesPort := int (default 7422 $leafnodes.port) -}}
 {{- $clusterName := default "serviceradar" $nats.clusterName -}}
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
 {{- $flowCollector := default (dict) .Values.flowCollector -}}
@@ -64,6 +67,11 @@ spec:
   - name: cluster
     port: 6222
     targetPort: cluster
+  {{- if $leafnodesEnabled }}
+  - name: leafnodes
+    port: {{ $leafnodesPort }}
+    targetPort: leafnodes
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -141,6 +149,28 @@ spec:
             verify: true
             verify_and_map: true
           }
+          {{- if $leafnodesEnabled }}
+
+          # Edge-site leaf servers. TLS terminates here (a Gateway API route,
+          # when enabled, passes raw TCP). verify_and_map requires a client
+          # certificate from the internal CA and binds only certificates that
+          # carry the partition leaf role URI SAN to the platform account.
+          leafnodes {
+            port: {{ $leafnodesPort }}
+            tls {
+              cert_file: "/etc/serviceradar/certs/nats.pem"
+              key_file: "/etc/serviceradar/certs/nats-key.pem"
+              ca_file: "/etc/serviceradar/certs/root.pem"
+              verify_and_map: true
+              timeout: 5
+            }
+            authorization {
+              users: [
+                { user: "spiffe://serviceradar.local/nats-leaf/{{ $partitionId }}", account: SERVICERADAR }
+              ]
+            }
+          }
+          {{- end }}
 
           {{- if gt $replicas 1 }}
           cluster {
@@ -520,6 +550,10 @@ spec:
           name: monitoring
         - containerPort: 6222
           name: cluster
+        {{- if $leafnodesEnabled }}
+        - containerPort: {{ $leafnodesPort }}
+          name: leafnodes
+        {{- end }}
         volumeMounts:
         - name: tmp
           mountPath: /tmp
