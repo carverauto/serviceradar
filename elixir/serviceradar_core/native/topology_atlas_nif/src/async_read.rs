@@ -17,6 +17,8 @@ use std::sync::Mutex;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
+
 use dgraph_topology::{TopologyClient, TopologyView};
 use rustler::env::OwnedEnv;
 use rustler::{Atom, Encoder, Env, Resource, ResourceArc, Term};
@@ -104,10 +106,21 @@ pub(crate) async fn read_topology_view(
     stale_cutoff: &str,
     deadline: Duration,
 ) -> (Result<TopologyView>, Kind) {
-    let read = async {
-        let client = TopologyClient::connect(url).await?;
-        client.query_topology_view(stale_cutoff).await
+    let connect_deadline = CONNECT_DEADLINE.min(deadline);
+    let client = match tokio::time::timeout(connect_deadline, TopologyClient::connect(url)).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(err)) => return (Err(err.to_string()), Kind::Error),
+        Err(_elapsed) => {
+            return (
+                Err(format!(
+                    "dgraph connect timed out after {}ms",
+                    connect_deadline.as_millis()
+                )),
+                Kind::Timeout,
+            )
+        }
     };
+    let read = async move { client.query_topology_view(stale_cutoff).await };
     match tokio::time::timeout(deadline, CatchUnwind(Box::pin(read))).await {
         Ok(Ok(Ok(graph))) => (Ok(graph), Kind::Ok),
         Ok(Ok(Err(_))) => (Err("topology view read failed".into()), Kind::Error),
