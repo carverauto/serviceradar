@@ -29,6 +29,9 @@ pub enum TopologyErrorEnum {
     Connect { target: String, reason: String },
     /// A Dgraph operation failed.
     Dgraph(String),
+    /// A Dgraph operation failed in a way a fresh attempt may not: a transport
+    /// failure, an aborted transaction, or a cluster that is still starting.
+    Transient(String),
     /// Response JSON was not the expected shape.
     Serde(String),
     /// A caller value cannot be placed in DQL (quote or newline).
@@ -64,6 +67,32 @@ impl TopologyError {
     #[must_use]
     pub fn Dgraph(reason: String) -> Self {
         Self::new(TopologyErrorEnum::Dgraph(reason))
+    }
+
+    #[allow(non_snake_case)]
+    #[must_use]
+    pub fn Transient(reason: String) -> Self {
+        Self::new(TopologyErrorEnum::Transient(reason))
+    }
+
+    /// Classify a failed Dgraph RPC, keeping the client's own retryability
+    /// verdict instead of re-deriving it from message text later.
+    pub(crate) fn from_dgraph(err: &dgraph_client::DgraphError) -> Self {
+        if err.is_transport() || err.is_aborted() || err.is_cluster_not_ready() {
+            Self::Transient(err.to_string())
+        } else {
+            Self::Dgraph(err.to_string())
+        }
+    }
+
+    /// Whether a fresh attempt of the same operation may succeed. Connection
+    /// failures count: the cluster may be restarting or briefly unreachable.
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self.0,
+            TopologyErrorEnum::Transient(_) | TopologyErrorEnum::Connect { .. }
+        )
     }
 
     #[allow(non_snake_case)]

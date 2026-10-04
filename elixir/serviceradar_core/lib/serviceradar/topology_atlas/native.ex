@@ -12,7 +12,10 @@ defmodule ServiceRadar.TopologyAtlas.Native do
   def add_relations(_builder, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def add_inventory(_builder, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def finish_world(_builder), do: :erlang.nif_error(:nif_not_loaded)
-  def read_graph(_url, _stale_cutoff), do: :erlang.nif_error(:nif_not_loaded)
+  # Asynchronous: `{:ok, ref, handle}` now, the graph later as a
+  # `:dgraph_nif_reply` message (see ServiceRadar.Dgraph.Call).
+  def read_graph(_url, _stale_cutoff, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+  def cancel_read(_handle), do: :erlang.nif_error(:nif_not_loaded)
   def reconcile(_builder, _graph), do: :erlang.nif_error(:nif_not_loaded)
   def candidate_info(_candidate), do: :erlang.nif_error(:nif_not_loaded)
   def world_info(_world), do: :erlang.nif_error(:nif_not_loaded)

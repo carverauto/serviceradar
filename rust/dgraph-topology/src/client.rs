@@ -729,7 +729,7 @@ impl TopologyClient {
         let response = txn
             .upsert(query, vec![mutation], true)
             .await
-            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
+            .map_err(|err| TopologyError::from_dgraph(&err))?;
         serde_json::from_slice(response.json()).map_err(|err| TopologyError::Serde(err.to_string()))
     }
 
@@ -742,7 +742,7 @@ impl TopologyClient {
             .new_read_only_txn()
             .query(query)
             .await
-            .map_err(|err| TopologyError::Dgraph(err.to_string()))?;
+            .map_err(|err| TopologyError::from_dgraph(&err))?;
         serde_json::from_slice(response.json()).map_err(|err| TopologyError::Serde(err.to_string()))
     }
 }

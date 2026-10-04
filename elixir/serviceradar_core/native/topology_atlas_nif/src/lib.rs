@@ -1,7 +1,11 @@
 //! Bounded Rustler boundary for persisted topology worlds. Builders and source
 //! snapshots are single-use; candidates and installed worlds are immutable.
 
+#[cfg(panic = "abort")]
+compile_error!("topology_atlas_nif requires panic=unwind to contain native panics");
+
 mod admission;
+mod async_read;
 mod details;
 mod health;
 mod model;
@@ -12,7 +16,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use dgraph_topology::{TopologyClient, TopologyView};
+use dgraph_topology::TopologyView;
 use rustler::{
     types::list::ListIterator, Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource,
     ResourceArc, Term,
@@ -244,27 +248,6 @@ fn runtime() -> Result<&'static Runtime> {
     RUNTIME
         .get()
         .ok_or_else(|| "graph runtime unavailable".into())
-}
-
-#[rustler::nif(schedule = "DirtyIo")]
-fn read_graph(env: Env<'_>, url: String, stale_cutoff: String) -> Term<'_> {
-    crate::admission::call(env, &crate::admission::GRAPH_READ, || {
-        reply(
-            env,
-            isolate(|| {
-                if url.trim().is_empty() {
-                    return Err("dgraph url is not configured".into());
-                }
-                let graph = runtime()?
-                    .block_on(async {
-                        let client = TopologyClient::connect(&url).await?;
-                        client.query_topology_view(&stale_cutoff).await
-                    })
-                    .map_err(|_| "topology view read failed")?;
-                Ok(ResourceArc::new(GraphResource(Mutex::new(Some(graph)))))
-            }),
-        )
-    })
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]

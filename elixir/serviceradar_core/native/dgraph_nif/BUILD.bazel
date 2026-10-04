@@ -43,7 +43,10 @@ rust_shared_library(
     # loads and then fails with
     #   {:bad_lib, "Failed to find library init function: dlsym(..., _nif_init)"}
     rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
-    rustc_flags = select({
+    # Explicit, not inherited: rules_rs ignores the Cargo [profile] (whose release
+    # panic = "abort" would turn every catch_unwind here into a BEAM abort). The
+    # crate root rejects panic=abort at compile time as well.
+    rustc_flags = ["-Cpanic=unwind"] + select({
         "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
         "//conditions:default": [],
     }),

@@ -136,7 +136,7 @@ async fn scan<T: DeserializeOwned, U>(
                 page_size /= 2;
                 continue;
             }
-            Err(error) => return Err(TopologyError::Dgraph(error.to_string())),
+            Err(error) => return Err(TopologyError::from_dgraph(&error)),
         };
         if response.aborted()
             || response

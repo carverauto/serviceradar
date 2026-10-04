@@ -12,7 +12,7 @@ dgraph-topology = { path = "../../../../rust/dgraph-topology" }
 rustler = { workspace = true, features = ["nif_version_2_15"] }
 serviceradar-topology-atlas = { path = "../../../../rust/topology-atlas" }
 sha2 = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }
