@@ -656,7 +656,7 @@ The visual editor supports canvas and raw JSON. See [Rule Builder](./rule-builde
 This page configures **AlienVault OTX** collection and matching against recent
 flows:
 
-1. Enable OTX and store a **core OTX API key** where prompted.
+1. Enable OTX and select a **Core OTX credential** where prompted.
 2. Ensure an **approved AlienVault OTX** plugin package exists; assign the edge
    collector to an agent that can reach OTX (Wasm plugin assignment).
 3. Queue **OTX sync** and confirm indicators appear in local inventory counts.
