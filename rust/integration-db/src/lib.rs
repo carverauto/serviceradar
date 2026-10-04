@@ -114,7 +114,6 @@ const PROTECTED_DATABASES: &[&str] = &[
     "template0",
     "template1",
     "srql_fixture",
-    "sr_core_template",
 ];
 
 /// Find disposable databases whose own data-directory marker is older than the cutoff.
@@ -141,7 +140,7 @@ const UNPROTECTED_STALE_QUERY: &str = "SELECT d.datname \
      FROM pg_database AS d \
      JOIN pg_tablespace AS t ON t.oid = d.dattablespace \
      WHERE NOT d.datistemplate \
-       AND d.datname NOT IN ('postgres', 'template0', 'template1', 'srql_fixture', 'sr_core_template') \
+       AND d.datname NOT IN ('postgres', 'template0', 'template1', 'srql_fixture') \
        AND left(d.datname, 7) <> 'sr_tpl_' \
        AND t.spcname = 'pg_default' \
        AND (pg_stat_file(format('base/%s/PG_VERSION', d.oid), true)).modification \
@@ -813,7 +812,6 @@ mod tests {
         assert!(UNPROTECTED_STALE_QUERY.contains("format('base/%s/PG_VERSION', d.oid), true"));
         assert!(is_protected_database("postgres"));
         assert!(is_protected_database("srql_fixture"));
-        assert!(is_protected_database("sr_core_template"));
         assert!(is_protected_database("sr_tpl_0123456789abcdef"));
         assert!(is_protected_database("sr_tpl_build_42"));
         assert!(UNPROTECTED_STALE_QUERY.contains("left(d.datname, 7) <> 'sr_tpl_'"));

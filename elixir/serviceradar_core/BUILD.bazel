@@ -770,8 +770,8 @@ test_suite(
 #
 # The retired shared-template targets (:migrate_template, :migrate_run) that once sat here
 # are deleted with the legacy lifecycle; //build/contracts:ci_heavy_gate_contract_test fails
-# if either reappears. The frozen `sr_core_template` database stays protected until its
-# approved drop.
+# if either reappears. The frozen `sr_core_template` database itself was dropped on
+# 2026-10-04 (#4856).
 #
 # `external` disables Bazel's test caching. Without it a rerun would be a cache hit that
 # applied no migrations -- a green job that changed nothing. `manual` keeps it out of //...

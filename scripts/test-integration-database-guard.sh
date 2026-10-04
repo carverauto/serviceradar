@@ -19,8 +19,8 @@
 #     rust/integration-db/src/lib.rs  `like_prefix/1`
 #       escapes `_` so the sweep's LIKE pattern cannot match wider than it reads.
 #     rust/integration-db/src/lib.rs  `PROTECTED_DATABASES`
-#       names the shared fixture plus the frozen `sr_core_template` rollback database, so
-#       neither teardown nor the sweep can drop them.
+#       names the shared fixture and the Postgres templates, so neither teardown nor the
+#       sweep can drop them (template generations are reserved by the `sr_tpl_` prefix).
 #
 #   Covered by unit tests in the same files -- `assert_disposable_rejects_the_shared_fixture`,
 #   `like_prefix_escapes_the_underscore_wildcard` and `unprotected_stale_query_excludes_the_shared_fixture`

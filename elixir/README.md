@@ -414,7 +414,7 @@ forces a drop. Changing the policy changes the digest.
 #### `sr_core_template` is retired
 
 The legacy singleton's targets and authority setting are deleted, and the test database guard
-rejects the name. The frozen database remains on the fixture only until its approved drop. The
+rejects the name. The frozen database was dropped from the fixture on 2026-10-04. The
 retirement and rollback prerequisites are owned by
 [the SRQL fixture runbook](../docs/agent-runbooks.md#srql-fixture-integration-tests).
 

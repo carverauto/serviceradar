@@ -129,7 +129,7 @@ rust_test(
 # reset_template and, on the Elixir side, migrate_template/migrate_run) is gone: every database
 # this crate creates is a clone of the run's pinned immutable `sr_tpl_*` generation, and
 # //build/contracts:ci_heavy_gate_contract_test fails if any retired target reappears. The
-# frozen `sr_core_template` database itself stays protected until its approved drop.
+# frozen `sr_core_template` database itself was dropped on 2026-10-04 (#4856).
 #
 [
     rust_test(

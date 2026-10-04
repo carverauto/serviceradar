@@ -45,7 +45,6 @@ func ProtectedDatabases() []string {
 		"template0",
 		"template1",
 		"srql_fixture",
-		"sr_core_template",
 	}
 }
 

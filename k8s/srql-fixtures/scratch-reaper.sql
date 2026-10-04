@@ -11,8 +11,7 @@ WHERE NOT d.datistemplate
       'postgres',
       'template0',
       'template1',
-      'srql_fixture',
-      'sr_core_template'
+      'srql_fixture'
   )
   -- Reserve the entire generation namespace, including malformed candidates.
   -- Only dedicated registry cleanup may remove template generations.

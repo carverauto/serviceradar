@@ -690,10 +690,9 @@ them, and the run-base targets that fed from it (`//rust/integration-db:provisio
 `//build/contracts:ci_heavy_gate_contract_test` fails if any of them, or their sources, come
 back. Writing a shared singleton from a branch is exactly what once left seven unmerged
 migrations in it and turned every other pull request red. The test database guard rejects
-`sr_core_template` in every mode. The database itself still exists on the fixture, frozen, and
-stays in every protected-name list until its separately approved drop
-(`openspec/changes/retire-legacy-shared-template`, tasks sections 4-5). It is not a rollback by
-itself: going back to the singleton lifecycle means reverting the retirement code first to
+`sr_core_template` in every mode. The database itself was dropped from the fixture on
+2026-10-04 and removed from the protected-name lists
+(`openspec/changes/retire-legacy-shared-template`, tasks sections 4-5). Going back to the singleton lifecycle means reverting the retirement code first to
 restore the targets and their guards, then restoring the callers.
 
 For a one-lane loop, `//rust/integration-db:provision_generation_<lane>` clones only that

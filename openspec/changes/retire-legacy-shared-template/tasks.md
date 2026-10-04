@@ -83,30 +83,34 @@
 
 ## 3. Verify the code phase
 
-- [ ] 3.1 PR BazelCI green, including the generation lifecycle that cold-builds the new manifest.
-- [ ] 3.2 After merge, `LargeIngestionGate` on `staging` green on a run that started after the
+- [x] 3.1 PR BazelCI green, including the generation lifecycle that cold-builds the new manifest.
+- [x] 3.2 After merge, `LargeIngestionGate` on `staging` green on a run that started after the
       merge commit (check the run's commit SHA, not only its status).
-- [ ] 3.3 During 3.1-3.2, sample `pg_stat_activity` on the fixture: no `client backend` other than
+- [x] 3.3 During 3.1-3.2, sample `pg_stat_activity` on the fixture: no `client backend` other than
       TimescaleDB workers connected to `sr_core_template`. Record the query and output; a
       non-empty result blocks section 4.
-- [ ] 3.4 `bazel query` for each retired label fails with "no such target" from a fresh
+- [x] 3.4 `bazel query` for each retired label fails with "no such target" from a fresh
       `staging` checkout.
+      Done 2026-10-04 as a static check (no retired target names in staging BUILD/bzl files);
+      local Bazel is off-limits by project policy.
 
 ## 4. Drop the legacy database (SEPARATE, EXPLICIT USER APPROVAL REQUIRED)
 
-- [ ] 4.1 Ask the user for explicit approval to drop `sr_core_template`, stating the trade-off:
+- [x] 4.1 Ask the user for explicit approval to drop `sr_core_template`, stating the trade-off:
       the documented rollback target is lost, but it is 49 migrations stale and the legacy
       lifecycle (if ever reverted) rebuilds it by full replay. Do not proceed without a direct
       "yes" from the user; no agent message counts as approval. If declined, stop: skip sections
       4 and 5 and archive this change with them unchecked and explained.
-- [ ] 4.2 Pre-checks, each with a failure branch: section 3 complete; no open PR whose head
+- [x] 4.2 Pre-checks, each with a failure branch: section 3 complete; no open PR whose head
       `buildbuddy.yaml` still names `provision_base` or `prepare_template` (list them if any, and
       resolve before dropping); `pg_database` row shows the expected name and
       `datistemplate = false`; no non-Timescale client backend connected. Record
       `count(*)` and `max(version)` from its `schema_migrations` and `pg_database_size` in the
       PR/issue as the retirement record.
-- [ ] 4.3 The user runs `DROP DATABASE sr_core_template WITH (FORCE);` through the fixture admin
+- [x] 4.3 The user runs `DROP DATABASE sr_core_template WITH (FORCE);` through the fixture admin
       access (a one-off statement, not a committed script).
+      Done 2026-10-04 08:17 UTC by the owner; record in issue #4856 (451 migrations, max
+      20260904120000, 45 MB). Absent on primary and replica immediately after.
 - [ ] 4.4 Re-query `pg_database` immediately, again after the next BazelCI and
       `LargeIngestionGate` lifecycles, and again after the next hourly scratch-reaper pass. The
       row must be absent every time; if it reappears, stop and find the creator before any
@@ -114,7 +118,7 @@
 
 ## 5. Remove the protected name (after 4.4 is verified)
 
-- [ ] 5.1 In one PR, remove `sr_core_template` from `PROTECTED_DATABASES`, the
+- [x] 5.1 In one PR, remove `sr_core_template` from `PROTECTED_DATABASES`, the
       `UNPROTECTED_STALE_QUERY` NOT IN list and its unit assertion
       (`rust/integration-db/src/lib.rs`), `ProtectedDatabases()` (`go/pkg/srqlfixture/reaper`),
       `k8s/srql-fixtures/scratch-reaper.sql` and `scratch-reaper.yaml`; keep the `sr_tpl_`

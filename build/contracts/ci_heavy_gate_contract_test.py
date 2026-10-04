@@ -2284,8 +2284,8 @@ class RetiredLegacyTemplateLifecycleContractTest(unittest.TestCase):
     The failure this contract prevents was silent and fleet-wide: a branch ratcheting shared
     schema state that every other branch clones. Every CI database lifecycle now builds
     immutable per-digest sr_tpl_* generations; the retired targets, their sources, and the
-    authority flag that gated them must not come back while the frozen `sr_core_template`
-    database still exists.
+    authority flag that gated them must not come back. (The frozen `sr_core_template`
+    database they wrote was dropped on 2026-10-04.)
     """
 
     retired_targets = (
