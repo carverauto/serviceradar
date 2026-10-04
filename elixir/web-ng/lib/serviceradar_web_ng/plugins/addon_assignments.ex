@@ -87,9 +87,17 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   Re-pushing an add-on that an agent already has must not collide with the
   one-enabled-assignment-per-(agent, add-on) invariant. Resolve the existing
   assignment for `agent_uid` + `addon_id` (the denormalized dedup key) and update
-  it in place — re-enabling and accepting the new package/params/args, which also
-  covers upgrading to a newer package version of the same add-on — otherwise
+  it in place, re-enabling it and accepting the caller's params/args; otherwise
   create a fresh assignment.
+
+  A different package of the same add-on is not swapped in place. It starts a
+  health-gated rollout, and the current package stays authoritative until that
+  rollout promotes the candidate (see docs/docs/native-addons.md, "Lifecycle").
+  The caller's params, args and other settings still apply to the assignment
+  immediately; they are written after the rollout has snapshotted the previous
+  params/args, so a rollback restores the configuration the stable package ran
+  with. The returned assignment therefore carries the new settings and the still
+  authoritative package.
   """
   @spec upsert(String.t(), map(), keyword()) ::
           {:ok, AddonAssignment.t()} | {:error, term()}
@@ -149,6 +157,14 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
         "rollout_policy"
       ])
 
+    # Everything the caller asked for except the package itself, which only the
+    # rollout may change.
+    settings_attrs =
+      attrs
+      |> Map.drop([:agent_uid, "agent_uid", :addon_package_id, "addon_package_id"])
+      |> Map.drop(Map.keys(policy_attrs))
+      |> Map.put(:enabled, true)
+
     with {:ok, updated_assignment} <- update(assignment.id, policy_attrs, opts),
          {:ok, %AddonPackage{} = candidate} <- read_package(package_id, scope),
          {:ok, _rollout} <-
@@ -156,7 +172,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
              actor: actor,
              trigger: :manual
            ) do
-      {:ok, updated_assignment}
+      update(updated_assignment.id, settings_attrs, opts)
     end
   end
 

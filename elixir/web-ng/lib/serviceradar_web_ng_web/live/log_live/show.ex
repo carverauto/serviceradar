@@ -282,6 +282,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.log_message_hero log={@log} body_mode={@body_mode} />
+              <.log_ingest_identity log={@log} />
               <.log_attributes_panel log={@log} />
               <.signal_display_panel
                 :if={is_list(@signal_display)}
@@ -923,6 +924,42 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             >
               {format_attribute_value(key, value)}
             </span>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :log, :map, required: true
+
+  # Collector attribution recorded at ingest (SPIFFE identity, agent, partition).
+  # Only fields that carry a value render; the section is omitted when none do.
+  defp log_ingest_identity(assigns) do
+    fields =
+      Enum.reject(
+        [
+          %{id: "log-ingest-identity", label: "SPIFFE ID", value: Map.get(assigns.log, "ingest_identity")},
+          %{id: "log-ingest-agent", label: "Agent", value: Map.get(assigns.log, "ingest_agent_id")},
+          %{id: "log-ingest-partition", label: "Partition", value: Map.get(assigns.log, "ingest_partition")}
+        ],
+        fn field -> blank_value?(field.value) end
+      )
+
+    assigns = assign(assigns, :fields, fields)
+
+    ~H"""
+    <div :if={@fields != []} class="space-y-2">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+        Ingest Identity
+      </span>
+      <div class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface">
+        <div class="grid grid-cols-1 divide-y divide-sr-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div :for={field <- @fields} id={field.id} class="flex min-w-0 flex-col gap-1 px-4 py-3">
+            <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+              {field.label}
+            </span>
+            <span class="break-all font-mono text-sm text-sr-ink">{field.value}</span>
           </div>
         </div>
       </div>

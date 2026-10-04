@@ -1,13 +1,17 @@
 defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+  import ServiceRadarWebNG.AshTestHelpers, only: [gateway_fixture: 1, system_actor: 0]
 
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonProfile
+  alias ServiceRadar.Plugins.AddonRollout
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.AddonAssignments
+
+  require Ash.Query
 
   @moduletag :web_ng_shared_fixture_db
 
@@ -15,6 +19,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
     addon_id = unique_addon_id("upsert")
     agent_uid = "agent-addon-upsert-#{System.unique_integer([:positive])}"
     scope = Scope.for_user(%{id: "admin-addon-upsert", email: "admin@example.test", role: :admin})
+    connected_agent!(agent_uid)
     old_package = addon_id |> create_addon_package!("1.0.0") |> approve_package!()
 
     assignment =
@@ -24,7 +29,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
         enabled: false
       )
 
-    new_package = addon_id |> create_addon_package!("1.0.1") |> approve_package!()
+    new_package =
+      addon_id |> create_addon_package!("1.0.1", platform_artifact()) |> approve_package!()
 
     assert {:ok, updated} =
              AddonAssignments.upsert(
@@ -42,15 +48,16 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
     assert updated.id == assignment.id
     assert updated.agent_uid == agent_uid
     assert updated.addon_id == addon_id
-    assert updated.addon_package_id == new_package.id
     assert updated.args == ["--new"]
     assert updated.params == %{"capture" => true}
     assert updated.enabled == true
+    assert_upgrade_rolling_out(updated, old_package, new_package)
   end
 
   test "upsert threads actor options when no UI scope is present" do
     addon_id = unique_addon_id("system-upsert")
     agent_uid = "agent-addon-system-upsert-#{System.unique_integer([:positive])}"
+    connected_agent!(agent_uid)
     old_package = addon_id |> create_addon_package!("1.0.0") |> approve_package!()
 
     assignment =
@@ -60,7 +67,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
         enabled: true
       )
 
-    new_package = addon_id |> create_addon_package!("1.0.1") |> approve_package!()
+    new_package =
+      addon_id |> create_addon_package!("1.0.1", platform_artifact()) |> approve_package!()
 
     assert {:ok, updated} =
              AddonAssignments.upsert(
@@ -75,9 +83,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
              )
 
     assert updated.id == assignment.id
-    assert updated.addon_package_id == new_package.id
     assert updated.args == ["--new"]
     assert updated.params == %{"enabled" => true}
+    assert_upgrade_rolling_out(updated, old_package, new_package)
   end
 
   test "upsert and profiles reject blob-missing approved packages" do
@@ -169,7 +177,55 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
 
   defp unique_addon_id(prefix), do: "addon-assignment-#{prefix}-#{System.unique_integer([:positive])}"
 
-  defp create_addon_package!(addon_id, version) do
+  # A different package is delivered by a health-gated rollout, never swapped in
+  # place: the stable package stays authoritative and the rollout carries the
+  # candidate. The rollout snapshots the configuration it may roll back to.
+  defp assert_upgrade_rolling_out(updated, old_package, new_package) do
+    assert updated.addon_package_id == old_package.id
+
+    assert [rollout] =
+             AddonRollout
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(source_id == ^updated.id)
+             |> Ash.read!(actor: system_actor())
+
+    assert rollout.candidate_package_id == new_package.id
+    assert rollout.previous_package_id == old_package.id
+  end
+
+  # Rollouts only target an agent that is connected, recently seen, and has a
+  # candidate artifact for its platform.
+  defp connected_agent!(agent_uid) do
+    gateway = gateway_fixture(%{})
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: agent_uid,
+        name: "Upsert Agent #{agent_uid}",
+        gateway_id: gateway.id,
+        version: "1.0.0",
+        type_id: 4,
+        type: "Performance",
+        capabilities: ["agent"],
+        metadata: %{"os" => "linux", "arch" => "amd64"}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  defp platform_artifact do
+    %{
+      "linux/amd64" => %{
+        "object_key" => "native-addons/upsert-test/linux-amd64.tar.gz",
+        "sha256" => String.duplicate("d", 64)
+      }
+    }
+  end
+
+  defp create_addon_package!(addon_id, version, artifacts \\ %{}) do
     AddonPackage
     |> Ash.Changeset.for_create(
       :create,
@@ -185,7 +241,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
         install_path: "/usr/local/lib/serviceradar/bin",
         capabilities: ["addon.run"],
         config_schema: %{},
-        artifacts: %{},
+        artifacts: artifacts,
         requires: %{},
         source_type: :first_party,
         source_oci_ref: "registry.carverauto.dev/serviceradar/addon:test",

@@ -320,7 +320,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   end
 
   test "renders honest empty states for feeds that are not implemented yet", %{conn: conn} do
+    # The shared-fixture lane can hold OCSF events committed by other tests.
+    # Clear the default events window (last_24h, raw-table path) inside this
+    # test's sandbox transaction; the rollback restores them afterwards.
+    Repo.query!("DELETE FROM platform.ocsf_events WHERE time >= now() - interval '25 hours'", [])
+
     {:ok, view, _html} = live(conn, ~p"/dashboard")
+
+    # Wait for every dashboard slice, including the events window, to finish
+    # loading so the empty state is asserted on hydrated data, not the mount.
+    _html = render_async(view, 10_000)
 
     assert has_element?(view, "[data-testid='traffic-map-empty']")
     assert has_element?(view, "[data-testid='security-events-empty']", "No event trend data")

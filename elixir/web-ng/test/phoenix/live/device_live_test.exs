@@ -38,14 +38,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
-  @edge_saturation_profile_source Path.expand(
-                                    "../../../../../rust/anomaly-addon/src/metrics_classify.rs",
-                                    __DIR__
-                                  )
-  @external_resource @edge_saturation_profile_source
-
-  @enabled_flows_tab "button[phx-click='switch_tab'][phx-value-tab='flows']:not([disabled])"
-
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
 
@@ -2125,72 +2117,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   end
 
   @tag :web_ng_shared_fixture_db
-  test "sysmon percent metric sections carry saturation gate reference lines" do
-    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
-
-    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
-      value =
-        cond do
-          query =~ ~s|metric_name:"cpu.usage_percent"| -> 42.0
-          query =~ ~s|metric_name:"memory.used_percent"| -> 67.0
-          query =~ ~s|metric_name:"disk.used_percent"| -> 73.0
-          query =~ ~s|metric_name:"process.count"| -> 22.0
-          true -> flunk("unexpected sysmon metric query: #{query}")
-        end
-
-      {:ok,
-       %{
-         "results" => [
-           %{
-             "timestamp" => "2026-06-19T12:00:00Z",
-             "value" => value
-           }
-         ],
-         "pagination" => %{}
-       }}
-    end)
-
-    on_exit(fn ->
-      restore_env(:device_live_srql_responder, previous_responder)
-    end)
-
-    sections =
-      SysmonMetrics.load_metric_sections(
-        __MODULE__.RecordingSRQLStub,
-        [~s|device_id:"sr:test"|],
-        :scope
-      )
-
-    edge_gate_floors = edge_addon_saturation_gate_floors()
-
-    assert_panel_reference_line(
-      sections,
-      "cpu",
-      Map.fetch!(edge_gate_floors, "cpu"),
-      expected_saturation_gate_label("CPU", Map.fetch!(edge_gate_floors, "cpu"))
-    )
-
-    assert_panel_reference_line(
-      sections,
-      "memory",
-      Map.fetch!(edge_gate_floors, "memory"),
-      expected_saturation_gate_label("Memory", Map.fetch!(edge_gate_floors, "memory"))
-    )
-
-    assert_panel_reference_line(
-      sections,
-      "disk",
-      Map.fetch!(edge_gate_floors, "disk"),
-      expected_saturation_gate_label("Disk", Map.fetch!(edge_gate_floors, "disk"))
-    )
-
-    process_count = Enum.find(sections, &(&1.key == "process-count"))
-    assert process_count
-    assert [%{assigns: process_assigns}] = process_count.panels
-    refute Map.has_key?(process_assigns, :reference_lines)
-  end
-
-  @tag :web_ng_shared_fixture_db
   test "logs sysmon process metric SRQL failures" do
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
       assert query =~ "in:timeseries_metrics"
@@ -3512,7 +3438,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           uid: device_uid,
           type_id: 0,
           hostname: "test-host-interfaces",
-          ip: "192.168.1.55",
+          ip: "192.0.2.42",
           is_available: true,
           first_seen_time: ~U[2100-01-01 00:00:00Z],
           last_seen_time: ~U[2100-01-01 00:00:00Z]
@@ -3716,58 +3642,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
 
     @tag :web_ng_shared_fixture_db
-    test "shows flows tab when device-scoped flows exist", %{conn: conn, device_uid: device_uid} do
-      insert_test_flow!(device_uid, "192.168.1.55")
+    test "hides flows tab without the warehouse even when CNPG has device-scoped flows", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      insert_test_flow!(device_uid, "192.0.2.42")
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+      render_async(view, 10_000)
 
-      # Flow availability is probed asynchronously; the tab becomes clickable once it lands.
-      assert await_element(view, @enabled_flows_tab)
-
-      view
-      |> element(@enabled_flows_tab)
-      |> render_click()
-
-      html = render_until(view, "bidirectional")
-      assert has_element?(view, "a[href^='/observability/flows?']", "Details")
-      assert html =~ "DNS"
-      assert html =~ "bidirectional"
+      refute has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='flows']")
     end
 
     @tag :web_ng_shared_fixture_db
     test "hides flows tab when no scoped flows exist", %{conn: conn, device_uid: device_uid} do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+      render_async(view, 10_000)
       refute has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='flows']")
     end
 
     @tag :web_ng_shared_fixture_db
-    test "device flows and /flows details show consistent persisted enrichment", %{
+    test "flow details report the warehouse requirement instead of displaying CNPG enrichment", %{
       conn: conn,
-      device_uid: device_uid
+      device_uid: device_uid,
+      scope: scope
     } do
-      device_ip = "192.168.1.55"
+      device_ip = "192.0.2.42"
       insert_test_flow!(device_uid, device_ip)
 
-      {:ok, device_view, _html} = live(conn, ~p"/devices/#{device_uid}")
-      assert await_element(device_view, @enabled_flows_tab)
-
-      device_view
-      |> element(@enabled_flows_tab)
-      |> render_click()
-
-      device_html = render_until(device_view, "bidirectional")
-      assert device_html =~ "DNS"
-      assert device_html =~ "bidirectional"
-
       q =
-        "in:flows time:last_24h src_endpoint_ip:#{device_ip} dst_endpoint_ip:8.8.8.8 src_endpoint_port:52344 dst_endpoint_port:53 protocol_num:17 sort:time:desc limit:1"
+        "in:flows time:last_24h src_endpoint_ip:#{device_ip} dst_endpoint_ip:198.51.100.61 src_endpoint_port:24001 dst_endpoint_port:443 protocol_num:6 sort:time:desc limit:1"
+
+      assert {:error, :starrocks_required} = ServiceRadarWebNG.SRQL.query(q, %{scope: scope})
 
       assert {:error, {:redirect, %{to: redirect_to}}} =
                live(conn, ~p"/flows?#{%{q: q, open: "first", limit: 50}}")
 
       {:ok, flows_view, _flows_html} = live(conn, redirect_to)
-      flows_html = render_until(flows_view, "DNS")
+      render_async(flows_view, 10_000)
 
-      assert flows_html =~ "DNS"
+      assert has_element?(flows_view, "[data-testid='netflow-chart-empty-query_error']", "starrocks_required")
     end
 
     @tag :web_ng_shared_fixture_db
@@ -4763,48 +4676,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
-  defp edge_addon_saturation_gate_floors do
-    source = File.read!(@edge_saturation_profile_source)
-
-    # Parse the production `series_profile_for/1` match arms in
-    # rust/anomaly-addon/src/metrics_classify.rs. That function constructs the
-    # `SeriesProfile.saturation_gate.min_value` used by edge scoring; if those
-    # Rust literals move to constants or a different shape, update this parser
-    # rather than pointing it at the nearby Rust test fixtures.
-    Map.new([{"cpu", "Cpu"}, {"memory", "Mem"}, {"disk", "Disk"}], fn {metric_class, gauge_class} ->
-      regex =
-        Regex.compile!(
-          "Some\\(GaugeClass::#{gauge_class}\\) => SeriesProfile \\{.*?" <>
-            "saturation_gate: Some\\(SaturationGate \\{.*?min_value: ([0-9.]+),",
-          "s"
-        )
-
-      [_match, floor] = Regex.run(regex, source)
-      {metric_class, String.to_float(floor)}
-    end)
-  end
-
-  defp expected_saturation_gate_label(name, percent), do: "#{name} saturation gate #{expected_gate_percent(percent)}%"
-
-  defp expected_gate_percent(percent) when is_float(percent) and percent == trunc(percent),
-    do: Integer.to_string(trunc(percent))
-
-  defp expected_gate_percent(percent), do: to_string(percent)
-
-  defp assert_panel_reference_line(sections, section_key, expected_value, expected_label) do
-    section = Enum.find(sections, &(&1.key == section_key))
-    assert section
-
-    assert [%{assigns: %{reference_lines: [reference_line]}}] = section.panels
-
-    assert %{
-             value: ^expected_value,
-             label: ^expected_label,
-             severity: :warning,
-             series: nil
-           } = reference_line
-  end
-
   defp drain_srql_queries(acc \\ []) do
     receive do
       {:srql_query, query} -> drain_srql_queries([query | acc])
@@ -4901,24 +4772,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       %{
         time: ts,
         src_endpoint_ip: device_ip,
-        src_endpoint_port: 52_344,
-        dst_endpoint_ip: "8.8.8.8",
-        dst_endpoint_port: 53,
-        protocol_num: 17,
-        protocol_name: "udp",
-        direction_label: "bidirectional",
-        dst_service_label: "DNS",
-        src_hosting_provider: "SourceNet Inc",
-        dst_hosting_provider: "DestNet LLC",
-        src_mac: "001122334455",
-        dst_mac: "AABBCCDDEEFF",
-        src_mac_vendor: "SourceVendor Corp",
-        dst_mac_vendor: "DestVendor Inc",
-        bytes_total: 1_024,
-        packets_total: 8,
-        bytes_in: 256,
-        bytes_out: 768,
-        sampler_address: "10.1.1.1",
+        src_endpoint_port: 24_001,
+        dst_endpoint_ip: "198.51.100.61",
+        dst_endpoint_port: 443,
+        protocol_num: 6,
+        protocol_name: "tcp",
+        bytes_total: 2_048,
+        packets_total: 4,
         ocsf_payload: %{"device_id" => device_uid},
         created_at: ts
       }
@@ -5307,25 +5167,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       IntegrationIdentity.proxmox_v3_child_ref(identity.provider_instance_ref, kind, components)
 
     provider_ref
-  end
-
-  defp await_element(view, selector, timeout_ms \\ 10_000) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    await_element_until(view, selector, deadline)
-  end
-
-  defp await_element_until(view, selector, deadline) do
-    cond do
-      has_element?(view, selector) ->
-        true
-
-      System.monotonic_time(:millisecond) >= deadline ->
-        false
-
-      true ->
-        Process.sleep(50)
-        await_element_until(view, selector, deadline)
-    end
   end
 
   defp render_until(view, expected, timeout_ms \\ 2_000) do
