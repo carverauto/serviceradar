@@ -3,6 +3,7 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   Helpers for storing plugin secret-reference params without echoing raw secrets.
   """
 
+  alias ServiceRadar.Credentials.ProxmoxApiToken
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Plugins.MapUtils
@@ -372,70 +373,11 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   defp format_broker_error(reason), do: inspect(reason)
 
   defp format_network_credential_payload(secret, payload) do
-    if proxmox_api_token_secret?(secret) do
-      format_proxmox_api_token(secret, payload)
+    if ProxmoxApiToken.api_token_secret?(secret) do
+      ProxmoxApiToken.format(secret, payload)
     else
       payload
     end
-  end
-
-  defp proxmox_api_token_secret?(secret) do
-    Map.get(secret, :provider) == "proxmox" and Map.get(secret, :credential_kind) == :api_token
-  end
-
-  defp format_proxmox_api_token(secret, payload) do
-    payload = String.trim(payload)
-    token_id = proxmox_token_id(secret)
-    {_payload_token_id, payload_secret} = split_proxmox_api_token_payload(payload)
-
-    cond do
-      String.starts_with?(payload, "PVEAPIToken=") ->
-        String.replace_prefix(payload, "PVEAPIToken=", "")
-
-      token_id in [nil, ""] ->
-        payload
-
-      String.starts_with?(payload, token_id <> "=") ->
-        payload
-
-      payload_secret not in [nil, ""] ->
-        token_id <> "=" <> payload_secret
-
-      true ->
-        token_id <> "=" <> payload
-    end
-  end
-
-  defp split_proxmox_api_token_payload(payload) when is_binary(payload) do
-    case String.split(payload, "=", parts: 2) do
-      [token_id, secret] when token_id != "" and secret != "" ->
-        if String.contains?(token_id, "!") do
-          {token_id, secret}
-        else
-          {nil, nil}
-        end
-
-      _ ->
-        {nil, nil}
-    end
-  end
-
-  defp proxmox_token_id(secret) do
-    metadata = Map.get(secret, :metadata) || %{}
-
-    Enum.find_value(
-      [Map.get(metadata, "token_id"), Map.get(metadata, :token_id), Map.get(secret, :username)],
-      fn
-        value when is_binary(value) ->
-          case String.trim(value) do
-            "" -> nil
-            trimmed -> trimmed
-          end
-
-        _ ->
-          nil
-      end
-    )
   end
 
   defp classify_secret_update(nil, existing_ref, _existing_material)
