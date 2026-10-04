@@ -12,7 +12,11 @@ defmodule ServiceRadarCoreElx.MetricsRouterTest do
   end
 
   test "serves prometheus metrics" do
-    start_supervised!(ServiceRadarCoreElx.Telemetry)
+    # The suite boots this supervisor in test_helper.exs. Starting it again
+    # raises :already_started, and the scrape target is the same reporter.
+    if is_nil(Process.whereis(ServiceRadarCoreElx.Telemetry)) do
+      start_supervised!(ServiceRadarCoreElx.Telemetry)
+    end
 
     conn =
       :get

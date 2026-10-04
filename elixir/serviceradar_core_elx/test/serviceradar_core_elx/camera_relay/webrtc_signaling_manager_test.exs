@@ -112,6 +112,39 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
     end
   end
 
+  # Registers like the real WebRTC sink (an element peer), so when this process
+  # dies the Signaling process stops with its crash reason, exactly as it does
+  # when a viewer's sink crashes in the relay pipeline.
+  defmodule ElementPeerPipelineManagerStub do
+    @moduledoc false
+
+    def add_webrtc_viewer(relay_session_id, viewer_session_id, signaling, _opts) do
+      test_pid = Application.fetch_env!(:serviceradar_core_elx, :camera_relay_webrtc_test_pid)
+
+      element =
+        spawn(fn ->
+          :ok = Signaling.register_element(signaling)
+
+          :ok =
+            Signaling.signal(signaling, %ExWebRTC.SessionDescription{type: :offer, sdp: "v=0\r\nstub-offer"})
+
+          receive do
+            :never -> :ok
+          end
+        end)
+
+      send(test_pid, {:element_peer, viewer_session_id, element})
+      send(test_pid, {:add_webrtc_viewer, relay_session_id, viewer_session_id})
+      :ok
+    end
+
+    def remove_webrtc_viewer(relay_session_id, viewer_session_id) do
+      test_pid = Application.fetch_env!(:serviceradar_core_elx, :camera_relay_webrtc_test_pid)
+      send(test_pid, {:remove_webrtc_viewer, relay_session_id, viewer_session_id})
+      :ok
+    end
+  end
+
   setup do
     previous_fetch_result = Application.get_env(:serviceradar_core_elx, :camera_relay_webrtc_fetch_result)
     previous_test_pid = Application.get_env(:serviceradar_core_elx, :camera_relay_webrtc_test_pid)
@@ -313,6 +346,43 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
 
     assert {:error, :viewer_session_not_found} =
              WebRTCSignalingManager.close_session(relay_session_id, viewer_session_id, server: server_name)
+  end
+
+  test "survives a viewer whose signaling peer crashed and releases only that viewer" do
+    relay_session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    manager =
+      start_supervised!(
+        {WebRTCSignalingManager,
+         name: server_name,
+         session_tracker: SessionTrackerStub,
+         pipeline_manager: ElementPeerPipelineManagerStub,
+         session_ttl_ms: 5_000}
+      )
+
+    assert {:ok, %{viewer_session_id: crashed_viewer}} =
+             WebRTCSignalingManager.create_session(relay_session_id, server: server_name)
+
+    assert {:ok, %{viewer_session_id: other_viewer}} =
+             WebRTCSignalingManager.create_session(relay_session_id, server: server_name)
+
+    assert_receive {:element_peer, ^crashed_viewer, element}
+    Process.exit(element, :sink_crashed)
+
+    assert_receive {:camera_relay_viewer_leave,
+                    %{relay_session_id: ^relay_session_id, viewer_id: ^crashed_viewer, reason: reason}}
+
+    assert reason == "webrtc viewer connection failed"
+    # Same process: one viewer's crash must not restart the manager and drop
+    # every other viewer's session.
+    assert GenServer.whereis(server_name) == manager
+
+    assert {:error, :viewer_session_not_found} =
+             WebRTCSignalingManager.close_session(relay_session_id, crashed_viewer, server: server_name)
+
+    assert {:ok, %{viewer_session_id: ^other_viewer, signaling_state: "closed"}} =
+             WebRTCSignalingManager.close_session(relay_session_id, other_viewer, server: server_name)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)

@@ -102,8 +102,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     _ = :sys.get_state(ViewerRegistry)
 
     assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
-    {:ok, signaling_pid} = Signaling.start_link([])
-    signaling = Signaling.new(signaling_pid)
+    # Unlinked, as production starts it: the Signaling process stops with the
+    # sink's crash reason, and a link would take this test down with it.
+    signaling = Signaling.start()
+    signaling_pid = signaling.pid
     :ok = Signaling.register_peer(signaling, message_format: :json_data, pid: self())
 
     assert :ok =

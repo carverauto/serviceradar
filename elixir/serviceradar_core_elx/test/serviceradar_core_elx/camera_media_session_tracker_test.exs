@@ -154,8 +154,13 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
       %{viewer_count: 0}
     )
 
-    expected_heartbeat_attrs = %{lease_expires_at_unix: _, viewer_count: 0}
-    assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id, ^expected_heartbeat_attrs}
+    assert_receive {
+      :heartbeat_session,
+      ^relay_session_id,
+      ^media_ingest_id,
+      # lease present, no viewers
+      %{lease_expires_at_unix: _, viewer_count: 0}
+    }
 
     assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, viewer_count: 0, termination_kind: nil}}
 
@@ -233,8 +238,13 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
 
     assert session.media_ingest_id == media_ingest_id
 
-    expected_activate_attrs = %{lease_expires_at_unix: _, viewer_count: 0}
-    assert_receive {:activate_session, ^relay_session_id, ^media_ingest_id, ^expected_activate_attrs}
+    assert_receive {
+      :activate_session,
+      ^relay_session_id,
+      ^media_ingest_id,
+      # lease present, no viewers
+      %{lease_expires_at_unix: _, viewer_count: 0}
+    }
   end
 
   test "marks an in-memory relay session closing before terminal teardown" do
