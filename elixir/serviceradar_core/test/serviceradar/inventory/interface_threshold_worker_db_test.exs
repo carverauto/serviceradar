@@ -82,6 +82,15 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     assert event_count(device_id) == 1
   end
 
+  test "run/1 returns {:error, _} when the state persist fails", %{device_id: device_id} do
+    insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
+    insert_metric!(device_id, 900.0)
+
+    Repo.query!("ALTER TABLE platform.interface_threshold_states ADD CONSTRAINT force_fail_test CHECK (false)")
+
+    assert {:error, _} = InterfaceThresholdWorker.run(now: DateTime.utc_now())
+  end
+
   test "evaluation state is kept only while a metric is violating or cooling down", %{
     device_id: device_id
   } do

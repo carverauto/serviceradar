@@ -136,8 +136,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
       settings
       |> evaluate_settings(states, now)
       |> persist_states(states, now)
-
-      :ok
     else
       {:error, reason} = error ->
         Logger.error("Failed to evaluate interface thresholds", reason: inspect(reason))
@@ -444,9 +442,11 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
     delete_states(stale)
     upsert_states(changed, now)
+    :ok
   rescue
     error ->
       Logger.error("Failed to persist interface threshold state", error: inspect(error))
+      {:error, error}
   end
 
   defp idle?(%{violation_started_at: nil} = state, now), do: not in_cooldown?(state, now)
