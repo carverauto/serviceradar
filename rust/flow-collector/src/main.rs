@@ -5,7 +5,6 @@ mod host_slice;
 mod ipfix_tls;
 mod listener;
 mod metrics;
-mod nats_client;
 mod netflow;
 mod publisher;
 mod sflow;
