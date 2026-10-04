@@ -254,6 +254,8 @@ token_id: serviceradar
 
 The stored public identity is `root@pam!serviceradar`; the token secret is encrypted and never rendered back in the UI.
 
+Enter each identity field as a single segment: `user`, `realm`, and `token_id` must not contain `@`, `!`, or `=`. Typing a qualified value such as `serviceradar@pve` into the user field is rejected because it renders an identity Proxmox does not know.
+
 ## Least-Privilege Role
 
 Create a dedicated PVE user and API token for ServiceRadar. Prefer a role that only permits read-only inventory and status collection.

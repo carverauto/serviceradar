@@ -260,7 +260,11 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
           target_id: "device-#{unique}",
           agent_id: "agent-#{unique}",
           resolution_location: :agent,
-          inject: %{"type" => "http_header", "name" => "Authorization", "scheme" => "PVEAPIToken"},
+          inject: %{
+            "type" => "http_header",
+            "name" => "Authorization",
+            "scheme" => "PVEAPIToken"
+          },
           ttl_seconds: 300
         }),
         actor: actor
