@@ -177,14 +177,20 @@ communities masked by NA. The revision ID is reported as `na_config_id`. It
 uses the same service-account credential and `api_url` as inventory, and needs
 these settings:
 
-- `device_id`: the Network Automation device ID sent as `parameters.deviceid`.
-- `device_uid`: the ServiceRadar device UID the revision is recorded against.
+- `devices`: up to 32 entries, each with a Network Automation `device_id`
+  sent as `parameters.deviceid` and the ServiceRadar `device_uid` the
+  revision is recorded against. Retrieval stays disabled until devices are
+  configured. The legacy single-device `device_id` / `device_uid` fields
+  remain supported.
 
 Both may also be set as optional advanced fields in the plugin config;
-per-invocation `input_values` override the configured value, and the target's
+per-invocation `input_values` override the configured value (a single-device
+`input_values` overrides a configured batch), and the target's
 `device_uid` is the last fallback for `device_uid`. A missing ID fails the run
 with `opentext_nom_config_device_id_invalid` or
-`opentext_nom_config_device_uid_invalid`.
+`opentext_nom_config_device_uid_invalid`. See
+[Running-config artifact lifecycle](#running-config-artifact-lifecycle) for
+batch retrieval, staging, and cleanup semantics.
 
 The body is limited to 2 MiB. It is staged as a plugin artifact and is never
 placed in the result details, because status details are viewer-readable. NA
