@@ -177,6 +177,40 @@ tests:
       - failedTemplate:
           errorPattern: requires nats.leafnodes.enabled=true
 
+  - it: rejects a leaf servicePort that differs from the leafnode port
+    template: templates/gateway-api.yaml
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      nats.leafnodes.enabled: true
+      nats.leafnodes.port: 17422
+      gatewayApi.natsLeaf.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: gatewayApi.natsLeaf.servicePort \(7422\) must equal nats.leafnodes.port \(17422\)
+
+  - it: routes a custom leafnode port when the servicePort matches
+    template: templates/gateway-api.yaml
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      nats.leafnodes.enabled: true
+      nats.leafnodes.port: 17422
+      gatewayApi.natsLeaf.enabled: true
+      gatewayApi.natsLeaf.servicePort: 17422
+    asserts:
+      - contains:
+          path: spec.rules[0].backendRefs
+          content:
+            group: ""
+            kind: Service
+            name: serviceradar-nats
+            port: 17422
+            weight: 1
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-nats-leaf
+
   - it: admits envoy pods to the NATS leafnode port only
     template: templates/network-policy.yaml
     set:

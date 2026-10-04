@@ -119,6 +119,7 @@
 {{- $natsLeafServicePort := default (default 7422 (default (dict) (default (dict) .Values.nats).leafnodes).port) $natsLeaf.servicePort -}}
 {{- $natsLeafRouteName := default (printf "%s-nats-leaf" (include "serviceradar.fullname" .)) $natsLeaf.routeName -}}
 {{- $natsLeafParentRefs := default (list) $natsLeaf.parentRefs -}}
+{{- $leafnodesPort := int (default 7422 (default (dict) (default (dict) .Values.nats).leafnodes).port) -}}
 {{- $parentRefs := default (list) $gatewayApi.parentRefs -}}
 {{- $redirectParentRefs := default (list) $gatewayApi.redirectParentRefs -}}
 {{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
@@ -134,6 +135,9 @@
 {{- end }}
 {{- if and $natsLeafEnabled (not (default false (default (dict) (default (dict) .Values.nats).leafnodes).enabled)) }}
 {{- fail "gatewayApi.natsLeaf.enabled=true requires nats.leafnodes.enabled=true" }}
+{{- end }}
+{{- if and $natsLeafEnabled (ne (int $natsLeafServicePort) $leafnodesPort) }}
+{{- fail (printf "gatewayApi.natsLeaf.servicePort (%d) must equal nats.leafnodes.port (%d): the serviceradar-nats Service exposes exactly one leaf port" (int $natsLeafServicePort) $leafnodesPort) }}
 {{- end }}
 {{- if and $managedMode (not (or $httpEnabled $tlsEnabled $syslogEnabled $agentGatewayEnabled $natsLeafEnabled $flowCollectorListenerEnabled $trapdEnabled $bmpCollectorEnabled)) }}
 {{- fail "gatewayApi must expose at least one listener" }}
