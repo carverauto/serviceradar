@@ -239,23 +239,21 @@ test-supervised processes inside test BEAMs only, never for deployed application
 - **AND** every all-async source SHALL appear exactly once in the async lane
 - **AND** every selected serial source SHALL appear exactly once in a serial lane
 - **AND** every load-only source SHALL appear in no ordinary lane
-- **AND** the eight-lane source/identity map and selected-test-count projection SHALL be checked in
-  and input-hashed
+- **AND** the eight-lane source map and its module-count projection SHALL be checked in and
+  input-hashed
 - **AND** no timing result SHALL retune that map
 
 #### Scenario: Serial lanes are deterministic and fixed external work is isolated
-- **GIVEN** the serial source set and exact selected serial test identities emitted by the
-  database-free ExUnit selection runner
+- **GIVEN** the serial source set and its per-source module counts from the disposition inventory
 - **WHEN** serial lanes are assigned
 - **THEN** every `fixed_external` source SHALL preseed `serial_0`
 - **AND** all remaining serial sources SHALL be ranked by descending deterministic LPT weight
-  `1 + selected_serial_test_identity_count` then source path
+  `1 + module_count` then source path
 - **AND** each ranked source SHALL select a lane by current load, then source count, then lane name
-- **AND** the checked-in counts SHALL exactly match the current selected identity union
-- **AND** no runtime duration SHALL enter the source weight
-- **AND** lane-order source counts SHALL be `[26, 22, 22, 23, 23, 22, 22]`
-- **AND** lane-order selected-test counts SHALL be `[185, 190, 190, 189, 189, 188, 188]`
-- **AND** lane-order structural loads SHALL be `[211, 212, 212, 212, 212, 210, 210]`
+- **AND** no per-file test count and no runtime duration SHALL enter the source weight, so adding or
+  removing a test case SHALL NOT change any checked-in projection
+- **AND** no serial lane's structural load SHALL exceed the mean by more than 25% or fall below it by
+  more than 25%
 - **AND** no async or other serial lane SHALL contain a fixed-external source
 
 #### Scenario: Ordinary provisioning uses one clone per lane

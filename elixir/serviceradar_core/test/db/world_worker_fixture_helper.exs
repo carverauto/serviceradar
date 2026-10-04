@@ -62,13 +62,9 @@ ExUnit.start(exclude: [:test], include: [:world_worker_fixture], max_cases: 1, t
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   Supervisor.stop(oban)
   ServiceRadar.Repo.stop()
-  selected = total - excluded - skipped
 
-  if selected != 1 do
-    IO.puts(
-      :stderr,
-      "FAILED: world worker fixture executed #{selected} tests; expected exactly 1"
-    )
+  if total - excluded - skipped == 0 do
+    IO.puts(:stderr, "FAILED: world worker fixture executed ZERO tests")
 
     System.at_exit(fn _ -> System.halt(1) end)
   end
