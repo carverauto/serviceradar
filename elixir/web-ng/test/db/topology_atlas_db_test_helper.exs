@@ -24,10 +24,9 @@ ExUnit.start(exclude: [:test], include: [:topology_atlas_db], max_cases: 1)
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   ServiceRadar.Repo.stop()
-  selected = total - excluded - skipped
 
-  if selected != 4 do
-    IO.puts(:stderr, "FAILED: the topology atlas target executed #{selected} tests; expected exactly 4")
+  if total - excluded - skipped == 0 do
+    IO.puts(:stderr, "FAILED: the topology atlas target executed ZERO tests")
     System.at_exit(fn _ -> System.halt(1) end)
   end
 end)

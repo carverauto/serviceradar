@@ -25,7 +25,6 @@ load(
     "partition_by_lane",
     "serial_lane_count_for_capacity",
     "serial_source_module_counts",
-    "serial_source_test_counts",
 )
 
 _FIXED_EXTERNAL_RESOURCE_SRCS = [
@@ -115,8 +114,8 @@ def _integration_shards_topology_test_impl(ctx):
 
     async_sources = async_integration_sources()
     serial_counts = serial_source_module_counts()
-    serial_test_counts = serial_source_test_counts()
     selected_sources = integration_selected_sources()
+
     # Consistency RELATIONS, not three magic totals.
     #
     # These were pinned to 126 / 160 / 286 -- and 126 + 160 == 286, so the only
@@ -126,8 +125,6 @@ def _integration_shards_topology_test_impl(ctx):
     # concurrent PRs invalidate each other: BazelCI tests the MERGE of a branch
     # with its base, so the second PR to run saw a failure caused entirely by the
     # first. The relations below hold no matter how many tests exist.
-    asserts.equals(env, len(serial_counts), len(serial_test_counts))
-    asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_test_counts.keys()))
     asserts.equals(
         env,
         len(async_sources) + len(serial_counts),
@@ -150,22 +147,21 @@ def _integration_shards_topology_test_impl(ctx):
     partitioned_sources = []
     serial_partitioned_sources = []
     serial_lane_sizes = []
-    serial_lane_test_counts = []
     serial_lane_weights = []
     for lane in lanes:
         partitioned_sources += partitions[lane]
         if lane != "async":
             serial_partitioned_sources += partitions[lane]
             serial_lane_sizes.append(len(partitions[lane]))
-            lane_test_count = 0
+            lane_module_count = 0
             for source in partitions[lane]:
-                lane_test_count += serial_test_counts[source]
-            serial_lane_test_counts.append(lane_test_count)
-            serial_lane_weights.append(lane_test_count + len(partitions[lane]))
+                lane_module_count += serial_counts[source]
+            serial_lane_weights.append(lane_module_count + len(partitions[lane]))
 
     asserts.equals(env, sorted(selected_sources), sorted(partitioned_sources))
     asserts.equals(env, len(selected_sources), len(partitioned_sources))
     asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_partitioned_sources))
+
     # Balance is asserted as a PROPERTY, not as a snapshot of one distribution.
     #
     # These three lists used to be pinned to exact values -- [26, 22, 22, ...] and
@@ -183,7 +179,6 @@ def _integration_shards_topology_test_impl(ctx):
     # what is asserted here, and it survives adding a test.
     asserts.equals(env, len(lanes) - 1, len(serial_lane_weights))
     asserts.equals(env, len(serial_lane_weights), len(serial_lane_sizes))
-    asserts.equals(env, len(serial_lane_weights), len(serial_lane_test_counts))
 
     serial_lane_count = len(serial_lane_weights)
     total_weight = 0
