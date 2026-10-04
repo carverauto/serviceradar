@@ -62,34 +62,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
         </div>
 
-        <div class="space-y-5 p-5">
-          <.anomaly_capacity_skeleton :if={@loading} />
+        <.anomaly_capacity_skeleton :if={@loading} class="p-5" />
 
-          <div :if={not @loading} class="space-y-5">
-            <div
-              :if={Map.get(@overview, :status) == :error}
-              class="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning"
-            >
-              <div class="font-semibold">Some observability queries failed.</div>
-              <div :if={Map.get(@overview, :anomaly_error)} class="mt-1">{@overview.anomaly_error}</div>
-              <div :if={Map.get(@overview, :capacity_error)} class="mt-1">{@overview.capacity_error}</div>
-            </div>
+        <div :if={not @loading} class="space-y-5 p-5">
+          <div
+            :if={@overview.status == :error}
+            class="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning"
+          >
+            <div class="font-semibold">Some observability queries failed.</div>
+            <div :if={@overview.anomaly_error} class="mt-1">{@overview.anomaly_error}</div>
+            <div :if={@overview.capacity_error} class="mt-1">{@overview.capacity_error}</div>
+          </div>
 
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-              <.metric_status_card :for={status <- Map.get(@overview, :metric_statuses, [])} status={status} />
-            </div>
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <.metric_status_card :for={status <- @overview.metric_statuses} status={status} />
+          </div>
 
-            <div class="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-              <div class="rounded-lg border border-sr-line">
-                <div class="flex items-center justify-between gap-3 border-b border-sr-line px-4 py-3">
-                  <div>
-                    <h3 class="text-sm font-semibold">Recent Anomaly Findings</h3>
-                    <p class="text-xs text-sr-muted">{filter_label(Map.get(@overview, :anomaly_filter))}</p>
-                  </div>
-                  <.ui_badge size="sm" variant="ghost">{@anomaly_pagination.filtered_total}</.ui_badge>
+          <div class="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+            <div class="rounded-lg border border-sr-line">
+              <div class="flex items-center justify-between gap-3 border-b border-sr-line px-4 py-3">
+                <div>
+                  <h3 class="text-sm font-semibold">Recent Anomaly Findings</h3>
+                  <p class="text-xs text-sr-muted">{filter_label(@overview.anomaly_filter)}</p>
                 </div>
+                <.ui_badge size="sm" variant="ghost">{@anomaly_pagination.filtered_total}</.ui_badge>
+              </div>
 
-                <form
+              <form
                 id="anomaly-findings-controls"
                 class="grid gap-2 border-b border-sr-line px-4 py-3 sm:grid-cols-3"
                 phx-change="anomaly_findings_filter"
@@ -349,18 +348,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <.anomaly_capacity_detail_modal
-      detail={@detail}
-      device_uid={@device_uid}
-      device_display_name={@device_display_name}
-      metric_sections={@metric_sections}
-      timezone={@timezone}
-    />
-  </div>
-  """
+      <.anomaly_capacity_detail_modal
+        detail={@detail}
+        device_uid={@device_uid}
+        device_display_name={@device_display_name}
+        metric_sections={@metric_sections}
+        timezone={@timezone}
+      />
+    </div>
+    """
   end
 
   attr :class, :string, default: nil
