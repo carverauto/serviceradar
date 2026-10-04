@@ -22,6 +22,23 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     :ok
   end
 
+  # Removal used to be acknowledged before the child was gone, so re-adding the
+  # same branch right away could collide with the old child's name.
+  test "a removed analysis branch can be re-added under the same id immediately" do
+    relay_session_id = "relay-readd-analysis-1"
+    branch_id = "branch-readd-1"
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+
+    for _round <- 1..20 do
+      assert :ok = PipelineManager.add_analysis_branch(relay_session_id, branch_id, subscriber: self())
+      assert :ok = PipelineManager.remove_analysis_branch(relay_session_id, branch_id)
+    end
+
+    assert :ok = PipelineManager.add_analysis_branch(relay_session_id, branch_id, subscriber: self())
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
   test "pipes media chunks through membrane and republishes them to relay pubsub" do
     relay_session_id = "relay-membrane-1"
     viewer_id = "viewer-membrane-1"

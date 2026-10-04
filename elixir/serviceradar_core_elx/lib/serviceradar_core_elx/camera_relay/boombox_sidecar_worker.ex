@@ -37,7 +37,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker do
   def init(opts) do
     relay_session_id = required_string!(opts, :relay_session_id)
     branch_id = required_string!(opts, :branch_id)
-    output_path = Map.get(opts, :output_path, default_output_path(relay_session_id, branch_id))
+
+    output_path =
+      Map.get_lazy(opts, :output_path, fn -> default_output_path(relay_session_id, branch_id) end)
 
     state = %{
       relay_session_id: relay_session_id,
