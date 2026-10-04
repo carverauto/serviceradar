@@ -528,20 +528,34 @@ actions:
           --test_output=errors
           //...
 
-      # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
+      # Go race tests (race on, pure off). --flaky_test_attempts=1 overrides the repo default of 2.
       #
-      # LAST ON PURPOSE. `--@io_bazel_rules_go//go/config:{pure,race}` are configuration-affecting
-      # and cannot be shared with the steps above.
-      - run: >-
-          bazel test -c opt --config=ci //go/...
-          --@io_bazel_rules_go//go/config:pure=false
-          --@io_bazel_rules_go//go/config:race
-          --test_tag_filters=-integration_test,-acceptance_test,-benchmark
-          --test_timeout=600
-          --flaky_test_attempts=1
-          --test_arg=-test.count=5
-          --test_arg=-test.short
-          --test_arg=-test.shuffle=on
+      # Private output base on purpose. pure and race change the configuration key,
+      # and ci_runner parks the default Bazel server (startup --max_idle_secs=0,
+      # startup --output_base under the runner workspace). Leaving those flags on
+      # that server makes the next pull request discard the analysis cache and
+      # reanalyze //... . The command-line --output_base overrides the rc and
+      # starts a second server. shutdown stops that JVM so a parked runner does
+      # not keep two servers resident; the output base stays on the runner rootfs
+      # for the next race step. /home/buildbuddy is uid 1001's home and sits
+      # outside the workspace recycle limit, same as the per-runner disk cache.
+      - run: |
+          set -euo pipefail
+          race_output_base=/home/buildbuddy/output-base-race
+          set +e
+          bazel --output_base="$race_output_base" test -c opt --config=ci //go/... \
+            --@io_bazel_rules_go//go/config:pure=false \
+            --@io_bazel_rules_go//go/config:race \
+            --test_tag_filters=-integration_test,-acceptance_test,-benchmark \
+            --test_timeout=600 \
+            --flaky_test_attempts=1 \
+            --test_arg=-test.count=5 \
+            --test_arg=-test.short \
+            --test_arg=-test.shuffle=on
+          status=$?
+          set -e
+          bazel --output_base="$race_output_base" shutdown
+          exit "$status"
 
   - name: "LargeIngestionGate"
     env:
