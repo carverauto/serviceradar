@@ -445,7 +445,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     edges = blocking_foreign_keys()
 
     {retained, followed} =
-      Enum.split_with(edges, &(&1.child in @retained_children))
+      Enum.split_with(edges, &(&1.child_unquoted in @retained_children))
 
     deletes =
       collect_deletes(followed, "platform.ocsf_devices", "uid = ANY($1)", MapSet.new(), 0)
@@ -491,7 +491,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
              quote_ident(ca.attname),
              format('%I.%I', pn.nspname, pc.relname),
              quote_ident(pa.attname),
-             c.conname
+             c.conname,
+             cn.nspname || '.' || cc.relname
       FROM pg_constraint c
       JOIN pg_class cc ON cc.oid = c.conrelid
       JOIN pg_namespace cn ON cn.oid = cc.relnamespace
@@ -506,9 +507,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       ORDER BY 1, 2, 5
       """)
 
-    Enum.map(rows, fn [child, column, parent, parent_column, constraint] ->
+    Enum.map(rows, fn [child, column, parent, parent_column, constraint, child_unquoted] ->
       %{
         child: child,
+        child_unquoted: child_unquoted,
         column: column,
         parent: parent,
         parent_column: parent_column,
