@@ -1,3 +1,4 @@
+use super::SourceId;
 use crate::flowpb;
 use log::debug;
 use netflow_parser::NetflowPacket;
@@ -7,6 +8,7 @@ use netflow_parser::variable_versions::field_value::{DataNumber, FieldValue};
 use netflow_parser::variable_versions::ipfix::lookup::ReverseInformationElement;
 use netflow_parser::variable_versions::ipfix::lookup::{IANAIPFixField, IPFixField};
 use netflow_parser::variable_versions::v9::lookup::V9Field;
+use netflow_parser::{IpfixSourceKey, V9SourceKey};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 
@@ -14,8 +16,17 @@ pub const MAX_SAMPLER_RATE_ENTRIES: usize = 65_536;
 
 #[derive(Default)]
 pub struct SamplerRates {
-    pub(super) entries: HashMap<(IpAddr, u64), u64>,
+    pub(super) entries: HashMap<SourceId, HashMap<u64, u64>>,
+    pub(super) entry_count: usize,
     pub(super) rejected_inserts: u64,
+}
+
+impl SamplerRates {
+    pub(super) fn remove_source(&mut self, source: &SourceId) {
+        if let Some(entries) = self.entries.remove(source) {
+            self.entry_count -= entries.len();
+        }
+    }
 }
 
 pub struct Converter {
@@ -603,14 +614,32 @@ impl Converter {
         record_sampling_rate: Option<u64>,
         sampler_rates: &mut SamplerRates,
     ) {
-        let exporter = self.sampler_addr.ip();
+        let source = match &self.packet {
+            NetflowPacket::IPFix(packet) => SourceId::Ipfix(IpfixSourceKey {
+                addr: self.sampler_addr,
+                observation_domain_id: packet.header.observation_domain_id,
+            }),
+            NetflowPacket::V9(packet) => SourceId::V9(V9SourceKey {
+                addr: self.sampler_addr,
+                source_id: packet.header.source_id,
+            }),
+            _ => SourceId::Legacy(self.sampler_addr),
+        };
 
         if let (Some(id), Some(rate)) = (sampler_id, record_sampling_rate) {
-            let key = (exporter, id);
-            if let Some(existing) = sampler_rates.entries.get_mut(&key) {
+            if let Some(existing) = sampler_rates
+                .entries
+                .get_mut(&source)
+                .and_then(|entries| entries.get_mut(&id))
+            {
                 *existing = rate;
-            } else if sampler_rates.entries.len() < MAX_SAMPLER_RATE_ENTRIES {
-                sampler_rates.entries.insert(key, rate);
+            } else if sampler_rates.entry_count < MAX_SAMPLER_RATE_ENTRIES {
+                sampler_rates
+                    .entries
+                    .entry(source.clone())
+                    .or_default()
+                    .insert(id, rate);
+                sampler_rates.entry_count += 1;
             } else {
                 sampler_rates.rejected_inserts = sampler_rates.rejected_inserts.saturating_add(1);
             }
@@ -618,7 +647,13 @@ impl Converter {
 
         msg.sampling_rate = record_sampling_rate
             .or_else(|| {
-                sampler_id.and_then(|id| sampler_rates.entries.get(&(exporter, id)).copied())
+                sampler_id.and_then(|id| {
+                    sampler_rates
+                        .entries
+                        .get(&source)
+                        .and_then(|entries| entries.get(&id))
+                        .copied()
+                })
             })
             .unwrap_or(self.fallback_sampling_rate)
             .max(1);

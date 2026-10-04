@@ -158,8 +158,9 @@ trapd:
   replicaCount: 3
   streamReplicas: 3
 
-# Flow/IPFIX template state is process-local, so keep this single-replica even
-# in the HA overlay until exporter sharding or shared template state lands.
+# Flow template state is session-local (authenticated IPFIX TLS) or
+# listener-local (insecure UDP); shared template state is retired. Keep this
+# single-replica even in the HA overlay until exporter sharding lands.
 flowCollector:
   replicaCount: 1
   # HA is config.stream_replicas only (serialized into flow-collector.json).
