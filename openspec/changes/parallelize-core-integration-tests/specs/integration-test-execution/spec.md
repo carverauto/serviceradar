@@ -321,7 +321,7 @@ none. The async lane uses ExUnit's cap-eight module scheduler. Serial placement 
 pre-measurement LPT rule and MUST NOT treat its relative source weights as wall-time forecasts.
 
 #### Scenario: Lane placement is deterministic
-- **GIVEN** complete source/module dispositions and exact selected serial test-identity counts
+- **GIVEN** complete source/module dispositions and per-source module counts
 - **WHEN** ordinary sources are placed repeatedly in different input orders
 - **THEN** every selected source SHALL appear in exactly one permitted lane
 - **AND** the resulting lane map SHALL be identical

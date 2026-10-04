@@ -115,6 +115,7 @@ def _integration_shards_topology_test_impl(ctx):
     async_sources = async_integration_sources()
     serial_counts = serial_source_module_counts()
     selected_sources = integration_selected_sources()
+
     # Consistency RELATIONS, not three magic totals.
     #
     # These were pinned to 126 / 160 / 286 -- and 126 + 160 == 286, so the only
@@ -160,6 +161,7 @@ def _integration_shards_topology_test_impl(ctx):
     asserts.equals(env, sorted(selected_sources), sorted(partitioned_sources))
     asserts.equals(env, len(selected_sources), len(partitioned_sources))
     asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_partitioned_sources))
+
     # Balance is asserted as a PROPERTY, not as a snapshot of one distribution.
     #
     # These three lists used to be pinned to exact values -- [26, 22, 22, ...] and

@@ -378,7 +378,6 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/workload_identity_test.exs": 1,
 }
 
-
 FIXED_EXTERNAL_INTEGRATION_SRCS = [
     "test/integration/netflow_ingestion_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
