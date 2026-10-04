@@ -92,8 +92,8 @@
   - `composite_checks/refresh_worker.ex` -- **enforced**: a job whose pinned revision moved
     re-resolves the device (a merge moves its results to the survivor) and refreshes that; one
     that resolves to nothing live is abandoned with telemetry.
-  - `event_writer/processors/sweep.ex` -- **left observe-only**: it is not registered as an
-    EventWriter processor and never runs (see `formal/dire/DireLifecycle.tla` `SweepRestore`).
+  - The former EventWriter sweep copy was unregistered and has been removed; the live sweep
+    observation site is `sweep_jobs/sweep_results_ingestor.ex`.
 
 ## 5. Extend pinning
 

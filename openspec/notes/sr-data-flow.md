@@ -224,7 +224,7 @@ Foundational migrations:
 
 ### 5.5 Events / anomalies / alerts
 
-- `events` (`create_timeseries_tables.exs`) — **hypertable** on `event_timestamp`, CloudEvents-style: specversion, id, source, type, subject, host, level, severity, short_message, raw_data. PK `(event_timestamp, id)`.
+- `platform.events` (`create_timeseries_tables.exs`) -- **deprecated, unused** CloudEvents-style hypertable on `event_timestamp`. No shipped processor writes it and SRQL does not read it. Retained for schema compatibility; its shape is not an ingest contract. NATS `events.>` requires OCSF Event Log Activity with `class_uid` and writes `platform.ocsf_events` (or OCSF-shaped StarRocks `serviceradar.events` when that dataset uses the warehouse). For discrete OpenTelemetry events, send an OTLP log record with `event_name`; `Processors.Logs` persists that field in the active logs backend.
 - `ocsf_events` (`20260203120000`) — **hypertable** on `time`, 14-day retention. Primary security/log-derived event store (from log promotion): class/category/type_uid, activity, severity, message, status, metadata/observables jsonb, trace/span ids, actor/device/src/dst endpoint jsonb, raw_data.
 - `event_rules`, `health_events` (`:231`, state-transition history).
 - `alerts` (`:190`) — stateful alerting: title/description/severity/status, source_type/id, `service_check_id`, `device_uid`/`agent_uid`, event_id, metric_name/value, threshold, comparison, triggered/ack/resolved/escalated timestamps, escalation_level, suppressed_until, tags.

@@ -298,8 +298,6 @@
    "The pattern can never match the type true."},
   {"lib/serviceradar/event_writer/processors/logs.ex",
    "The pattern pattern <__json@1, __resource_attributes@1> can never match the type, because it is covered by previous clauses."},
-  {"lib/serviceradar/event_writer/processors/sweep.ex",
-   "The pattern variable _other@1 can never match the type, because it is covered by previous clauses."},
   {"lib/serviceradar/events/health_writer.ex",
    "The pattern can never match the type 1 | 2 | 3 | 4."},
   {"lib/serviceradar/events/health_writer.ex",

@@ -32,7 +32,9 @@ GROUP BY bucket
 ORDER BY bucket;
 ```
 
-Create three panels that hit `platform.logs`, `platform.otel_metrics`, and `platform.otel_traces`. Grafana's stacked bar visualization makes pipeline gaps obvious; missing buckets mean the core-elx ingestion workers are not keeping up. Keep a single-stat panel that runs `SELECT COUNT(*) FROM platform.events WHERE created_at >= now() - INTERVAL '5 minutes';` to power an alert when ingestion drops to zero.
+For a CNPG telemetry backend, chart `platform.logs`, `platform.otel_metrics`, and `platform.otel_traces`; missing buckets can reveal EventWriter ingestion gaps. For OCSF event ingestion, count recent rows in `platform.ocsf_events` using its `time` column. When a dataset is warehouse-backed, query its StarRocks table instead of the inactive CNPG telemetry table. Do not alert on `platform.events`: it is a deprecated CloudEvents-style table with no shipped writer.
+
+NATS `events.>` accepts OCSF Event Log Activity payloads with a mandatory `class_uid`; EventWriter stores them in the active OCSF backend. An external producer emitting discrete OpenTelemetry events should send an OTLP log record carrying `event_name`, which `Processors.Logs` preserves in the active logs backend.
 
 ### Ingestion Heatmap
 
