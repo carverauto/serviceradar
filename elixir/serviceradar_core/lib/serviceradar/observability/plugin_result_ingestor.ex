@@ -18,6 +18,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Inventory.ProxmoxSourceScopeResolver
   alias ServiceRadar.Inventory.VulnerabilityAdvisoryIngestor
+  alias ServiceRadar.NetworkConfig.PluginIngestor
   alias ServiceRadar.Observability.PluginResultReportedMarker
   alias ServiceRadar.Observability.PluginResultSlot
   alias ServiceRadar.Observability.ServiceIdentity
@@ -101,7 +102,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             end
 
           {:error, {failure_kind, errors}} = handler_error
-          when failure_kind in [:plugin_result_handlers_failed, :plugin_result_artifact_cleanup_failed] ->
+          when failure_kind in [
+                 :plugin_result_handlers_failed,
+                 :plugin_result_artifact_cleanup_failed
+               ] ->
             case persist_handler_failure(
                    service_status_attributes(reported_status),
                    payload,
@@ -123,14 +127,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         end
 
       {:error, persistence_error} ->
-        ServiceRadar.NetworkConfig.PluginIngestor.discard_artifacts(payload, status)
+        PluginIngestor.discard_artifacts(payload, status)
         error_text = handler_error_text(persistence_error)
         Logger.error("Plugin result status persistence failed: #{error_text}")
         {:error, {:plugin_result_status_persistence_failed, error_text}}
     end
   rescue
     e ->
-      ServiceRadar.NetworkConfig.PluginIngestor.discard_artifacts(payload, status)
+      PluginIngestor.discard_artifacts(payload, status)
       error_text = handler_error_text(e)
       Logger.error("Plugin result ingest failed: #{error_text}")
       {:error, {:plugin_result_ingest_failed, error_text}}
@@ -140,14 +144,19 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     payload
     |> Enum.filter(&is_map/1)
     |> case do
-      [] -> {:error, :invalid_payload}
+      [] ->
+        {:error, :invalid_payload}
       [entry | remaining] ->
         result = ingest(entry, status)
 
-        case ServiceRadar.NetworkConfig.PluginIngestor.discard_artifacts(remaining, status) do
-          :ok -> result
+        case PluginIngestor.discard_artifacts(remaining, status) do
+          :ok ->
+            result
+
           {:error, reason} ->
-            {:error, {:plugin_result_artifact_cleanup_failed, [{ServiceRadar.NetworkConfig.PluginIngestor, handler_error_text(reason)}]}}
+            {:error,
+             {:plugin_result_artifact_cleanup_failed,
+              [{PluginIngestor, handler_error_text(reason)}]}}
         end
     end
   end
@@ -531,12 +540,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
               {:error, reason} ->
                 retry_cleanup? =
-                  handler_module(handler) == ServiceRadar.NetworkConfig.PluginIngestor and
+                  handler_module(handler) == PluginIngestor and
                     reason == :running_config_artifact_cleanup_failed
                 {add_handler_failure(errors, handler, reason), cleanup_failed? or retry_cleanup?}
 
               other ->
-                {add_handler_failure(errors, handler, {:unexpected_handler_result, other}), cleanup_failed?}
+                {add_handler_failure(errors, handler, {:unexpected_handler_result, other}),
+                 cleanup_failed?}
             end
 
           {:ok, false} ->
@@ -548,9 +558,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       end)
 
     case Enum.reverse(errors) do
-      [] -> :ok
+      [] ->
+        :ok
+
       errors ->
-        failure_kind = if cleanup_failed?, do: :plugin_result_artifact_cleanup_failed, else: :plugin_result_handlers_failed
+        failure_kind =
+          if cleanup_failed?,
+            do: :plugin_result_artifact_cleanup_failed,
+            else: :plugin_result_handlers_failed
         {:error, {failure_kind, errors}}
     end
   end
@@ -1717,7 +1732,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp platform_contract_handlers do
     [
-      ServiceRadar.NetworkConfig.PluginIngestor,
+      PluginIngestor,
       ServiceRadar.NetworkConfig.InterfaceCheckIngestor,
       DeviceDiscoveryIngestor,
       HypervisorEnrichmentIngestor,

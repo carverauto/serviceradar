@@ -96,18 +96,27 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
   test "cleans every owned reference after an earlier batch download fails" do
     second_key = "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1002"
     {:ok, first} = PluginIngestor.extract(payload())
-    batch = %{"labels" => %{"kind" => "running_config", "assignment_id" => "assign-01"}, "details" => %{
-      "running_configs" => [
-        %{"device_uid" => first.device_uid, "artifact" => %{"object_key" => @object_key, "sha256" => @sha256}},
-        %{"artifact" => %{"object_key" => second_key}}
-      ]
-    }}
+    batch = %{
+      "labels" => %{"kind" => "running_config", "assignment_id" => "assign-01"},
+      "details" => %{
+        "running_configs" => [
+          %{
+            "device_uid" => first.device_uid,
+            "artifact" => %{"object_key" => @object_key, "sha256" => @sha256}
+          },
+          %{"artifact" => %{"object_key" => second_key}}
+        ]
+      }
+    }
 
     assert {:error, {:running_config_artifact_fetch_failed, :unavailable}} =
-      PluginIngestor.ingest(batch, @status,
-        artifact_fetcher: fn @object_key -> {:error, :unavailable} end,
-        artifact_deleter: fn key -> send(self(), {:deleted, key}); :ok end
-      )
+             PluginIngestor.ingest(batch, @status,
+               artifact_fetcher: fn @object_key -> {:error, :unavailable} end,
+               artifact_deleter: fn key ->
+                 send(self(), {:deleted, key})
+                 :ok
+               end
+             )
     assert_received {:deleted, @object_key}
     assert_received {:deleted, ^second_key}
   end
@@ -115,6 +124,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
   test "cleans malformed results, hash failures and fetch exceptions" do
     malformed = put_in(payload(), ["labels", "device_uid"], nil)
     malformed = Map.put(malformed, "details", %{"artifact" => %{"object_key" => @object_key}})
+
     cases = [
       {malformed, fn _ -> flunk("malformed result must not fetch") end, :missing_running_config},
       {payload(), fn _ -> {:ok, "tampered"} end, :running_config_artifact_hash_mismatch},
@@ -122,31 +132,58 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
     ]
 
     for {input, fetch, error} <- cases do
-      assert {:error, ^error} = PluginIngestor.ingest(input, @status,
-        artifact_fetcher: fetch,
-        artifact_deleter: fn key -> send(self(), {:deleted, key}); :ok end)
+      assert {:error, ^error} =
+               PluginIngestor.ingest(input, @status,
+                 artifact_fetcher: fetch,
+                 artifact_deleter: fn key ->
+                   send(self(), {:deleted, key})
+                   :ok
+                 end
+               )
       assert_received {:deleted, @object_key}
     end
   end
 
   test "an incomplete staging result deletes references without ingesting them" do
     {:ok, ref} = PluginIngestor.extract(payload())
-    batch = %{"labels" => %{"kind" => "running_config", "assignment_id" => "assign-01"}, "details" => %{
-      "complete" => false,
-      "running_configs" => [%{"device_uid" => ref.device_uid, "artifact" => %{"object_key" => @object_key, "sha256" => @sha256}}]
-    }}
-    assert {:error, :running_config_result_incomplete} = PluginIngestor.ingest(batch, @status,
-      artifact_fetcher: fn _ -> flunk("must not ingest partial staging") end,
-      artifact_deleter: fn key -> send(self(), {:deleted, key}); :ok end)
+
+    batch = %{
+      "labels" => %{"kind" => "running_config", "assignment_id" => "assign-01"},
+      "details" => %{
+        "complete" => false,
+        "running_configs" => [
+          %{
+            "device_uid" => ref.device_uid,
+            "artifact" => %{"object_key" => @object_key, "sha256" => @sha256}
+          }
+        ]
+      }
+    }
+
+    assert {:error, :running_config_result_incomplete} =
+             PluginIngestor.ingest(batch, @status,
+               artifact_fetcher: fn _ -> flunk("must not ingest partial staging") end,
+               artifact_deleter: fn key ->
+                 send(self(), {:deleted, key})
+                 :ok
+               end
+             )
     assert_received {:deleted, @object_key}
   end
 
   test "cleans pre-upgrade legacy device keys staged before canonicalization" do
     for device <- ["01001", "abc"] do
       key = "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/#{device}"
-      assert :ok = PluginIngestor.discard_artifacts(
-        payload(%{"object_key" => key, "sha256" => @sha256}), @status,
-        artifact_deleter: fn ^key -> send(self(), {:deleted, key}); :ok end)
+
+      assert :ok =
+               PluginIngestor.discard_artifacts(
+                 payload(%{"object_key" => key, "sha256" => @sha256}),
+                 @status,
+                 artifact_deleter: fn ^key ->
+                   send(self(), {:deleted, key})
+                   :ok
+                 end
+               )
       assert_received {:deleted, ^key}
     end
   end
@@ -157,45 +194,64 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
       "agent-artifacts/agent-01/assign-02/opentext-nom/running-config/1001",
       "agent-artifacts/agent-01/assign-01/other-plugin/report/1001",
       "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/../1001",
-      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/01001/" <> String.duplicate("a", 32),
-      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1001/" <> String.duplicate("A", 32)
+      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/01001/" <>
+        String.duplicate("a", 32),
+      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1001/" <>
+        String.duplicate("A", 32)
     ] do
-      assert {:error, :running_config_artifact_cleanup_failed} = PluginIngestor.ingest(
-        payload(%{"object_key" => key, "sha256" => @sha256}), @status,
-        artifact_fetcher: fn _ -> flunk("must not fetch unowned config") end,
-        artifact_deleter: fn _ -> flunk("must not delete unowned config") end)
+      assert {:error, :running_config_artifact_cleanup_failed} =
+               PluginIngestor.ingest(
+                 payload(%{"object_key" => key, "sha256" => @sha256}),
+                 @status,
+                 artifact_fetcher: fn _ -> flunk("must not fetch unowned config") end,
+                 artifact_deleter: fn _ -> flunk("must not delete unowned config") end
+               )
     end
   end
 
   test "cleanup continues after delete failure and reports failure" do
     second_key = "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1002"
-    assert {:error, :running_config_artifact_cleanup_failed} = PluginIngestor.discard_artifacts(
-      [payload(), payload(%{"object_key" => second_key})], @status,
-      artifact_deleter: fn
-        @object_key -> {:error, :unavailable}
-        key -> send(self(), {:deleted, key}); :ok
-      end)
+    assert {:error, :running_config_artifact_cleanup_failed} =
+             PluginIngestor.discard_artifacts(
+               [payload(), payload(%{"object_key" => second_key})],
+               @status,
+               artifact_deleter: fn
+                 @object_key ->
+                   {:error, :unavailable}
+
+                 key ->
+                   send(self(), {:deleted, key})
+                   :ok
+               end
+             )
     assert_received {:deleted, ^second_key}
   end
+
   test "a delayed result deletes only its attempt and requires host-attested assignment identity" do
     old_key = @object_key <> "/" <> String.duplicate("a", 32)
     newer_key = @object_key <> "/" <> String.duplicate("b", 32)
     input = payload(%{"object_key" => old_key, "sha256" => @sha256})
-    assert :ok = PluginIngestor.discard_artifacts(input, @status,
-      artifact_deleter: fn key ->
-        assert key == old_key
-        refute key == newer_key
-        :ok
-      end)
+
+    assert :ok =
+             PluginIngestor.discard_artifacts(input, @status,
+               artifact_deleter: fn key ->
+                 assert key == old_key
+                 refute key == newer_key
+                 :ok
+               end
+             )
 
     unattested = update_in(input, ["labels"], &Map.delete(&1, "assignment_id"))
     {:ok, ref} = PluginIngestor.extract(unattested)
-    assert {:error, :running_config_artifact_assignment_not_owned} =
-      PluginIngestor.fetch_body(ref, @status,
-        artifact_fetcher: fn _ -> flunk("must not fetch without attested assignment") end)
-    assert {:error, :running_config_artifact_cleanup_failed} =
-      PluginIngestor.discard_artifacts(unattested, @status,
-        artifact_deleter: fn _ -> flunk("must not delete without attested assignment") end)
-  end
 
+    assert {:error, :running_config_artifact_assignment_not_owned} =
+             PluginIngestor.fetch_body(ref, @status,
+               artifact_fetcher: fn _ -> flunk("must not fetch without attested assignment") end
+             )
+
+    assert {:error, :running_config_artifact_cleanup_failed} =
+             PluginIngestor.discard_artifacts(unattested, @status,
+               artifact_deleter: fn _ -> flunk("must not delete without attested assignment") end
+             )
+  end
 end

@@ -599,7 +599,8 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   defp schedule_enabled?(rule, "opentext-nom.config.retrieve", params) do
     configured? =
       case Map.fetch(params, "devices") do
-        {:ok, devices} -> match?([_ | _], devices)
+        {:ok, devices} ->
+          match?([_ | _], devices)
         :error ->
           is_binary(params["device_id"]) and params["device_id"] != "" and
             is_binary(params["device_uid"]) and params["device_uid"] != ""

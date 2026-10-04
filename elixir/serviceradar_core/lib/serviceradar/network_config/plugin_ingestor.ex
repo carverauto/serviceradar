@@ -117,7 +117,8 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
         end
 
       case cleanup do
-        :ok -> result
+        :ok ->
+          result
         {:error, _reason} ->
           Logger.warning("Staged running-config cleanup failed")
           {:error, :running_config_artifact_cleanup_failed}
@@ -127,12 +128,18 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
 
   defp config_entries(payload) do
     case Map.fetch(details_map(payload), "running_configs") do
-      :error -> [payload]
+      :error ->
+        [payload]
       {:ok, entries} when is_list(entries) and entries != [] ->
         Enum.map(entries, fn entry ->
-          %{"labels" => Map.put(labels_map(payload), "kind", "running_config"), "details" => entry}
+          %{
+            "labels" => Map.put(labels_map(payload), "kind", "running_config"),
+            "details" => entry
+          }
         end)
-      {:ok, _invalid} -> [%{"details" => %{}}]
+
+      {:ok, _invalid} ->
+        [%{"details" => %{}}]
     end
   end
 
@@ -205,7 +212,8 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
       not String.starts_with?(object_key, "agent-artifacts/#{agent_id}/") ->
         {:error, :running_config_artifact_key_not_owned}
 
-      is_nil(assignment) or not String.starts_with?(object_key, "agent-artifacts/#{agent_id}/#{assignment}/") ->
+      is_nil(assignment) or
+          not String.starts_with?(object_key, "agent-artifacts/#{agent_id}/#{assignment}/") ->
         {:error, :running_config_artifact_assignment_not_owned}
 
       not nom_config_key?(object_key) ->
@@ -221,8 +229,11 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
       ["agent-artifacts", agent, assignment, "opentext-nom", "running-config", device] ->
         nom_config_prefix?(agent, assignment) and legacy_nom_device?(device)
       ["agent-artifacts", agent, assignment, "opentext-nom", "running-config", device, attempt] ->
-        nom_config_segments?(agent, assignment, device) and Regex.match?(~r/\A[0-9a-f]{32}\z/, attempt)
-      _ -> false
+        nom_config_segments?(agent, assignment, device) and
+          Regex.match?(~r/\A[0-9a-f]{32}\z/, attempt)
+
+      _ ->
+        false
     end
   end
 
