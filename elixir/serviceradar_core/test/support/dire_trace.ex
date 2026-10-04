@@ -51,7 +51,10 @@ defmodule ServiceRadar.DireTrace do
     [:serviceradar, :identity_reconciler, :hostname_agreement, :refused],
     [:serviceradar, :identity_reconciler, :source_identity, :active_ip_conflict],
     [:serviceradar, :identity_reconciler, :source_identity, :source_override],
-    [:serviceradar, :inventory, :source_retirement, :retired]
+    [:serviceradar, :inventory, :source_retirement, :retired],
+    [:serviceradar, :inventory, :source_succession, :merged],
+    [:serviceradar, :inventory, :source_succession, :reviewed],
+    [:serviceradar, :inventory, :source_succession, :skipped]
   ]
 
   defstruct [
@@ -88,8 +91,10 @@ defmodule ServiceRadar.DireTrace do
       }
 
   Optional keys: `host_of`, the hostname model value Armis reports for each device (by default
-  the device's own name; cloned machines share one), and the model's `rekeys`, `fresh_ids`,
-  `spare`, `agent_ids` and `agent_of`.
+  the device's own name; cloned machines share one), `new_first_seen_ids`, the ids Armis reports
+  with a first-seen time of their own, later than any sync of the trace (by default a re-keyed
+  device keeps its first-seen time), and the model's `rekeys`, `fresh_ids`, `spare`,
+  `agent_ids` and `agent_of`.
 
   The defect switches the trace is checked with are not part of the world: every trace reads
   `ResolutionBugs` from `formal/dire/CurrentBugs.tla`.
@@ -111,7 +116,8 @@ defmodule ServiceRadar.DireTrace do
           {p, "198.51.100.#{rem(seed, 200) + i + 10}"}
         end),
       src: Map.new(Enum.with_index(world.src_ids, 1), fn {a, i} -> {a, "#{seed}#{i}"} end),
-      agent: Map.new(Map.get(world, :agent_ids, []), fn g -> {g, "trace-agent-#{seed}-#{g}"} end)
+      agent: Map.new(Map.get(world, :agent_ids, []), fn g -> {g, "trace-agent-#{seed}-#{g}"} end),
+      first_seen: first_seen_times(world)
     }
 
     test_pid = self()
@@ -208,6 +214,7 @@ defmodule ServiceRadar.DireTrace do
         "ip" => ip,
         "hostname" => "trace-#{host_of(trace.world, h)}",
         "source" => "armis",
+        "first_seen_time" => first_seen_time(trace, h, src),
         "last_seen_time" => seen_at,
         "metadata" => metadata
       }
@@ -359,6 +366,11 @@ defmodule ServiceRadar.DireTrace do
   """
   def rekey(trace, h, a) do
     src_of = if a == "NoId", do: Map.delete(trace.src_of, h), else: Map.put(trace.src_of, h, a)
+    # The sync stamps a record's creation time to the second, and a succession keeps the record
+    # created first, or the lower uid of two created in one second. In a deployment a re-key
+    # comes long after the device's first record, so a record the new id lands on must be
+    # created in a later second than the trace's records so far.
+    if a != "NoId", do: Process.sleep(1_100)
     record(%{trace | src_of: src_of}, quiet_act("Rekey"))
   end
 
@@ -429,15 +441,19 @@ defmodule ServiceRadar.DireTrace do
   end
 
   @doc """
-  The reconciler's scheduled duplicate pass (`IdentityReconciler.reconcile_duplicates/1`). The
-  pass scans the whole inventory; only what it does to the trace's records counts, and the model
-  has no step for it. It pairs a record with the owner of the MAC in its MAC column only when
-  that identifier sits in the record's own partition, and a source sync files its identifiers
-  under the source's partition (`Ids.identifier_partition/2`). A merge it performs, a decision it
-  records or an event it emits about the trace's records fails the trace; otherwise it records no
-  step.
+  The reconciler's scheduled pass (`IdentityReconciler.reconcile_duplicates/1`), with the
+  settings it reads. The pass scans the whole inventory; only what it does to the trace's records
+  counts. Its duplicate pass has no model step: it pairs a record with the owner of the MAC in its
+  MAC column only when that identifier sits in the record's own partition, and a source sync
+  files its identifiers under the source's partition (`Ids.identifier_partition/2`). Its
+  succession pass (`SourceSuccession`) is the model's Succeed and Review: a `source_succession`
+  merge of two of the trace's records is a Succession step, and each `succession_review` decision
+  about them a Review step after it. Any other merge, decision or event about the trace's records
+  fails the trace, as does more than one succession in one pass, which the model takes as
+  separate steps.
   """
   def reconcile(trace) do
+    ensure_settings(trace)
     decisions_before = decision_counts(trace)
     audits_before = merge_rows(trace)
 
@@ -445,22 +461,94 @@ defmodule ServiceRadar.DireTrace do
              IdentityReconciler.reconcile_duplicates(actor: trace.actor, trigger: :manual)
 
     trace = settle(trace)
+    {successions, merges} = Enum.split_with(merge_rows(trace) -- audits_before, &succession?/1)
 
-    case merge_rows(trace) -- audits_before do
-      [] ->
-        :ok
-
-      merges ->
-        flunk("DIRE trace #{trace.name}: reconciler merged #{inspect(merges)}, not modeled")
+    if merges != [] do
+      flunk("DIRE trace #{trace.name}: reconciler merged #{inspect(merges)}, not modeled")
     end
 
-    case recorded_since(trace, decisions_before) do
-      [] -> :ok
-      recorded -> flunk("DIRE trace #{trace.name}: reconciler recorded #{inspect(recorded)}")
+    {reviews, recorded} =
+      trace
+      |> recorded_since(decisions_before)
+      |> Enum.split_with(&(&1.kind == "succession_review"))
+
+    if recorded != [] do
+      flunk("DIRE trace #{trace.name}: reconciler recorded #{inspect(recorded)}")
     end
 
-    Enum.each(drain_events(), &refute_trace_event!(trace, &1))
+    {review_events, events} = Enum.split_with(drain_events(), &reviewed_event?/1)
+    {merged_events, events} = Enum.split_with(events, &merged_event?(trace, &1))
+    Enum.each(events, &refute_trace_event!(trace, &1))
+
+    if length(merged_events) != length(successions) do
+      flunk(
+        "DIRE trace #{trace.name}: succession merges #{inspect(successions)} " <>
+          "against events #{inspect(merged_events)}"
+      )
+    end
+
     trace
+    |> record_succession(successions)
+    |> record_reviews(reviews, review_decisions(trace, review_events))
+  end
+
+  defp ensure_settings(trace) do
+    case DeviceCleanupSettings.get_settings(actor: trace.actor) do
+      {:ok, %DeviceCleanupSettings{}} -> :ok
+      _ -> DeviceCleanupSettings.create_settings!(%{}, actor: trace.actor)
+    end
+  end
+
+  defp succession?({_from, _to, reason}), do: reason == "source_succession"
+
+  defp reviewed_event?({event, _m, _meta}),
+    do: event == [:serviceradar, :inventory, :source_succession, :reviewed]
+
+  defp merged_event?(trace, {event, _m, meta}) do
+    event == [:serviceradar, :inventory, :source_succession, :merged] and
+      Map.has_key?(trace.names, meta.predecessor) and Map.has_key?(trace.names, meta.successor)
+  end
+
+  defp record_succession(trace, []), do: trace
+
+  defp record_succession(trace, [{from, to, _reason}]) do
+    {from, to} = {name_of!(trace, from), name_of!(trace, to)}
+
+    phys =
+      Map.update(trace.phys, to, Map.get(trace.phys, from, []), fn held ->
+        Enum.uniq(held ++ Map.get(trace.phys, from, []))
+      end)
+
+    record(%{trace | phys: phys}, quiet_act("Succession"))
+  end
+
+  defp record_succession(trace, successions) do
+    flunk("DIRE trace #{trace.name}: one pass made the successions #{inspect(successions)}")
+  end
+
+  # One Review step per decision, in a fixed order. The model requires the telemetry and the
+  # persisted rows to agree, so each step carries the decision from both.
+  defp record_reviews(trace, recorded, decided) do
+    Enum.reduce(Enum.uniq(recorded ++ decided), trace, fn decision, acc ->
+      record(acc, %{
+        quiet_act("Review")
+        | decisions: Enum.filter([decision], &(&1 in decided)),
+          recorded: Enum.filter([decision], &(&1 in recorded))
+      })
+    end)
+  end
+
+  defp review_decisions(trace, events) do
+    events
+    |> Enum.filter(fn {_e, _m, meta} ->
+      Enum.any?(meta.device_uids, &Map.has_key?(trace.names, &1))
+    end)
+    |> Enum.map(fn {_e, _m, meta} ->
+      recs = meta.device_uids |> Enum.map(&name_of!(trace, &1)) |> Enum.uniq() |> Enum.sort()
+      %{kind: "succession_review", recs: recs}
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp refute_trace_event!(trace, {event, _m, meta}) do
@@ -838,7 +926,8 @@ defmodule ServiceRadar.DireTrace do
     alias_invalidated: "alias_invalidated",
     ip_conflict: "ip_conflict",
     source_override: "source_override",
-    source_id_retired: "source_id_retired"
+    source_id_retired: "source_id_retired",
+    succession_review: "succession_review"
   }
 
   defp recorded_since(trace, before) do
@@ -1172,7 +1261,7 @@ defmodule ServiceRadar.DireTrace do
       Spare = #{set(Map.get(w, :spare, []))}
       ArmisMacs = #{tla_bool(w.armis_macs)}
       HostOf <- TraceHostOf
-      NewFirstSeenIds = {}
+      NewFirstSeenIds = #{set(Map.get(w, :new_first_seen_ids, []))}
       AgentIds = #{set(Map.get(w, :agent_ids, []))}
       AgentOf <- TraceAgentOf
       SrcIds = #{set(w.src_ids)}
@@ -1224,6 +1313,30 @@ defmodule ServiceRadar.DireTrace do
     do:
       "{" <>
         Enum.map_join(ds, ", ", &"[kind |-> #{str(&1.kind)}, recs |-> #{set(&1.recs)}]") <> "}"
+
+  # The first-seen time Armis reports for device `h` under id `a` (the model's FsOf): the
+  # device's own, before the trace, or for an id in `new_first_seen_ids` one of the id's own,
+  # after every sync of the trace. Second precision, as the sync stores it.
+  defp first_seen_times(world) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    devices =
+      Map.new(Enum.with_index(world.phys, 1), fn {h, i} ->
+        {h, DateTime.add(now, -30 * 86_400 + i * 60, :second)}
+      end)
+
+    ids =
+      Map.new(Enum.with_index(Map.get(world, :new_first_seen_ids, []), 1), fn {a, i} ->
+        {a, DateTime.add(now, 86_400 + i * 60, :second)}
+      end)
+
+    %{devices: devices, ids: ids}
+  end
+
+  defp first_seen_time(trace, h, a) do
+    %{devices: devices, ids: ids} = trace.real.first_seen
+    DateTime.to_iso8601(Map.get(ids, a) || Map.fetch!(devices, h))
+  end
 
   # The hostname Armis reports for device `h`: its own name unless the world says otherwise.
   defp host_of(world, h), do: Map.get(Map.get(world, :host_of, %{}), h, h)

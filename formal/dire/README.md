@@ -339,8 +339,27 @@ The resolution traces of the alias fixes (D16, #5135):
   they used to land on the row the old record's sync created and confirm the old record's alias
   (`foreign_sighting_confirms_alias`). Three exact collections without the old id retire it from
   the old record, which keeps it as history, so the new record is the one record holding a
-  current id of the device (the regression path of `retired_source_id_vetoes`). Nothing joins
-  the two records until corroborated succession (D3) lands.
+  current id of the device (the regression path of `retired_source_id_vetoes`). The reconciler's
+  succession pass then merges the two: the MAC links the old record to the new one alone, and
+  the first-seen times agree (D3). The old record, created first, survives with the current id
+  and the address.
+
+The resolution traces of source succession (D3, D4). The first three are variants of
+`src_rekey_succession`:
+
+- `src_rekey_new_first_seen`: as `src_rekey_succession`, but the new id has a first-seen time of
+  its own, later than the old id's last sighting. The hostnames agree and pass the time guard,
+  so the pass merges the two.
+- `src_rekey_no_macs`: as `src_rekey_succession`, but Armis reports no MAC. The hostname and the
+  first-seen time agree without a MAC, so the pass records a `succession_review`
+  (`corroborated_without_mac`) and merges nothing (D4).
+- `src_rekey_shared_mac_rival`: two Armis devices report one MAC, and one of them is re-keyed.
+  The MAC links the old record to both current records, so the pass records one
+  `succession_review` naming all three (`shared_mac`) and merges nothing.
+- `src_attach_shared_mac` (also a regression trace of #4611): two Armis devices report one MAC,
+  and the source stops reporting one of them, whose id retires. The MAC links its record to the
+  other's alone, but neither the hostname nor the first-seen time agrees, so the pass records a
+  `succession_review` (`mac_only`) and merges nothing.
 
 `census_randomized_mac` is a regression trace of `randomized_mac_seeds_uid` (#4760): two census
 sightings of one randomized MAC at different addresses are address-only, each landing on the
@@ -495,6 +514,20 @@ still describes the code. The switches today's code has are listed once, in `Cur
   checks every path they allow.
 - Availability and `last_seen_time`. A sweep's write to a record changes no modeled variable;
   only the step's name (`SweepRefresh` or `SweepSkip`) tells a write from none.
+- What a succession merge writes besides the join. The model's `Succession` step gives the
+  survivor the merged record's ids, aliases and evidence and the successor's address. In the
+  code the merge also writes the source's metadata to the survivor, and a database trigger (D5)
+  clears the survivor's `source_retired` mark once it holds a current id. The resolution model
+  has neither, and the tests assert both.
+- The succession pass's limit and its read. `max_successions_per_run` only defers a merge, so
+  it hides no false merge. The pass reads its pairs before it merges them; the code checks each
+  pair again under the merge's locks (`SourceSuccession.revalidate/2`) and refuses one that is
+  no longer successive, where the model's step is atomic. The trace harness records at most one
+  `Succession` step per reconciler run.
+- Operator decisions. Only distinct agents rule a pair out in the model: it has no operator's
+  assertion that two records are different devices, and no de-duplication task. The code skips
+  an asserted pair, an administrative unmerge of a succession asserts the pair, and a succession
+  merge marks the task opened for exactly that pair merged; the tests pin each.
 - The reconciler's duplicate pass (`DuplicateSweep` merges with reason `identifier_backfill`).
   D2 requires it to refuse a pair whose records each hold or held a source id; the model checks
   that refusal on the resolver's conflict merge only.
