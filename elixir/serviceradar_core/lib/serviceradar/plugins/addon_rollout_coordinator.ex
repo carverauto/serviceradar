@@ -654,28 +654,28 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
           cancel_deleted_target(target, actor, now)
         else
           case target.state do
-          state when state in [:waiting_health, :healthy_soak] ->
-            evaluate_candidate_target(
-              rollout,
-              target,
-              Map.get(statuses, target.agent_uid),
-              Map.fetch!(packages, to_string(target.candidate_package_id)),
-              actor,
-              now
-            )
+            state when state in [:waiting_health, :healthy_soak] ->
+              evaluate_candidate_target(
+                rollout,
+                target,
+                Map.get(statuses, target.agent_uid),
+                Map.fetch!(packages, to_string(target.candidate_package_id)),
+                actor,
+                now
+              )
 
-          :rollback_pending ->
-            evaluate_rollback_target(
-              target,
-              Map.get(statuses, target.agent_uid),
-              Map.fetch!(packages, to_string(target.previous_package_id)),
-              actor,
-              now
-            )
+            :rollback_pending ->
+              evaluate_rollback_target(
+                target,
+                Map.get(statuses, target.agent_uid),
+                Map.fetch!(packages, to_string(target.previous_package_id)),
+                actor,
+                now
+              )
 
-          _ ->
-            {:ok, target}
-        end
+            _ ->
+              {:ok, target}
+          end
         end
 
       case result do
@@ -1412,19 +1412,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp clear_assignment_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: :ok
 
-  defp deleted_slot_holder?(%AddonRolloutTarget{assignment_id: nil, state: state}),
-    do: state in @slot_holding_target_states
-
-  defp deleted_slot_holder?(_target), do: false
-
-  defp cancel_deleted_target(target, actor, now) do
-    update_target(
-      target,
-      %{state: :canceled, reason_code: "assignment_deleted", completed_at: now},
-      actor
-    )
-  end
-
   defp clear_assignment_override(target, actor) do
     with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
       if assignment.rollout_id == target.rollout_id do
@@ -1453,6 +1440,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end)
   end
 
+  defp deleted_slot_holder?(%AddonRolloutTarget{assignment_id: nil, state: state}),
+    do: state in @slot_holding_target_states
+
+  defp deleted_slot_holder?(_target), do: false
+
+  defp cancel_deleted_target(target, actor, now) do
+    update_target(
+      target,
+      %{state: :canceled, reason_code: "assignment_deleted", completed_at: now},
+      actor
+    )
+  end
+
   # :succeeded belongs in this list even though the target's own work is done.
   # addon_rollout_targets_one_active_target_index treats succeeded as an ACTIVE
   # target for (agent_uid, addon_id), and only promote_source/4 ever moves it to
@@ -1464,13 +1464,21 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # replacement rollout could be created for any of them.
   defp mark_targets_canceled(targets, actor, now) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      if target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending, :succeeded] do
-        case update_target(target, %{state: :canceled, completed_at: now}, actor) do
-          {:ok, _} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      else
-        {:cont, :ok}
+      cond do
+        deleted_slot_holder?(target) ->
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending, :succeeded] ->
+          case update_target(target, %{state: :canceled, completed_at: now}, actor) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        true ->
+          {:cont, :ok}
       end
     end)
   end
@@ -1484,7 +1492,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
             {:error, reason} -> {:halt, {:error, reason}}
           end
 
-        target.state == :succeeded ->
         target.state == :succeeded ->
           case update_target(target, %{state: :promoted, completed_at: now}, actor) do
             {:ok, _} -> {:cont, :ok}
