@@ -6,7 +6,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   @detail_chart_focus_side_seconds 2 * 60 * 60
 
-  attr :overview, :map, required: true
+  attr :overview, :map, default: nil
+  attr :loading, :boolean, default: false
   attr :anomaly_page, :integer, default: 1
   attr :detail, :map, default: nil
   attr :device_uid, :string, default: nil
@@ -16,14 +17,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   attr :timezone, :string, required: true
 
   def anomaly_capacity_section(assigns) do
+    overview = assigns[:overview] || %{}
+    anomaly_rows = Map.get(overview, :anomaly_rows, [])
+    overview_pagination = Map.get(overview, :anomaly_pagination, %{})
+
     assigns =
-      assign(
-        assigns,
+      assigns
+      |> assign(:overview, overview)
+      |> assign(
         :anomaly_pagination,
         anomaly_pagination(
-          assigns.overview.anomaly_rows,
+          anomaly_rows,
           assigns.anomaly_page,
-          Map.get(assigns.overview, :anomaly_pagination, %{}),
+          overview_pagination,
           assigns.anomaly_filters
         )
       )
@@ -33,14 +39,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       <section class="rounded-lg border border-sr-line bg-sr-surface">
         <div class="flex flex-wrap items-start justify-between gap-3 border-b border-sr-line px-5 py-4">
           <div>
-            <h2 class="text-base font-semibold">Anomaly &amp; Capacity</h2>
+            <div class="flex items-center gap-2">
+              <h2 class="text-base font-semibold">Anomaly &amp; Capacity</h2>
+              <.ui_spinner :if={@loading} size="xs" />
+            </div>
             <p class="text-xs text-sr-muted">
               Device-scoped anomaly status, recent findings, and forecast runway.
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <.ui_button
-              :if={@overview.anomaly_query}
+              :if={not @loading and Map.get(@overview, :anomaly_query)}
               navigate={observability_href(@overview.anomaly_query)}
               size="xs"
               variant="neutral"
@@ -53,7 +62,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
         </div>
 
-        <div class="space-y-5 p-5">
+        <.anomaly_capacity_skeleton :if={@loading} class="p-5" />
+
+        <div :if={not @loading} class="space-y-5 p-5">
           <div
             :if={@overview.status == :error}
             class="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning"
@@ -346,6 +357,91 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         metric_sections={@metric_sections}
         timezone={@timezone}
       />
+    </div>
+    """
+  end
+
+  attr :class, :string, default: nil
+
+  def anomaly_capacity_skeleton(assigns) do
+    ~H"""
+    <div
+      class={["space-y-5", @class]}
+      aria-busy="true"
+      aria-live="polite"
+      data-testid="anomaly-capacity-skeleton"
+    >
+      <span class="sr-only">Loading anomaly and capacity data...</span>
+
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <div
+          :for={_card <- 1..6}
+          class="animate-pulse rounded-lg border border-sr-line bg-sr-surface p-3"
+        >
+          <div class="h-3.5 w-16 rounded bg-sr-subtle"></div>
+          <div class="mt-2 flex items-center justify-between gap-2">
+            <div class="h-5 w-16 rounded-full bg-sr-subtle"></div>
+            <div class="h-3.5 w-6 rounded bg-sr-subtle"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+        <div class="animate-pulse rounded-lg border border-sr-line">
+          <div class="flex items-center justify-between gap-3 border-b border-sr-line px-4 py-3">
+            <div class="space-y-1">
+              <div class="h-4 w-40 rounded bg-sr-subtle"></div>
+              <div class="h-3 w-28 rounded bg-sr-subtle"></div>
+            </div>
+            <div class="h-5 w-8 rounded-full bg-sr-subtle"></div>
+          </div>
+
+          <div class="grid gap-2 border-b border-sr-line px-4 py-3 sm:grid-cols-3">
+            <div :for={_filter <- 1..3} class="h-8 rounded-md bg-sr-subtle/50"></div>
+          </div>
+
+          <div class="divide-y divide-sr-line">
+            <div :for={_row <- 1..3} class="space-y-2 p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="w-full space-y-2">
+                  <div class="h-4 w-1/2 rounded bg-sr-subtle"></div>
+                  <div class="h-3 w-3/4 rounded bg-sr-subtle"></div>
+                  <div class="flex gap-2 pt-1">
+                    <div class="h-3 w-20 rounded bg-sr-subtle"></div>
+                    <div class="h-3 w-16 rounded bg-sr-subtle"></div>
+                    <div class="h-3 w-24 rounded bg-sr-subtle"></div>
+                  </div>
+                </div>
+                <div class="h-5 w-14 shrink-0 rounded-full bg-sr-subtle"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="animate-pulse rounded-lg border border-sr-line">
+          <div class="flex items-center justify-between gap-3 border-b border-sr-line px-4 py-3">
+            <div class="space-y-1">
+              <div class="h-4 w-36 rounded bg-sr-subtle"></div>
+              <div class="h-3 w-24 rounded bg-sr-subtle"></div>
+            </div>
+            <div class="h-6 w-20 rounded bg-sr-subtle"></div>
+          </div>
+
+          <div class="space-y-3 p-4">
+            <div class="h-6 w-full rounded border-b border-sr-line bg-sr-subtle/40"></div>
+            <div
+              :for={_row <- 1..3}
+              class="flex items-center justify-between gap-4 border-b border-sr-line/40 py-2 last:border-none"
+            >
+              <div class="h-4 w-28 rounded bg-sr-subtle"></div>
+              <div class="h-4 w-24 rounded bg-sr-subtle"></div>
+              <div class="h-5 w-16 rounded-full bg-sr-subtle"></div>
+              <div class="h-4 w-20 rounded bg-sr-subtle"></div>
+              <div class="h-4 w-24 rounded bg-sr-subtle"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     """
   end
