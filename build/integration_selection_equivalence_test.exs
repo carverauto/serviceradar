@@ -161,14 +161,6 @@ defmodule ServiceRadar.IntegrationSelectionEquivalenceTest do
     end)
   end
 
-  defp runfile_path!(relative_path) do
-    Path.join([
-      System.fetch_env!("TEST_SRCDIR"),
-      System.fetch_env!("TEST_WORKSPACE"),
-      relative_path
-    ])
-  end
-
   defp parse_identity!(@identity_prefix <> encoded) do
     case String.split(encoded, "|", parts: 3) do
       [source, module, test_name] ->
