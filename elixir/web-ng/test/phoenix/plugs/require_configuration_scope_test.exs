@@ -139,6 +139,34 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
     refute run("POST", %{api_key_auth: true}, "/api/v1/scans", opts).halted
   end
 
+  test "legacy static keys reach controllers only where the pipeline opts in" do
+    for method <- ["GET", "POST"] do
+      conn =
+        method
+        |> build_conn("/api/v1/scans", nil)
+        |> assign(:current_scope, %Scope{user: nil})
+        |> assign(:api_key_auth, true)
+        |> RequireConfigurationScope.call(
+          read_only_post_paths: [["api", "v1", "identity", "resolve"]],
+          allow_api_key_auth: true
+        )
+
+      refute conn.halted
+    end
+
+    for method <- ["GET", "POST"] do
+      conn =
+        method
+        |> build_conn("/api/v1/scans", nil)
+        |> assign(:current_scope, %Scope{user: nil})
+        |> assign(:api_key_auth, true)
+        |> RequireConfigurationScope.call([])
+
+      assert conn.halted
+      assert conn.status == 401
+    end
+  end
+
   test "all credential and Ansible configuration routes mount the capability gate" do
     routes = Phoenix.Router.routes(ServiceRadarWebNGWeb.Router)
 

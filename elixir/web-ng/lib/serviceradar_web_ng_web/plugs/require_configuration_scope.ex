@@ -36,6 +36,14 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScope do
     end
   end
 
+  def call(%{assigns: %{current_scope: %Scope{user: nil}, api_key_auth: true}} = conn, opts) do
+    if Keyword.get(opts, :allow_api_key_auth, false) do
+      conn
+    else
+      reject(conn, 401, "unauthorized", "An active user-bound credential is required")
+    end
+  end
+
   def call(conn, _opts) do
     reject(conn, 401, "unauthorized", "An active user-bound credential is required")
   end
