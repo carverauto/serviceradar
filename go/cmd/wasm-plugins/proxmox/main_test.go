@@ -1225,3 +1225,43 @@ func TestGuestAgentEnabled(t *testing.T) {
 		}
 	}
 }
+
+type erroringHTTPClient struct{ err error }
+
+func (e erroringHTTPClient) Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+	return nil, e.err
+}
+
+// A target that fails every request must say what to fix, not only the host
+// code: "host error -5" alone read like a plugin bug when it was a TLS SAN
+// mismatch, and a 401 gave no hint that the token header was malformed.
+func TestRunProxmoxCheckExplainsTargetFailures(t *testing.T) {
+	cases := []struct {
+		name   string
+		client interface {
+			Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error)
+		}
+		want string
+	}{
+		{"auth", staticHTTPClient{response: &sdk.HTTPResponse{Status: http.StatusUnauthorized}}, hintAuth},
+		{"tls or dial", erroringHTTPClient{err: sdk.HostError{Code: -5, Op: "http_request"}}, hintHostInternal},
+		{"host policy", erroringHTTPClient{err: sdk.HostError{Code: -2, Op: "http_request"}}, hintHostDenied},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			oldHTTP := proxmoxHTTP
+			t.Cleanup(func() { proxmoxHTTP = oldHTTP })
+			proxmoxHTTP = tc.client
+
+			_, err := runProxmoxCheck(Config{
+				BaseURL:       "https://host01.example.com:8006",
+				APIToken:      hostCredentialSentinel,
+				IncludeGuests: boolPtr(false),
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("all-targets-failed error = %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}

@@ -136,7 +136,7 @@ func fetchTargetTopology(cfg Config, target Target, token string) (*proxmoxVersi
 
 	var version *proxmoxVersion
 	if v, err := fetchVersion(cfg, target, token); err != nil {
-		warnings["version"] = sanitizeError(err)
+		warnings["version"] = describeTargetError(err)
 	} else {
 		version = &v
 	}
@@ -147,14 +147,14 @@ func fetchTargetTopology(cfg Config, target Target, token string) (*proxmoxVersi
 	// so per-node guest batches can still mint the v2 identity.
 	var cluster []proxmoxClusterNode
 	if c, err := fetchClusterStatus(cfg, target, token); err != nil {
-		warnings["cluster_status"] = sanitizeError(err)
+		warnings["cluster_status"] = describeTargetError(err)
 	} else {
 		cluster = c
 	}
 
 	nodes, err := fetchNodes(cfg, target, token)
 	if err != nil {
-		warnings["nodes"] = sanitizeError(err)
+		warnings["nodes"] = describeTargetError(err)
 		return version, cluster, nil, warnings
 	}
 
