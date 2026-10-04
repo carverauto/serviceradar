@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.CoreNodeForwarder do
   @moduledoc false
 
+  alias ServiceRadarAgentGateway.ClusterProcessLocator
+
   require Logger
 
   def resolve_core_node(service_label, resolver) when is_function(resolver, 0) do
@@ -38,16 +40,10 @@ defmodule ServiceRadarAgentGateway.CoreNodeForwarder do
   end
 
   def select_core_node(ingress_label) do
-    nodes = Node.list()
-
-    nodes
-    |> Enum.find(fn node ->
-      case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
-        pid when is_pid(pid) -> true
-        _other -> false
-      end
-    end)
-    |> Kernel.||(Enum.find(nodes, &core_node?/1))
+    ServiceRadar.ClusterHealth
+    |> ClusterProcessLocator.nodes()
+    |> List.first()
+    |> Kernel.||(Enum.find(Node.list(), &core_node?/1))
     |> case do
       nil -> raise ArgumentError, "no core-elx node available for #{ingress_label}"
       node -> node
