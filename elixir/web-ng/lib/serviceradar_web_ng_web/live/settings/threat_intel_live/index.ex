@@ -713,7 +713,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                     <select
                       id="otx-credential"
                       name="settings[otx_credential_secret_id]"
-                      class={ui_select_class(class: "w-full")}
+                      class={ui_field_class(class: "w-full")}
                     >
                       <option value="">No credential selected</option>
                       <option

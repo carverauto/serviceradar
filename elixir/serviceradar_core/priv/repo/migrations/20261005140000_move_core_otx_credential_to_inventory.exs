@@ -2,6 +2,13 @@ defmodule ServiceRadar.Repo.Migrations.MoveCoreOtxCredentialToInventory do
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - bounded move of a small
+    # singleton control-plane table into the canonical credential inventory.
+    # The data copy moves one encrypted scalar per settings row (ciphertext
+    # only, never decrypted) and clears the legacy copy; the WHERE clause
+    # makes it idempotent (only rows that still hold a legacy key and lack a
+    # reference). Deferring it would leave the core worker without its
+    # credential reference on first boot after upgrade.
     alter table(:netflow_settings, prefix: "platform") do
       add :otx_credential_secret_id,
           references(:network_credential_secrets, type: :uuid, prefix: "platform", on_delete: :restrict)
