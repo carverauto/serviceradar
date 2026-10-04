@@ -165,6 +165,21 @@ class DgraphEndpointContract(unittest.TestCase):
         self.assertEqual(url.group(1), CI_CA_BUNDLE_URL)
         self.assertTrue(url.group(1).startswith("https://"), url.group(1))
 
+    def test_ci_ca_keeps_its_key_across_renewal(self):
+        # CI fetches this CA from one fixed URL and other clusters' fixtures chain to copies of
+        # it. cert-manager >= 1.18 defaults rotationPolicy to Always, so without these fields a
+        # routine renewal mints a new key and every copy stops verifying at once.
+        docs = (K8S / "ci" / "certificate.yaml").read_text().split("\n---\n")
+        ca = [
+            d
+            for d in docs
+            if re.search(r"^kind:\s*Certificate\s*$", d, re.M)
+            and re.search(r"^\s+name:\s*dgraph-ci-ca\s*$", d, re.M)
+        ]
+        self.assertEqual(len(ca), 1, "ci/certificate.yaml must define one dgraph-ci-ca Certificate")
+        self.assertRegex(ca[0], r"(?m)^\s+rotationPolicy:\s*Never\s*$")
+        self.assertRegex(ca[0], r"(?m)^\s+duration:\s*87600h\s*$")
+
     def test_ci_ca_httproute_uses_the_config_hostname(self):
         route = (K8S / "ci" / "httproute-ca.yaml").read_text()
         self.assertIn(f"hostname: {CI_CA_HOSTNAME}", route)
