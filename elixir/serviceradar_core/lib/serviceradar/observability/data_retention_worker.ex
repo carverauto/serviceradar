@@ -87,7 +87,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       prune_sweep_host_results(config, batch_size),
       prune_sweep_group_executions(config, batch_size),
       prune_trivy_reports(config, batch_size),
-      prune_endpoint_inventory(config, batch_size),
+      prune_endpoint_inventory(config),
       prune_dataset_snapshots(
         "netflow_provider_dataset_snapshots",
         "netflow_provider_cidrs",
@@ -578,7 +578,10 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     )
   end
 
-  defp prune_endpoint_inventory(config, batch_size) do
+  # The shared row batch_size is not passed: here a "row" is a scan that owns
+  # hundreds of package rows, and EndpointInventoryRetention bounds its own
+  # statements and its scans per run.
+  defp prune_endpoint_inventory(config) do
     retention_days =
       config
       |> Keyword.get(
@@ -589,20 +592,20 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
     case EndpointInventoryRetention.prune(
            retention_days: retention_days,
-           batch_size: batch_size,
            timeout: Keyword.get(config, :endpoint_inventory_datasvc_timeout_ms, 30_000)
          ) do
       {:ok, %{deleted_scans: deleted}} ->
         deleted
 
       {:error, error} ->
-        Logger.warning("Failed to prune retained endpoint inventory data",
-          reason: Exception.message(error)
-        )
+        Logger.warning("Failed to prune retained endpoint inventory data: #{format_error(error)}")
 
         0
     end
   end
+
+  defp format_error(error) when is_exception(error), do: Exception.message(error)
+  defp format_error(error), do: inspect(error)
 
   defp prune_dataset_snapshots(snapshot_table, entry_table, config, batch_size) do
     case DatasetSnapshotPrune.run(snapshot_table, entry_table,
