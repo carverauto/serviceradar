@@ -74,6 +74,15 @@ moment the other crate changes. Bazel compiles per-target and is less forgiving.
 cargo check -p srql --lib --tests   # must pass in isolation
 ```
 
+### Reqsign signing dependencies
+
+Production uses the registry reqsign 0.20.5 family with Google 3.1.0, Azure
+3.2.0 and core 3.3.0. The obsolete 1.0.0 Google/Azure forks were unreferenced
+workspace members, so they and their Cargo patches were removed rather than
+maintaining upstream test modules with missing dev dependencies. Production
+signing versions remain unchanged. The dependency validation script excludes
+only the unrelated rperf upstream development-dependency limitation.
+
 ### Exceptions
 
 Only one crate holds a local version, and it is documented at the declaration:
@@ -592,10 +601,8 @@ make update-rust-deps [REPIN=<mode>] [VERIFY_TARGET=<label>]
 bazel run //third_party/crate_mirror:sync
 
 # cargo: --lib --bins --tests, or you skip test code.
-# The third_party/rust_patches forks fail --tests on a clean tree (undeclared dev-deps),
-# so exclude them or you will chase a pre-existing failure.
-cargo check --workspace --lib --bins --tests \
-  --exclude reqsign-azure-storage --exclude reqsign-google --exclude rperf
+# The retained rperf fork has undeclared upstream test dependencies.
+cargo check --workspace --lib --bins --tests --exclude rperf
 
 # a single crate, in isolation (must pass on its own)
 cargo check -p <crate> --lib --bins --tests
