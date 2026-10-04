@@ -261,8 +261,8 @@ fn build_grouped_stats_query(
             json_parts.push(format!("'{key}'"));
             json_parts.push(format!("group_value_{idx}"));
         }
-        for (idx, agg) in spec.aggregations.iter().enumerate() {
-            json_parts.push(format!("'{}'", agg.alias));
+        for idx in 0..spec.aggregations.len() {
+            json_parts.push("?::text".to_string());
             json_parts.push(format!("agg_value_{idx}"));
         }
 
@@ -278,8 +278,8 @@ fn build_grouped_stats_query(
                 other_json_parts.push(format!("'{key}'"));
                 other_json_parts.push("NULL".to_string());
             }
-            for (idx, agg) in spec.aggregations.iter().enumerate() {
-                other_json_parts.push(format!("'{}'", agg.alias));
+            for idx in 0..spec.aggregations.len() {
+                other_json_parts.push("?::text".to_string());
                 other_json_parts.push(format!("COALESCE(SUM(agg_value_{idx}), 0)"));
             }
             other_json_parts.push("'__other__'".to_string());
@@ -315,7 +315,7 @@ fn build_grouped_stats_query(
             .aggregations
             .iter()
             .enumerate()
-            .flat_map(|(idx, agg)| [format!("'{}'", agg.alias), format!("agg_value_{idx}")])
+            .flat_map(|(idx, _)| ["?::text".to_string(), format!("agg_value_{idx}")])
             .collect::<Vec<_>>()
             .join(", ");
         format!(
@@ -324,6 +324,20 @@ fn build_grouped_stats_query(
             inner = inner
         )
     };
+
+    let alias_binds = || {
+        spec.aggregations
+            .iter()
+            .map(|agg| FlowSqlBindValue::Text(agg.alias.clone()))
+    };
+    if plan.other {
+        // The grouped CTE's filters precede the top-row and Other-row JSON keys.
+        binds.extend(alias_binds());
+        binds.extend(alias_binds());
+    } else {
+        // The outer SELECT's JSON keys precede the inner query's filters.
+        binds.splice(0..0, alias_binds());
+    }
 
     Ok(FlowGroupedStatsSql {
         sql: outer_sql,

@@ -87,8 +87,8 @@ fn translate_grouped_stats_other_rollup_ranks_full_result_and_sums_tail() {
     );
     assert!(
         sql.contains("'src_endpoint_ip', NULL")
-            && sql.contains("'bytes_total', COALESCE(SUM(agg_value_0), 0)")
-            && sql.contains("'packets_total', COALESCE(SUM(agg_value_1), 0)")
+            && sql.contains("$5::text, COALESCE(SUM(agg_value_0), 0)")
+            && sql.contains("$6::text, COALESCE(SUM(agg_value_1), 0)")
             && sql.contains("'__other__', true"),
         "expected Other JSON payload: {sql}"
     );
