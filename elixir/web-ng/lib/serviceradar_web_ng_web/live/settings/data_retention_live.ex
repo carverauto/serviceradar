@@ -198,11 +198,18 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLive do
                     </span>
                   </td>
                   <td class="align-top text-sm">
-                    <.applied_status entry={entry} />
+                    <.applied_status entry={entry} timezone={user_timezone(@current_scope)} />
                   </td>
                   <td class="align-top text-xs text-sr-muted">
                     <div :if={entry.updated_by}>{entry.updated_by}</div>
-                    <div :if={entry.updated_at}>{format_time(entry.updated_at)}</div>
+                    <div :if={entry.updated_at}>
+                      <.user_time
+                        id={"retention-#{entry.dataset}-updated-at"}
+                        value={entry.updated_at}
+                        timezone={user_timezone(@current_scope)}
+                        style={:compact}
+                      />
+                    </div>
                     <div :if={!entry.updated_by and !entry.updated_at}>Not changed since seeding</div>
                   </td>
                 </tr>
@@ -239,6 +246,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLive do
   end
 
   attr :entry, :map, required: true
+  attr :timezone, :string, required: true
 
   defp applied_status(assigns) do
     ~H"""
@@ -250,7 +258,13 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLive do
       <div :if={@entry.last_applied_days}>
         {@entry.last_applied_days} days
         <span :if={@entry.last_applied_at} class="text-xs text-sr-muted">
-          at {format_time(@entry.last_applied_at)}
+          at
+          <.user_time
+            id={"retention-#{@entry.dataset}-applied-at"}
+            value={@entry.last_applied_at}
+            timezone={@timezone}
+            style={:compact}
+          />
         </span>
       </div>
       <div :if={@entry.last_applied_error} class="text-xs text-sr-muted">
@@ -309,7 +323,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLive do
   defp label(dataset), do: @labels |> Map.get(dataset, {to_string(dataset), ""}) |> elem(0)
   defp description(dataset), do: @labels |> Map.get(dataset, {"", ""}) |> elem(1)
 
-  defp format_time(%DateTime{} = time), do: Calendar.strftime(time, "%Y-%m-%d %H:%M UTC")
+  defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
+
+  defp user_timezone(_current_scope), do: "Etc/UTC"
 
   defp format_error(%{__exception__: true} = error), do: Exception.message(error)
   defp format_error(message) when is_binary(message), do: message
