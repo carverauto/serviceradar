@@ -173,6 +173,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/agent_commands/status_handler_cleanup_test.exs": 1,
     "test/serviceradar/agent_config/dependency_catalog_test.exs": 1,
     "test/serviceradar/agent_tracker_test.exs": 1,
+    "test/serviceradar/analytics/starrocks/schema_migrator_lock_db_test.exs": 1,
     "test/serviceradar/automation/ansible/awx_inventory_observation_fence_db_test.exs": 1,
     "test/serviceradar/automation/ansible/awx_membership_reconciler_db_test.exs": 1,
     "test/serviceradar/automation/ansible/callback_launch_orchestrator_db_test.exs": 1,

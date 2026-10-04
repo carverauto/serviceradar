@@ -48,16 +48,19 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
               ])
 
   # A warehouse reduced to what the rebuild asks of one: which tables exist and
-  # whether they are partitioned, their columns, the days they hold, and a log
-  # of what it was sent. CREATE, SWAP, the per-day copy and DROP all act on that
+  # whether they are partitioned, their columns, the hours they hold, and a log
+  # of what it was sent. CREATE, SWAP, the per-hour copy and DROP all act on that
   # state, so a second run sees what the first one left behind.
   defp start_warehouse(tables) do
     {:ok, agent} = Agent.start_link(fn -> %{tables: tables, sent: [], fail_on: nil} end)
     agent
   end
 
-  defp old(columns, days), do: %{kind: :unpartitioned, columns: columns, days: days}
-  defp new(columns, days), do: %{kind: :partitioned, columns: columns, days: days}
+  # Held hours, as `YYYY-MM-DD HH:00:00`. A bare date stands for its first hour.
+  defp old(columns, held), do: %{kind: :unpartitioned, columns: columns, hours: hours(held)}
+  defp new(columns, held), do: %{kind: :partitioned, columns: columns, hours: hours(held)}
+
+  defp hours(held), do: Enum.map(held, &if(byte_size(&1) == 10, do: "#{&1} 00:00:00", else: &1))
 
   defp run(agent, overrides \\ %{}) do
     %{
@@ -95,11 +98,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
   defp answer(
          state,
-         "SELECT /*+ SET_VAR(query_timeout = 14400) */ DISTINCT date_trunc" <> _ = sql
+         "SELECT /*+ SET_VAR(query_timeout = 14400) */ DISTINCT date_trunc('hour'" <> _ = sql
        ) do
     [_, table] = Regex.run(~r/FROM warehouse\.(\w+) /, sql)
-    days = state.tables[table].days |> Enum.sort(:desc) |> Enum.map(&["#{&1} 00:00:00"])
-    {ok(days), state}
+    hours = state.tables[table].hours |> Enum.uniq() |> Enum.sort(:desc) |> Enum.map(&[&1])
+    {ok(hours), state}
   end
 
   defp answer(state, sql) do
@@ -119,11 +122,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
       match =
           Regex.run(
-            ~r/^INSERT INTO warehouse\.(\w+__rebuild) .* >= '(\d{4}-\d\d-\d\d) 00:00:00'/,
+            ~r/^INSERT INTO warehouse\.(\w+__rebuild) .* >= '(\d{4}-\d\d-\d\d \d\d:00:00)'/,
             sql
           ) ->
-        [_, copy, day] = match
-        update_in(state.tables[copy].days, &[day | &1])
+        [_, copy, hour] = match
+        update_in(state.tables[copy].hours, &[hour | &1])
 
       match = Regex.run(~r/^ALTER TABLE warehouse\.(\w+) SWAP WITH (\w+)$/, sql) ->
         [_, table, copy] = match
@@ -157,7 +160,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert sent(current) == []
   end
 
-  test "a table is copied a day at a time, refreshed, swapped, caught up a day at a time, and dropped" do
+  test "a table is copied an hour at a time, refreshed, swapped, caught up an hour at a time, and dropped" do
     # The old table predates `app`, so only the columns both sides have are copied.
     agent =
       start_warehouse(%{
@@ -173,14 +176,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     catch_up =
       "INSERT INTO warehouse.flows (`id`, `time`, `bytes`) SELECT o.`id`, o.`time`, o.`bytes` FROM warehouse.flows__rebuild o "
 
-    day = fn column, date ->
-      "#{column} >= '#{date} 00:00:00' AND #{column} < DATE_ADD('#{date} 00:00:00', INTERVAL 1 DAY)"
+    first_hour = fn column, date ->
+      "#{column} >= '#{date} 00:00:00' AND #{column} < DATE_ADD('#{date} 00:00:00', INTERVAL 1 HOUR)"
     end
 
     caught_up = fn date ->
       catch_up <>
-        "LEFT ANTI JOIN warehouse.flows n ON o.`id` = n.`id` AND o.`time` = n.`time` AND #{day.("n.`time`", date)} " <>
-        "WHERE #{day.("o.`time`", date)}"
+        "LEFT ANTI JOIN warehouse.flows n ON o.`id` = n.`id` AND o.`time` = n.`time` AND #{first_hour.("n.`time`", date)} " <>
+        "WHERE #{first_hour.("o.`time`", date)}"
     end
 
     pass = Enum.map(["2025-01-03", "2025-01-02", "2025-01-01"], caught_up)
@@ -190,13 +193,13 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
              [
                "CREATE TABLE IF NOT EXISTS warehouse.flows__rebuild (",
                # Newest first, so the days people look at are ready soonest.
-               copy <> day.("`time`", "2025-01-03"),
-               copy <> day.("`time`", "2025-01-02"),
-               copy <> day.("`time`", "2025-01-01"),
+               copy <> first_hour.("`time`", "2025-01-03"),
+               copy <> first_hour.("`time`", "2025-01-02"),
+               copy <> first_hour.("`time`", "2025-01-01"),
                # Rows changed in place since their day was copied: the two most
                # recent days again, while nothing else writes the new table.
-               copy <> day.("`time`", "2025-01-03"),
-               copy <> day.("`time`", "2025-01-02"),
+               copy <> first_hour.("`time`", "2025-01-03"),
+               copy <> first_hour.("`time`", "2025-01-02"),
                "DROP MATERIALIZED VIEW IF EXISTS warehouse.flows_hourly",
                "ALTER TABLE warehouse.flows SWAP WITH flows__rebuild"
              ] ++
@@ -209,6 +212,50 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     clear(agent)
     assert run(agent) == :ok
     assert sent(agent) == []
+  end
+
+  test "no statement copies or catches up more than an hour, and the hours tile each day exactly" do
+    # One full day and a sparse one: the full day must come out as 24 one-hour
+    # ranges with no gap and no overlap, the sparse one as only its held hours.
+    full_day = for h <- 0..23, do: "2025-01-02 #{String.pad_leading("#{h}", 2, "0")}:00:00"
+    sparse_day = ["2025-01-03 05:00:00", "2025-01-03 17:00:00"]
+    agent = start_warehouse(%{"flows" => old(["id", "time"], full_day ++ sparse_day)})
+
+    assert run(agent) == :ok
+    assert kinds(agent) == %{"flows" => :partitioned}
+
+    range = ~r/`time` >= '([^']+)' AND \S+ < DATE_ADD\('([^']+)', INTERVAL 1 HOUR\)/
+
+    # Every data statement is bounded to one hour, on every side it reads.
+    ranges = fn statement ->
+      bounds = Regex.scan(range, statement, capture: :all_but_first)
+      assert bounds != [], "unbounded statement: #{statement}"
+      assert Enum.all?(bounds, fn [from, to] -> from == to end)
+      refute statement =~ "INTERVAL 1 DAY"
+      bounds |> Enum.map(&hd/1) |> Enum.uniq()
+    end
+
+    {before_swap, after_swap} = Enum.split_while(sent(agent), &(not (&1 =~ "SWAP WITH")))
+    copies = Enum.filter(before_swap, &(&1 =~ "INSERT INTO"))
+    catch_ups = Enum.filter(after_swap, &(&1 =~ "INSERT INTO"))
+
+    assert Enum.all?(copies ++ catch_ups, &(length(ranges.(&1)) == 1))
+
+    # The first copy covers what the old table holds, once each.
+    first_copy = copies |> Enum.take(length(full_day ++ sparse_day)) |> Enum.flat_map(ranges)
+    assert Enum.sort(first_copy) == Enum.sort(full_day ++ sparse_day)
+
+    # Taken as half-open hour ranges, the full day's slices tile it exactly.
+    starts =
+      first_copy
+      |> Enum.filter(&String.starts_with?(&1, "2025-01-02"))
+      |> Enum.map(&NaiveDateTime.from_iso8601!/1)
+      |> Enum.sort(NaiveDateTime)
+
+    ends = Enum.map(starts, &NaiveDateTime.add(&1, 3600))
+    assert hd(starts) == ~N[2025-01-02 00:00:00]
+    assert List.last(ends) == ~N[2025-01-03 00:00:00]
+    assert Enum.drop(starts, 1) == Enum.drop(ends, -1)
   end
 
   test "the rollups stay until every copy is done, so the slow part costs readers nothing" do
@@ -245,7 +292,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
     Agent.update(agent, &%{&1 | fail_on: "INSERT INTO warehouse.flows__rebuild"})
 
-    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02", _}}]}} =
+    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02 00:00:00", _}}]}} =
              run(agent, %{retention_days: [{"flows", 90}, {"metrics", 90}]})
 
     assert kinds(agent)["metrics"] == :partitioned
@@ -270,7 +317,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     end
 
     # The failure is still reported: the migration that owns the rollups waits.
-    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02", _}}]}} =
+    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02 00:00:00", _}}]}} =
              run(agent, %{query: query, retention_days: [{"flows", 90}, {"metrics", 90}]})
 
     statements = sent(agent)
@@ -317,14 +364,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     Agent.update(agent, &%{&1 | fail_on: [flows_copy, "CREATE MATERIALIZED VIEW"]})
 
     assert {:error, {:partition_rebuild, failures}} = run(agent, retention)
-    assert [{"flows", {:copy, "2025-01-02", _}}, {"metrics", {:rollup, _}}] = failures
+    assert [{"flows", {:copy, "2025-01-02 00:00:00", _}}, {"metrics", {:rollup, _}}] = failures
     assert kinds(agent)["metrics"] == :partitioned
     refute Map.has_key?(kinds(agent), "metrics_hourly")
 
     # `metrics` has nothing left to rebuild, and `flows` is still failing.
     Agent.update(agent, &%{&1 | fail_on: flows_copy, sent: []})
 
-    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02", _}}]}} =
+    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02 00:00:00", _}}]}} =
              run(agent, retention)
 
     assert "CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse.metrics_hourly" in sent(agent)
@@ -357,7 +404,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
     Agent.update(unfinished, &%{&1 | fail_on: "LEFT ANTI JOIN"})
 
-    assert {:error, {:partition_rebuild, [{"metrics", {:catch_up, "2025-01-02", _}}]}} =
+    assert {:error, {:partition_rebuild, [{"metrics", {:catch_up, "2025-01-02 00:00:00", _}}]}} =
              run(unfinished, %{retention_days: [{"metrics", 90}]})
 
     refute Enum.any?(sent(unfinished), &(&1 =~ "MATERIALIZED VIEW"))
@@ -436,7 +483,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert List.last(received) =~ "INSERT INTO warehouse.flows__rebuild"
   end
 
-  test "listing a table's days carries its own timeout, which the server's default would cut short" do
+  test "listing a table's hours carries its own timeout, which the server's default would cut short" do
     agent = start_warehouse(%{"flows" => old(["id", "time"], ["2025-01-02"])})
     parent = self()
 
@@ -468,8 +515,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
     assert run(agent, %{query: query}) == :ok
     assert kinds(agent) == %{"flows" => :partitioned}
-    days = tables(agent)["flows"].days
-    assert days |> Enum.uniq() |> Enum.sort() == ["2025-01-01", "2025-01-02"]
+    hours = tables(agent)["flows"].hours
+    assert hours |> Enum.uniq() |> Enum.sort() == ["2025-01-01 00:00:00", "2025-01-02 00:00:00"]
 
     statements = sent(agent)
     refute Enum.any?(statements, &(&1 =~ ~r/SWAP|MATERIALIZED VIEW/))
@@ -520,13 +567,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     Agent.update(agent, &%{&1 | fail_on: ">= '2025-01-02 00:00:00'"})
 
     assert {:error,
-            {:partition_rebuild, [{"flows", {:copy, "2025-01-02", {:starrocks_mysql, "boom"}}}]}} =
+            {:partition_rebuild,
+             [{"flows", {:copy, "2025-01-02 00:00:00", {:starrocks_mysql, "boom"}}}]}} =
              run(agent)
 
     # The live table and its rollup were never touched.
     assert kinds(agent) == %{"flows" => :unpartitioned, "flows__rebuild" => :partitioned}
     refute Enum.any?(sent(agent), &(&1 =~ ~r/SWAP|MATERIALIZED VIEW/))
-    assert tables(agent)["flows__rebuild"].days == ["2025-01-03"]
+    assert tables(agent)["flows__rebuild"].hours == ["2025-01-03 00:00:00"]
 
     Agent.update(agent, &%{&1 | fail_on: nil, sent: []})
     assert run(agent) == :ok

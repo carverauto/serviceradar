@@ -8,7 +8,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   is ordered so that the slow part disturbs nothing:
 
     1. For every old table, create `<table>__rebuild` from the shipped CREATE
-       and copy the rows still inside retention into it, one day a statement.
+       and copy the rows still inside retention into it, one hour a statement.
        Readers, writers and rollups all still use the old table.
     2. Then, table by table: drop its hourly rollup (a swap would leave it
        inactive), `ALTER TABLE <table> SWAP WITH <table>__rebuild`, copy across
@@ -17,8 +17,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   The rollups are gone only for step 2, and migration 0017 recreates them as
   soon as this returns. It is necessarily still pending: its partitioned views
   cannot exist over a table this module has yet to rebuild. Step 2 runs two
-  day-bounded anti-join passes per held day, so on a long retention it is
+  hour-bounded anti-join passes per held hour, so on a long retention it is
   minutes, not seconds.
+
+  The unit of work is an hour, not the day a partition holds. A day of a
+  large metrics table is more than a modest compute node can hold in memory,
+  for the copy and for the anti-join alike, and a node that runs out is killed
+  and takes every other query it was serving with it. An hour is a
+  twenty-fourth of that, and a small table merely runs more, cheap, statements.
 
   Every table is copied before any old table is dropped, so peak storage is
   about twice the in-retention warehouse. That is the price of keeping the
@@ -36,27 +42,28 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   recreated: 0017 runs next and would discard the work.
 
   Nothing here is recorded in the ledger. Every run reads what the warehouse
-  holds and continues from there. A day is one atomic INSERT, so a copy that
-  was interrupted keeps the days it finished and resumes with the rest, rather
-  than starting a large table again from nothing on every retry. A swap whose
-  catch-up never ran gets its catch-up.
+  holds and continues from there. An hour is one atomic INSERT, and what is
+  done is read back by the hour too, so a copy that was interrupted keeps the
+  hours it finished and resumes with the rest -- a day half copied is not
+  mistaken for a day done -- rather than starting a large table again from
+  nothing on every retry. A swap whose catch-up never ran gets its catch-up.
 
   Two things keep the result complete. Rows written to the old table after
-  their day was copied are carried by the catch-up, an anti-join on the new
-  key run a day at a time so both sides prune to one partition. Rows that were
-  copied and then CHANGED -- flow attribution rewrites recent flows in place --
-  are carried by copying the most recent days again immediately before the
-  swap, while nothing else writes the new table and an upsert of whole days is
-  therefore safe.
+  their hour was copied are carried by the catch-up, an anti-join on the new
+  key run an hour at a time so both sides prune to one partition and read one
+  hour of it. Rows that were copied and then CHANGED -- flow attribution
+  rewrites recent flows in place -- are carried by copying the hours of the
+  most recent days again immediately before the swap, while nothing else
+  writes the new table and an upsert of whole hours is therefore safe.
 
   Two gaps are left, both narrow. One is an in-place update landing between
   that last copy and the swap: it reaches the old table and is not carried.
-  The other is its mirror image: a flow written to the old table after its day
+  The other is its mirror image: a flow written to the old table after its hour
   was last copied, whose attribution -- a partial update by key -- reaches the
   NEW table before the catch-up has brought the flow across. The catch-up is
   an anti-join on the key, so it would then take the key as present. The most
   recent days are therefore caught up in the very next statements after the
-  swap, from the columns and days already in hand, which leaves that gap the
+  swap, from the columns and hours already in hand, which leaves that gap the
   instant between the swap and the first of them rather than a scan of the old
   table. CNPG receives every write throughout, so neither is lost to the
   deployment.
@@ -66,8 +73,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   called before every statement and raises once the lock is gone, so a runner
   that lost it stops before its next statement and leaves the tables to
   whoever holds the lock now. The statement in flight at that moment still
-  completes; for a day copy that is an upsert of rows the old table holds,
-  which the other runner's copy of the same day merely repeats.
+  completes; for an hour copy that is an upsert of rows the old table holds,
+  which the other runner's copy of the same hour merely repeats.
 
   The copy is bounded to the retention window on purpose. A table that was
   never partitioned has never expired anything, and a single row with a
@@ -90,9 +97,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   @future_slack_days 1
   # Days copied again just before the swap, for rows updated in place since
   # they were first copied. In-place updates are attribution, minutes behind
-  # the flow itself; two days is generous and still one short statement each.
+  # the flow itself; two days is generous, and still one hour a statement.
   @refresh_days 2
-  # Listing a table's days scans the time column of an unpartitioned table
+  # How often a long copy or catch-up says how much is left, in hours done.
+  @progress_every 24
+  # Listing a table's hours scans the time column of an unpartitioned table
   # whose key does not prune it. A SELECT is bounded by the server's
   # query_timeout (300s by default), not insert_timeout, so without a ceiling
   # of its own a large table fails the same way on every retry. Four hours
@@ -183,26 +192,49 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
 
     with :ok <- exec(state, spec.create_copy),
          {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
-         {:ok, wanted} <- days_in(state, spec.table, spec.time_column, days),
-         {:ok, done} <- days_in(state, spec.copy, spec.time_column, days) do
-      copy_days(state, spec, columns, wanted -- done)
+         {:ok, wanted} <- hours_in(state, spec.table, spec.time_column, days),
+         {:ok, done} <- hours_in(state, spec.copy, spec.time_column, days) do
+      copy_hours(state, spec, columns, wanted -- done)
     end
   end
 
-  defp copy_days(state, spec, columns, days) do
-    Enum.reduce_while(days, :ok, fn day, :ok ->
-      case exec(state, copy_day_sql(state, spec, columns, day)) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:copy, day, reason}}}
+  defp copy_hours(state, spec, columns, hours) do
+    each_hour(spec, :copy, hours, &exec(state, copy_hour_sql(state, spec, columns, &1)))
+  end
+
+  # One bounded statement per hour, stopping at the first that fails. The
+  # count left is logged as it goes, so a rebuild that takes hours shows its
+  # progress rather than only its retries.
+  defp each_hour(_spec, _phase, [], _fun), do: :ok
+
+  defp each_hour(spec, phase, hours, fun) do
+    total = length(hours)
+    Logger.info("StarRocks #{phase} of #{spec.table}: #{total} hours to go")
+
+    hours
+    |> Enum.with_index(1)
+    |> Enum.reduce_while(:ok, fn {hour, done}, :ok ->
+      case fun.(hour) do
+        :ok ->
+          if rem(done, @progress_every) == 0 and done < total do
+            Logger.info(
+              "StarRocks #{phase} of #{spec.table}: #{total - done} of #{total} hours left"
+            )
+          end
+
+          {:cont, :ok}
+
+        {:error, reason} ->
+          {:halt, {:error, {phase, hour, reason}}}
       end
     end)
   end
 
   defp cut_over(state, %{step: :rebuild, spec: spec, days: days} = plan) do
     with {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
-         {:ok, recent} <- days_in(state, spec.table, spec.time_column, days),
-         recent = Enum.take(recent, @refresh_days),
-         :ok <- copy_days(state, spec, columns, recent),
+         {:ok, held} <- hours_in(state, spec.table, spec.time_column, days),
+         recent = newest_days(held, @refresh_days),
+         :ok <- copy_hours(state, spec, columns, recent),
          {:ok, layout} <- layout(state) do
       # The plan is hours old by now, and SWAP is symmetric: issued by a runner
       # that lost the migration lock while another finished the job, it would
@@ -232,7 +264,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     with :ok <-
            exec(state, "DROP MATERIALIZED VIEW IF EXISTS #{qualified(state, spec.table)}_hourly"),
          :ok <- exec(state, "ALTER TABLE #{qualified(state, spec.table)} SWAP WITH #{spec.copy}"),
-         :ok <- catch_up_days(state, spec, columns, recent) do
+         :ok <- catch_up_hours(state, spec, columns, recent) do
       cut_over(state, %{plan | step: :finish})
     end
   end
@@ -275,60 +307,60 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   defp catch_up(_state, _spec, _columns, _days, 0), do: :ok
 
   defp catch_up(state, spec, columns, days, passes_left) do
-    with {:ok, old_days} <- days_in(state, spec.copy, spec.time_column, days),
-         :ok <- catch_up_days(state, spec, columns, old_days) do
+    with {:ok, old_hours} <- hours_in(state, spec.copy, spec.time_column, days),
+         :ok <- catch_up_hours(state, spec, columns, old_hours) do
       if passes_left > 1, do: state.sleep.(@catch_up_pause_ms)
       catch_up(state, spec, columns, days, passes_left - 1)
     end
   end
 
-  defp catch_up_days(state, spec, columns, days) do
-    Enum.reduce_while(days, :ok, fn day, :ok ->
-      case exec(state, catch_up_day_sql(state, spec, columns, day)) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:catch_up, day, reason}}}
-      end
-    end)
+  defp catch_up_hours(state, spec, columns, hours) do
+    each_hour(spec, :catch_up, hours, &exec(state, catch_up_hour_sql(state, spec, columns, &1)))
   end
 
-  @doc false
-  @spec copy_day_sql(state(), map(), [String.t()], String.t()) :: String.t()
-  def copy_day_sql(state, spec, columns, day) do
+  defp copy_hour_sql(state, spec, columns, hour) do
     list = column_list(columns)
 
     "INSERT INTO #{qualified(state, spec.copy)} (#{list}) SELECT #{list} FROM #{qualified(state, spec.table)} " <>
-      "WHERE #{on_day("`#{spec.time_column}`", day)}"
+      "WHERE #{in_hour("`#{spec.time_column}`", hour)}"
   end
 
-  # The day bounds both sides, so each reads one partition instead of joining
-  # the whole of one table to the whole of the other.
-  @doc false
-  @spec catch_up_day_sql(state(), map(), [String.t()], String.t()) :: String.t()
-  def catch_up_day_sql(state, spec, columns, day) do
+  # The hour bounds both sides, so each reads an hour of one partition instead
+  # of joining the whole of one table to the whole of the other.
+  defp catch_up_hour_sql(state, spec, columns, hour) do
     on = Enum.map_join(spec.keys, " AND ", &"o.`#{&1}` = n.`#{&1}`")
 
     "INSERT INTO #{qualified(state, spec.table)} (#{column_list(columns)}) " <>
       "SELECT #{column_list(columns, "o.")} FROM #{qualified(state, spec.copy)} o " <>
-      "LEFT ANTI JOIN #{qualified(state, spec.table)} n ON #{on} AND #{on_day("n.`#{spec.time_column}`", day)} " <>
-      "WHERE #{on_day("o.`#{spec.time_column}`", day)}"
+      "LEFT ANTI JOIN #{qualified(state, spec.table)} n ON #{on} AND #{in_hour("n.`#{spec.time_column}`", hour)} " <>
+      "WHERE #{in_hour("o.`#{spec.time_column}`", hour)}"
   end
 
-  defp on_day(column, day) do
-    "#{column} >= '#{day} 00:00:00' AND #{column} < DATE_ADD('#{day} 00:00:00', INTERVAL 1 DAY)"
+  defp in_hour(column, hour) do
+    "#{column} >= '#{hour}' AND #{column} < DATE_ADD('#{hour}', INTERVAL 1 HOUR)"
   end
 
-  # The days, newest first, on which a table holds rows inside retention.
-  defp days_in(state, table, time_column, days) do
+  # Every held hour of the newest `count` days that hold any, newest first.
+  defp newest_days(hours, count) do
+    days = hours |> Enum.map(&day_of/1) |> Enum.uniq() |> Enum.take(count)
+    Enum.filter(hours, &(day_of(&1) in days))
+  end
+
+  defp day_of(hour), do: String.slice(hour, 0, 10)
+
+  # The hours, newest first and as `YYYY-MM-DD HH:00:00`, in which a table
+  # holds rows inside retention.
+  defp hours_in(state, table, time_column, days) do
     column = "`#{time_column}`"
 
     sql =
       "SELECT /*+ SET_VAR(query_timeout = #{@scan_timeout_s}) */ DISTINCT " <>
-        "date_trunc('day', #{column}) FROM #{qualified(state, table)} " <>
+        "date_trunc('hour', #{column}) FROM #{qualified(state, table)} " <>
         "WHERE #{window(column, days)} ORDER BY 1 DESC"
 
     case query(state, sql) do
       {:ok, %{rows: rows}} ->
-        {:ok, Enum.map(rows, fn [day | _] -> day |> to_string() |> String.slice(0, 10) end)}
+        {:ok, Enum.map(rows, fn [hour | _] -> hour |> to_string() |> String.slice(0, 19) end)}
 
       {:error, reason} ->
         {:error, reason}
