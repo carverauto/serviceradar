@@ -631,7 +631,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     # A `best_effort` stream is a backlog drain, not part of the live pipeline.
     # Failing one must not unsubscribe the healthy consumers and re-arm the
-    # whole connection every @reconnect_delay ms: on a deployment whose `events`
+    # whole connection on every reconnect: on a deployment whose `events`
     # stream never carried a given flow subject, that turned a cosmetic mismatch
     # into a permanent flow-ingestion outage.
     {optional_failures, failures} =

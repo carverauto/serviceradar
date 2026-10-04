@@ -25,8 +25,11 @@ defmodule ServiceRadar.EventWriter.Health do
   Returns a map with:
   - `enabled` - Whether EventWriter is enabled in configuration
   - `running` - Whether the supervisor is running
-  - `pipeline` - Pipeline status (connected, message count, etc.)
-  - `producer` - Producer status (NATS connection status)
+  - `healthy` - Whether every configured pipeline is running with a ready producer
+  - `reason` - `:ok` or `{:error, reason}` (see `check/0`)
+  - `pipeline` - Shared pipeline status (running, pid)
+  - `producer` - Shared producer status (connection and consumer readiness)
+  - `pipelines` - Per-pipeline `%{pipeline: ..., producer: ...}` map
   - `config` - Current configuration summary
   - `flow_attribution` - `ServiceRadar.FlowAttribution.health/0`; reports
     `attribution_disabled: :starrocks_required` without the warehouse
