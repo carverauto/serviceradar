@@ -22,8 +22,6 @@ defmodule ServiceRadar.Repo.Migrations.AddAgentSupersession do
   end
 
   def down do
-    execute("UPDATE platform.ocsf_agents SET status = 'unavailable' WHERE status = 'superseded'")
-
     drop_if_exists index(:ocsf_agents, [:device_uid],
                      name: "ocsf_agents_unsuperseded_device_uid_index",
                      prefix: "platform"
