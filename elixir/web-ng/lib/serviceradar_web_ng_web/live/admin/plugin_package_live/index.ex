@@ -4187,9 +4187,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     ensure_object_key(package, scope)
   end
 
-  defp prepare_package_for_urls(_socket, %{wasm_object_key: key} = package, _scope)
-       when is_binary(key) and key != "",
-       do: {:ok, package}
+  defp prepare_package_for_urls(_socket, %{wasm_object_key: key} = package, _scope) when is_binary(key) and key != "",
+    do: {:ok, package}
 
   defp prepare_package_for_urls(_socket, _package, _scope), do: {:error, :missing_object_key}
 
