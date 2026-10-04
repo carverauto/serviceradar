@@ -90,9 +90,9 @@ export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
 - Leftover scratch databases (cancelled CI clones, workstation `codex_*` / `cc_*` /
   `serviceradar_bootstrap_test_*` databases) are dropped hourly by
   `srql-fixture-scratch-reaper`. It never touches `postgres`, `srql_fixture`, or
-  `sr_core_template`. Cluster YAML for the CronJob lives in gitops:
+  any `sr_tpl_*` template generation. Cluster YAML for the CronJob lives in gitops:
   `k8s/srql-fixtures/` (carverauto / Argo) and
-  `clusters/farm01/srql-fixtures/` (farm01 / `bootstrap.sh`). Keep the
+  `clusters/farm01/srql-fixtures/` (farm01, applied by hand). Keep the
   protected-name list in sync with `go/pkg/srqlfixture/reaper` and
   `rust/integration-db`. The Go binary is `//go/cmd/tools/srql-fixture-reaper`
   (`--interval` for daemon mode; default is one pass).
