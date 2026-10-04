@@ -48,23 +48,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager do
           {:reply, {:error, reason}, state}
 
         {:ok, output_path} ->
-          worker_opts =
-            attrs
-            |> Map.put(:output_path, output_path)
-            |> maybe_put(:result_ingestor, state.result_ingestor)
-            |> maybe_put(:telemetry_module, state.telemetry_module)
-
-          case DynamicSupervisor.start_child(state.supervisor, {BoomboxSidecarWorker, worker_opts}) do
-            {:ok, pid} ->
-              ref = Process.monitor(pid)
-              branch = build_branch(worker_opts, pid, ref)
-              next_state = put_branch(state, relay_session_id, branch_id, branch)
-              {:reply, {:ok, branch}, next_state}
-
-            {:error, reason} ->
-              maybe_cleanup_allocated_path(attrs, worker_opts.output_path)
-              {:reply, {:error, reason}, state}
-          end
+          start_sidecar(state, attrs, relay_session_id, branch_id, output_path)
       end
     end
   end
@@ -106,6 +90,26 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager do
       _ ->
         prefix = "serviceradar-boombox-sidecar-#{relay_session_id}-#{branch_id}"
         SecureTempCapture.allocate_path(prefix, ".h264")
+    end
+  end
+
+  defp start_sidecar(state, attrs, relay_session_id, branch_id, output_path) do
+    worker_opts =
+      attrs
+      |> Map.put(:output_path, output_path)
+      |> maybe_put(:result_ingestor, state.result_ingestor)
+      |> maybe_put(:telemetry_module, state.telemetry_module)
+
+    case DynamicSupervisor.start_child(state.supervisor, {BoomboxSidecarWorker, worker_opts}) do
+      {:ok, pid} ->
+        ref = Process.monitor(pid)
+        branch = build_branch(worker_opts, pid, ref)
+        next_state = put_branch(state, relay_session_id, branch_id, branch)
+        {:reply, {:ok, branch}, next_state}
+
+      {:error, reason} ->
+        maybe_cleanup_allocated_path(attrs, worker_opts.output_path)
+        {:reply, {:error, reason}, state}
     end
   end
 
