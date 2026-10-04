@@ -353,25 +353,32 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
       end
 
     homepage_assigns =
-      if assigns.can_manage_groups?, do: homepage_assigns(scope, groups), else: %{}
+      if assigns.can_manage_groups? or assigns.can_view_share_principals?,
+        do: homepage_assigns(scope, groups, assigns.can_manage_groups?),
+        else: %{}
 
     Map.merge(%{users: users, user_groups: groups, user_group_memberships: memberships}, homepage_assigns)
   end
 
-  defp homepage_assigns(scope, groups) do
-    warnings =
-      groups
-      |> Enum.filter(fn group ->
-        homepage = HomepageValue.stored(group.homepage)
-        HomepageValue.dashboard?(homepage) and Homepage.audience_gap?(scope, homepage, group.id)
-      end)
-      |> MapSet.new(& &1.id)
+  defp homepage_assigns(scope, groups, manager?) do
+    base = %{homepage_choices: Homepage.dashboard_choices(scope)}
 
-    %{
-      homepage_choices: Homepage.dashboard_choices(scope),
-      idp_values: MappedUserGroups.idp_values_by_group(groups),
-      homepage_warnings: warnings
-    }
+    if manager? do
+      warnings =
+        groups
+        |> Enum.filter(fn group ->
+          homepage = HomepageValue.stored(group.homepage)
+          HomepageValue.dashboard?(homepage) and Homepage.audience_gap?(scope, homepage, group.id)
+        end)
+        |> MapSet.new(& &1.id)
+
+      Map.merge(base, %{
+        idp_values: MappedUserGroups.idp_values_by_group(groups),
+        homepage_warnings: warnings
+      })
+    else
+      base
+    end
   end
 
   defp reload_access_controls(socket) do

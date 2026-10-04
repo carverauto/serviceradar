@@ -323,7 +323,7 @@ defmodule ServiceRadarWebNG.Homepage do
 
     case List.keyfind(page_choices() ++ choices, choice, 1) do
       {label, _choice} -> label
-      nil -> "Unavailable dashboard"
+      nil -> "Dashboard you cannot open"
     end
   end
 
