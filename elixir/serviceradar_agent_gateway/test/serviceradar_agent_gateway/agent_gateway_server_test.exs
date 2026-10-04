@@ -145,11 +145,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       peer =
         start_supervised!(%{
           id: :host_identity_core_peer,
-          start: {:peer, :start_link, [%{
-            name: String.to_atom(basename),
-            connection: :standard_io,
-            args: [~c"+S", ~c"2", ~c"-setcookie", Atom.to_charlist(Node.get_cookie())]
-          }]},
+          start:
+            {:peer, :start_link,
+             [
+               %{
+                 name: String.to_atom(basename),
+                 connection: :standard_io,
+                 args: [~c"+S", ~c"2", ~c"-setcookie", Atom.to_charlist(Node.get_cookie())]
+               }
+             ]},
           restart: :temporary
         })
 
