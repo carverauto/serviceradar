@@ -19,6 +19,7 @@ package mapper
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,9 @@ const (
 	proxmoxCandidateProbeOption = "proxmox_candidate_probe_enabled"
 	proxmoxDefaultAPIPort       = "8006"
 	proxmoxFingerprintMaxBytes  = 64 * 1024
+	// A PVE node certificate lists a handful of names and addresses; the cap only
+	// bounds what an arbitrary host answering on 8006 can push into metadata.
+	proxmoxMaxCertificateSANs = 32
 )
 
 type proxmoxEnvelope[T any] struct {
@@ -288,7 +292,45 @@ func (e *DiscoveryEngine) probeProxmoxCandidate(
 		return nil, fmt.Errorf("%w: missing PVE web fingerprint", errProxmoxRequestFailed)
 	}
 
-	return buildProxmoxCandidateDevice(host, nodeName), nil
+	device := buildProxmoxCandidateDevice(host, nodeName)
+	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
+		recordProxmoxCertificateSANs(device, resp.TLS.PeerCertificates[0])
+	}
+
+	return device, nil
+}
+
+// recordProxmoxCertificateSANs keeps the addresses the node certificate is valid
+// for. The agent verifies a Proxmox target's certificate against the exact
+// address it dials, so core uses these to avoid targeting an address the
+// certificate cannot match. They are recorded, not trusted: the probe skips
+// verification, so core only ever chooses among the device's own addresses.
+func recordProxmoxCertificateSANs(device *DiscoveredDevice, cert *x509.Certificate) {
+	if device == nil || cert == nil {
+		return
+	}
+
+	ips := make([]string, 0, len(cert.IPAddresses))
+	for _, ip := range cert.IPAddresses {
+		if len(ips) == proxmoxMaxCertificateSANs {
+			break
+		}
+		ips = append(ips, ip.String())
+	}
+
+	names := make([]string, 0, len(cert.DNSNames))
+	for _, name := range cert.DNSNames {
+		if len(names) == proxmoxMaxCertificateSANs {
+			break
+		}
+		names = append(names, strings.ToLower(strings.TrimSpace(name)))
+	}
+
+	// Recorded even when empty: a certificate with no IP SANs can match no IP
+	// origin, which is different from a probe that saw no certificate at all.
+	device.Metadata["proxmox_tls_sans_recorded"] = "true"
+	device.Metadata["proxmox_tls_san_ips"] = strings.Join(ips, ",")
+	device.Metadata["proxmox_tls_san_dns"] = strings.Join(names, ",")
 }
 
 func proxmoxCandidateBaseURL(seed string) string {

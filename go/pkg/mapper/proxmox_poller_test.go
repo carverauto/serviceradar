@@ -18,6 +18,7 @@ package mapper
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -179,4 +180,22 @@ func TestApplyJobOptionsMetadataSkipsProxmoxCandidateProbeOption(t *testing.T) {
 
 	assert.Equal(t, "tonka01", metadata["mapper_job_name"])
 	assert.NotContains(t, metadata, proxmoxCandidateProbeOption)
+}
+
+func TestProbeProxmoxCandidateRecordsCertificateSANs(t *testing.T) {
+	// httptest's certificate is valid for 127.0.0.1, ::1, example.com and *.example.com.
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<html><head><title>pve01 - Proxmox Virtual Environment</title></head></html>"))
+	}))
+	defer server.Close()
+
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} //nolint:gosec // test server
+
+	device, err := engine.probeProxmoxCandidate(context.Background(), client, server.URL)
+	require.NoError(t, err)
+
+	assert.Equal(t, "true", device.Metadata["proxmox_tls_sans_recorded"])
+	assert.Equal(t, "127.0.0.1,::1", device.Metadata["proxmox_tls_san_ips"])
+	assert.Equal(t, "example.com,*.example.com", device.Metadata["proxmox_tls_san_dns"])
 }
