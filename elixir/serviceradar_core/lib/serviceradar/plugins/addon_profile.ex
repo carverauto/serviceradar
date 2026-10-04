@@ -22,6 +22,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
   alias ServiceRadar.Plugins.Validations.AddonProfileTargetQuery
   alias ServiceRadar.Plugins.Validations.NoDuplicateAddonProfileTarget
+  alias ServiceRadar.Plugins.Validations.NotHeldByActiveRollout
   alias ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile
 
   @mutable_fields [
@@ -71,7 +72,13 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
+
+    destroy :destroy do
+      primary? true
+      require_atomic? false
+      validate {NotHeldByActiveRollout, source_type: :profile}
+    end
 
     read :by_id do
       get? true

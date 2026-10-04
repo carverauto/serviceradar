@@ -716,6 +716,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       |> read(scope)
 
     targets
+    # Targets of deleted assignments keep their history with a nil pointer.
+    |> Enum.reject(&is_nil(&1.assignment_id))
     |> Enum.uniq_by(& &1.assignment_id)
     |> Map.new(fn target ->
       rollout = Map.get(rollouts, target.rollout_id)

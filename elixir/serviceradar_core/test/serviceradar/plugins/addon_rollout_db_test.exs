@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
   use ServiceRadar.DataCase, async: true
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.AddonAssignment
@@ -276,6 +277,65 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert is_nil(assignment.rollout_id)
     assert get_rollout(rollout.id, actor).state == :canceled
     assert get_rollout_target(rollout.id, actor).state == :canceled
+  end
+
+  # GitHub #4463 / #4473: once any rollout had targeted an assignment, the
+  # target's RESTRICT foreign key made the assignment (and the profile owning
+  # it) undeletable, surfacing as an opaque Ash.Error.Unknown.
+  test "an active rollout blocks deleting its assignment; a finished one keeps its history" do
+    actor = SystemActor.system(:addon_rollout_delete_assignment_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    assert {:error, %Invalid{} = error} =
+             fixture.assignment.id |> get_assignment(actor) |> Ash.destroy(actor: actor)
+
+    assert Exception.message(error) =~ "held by active rollout #{rollout.id}"
+
+    assert :ok = AddonRolloutCoordinator.cancel(rollout.id, actor: actor)
+
+    assert :ok =
+             fixture.assignment.id |> get_assignment(actor) |> Ash.destroy(actor: actor)
+
+    assert is_nil(get_assignment(fixture.assignment.id, actor))
+
+    target = get_rollout_target(rollout.id, actor)
+    assert target.state == :canceled
+    assert is_nil(target.assignment_id)
+    assert target.agent_uid == fixture.agent_uid
+  end
+
+  test "an active rollout blocks deleting its profile; a finished one does not" do
+    actor = SystemActor.system(:addon_rollout_delete_profile_test)
+    fixture = profile_rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    assert {:error, %Invalid{} = error} =
+             fixture.profile.id |> get_profile(actor) |> Ash.destroy(actor: actor)
+
+    assert Exception.message(error) =~ "held by active rollout #{rollout.id}"
+
+    assert :ok = AddonRolloutCoordinator.cancel(rollout.id, actor: actor)
+
+    for assignment <- profile_assignments(fixture.profile.id, actor) do
+      assert :ok = Ash.destroy(assignment, actor: actor)
+    end
+
+    assert :ok = fixture.profile.id |> get_profile(actor) |> Ash.destroy(actor: actor)
+
+    assert rollout.id |> list_rollout_targets(actor) |> length() == 2
   end
 
   # openspec/changes/fix-stuck-addon-rollouts. Four rollouts sat paused on the
