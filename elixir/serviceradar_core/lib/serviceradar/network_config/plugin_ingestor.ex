@@ -219,7 +219,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
   defp nom_config_key?(key) do
     case String.split(key, "/") do
       ["agent-artifacts", agent, assignment, "opentext-nom", "running-config", device] ->
-        nom_config_segments?(agent, assignment, device)
+        nom_config_prefix?(agent, assignment) and legacy_nom_device?(device)
       ["agent-artifacts", agent, assignment, "opentext-nom", "running-config", device, attempt] ->
         nom_config_segments?(agent, assignment, device) and Regex.match?(~r/\A[0-9a-f]{32}\z/, attempt)
       _ -> false
@@ -227,8 +227,16 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
   end
 
   defp nom_config_segments?(agent, assignment, device) do
-    Enum.all?([agent, assignment], &Regex.match?(~r/\A[A-Za-z0-9._:-]+\z/, &1)) and
+    nom_config_prefix?(agent, assignment) and
       Regex.match?(~r/\A[1-9][0-9]*\z/, device)
+  end
+
+  defp nom_config_prefix?(agent, assignment) do
+    Enum.all?([agent, assignment], &Regex.match?(~r/\A[A-Za-z0-9._:-]+\z/, &1))
+  end
+
+  defp legacy_nom_device?(device) do
+    device not in [".", ".."] and Regex.match?(~r/\A[A-Za-z0-9._-]+\z/, device)
   end
 
   defp assignment_id(payload) do

@@ -141,12 +141,24 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
     assert_received {:deleted, @object_key}
   end
 
+  test "cleans pre-upgrade legacy device keys staged before canonicalization" do
+    for device <- ["01001", "abc"] do
+      key = "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/#{device}"
+      assert :ok = PluginIngestor.discard_artifacts(
+        payload(%{"object_key" => key, "sha256" => @sha256}), @status,
+        artifact_deleter: fn ^key -> send(self(), {:deleted, key}); :ok end)
+      assert_received {:deleted, ^key}
+    end
+  end
+
   test "cleanup cannot delete another agent's or another provider's artifact" do
     for key <- [
       "agent-artifacts/agent-02/assign-01/opentext-nom/running-config/1001",
       "agent-artifacts/agent-01/assign-02/opentext-nom/running-config/1001",
       "agent-artifacts/agent-01/assign-01/other-plugin/report/1001",
-      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/../1001"
+      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/../1001",
+      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/01001/" <> String.duplicate("a", 32),
+      "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/1001/" <> String.duplicate("A", 32)
     ] do
       assert {:error, :running_config_artifact_cleanup_failed} = PluginIngestor.ingest(
         payload(%{"object_key" => key, "sha256" => @sha256}), @status,
