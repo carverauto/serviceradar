@@ -14,9 +14,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ConfineNarrowScope do
   absent from `NarrowScopes` is closed to narrow tokens. Adding a route
   therefore cannot accidentally widen a CLI token's reach.
 
-  Coarse client-credential scopes (`read`, `write`, `admin`, `mcp`), API keys and
-  browser sessions pass through untouched -- see `NarrowScopes` for why
-  tightening those is deliberately out of scope here.
+  Narrow-only tokens are confined here. Coarse client-credential scopes pass
+  through to `RequireConfigurationScope`, which enforces the requested method.
+  API keys and browser sessions pass through untouched.
   """
 
   @behaviour Plug

@@ -191,13 +191,14 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     end
   end
 
-  defp oauth_scope_string(claims) do
+  @doc "Returns the delegated scope string from verified Guardian API claims."
+  def oauth_scope_string(claims) do
     cond do
       is_binary(claims["scope"]) ->
         claims["scope"]
 
       is_list(claims["scopes"]) ->
-        Enum.join(claims["scopes"], " ")
+        if Enum.all?(claims["scopes"], &is_binary/1), do: Enum.join(claims["scopes"], " "), else: ""
 
       true ->
         ""

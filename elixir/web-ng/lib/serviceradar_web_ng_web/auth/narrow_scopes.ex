@@ -29,8 +29,10 @@ defmodule ServiceRadarWebNGWeb.Auth.NarrowScopes do
 
   Coarse-scoped and unscoped callers (API keys, browser sessions, legacy static
   keys) are deliberately untouched: `allowed?/3` passes them through so this
-  cannot regress an existing integration. Tightening `read` so it cannot POST is
-  a separate, breaking decision that needs its own audit of live clients.
+  cannot regress an existing integration. `Plugs.RequireConfigurationScope`
+  enforces the requested method for coarse scopes downstream, so a `read`
+  grant cannot reach mutations except through its audited read-only POST
+  exceptions.
   """
 
   @coarse_scopes ~w(read write admin mcp)

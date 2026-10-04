@@ -194,10 +194,19 @@ profile management; see [Roles & Permissions](./rbac-and-roles.md).
 
 Stateful alert rule reads retain the viewer-or-higher policy; mutations
 require an operator or administrator, with the internal system bypass.
-OAuth2 token scopes are not enforced by this JSON:API pipeline: restrict the
-credential owner's effective permissions rather than relying on a `read`
-scope to prevent writes. This limitation is tracked in
-[scope enforcement](https://github.com/carverauto/serviceradar/issues/329).
+OAuth2 API bearer grants are enforced at the shared API boundary before
+JSON:API dispatch and before every `:api_key_auth` controller. A `read` grant
+permits `GET`, `HEAD`, and `OPTIONS` plus the audited read-only `POST`
+exceptions (`/api/query`, `/api/admin/topology/route-analysis`, and
+`/api/v1/identity/resolve` batch resolution); every other mutation requires
+`write` or `admin` as well as the credential owner's resource permissions.
+Empty grants and narrow CLI grants cannot inherit the owner's full authority
+on these routes. Through the UserAuth boundary, API bearer tokens are confined
+to data routes under `/api`, `/topology`, and `/v1/stream` and cannot enter
+browser credential authorization; routes mounted on `:api_key_auth` (including
+`/v1/field-survey` reads) keep their mounted reach subject to the same
+method gate. Browser sessions and user access tokens retain their existing
+resource authorization.
 
 Telemetry collections use bounded offset pagination even when no page is
 requested. Use `page[limit]` and `page[offset]` and follow response pagination
