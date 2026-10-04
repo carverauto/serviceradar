@@ -51,7 +51,7 @@ to that schema, and it is created automatically during bootstrap.
 
 The core telemetry and event tables include:
 
-- `platform.events` — platform events (CloudEvents-style envelopes).
+- `platform.events` -- deprecated, unused CloudEvents-style table retained for schema compatibility. No shipped ingest path writes it; SRQL `in:events` reads OCSF events instead.
 - `platform.ocsf_events` — OCSF Event Log Activity entries produced by log
   promotion and internal producers. EventWriter is the only writer: producers
   publish to JetStream and never insert directly.

@@ -92,8 +92,8 @@
   - `composite_checks/refresh_worker.ex` -- **enforced**: a job whose pinned revision moved
     re-resolves the device (a merge moves its results to the survivor) and refreshes that; one
     that resolves to nothing live is abandoned with telemetry.
-  - `event_writer/processors/sweep.ex` -- **left observe-only**: it is not registered as an
-    EventWriter processor and never runs (see `formal/dire/DireLifecycle.tla` `SweepRestore`).
+  - The former EventWriter sweep copy was unregistered and has been removed; the live sweep
+    observation site is `sweep_jobs/sweep_results_ingestor.ex`.
 
 ## 5. Extend pinning
 
@@ -103,8 +103,9 @@ Target roughly ten pinned paths total; below that the fence is decoration.
       `restore_deleted_devices/2`, and `update :restore` carries `change BumpIdentityRevision`
       (device.ex:352), so the pipeline bumps revisions inside its own bracket. Pinning through
       the default read (`include_deleted: false`) excludes those devices automatically, the way
-      `processors/sweep.ex` does; do NOT pin with `include_deleted: true`.
-- [x] 5.2 `event_writer/processors/sweep.ex`
+      `sweep_jobs/sweep_results_ingestor.ex` does on its live read path; do NOT pin with
+      `include_deleted: true`.
+- [x] 5.2 ~~`event_writer/processors/sweep.ex`~~ **Historical target only -- unregistered processor removed; active sweep work is `sweep_jobs/sweep_results_ingestor.ex`**
 - [ ] 5.3 `event_writer/processors/metrics.ex` -- highest write volume of the set;
       `observe_many/2` emits one telemetry event per pinned device, so measure the emit cost
       before enabling here.

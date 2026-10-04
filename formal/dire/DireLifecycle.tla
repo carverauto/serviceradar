@@ -322,8 +322,9 @@ Expire(u) ==
 \* too; once D12 lands, it is left exactly as it was (SweepSkip). Availability and
 \* last_seen_time are not state here, so neither step changes a modeled variable, and the
 \* appended "sweep" discovery source changes no record's sweep-only flag.
-\* (event_writer/processors/sweep.ex carries a copy of this path but is not registered as an
-\* EventWriter processor, so it never runs.)
+\* (The former event_writer/processors/sweep.ex carried a copy of this path but was
+\* unregistered and has been removed, so it never ran; the live sweep path is
+\* sweep_jobs/sweep_results_ingestor.ex.)
 SweepMatch(p, d) ==
     /\ ipOf[d] = p
     /\ IF \E e \in Devices : Live(e) /\ ipOf[e] = p THEN Live(d) ELSE status[d] = "tomb"
