@@ -418,7 +418,9 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
   defp otx_token(secret_id) do
     case ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver.resolve_otx(secret_id) do
       {:ok, token} -> token
-      {:error, _reason} -> nil
+      {:error, reason} ->
+        Logger.warning("AlienVault OTX credential resolution failed", error: error_kind(reason))
+        nil
     end
   end
 

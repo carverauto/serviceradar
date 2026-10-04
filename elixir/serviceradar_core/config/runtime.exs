@@ -1047,7 +1047,6 @@ if config_env() == :prod do
 
   otx_provider_config =
     %{
-      "base_url" => otx_env.("SERVICERADAR_OTX_BASE_URL"),
       "modified_since" => otx_env.("SERVICERADAR_OTX_MODIFIED_SINCE"),
       "limit" => parse_int_env.("SERVICERADAR_OTX_PAGE_SIZE", nil),
       "page" => parse_int_env.("SERVICERADAR_OTX_PAGE", nil),

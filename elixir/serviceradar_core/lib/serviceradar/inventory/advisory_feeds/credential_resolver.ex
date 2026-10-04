@@ -19,6 +19,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver do
           :invalid_vulncheck_credential_ref
           | :invalid_vulncheck_credential
           | :empty_vulncheck_credential
+          | :invalid_otx_credential_ref
+          | :invalid_otx_credential
+          | :empty_otx_credential
           | {:grant_issue_failed, term()}
           | {:secret_resolution_failed, term()}
 
@@ -46,11 +49,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver do
     grant_issuer = Keyword.get(opts, :grant_issuer, &default_grant_issuer/2)
     secret_resolver = Keyword.get(opts, :secret_resolver, &default_secret_resolver/2)
 
-    with {:ok, secret_id} <- credential_secret_id(ref),
+    with {:ok, secret_id} <- parse_secret_id(ref, provider),
          {:ok, grant} <- issue_grant(grant_issuer, secret_id, actor, provider, host, purpose),
          {:ok, resolved} <- resolve_secret(secret_resolver, grant, actor),
          :ok <- validate_secret(resolved, provider) do
-      present_token(Map.get(resolved, :value))
+      present_token(Map.get(resolved, :value), provider)
     end
   end
 
@@ -58,15 +61,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver do
   @spec credential_secret_id(String.t()) ::
           {:ok, String.t()} | {:error, :invalid_vulncheck_credential_ref}
   def credential_secret_id(ref) when is_binary(ref) do
-    candidate =
-      ref
-      |> String.trim()
-      |> String.replace_prefix(@legacy_prefix, "")
-
-    case Ecto.UUID.cast(candidate) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, :invalid_vulncheck_credential_ref}
-    end
+    parse_secret_id(ref, "vulncheck")
   end
 
   defp issue_grant(issuer, secret_id, actor, provider, host, purpose) do
@@ -112,20 +107,41 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver do
     if provider == expected_provider and kind in allowed_kinds do
       :ok
     else
-      {:error, :invalid_vulncheck_credential}
+      {:error, invalid_credential(expected_provider)}
     end
   end
 
-  defp validate_secret(_resolved, _provider), do: {:error, :invalid_vulncheck_credential}
+  defp validate_secret(_resolved, provider), do: {:error, invalid_credential(provider)}
 
-  defp present_token(token) when is_binary(token) do
+  defp present_token(token, provider) when is_binary(token) do
     case String.trim(token) do
-      "" -> {:error, :empty_vulncheck_credential}
+      "" -> {:error, empty_credential(provider)}
       value -> {:ok, value}
     end
   end
 
-  defp present_token(_token), do: {:error, :empty_vulncheck_credential}
+  defp present_token(_token, provider), do: {:error, empty_credential(provider)}
+
+  defp parse_secret_id(ref, provider) when is_binary(ref) do
+    candidate =
+      ref
+      |> String.trim()
+      |> String.replace_prefix(@legacy_prefix, "")
+
+    case Ecto.UUID.cast(candidate) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, invalid_ref(provider)}
+    end
+  end
+
+  defp invalid_ref("alienvault-otx-core"), do: :invalid_otx_credential_ref
+  defp invalid_ref(_provider), do: :invalid_vulncheck_credential_ref
+
+  defp invalid_credential("alienvault-otx-core"), do: :invalid_otx_credential
+  defp invalid_credential(_provider), do: :invalid_vulncheck_credential
+
+  defp empty_credential("alienvault-otx-core"), do: :empty_otx_credential
+  defp empty_credential(_provider), do: :empty_vulncheck_credential
 
   defp default_grant_issuer(attrs, actor) do
     attrs
