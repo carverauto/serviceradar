@@ -110,11 +110,7 @@ defmodule ServiceRadar.NetworkConfig.Ingest do
     }
 
     with {:ok, facts} <- parser.(body),
-         {:ok, revision} <-
-           Ash.create(Revision, create_attrs,
-             actor: actor,
-             domain: ServiceRadar.NetworkConfig
-           ),
+         {:ok, revision} <- Revision.create(create_attrs, actor: actor),
          :ok <- persist_facts(revision, facts, actor),
          :ok <- projector.(device_uid, revision, facts) do
       {:ok, :created, revision, facts}
@@ -135,10 +131,7 @@ defmodule ServiceRadar.NetworkConfig.Ingest do
         vrf: fact.vrf
       }
 
-      case Ash.create(InterfaceFact, attrs,
-             actor: actor,
-             domain: ServiceRadar.NetworkConfig
-           ) do
+      case InterfaceFact.create(attrs, actor: actor) do
         {:ok, _} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end

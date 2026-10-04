@@ -4,10 +4,64 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
+
+const maxRetrieveDevices = 32
+
+type RetrieveDevice struct {
+	DeviceID  string `json:"device_id"`
+	DeviceUID string `json:"device_uid"`
+}
+
+func runtimeRetrieveDevices(raw map[string]json.RawMessage) ([]RetrieveDevice, error) {
+	encoded, hasDevices := raw["devices"]
+	if invocationJSON, ok := raw["action_invocation"]; ok {
+		var invocation struct {
+			InputValues map[string]json.RawMessage `json:"input_values"`
+		}
+		if err := json.Unmarshal(invocationJSON, &invocation); err != nil {
+			return nil, runError("opentext_nom_config_invocation_invalid")
+		}
+		if input, present := invocation.InputValues["devices"]; present {
+			encoded, hasDevices = input, true
+		} else if _, hasID := invocation.InputValues["device_id"]; hasID {
+			// A requested single-device action overrides a configured batch.
+			hasDevices = false
+		} else if _, hasUID := invocation.InputValues["device_uid"]; hasUID {
+			hasDevices = false
+		}
+	}
+	var devices []RetrieveDevice
+	if hasDevices {
+		if err := json.Unmarshal(encoded, &devices); err != nil {
+			return nil, runError("opentext_nom_devices_invalid")
+		}
+	} else {
+		id, uid := deviceIdentityFromRaw(raw)
+		devices = []RetrieveDevice{{DeviceID: id, DeviceUID: uid}}
+	}
+	if len(devices) == 0 || len(devices) > maxRetrieveDevices {
+		return nil, runError("opentext_nom_devices_invalid")
+	}
+	ids, uids := make(map[string]bool), make(map[string]bool)
+	for i := range devices {
+		id, valid := parseDeviceID(devices[i].DeviceID)
+		uid := strings.TrimSpace(devices[i].DeviceUID)
+		if !valid || uid == "" {
+			return nil, runError("opentext_nom_devices_invalid")
+		}
+		devices[i].DeviceID, devices[i].DeviceUID = strconv.FormatInt(id, 10), uid
+		if ids[devices[i].DeviceID] || uids[uid] {
+			return nil, runError("opentext_nom_devices_duplicate")
+		}
+		ids[devices[i].DeviceID], uids[uid] = true, true
+	}
+	return devices, nil
+}
 
 func loadRuntimeConfig() (Config, error) {
 	var raw map[string]json.RawMessage
@@ -103,10 +157,6 @@ func loadRuntimeActionID() string {
 		return ""
 	}
 	return strings.TrimSpace(invocation.ActionID)
-}
-
-func loadRuntimeDeviceIdentity() (deviceID, deviceUID string) {
-	return deviceIdentityFromRaw(loadRawConfigMap())
 }
 
 func deviceIdentityFromRaw(raw map[string]json.RawMessage) (deviceID, deviceUID string) {
