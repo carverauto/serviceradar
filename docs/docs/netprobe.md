@@ -144,9 +144,9 @@ you are debugging an older agent framing problem. `emit_raw_flow_attribution_eve
 keeps the central join path fed with process observations for delayed NetFlow rows.
 
 Keep raw observations enabled when you want central NetFlow-to-process joins. If a
-deployment only wants local host telemetry and does not retain unmatched observations,
-configure the upstream retention/discard policy in the chart or control plane rather
-than disabling process attribution at the edge.
+deployment does not need unmatched-observation history, lower the warehouse
+`attribution` retention (see [Privacy and retention](#privacy-and-retention))
+rather than disabling process attribution at the edge.
 
 For large fleets, prefer assigning by cohort or control-plane-derived host inventory.
 Do not maintain static per-agent host-slice lists in Helm values for production-scale
@@ -192,10 +192,11 @@ have TCP/UDP ports.
 The normal data path is:
 
 ```text
-netprobe -> base agent -> agent-gateway -> core -> attributed flow current state
-NetFlow collector -> core ------------------------------------------^
-Workload Identity -> base agent -> agent-gateway -> core -----------^
-k8s-inventory -> NATS -> EventWriter -> public_endpoints_current ---^
+netprobe -> base agent -> agent-gateway -> core -> JetStream flows.attribution.observations
+NetFlow collector -> JetStream flows.raw.* -> EventWriter -> warehouse (observations + ocsf_network_activity)
+correlator joins observations to flows in the warehouse ------------------^
+Workload Identity -> base agent -> agent-gateway -> core (CNPG workload_identity_current, matched-row enrichment)
+k8s-inventory -> NATS -> EventWriter -> public_endpoints_current (VIP mapping)
 ```
 
 The join happens centrally so ServiceRadar can retain enough host evidence for
@@ -288,8 +289,10 @@ Confirm:
 - Host raw observations are arriving from the agent that owns one endpoint.
 - The source/destination tuple and protocol are supported.
 - Clock skew between the NetFlow exporter and agent host is within the join window.
-- The attributed-flow retention/discard settings have not removed unmatched raw
-  observations before delayed NetFlow batches arrive.
+- Raw observations expire by whole warehouse partitions at the `attribution`
+  retention (default 30 days), far outside the 30-minute correlation window, so
+a missing row points at publish/load rather than expiry (see
+  [Privacy and retention](#privacy-and-retention)).
 - `emit_raw_flow_attribution_events` is enabled when using central delayed joins.
 - The add-on status row is fresh in `in:addon_statuses addon_id:netprobe`.
 
