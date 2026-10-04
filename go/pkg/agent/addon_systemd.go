@@ -82,6 +82,7 @@ type AddonSystemdInstallRequest struct {
 	Units       []string             // unit file names in the staged current/ dir (".service"/".timer")
 	Enable      string               // the unit to `enable --now` (must be one of Units)
 	Resources   agentaddon.Resources // manifest CPU/memory/task limits applied to Enable via a drop-in
+	RunTimerNow bool                 // clear prior scan failure and queue the newly installed timer service
 }
 
 // validateAddonUnitName reports whether name is a safe single path segment naming a
@@ -180,6 +181,21 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		resolved = append(resolved, stagedUnit{name: name, src: src})
 	}
 
+	timerService := ""
+	if req.RunTimerNow {
+		if !strings.HasSuffix(enable, ".timer") {
+			return fmt.Errorf("timer activation requires a timer primary unit")
+		}
+		src, err := resolveStagedAddonUnit(req.RuntimeRoot, req.AddonID, enable)
+		if err != nil {
+			return err
+		}
+		timerService, err = stagedTimerService(src, enable, req.Units)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Track only the unit files this install NEWLY creates. On failure we remove only
 	// those, never a pre-existing unit file (e.g. a re-deploy over an already-running
 	// add-on), so a failed re-install cannot tear down the running add-on's units.
@@ -242,19 +258,72 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 	}
 
 	if enable != "" {
-		if err := runSystemctl(ctx, "enable", "--now", enable); err != nil {
+		if err := activateAddonSystemdUnits(ctx, enable, timerService); err != nil {
 			// Disable best-effort, then remove the units we installed and reload.
-			_ = runSystemctl(ctx, "disable", "--now", enable)
-			cleanup()
-			return err
-		}
-		if err := runSystemctl(ctx, "restart", enable); err != nil {
 			_ = runSystemctl(ctx, "disable", "--now", enable)
 			cleanup()
 			return err
 		}
 	}
 
+	return nil
+}
+
+// stagedTimerService respects Timer.Unit while restricting activation to the
+// validated service files in this signed bundle. Unrelated host units cannot be
+// reset or restarted through an add-on timer reference.
+func stagedTimerService(path, timer string, units []string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read staged timer: %w", err)
+	}
+	service := strings.TrimSuffix(timer, ".timer") + ".service"
+	section := ""
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = line
+			continue
+		}
+		if section != "[Timer]" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if ok && strings.TrimSpace(key) == "Unit" {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				service = strings.TrimSuffix(timer, ".timer") + ".service"
+			} else {
+				service = value
+			}
+		}
+	}
+	if err := validateAddonUnitName(service); err != nil {
+		return "", err
+	}
+	if !strings.HasSuffix(service, ".service") || !containsString(units, service) {
+		return "", fmt.Errorf("%w: timer service %q", ErrAddonSystemdEnableNotListed, service)
+	}
+	return service, nil
+}
+
+func activateAddonSystemdUnits(ctx context.Context, enable, timerService string) error {
+	if timerService != "" {
+		if err := runSystemctl(ctx, "reset-failed", timerService); err != nil {
+			return err
+		}
+	}
+	if err := runSystemctl(ctx, "enable", "--now", enable); err != nil {
+		return err
+	}
+	if err := runSystemctl(ctx, "restart", enable); err != nil {
+		return err
+	}
+	if timerService != "" {
+		// Queue a fresh execution of the staged candidate without blocking the
+		// updater for an entire scan. Its own outcome remains visible to health.
+		return runSystemctl(ctx, "restart", "--no-block", timerService)
+	}
 	return nil
 }
 
@@ -522,12 +591,15 @@ func pickPrimarySystemdUnit(units []string, supervision string) (string, error) 
 // installStagedAddonSystemdUnitsViaUpdater invokes the root-owned, package-owned
 // agent-updater to install the discovered units and enable the primary. The non-root
 // agent never installs units itself.
-func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, addonID string, units []string, enable string, resources agentaddon.Resources) error {
+func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, addonID string, units []string, enable string, resources agentaddon.Resources, runTimerNow bool) error {
 	if len(units) == 0 {
 		return ErrAddonSystemdNoUnits
 	}
 
 	requiredFlags := []string{"addon-id", "addon-systemd-install", "addon-systemd-enable"}
+	if runTimerNow {
+		requiredFlags = append(requiredFlags, "addon-systemd-run-timer-now")
+	}
 	if !resources.IsZero() {
 		requiredFlags = append(requiredFlags, "addon-systemd-resources")
 	}
@@ -541,6 +613,9 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, addonID strin
 		"--addon-id", addonID,
 		"--addon-systemd-install", strings.Join(units, ","),
 		"--addon-systemd-enable", enable,
+	}
+	if runTimerNow {
+		args = append(args, "--addon-systemd-run-timer-now")
 	}
 
 	// Pass the manifest resource limits as JSON so the root-owned updater can write
