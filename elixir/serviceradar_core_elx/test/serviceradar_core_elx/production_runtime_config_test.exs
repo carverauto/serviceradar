@@ -173,6 +173,27 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert opts[:default_source_opt_ins] == []
   end
 
+  # Core mints the plugin download URLs embedded in agent configs. An agent that
+  # cannot reach the operator-facing URL (an on-prem load balancer without
+  # hairpin NAT) must be handed the agent-facing one instead.
+  test "prod config mints agent plugin downloads from AGENT_PLUGIN_STORAGE_PUBLIC_URL" do
+    with_env("PLUGIN_STORAGE_PUBLIC_URL", "https://serviceradar.example.com")
+    with_env("AGENT_PLUGIN_STORAGE_PUBLIC_URL", " https://agent-gateway.example.internal:50053 ")
+
+    plugin_storage = read_prod_config()[:serviceradar_core][:plugin_storage]
+
+    assert plugin_storage[:public_url] == "https://agent-gateway.example.internal:50053"
+  end
+
+  test "prod config falls back to PLUGIN_STORAGE_PUBLIC_URL for agent plugin downloads" do
+    with_env("PLUGIN_STORAGE_PUBLIC_URL", "https://serviceradar.example.com")
+    with_env("AGENT_PLUGIN_STORAGE_PUBLIC_URL", "")
+
+    plugin_storage = read_prod_config()[:serviceradar_core][:plugin_storage]
+
+    assert plugin_storage[:public_url] == "https://serviceradar.example.com"
+  end
+
   test "prod EventWriter consumes analytics verdicts from the dedicated retention stream" do
     predictions = Enum.find(read_prod_event_writer_streams(), &(&1.name == "ANALYTICS_PREDICTIONS"))
 

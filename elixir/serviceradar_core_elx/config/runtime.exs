@@ -613,12 +613,21 @@ if config_env() == :prod do
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
+  # Core mints the agent-facing plugin download URLs, so it honours the same
+  # AGENT_PLUGIN_STORAGE_PUBLIC_URL override as web-ng and the agent gateway.
+  agent_plugin_storage_public_url =
+    Enum.find_value(["AGENT_PLUGIN_STORAGE_PUBLIC_URL", "PLUGIN_STORAGE_PUBLIC_URL"], fn name ->
+      case System.get_env(name) do
+        nil -> nil
+        value -> if String.trim(value) == "", do: nil, else: String.trim(value)
+      end
+    end)
+
   plugin_storage_overrides =
     []
     |> then(fn acc ->
-      case System.get_env("PLUGIN_STORAGE_PUBLIC_URL") do
+      case agent_plugin_storage_public_url do
         nil -> acc
-        "" -> acc
         value -> Keyword.put(acc, :public_url, value)
       end
     end)

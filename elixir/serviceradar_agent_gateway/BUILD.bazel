@@ -150,12 +150,14 @@ elixir_release(
     release_name = "serviceradar_agent_gateway",
 )
 
+# config/** is data because runtime_config_test evaluates config/runtime.exs from disk.
 ex_unit_tests(
     name = "unit_tests",
     srcs = glob(["test/**/*_test.exs"]),
     config_loader = "//build:elixir_test_config_loader.exs",
     data = glob(
         [
+            "config/**",
             "lib/**",
             "priv/**",
             "test/**",
