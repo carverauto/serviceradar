@@ -291,7 +291,7 @@ Confirm:
 - Clock skew between the NetFlow exporter and agent host is within the join window.
 - Raw observations expire by whole warehouse partitions at the `attribution`
   retention (default 30 days), far outside the 30-minute correlation window, so
-a missing row points at publish/load rather than expiry (see
+  a missing row points at publish/load rather than expiry (see
   [Privacy and retention](#privacy-and-retention)).
 - `emit_raw_flow_attribution_events` is enabled when using central delayed joins.
 - The add-on status row is fresh in `in:addon_statuses addon_id:netprobe`.
