@@ -404,7 +404,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       management_mode: management_mode,
       running_state: status && status.state,
       running_version: status && status.version,
-      active?: status != nil and status.active,
+      # A status row is the agent's last word, which may be months old (an agent that
+      # was replaced or went away keeps its final row). Only fresh evidence counts as
+      # running; the stale case is still classified below as unavailable/observed-only.
+      active?: status != nil and status.active and not stale_observation?(status, row_context.now),
       degradation_reason: status && present(status.degradation_reason),
       reported_at: status && status.reported_at,
       last_scan_at: last_scan_at,

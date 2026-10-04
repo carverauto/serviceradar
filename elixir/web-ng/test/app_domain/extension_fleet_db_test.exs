@@ -165,18 +165,24 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
     assert by_suffix["missing"]["reported_at"] == nil
     assert by_suffix["missing"]["category"] == "unavailable"
 
+    all_overview_rows = [scope: scope, now: now] |> AddonFleet.overview() |> Map.fetch!(:rows)
+
     overview_rows =
-      [scope: scope, now: now]
-      |> AddonFleet.overview()
-      |> Map.fetch!(:rows)
+      all_overview_rows
       |> Enum.filter(&(&1.agent_uid == "#{addon_id}-healthy"))
       |> Map.new(&{&1.addon_id, &1})
 
-    assert Map.take(overview_rows[addon_id], [:assigned?, :running_state, :running_version]) == %{
+    assert Map.take(overview_rows[addon_id], [:assigned?, :running_state, :running_version, :active?]) == %{
              assigned?: true,
              running_state: "running",
-             running_version: "1.0.0"
+             running_version: "1.0.0",
+             active?: true
            }
+
+    # The stale agent's last report still says active: true, but that evidence is
+    # minutes old; a long-gone agent must not read as running.
+    stale_row = Enum.find(all_overview_rows, &(&1.agent_uid == "#{addon_id}-stale" and &1.addon_id == addon_id))
+    assert %{active?: false, category: :unavailable} = stale_row
 
     assert Map.take(overview_rows[other_addon_id], [:assigned?, :running_state, :running_version]) == %{
              assigned?: false,
