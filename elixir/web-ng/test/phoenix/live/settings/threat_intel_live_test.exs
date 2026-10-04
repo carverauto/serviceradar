@@ -5,16 +5,49 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
   require Ash.Query
 
+  # The database-free unit tier loads this file but cannot run it. This tag is
+  # what assigns the cases to //elixir/web-ng:networks_live_db_test, the lane
+  # that has a database; without it they would be silently excluded.
+  @moduletag :web_ng_shared_fixture_db
+
   @plugin_id "alienvault-otx-threat-intel"
+
+  setup_all do
+    original_join_process_registry =
+      Application.get_env(:serviceradar_core, :join_process_registry)
+
+    Application.put_env(:serviceradar_core, :join_process_registry, true)
+    {:ok, _apps} = Application.ensure_all_started(:horde)
+
+    if is_nil(Process.whereis(ProcessRegistry.registry_name())) do
+      Enum.each(ProcessRegistry.child_specs(), &start_supervised!/1)
+    end
+
+    on_exit(fn ->
+      if is_nil(original_join_process_registry) do
+        Application.delete_env(:serviceradar_core, :join_process_registry)
+      else
+        Application.put_env(
+          :serviceradar_core,
+          :join_process_registry,
+          original_join_process_registry
+        )
+      end
+    end)
+
+    :ok
+  end
 
   setup :register_and_log_in_admin_user
 
@@ -31,7 +64,18 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     assert to == ~p"/settings/profile"
   end
 
-  test "saves and clears OTX settings without echoing the API key", %{conn: conn, scope: scope} do
+  test "selects and clears a canonical OTX credential without echoing its key", %{conn: conn, scope: scope} do
+    secret =
+      ServiceRadar.Credentials.NetworkCredentialSecret.create_secret!(
+        %{
+          name: "Invented core OTX",
+          provider: "alienvault-otx-core",
+          credential_kind: :api_token,
+          secret_payload: "otx-liveview-secret"
+        },
+        scope: scope
+      )
+
     {:ok, lv, html} = live(conn, ~p"/settings/networks/threat-intel")
 
     assert html =~ "Threat Intel"
@@ -46,7 +90,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "threat_intel_enabled" => "false",
         "otx_execution_mode" => "core_worker",
         "otx_base_url" => "https://otx.alienvault.com",
-        "otx_api_key" => "otx-liveview-secret",
+        "otx_credential_secret_id" => secret.id,
         "otx_sync_interval_seconds" => "900",
         "otx_page_size" => "75",
         "otx_timeout_ms" => "15000",
@@ -66,10 +110,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
              otx_enabled: true,
              threat_intel_enabled: true,
              otx_execution_mode: "core_worker",
-             otx_api_key: "otx-liveview-secret",
+             otx_credential_secret_id: secret_id,
              otx_api_key_present: true,
              otx_raw_payload_archive_enabled: true
            } = load_settings!(scope)
+
+    assert secret_id == secret.id
 
     lv
     |> form("#otx-settings-form", %{
@@ -78,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "threat_intel_enabled" => "true",
         "otx_execution_mode" => "core_worker",
         "otx_base_url" => "https://otx.alienvault.com",
-        "clear_otx_api_key" => "true",
+        "otx_credential_secret_id" => "",
         "otx_sync_interval_seconds" => "900",
         "otx_page_size" => "75",
         "otx_timeout_ms" => "15000",
@@ -107,8 +153,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     assert html =~ "198.51.100.23"
     assert html =~ "203.0.113.77"
     assert html =~ ~s(id="netflow-matches")
-    assert html =~ "in:devices"
+    assert html =~ "/devices"
+    assert html =~ "in%3Adevices"
     assert html =~ "/observability/netflows"
+    assert html =~ "in%3Anetflows"
     assert html =~ "Flows"
     assert html =~ "OTX test indicator"
     assert html =~ "pulse-liveview-1"
@@ -120,6 +168,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
   } do
     package = seed_approved_package()
     agent = seed_agent()
+    register_agent_control_session!(agent.uid)
 
     {:ok, lv, html} = live(conn, ~p"/settings/networks/threat-intel")
 
@@ -269,6 +318,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
       SET otx_enabled = false,
           otx_execution_mode = 'edge_plugin',
           encrypted_otx_api_key = NULL,
+          otx_credential_secret_id = NULL,
           otx_raw_payload_archive_enabled = false,
           updated_at = now()
       """,
@@ -568,6 +618,42 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
   defp seed_agent do
     gateway = gateway_fixture()
     agent_fixture(gateway, %{uid: "edge-otx-agent-#{System.unique_integer([:positive])}"})
+  end
+
+  defp register_agent_control_session!(agent_uid) do
+    partition_id = "test"
+
+    assert {:ok, _pid} =
+             ProcessRegistry.register(
+               {:agent_control, partition_id, agent_uid, node()},
+               %{
+                 agent_id: agent_uid,
+                 partition_id: partition_id,
+                 gateway_node: node(),
+                 capabilities: ["wasm"]
+               }
+             )
+
+    assert_control_session_live!(agent_uid, 40)
+
+    on_exit(fn ->
+      _ = ProcessRegistry.unregister({:agent_control, partition_id, agent_uid, node()})
+    end)
+  end
+
+  defp assert_control_session_live!(_agent_uid, 0) do
+    flunk("agent control session did not converge")
+  end
+
+  defp assert_control_session_live!(agent_uid, attempts) do
+    case AgentCommandBus.resolve_control_session_evidence(agent_uid) do
+      {:ok, %{agent_id: ^agent_uid}} ->
+        :ok
+
+      _other ->
+        Process.sleep(10)
+        assert_control_session_live!(agent_uid, attempts - 1)
+    end
   end
 
   defp otx_manifest(version) do

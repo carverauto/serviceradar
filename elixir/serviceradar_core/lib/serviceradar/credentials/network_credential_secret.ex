@@ -88,6 +88,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     schema "platform"
 
     foreign_key_names [
+      {:id, "netflow_settings_otx_credential_secret_id_fkey", @credential_in_use_message},
       {:id, "network_credential_rules_secret_id_fkey", @credential_in_use_message},
       {:id, "snmp_profiles_credential_secret_id_fkey", @credential_in_use_message},
       {:id, "snmp_targets_credential_secret_id_fkey", @credential_in_use_message},

@@ -23,7 +23,7 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorkerTest do
 
     Application.put_env(:serviceradar_core, ThreatIntelOTXSyncWorker,
       provider: __MODULE__.FailingProvider,
-      provider_config: %{"api_key" => "synthetic-otx-key"}
+      provider_config: %{"api_key" => "ignored-environment-token"}
     )
 
     on_exit(fn ->
@@ -141,21 +141,34 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorkerTest do
 
   defmodule FailingProvider do
     @moduledoc false
-    def fetch_page(_config, _cursor), do: {:error, :unavailable}
+    def fetch_page(%{"api_key" => "synthetic-otx-key"}, _cursor), do: {:error, :unavailable}
   end
 
   defp set_execution_mode!(mode) do
     actor = SystemActor.system(:threat_intel_otx_sync_worker_test)
 
+    secret =
+      ServiceRadar.Credentials.NetworkCredentialSecret.create_secret!(
+        %{
+          name: "Synthetic OTX #{System.unique_integer([:positive])}",
+          provider: "alienvault-otx-core",
+          credential_kind: :api_token,
+          secret_payload: "synthetic-otx-key"
+        },
+        actor: actor
+      )
+
+    attrs = %{otx_enabled: true, otx_execution_mode: mode, otx_credential_secret_id: secret.id}
+
     case NetflowSettings.get_settings(actor: actor) do
       {:ok, %NetflowSettings{} = settings} ->
         settings
-        |> Ash.Changeset.for_update(:update, %{otx_enabled: true, otx_execution_mode: mode})
+        |> Ash.Changeset.for_update(:update, attrs)
         |> Ash.update!(actor: actor)
 
       {:ok, nil} ->
         NetflowSettings
-        |> Ash.Changeset.for_create(:create, %{otx_enabled: true, otx_execution_mode: mode})
+        |> Ash.Changeset.for_create(:create, attrs)
         |> Ash.create!(actor: actor)
     end
   end

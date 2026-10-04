@@ -29,7 +29,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
     vault(ServiceRadar.Vault)
     # AshCloak stores ciphertext in `encrypted_{attr}` and exposes the plaintext via `attr`.
     attributes([:ipinfo_api_key, :otx_api_key])
-    decrypt_by_default([:ipinfo_api_key, :otx_api_key])
+    decrypt_by_default([:ipinfo_api_key])
   end
 
   code_interface do
@@ -61,6 +61,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         :ipinfo_base_url,
         :otx_enabled,
         :otx_execution_mode,
+        :otx_credential_secret_id,
         :otx_base_url,
         :otx_sync_interval_seconds,
         :otx_page_size,
@@ -90,22 +91,12 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         description "When true, clears the stored ipinfo.io token"
       end
 
-      argument :otx_api_key, :string do
-        sensitive? true
-        description "AlienVault OTX API key (will be encrypted)"
-      end
-
-      argument :clear_otx_api_key, :boolean do
-        default false
-        description "When true, clears the stored AlienVault OTX API key"
-      end
-
       change fn changeset, _ ->
         changeset
         |> maybe_set_secret(:ipinfo_api_key)
         |> maybe_clear_secret(:clear_ipinfo_api_key, :encrypted_ipinfo_api_key)
-        |> maybe_set_secret(:otx_api_key)
-        |> maybe_clear_secret(:clear_otx_api_key, :encrypted_otx_api_key)
+        |> validate_otx_credential()
+        |> validate_otx_endpoint()
       end
     end
 
@@ -118,6 +109,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         :ipinfo_base_url,
         :otx_enabled,
         :otx_execution_mode,
+        :otx_credential_secret_id,
         :otx_base_url,
         :otx_sync_interval_seconds,
         :otx_page_size,
@@ -147,22 +139,12 @@ defmodule ServiceRadar.Observability.NetflowSettings do
         description "When true, clears the stored ipinfo.io token"
       end
 
-      argument :otx_api_key, :string do
-        sensitive? true
-        description "AlienVault OTX API key (will be encrypted). Leave blank to keep existing."
-      end
-
-      argument :clear_otx_api_key, :boolean do
-        default false
-        description "When true, clears the stored AlienVault OTX API key"
-      end
-
       change fn changeset, _ ->
         changeset
         |> maybe_set_secret(:ipinfo_api_key)
         |> maybe_clear_secret(:clear_ipinfo_api_key, :encrypted_ipinfo_api_key)
-        |> maybe_set_secret(:otx_api_key)
-        |> maybe_clear_secret(:clear_otx_api_key, :encrypted_otx_api_key)
+        |> validate_otx_credential()
+        |> validate_otx_endpoint()
       end
     end
 
@@ -239,6 +221,11 @@ defmodule ServiceRadar.Observability.NetflowSettings do
       allow_nil? false
       default "edge_plugin"
       public? true
+    end
+
+    attribute :otx_credential_secret_id, :uuid do
+      public? true
+      description "Reusable core OTX credential in the canonical credential inventory"
     end
 
     attribute :otx_base_url, :string do
@@ -386,12 +373,66 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
     calculate :otx_api_key_present, :boolean, fn records, _opts ->
       Enum.map(records, fn record ->
-        case Map.get(record, :encrypted_otx_api_key) do
-          value when is_binary(value) -> byte_size(value) > 0
-          _ -> false
-        end
+        not is_nil(record.otx_credential_secret_id)
       end)
     end
+  end
+
+  defp validate_otx_endpoint(changeset) do
+    if Ash.Changeset.get_attribute(changeset, :otx_execution_mode) == "core_worker" do
+      validate_core_otx_endpoint(changeset)
+    else
+      changeset
+    end
+  end
+
+  defp validate_core_otx_endpoint(changeset) do
+    case URI.parse(Ash.Changeset.get_attribute(changeset, :otx_base_url) || "") do
+      %URI{
+        scheme: "https",
+        host: "otx.alienvault.com",
+        port: 443,
+        userinfo: nil,
+        query: nil,
+        fragment: nil,
+        path: path
+      }
+      when path in [nil, "", "/"] ->
+        changeset
+
+      _ ->
+        Ash.Changeset.add_error(changeset,
+          field: :otx_base_url,
+          message: "Core OTX credentials may only be sent to https://otx.alienvault.com"
+        )
+    end
+  end
+
+  defp validate_otx_credential(changeset) do
+    Ash.Changeset.before_action(changeset, fn changeset ->
+      case {Ash.Changeset.changing_attribute?(changeset, :otx_credential_secret_id),
+            Ash.Changeset.get_attribute(changeset, :otx_credential_secret_id)} do
+        {false, _} ->
+          changeset
+
+        {_, nil} ->
+          changeset
+
+        {true, id} ->
+          opts = [actor: changeset.context[:private][:actor]]
+
+          case ServiceRadar.Credentials.NetworkCredentialSecret.get_by_id(id, opts) do
+            {:ok, %{provider: "alienvault-otx-core", credential_kind: :api_token}} ->
+              changeset
+
+            _ ->
+              Ash.Changeset.add_error(changeset,
+                field: :otx_credential_secret_id,
+                message: "Select an accessible core OTX API-token credential"
+              )
+          end
+      end
+    end)
   end
 
   defp maybe_set_secret(changeset, arg_name) do
