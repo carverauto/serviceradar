@@ -63,14 +63,20 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   # the committed artifact at `priv/static/openapi.json` (rendered from `spec/0` by
   # `mix serviceradar.openapi.dump` and consumed by the developer portal) stays in
   # sync with what `/api/v2/open_api` serves.
+  @domains [
+    ServiceRadar.Inventory,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Notifications,
+    ServiceRadar.Observability
+  ]
   use AshJsonApi.Router,
-    domains: [
-      ServiceRadar.Inventory,
-      ServiceRadar.Infrastructure,
-      ServiceRadar.Monitoring,
-      ServiceRadar.Notifications,
-      ServiceRadar.Observability
-    ],
+    domains: @domains,
     open_api_title: "ServiceRadar API",
     open_api_version: "2.0.0"
+
+  @doc """
+  Returns the list of Ash domains mounted on this router.
+  """
+  def domains, do: @domains
 end
