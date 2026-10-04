@@ -534,9 +534,6 @@ if config_env() == :prod do
   hourly_rollup_retention_days =
     "SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS" |> parse_int_env.(395) |> max(1)
 
-  flow_attribution_retention_minutes =
-    "SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES" |> parse_int_env.(60) |> max(15)
-
   # Root-span-ratio ingest-health signal (RootSpanRatioWorker): warn when
   # more than `threshold` of the spans ingested in the last 15 minutes are
   # root spans, once at least `min_spans` spans are present.
@@ -1205,9 +1202,6 @@ if config_env() == :prod do
     retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
     reschedule_seconds:
       "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
-
-  config :serviceradar_core, ServiceRadar.FlowAttribution,
-    retention_minutes: flow_attribution_retention_minutes
 
   # Heartbeat for the canonical-topology rebuild change-detection skip: when the
   # observed graph is structurally unchanged, still rebuild at most once per this

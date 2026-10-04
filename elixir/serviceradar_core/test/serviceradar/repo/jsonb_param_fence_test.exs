@@ -34,7 +34,7 @@ defmodule ServiceRadar.Repo.JsonbParamFenceTest do
 
     * pass the **map** and let Postgrex encode it once (`$2::jsonb`), or
     * pre-encode and force the parameter to text (`($2::text)::jsonb`), which
-      is what `flow_attribution/persistence.ex` and `workload_identity.ex` do.
+      is what `workload_identity.ex` does.
 
   A sibling of this test guards `elixir/web-ng`; keep the two in step.
   """

@@ -8,7 +8,6 @@ defmodule ServiceRadar.WorkloadIdentity do
   required to carry workload metadata.
   """
 
-  alias ServiceRadar.FlowAttribution
   alias ServiceRadar.Repo
 
   require Logger
@@ -166,9 +165,8 @@ defmodule ServiceRadar.WorkloadIdentity do
   # which is cheaper than cross-replica coordination for this hot path.
   #
   # RETENTION / HEARTBEAT: platform.workload_identity_current is NOT
-  # retention-pruned anywhere (FlowAttribution.Retention.prune/0 only touches
-  # flow_process_attribution_current, and WorkloadBackfill only reads this table),
-  # so a skip can never let a live row be pruned out from under a reader. We still
+  # retention-pruned anywhere (the flow-attribution correlator only reads it, by
+  # key), so a skip can never let a live row be pruned out from under a reader. We still
   # force a periodic refresh of observed_at (default 30 min) so staleness reads
   # stay reasonable. If row-level retention is ever added to this table, set the
   # heartbeat to roughly HALF that retention so a still-current row is refreshed
@@ -446,23 +444,8 @@ defmodule ServiceRadar.WorkloadIdentity do
     """
 
     case Repo.query(sql, [rows]) do
-      {:ok, _result} ->
-        backfill_flow_attribution(rows)
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp backfill_flow_attribution(encoded_rows) do
-    with {:ok, rows} <- Jason.decode(encoded_rows),
-         {:ok, _count} <- FlowAttribution.backfill_current_workload_identity(rows) do
-      :ok
-    else
-      {:error, reason} ->
-        Logger.warning("WorkloadIdentity flow attribution backfill failed: #{inspect(reason)}")
-        :ok
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

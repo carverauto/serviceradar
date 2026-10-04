@@ -332,6 +332,20 @@ defmodule ServiceRadar.EventWriter.Config do
   def flow_stream?(%{name: name}) when name in ["NETFLOW_RAW", "SFLOW_RAW"], do: true
   def flow_stream?(_), do: false
 
+  @attribution_observations_subject "flows.attribution.observations"
+
+  @doc """
+  Returns true for every EventWriter consumer bound to the dedicated `flows`
+  stream: raw flows and flow process attribution observations.
+
+  These share the flow demand domain and the `flows` stream's ownership rules
+  (no fallback onto `events`, no shape reconciliation of a collector-owned
+  stream). Only raw flows route to `Processors.Flows`; see `flow_stream?/1`.
+  """
+  @spec flows_stream_consumer?(stream_config() | map()) :: boolean()
+  def flows_stream_consumer?(%{subject: @attribution_observations_subject}), do: true
+  def flows_stream_consumer?(stream), do: flow_stream?(stream)
+
   @doc """
   JetStream stream a config entry should bind to.
 
@@ -344,7 +358,7 @@ defmodule ServiceRadar.EventWriter.Config do
   def jetstream_stream_name(%{stream_name: name}) when is_binary(name) and name != "", do: name
 
   def jetstream_stream_name(stream) when is_map(stream) do
-    if flow_stream?(stream), do: "flows", else: Map.get(stream, :name, "")
+    if flows_stream_consumer?(stream), do: "flows", else: Map.get(stream, :name, "")
   end
 
   @doc """
@@ -906,7 +920,16 @@ defmodule ServiceRadar.EventWriter.Config do
     # The fallback size and the `event-writer` claim come from
     # apply_jetstream_sizes/2; once flow-collector claims `flows`, EventWriter
     # only merges subjects (design D6).
-    base = %{
+    base = flows_stream_base()
+
+    [
+      Map.merge(base, %{name: "SFLOW_RAW", subject: "flows.raw.sflow"}),
+      Map.merge(base, %{name: "NETFLOW_RAW", subject: "flows.raw.netflow"})
+    ]
+  end
+
+  defp flows_stream_base do
+    %{
       stream_name: "flows",
       processor: Flows,
       batch_size: 100,
@@ -917,11 +940,6 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_max_age: @default_flows_stream_max_age_ns,
       allow_stream_fallback: false
     }
-
-    [
-      Map.merge(base, %{name: "SFLOW_RAW", subject: "flows.raw.sflow"}),
-      Map.merge(base, %{name: "NETFLOW_RAW", subject: "flows.raw.netflow"})
-    ]
   end
 
   # Dual-consume drain: keep reading residual flows.raw.* from the legacy
@@ -1375,7 +1393,18 @@ defmodule ServiceRadar.EventWriter.Config do
       end
 
     Enum.each(base, &assert_valid_flow_pipeline_subject!/1)
-    base ++ extra_live_flow_streams(base)
+    base ++ extra_live_flow_streams(base) ++ [attribution_observations_stream()]
+  end
+
+  # Flow process attribution observations share the flow demand domain and the
+  # `flows` stream with raw flows (openspec move-flow-attribution-to-starrocks,
+  # Decision 1) but are loaded by their own processor.
+  defp attribution_observations_stream do
+    Map.merge(flows_stream_base(), %{
+      name: "FLOW_ATTRIBUTION_OBSERVATIONS",
+      subject: @attribution_observations_subject,
+      processor: ServiceRadar.EventWriter.Processors.FlowAttributionObservations
+    })
   end
 
   @doc false

@@ -628,10 +628,46 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert sent(agent) == []
   end
 
-  test "every table this release retains can be rebuilt from the schema it ships" do
-    retention = Retention.days_by_table(retention_days: [])
+  test "an unpartitioned table whose shipped CREATE is DUPLICATE KEY is refused, not rebuilt" do
+    agent =
+      start_warehouse(%{
+        "flow_process_attribution_observations" => old(["observed_at", "partition"], [])
+      })
 
+    assert {:error,
+            {:partition_rebuild,
+             [{"flow_process_attribution_observations", :unsupported_key_model}]}} =
+             run(agent, %{
+               migrations: Schema.migrations(),
+               retention_days: [{"flow_process_attribution_observations", 30}]
+             })
+
+    assert sent(agent) == []
+  end
+
+  test "every table this release retains can be rebuilt from the schema it ships" do
     statements = Enum.flat_map(Schema.migrations(), & &1.statements)
+
+    # Only tables that can predate partitioning are rebuilt: a DUPLICATE KEY
+    # table such as flow_process_attribution_observations is created
+    # partitioned, so it never needs a rebuild and is refused one instead.
+    shipped_create = fn table ->
+      statements
+      |> Enum.filter(
+        &Regex.match?(~r/^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+\S+\.#{table}\s*\(/i, &1)
+      )
+      |> List.last()
+    end
+
+    retention =
+      [retention_days: []]
+      |> Retention.days_by_table()
+      |> Enum.filter(fn {table, _days} ->
+        case shipped_create.(table) do
+          nil -> false
+          create -> create =~ ~r/(?:PRIMARY|UNIQUE)\s+KEY\s*\(/i
+        end
+      end)
 
     shipped_columns = fn table ->
       create =

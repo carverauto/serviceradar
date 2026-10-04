@@ -10,7 +10,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   Load Success or durable quarantine is required before ACK.
 
   MTR traces and hops (`:mtr_traces`, `:mtr_hops`), OTel metrics
-  (`:otel_metrics`, `:otel_metric_points`) and OTel spans (`:otel_traces`)
+  (`:otel_metrics`, `:otel_metric_points`), OTel spans (`:otel_traces`) and
+  flow process attribution observations (`:flow_attribution_observations`)
   are not shadowed: while
   StarRocks is enabled they are written to the warehouse only, through
   `persist_warehouse/3`, and a failed load fails the ACK.
@@ -62,6 +63,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :otel_metric_points
           | :otel_traces
           | :bmp_routing_events
+          | :flow_attribution_observations
   @type dest :: :cnpg | :starrocks
 
   @tables %{
@@ -75,7 +77,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     otel_metrics: "otel_metrics",
     otel_metric_points: "otel_metric_points",
     otel_traces: "otel_traces",
-    bmp_routing_events: "bmp_routing_events"
+    bmp_routing_events: "bmp_routing_events",
+    flow_attribution_observations: "flow_process_attribution_observations"
   }
 
   @spec table_for(dataset()) :: String.t()

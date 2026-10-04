@@ -755,7 +755,6 @@ core:
     traceSummaryDays: 1
     otelTracesDays: 1
     logsDays: 1
-    flowAttributionMinutes: 20
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 6
     datasetSnapshotDays: 2

@@ -144,7 +144,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
     test "load_flow uses long-poll and independent demand knobs" do
       flow = Config.load_flow()
 
-      assert Enum.all?(flow.streams, &Config.flow_stream?/1)
+      assert Enum.all?(flow.streams, &Config.flows_stream_consumer?/1)
       assert flow.producer_name == ServiceRadar.EventWriter.FlowProducer
       assert flow.pull_expires_ns == Config.default_flow_pull_expires_ns()
       assert flow.consumer_pull_batch_size == Config.default_flow_pull_batch_size()
@@ -154,6 +154,22 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         assert stream.consumer_pull_batch_size == flow.consumer_pull_batch_size
         assert stream.consumer_max_ack_pending == flow.max_ack_pending
       end
+    end
+
+    test "load_flow consumes attribution observations from the flows stream with their own processor" do
+      flow = Config.load_flow()
+
+      assert [observations] =
+               Enum.filter(flow.streams, &(&1.subject == "flows.attribution.observations"))
+
+      assert Config.jetstream_stream_name(observations) == "flows"
+
+      assert observations.processor ==
+               ServiceRadar.EventWriter.Processors.FlowAttributionObservations
+
+      assert observations.allow_stream_fallback == false
+      refute Config.flow_stream?(observations)
+      refute Enum.any?(flow.streams, &(&1.name == "FLOW_ATTRIBUTION_OBSERVATIONS_EVENTS_DRAIN"))
     end
 
     test "load_flow injects EVENT_WRITER_FLOW_* overrides into each stream" do

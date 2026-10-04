@@ -376,38 +376,56 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
 
   # The partitioned definition is whatever this release ships, read out of the
   # same migrations a fresh warehouse is built from, so the two cannot drift.
+  # The catch-up is an anti-join on the key columns, which is only sound for a
+  # key that identifies a row. A DUPLICATE or AGGREGATE KEY table is refused
+  # rather than rebuilt: rows whose key columns collide would read as already
+  # copied and be silently dropped. A table that needs no rebuild never
+  # reaches here, so one created partitioned stays untouched whatever its key.
   defp spec(state, table, days) do
     pattern = ~r/^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+\S+\.#{table}\s*\(/i
 
-    with statement when is_binary(statement) <- last_statement(state, pattern),
-         [_, time_column] <-
-           Regex.run(~r/PARTITION\s+BY\s+date_trunc\('day',\s*`?(\w+)`?\)/i, statement),
-         [_, keys] <- Regex.run(~r/PRIMARY\s+KEY\s*\(([^)]+)\)/i, statement) do
-      copy = table <> @suffix
+    case last_statement(state, pattern) do
+      nil ->
+        {:error, :no_partitioned_definition}
 
-      create_copy =
-        statement
-        |> Schema.retarget(state.database, state.replication_num)
-        |> String.replace(
-          ~r/(CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+\S+\.)#{table}\b/i,
-          "\\1#{copy}",
-          global: false
-        )
-        |> String.replace(
-          ~r/"partition_live_number"\s*=\s*"\d+"/,
-          ~s("partition_live_number" = "#{days}")
-        )
+      statement ->
+        with [_, time_column] <-
+               Regex.run(
+                 ~r/PARTITION\s+BY\s+date_trunc\('day',\s*`?(\w+)`?\)/i,
+                 statement
+               ),
+             [_, keys] <-
+               Regex.run(~r/(?:PRIMARY|UNIQUE)\s+KEY\s*\(([^)]+)\)/i, statement) do
+          copy = table <> @suffix
 
-      {:ok,
-       %{
-         table: table,
-         copy: copy,
-         create_copy: create_copy,
-         time_column: time_column,
-         keys: keys |> String.split(",") |> Enum.map(&(&1 |> String.trim() |> String.trim("`")))
-       }}
-    else
-      _ -> {:error, :no_partitioned_definition}
+          create_copy =
+            statement
+            |> Schema.retarget(state.database, state.replication_num)
+            |> String.replace(
+              ~r/(CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+\S+\.)#{table}\b/i,
+              "\\1#{copy}",
+              global: false
+            )
+            |> String.replace(
+              ~r/"partition_live_number"\s*=\s*"\d+"/,
+              ~s("partition_live_number" = "#{days}")
+            )
+
+          {:ok,
+           %{
+             table: table,
+             copy: copy,
+             create_copy: create_copy,
+             time_column: time_column,
+             keys:
+               keys |> String.split(",") |> Enum.map(&(&1 |> String.trim() |> String.trim("`")))
+           }}
+        else
+          _ ->
+            if Regex.match?(~r/(?:DUPLICATE|AGGREGATE)\s+KEY/i, statement),
+              do: {:error, :unsupported_key_model},
+              else: {:error, :no_partitioned_definition}
+        end
     end
   end
 

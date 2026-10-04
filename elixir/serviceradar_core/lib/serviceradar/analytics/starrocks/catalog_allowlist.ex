@@ -8,9 +8,10 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
 
   A table belongs here only while the compiler can actually join it and the
   reader is granted SELECT on it. Attributed flows read persisted pid/comm and
-  prefix tags off the observation row rather than joining current-state, so
-  neither `flow_process_attribution_current` nor `prefix_tags_catalog` is a
-  catalog target.
+  prefix tags off the warehouse observation row rather than joining CNPG
+  current-state through the catalog, so there is no attribution catalog target
+  (the former `flow_process_attribution_current` table was dropped); likewise
+  `prefix_tags_catalog` is not a target.
 
   `device_identifiers` and `discovered_interfaces` are here because a log row
   carries no device uid: `device_id:` on logs resolves the uid to the addresses

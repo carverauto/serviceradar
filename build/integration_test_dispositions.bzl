@@ -229,7 +229,6 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/event_writer/processors/trivy_reports_integration_test.exs": 1,
     "test/serviceradar/events/health_state_change_pipeline_test.exs": 1,
     "test/serviceradar/events/ocsf_event_publisher_db_test.exs": 1,
-    "test/serviceradar/flow_attribution_test.exs": 1,
     "test/serviceradar/identity/assign_first_user_role_test.exs": 1,
     "test/serviceradar/identity/device_lookup_alias_test.exs": 1,
     "test/serviceradar/identity/effective_permissions_db_test.exs": 1,

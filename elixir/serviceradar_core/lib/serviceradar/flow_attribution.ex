@@ -1,96 +1,89 @@
 defmodule ServiceRadar.FlowAttribution do
   @moduledoc """
-  Persists netprobe process attributions pushed by agents and correlates them
-  against collected NetFlow/sFlow in `ocsf_network_activity`.
+  Netprobe process attribution for collected NetFlow/sFlow.
+
+  Agents push process/socket observations; core publishes them on JetStream
+  (`ServiceRadar.FlowAttribution.Observations`) and EventWriter loads them into
+  the StarRocks table `flow_process_attribution_observations`. The correlator
+  matches recent unattributed flows in `ocsf_network_activity` against those
+  observations in the warehouse and stamps the matches as `attributed_flow`.
 
   NetFlow remains the authoritative flow source; netprobe supplies process and
-  workload context. This module intentionally stays as the public API while the
-  persistence, correlation, retention, and protobuf normalization details live in
-  smaller implementation modules under `ServiceRadar.FlowAttribution`.
+  workload context. Flows are warehouse-only, so attribution requires StarRocks:
+  without it observations are not stored anywhere, the correlator does not run,
+  and `health/0` reports `attribution_disabled: :starrocks_required`.
   """
 
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.FlowAttribution.Correlation
   alias ServiceRadar.FlowAttribution.EventRows
-  alias ServiceRadar.FlowAttribution.Persistence
-  alias ServiceRadar.FlowAttribution.Retention
-  alias ServiceRadar.FlowAttribution.WorkloadBackfill
+  alias ServiceRadar.FlowAttribution.Observations
 
   require Logger
 
-  @doc "Persist a batch of pushed attribution events."
-  @spec persist(
+  @doc """
+  Publish a batch of pushed attribution events as observations.
+
+  Returns `:ok` without publishing when attribution is disabled (no StarRocks),
+  so the agent's batch is acknowledged and dropped rather than retried forever.
+
+  Options: `:enabled` overrides `enabled?/0`; `:publish` is passed to
+  `Observations.publish/2`.
+  """
+  @spec publish_observations(
           [FlowAttributionEvent.t()],
           String.t() | nil,
           String.t() | nil,
           keyword()
         ) :: :ok | {:error, term()}
-  def persist(events, partition_id, agent_id, opts \\ [])
+  def publish_observations(events, partition_id, agent_id, opts \\ [])
 
-  def persist(events, partition_id, agent_id, opts) when is_list(events) do
-    rows =
+  def publish_observations(events, partition_id, agent_id, opts) when is_list(events) do
+    if Keyword.get_lazy(opts, :enabled, &enabled?/0) do
       events
       |> Enum.map(&EventRows.from_event(&1, partition_id, agent_id))
       |> Enum.reject(&is_nil/1)
-
-    case rows do
-      [] ->
-        :ok
-
-      rows ->
-        persistence = Keyword.get(opts, :persistence, &Persistence.insert_current_rows/1)
-
-        case persistence.(rows) do
-          :ok ->
-            :ok
-
-          {:ok, _result} ->
-            :ok
-
-          {:error, reason} ->
-            persistence_error(reason)
-
-          %Postgrex.Result{} ->
-            :ok
-
-          other ->
-            persistence_error({:unexpected_persistence_result, other})
-        end
+      |> publish_rows(opts)
+    else
+      :ok
     end
-  rescue
-    error ->
-      persistence_error(error)
   end
 
-  def persist(_events, _partition_id, _agent_id, _opts), do: :ok
+  def publish_observations(_events, _partition_id, _agent_id, _opts), do: :ok
+
+  defp publish_rows([], _opts), do: :ok
+
+  defp publish_rows(rows, opts) do
+    case Observations.publish(rows, opts) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("FlowAttribution observation publish failed: #{inspect(reason)}")
+        {:error, {:flow_attribution_publish_failed, reason}}
+    end
+  end
 
   @doc """
-  Correlate recent attributions with recent NetFlow and stamp matches as
+  Correlate recent observations with recent NetFlow and stamp matches as
   `attributed_flow`. Direction-agnostic and idempotent.
   """
   @spec correlate() :: {:ok, non_neg_integer() | :not_applicable} | {:error, term()}
   defdelegate correlate, to: Correlation
 
-  @doc "Backfill recent current-state attribution rows for specific workload identity keys."
-  @spec backfill_current_workload_identity([map()]) ::
-          {:ok, non_neg_integer()} | {:error, term()}
-  defdelegate backfill_current_workload_identity(rows), to: WorkloadBackfill
+  @doc "Whether attribution runs: flows, and so observations, live in StarRocks."
+  @spec enabled?() :: boolean()
+  def enabled?, do: Readers.backend(:flows) == :starrocks
 
-  @doc "Delete attributions older than the retention window."
-  @spec prune() :: {:ok, non_neg_integer()} | {:error, term()}
-  defdelegate prune, to: Retention
-
-  @doc """
-  Returns raw attribution staging retention in minutes.
-
-  The value is clamped to the correlation skew so a deployment cannot discard
-  observations before delayed NetFlow/IPFIX rows have a chance to match.
-  """
-  @spec retention_minutes() :: pos_integer()
-  defdelegate retention_minutes, to: Retention
-
-  defp persistence_error(reason) do
-    Logger.warning("FlowAttribution.persist failed: #{inspect(reason)}")
-    {:error, {:flow_attribution_persist_failed, reason}}
+  @doc "The attribution health surface."
+  @spec health() ::
+          %{enabled: true} | %{enabled: false, attribution_disabled: :starrocks_required}
+  def health do
+    if enabled?() do
+      %{enabled: true}
+    else
+      %{enabled: false, attribution_disabled: :starrocks_required}
+    end
   end
 end
