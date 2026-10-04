@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.TokenRevocation
+  alias ServiceRadarWebNGWeb.Plugs.ApiAuth
+  alias ServiceRadarWebNGWeb.Plugs.RequireConfigurationScope
 
   require Logger
 
@@ -24,6 +26,13 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   @session_started_key :session_started_at
   @user_token_key "user_token"
   @identity_claims_key "identity_claims"
+  @api_path_prefixes [["api"], ["topology"], ["v1", "stream"]]
+  # These POST endpoints only query or analyze caller-supplied data. Every
+  # other POST through UserAuth requires a write or an explicit narrow grant.
+  @read_only_api_post_paths [
+    ["api", "query"],
+    ["api", "admin", "topology", "route-analysis"]
+  ]
   @sudo_at_key "sudo_authenticated_at"
   @sensitive_identity_claim_keys ~w[
     access_token
@@ -339,8 +348,19 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     # refresh tokens. Pinning `token_type: "access"` rejected every
     # OAuth-issued bearer token with `authentication_required`.
     case Guardian.verify_token(token) do
-      {:ok, user, _claims} ->
-        assign(conn, :current_scope, create_scope(user, identity_claims: %{}))
+      {:ok, user, claims} ->
+        conn = assign(conn, :current_scope, create_scope(user, identity_claims: %{}))
+
+        if claims["typ"] == "api" do
+          conn
+          |> assign(:oauth_token_scope, ApiAuth.oauth_scope_string(claims))
+          |> RequireConfigurationScope.call(
+            path_prefixes: @api_path_prefixes,
+            read_only_post_paths: @read_only_api_post_paths
+          )
+        else
+          conn
+        end
 
       {:error, reason} ->
         log_session_failure(conn, reason)
