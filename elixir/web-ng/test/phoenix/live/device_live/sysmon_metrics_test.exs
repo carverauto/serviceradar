@@ -226,7 +226,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope) == tokens
     assert_received {:presence_probe, default_query}
     assert default_query =~ "time:last_24h"
-    assert default_query =~ "sort:timestamp:desc limit:1"
+    assert default_query =~ "limit:1"
+    refute default_query =~ "sort:"
     refute default_query =~ "bucket:"
     refute default_query =~ "agg:"
 
@@ -236,6 +237,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert_received {:presence_probe, long_query}
     assert long_query =~ "time:last_30d"
     assert long_query =~ "bucket:6h"
+    assert long_query =~ "limit:1"
+    refute long_query =~ "sort:"
     refute long_query =~ "last_24h"
 
     assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope, time_range: absolute) ==
@@ -244,6 +247,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert_received {:presence_probe, absolute_query}
     assert absolute_query =~ "time:#{absolute}"
     assert absolute_query =~ "bucket:6h"
+    assert absolute_query =~ "limit:1"
+    refute absolute_query =~ "sort:"
     refute absolute_query =~ "last_24h"
   end
 
@@ -307,7 +312,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
 
       assert [probe] = Enum.filter(issued_queries(), &probe?/1)
       assert probe =~ "time:last_24h"
-      assert probe =~ "sort:timestamp:desc limit:1"
+      assert probe =~ "limit:1"
+      refute probe =~ "sort:"
       refute probe =~ "bucket:"
     end
 
