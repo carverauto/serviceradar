@@ -52,7 +52,11 @@ defmodule ServiceRadar.Repo.Migrations.AddConfigurableHomepages do
       execute("ALTER TABLE platform.#{table} ADD CONSTRAINT #{name} CHECK (#{check})")
     end
 
+    # serviceradar:allow-startup-maintenance - bounded hub-default copy required so the
+    # dashboards hub "Set as default" and the profile homepage are one value (D6).
     # Only fills users with no homepage, so a re-run never overwrites a choice.
+    # Bounded to ng_users rows whose is_default hub preference exists, touches no
+    # telemetry table, is idempotent, and is a no-op when no hub defaults exist.
     execute(backfill_sql())
   end
 
