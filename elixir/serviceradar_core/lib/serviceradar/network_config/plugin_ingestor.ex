@@ -49,12 +49,10 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
       rescue
         error ->
           Logger.error("Staged running-config ingest failed: #{inspect(error.__struct__)}")
-          Logger.error(Exception.message(error))
           {:error, :running_config_ingest_failed}
       catch
-        kind, reason ->
+        kind, _reason ->
           Logger.error("Staged running-config ingest caught #{inspect(kind)}")
-          Logger.error(inspect(reason))
           {:error, :running_config_ingest_failed}
       end
 
