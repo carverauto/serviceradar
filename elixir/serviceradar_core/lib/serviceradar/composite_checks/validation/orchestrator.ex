@@ -33,14 +33,25 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
     with {:ok, check} <- fetch_enabled_check(params, actor),
          {:ok, targets} <- parse_targets(params),
          {:ok, resolved} <- resolve_all(targets, actor) do
-      Repo.transaction(fn ->
-        with :ok <- write_facts(resolved, actor, opts),
-             {:ok, run} <- create_run(check, resolved, params, actor, opts) do
-          run
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+      case Repo.transaction(fn ->
+             with {:ok, notifications} <- write_facts(resolved, actor, opts),
+                  {:ok, run} <- create_run(check, resolved, params, actor, opts) do
+               {run, notifications}
+             else
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end) do
+        {:ok, {run, notifications}} ->
+          # The fact writes run inside a transaction Ash did not start, so
+          # their DeviceNotifier notifications are returned and delivered only
+          # after the facts, run, and devices have committed. A rollback
+          # returns an error and delivers nothing.
+          Ash.Notifier.notify(notifications)
+          {:ok, run}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -140,16 +151,16 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
         :error -> [actor: actor]
       end
 
-    Enum.reduce_while(targets, :ok, fn target, :ok ->
+    Enum.reduce_while(targets, {:ok, []}, fn target, {:ok, acc} ->
       if is_nil(target.facts) do
-        {:cont, :ok}
+        {:cont, {:ok, acc}}
       else
         with {:ok, device} <- Device.get_by_uid(target.device_uid, false, actor: actor),
-             {:ok, _device} <-
+             {:ok, _device, notifications} <-
                device
                |> Ash.Changeset.for_update(:write_facts, %{facts: target.facts}, write_opts)
-               |> Ash.update() do
-          {:cont, :ok}
+               |> Ash.update(Keyword.put(write_opts, :return_notifications?, true)) do
+          {:cont, {:ok, acc ++ notifications}}
         else
           {:error, reason} -> {:halt, {:error, reason}}
         end
