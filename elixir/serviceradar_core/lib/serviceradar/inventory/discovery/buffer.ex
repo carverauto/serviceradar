@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Inventory.Discovery.Buffer do
   @moduledoc """
   Holds partial discovery snapshots until every part arrives, and remembers what
-  has already been accepted per observation scope.
+  has already been accepted per attested producer and observation scope.
 
   Both jobs need state that outlives a single ingest call, which is why this is
   a process rather than a function.
@@ -22,10 +22,10 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
 
   ## Supersession
 
-  A snapshot REPLACES its `observation_scope`, so applying an older one after a
-  newer one resurrects devices that have since aged out. Nothing between the
-  producer and here guarantees ordering, so the comparison is on
-  `generated_at_unix_nano`, not arrival.
+  A snapshot REPLACES its `observation_scope` for one attested producer, so
+  applying an older one after a newer one resurrects devices that have since
+  aged out. Nothing between the producer and here guarantees ordering, so the
+  comparison is on `generated_at_unix_nano`, not arrival.
 
   netprobe already collapses per interface before emitting. This is the
   defensive half of the same rule, and it is what moves out of the agent's
@@ -58,6 +58,10 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
   # `observation_scope` is producer-supplied.
   @max_scopes 1024
 
+  @type producer_scope ::
+          {String.t() | nil, String.t() | nil, String.t() | nil, String.t() | nil,
+           String.t() | nil}
+
   defstruct partials: %{}, watermarks: %{}, dropped: %{}
 
   def start_link(opts \\ []) do
@@ -70,10 +74,17 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
   Returns `{:ready, payloads}` when a complete snapshot is available (one
   element for a single-part snapshot, or every part in index order),
   `:buffered` while a set is still incomplete, or `{:dropped, reason}`.
+
+  `producer_scope` must come from gateway-attested metadata, never from the
+  discovery envelope.
   """
-  @spec offer(map(), keyword()) :: {:ready, [binary()]} | :buffered | {:dropped, atom()}
-  def offer(envelope, opts \\ []) do
-    GenServer.call(Keyword.get(opts, :name, __MODULE__), {:offer, envelope, now_ms()})
+  @spec offer(map(), producer_scope(), keyword()) ::
+          {:ready, [binary()]} | :buffered | {:dropped, atom()}
+  def offer(envelope, producer_scope, opts \\ []) do
+    GenServer.call(
+      Keyword.get(opts, :name, __MODULE__),
+      {:offer, envelope, producer_scope, now_ms()}
+    )
   end
 
   @doc "Counts of dropped sets by reason. Test- and metrics-facing."
@@ -101,9 +112,9 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
   def init(_opts), do: {:ok, %__MODULE__{}}
 
   @impl true
-  def handle_call({:offer, envelope, now}, _from, state) do
+  def handle_call({:offer, envelope, producer_scope, now}, _from, state) do
     state = expire(state, now)
-    {result, state} = do_offer(envelope, now, state)
+    {result, state} = do_offer(envelope, producer_scope, now, state)
     {:reply, result, state}
   end
 
@@ -111,7 +122,7 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
 
   def handle_call(:reset, _from, _state), do: {:reply, :ok, %__MODULE__{}}
 
-  defp do_offer(envelope, now, state) do
+  defp do_offer(envelope, producer_scope, now, state) do
     part_count = envelope.part_count || 0
 
     cond do
@@ -121,7 +132,7 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
       part_count <= 1 and envelope.complete ->
         # The overwhelmingly common case: one part, already complete. No
         # buffering at all.
-        accept_if_newer([envelope.payload], envelope, state)
+        accept_if_newer([envelope.payload], envelope, producer_scope, state)
 
       part_count <= 1 ->
         # Not complete, and claims no set it belongs to. Nothing can place it.
@@ -131,12 +142,12 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
         {{:dropped, :invalid_part_index}, count(state, :invalid_part_index)}
 
       true ->
-        buffer_part(envelope, now, state)
+        buffer_part(envelope, producer_scope, now, state)
     end
   end
 
-  defp buffer_part(envelope, now, state) do
-    key = {envelope.schema, envelope.snapshot_id}
+  defp buffer_part(envelope, producer_scope, now, state) do
+    key = {producer_scope, envelope.schema, envelope.snapshot_id}
     existing = Map.get(state.partials, key)
 
     if existing && existing.part_count != envelope.part_count do
@@ -166,21 +177,23 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
           partial.parts |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))
 
         state = %{state | partials: Map.delete(state.partials, key)}
-        accept_if_newer(payloads, envelope, state)
+        accept_if_newer(payloads, envelope, producer_scope, state)
       else
         {:buffered, %{state | partials: Map.put(state.partials, key, partial)}}
       end
     end
   end
 
-  # A snapshot replaces its scope, so an older one arriving late must not undo a
-  # newer one. An empty scope opts out of supersession entirely.
-  defp accept_if_newer(payloads, %{observation_scope: scope}, state) when scope in [nil, ""] do
+  # A snapshot replaces its scope for one attested producer, so an older one
+  # arriving late must not undo a newer one. An empty scope opts out of
+  # supersession entirely.
+  defp accept_if_newer(payloads, %{observation_scope: scope}, _producer_scope, state)
+       when scope in [nil, ""] do
     {{:ready, payloads}, state}
   end
 
-  defp accept_if_newer(payloads, envelope, state) do
-    key = {envelope.schema, envelope.observation_scope}
+  defp accept_if_newer(payloads, envelope, producer_scope, state) do
+    key = {producer_scope, envelope.schema, envelope.observation_scope}
     generated_at = envelope.generated_at_unix_nano || 0
     previous = Map.get(state.watermarks, key, 0)
 

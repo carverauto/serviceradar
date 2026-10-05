@@ -75,14 +75,17 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
     :ok
   end
 
-  defp attested do
-    %{
-      producer_type: "native-addon",
-      producer_id: "netprobe",
-      agent_id: "attested-agent",
-      gateway_id: "attested-gateway",
-      partition_id: "attested-partition"
-    }
+  defp attested(overrides \\ []) do
+    Map.merge(
+      %{
+        producer_type: "native-addon",
+        producer_id: "netprobe",
+        agent_id: "attested-agent",
+        gateway_id: "attested-gateway",
+        partition_id: "attested-partition"
+      },
+      Map.new(overrides)
+    )
   end
 
   defp census_payload(observations) do
@@ -241,6 +244,24 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
 
       assert [_] = enqueued!()
     end
+
+    test "one agent's watermark does not supersede another agent's snapshot" do
+      assert :ok =
+               DiscoveryIngestor.ingest(
+                 envelope(generated_at_unix_nano: 200),
+                 attested(agent_id: "synthetic-agent-a")
+               )
+
+      assert [_] = enqueued!()
+
+      assert :ok =
+               DiscoveryIngestor.ingest(
+                 envelope(generated_at_unix_nano: 100),
+                 attested(agent_id: "synthetic-agent-b")
+               )
+
+      assert [_] = enqueued!()
+    end
   end
 
   describe "multi-part snapshots" do
@@ -280,6 +301,38 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
       assert :ok = DiscoveryIngestor.ingest(first, attested())
 
       refute_receive {:enqueued, _}, 200
+    end
+
+    test "parts from different agents cannot complete each other's snapshot" do
+      first =
+        envelope(
+          part_index: 0,
+          part_count: 2,
+          complete: false,
+          payload: census_payload([observation(mac: "a8:bb:cc:00:00:01")])
+        )
+
+      second =
+        envelope(
+          part_index: 1,
+          part_count: 2,
+          complete: true,
+          payload: census_payload([observation(mac: "a8:bb:cc:00:00:02")])
+        )
+
+      assert :ok =
+               DiscoveryIngestor.ingest(first, attested(agent_id: "synthetic-agent-a"))
+
+      assert :ok =
+               DiscoveryIngestor.ingest(second, attested(agent_id: "synthetic-agent-b"))
+
+      refute_receive {:enqueued, _}, 200
+
+      assert :ok =
+               DiscoveryIngestor.ingest(second, attested(agent_id: "synthetic-agent-a"))
+
+      updates = enqueued!()
+      assert Enum.map(updates, & &1["mac"]) == ["a8:bb:cc:00:00:01", "a8:bb:cc:00:00:02"]
     end
   end
 end
