@@ -107,8 +107,7 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
     %{state | publishing: true}
   end
 
-  defp next_sample(%{depth: sample, queue: queue} = state)
-       when not is_nil(sample) do
+  defp next_sample(%{depth: sample, queue: queue} = state) when not is_nil(sample) do
     if :queue.is_empty(queue) or Map.get(state, :turn, :depth) == :depth do
       {sample, %{state | depth: nil, turn: :queue}}
     else

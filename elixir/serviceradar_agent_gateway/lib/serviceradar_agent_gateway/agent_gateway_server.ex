@@ -818,23 +818,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     case Process.whereis(ServiceRadarAgentGateway.DeliveryTaskSupervisor) do
       pid when is_pid(pid) ->
         task = Task.Supervisor.async_nolink(pid, fn -> StatusProcessor.process(status) end)
-
-        case Task.yield(task, budget) do
-          {:ok, result} ->
-            result
-
-          {:exit, reason} ->
-            {:error, reason}
-
-          nil ->
-            case Task.shutdown(task, :brutal_kill) do
-              {:ok, result} -> result
-              _expired -> {:error, :forward_timeout}
-            end
-        end
+        await_delivery_task(task, budget)
 
       _missing ->
         StatusProcessor.process(status)
+    end
+  end
+
+  defp await_delivery_task(task, budget) do
+    case Task.yield(task, budget) do
+      {:ok, result} ->
+        result
+
+      {:exit, reason} ->
+        {:error, reason}
+
+      nil ->
+        case Task.shutdown(task, :brutal_kill) do
+          {:ok, result} -> result
+          _expired -> {:error, :forward_timeout}
+        end
     end
   end
 

@@ -1,6 +1,7 @@
 defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Observability.MetricEnvelope
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.AgentGatewayServer
   alias ServiceRadarAgentGateway.AgentRegistryProxy
@@ -630,7 +631,7 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   defp await_runtime_metric(metric_name, predicate, attempts \\ 20) do
     assert_receive {:jetstream, subject, body}, 2_000
     assert subject == RuntimeMetrics.subject()
-    assert {:ok, rows} = ServiceRadar.Observability.MetricEnvelope.decode_rows(body)
+    assert {:ok, rows} = MetricEnvelope.decode_rows(body)
 
     case Enum.find(rows, fn row -> row.metric_name == metric_name and predicate.(row) end) do
       nil when attempts > 1 -> await_runtime_metric(metric_name, predicate, attempts - 1)
