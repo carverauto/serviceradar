@@ -1804,7 +1804,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp redact_authorization_secret(value) do
     Regex.replace(
-      ~r/(authorization\s*[=:]\s*)(?:Bearer\s+)?[^\s,}\]]+/i,
+      ~r/(authorization\s*[=:]\s*)(?:"(?:Bearer\s+)?[^"]*"|'(?:Bearer\s+)?[^']*'|(?:Bearer\s+)?[^\s,}\]]+)/i,
       value,
       "\\1#{@redacted}"
     )
