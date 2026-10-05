@@ -62,13 +62,16 @@ type FileTransferPolicy struct {
 // FileTransferPolicyInput carries the trusted transfer request plus target
 // filesystem facts observed by the selected agent.
 type FileTransferPolicyInput struct {
-	Request      FileTransferRequestPayload
-	ResolvedPath string
-	Bytes        int64
-	Files        int64
-	HasSymlink   bool
-	RealPathOK   bool
-	Approved     bool
+	Request                 FileTransferRequestPayload
+	ResolvedPath            string
+	ResolvedDestinationPath string
+	Bytes                   int64
+	Files                   int64
+	HasSymlink              bool
+	HasDestinationSymlink   bool
+	RealPathOK              bool
+	DestinationRealPathOK   bool
+	Approved                bool
 }
 
 // FileTransferPolicyDecision is safe to persist in audit and replay streams.
@@ -112,6 +115,9 @@ func EvaluateFileTransferPolicy(input FileTransferPolicyInput, policy FileTransf
 		}
 		if !pathAllowed(normalizedDestination, policy.AllowedPathRules) || pathDenied(normalizedDestination, policy.DeniedPathRules) {
 			err := fmt.Errorf("%w: destination path", ErrFileTransferPolicyDenied)
+			return deniedDecision(normalizedPath, FileTransferStatusDenied, err), err
+		}
+		if err := enforceDestinationSymlinkPolicy(input, policy, normalizedDestination); err != nil {
 			return deniedDecision(normalizedPath, FileTransferStatusDenied, err), err
 		}
 	}
@@ -195,27 +201,35 @@ func pathDenied(candidate string, rules []string) bool {
 }
 
 func enforceSymlinkPolicy(input FileTransferPolicyInput, policy FileTransferPolicy, normalizedPath string) error {
-	if !input.HasSymlink {
+	return enforceResolvedPath(input.HasSymlink, input.ResolvedPath, input.RealPathOK, policy, normalizedPath, "symlink", "resolved symlink path")
+}
+
+func enforceDestinationSymlinkPolicy(input FileTransferPolicyInput, policy FileTransferPolicy, normalizedDestination string) error {
+	return enforceResolvedPath(input.HasDestinationSymlink, input.ResolvedDestinationPath, input.DestinationRealPathOK, policy, normalizedDestination, "destination symlink", "resolved destination path")
+}
+
+func enforceResolvedPath(hasSymlink bool, resolved string, realPathOK bool, policy FileTransferPolicy, normalizedPath string, symlinkLabel string, resolvedLabel string) error {
+	if !hasSymlink {
 		return nil
 	}
 
 	switch policy.SymlinkMode {
 	case "", FileTransferSymlinkDeny:
-		return fmt.Errorf("%w: symlink", ErrFileTransferPolicyDenied)
+		return fmt.Errorf("%w: %s", ErrFileTransferPolicyDenied, symlinkLabel)
 	case FileTransferSymlinkAllow:
 		return nil
 	case FileTransferSymlinkFollowInsideRoot:
-		if !input.RealPathOK || strings.TrimSpace(input.ResolvedPath) == "" {
-			return fmt.Errorf("%w: resolved symlink path unavailable", ErrFileTransferPolicyDenied)
+		if !realPathOK || strings.TrimSpace(resolved) == "" {
+			return fmt.Errorf("%w: %s unavailable", ErrFileTransferPolicyDenied, resolvedLabel)
 		}
-		resolved, err := normalizeRemotePath(input.ResolvedPath)
+		normalizedResolved, err := normalizeRemotePath(resolved)
 		if err != nil {
-			return fmt.Errorf("%w: resolved symlink path", ErrFileTransferPolicyDenied)
+			return fmt.Errorf("%w: %s", ErrFileTransferPolicyDenied, resolvedLabel)
 		}
-		if !pathAllowed(resolved, policy.AllowedPathRules) || pathDenied(resolved, policy.DeniedPathRules) {
-			return fmt.Errorf("%w: resolved symlink path", ErrFileTransferPolicyDenied)
+		if !pathAllowed(normalizedResolved, policy.AllowedPathRules) || pathDenied(normalizedResolved, policy.DeniedPathRules) {
+			return fmt.Errorf("%w: %s", ErrFileTransferPolicyDenied, resolvedLabel)
 		}
-		if resolved == normalizedPath {
+		if normalizedResolved == normalizedPath {
 			return nil
 		}
 		return nil

@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	pkgsftp "github.com/pkg/sftp"
@@ -215,7 +217,62 @@ func (a SFTPAdapter) evaluatePolicy(
 		}
 	}
 
+	if request.Operation == FileTransferOperationRename && strings.TrimSpace(request.DestinationPath) != "" {
+		hasSymlink, resolved, ok := destinationSymlinkFacts(client, request.DestinationPath)
+		input.HasDestinationSymlink = hasSymlink
+		input.ResolvedDestinationPath = resolved
+		input.DestinationRealPathOK = ok
+	}
+
 	return EvaluateFileTransferPolicy(input, a.Policy)
+}
+
+func destinationSymlinkFacts(client SFTPClient, destination string) (bool, string, bool) {
+	normalized, err := normalizeRemotePath(destination)
+	if err != nil {
+		return false, "", false
+	}
+	if info, err := client.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if resolved, realPathErr := client.RealPath(destination); realPathErr == nil {
+			return true, resolved, true
+		}
+		return true, "", false
+	}
+	if resolved, err := client.RealPath(destination); err == nil {
+		if resolvedNormalized, normErr := normalizeRemotePath(resolved); normErr == nil {
+			if resolvedNormalized != normalized {
+				return true, resolved, true
+			}
+			return false, "", false
+		}
+		if resolved != destination {
+			return true, resolved, true
+		}
+		return false, "", false
+	}
+	parent := path.Dir(normalized)
+	if parent == normalized {
+		return false, "", false
+	}
+	if info, err := client.Lstat(parent); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if resolvedParent, realPathErr := client.RealPath(parent); realPathErr == nil {
+			return true, path.Join(resolvedParent, path.Base(normalized)), true
+		}
+		return true, "", false
+	}
+	if resolvedParent, err := client.RealPath(parent); err == nil {
+		resolved := path.Join(resolvedParent, path.Base(normalized))
+		if resolvedNormalized, normErr := normalizeRemotePath(resolved); normErr == nil {
+			if resolvedNormalized != normalized {
+				return true, resolved, true
+			}
+			return false, "", false
+		}
+		if resolved != destination {
+			return true, resolved, true
+		}
+	}
+	return false, "", false
 }
 
 func (a SFTPAdapter) executeAllowed(
