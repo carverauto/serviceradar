@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
             ON st.`id` = h.trace_id
             AND st.target_reached
             AND h.hop_number = st.total_hops
-            AND h.`time` >= st.`time`
+            AND h.`time` = st.`time`
           WHERE h.`time` >= (SELECT MIN(`time`) FROM selected_traces)
         ) ranked_terminal_hops
         WHERE terminal_rank = 1
@@ -375,7 +375,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   `COALESCE(MAX(hop_number) of replying hops, 0)`, a trace without hops gets no
   row and so NULL, which is what the subquery returns in each case. The join
   only aggregates traces that reach that branch of the CASE, and its hop scan
-  carries the window's lower bound, which `h.time >= st.time` already implies.
+  carries the window's lower bound, which `h.time = st.time` already implies.
   """
   @spec window_summary(map(), [tuple()], keyword()) :: {:ok, map()} | {:error, term()}
   def window_summary(%{start: start_at, end: end_at}, terms, opts \\ []) do
@@ -407,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
             ON st.`id` = h.trace_id
             AND st.target_reached
             AND h.hop_number = st.total_hops
-            AND h.`time` >= st.`time`
+            AND h.`time` = st.`time`
           WHERE h.`time` >= #{datetime(start_at)} AND h.`time` < #{datetime(end_at)}
         ) terminal_candidates
         WHERE terminal_rank = 1
@@ -418,7 +418,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
         FROM #{table("mtr_hops")} h
         INNER JOIN selected_traces st
           ON st.`id` = h.trace_id
-          AND h.`time` >= st.`time`
+          AND h.`time` = st.`time`
           AND NOT COALESCE(st.target_reached, FALSE)
           AND st.last_responding_hop IS NULL
         WHERE h.`time` >= #{datetime(start_at)}
@@ -571,7 +571,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
         FROM selected_traces st
         LEFT JOIN #{table("mtr_hops")} h
           ON h.trace_id = st.`id`
-          AND h.`time` >= st.`time`
+          AND h.`time` = st.`time`
           AND h.`time` >= #{datetime(start_at)}
           AND h.`time` < #{datetime(end_at)}
         GROUP BY st.`id`, st.`time`, st.agent_id, st.target, st.target_ip, st.target_reached
@@ -701,7 +701,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
         INNER JOIN selected_traces st ON st.`id` = h.trace_id
           AND st.target_reached
           AND h.hop_number = st.total_hops
-          AND h.`time` >= st.`time`
+          AND h.`time` = st.`time`
         WHERE h.`time` >= #{datetime(lower)}
       ) terminal_candidates
       WHERE terminal_rank = 1
@@ -799,7 +799,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
           ON h.trace_id = t.`id`
           AND t.target_reached
           AND h.hop_number = t.total_hops
-          AND h.`time` >= t.`time`
+          AND h.`time` = t.`time`
         WHERE t.`time` >= #{datetime(lower)}
           AND h.`time` >= #{datetime(lower)}
       ) terminal_candidates

@@ -5,7 +5,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   The `*_hourly` views come from `priv/starrocks/0017`, which replaces the
   unpartitioned ones of `0005` and `0016` with views partitioned by day; the
   trace rollups `traces_stats_5m` and `spans_red_1h` from `0022`, and the MTR
-  rollups `mtr_hops_hourly` and `mtr_destination_hourly` from `0025`, are built
+  rollups `mtr_hops_hourly` and `mtr_destination_hourly` from `0025` (the
+  destination view rebuilt by `0028` for trace/hop event-day alignment), are built
   the same way and gated the same way. They
   use a 30-second schedule after migration `0027`, so a reader must verify the view has
   caught up before trusting it: an unrefreshed view returns short counts with

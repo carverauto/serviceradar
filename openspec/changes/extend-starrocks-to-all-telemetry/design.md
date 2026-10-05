@@ -92,6 +92,17 @@ Timescale continuous aggregates. Their warehouse equivalents are day-partitioned
 0017 established, so a refresh touches only the days that changed. `RollupFreshness` already
 routes a stale or missing MV to the raw table; new rollups use the same gate.
 
+MTR hop event time equals its trace's event time. The shared row builder assigns that time
+for both backends; EventWriter also normalizes it at the warehouse persistence boundary.
+A load arriving later repairs the trace's original day, regardless of its arrival day.
+The destination MV joins traces and hops on equal event times and trace id, then selects
+the terminal hop by hop position and descending id. Its window partitions by event time,
+trace id and hop position, so both fact tables map to the same daily refresh partition.
+There is no separate dependency mapping for differing hop timestamps. Rebuilding this
+derived view defers its initial refresh to the existing schedule and limits each refresh
+task to one day. Changed historical days remain eligible; retention and raw fallback stay
+unchanged. Migration 0028 implements this alignment for issue #5281.
+
 ### 5. Table model: primary-key tables stay the default
 
 Logs, events, spans and metric points are append-only, which argues for duplicate-key tables
