@@ -47,6 +47,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadarAgentGateway.ConfigChunks
   alias ServiceRadarAgentGateway.ConfigResponse
   alias ServiceRadarAgentGateway.ControlStreamSession
+  alias ServiceRadarAgentGateway.RuntimeMetrics
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusProcessor
 
@@ -814,31 +815,46 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp process_within_budget(status) do
     budget = StatusProcessor.acceptance_budget_ms(status)
+    started_at = System.monotonic_time()
 
     case Process.whereis(ServiceRadarAgentGateway.DeliveryTaskSupervisor) do
       pid when is_pid(pid) ->
         task = Task.Supervisor.async_nolink(pid, fn -> StatusProcessor.process(status) end)
-        await_delivery_task(task, budget)
+        await_delivery_task(task, budget, status, started_at)
 
       _missing ->
         StatusProcessor.process(status)
     end
   end
 
-  defp await_delivery_task(task, budget) do
+  defp await_delivery_task(task, budget, status, started_at) do
     case Task.yield(task, budget) do
       {:ok, result} ->
         result
 
       {:exit, reason} ->
+        report_budget_exceeded(status, started_at)
         {:error, reason}
 
       nil ->
         case Task.shutdown(task, :brutal_kill) do
           {:ok, result} -> result
-          _expired -> {:error, :forward_timeout}
+          _expired -> report_budget_exceeded(status, started_at)
         end
     end
+  end
+
+  # The delivery task never returned, so the inner forward path never
+  # published its core-call duration sample. Report it here so every
+  # synchronous acceptance attempt publishes exactly one runtime metric.
+  defp report_budget_exceeded(status, started_at) do
+    duration_ms =
+      System.monotonic_time()
+      |> Kernel.-(started_at)
+      |> System.convert_time_unit(:native, :millisecond)
+
+    RuntimeMetrics.report_core_call(duration_ms, :failed, status)
+    {:error, :forward_timeout}
   end
 
   defp committed_delivery_outcome(status) do
