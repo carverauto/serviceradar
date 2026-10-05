@@ -5,9 +5,22 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   HTTP 200 is not a successful persistence acknowledgement. The load JSON
   `Status` must be `Success`, loaded rows must match the payload, and filtered
   rows must be zero. Lost responses are reconciled by load label before ACK.
+
+  Transient transport failures get at most three attempts, with exponential
+  backoff and jitter. Retries reuse the encoded body and label, starting at the
+  FE again so it can select a healthy coordinator. An uncertain commit polls
+  the original label instead of issuing another load. The whole call has a
+  90-second budget (or the caller's shorter `:http_timeout`), below the default
+  JetStream ACK wait; exhaustion returns an error for the normal NAK path.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.LoadHealth
+
+  require Logger
+
   @success_status "Success"
+  @max_attempts 3
+  @retry_budget_ms 90_000
 
   # Stream Load is a synchronous commit, so the default budget is generous.
   # Callers replaying a backlog pass a shorter `:http_timeout` to bound how
@@ -24,39 +37,113 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     body = Keyword.get_lazy(opts, :body, fn -> encode_json_rows(rows) end)
     request = stream_load_request(config, table, label, body, opts)
     request = maybe_override_url(request, Keyword.get(opts, :url))
-    redirects = Keyword.get(opts, :redirects, 3)
-
     opts = opts |> Keyword.put(:table, table) |> Keyword.put(:label, label)
+    deadline = System.monotonic_time(:millisecond) + min(Keyword.get(opts, :http_timeout, @retry_budget_ms), @retry_budget_ms)
+
+    retry_load(%{request: request, http: http, count: length(rows), rows: rows, opts: opts,
+      attempt: 1, deadline: deadline, mode: :load})
+  end
+
+  defp retry_load(%{request: request, http: http, count: count, opts: opts,
+    attempt: attempt, deadline: deadline, mode: mode} = context) do
+    {result, dialed} =
+      if mode == :reconcile do
+        state = state_request(request.config, opts[:label], opts)
+        {reconcile_or_retry(opts[:label], opts[:table], count, budget_opts(opts, deadline)), state}
+      else
+        load_once(request, context, Keyword.get(opts, :redirects, 3))
+      end
+
+    case result do
+      {:error, reason} ->
+        delay = retry_delay(attempt)
+        retry? = retryable?(reason) and attempt < @max_attempts and remaining(deadline) > delay
+        uri = URI.parse(dialed.url)
+        fe = URI.parse(Map.get(request.config, :fe_http, "http://127.0.0.1:8030"))
+
+        metadata = %{
+          dataset: opts[:dataset] || opts[:table],
+          table: opts[:table],
+          label: opts[:label],
+          attempt: attempt,
+          host: uri.host,
+          port: uri.port,
+          endpoint_role: if({uri.host, uri.port} == {fe.host, fe.port}, do: :fe, else: :coordinator),
+          reason: reason,
+          retrying: retry?,
+          cnpg_completed: Keyword.get(opts, :cnpg_completed, false)
+        }
+
+        Logger.warning("StarRocks Stream Load attempt failed",
+          Keyword.new(Map.put(metadata, :reason, inspect(reason))) ++ [rows: count]
+        )
+
+        :telemetry.execute(
+          [:serviceradar, :starrocks, :stream_load, :failure],
+          %{count: 1, rows: count, retry_delay_ms: if(retry?, do: delay, else: 0)},
+          metadata
+        )
+
+        LoadHealth.report(metadata.dataset, context.rows, metadata.cnpg_completed,
+          timeout: min(500, max(remaining(deadline), 1)))
+
+        if retry? and remaining(deadline) > delay do
+          Process.sleep(delay)
+          mode = if match?({:unresolved_label, _, _}, reason), do: :reconcile, else: :load
+          retry_load(%{context | attempt: attempt + 1, mode: mode})
+        else
+          result
+        end
+
+      _ ->
+        result
+    end
+  end
+
+  defp load_once(request, %{http: http, count: count, opts: opts, deadline: deadline} = context, redirects) do
+    request = %{request | timeout: min(request.timeout, max(remaining(deadline), 1))}
 
     case http.(request) do
       {:ok, %{status: status} = resp} when status in [301, 302, 307, 308] and redirects > 0 ->
         case location_header(resp) do
           nil ->
-            {:error, {:http_status, status, label}}
+            {{:error, {:http_status, status, opts[:label]}}, request}
 
           location ->
-            persist(
-              table,
-              rows,
-              opts
-              |> Keyword.put(:url, location)
-              |> Keyword.put(:redirects, redirects - 1)
-            )
+            load_once(%{request | url: URI.merge(request.url, location) |> URI.to_string()},
+              context, redirects - 1)
         end
 
       {:ok, %{status: status, body: response_body}} when status in 200..299 ->
-        interpret_load(response_body, label, length(rows), opts)
+        {interpret_load(response_body, opts[:label], count, budget_opts(opts, deadline)), request}
 
       {:ok, %{status: status}} ->
-        {:error, {:http_status, status, label}}
+        {{:error, {:http_status, status, opts[:label]}}, request}
 
       {:error, :timeout} ->
-        reconcile_or_retry(label, table, length(rows), opts)
+        {reconcile_or_retry(opts[:label], opts[:table], count, budget_opts(opts, deadline)), request}
 
       {:error, reason} ->
-        {:error, {reason, label}}
+        {{:error, {reason, opts[:label]}}, request}
     end
   end
+
+  defp remaining(deadline), do: deadline - System.monotonic_time(:millisecond)
+
+  defp budget_opts(opts, deadline),
+    do: Keyword.put(opts, :http_timeout, min(http_timeout(opts), max(remaining(deadline), 1)))
+
+  defp retry_delay(attempt) do
+    base = 250 * Integer.pow(2, attempt - 1)
+    base + :rand.uniform(div(base, 5))
+  end
+
+  defp retryable?({:connect_failed, _label}), do: true
+  defp retryable?({{:connect_failed, _cause}, _label}), do: true
+  defp retryable?({:unresolved_label, _label, _table}), do: true
+  defp retryable?({:http_status, status, _label}), do: status in [408, 429, 500, 502, 503, 504]
+  defp retryable?({reason, _label}) when reason in [:closed, :econnreset, :socket_closed_remotely], do: true
+  defp retryable?(_reason), do: false
 
   def load_label(table, rows) when is_binary(table) and is_list(rows) do
     identities =
@@ -97,8 +184,8 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     reconcile_or_retry(label, Keyword.get(opts, :table, ""), expected_count, opts)
   end
 
-  defp interpret_load(%{"Status" => status}, label, _expected_count, _opts) do
-    {:error, {:load_status, status, label}}
+  defp interpret_load(%{"Status" => status} = payload, label, _expected_count, _opts) do
+    {:error, {:load_status, status, Map.get(payload, "Message"), label}}
   end
 
   defp interpret_load(_payload, label, _expected_count, _opts) do
@@ -111,7 +198,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     request = state_request(config, label, opts)
 
     case http.(request) do
-      {:ok, %{body: body}} ->
+      {:ok, %{status: status, body: body}} when status in 200..299 ->
         case Jason.decode(body) do
           # `get_load_state` answers with the label's transaction state, and
           # carries no row counts. COMMITTED is already durable and becomes
@@ -158,6 +245,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
       headers:
         [
           {"expect", "100-continue"},
+          {"content-type", "application/json"},
           {"format", "json"},
           {"strip_outer_array", "true"},
           {"label", label}
@@ -220,52 +308,39 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   end
 
   defp default_http(request) do
-    _ = Application.ensure_all_started(:inets)
-    _ = Application.ensure_all_started(:ssl)
+    timeout = Map.get(request, :timeout) || @default_http_timeout_ms
 
-    url = String.to_charlist(request.url)
-
-    headers =
-      Enum.map(request.headers ++ request_auth(request), fn {key, value} ->
-        {String.to_charlist(to_string(key)), String.to_charlist(to_string(value))}
-      end)
-
-    http_opts = [
-      timeout: Map.get(request, :timeout) || @default_http_timeout_ms,
-      connect_timeout: 5_000,
-      autoredirect: true
-    ]
-
-    opts = [body_format: :binary]
-
-    result =
-      case request.method do
-        :get ->
-          :httpc.request(:get, {url, headers}, http_opts, opts)
-
-        method ->
-          :httpc.request(
-            method,
-            {url, headers, ~c"application/json", request.body || ""},
-            http_opts,
-            opts
-          )
-      end
+    # OTP 28.1 httpc automatically replays 503 Retry-After responses and has no
+    # switch to disable that. Req's explicit retry/redirect controls keep this
+    # module in charge of both the attempt budget and the actual dialed host.
+    result = with {:ok, _} <- Application.ensure_all_started(:req) do
+      Req.request(
+        method: request.method,
+        url: request.url,
+        headers: request.headers ++ request_auth(request),
+        body: request.body,
+        decode_body: false,
+        retry: false,
+        redirect: false,
+        request_timeout: timeout,
+        receive_timeout: timeout,
+        pool_timeout: min(5_000, timeout),
+        connect_options: [timeout: min(5_000, timeout)]
+      )
+    end
 
     case result do
-      {:ok, {{_http, status, _reason}, resp_headers, body}} ->
-        headers =
-          Enum.map(resp_headers, fn {key, value} ->
-            {to_string(key), to_string(value)}
-          end)
+      {:ok, response} ->
+        headers = Enum.flat_map(response.headers, fn {key, values} ->
+          Enum.map(List.wrap(values), &{key, &1})
+        end)
+        {:ok, %{status: response.status, headers: headers, body: response.body}}
 
-        {:ok, %{status: status, headers: headers, body: IO.iodata_to_binary(body)}}
-
-      {:error, {:failed_connect, _}} ->
-        {:error, :connect_failed}
-
-      {:error, :timeout} ->
+      {:error, %Req.TransportError{reason: :timeout}} ->
         {:error, :timeout}
+
+      {:error, %Req.TransportError{reason: reason}} ->
+        {:error, {:connect_failed, reason}}
 
       {:error, reason} ->
         {:error, reason}
