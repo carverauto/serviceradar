@@ -38,12 +38,14 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   use Ash.Resource,
     domain: ServiceRadar.SweepJobs,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource, ServiceRadar.SweepJobs.SweepGroup.PaperTrailScoping],
     notifiers: [
       ServiceRadar.AgentConfig.DependencyNotifier,
       ServiceRadar.SweepJobs.DeclaredTargetsNotifier
     ],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias AshPaperTrail.Resource.Changes.CreateNewVersion
   alias ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment
   alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
   alias ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
@@ -84,8 +86,32 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     end
   end
 
+  # Append-only. Versions keep no foreign key, so deleting a group leaves the
+  # assignment history. `record_execution` and `run_now` are omitted: they fire
+  # on every sweep and are not assignment changes. The `PaperTrailScoping`
+  # extension removes AshPaperTrail's global version change (which would make
+  # even those untracked actions non-atomic under `full_diff`) so each
+  # versioned action below declares its own version change instead.
+  paper_trail do
+    primary_key_type :uuid
+    table_name "sweep_group_versions"
+    reference_source? false
+    change_tracking_mode :full_diff
+    on_actions [:create, :update, :enable, :disable]
+    store_action_name? true
+    store_action_inputs? true
+    create_version_on_destroy? true
+    ignore_attributes [:inserted_at, :updated_at]
+    mixin {ServiceRadar.SweepJobs.SweepGroup.PaperTrailMixin, :mixin, []}
+  end
+
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
+
+    destroy :destroy do
+      require_atomic? false
+      change CreateNewVersion
+    end
 
     create :create do
       accept @group_fields
@@ -94,6 +120,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
+      change CreateNewVersion
     end
 
     update :update do
@@ -105,15 +132,20 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
+      change CreateNewVersion
     end
 
     update :enable do
+      require_atomic? false
       change set_attribute(:enabled, true)
       change ScheduleSweepMonitor
+      change CreateNewVersion
     end
 
     update :disable do
+      require_atomic? false
       change set_attribute(:enabled, false)
+      change CreateNewVersion
     end
 
     update :record_execution do

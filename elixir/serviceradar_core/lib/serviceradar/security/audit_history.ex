@@ -71,6 +71,7 @@ defmodule ServiceRadar.Security.AuditHistory do
     ServiceRadar.Automation.Northbound.ActionEventHandler,
     ServiceRadar.Inventory.VisibilityProfile,
     ServiceRadar.Security.AuthLockout,
+    ServiceRadar.SweepJobs.SweepGroup,
     ServiceRadar.Dashboards.AuthoredDashboard,
     ServiceRadar.Dashboards.DashboardReportSchedule
   ]
