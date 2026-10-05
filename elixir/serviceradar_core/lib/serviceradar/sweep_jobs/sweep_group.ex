@@ -45,6 +45,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     ],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias AshPaperTrail.Resource.Changes.CreateNewVersion
   alias ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment
   alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
   alias ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
@@ -109,7 +110,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
     destroy :destroy do
       require_atomic? false
-      change AshPaperTrail.Resource.Changes.CreateNewVersion
+      change CreateNewVersion
     end
 
     create :create do
@@ -119,7 +120,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
-      change AshPaperTrail.Resource.Changes.CreateNewVersion
+      change CreateNewVersion
     end
 
     update :update do
@@ -131,20 +132,20 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
-      change AshPaperTrail.Resource.Changes.CreateNewVersion
+      change CreateNewVersion
     end
 
     update :enable do
       require_atomic? false
       change set_attribute(:enabled, true)
       change ScheduleSweepMonitor
-      change AshPaperTrail.Resource.Changes.CreateNewVersion
+      change CreateNewVersion
     end
 
     update :disable do
       require_atomic? false
       change set_attribute(:enabled, false)
-      change AshPaperTrail.Resource.Changes.CreateNewVersion
+      change CreateNewVersion
     end
 
     update :record_execution do
