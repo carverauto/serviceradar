@@ -4,7 +4,12 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNGWeb.Api.ValidationRunController
+
+  @moduletag :web_ng_shared_fixture_db
 
   setup %{conn: conn} do
     user = ServiceRadarWebNG.AccountsFixtures.user_fixture(%{role: :operator})
@@ -204,4 +209,23 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
 
     assert [%{"ip" => ^ip, "uid" => _uid}] = response["data"]
   end
+  test "POST writes target facts before returning the queued run", %{conn: conn, device: device, ip: ip, check: check} do
+    response = conn
+      |> post(~p"/api/v1/validation-runs", %{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}})
+      |> json_response(202)
+
+    assert response["status"] == "pending"
+    {:ok, written} = Device.get_by_uid(device.uid, actor: SystemActor.system(:validation_run_api_test))
+    assert written.metadata["acl_enforced"] == true
+  end
+
+  test "execute permission alone cannot write facts", %{device: device, ip: ip, check: check, user: user} do
+    scope = %Scope{user: user, permissions: MapSet.new(["validation_runs.execute"])}
+    conn = build_conn() |> assign(:current_scope, scope)
+    response = ValidationRunController.create(conn, %{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}})
+    assert json_response(response, 403)["error"] == "forbidden"
+    {:ok, unchanged} = Device.get_by_uid(device.uid, actor: SystemActor.system(:validation_run_api_test))
+    refute Map.has_key?(unchanged.metadata || %{}, "acl_enforced")
+  end
+
 end

@@ -11,7 +11,7 @@ validation run that returns immediately with a run identifier and the
 canonical device UID for every target.
 
 The request SHALL accept either a `devices` array of
-`{ip, partition?, mac?}` objects or a single-device shorthand of top-level
+`{ip, partition?, mac?, facts?}` objects or a single-device shorthand of top-level
 `ip`, optional `mac`, and optional `partition`. A missing partition SHALL
 default to `"default"`. A top-level partition SHALL apply to every device
 that does not set its own.
@@ -204,20 +204,48 @@ evaluate the named composite check for only the run's device UIDs,
 reading device metadata (including facts such as `acl_enforced`) at
 evaluation time.
 
-The system SHALL upsert `device_composite_check_results` for those
+For devices with complete run-specific probe evidence, the system SHALL
+upsert `device_composite_check_results` for those
 `{device_uid, check_id}` pairs and SHALL copy `verdict`, `status`,
 `inputs`, and `evaluated_at` onto the run's device rows.
 
 The composite check definition SHALL remain a derivation: it SHALL NOT
 itself dispatch probes. The validation run is the orchestrator.
 
-#### Scenario: Fact written after POST is visible at evaluate
+The system SHALL commit optional per-target facts through the existing
+fact-write action before queuing a run, and SHALL require `devices.facts.write`
+when facts are supplied. Any invalid fact SHALL roll back all target fact
+writes and run creation. A separate facts PATCH SHALL finish before create;
+after-create PATCH is not an ordering guarantee.
 
-- **GIVEN** a run created for `192.168.1.55`
-- **AND** NCO PATCHes `acl_enforced=true` on the returned uid before
-  probes finish
-- **WHEN** the run evaluates
-- **THEN** the verdict snapshot SHALL use `acl_enforced=true`
+Every vantage input SHALL expose `covered`, `probed`, and `reason`. Only
+this run's completed scan observations SHALL satisfy the vantage inputs.
+If any required vantage has no probe evidence, or the check has no vantage
+inputs, the device verdict SHALL be `not_probed` with status `unknown`, and
+SHALL NOT overwrite the official composite result. A background sample SHALL
+NOT substitute for a missing run probe.
+
+#### Scenario: Inline facts precede dispatch and evaluation
+
+- **GIVEN** a live device with `acl_enforced=false`
+- **WHEN** a caller with execute and fact-write permission creates a run with
+  inline `facts: {"acl_enforced": true}`
+- **THEN** probes SHALL not dispatch before that write commits
+- **AND** evaluation SHALL read the committed fact
+
+#### Scenario: Invalid batch facts reject the whole run
+
+- **WHEN** one target supplies valid facts and another supplies invalid facts
+- **THEN** no fact writes or validation run SHALL commit
+
+#### Scenario: Uncovered vantage cannot pass on background availability
+
+- **GIVEN** fresh background availability that would satisfy the check
+- **AND** no covering sweep group for one required vantage
+- **WHEN** the validation run finishes
+- **THEN** the device verdict SHALL be `not_probed` with status `unknown`
+- **AND** the uncovered input SHALL expose `covered=false` and `probed=false`
+- **AND** no passing official result SHALL be written
 
 #### Scenario: Official result table matches the run
 

@@ -14,8 +14,10 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
   alias ServiceRadar.CompositeChecks.ValidationRun
   alias ServiceRadar.CompositeChecks.ValidationRunDevice
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.Identity.ResolveByAddress
+  alias ServiceRadar.Repo
   alias ServiceRadar.Scans.ScanResult
   alias ServiceRadar.Scans.ScanRun
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -31,7 +33,14 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
     with {:ok, check} <- fetch_enabled_check(params, actor),
          {:ok, targets} <- parse_targets(params),
          {:ok, resolved} <- resolve_all(targets, actor) do
-      create_run(check, resolved, params, actor, opts)
+      Repo.transaction(fn ->
+        with :ok <- write_facts(resolved, actor, opts),
+             {:ok, run} <- create_run(check, resolved, params, actor, opts) do
+          run
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
     end
   end
 
@@ -100,6 +109,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
     %{
       ip: target["ip"] || target[:ip],
       mac: target["mac"] || target[:mac],
+      facts: Map.get(target, "facts", Map.get(target, :facts)),
       partition: target["partition"] || target[:partition] || default_partition
     }
   end
@@ -119,6 +129,30 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
       case ResolveByAddress.resolve(Map.put(target, :actor, actor)) do
         {:ok, uid} -> {:cont, {:ok, acc ++ [Map.put(target, :device_uid, uid)]}}
         {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp write_facts(targets, actor, opts) do
+    write_opts =
+      case Keyword.fetch(opts, :facts_scope) do
+        {:ok, scope} -> [scope: scope]
+        :error -> [actor: actor]
+      end
+
+    Enum.reduce_while(targets, :ok, fn target, :ok ->
+      if is_nil(target.facts) do
+        {:cont, :ok}
+      else
+        with {:ok, device} <- Device.get_by_uid(target.device_uid, actor: actor),
+             {:ok, _device} <-
+               device
+               |> Ash.Changeset.for_update(:write_facts, %{facts: target.facts}, write_opts)
+               |> Ash.update() do
+          {:cont, :ok}
+        else
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
       end
     end)
   end
@@ -282,6 +316,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
         {:ok, :failed}
 
       scan_ids == [] ->
+        {:ok, run} = fetch_run(run, actor)
         evaluate_and_finish(run, actor)
 
       true ->
@@ -309,6 +344,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
 
       true ->
         apply_scan_results(run, scans, actor)
+        {:ok, run} = fetch_run(run, actor)
         evaluate_and_finish(run, actor)
     end
   end
@@ -326,26 +362,44 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
     now = DateTime.utc_now()
 
     Enum.each(scans, fn scan ->
+      {:ok, run} = fetch_run(run, actor)
+
       results =
         case ScanResult.by_scan_run(scan.id, actor: actor) do
           {:ok, rows} -> rows
           _ -> []
         end
 
-      available_by_ip = availability_by_ip(scan, results)
+      available_by_ip =
+        if scan.status == :completed, do: availability_by_ip(scan, results), else: %{}
       targets = MapSet.new(List.wrap(scan.targets), &to_string/1)
 
       Enum.each(run.devices, fn device ->
         ip = to_string(device.ip)
 
-        if MapSet.member?(targets, ip) do
-          case Map.fetch(available_by_ip, ip) do
-            {:ok, available?} ->
-              upsert_availability(device.device_uid, scan.agent_id, available?, now, actor)
+        meta = Map.get(device.coverage, scan.agent_id, %{})
 
-            :error ->
-              :ok
-          end
+        if MapSet.member?(targets, ip) and coverage_get(meta, "scan_id") == scan.id do
+          observation =
+            case Map.fetch(available_by_ip, ip) do
+              {:ok, available?} ->
+                upsert_availability(device.device_uid, scan.agent_id, available?, now, actor)
+
+                %{
+                  "state" => "observed",
+                  "is_available" => available?,
+                  "observed_at" => DateTime.to_iso8601(now)
+                }
+
+              :error ->
+                %{"state" => "no_result", "reason" => "scan_#{scan.status}"}
+            end
+
+          coverage = Map.put(device.coverage, scan.agent_id, Map.merge(meta, observation))
+
+          device
+          |> Ash.Changeset.for_update(:update, %{coverage: coverage}, actor: actor)
+          |> Ash.update!()
         end
       end)
     end)
@@ -418,7 +472,13 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
     uids = Enum.map(run.devices, & &1.device_uid)
     now = DateTime.utc_now()
 
-    {:ok, rows} = Evaluation.evaluate_devices(check, inputs, rules, uids, now: now)
+    coverage = Map.new(run.devices, &{&1.device_uid, &1.coverage})
+
+    {:ok, rows} =
+      Evaluation.evaluate_devices(check, inputs, rules, uids,
+        now: now,
+        validation_coverage: coverage
+      )
     by_uid = Map.new(rows, &{&1.device_uid, &1})
 
     Enum.each(run.devices, fn device ->
@@ -427,7 +487,9 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
           :ok
 
         row ->
-          persist_official_result(check, device, row, now, actor)
+          if row.verdict != "not_probed" do
+            persist_official_result(check, device, row, now, actor)
+          end
 
           device
           |> Ash.Changeset.for_update(

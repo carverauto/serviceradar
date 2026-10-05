@@ -65,7 +65,7 @@
 - [x] 4.6 Tests: device matching `in:devices` inherits `farm-scan`
       modes/ports from both vantage groups; a host outside a group's
       SRQL is uncovered and not probed with ICMP; one agent offline →
-      timed_out not healthy; fact written after POST is visible at
+      timed_out not healthy; inline fact write commits before dispatch and is visible at
       evaluate; `run_now` is never invoked (assert on a stub);
       compiler merge is reused (group port override beats profile).
 
@@ -90,7 +90,7 @@
 
 - [x] 6.1 `docs/docs/nco-validation-runs.md` (ASCII): resolve rules,
       POST/GET examples, poll loop, freshness gate
-      (`inputs.*.observed_at` and `evaluated_at` after POST time),
+      (`inputs.*.probed`, coverage reasons, and run-specific observation time),
       verdict → report table. Point at the facts endpoint for
       `acl_enforced` / switch/port.
 - [x] 6.2 Add a short pointer from `docs/docs/nco-device-facts.md`.
