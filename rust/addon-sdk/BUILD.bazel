@@ -1,9 +1,28 @@
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
+
+# //proto/agent/discovery/v1:discovery.proto, staged INTO this package, and that is
+# the whole point.
+#
+# symlink-exec-root would symlink each execroot entry into the build script's synthetic
+# CARGO_MANIFEST_DIR, but only where the name is free -- and this package already
+# contributes a `proto/` directory (the add-on contract), so the execroot's `proto`
+# is shadowed and //proto/agent/discovery/v1:discovery.proto is unreachable by any
+# relative path. Same shadow that //rust/otel documents for //proto:kv.proto.
+#
+# Copying it in gives it the runfiles path _main/rust/addon-sdk/proto/agent/discovery/v1/discovery.proto,
+# which lands beside the add-on contract under the manifest dir, so build.rs finds it at
+# `proto/agent/discovery/v1/discovery.proto` -- the Bazel branch it already probes for first.
+copy_file(
+    name = "discovery_proto_staged",
+    src = "//proto/agent/discovery/v1:discovery_proto_src",
+    out = "proto/agent/discovery/v1/discovery.proto",
+)
 
 # Generates the tonic/prost stubs for the language-agnostic add-on contract.
 cargo_build_script(
@@ -15,7 +34,7 @@ cargo_build_script(
     crate_root = "build.rs",
     data = [
         "proto/agent/addon/v1/addon.proto",
-        "//proto/agent/discovery/v1:discovery_proto_src",
+        ":discovery_proto_staged",
     ],
     tools = ["@bazel_tools//tools/proto:protoc"],
     deps = ["@crates//:tonic-prost-build"],
