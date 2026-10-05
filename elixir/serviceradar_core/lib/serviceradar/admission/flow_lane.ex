@@ -30,7 +30,9 @@ defmodule ServiceRadar.Admission.FlowLane do
 
   def start_link(opts \\ []) do
     config =
-      limits() |> Keyword.merge(opts[:config] || []) |> Lane.with_per_agent_bytes(6 * 1_024 * 1_024)
+      limits()
+      |> Keyword.merge(opts[:config] || [])
+      |> Lane.with_per_agent_bytes(6 * 1_024 * 1_024)
 
     lease_supervisor =
       Keyword.get_lazy(opts, :lease_supervisor, fn ->

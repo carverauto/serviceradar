@@ -91,7 +91,7 @@ defmodule ServiceRadar.Admission.Lane do
       if max_bytes <= floor do
         max_bytes
       else
-        max(div(max_bytes, 4), floor) |> min(max_bytes)
+        max_bytes |> div(4) |> max(floor) |> min(max_bytes)
       end
 
     case Keyword.fetch(config, :max_bytes_per_agent) do
