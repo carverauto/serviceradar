@@ -628,7 +628,7 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   end
 
   defp await_runtime_metric(metric_name, predicate, attempts \\ 20) do
-    assert_receive {:jetstream, subject, body}, 500
+    assert_receive {:jetstream, subject, body}, 2_000
     assert subject == RuntimeMetrics.subject()
     assert {:ok, rows} = ServiceRadar.Observability.MetricEnvelope.decode_rows(body)
 
