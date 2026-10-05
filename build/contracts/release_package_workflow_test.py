@@ -1,11 +1,14 @@
 """Execute the release package step against synthetic Git trees; never publish."""
 
 import os
+import json
 from pathlib import Path
 import subprocess
 import tempfile
 import textwrap
 import unittest
+
+import yaml
 
 
 ROOT = (
@@ -129,6 +132,71 @@ class ReleasePackageWorkflowTest(unittest.TestCase):
         result = self.run_step()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(self.record.exists())
+
+
+class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # BaseLoader preserves GitHub's `on` key rather than treating it as a
+        # YAML 1.1 boolean. These mappings are the Actions scheduling contract.
+        cls.release = yaml.load((ROOT / ".github/workflows/release.yml").read_text(), Loader=yaml.BaseLoader)
+        cls.scan = yaml.load((ROOT / ".github/workflows/image-security.yml").read_text(), Loader=yaml.BaseLoader)
+
+    def test_scan_cannot_start_before_publish_and_finalization_waits_for_dispatch(self):
+        self.assertEqual(set(self.scan["on"]), {"workflow_dispatch"})
+        jobs = self.release["jobs"]
+        dispatcher = jobs["image-security-dispatch"]
+        self.assertEqual(dispatcher["needs"], "publish")
+        self.assertEqual(set(jobs["finalize"]["needs"]), {"publish", "image-security-dispatch"})
+        self.assertEqual(dispatcher["permissions"], {"contents": "read", "actions": "write"})
+        self.assertEqual(self.scan["jobs"]["image-security"]["steps"][0]["with"]["ref"], "${{ inputs.tag }}")
+
+    def run_dispatch(self, *, assets=(), release_tag="v9.8.7", draft=True, fail_post=False):
+        step = next(s for s in self.release["jobs"]["image-security-dispatch"]["steps"] if "run" in s)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            record = root / "requests.jsonl"
+            fake_gh = root / "gh"
+            fake_gh.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, os, sys\n"
+                "with open(os.environ['REQUESTS'], 'a') as f: f.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                "if '--method' in sys.argv: sys.exit(23 if os.environ['FAIL_POST'] == 'true' else 0)\n"
+                "print(os.environ['RELEASE_RESPONSE'])\n"
+            )
+            fake_gh.chmod(0o755)
+            env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", REQUESTS=str(record),
+                       FAIL_POST=str(fail_post).lower(), RELEASE_TAG="v9.8.7", RELEASE_ID="123",
+                       GITHUB_REPOSITORY="example/release-fixture", GH_TOKEN="invented-test-token",
+                       RELEASE_RESPONSE=json.dumps({"id": 123, "tag_name": release_tag, "draft": draft,
+                                                   "assets": list(assets)}))
+            result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True,
+                                    text=True, timeout=20)
+            requests = [json.loads(line) for line in record.read_text().splitlines()]
+            return result, requests
+
+    def test_missing_bundle_dispatches_same_tag_after_publish(self):
+        result, requests = self.run_dispatch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(requests, [
+            ["api", "repos/example/release-fixture/releases/123"],
+            ["api", "--method", "POST", "repos/example/release-fixture/actions/workflows/image-security.yml/dispatches",
+             "-f", "ref=v9.8.7", "-f", "inputs[tag]=v9.8.7"],
+        ])
+
+    def test_retry_preserves_existing_bundle_and_does_not_dispatch_again(self):
+        bundle = {"name": "serviceradar-image-security-v9.8.7.tar.gz", "size": 100}
+        result, requests = self.run_dispatch(assets=[bundle])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(requests), 1)
+
+    def test_dispatch_fails_closed_for_wrong_release_or_api_failure(self):
+        for options in ({"release_tag": "v9.8.6"}, {"draft": False}, {"fail_post": True}):
+            with self.subTest(options=options):
+                result, requests = self.run_dispatch(**options)
+                self.assertNotEqual(result.returncode, 0)
+                if not options.get("fail_post"):
+                    self.assertEqual(len(requests), 1)
 
 
 if __name__ == "__main__":

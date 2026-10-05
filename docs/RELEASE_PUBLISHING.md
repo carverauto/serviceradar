@@ -5,8 +5,9 @@ GitHub Releases. Tag-gated package, image, native add-on, Wasm plugin, and
 security workflows live under `.github/workflows/` and run on in-cluster ARC
 runners (`serviceradar-signing` for publish/sign, `arc-runner-set` for lint
 and checks). The supported workflow is tag gated: a `v*` tag starts the
-image/package release together with the native add-on, Wasm plugin,
-source-security, and image-security workflows.
+image/package release together with the native add-on, Wasm plugin and
+source-security workflows. Image security starts after publication produces
+the images and draft release, so a delayed publisher cannot exhaust its wait.
 
 The primary workflow is `.github/workflows/release.yml`. It:
 
@@ -16,14 +17,15 @@ The primary workflow is `.github/workflows/release.yml`. It:
 3. Signs and verifies the image set, then packages and publishes the Helm chart.
 4. Creates or updates a draft GitHub release and uploads packages, the managed
    agent archive, and its signed manifest.
-5. Waits for the native add-on and Wasm plugin catalog indexes plus the source
-   and image security bundles from the parallel tag workflows.
+5. Dispatches image security for the same release tag if its bundle is missing,
+   then waits for the native add-on and Wasm plugin catalog indexes plus both
+   security bundles.
 6. Publishes the GitHub release only after every required asset exists.
 7. Advances `demo/prod-release` after publication so `serviceradar-demo-prod`
    can sync the verified release commit.
 
 `.github/workflows/native-addons.yml`, `.github/workflows/wasm-plugins.yml`,
-`.github/workflows/source-security.yml`, and
+`.github/workflows/source-security.yml`, and the dispatched
 `.github/workflows/image-security.yml` run for the same tag. A release must
 stay draft until both catalogs and both security bundles have arrived. This
 ordering matters when GitHub immutable releases are enabled because a late
@@ -183,6 +185,14 @@ catalog finalization should not hold that runner while waiting for parallel
 workflows.
 
 ## Recovery
+
+After a transient publish failure, rerun the failed release jobs; never delete
+and recreate the tag. Once publication succeeds, the image-security dispatch
+job starts the scan if its bundle is still missing. If the scan itself fails,
+rerun **Image Security Scan** for that same tag first, then rerun the failed
+release jobs. A successful uploaded bundle is preserved on retry. The macOS
+build remains an optional publish dependency: its failure must not prevent
+the successful Linux/image and Windows artifacts from being published.
 
 Wasm plugin recovery is GitHub Actions: rerun **Publish Wasm Plugins** at the
 release tag (`runs-on: serviceradar-signing`). `make push_all_release` covers
