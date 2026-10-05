@@ -17,6 +17,8 @@ defmodule ServiceRadarAgentGateway.CoreHandlerDiscoveryTest do
   @push_budget_ms 2_000
 
   setup do
+    StatusHandlerTestHelpers.legacy_core_transport!()
+
     if !Node.alive?() do
       {_, 0} = System.cmd("epmd", ["-daemon"])
       {:ok, _} = :net_kernel.start([:core_handler_discovery_test, :shortnames])

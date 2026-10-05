@@ -9,6 +9,7 @@ defmodule ServiceRadar.ResultsRouterTest do
 
   alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
   alias ServiceRadar.ResultsRouter
+  alias ServiceRadar.Ingestion.ResultIngestor
 
   defmodule TestIngestor do
     @moduledoc false
@@ -79,6 +80,19 @@ defmodule ServiceRadar.ResultsRouterTest do
     end
   end
 
+  defmodule LoadSweepIngestor do
+    def ingest_results(results, execution_id, opts) do
+      if Application.get_env(:serviceradar_core, :ingestion_load_barrier, false) do
+        parent = Application.fetch_env!(:serviceradar_core, :ingestion_load_test_pid)
+        send(parent, {:load_sweep_held, self()})
+        receive do
+          :release_load_sweep -> :ok
+        end
+      end
+      ServiceRadar.ResultsRouterTest.TestSweepIngestor.ingest_results(results, execution_id, opts)
+    end
+  end
+
   setup do
     previous = Application.get_env(:serviceradar_core, :sync_ingestor)
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
@@ -108,9 +122,8 @@ defmodule ServiceRadar.ResultsRouterTest do
     previous_batching = Application.get_env(:serviceradar_core, :results_router_batching)
     previous_max_buffer = Application.get_env(:serviceradar_core, :results_router_max_buffer)
 
-    # These tests drive handle_cast/2 directly with a bare %{} state and assert the
-    # routed ingestor fires synchronously. Disable async batching so the cast path
-    # processes immediately; batching has its own dedicated test ("async batching").
+    # Type routing and persistence are owned by the worker. Queue lifecycle and
+    # ordering are exercised separately through the actual supervised dispatcher.
     Application.put_env(:serviceradar_core, :results_router_batching, false)
 
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
@@ -180,6 +193,210 @@ defmodule ServiceRadar.ResultsRouterTest do
     :ok
   end
 
+  test "ingestion metric envelopes persist through exactly the configured EventWriter backend" do
+    parent = self()
+    request = fn _subject, body, _opts ->
+      send(parent, {:ingestion_metric_wire, body})
+      {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}
+    end
+    start_supervised!({ServiceRadar.Ingestion.RuntimeMetrics,
+      interval_ms: 20, publish_opts: [request: request]})
+    ServiceRadar.Ingestion.RuntimeMetrics.record(:mapper, :state, %{pending_count: 3})
+    assert_receive {:ingestion_metric_wire, body}, 1_000
+    stop_supervised!(ServiceRadar.Ingestion.RuntimeMetrics)
+    message = %{data: body, metadata: %{subject: "metrics.core.result_ingestion"}}
+    key = ServiceRadar.Analytics.StarRocks
+    previous = Application.get_env(:serviceradar_core, key, [])
+    on_exit(fn -> Application.put_env(:serviceradar_core, key, previous) end)
+    Application.put_env(:serviceradar_core, key, enabled: false)
+    assert {:ok, count} = ServiceRadar.EventWriter.Processors.Metrics.process_batch([message])
+    assert count > 0
+    assert %{rows: [[3.0]]} = ServiceRadar.Repo.query!(
+      "SELECT value FROM platform.timeseries_metrics WHERE metric_type = $1 AND metric_name = $2",
+      ["core.result_ingestion", "result_ingestion_pending_count"])
+    # Remove this test's points before the warehouse pass. A duplicate CNPG
+    # insert must not hide dual writes behind the conflict policy.
+    ServiceRadar.Repo.query!("DELETE FROM platform.timeseries_metrics WHERE metric_type = $1",
+      ["core.result_ingestion"])
+    {:ok, listener} = :gen_tcp.listen(0,
+      [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    start_supervised!({Task, fn ->
+      {:ok, socket} = :gen_tcp.accept(listener, 5_000)
+      {:ok, first_line} = :gen_tcp.recv(socket, 0, 5_000)
+      headers = read_load_headers(socket, [])
+      if Enum.any?(headers, &String.starts_with?(&1, "expect: 100-continue")),
+        do: :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
+      content_length = headers |> Enum.find(&String.starts_with?(&1, "content-length:"))
+        |> String.split(":", parts: 2) |> List.last() |> String.trim() |> String.to_integer()
+      :ok = :inet.setopts(socket, packet: :raw)
+      {:ok, payload} = :gen_tcp.recv(socket, content_length, 5_000)
+      rows = Jason.decode!(payload)
+      send(parent, {:warehouse_ingestion_metrics, first_line, rows})
+      response = Jason.encode!(%{"Status" => "Success", "NumberLoadedRows" => length(rows),
+        "NumberFilteredRows" => 0})
+      :ok = :gen_tcp.send(socket, ["HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ",
+        Integer.to_string(byte_size(response)), "\r\nConnection: close\r\n\r\n", response])
+      :gen_tcp.close(socket)
+    end}, id: :metric_warehouse)
+    if !Process.whereis(ServiceRadar.Analytics.StarRocks.LoadSupervisor),
+      do: start_supervised!(ServiceRadar.Analytics.StarRocks.LoadSupervisor)
+    Application.put_env(:serviceradar_core, key,
+      enabled: true, fe_http: "http://127.0.0.1:#{port}", database: "fixture", user: "fixture", password: "")
+    assert {:ok, ^count} = ServiceRadar.EventWriter.Processors.Metrics.process_batch([message])
+    assert_receive {:warehouse_ingestion_metrics, request_line, rows}, 1_000
+    assert String.contains?(request_line, "/timeseries_metrics/_stream_load")
+    assert Enum.all?(rows, &(&1["metric_type"] == "core.result_ingestion"))
+    assert %{rows: [[0]]} = ServiceRadar.Repo.query!(
+      "SELECT count(*) FROM platform.timeseries_metrics WHERE metric_type = $1", ["core.result_ingestion"])
+  end
+
+  defp read_load_headers(socket, headers) do
+    case :gen_tcp.recv(socket, 0, 5_000) do
+      {:ok, "\r\n"} -> headers
+      {:ok, line} -> read_load_headers(socket, [String.downcase(line) | headers])
+      {:error, reason} -> flunk("warehouse HTTP headers failed: #{inspect(reason)}")
+    end
+  end
+
+  @tag timeout: 30_000
+  test "synthetic burst isolates held sweeps and reconciles bounded terminal replies" do
+    parent = self()
+    prefix = "load-#{System.unique_integer([:positive])}"
+    previous_barrier = Application.fetch_env(:serviceradar_core, :ingestion_load_barrier)
+    previous_pid = Application.fetch_env(:serviceradar_core, :ingestion_load_test_pid)
+    Application.put_env(:serviceradar_core, :sweep_ingestor, LoadSweepIngestor)
+    Application.put_env(:serviceradar_core, :ingestion_load_barrier, true)
+    Application.put_env(:serviceradar_core, :ingestion_load_test_pid, parent)
+    on_exit(fn ->
+      for {key, previous} <- [{:ingestion_load_barrier, previous_barrier},
+                             {:ingestion_load_test_pid, previous_pid}] do
+        case previous do
+          {:ok, value} -> Application.put_env(:serviceradar_core, key, value)
+          :error -> Application.delete_env(:serviceradar_core, key)
+        end
+      end
+    end)
+
+    ServiceRadar.TestSupport.start_ingestion_topology!()
+    telemetry_id = "result-ingestion-load-#{Ecto.UUID.generate()}"
+    repo_query_event = Keyword.fetch!(ServiceRadar.Repo.config(), :telemetry_prefix) ++ [:query]
+    :ok = :telemetry.attach_many(telemetry_id, [
+      [:serviceradar, :admission_lane, :state],
+      [:serviceradar, :admission_lane, :admitted],
+      [:serviceradar, :admission_lane, :completion],
+      [:serviceradar, :admission_lane, :rejected],
+      repo_query_event
+    ], fn event, measurements, metadata, pid ->
+      send(pid, {:load_telemetry, event, measurements, metadata, self()})
+    end, parent)
+    on_exit(fn -> :telemetry.detach(telemetry_id) end)
+
+    tasks = start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: :load_clients))
+    offered = for type <- [:sweep, :endpoint, :plugin], index <- 1..64, do: {type, index}
+    for {type, index} <- offered do
+      {:ok, _pid} = Task.Supervisor.start_child(tasks, fn ->
+        status = load_status(type, index, prefix)
+        started = System.monotonic_time(:millisecond)
+        result = with {:ok, {lane, token}} <- GenServer.call(ServiceRadar.StatusHandler,
+          {:reserve_status, ServiceRadar.Admission.Lane.descriptor(status, 15_000)}, 1_000) do
+          GenServer.call(lane, {:submit, token, status, :wait}, 15_000)
+        end
+        send(parent, {:load_reply, type, result, System.monotonic_time(:millisecond) - started})
+      end)
+    end
+
+    # Both fast classes must reach terminal replies while the slow class still
+    # owns its workers and general Repo permits. No sleep guesses completion.
+    {fast, held} = collect_load_fast([], MapSet.new(), 128)
+    assert map_size(:sys.get_state(ServiceRadar.Ingestion.Admission.server(:sweep)).jobs) > 0
+    assert Enum.any?(fast, fn {type, result, _} -> type == :endpoint and match?({:ok, _}, result) end)
+    assert Enum.any?(fast, fn {type, result, _} -> type == :plugin and result == :ok end)
+    Application.put_env(:serviceradar_core, :ingestion_load_barrier, false)
+    Enum.each(held, &send(&1, :release_load_sweep))
+    replies = collect_load_remaining(fast, length(offered))
+    for type <- [:sweep, :endpoint] do
+      assert_eventually(fn -> :sys.get_state(ServiceRadar.Ingestion.Admission.server(type)).jobs == %{} end)
+    end
+    assert_eventually(fn -> :sys.get_state(ServiceRadar.Admission.RetainedPluginLane).jobs == %{} end)
+    :telemetry.detach(telemetry_id)
+    evidence = collect_load_telemetry([])
+
+    completed = Enum.filter(replies, fn {_, result, _} -> result == :ok or match?({:ok, _}, result) end)
+    rejected = Enum.filter(replies, fn {_, result, _} -> match?({:error, _}, result) end)
+    assert length(completed) + length(rejected) == length(offered)
+    assert length(rejected) > 0
+    depths = for {[:serviceradar, :admission_lane, :state], m, _, _} <- evidence, do: m
+    assert Enum.all?(depths, &(&1.pending_count + &1.in_flight_count <= 32))
+    assert Enum.all?(depths, &(&1.pending_bytes + &1.in_flight_bytes <= 64 * 1_024 * 1_024))
+    owners = for {event, _, _, pid} <- evidence, event == repo_query_event, do: pid
+    assert owners != []
+    refute Process.whereis(ServiceRadar.StatusHandler) in owners
+    refute Process.whereis(ResultsRouter) in owners
+
+    persisted = Enum.count(completed, fn {type, _, _} -> type != :plugin end)
+    assert %{rows: [[^persisted]]} = ServiceRadar.Repo.query!(
+      "SELECT count(*) FROM platform.service_state WHERE service_name LIKE $1", [prefix <> "-%"])
+    latencies = Enum.map(replies, &elem(&1, 2)) |> Enum.sort()
+    p99 = Enum.at(latencies, ceil(length(latencies) * 0.99) - 1)
+    assert p99 < 15_000
+    assert List.last(latencies) < 20_000
+    IO.puts("RESULT_INGESTION_SYNTHETIC_LOAD " <> Jason.encode!(%{
+      offered: length(offered), completed: length(completed), rejected: length(rejected),
+      persisted_service_states: persisted, slow_class: "sweep", live: false,
+      max_retained_bytes: Enum.max(Enum.map(depths, &(&1.pending_bytes + &1.in_flight_bytes))),
+      ack_p50_ms: Enum.at(latencies, ceil(length(latencies) * 0.50) - 1),
+      ack_p95_ms: Enum.at(latencies, ceil(length(latencies) * 0.95) - 1),
+      ack_p99_ms: p99, ack_max_ms: List.last(latencies)
+    }))
+  end
+
+  defp load_status(type, index, prefix) do
+    base = %{agent_id: "agent#{index}.example.com", gateway_id: "gateway01.example.com",
+      partition: "default", service_name: "#{prefix}-#{type}-#{index}", available: true}
+    case type do
+      :sweep -> Map.merge(base, %{source: "results", service_type: "sweep",
+        message: Jason.encode!(%{"hosts" => [%{"host" => "192.0.2.61", "available" => true}]})})
+      :endpoint -> Map.merge(base, %{source: "results", service_type: "endpoint_inventory",
+        message: Jason.encode!(%{"agent_id" => base.agent_id, "scan_id" => "scan-#{index}"})})
+      :plugin -> Map.merge(base, %{source: "plugin-result", service_type: "plugin",
+        delivery_capabilities: ["plugin-result-retained:v1"], message: Jason.encode!(%{"result" => index})})
+    end
+  end
+
+  defp collect_load_fast(replies, held, 0), do: {replies, held}
+  defp collect_load_fast(replies, held, remaining) do
+    receive do
+      {:load_reply, type, result, latency} when type in [:endpoint, :plugin] ->
+        collect_load_fast([{type, result, latency} | replies], held, remaining - 1)
+      {:load_reply, :sweep, result, latency} ->
+        collect_load_fast([{:sweep, result, latency} | replies], held, remaining)
+      {:load_sweep_held, pid} -> collect_load_fast(replies, MapSet.put(held, pid), remaining)
+    after
+      12_000 -> flunk("fast result classes did not reply while sweep was held")
+    end
+  end
+
+  defp collect_load_remaining(replies, total) when length(replies) == total, do: replies
+  defp collect_load_remaining(replies, total) do
+    receive do
+      {:load_reply, type, result, latency} -> collect_load_remaining([{type, result, latency} | replies], total)
+      {:load_sweep_held, pid} -> send(pid, :release_load_sweep); collect_load_remaining(replies, total)
+    after
+      12_000 -> flunk("admitted load did not drain")
+    end
+  end
+
+  defp collect_load_telemetry(events) do
+    receive do
+      {:load_telemetry, event, measurements, metadata, pid} ->
+        collect_load_telemetry([{event, measurements, metadata, pid} | events])
+    after
+      0 -> events
+    end
+  end
+
   test "ingests sync updates" do
     status = %{
       source: "results",
@@ -187,7 +404,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       message: Jason.encode!([%{"device_id" => "dev-1", "ip" => "10.0.0.1"}])
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert_receive {:ingest, updates, opts}
     assert [%{"device_id" => "dev-1", "ip" => "10.0.0.1"}] = updates
@@ -213,7 +430,7 @@ defmodule ServiceRadar.ResultsRouterTest do
         ])
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert_receive {:ingest, updates, _opts}
     assert [%{"ip" => "192.168.1.10", "source" => "netprobe-census"}] = updates
@@ -228,7 +445,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       message: Jason.encode!([%{"ip" => "192.168.1.11", "source" => "passive-census"}])
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert_receive {:ingest, updates, _opts}
     assert [%{"ip" => "192.168.1.11"}] = updates
@@ -290,8 +507,8 @@ defmodule ServiceRadar.ResultsRouterTest do
           ])
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, first_status}, %{})
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, second_status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(first_status)
+    assert :ok = ResultIngestor.process_and_publish(second_status)
 
     assert_receive {:ingest, first_updates, first_opts}
     assert_receive {:ingest, second_updates, second_opts}
@@ -309,7 +526,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       message: Jason.encode!(%{"device_id" => "dev-1"})
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert {:error, {:invalid_sync_results, :unexpected_payload}} = ResultIngestor.process_and_publish(status)
     refute_receive {:ingest, _updates, _opts}
   end
 
@@ -358,7 +575,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       is_final: false
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert_receive {:sweep_ingest, results, received_execution_id, opts}
     assert length(results) == 2
@@ -417,7 +634,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       agent_id: "agent-1"
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert_receive {:sweep_ingest, [result], _received_execution_id, _opts}
     assert result["host_ip"] == "192.168.1.12"
@@ -453,7 +670,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       agent_id: "agent-1"
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert_receive {:sweep_ingest, [result], ^execution_id, _opts}
     assert result["host_ip"] == "192.168.1.14"
@@ -490,7 +707,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       agent_id: "agent-1"
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert_receive {:sweep_ingest, [result], ^execution_id, _opts}
     assert result["host_ip"] == "192.168.1.13"
@@ -522,7 +739,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       agent_id: "agent-legacy"
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert {:error, :unsupported_payload} = ResultIngestor.process_and_publish(status)
     refute_receive {:sweep_ingest, _results, ^execution_id, _opts}
   end
 
@@ -535,8 +752,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       gateway_id: "gateway-1"
     }
 
-    assert {:reply, {:error, {:gateway_metric_status_not_core_routable, "sysmon-metrics"}}, %{}} =
-             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+    assert {:error, {:gateway_metric_status_not_core_routable, "sysmon-metrics"}} = ResultIngestor.process_and_publish(status)
 
     refute_receive {:sysmon_ingest, _decoded, ^status}
   end
@@ -550,8 +766,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       gateway_id: "gateway-1"
     }
 
-    assert {:reply, {:error, {:gateway_metric_status_not_core_routable, "snmp-metrics"}}, %{}} =
-             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+    assert {:error, {:gateway_metric_status_not_core_routable, "snmp-metrics"}} = ResultIngestor.process_and_publish(status)
   end
 
   test "rejects direct core routing for ICMP metric statuses" do
@@ -563,8 +778,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       gateway_id: "gateway-1"
     }
 
-    assert {:reply, {:error, {:gateway_metric_status_not_core_routable, "icmp-metrics"}}, %{}} =
-             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+    assert {:error, {:gateway_metric_status_not_core_routable, "icmp-metrics"}} = ResultIngestor.process_and_publish(status)
   end
 
   test "rejects direct core routing for rperf metric statuses" do
@@ -576,8 +790,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       gateway_id: "gateway-1"
     }
 
-    assert {:reply, {:error, {:gateway_metric_status_not_core_routable, "rperf-metrics"}}, %{}} =
-             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+    assert {:error, {:gateway_metric_status_not_core_routable, "rperf-metrics"}} = ResultIngestor.process_and_publish(status)
   end
 
   test "routes plugin results payloads" do
@@ -595,7 +808,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       gateway_id: "gateway-1"
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert_receive {:plugin_ingest, decoded, ^status}
     assert %{"summary" => "plugin ok"} = decoded
@@ -617,8 +830,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       gateway_id: "gateway-1"
     }
 
-    assert {:reply, {:error, :plugin_result_metrics_unsupported}, %{}} =
-             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+    assert {:error, :plugin_result_metrics_unsupported} = ResultIngestor.process_and_publish(status)
 
     refute_receive {:plugin_ingest, _payload, _status}
   end
@@ -642,13 +854,13 @@ defmodule ServiceRadar.ResultsRouterTest do
       gateway_id: "gateway-1"
     }
 
-    assert {:reply, ^error, %{}} =
-             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+    assert ^error = ResultIngestor.process_and_publish(status)
 
     assert_receive {:plugin_ingest, ^payload, ^status}
   end
 
   test "routes asynchronous endpoint inventory payloads through bounded queue" do
+    ServiceRadar.TestSupport.start_ingestion_topology!()
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
 
     payload = %{"scan_id" => "scan-router-async"}
@@ -660,14 +872,19 @@ defmodule ServiceRadar.ResultsRouterTest do
       agent_id: "agent-router-async"
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    GenServer.cast(ResultsRouter, {:results_update, status})
 
     expected_payload = Map.put(payload, "agent_id", "agent-router-async")
     assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
     assert Keyword.keyword?(opts)
   end
 
-  test "sync endpoint inventory status calls admit work and reply on ingest completion" do
+  test "endpoint inventory bypasses a busy router and replies only on ingest completion" do
+    ServiceRadar.TestSupport.start_ingestion_topology!()
+    :ok = :sys.suspend(ResultsRouter)
+    on_exit(fn ->
+      if Process.whereis(ResultsRouter), do: :sys.resume(ResultsRouter)
+    end)
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
     barrier_ref = make_ref()
 
@@ -688,12 +905,11 @@ defmodule ServiceRadar.ResultsRouterTest do
       agent_id: "agent-router-sync"
     }
 
-    assert {:reply, :ok, %{}} =
-             ResultsRouter.handle_call(
-               {:results_update_async_reply, status, reply_to},
-               self(),
-               %{}
-             )
+    caller = start_supervised!({Task, fn ->
+      result = GenServer.call(ServiceRadar.StatusHandler, {:status_update, status}, 5_000)
+      send(elem(reply_to, 0), {elem(reply_to, 1), result})
+    end})
+    assert is_pid(caller)
 
     expected_payload = Map.put(payload, "agent_id", "agent-router-sync")
     assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
@@ -722,74 +938,87 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert_receive {:DOWN, ^task_monitor, :process, ^task_pid, :normal}, 500
   end
 
-  describe "async batching" do
+  describe "completed service-state batching" do
     setup do
-      Application.put_env(:serviceradar_core, :results_router_batching, true)
+      ServiceRadar.TestSupport.start_ingestion_topology!()
+      previous = Application.get_env(:serviceradar_core, :results_router_flush_interval_ms)
+      Application.put_env(:serviceradar_core, :results_router_flush_interval_ms, 60_000)
+      on_exit(fn -> restore_env(:results_router_flush_interval_ms, previous) end)
+      :ok = ServiceRadar.Observability.ServiceStatusPubSub.subscribe()
       :ok
     end
 
-    test "cast buffers statuses and flush routes them per item" do
-      Application.put_env(:serviceradar_core, :results_router_max_buffer, 200)
+    test "a stale flush cannot consume a newer batch" do
+      first = completed_status("first")
+      second = completed_status("second")
+      assert :ok = ResultsRouter.publish_completed(first)
+      {_timer, first_token} = :sys.get_state(ResultsRouter).timer
+      send(ResultsRouter, {:flush_results, first_token})
+      assert_receive {:service_statuses_updated, [^first]}, 1_000
+      assert_state_persisted("first")
 
-      status = fn ip ->
-        %{
-          source: "results",
-          service_type: "sync",
-          message: Jason.encode!([%{"device_id" => "dev-#{ip}", "ip" => ip}])
-        }
-      end
-
-      init_state = %{buffer: [], buffer_size: 0, timer: nil}
-
-      assert {:noreply, state1} =
-               ResultsRouter.handle_cast({:results_update, status.("10.0.0.1")}, init_state)
-
-      assert state1.buffer_size == 1
-
-      assert {:noreply, state2} =
-               ResultsRouter.handle_cast({:results_update, status.("10.0.0.2")}, state1)
-
-      assert state2.buffer_size == 2
-
-      # Buffered, not yet flushed: the routed ingestor has not fired.
-      refute_receive {:ingest, _updates, _opts}, 50
-
-      # Timer-driven flush routes every buffered status individually.
-      assert {:noreply, flushed} = ResultsRouter.handle_info(:flush_results, state2)
-      assert flushed.buffer_size == 0
-      assert flushed.buffer == []
-
-      assert_receive {:ingest, [%{"ip" => "10.0.0.1"}], _opts1}
-      assert_receive {:ingest, [%{"ip" => "10.0.0.2"}], _opts2}
+      assert :ok = ResultsRouter.publish_completed(second)
+      {_timer, second_token} = :sys.get_state(ResultsRouter).timer
+      send(ResultsRouter, {:flush_results, first_token})
+      send(ResultsRouter, :flush_results)
+      refute_receive {:service_statuses_updated, _}, 100
+      send(ResultsRouter, {:flush_results, second_token})
+      assert_receive {:service_statuses_updated, [^second]}, 1_000
+      assert_state_persisted("second")
     end
 
-    test "buffer flushes immediately when max buffer is reached" do
-      Application.put_env(:serviceradar_core, :results_router_max_buffer, 2)
-
-      status = fn ip ->
-        %{
-          source: "results",
-          service_type: "sync",
-          message: Jason.encode!([%{"device_id" => "dev-#{ip}", "ip" => ip}])
-        }
+    test "a late older observation cannot replace the pending current-state winner" do
+      latest_at = ~U[2026-01-01 00:01:00.000000Z]
+      older_at = ~U[2026-01-01 00:00:00.000000Z]
+      latest = Map.merge(completed_status("ordered"), %{agent_timestamp: latest_at, available: false})
+      older = Map.merge(completed_status("ordered"), %{agent_timestamp: older_at, available: true})
+      assert :ok = ResultsRouter.publish_completed(latest)
+      assert :ok = ResultsRouter.publish_completed(older)
+      {_timer, token} = :sys.get_state(ResultsRouter).timer
+      send(ResultsRouter, {:flush_results, token})
+      assert_receive {:service_statuses_updated, [^latest]}, 1_000
+      assert %{rows: [[false, persisted_at]]} = ServiceRadar.Repo.query!(
+        "SELECT available, last_observed_at FROM platform.service_state WHERE agent_id = $1 AND service_name = $2",
+        ["fixture-agent", "ordered"])
+      persisted_at = case persisted_at do
+        %NaiveDateTime{} -> DateTime.from_naive!(persisted_at, "Etc/UTC")
+        %DateTime{} -> persisted_at
       end
+      assert persisted_at == latest_at
+    end
 
-      init_state = %{buffer: [], buffer_size: 0, timer: nil}
-
-      assert {:noreply, state1} =
-               ResultsRouter.handle_cast({:results_update, status.("10.0.0.1")}, init_state)
-
-      refute_receive {:ingest, _updates, _opts}, 50
-
-      # Second cast hits max_buffer (2) and flushes inline.
-      assert {:noreply, state2} =
-               ResultsRouter.handle_cast({:results_update, status.("10.0.0.2")}, state1)
-
-      assert state2.buffer_size == 0
-      assert_receive {:ingest, [%{"ip" => "10.0.0.1"}], _opts1}
-      assert_receive {:ingest, [%{"ip" => "10.0.0.2"}], _opts2}
+    test "a full completed-state batch flushes and releases admission capacity" do
+      Application.put_env(:serviceradar_core, :results_router_max_buffer, 2)
+      first = completed_status("first")
+      second = completed_status("second")
+      assert :ok = ResultsRouter.publish_completed(first)
+      refute_receive {:service_statuses_updated, _}, 50
+      assert :ok = ResultsRouter.publish_completed(second)
+      assert_receive {:service_statuses_updated, [^first, ^second]}, 1_000
+      assert_state_persisted("first")
+      assert_state_persisted("second")
+      # Completion releases credits only once the writer has exited.
+      assert_eventually(fn -> ResultsRouter.publish_completed(completed_status("third")) == :ok end)
     end
   end
+
+  defp assert_state_persisted(name) do
+    assert %{rows: [[true]]} = ServiceRadar.Repo.query!(
+      "SELECT available FROM platform.service_state WHERE agent_id = $1 AND service_name = $2",
+      ["fixture-agent", name])
+  end
+
+  defp completed_status(name) do
+    %{source: "results", service_type: "sync", service_name: name,
+      agent_id: "fixture-agent", gateway_id: "fixture-gateway", partition: "default", available: true,
+      message: "completed", timestamp: DateTime.utc_now()}
+  end
+
+  defp assert_eventually(predicate, attempts \\ 40)
+  defp assert_eventually(predicate, attempts) when attempts > 0 do
+    if predicate.(), do: :ok, else: (Process.sleep(25); assert_eventually(predicate, attempts - 1))
+  end
+  defp assert_eventually(_predicate, 0), do: flunk("admission capacity was not released")
 
   defp metric_batch_fixture, do: <<10, 22, "serviceradar.metric.v1">>
 

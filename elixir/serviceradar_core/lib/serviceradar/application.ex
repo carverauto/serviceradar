@@ -121,10 +121,8 @@ defmodule ServiceRadar.Application do
         event_batcher_child(),
 
         # Task supervisor for sync ingestion work
-        sync_ingestor_task_supervisor_child(),
 
         # Sync ingestion queue/coalescer
-        sync_ingestor_queue_child(),
 
         # Holds partial discovery snapshots and the per-scope supersession
         # watermarks. Bounded three ways (TTL, set count, part count); a
@@ -308,9 +306,6 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp sync_ingestor_task_supervisor_child do
-    {Task.Supervisor, name: ServiceRadar.SyncIngestor.TaskSupervisor}
-  end
 
   defp dependency_dispatcher_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor}
@@ -318,10 +313,6 @@ defmodule ServiceRadar.Application do
 
   defp reload_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.Reload.TaskSupervisor}
-  end
-
-  defp sync_ingestor_queue_child do
-    ServiceRadar.Inventory.SyncIngestorQueue
   end
 
   defp endpoint_inventory_ingestor_task_supervisor_child do

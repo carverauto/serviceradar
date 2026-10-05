@@ -146,16 +146,31 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
   @doc false
   @spec bulk_upsert([map()]) :: :ok
   def bulk_upsert(statuses) when is_list(statuses) do
+    case bulk_upsert_strict(statuses) do
+      :ok -> :ok
+      {:error, reason} ->
+        Logger.warning("Bulk service state upsert failed: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  def bulk_upsert(_), do: :ok
+
+  def bulk_upsert_strict(statuses) when is_list(statuses) do
     {plugin_statuses, other_statuses} =
       statuses
       |> Enum.filter(&is_map/1)
       |> Enum.split_with(&plugin_status?/1)
 
-    Enum.each(plugin_statuses, &upsert_plugin_from_bulk/1)
-    bulk_upsert_non_plugin(other_statuses)
+    with :ok <- Enum.reduce_while(plugin_statuses, :ok, fn status, :ok ->
+           case upsert_strict(status) do
+             :ok -> {:cont, :ok}
+             {:error, _} = error -> {:halt, error}
+           end
+         end) do
+      bulk_upsert_non_plugin(other_statuses)
+    end
   end
-
-  def bulk_upsert(_), do: :ok
 
   defp bulk_upsert_non_plugin(statuses) do
     actor = SystemActor.system(:service_state_registry)
@@ -186,7 +201,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
   rescue
     error ->
       Logger.warning("Bulk service state upsert failed: #{Exception.message(error)}")
-      :ok
+      {:error, error}
   end
 
   @doc false
@@ -228,16 +243,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
     |> Kernel.==("plugin")
   end
 
-  defp upsert_plugin_from_bulk(status) do
-    case upsert_strict(status) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Bulk plugin service state upsert failed: #{inspect(reason)}")
-    end
-  end
-
   defp maybe_acquire_plugin_state_lock(status) do
     if StatusNormalizer.normalize_string(StatusNormalizer.fetch(status, :service_type), "unknown") ==
          "plugin" do
@@ -247,14 +252,20 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
     end
   end
 
-  # Keep the LAST status per unique identity (most recent observation wins),
-  # preserving first-seen order for deterministic side-effect ordering.
+  # Observation time, rather than arrival order, chooses the current-state winner.
+  # Keep first-seen identity order for deterministic side-effect ordering.
   defp dedup_attrs_by_identity(attrs_list) do
     {ordered_keys, by_key} =
       Enum.reduce(attrs_list, {[], %{}}, fn attrs, {keys, acc} ->
         key = identity_key(attrs)
         keys = if Map.has_key?(acc, key), do: keys, else: [key | keys]
-        {keys, Map.put(acc, key, attrs)}
+        winner = case acc[key] do
+          nil -> attrs
+          previous ->
+            if DateTime.compare(attrs.last_observed_at, previous.last_observed_at) == :lt,
+              do: previous, else: attrs
+        end
+        {keys, Map.put(acc, key, winner)}
       end)
 
     ordered_keys
@@ -300,17 +311,14 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
     end)
 
     case result.errors do
-      [] -> :ok
-      nil -> :ok
-      errors -> Logger.warning("Bulk service state upsert had errors: #{inspect(errors)}")
+      errors when errors in [[], nil] and result.status == :success -> :ok
+      errors -> {:error, {:bulk_service_state_upsert_failed, errors}}
     end
-
-    :ok
   end
 
   defp handle_bulk_upsert_result(other, _previous_by_identity, _actor) do
     Logger.warning("Unexpected bulk service state upsert result: #{inspect(other)}")
-    :ok
+    {:error, {:unexpected_bulk_service_state_upsert_result, other}}
   end
 
   defp identity_key_from_state(%ServiceState{} = state) do

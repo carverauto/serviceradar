@@ -9,6 +9,23 @@ defmodule ServiceRadarAgentGateway.StatusHandlerTestHelpers do
   `bazel test //...` with a live stub kill.
   """
 
+  # These cohorts exercise the explicit rollback transport against legacy
+  # handlers. The default reservation protocol is covered with real lanes.
+  def legacy_core_transport! do
+    previous = Application.fetch_env(:serviceradar_agent_gateway, :reserved_core_admission)
+    Application.put_env(:serviceradar_agent_gateway, :reserved_core_admission, false)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      case previous do
+        {:ok, value} ->
+          Application.put_env(:serviceradar_agent_gateway, :reserved_core_admission, value)
+
+        :error ->
+          Application.delete_env(:serviceradar_agent_gateway, :reserved_core_admission)
+      end
+    end)
+  end
+
   @spec unregister_quietly(atom()) :: :ok
   def unregister_quietly(name) when is_atom(name) do
     try do
