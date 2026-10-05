@@ -162,6 +162,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
   describe "log detail metadata rendering" do
     @tag :web_ng_shared_fixture_db
+    test "redacts secrets before sending copied log data to the browser", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      log_id = "550e8400-e29b-41d4-a716-446655440097"
+      old = Application.get_env(:serviceradar_web_ng, :srql_module)
+      Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.TimestampSRQLStub)
+
+      on_exit(fn ->
+        if is_nil(old),
+          do: Application.delete_env(:serviceradar_web_ng, :srql_module),
+          else: Application.put_env(:serviceradar_web_ng, :srql_module, old)
+      end)
+
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
+
+      render_click(lv, "copy_message", %{})
+
+      assert_push_event(lv, "clipboard", %{
+        text: "authorization=[REDACTED] password=[REDACTED]"
+      })
+
+      render_click(lv, "copy_json", %{})
+      assert_push_event(lv, "clipboard", %{text: copied_json})
+
+      copied = Jason.decode!(copied_json)
+      assert copied["body"] == "authorization=[REDACTED] password=[REDACTED]"
+      assert copied["attributes"]["api_key"] == "[REDACTED]"
+      assert copied["attributes"]["nested"]["token"] == "[REDACTED]"
+      refute copied_json =~ "synthetic-body-token"
+      refute copied_json =~ "synthetic-body-password"
+      refute copied_json =~ "synthetic-attribute-key"
+      refute copied_json =~ "synthetic-nested-token"
+    end
+
+    @tag :web_ng_shared_fixture_db
     test "renders the effective canonical instant in the user's timezone", %{conn: conn} do
       user = operator_user_fixture()
 
@@ -575,6 +610,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
     def query(query, _opts) do
       results =
         cond do
+          String.contains?(query, "550e8400-e29b-41d4-a716-446655440097") ->
+            [secret_log()]
+
           String.contains?(query, "550e8400-e29b-41d4-a716-446655440098") ->
             [source_only_log()]
 
@@ -591,6 +629,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
     def query_request(%{"query" => query}), do: query(query)
     def query_request(_), do: {:error, :invalid_request}
+
+    defp secret_log do
+      @log
+      |> Map.put("id", "550e8400-e29b-41d4-a716-446655440097")
+      |> Map.put(
+        "body",
+        "authorization=Bearer synthetic-body-token password=synthetic-body-password"
+      )
+      |> Map.put("attributes", %{
+        "api_key" => "synthetic-attribute-key",
+        "nested" => %{"token" => "synthetic-nested-token"}
+      })
+    end
 
     defp source_only_log do
       @log
