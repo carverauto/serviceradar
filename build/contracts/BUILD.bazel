@@ -182,9 +182,9 @@ py_test(
     size = "small",
     srcs = ["release_package_workflow_test.py"],
     data = [
-        "@jq_linux_amd64//file",
         "//:.github/workflows/image-security.yml",
         "//:.github/workflows/release.yml",
+        "@jq_linux_amd64//file",
     ],
     deps = [
         "@pyyaml//:yaml",
