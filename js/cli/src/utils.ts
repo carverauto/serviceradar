@@ -84,11 +84,18 @@ export function readLineFromStdin(prompt: string): Promise<string> {
 }
 
 export async function openBrowser(url: string): Promise<void> {
-  const command = process.platform === "darwin" ? "open"
-    : process.platform === "win32" ? "start \"\""
-    : "xdg-open"
+  const [command, args] = process.platform === "darwin" ? ["open", [url]]
+    : process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+    : ["xdg-open", [url]]
   try {
-    await runCommand(`${command} ${JSON.stringify(url)}`, process.cwd())
+    await new Promise<void>((resolveRun, rejectRun) => {
+      const child = spawn(command, args, {stdio: "ignore"})
+      child.on("error", rejectRun)
+      child.on("exit", (code) => {
+        if (code === 0) resolveRun()
+        else rejectRun(new Error(`browser opener failed with exit code ${code}: ${command}`))
+      })
+    })
   } catch (_) {
     // Best-effort. If the platform doesn't have an opener, the user opens
     // the URL by hand from the printed log line.
