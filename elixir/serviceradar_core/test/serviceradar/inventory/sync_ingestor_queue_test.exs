@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Ingestion.WorkerBudget
   alias ServiceRadar.Inventory.SyncIngestorQueue
 
   defmodule TestIngestor do
@@ -39,8 +40,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_test_pid, self())
 
-    if !Process.whereis(ServiceRadar.Ingestion.WorkerBudget) do
-      start_supervised!({ServiceRadar.Ingestion.WorkerBudget, pool_size: 10})
+    if !Process.whereis(WorkerBudget) do
+      start_supervised!({WorkerBudget, pool_size: 10})
     end
 
     {:ok, sync_task_supervisor} = start_supervised(Task.Supervisor)

@@ -5,8 +5,9 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
 
   test "one key stays ordered while another key uses the free worker" do
     parent = self()
-    lane = start_lane(held_processor(parent), concurrency: 2, max_items: 4,
-                      max_items_per_agent: 2)
+
+    lane =
+      start_lane(held_processor(parent), concurrency: 2, max_items: 4, max_items_per_agent: 2)
 
     first = admit(lane, status("agent01.example.com", "first"))
     assert_receive {:started, "first", first_worker}
@@ -30,12 +31,21 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
     lane = start_lane(held_processor(parent), max_items_per_agent: 2)
     first_status = status("agent01.example.com", "first")
     second_status = status("agent01.example.com", "second")
-    assert {:ok, {^lane, first_id}} = Lane.reserve(lane,
-      Lane.descriptor(first_status, 10_000), self(), 1_000)
-    assert {:ok, {^lane, second_id}} = Lane.reserve(lane,
-      Lane.descriptor(second_status, 10_000), self(), 1_000)
-    assert {:error, :count_full} = Lane.reserve(lane,
-      Lane.descriptor(status("agent02.example.com", "rejected"), 10_000), self(), 1_000)
+
+    assert {:ok, {^lane, first_id}} =
+             Lane.reserve(lane, Lane.descriptor(first_status, 10_000), self(), 1_000)
+
+    assert {:ok, {^lane, second_id}} =
+             Lane.reserve(lane, Lane.descriptor(second_status, 10_000), self(), 1_000)
+
+    assert {:error, :count_full} =
+             Lane.reserve(
+               lane,
+               Lane.descriptor(status("agent02.example.com", "rejected"), 10_000),
+               self(),
+               1_000
+             )
+
     refute_receive {:started, _, _}, 50
 
     first = make_ref()
@@ -55,11 +65,25 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
 
   test "a reservation owner exiting releases unused count and byte credits" do
     parent = self()
-    lane = start_lane(fn _ -> send(parent, :unexpected_ingestion); :ok end, max_items: 1)
+
+    lane =
+      start_lane(
+        fn _ ->
+          send(parent, :unexpected_ingestion)
+          :ok
+        end,
+        max_items: 1
+      )
+
     owner = spawn(fn -> Process.sleep(:infinity) end)
     payload = status("agent01.example.com", "unused")
-    assert {:ok, {^lane, _id}} = Lane.reserve(lane, Lane.descriptor(payload, 10_000), owner, 1_000)
-    assert {:error, :count_full} = Lane.reserve(lane, Lane.descriptor(payload, 10_000), self(), 1_000)
+
+    assert {:ok, {^lane, _id}} =
+             Lane.reserve(lane, Lane.descriptor(payload, 10_000), owner, 1_000)
+
+    assert {:error, :count_full} =
+             Lane.reserve(lane, Lane.descriptor(payload, 10_000), self(), 1_000)
+
     Process.exit(owner, :kill)
     assert_empty(lane)
     ref = admit(lane, status("agent02.example.com", "replacement"))
@@ -70,16 +94,39 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
 
   test "payload mismatch and an expired reservation cannot start ingestion" do
     parent = self()
-    lane = start_lane(fn _ -> send(parent, :unexpected_ingestion); :ok end,
-      queue_wait_ms: 40, worker_timeout_ms: 500, gateway_call_timeout_ms: 3_540)
+
+    lane =
+      start_lane(
+        fn _ ->
+          send(parent, :unexpected_ingestion)
+          :ok
+        end,
+        queue_wait_ms: 40,
+        worker_timeout_ms: 500,
+        gateway_call_timeout_ms: 3_540
+      )
+
     payload = status("agent01.example.com", "reserved")
     assert {:ok, {^lane, id}} = Lane.reserve(lane, Lane.descriptor(payload, 3_540), self(), 1_000)
+
     assert {:error, :reservation_payload_mismatch} =
-      Lane.submit(lane, id, %{payload | agent_id: "agent02.example.com"}, {self(), make_ref()})
+             Lane.submit(
+               lane,
+               id,
+               %{payload | agent_id: "agent02.example.com"},
+               {self(), make_ref()}
+             )
+
     assert_empty(lane)
-    assert {:ok, {^lane, expired}} = Lane.reserve(lane, Lane.descriptor(payload, 3_540), self(), 1_000)
+
+    assert {:ok, {^lane, expired}} =
+             Lane.reserve(lane, Lane.descriptor(payload, 3_540), self(), 1_000)
+
     assert_empty(lane)
-    assert {:error, :reservation_expired} = Lane.submit(lane, expired, payload, {self(), make_ref()})
+
+    assert {:error, :reservation_expired} =
+             Lane.submit(lane, expired, payload, {self(), make_ref()})
+
     refute_receive :unexpected_ingestion, 50
   end
 
@@ -150,6 +197,7 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
 
   defp start_lane(processor, overrides \\ []) do
     {concurrency, overrides} = Keyword.pop(overrides, :concurrency, 1)
+
     task_supervisor =
       start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
 
@@ -160,14 +208,18 @@ defmodule ServiceRadar.AdmissionLaneQueueTest do
       processor: processor,
       source_max_bytes: 1_024,
       gateway_max_ms: 10_000,
-      config: Keyword.merge([
-        max_items: 2,
-        max_bytes: 64 * 1_024,
-        max_items_per_agent: 1,
-        queue_wait_ms: 2_000,
-        worker_timeout_ms: 5_000,
-        gateway_call_timeout_ms: 10_000
-      ], overrides)
+      config:
+        Keyword.merge(
+          [
+            max_items: 2,
+            max_bytes: 64 * 1_024,
+            max_items_per_agent: 1,
+            queue_wait_ms: 2_000,
+            worker_timeout_ms: 5_000,
+            gateway_call_timeout_ms: 10_000
+          ],
+          overrides
+        )
     ]
 
     start_supervised!(Supervisor.child_spec({Lane, opts}, id: make_ref()))

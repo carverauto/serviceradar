@@ -15,14 +15,17 @@ defmodule ServiceRadar.Ingestion.Admission do
   # Producer-side extraction keeps decoding out of dispatch callbacks. Unknown
   # or malformed group metadata retains the conservative per-agent ordering key.
   def prepare(%{source: source, service_type: type, message: message} = status)
-      when source in ["results", :results] and type in ["sweep", :sweep] and
-           is_binary(message) and byte_size(message) <= 16 * 1_024 * 1_024 do
+      when source in ["results", :results] and type in ["sweep", :sweep] and is_binary(message) and
+             byte_size(message) <= 16 * 1_024 * 1_024 do
     case Jason.decode(message) do
       {:ok, %{"sweep_group_id" => group}} when is_binary(group) and byte_size(group) in 1..255 ->
         Map.put(status, :sweep_group_id, group)
-      _ -> Map.delete(status, :sweep_group_id)
+
+      _ ->
+        Map.delete(status, :sweep_group_id)
     end
   end
+
   def prepare(status), do: status
 
   def reserve(%{headers: headers} = descriptor, owner, timeout) when is_map(headers) do
@@ -37,10 +40,12 @@ defmodule ServiceRadar.Ingestion.Admission do
 
   def admit(status, reply_to) do
     descriptor = Lane.descriptor(status, @core_budget_ms)
-    owner = case reply_to do
-      {pid, _} -> pid
-      _ -> self()
-    end
+
+    owner =
+      case reply_to do
+        {pid, _} -> pid
+        _ -> self()
+      end
 
     with {:ok, {lane, id}} <- reserve(descriptor, owner, 1_000) do
       Lane.submit(lane, id, status, reply_to)
@@ -64,12 +69,21 @@ defmodule ServiceRadar.Ingestion.Admission do
 
   def classify(%{source: source, service_type: type}) when source in ["results", :results] do
     case type do
-      type when type in ["sweep", :sweep] -> :sweep
-      type when type in ["mapper_interfaces", :mapper_interfaces,
-                         "mapper_topology", :mapper_topology] -> :mapper
-      type when type in ["bumblebee", :bumblebee] -> :bumblebee
-      type when type in ["endpoint_inventory", :endpoint_inventory] -> :endpoint
-      _ -> :other_results
+      type when type in ["sweep", :sweep] ->
+        :sweep
+
+      type
+      when type in ["mapper_interfaces", :mapper_interfaces, "mapper_topology", :mapper_topology] ->
+        :mapper
+
+      type when type in ["bumblebee", :bumblebee] ->
+        :bumblebee
+
+      type when type in ["endpoint_inventory", :endpoint_inventory] ->
+        :endpoint
+
+      _ ->
+        :other_results
     end
   end
 

@@ -7,9 +7,9 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Repo
-  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.TestSupport
 
   @moduletag :integration

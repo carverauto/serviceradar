@@ -305,11 +305,9 @@ defmodule ServiceRadar.Application do
     end
   end
 
-
   defp dependency_dispatcher_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor}
   end
-
 
   defp endpoint_inventory_ingestor_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.EndpointInventoryIngestor.TaskSupervisor}
