@@ -1045,7 +1045,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         message: <<255, 255, 255, 255>>
       }
 
-      assert :ok = StatusIngestor.ingest(status)
+      assert {:error, :addon_telemetry_decode_failed} = StatusIngestor.ingest(status)
     end
   end
 

@@ -51,7 +51,7 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
       endpoint_queue
     )
 
-    start_admission_lanes()
+    ServiceRadar.TestSupport.start_ingestion_topology!()
 
     on_exit(fn ->
       restore_env(StatusHandler, original_handler)
@@ -61,8 +61,7 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
       restore_env(:status_admission_held_plugin, original_plugin_holder)
     end)
 
-    {:ok, handler} = GenServer.start_link(StatusHandler, %{})
-    %{handler: handler, release_ref: release_ref}
+    %{handler: StatusHandler, release_ref: release_ref}
   end
 
   test "held retained plugin ingestion does not delay flow completion", %{
@@ -177,50 +176,6 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
     }
   end
 
-  defp start_admission_lanes do
-    flow_task_supervisor =
-      start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
-
-    retained_task_supervisor =
-      start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
-
-    flow_lane =
-      start_supervised!(
-        {ServiceRadar.Admission.FlowLane,
-         name: unique_name(:flow_lane),
-         task_supervisor: flow_task_supervisor,
-         config: lane_config(16, 4)}
-      )
-
-    retained_lane =
-      start_supervised!(
-        {ServiceRadar.Admission.RetainedPluginLane,
-         name: unique_name(:retained_plugin_lane),
-         task_supervisor: retained_task_supervisor,
-         config: lane_config(32, 8)}
-      )
-
-    Application.put_env(
-      :serviceradar_core,
-      StatusHandler,
-      :serviceradar_core
-      |> Application.get_env(StatusHandler, [])
-      |> Keyword.put(:flow_lane, flow_lane)
-      |> Keyword.put(:retained_plugin_lane, retained_lane)
-      |> Keyword.put(:retained_plugin_admission_enabled, true)
-    )
-  end
-
-  defp lane_config(max_items, max_items_per_agent),
-    do: [
-      max_items: max_items,
-      max_bytes: 64 * 1_024 * 1_024,
-      max_items_per_agent: max_items_per_agent,
-      queue_wait_ms: 100,
-      worker_timeout_ms: 3_000,
-      gateway_call_timeout_ms: 6_100
-    ]
-
   defp endpoint_queue_loop do
     receive do
       {:"$gen_call", from, {:enqueue, _payload, _opts, {:reply_to, reply_to}, _timeout}} ->
@@ -229,9 +184,6 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
         endpoint_queue_loop()
     end
   end
-
-  defp unique_name(suffix),
-    do: Module.concat(__MODULE__, "#{suffix}_#{System.unique_integer([:positive])}")
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)

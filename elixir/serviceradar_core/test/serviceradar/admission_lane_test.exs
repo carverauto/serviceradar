@@ -572,10 +572,12 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     ids = Enum.map(specs, & &1.id)
 
+    assert ServiceRadar.Ingestion.Supervisor in ids
+    assert ServiceRadar.Ingestion.LeaseSupervisor in ids
     assert FlowLeaseSupervisor in ids
     assert RetainedPluginLeaseSupervisor in ids
-    assert FlowSupervisor in ids
-    assert RetainedPluginSupervisor in ids
+    refute FlowSupervisor in ids
+    refute RetainedPluginSupervisor in ids
     refute FlowTaskSupervisor in ids
     refute RetainedPluginTaskSupervisor in ids
     refute FlowLane in ids
