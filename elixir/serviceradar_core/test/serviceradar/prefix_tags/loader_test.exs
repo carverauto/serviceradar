@@ -31,7 +31,7 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
         :ok
     end
 
-    task_sup = ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
+    task_sup = ServiceRadar.Reload.TaskSupervisor
 
     case Process.whereis(task_sup) do
       nil ->
