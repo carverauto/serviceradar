@@ -798,10 +798,16 @@ defmodule ServiceRadarWebNGWeb.Stats do
     end
   end
 
+  # A rollup row covers [bucket, bucket + 5 minutes). Compare the bucket against
+  # the window start floored to that width, as the card's SRQL rollup query does,
+  # so the bucket holding the window start counts toward coverage instead of
+  # reading as a gap of up to one bucket.
+  @logs_rollup_window_clause "bucket >= time_bucket(INTERVAL '5 minutes', now() - INTERVAL '24 hours')"
+
   defp logs_rollup_latest_bucket do
     case SQL.query(
            CoreRepo,
-           "SELECT max(bucket) FROM logs_severity_stats_5m WHERE bucket >= now() - INTERVAL '24 hours'",
+           "SELECT max(bucket) FROM logs_severity_stats_5m WHERE #{@logs_rollup_window_clause}",
            []
          ) do
       {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
@@ -815,7 +821,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
            """
            SELECT bucket
            FROM logs_severity_stats_5m
-           WHERE bucket >= now() - INTERVAL '24 hours'
+           WHERE #{@logs_rollup_window_clause}
            ORDER BY bucket ASC
            LIMIT 1
            """,
