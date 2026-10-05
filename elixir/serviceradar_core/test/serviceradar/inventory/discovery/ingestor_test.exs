@@ -20,6 +20,14 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
   @census_schema "serviceradar.netprobe.census.v1"
   @last_seen 1_700_000_060_000_000_000
 
+  defmodule CapturingIngestor do
+    def ingest_updates(updates, _opts) do
+      send(Application.fetch_env!(:serviceradar_core, :discovery_ingestor_test_pid),
+           {:enqueued, Jason.encode!(updates)})
+      :ok
+    end
+  end
+
   setup do
     # A fresh buffer per test. Watermarks persist by design, so a shared one
     # would let an earlier test's snapshot supersede a later test's -- which is
@@ -42,34 +50,30 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
       _pid -> Buffer.reset()
     end
 
-    parent = self()
+    previous_ingestor = Application.fetch_env(:serviceradar_core, :sync_ingestor)
+    previous_pid = Application.fetch_env(:serviceradar_core, :discovery_ingestor_test_pid)
+    previous_server = Application.fetch_env(:serviceradar_core, :sync_ingestor_queue_server)
 
-    queue =
-      spawn(fn ->
-        loop = fn loop ->
-          receive do
-            {:"$gen_cast", {:enqueue, message}} ->
-              send(parent, {:enqueued, message})
-              loop.(loop)
-
-            _other ->
-              loop.(loop)
-          end
-        end
-
-        loop.(loop)
-      end)
-
-    previous = Process.whereis(SyncIngestorQueue)
-    if previous, do: Process.unregister(SyncIngestorQueue)
-    Process.register(queue, SyncIngestorQueue)
+    Application.put_env(:serviceradar_core, :sync_ingestor, CapturingIngestor)
+    Application.put_env(:serviceradar_core, :discovery_ingestor_test_pid, self())
+    if !Process.whereis(ServiceRadar.Ingestion.WorkerBudget) do
+      start_supervised!({ServiceRadar.Ingestion.WorkerBudget, pool_size: 10})
+    end
+    tasks = start_supervised!({Task.Supervisor, []})
+    queue = start_supervised!({SyncIngestorQueue, name: nil, task_supervisor: tasks})
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, queue)
 
     on_exit(fn ->
-      if Process.whereis(SyncIngestorQueue),
-        do: Process.unregister(SyncIngestorQueue)
-
-      if previous, do: Process.register(previous, SyncIngestorQueue)
-      if Process.alive?(queue), do: Process.exit(queue, :kill)
+      Enum.each([
+        {:sync_ingestor, previous_ingestor},
+        {:discovery_ingestor_test_pid, previous_pid},
+        {:sync_ingestor_queue_server, previous_server}
+      ], fn {key, previous} ->
+        case previous do
+          {:ok, value} -> Application.put_env(:serviceradar_core, key, value)
+          :error -> Application.delete_env(:serviceradar_core, key)
+        end
+      end)
     end)
 
     :ok

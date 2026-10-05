@@ -14,10 +14,10 @@ defmodule ServiceRadar.Admission.RetainedPluginSupervisor do
   def init(_opts) do
     children = [
       Supervisor.child_spec(
-        {Task.Supervisor, name: RetainedPluginTaskSupervisor},
+        {Task.Supervisor, name: RetainedPluginTaskSupervisor, max_children: 2},
         id: RetainedPluginTaskSupervisor
       ),
-      RetainedPluginLane
+      {RetainedPluginLane, execution_gate: ServiceRadar.Ingestion.WorkerBudget}
     ]
 
     Supervisor.init(children, strategy: :one_for_all)

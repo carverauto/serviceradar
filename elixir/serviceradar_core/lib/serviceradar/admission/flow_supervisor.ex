@@ -14,10 +14,10 @@ defmodule ServiceRadar.Admission.FlowSupervisor do
   def init(_opts) do
     children = [
       Supervisor.child_spec(
-        {Task.Supervisor, name: FlowTaskSupervisor},
+        {Task.Supervisor, name: FlowTaskSupervisor, max_children: 1},
         id: FlowTaskSupervisor
       ),
-      FlowLane
+      {FlowLane, execution_gate: ServiceRadar.Ingestion.WorkerBudget}
     ]
 
     Supervisor.init(children, strategy: :one_for_all)
