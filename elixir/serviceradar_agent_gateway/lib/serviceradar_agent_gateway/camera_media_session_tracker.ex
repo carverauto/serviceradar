@@ -43,7 +43,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
           sent_bytes: non_neg_integer(),
           created_at_unix: integer(),
           updated_at_unix: integer(),
-          lease_expires_at_unix: integer()
+          lease_expires_at_unix: integer(),
+          ingress_monitor_ref: reference() | nil
         }
 
   def start_link(opts \\ []) do

@@ -4,7 +4,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
   only to registered viewers.
 
   Membership changes (join/leave/idle close) go through this process. The
-  per-chunk hot path does not: viewers are mirrored into a public ETS table, so
+  per-chunk hot path does not: viewers are mirrored into a protected ETS table, so
   `broadcast_chunk/2` fans out from the calling pipeline sink and
   `viewer_count/1` is a table read. Previously every camera's every chunk was a
   cast into this one mailbox (unbounded, no drop policy), and the session

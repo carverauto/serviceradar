@@ -7,7 +7,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
   closes it instead of uploading into a session with no media path.
 
   Only the pipeline lifecycle (open, close, DOWN) goes through this process.
-  Session-to-pipeline lookups are mirrored into a public ETS table, so
+  Session-to-pipeline lookups are mirrored into a protected ETS table, so
   `record_chunk/2` and the viewer/branch calls run in the caller: a chunk is a
   direct send to the session's pipeline, and a slow `Membrane.Pipeline.call`
   for one camera no longer blocks every other camera's chunks behind this

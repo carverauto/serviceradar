@@ -79,6 +79,20 @@ IPFIX collection requires mutual TLS.
   presence probe (PR #5226). Device Anomaly and Capacity views show a
   loading skeleton (PR #4475). Add-on catalog details group assignments
   by agent (PR #4461).
+- Camera relay: viewer membership and session-to-pipeline mappings are
+  mirrored into protected ETS tables so `broadcast_chunk`, `viewer_count`,
+  `record_chunk`, and Membrane branch calls run in the caller rather than
+  through the ViewerRegistry or PipelineManager mailboxes; one camera's
+  slow branch call no longer stalls all others. Core session tracker
+  catches `:exit` in `current_viewer_count` so a crashing count source
+  cannot bring down the tracker and drop every relay session.
+  Agent-gateway tracker monitors ingress PIDs at session open and drops
+  sessions immediately on their death, replacing the per-sweep 1s
+  `:erpc` liveness probe for each remote ingress PID. Dashboard and
+  /cameras tiles subscribe once per relay session to `RelayPubSub` state
+  and refresh only the affected tile on `{:camera_relay_state, _}`;
+  the 1s per-tile database poll becomes a 15s fallback timer.
+  (issue #5203)
 
 # ServiceRadar v1.4.81
 
