@@ -198,8 +198,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   @doc false
   @spec acceptance_budget_ms(map()) :: pos_integer()
-  def acceptance_budget_ms(status) when is_map(status),
-    do: core_call_timeout_ms(status) + @acceptance_budget_overhead_ms
+  def acceptance_budget_ms(status) when is_map(status), do: core_call_timeout_ms(status) + @acceptance_budget_overhead_ms
 
   # Flow attribution, retained plugin results, and endpoint-inventory results
   # are acknowledged only after core accepts them. OTLP relay frames are the

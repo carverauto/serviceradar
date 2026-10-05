@@ -55,7 +55,11 @@ defmodule ServiceRadar.StatusHandlerTest do
 
   test "retained plugin admission compatibility gate turned off uses the legacy path" do
     original = Application.get_env(:serviceradar_core, StatusHandler)
-    Application.put_env(:serviceradar_core, StatusHandler, retained_plugin_admission_enabled: false)
+
+    Application.put_env(:serviceradar_core, StatusHandler,
+      retained_plugin_admission_enabled: false
+    )
+
     on_exit(fn -> restore_env(StatusHandler, original) end)
 
     status = %{
