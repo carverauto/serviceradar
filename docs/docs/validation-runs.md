@@ -19,10 +19,17 @@ To obtain a UID without starting a run — no probe, no check to name — use
 This API is a general HTTP contract. Any client that can POST JSON and
 poll can use it.
 
-Optional facts such as `acl_enforced` are written separately with the
-[Device Facts API](./device-facts.md). Write facts as soon as the create
-response returns a UID; evaluation reads metadata at evaluate time, not
-at create time.
+Supply optional scalar `facts` on each target (or at top level for the
+single-device shorthand). ServiceRadar resolves identity, applies the facts
+through the [Device Facts API](./device-facts.md) write action, and commits
+the facts and run before queuing probes. Invalid facts reject the entire
+request. Supplying facts also requires `devices.facts.write`.
+
+If you already know the UID, you may instead finish a Device Facts API write
+before creating the run. If you do not know it, use inline facts or the
+[identity resolve API](./identity-resolve.md), write facts, then create the
+run. A separate write after the create response races evaluation and cannot
+attest that run; create a new run after the write completes.
 
 ## Create
 
@@ -39,7 +46,8 @@ Single-device shorthand:
   "check": "isolation",
   "partition": "default",
   "ip": "192.168.1.55",
-  "mac": "aa:bb:cc:dd:ee:ff"
+  "mac": "aa:bb:cc:dd:ee:ff",
+  "facts": {"acl_enforced": true}
 }
 ```
 
@@ -105,8 +113,14 @@ GET /api/v1/validation-runs/{id}/results
 Statuses: `pending`, `probing`, `evaluating`, `completed`, `failed`,
 `timed_out`. Poll every few seconds. Default deadline is 180 seconds.
 
-Treat a report as fresh when `evaluated_at` is after the create time and
-each vantage `inputs.<key>.observed_at` is also after create time.
+A validation verdict uses this run's probe evidence, not a background
+availability sample. Each vantage input includes `covered`, `probed`, and
+`reason`. An uncovered or skipped vantage, a failed scan, or a missing
+per-target result produces `not_probed` with `unknown` status, even if
+background availability is fresh. The run can finish `completed` while its
+device verdict is `not_probed`; completion does not mean verification passed.
+Such a run does not overwrite the official composite result. Require
+`inputs.<key>.probed` for every vantage before treating a verdict as proof.
 
 ## Identity rules
 
@@ -132,7 +146,8 @@ not to, and `acl_enforced` to be true might produce:
 | `not_isolated` | down | Both vantage agents still reach it. |
 | `device_unreachable` | degraded | Liveness witness cannot see it. |
 | `inverted_reachability` | down | Isolation probe sees it, witness does not. |
-| `inconclusive` | unknown | Missing/stale probe, uncovered vantage, or missing fact. Do not pass. |
+| `not_probed` | unknown | Required run-specific probe evidence is missing. Do not pass. |
+| `inconclusive` | unknown | Probes ran, but the decision table lacks sufficient facts or evidence. Do not pass. |
 
 A different check returns that check's own verdict slugs. Treat those as
 the check's contract.
@@ -169,10 +184,9 @@ The deployment also needs:
 
 Typical sequence:
 
-1. `POST /api/v1/validation-runs` with IP + partition (optional MAC) to
-   learn `uid` and `id`.
-2. Optionally `PATCH /api/devices/{uid}/metadata` with facts the check
-   reads, for example `{"facts":{"acl_enforced":true}}`.
-3. Poll `GET /api/v1/validation-runs/{id}` until `completed` /
-   `failed` / `timed_out`. Pass only on the verdict the check treats as
-   success, with `evaluated_at` after the POST.
+1. `POST /api/v1/validation-runs` with IP, partition, optional MAC, and
+   optional inline `facts`. The facts commit before the run can dispatch.
+2. Poll `GET /api/v1/validation-runs/{id}` until `completed`, `failed`, or
+   `timed_out`.
+3. Require `probed: true` on every vantage input and the verdict the check
+   treats as success. Never treat `not_probed` as a pass.
