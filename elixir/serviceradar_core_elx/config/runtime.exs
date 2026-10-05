@@ -654,6 +654,11 @@ if config_env() == :prod do
       end
     end)
 
+  # Capability-retained plugin results are admitted by the bounded retained-plugin
+  # lane. "false" is the kill switch back to the previous synchronous path.
+  config :serviceradar_core, ServiceRadar.StatusHandler,
+    retained_plugin_admission_enabled: System.get_env("RETAINED_PLUGIN_ADMISSION_ENABLED", "true") in ~w(true 1 yes)
+
   config :serviceradar_core,
     env: :prod,
     cloak_key: cloak_key,

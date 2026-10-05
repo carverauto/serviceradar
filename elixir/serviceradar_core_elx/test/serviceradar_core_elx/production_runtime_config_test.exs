@@ -173,6 +173,22 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert opts[:default_source_opt_ins] == []
   end
 
+  test "prod config admits capability-retained plugin results through the lane by default" do
+    with_env("RETAINED_PLUGIN_ADMISSION_ENABLED", nil)
+
+    assert read_prod_config()[:serviceradar_core][ServiceRadar.StatusHandler][
+             :retained_plugin_admission_enabled
+           ] == true
+  end
+
+  test "prod config turns retained-plugin lane admission off with its kill switch" do
+    with_env("RETAINED_PLUGIN_ADMISSION_ENABLED", "false")
+
+    assert read_prod_config()[:serviceradar_core][ServiceRadar.StatusHandler][
+             :retained_plugin_admission_enabled
+           ] == false
+  end
+
   # Core mints the plugin download URLs embedded in agent configs. An agent that
   # cannot reach the operator-facing URL (an on-prem load balancer without
   # hairpin NAT) must be handed the agent-facing one instead.
