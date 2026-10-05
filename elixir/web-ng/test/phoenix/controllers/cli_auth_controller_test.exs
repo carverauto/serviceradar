@@ -284,11 +284,12 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
 
       with_cli_auth_disabled(fn ->
         conn = poll_token(conn, device_code)
-        ## Helpers
         assert json_response(conn, 503)["error"] == "cli_auth_disabled"
       end)
     end
   end
+
+  ## Helpers
 
   defp post_with_ip(conn, path, params) do
     conn
