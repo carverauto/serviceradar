@@ -3,6 +3,7 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
 
   alias ServiceRadar.Admission.Lane
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
+  alias ServiceRadar.Admission.Lane
   alias ServiceRadar.StatusHandler
 
   defmodule HeldPluginIngestor do
