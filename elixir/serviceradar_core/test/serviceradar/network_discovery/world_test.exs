@@ -182,6 +182,53 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
 
     assert :ok = World.append_stage(staged.layout_version, [position(3)], [])
     assert {:error, :incomplete_world} = World.activate_relayout(1, staged.layout_version)
+
+    assert {:ok, orphaned} =
+             World.stage_relayout(scope(), %{
+               source_digest: "synthetic-orphaned-relation",
+               node_count: 1,
+               relation_count: 1
+             })
+
+    assert {:error, :invalid_relation_endpoint} =
+             World.stage_candidate(
+               orphaned.layout_version,
+               %{
+                 algorithm_version: "invented-orphan-check-v1",
+                 zmax: 12,
+                 source_digest: "synthetic-orphaned-relation",
+                 node_count: 1,
+                 relation_count: 1
+               },
+               [position(5)],
+               [relation("orphaned-target", 5, 6)]
+             )
+
+    assert {:error, :incomplete_world} = World.activate_relayout(1, orphaned.layout_version)
+
+    # The endpoint exists but is inactive: the foreign key accepts it, the stage must not.
+    assert {:ok, dormant} =
+             World.stage_relayout(scope(), %{
+               source_digest: "synthetic-inactive-endpoint",
+               node_count: 1,
+               relation_count: 1
+             })
+
+    assert {:error, :invalid_relation_endpoint} =
+             World.stage_candidate(
+               dormant.layout_version,
+               %{
+                 algorithm_version: "invented-orphan-check-v1",
+                 zmax: 12,
+                 source_digest: "synthetic-inactive-endpoint",
+                 node_count: 1,
+                 relation_count: 1
+               },
+               [position(7), Map.put(position(8), :active, false)],
+               [relation("inactive-target", 7, 8)]
+             )
+
+    assert {:error, :incomplete_world} = World.activate_relayout(1, dormant.layout_version)
     assert {:ok, %{layout_version: active, generation: 1}} = World.active_manifest(scope())
     assert active == layout.layout_version
 
@@ -203,6 +250,36 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
 
     assert {:error, :layout_already_published} =
              World.stage_candidate(staged.layout_version, metadata, [], [])
+  end
+
+  test "a newer stage attempt supersedes an older one between batches" do
+    version = Ecto.UUID.generate()
+    newer = %{source_digest: "synthetic-newer-attempt", node_count: 1, relation_count: 0}
+
+    # The older attempt commits its first 2,000-row batch. Pulling the next
+    # row starts a newer attempt on the same layout, which clears the older
+    # rows and verifies its own one-device world before the older attempt
+    # writes again.
+    older_positions =
+      Stream.map(1..2_001, fn
+        2_001 ->
+          assert :ok = World.stage_candidate(version, newer, [position(1)], [])
+          position(2_001)
+
+        index ->
+          position(index)
+      end)
+
+    older = %{source_digest: "synthetic-older-attempt", node_count: 2_001, relation_count: 0}
+
+    assert {:error, :stage_superseded} =
+             World.stage_candidate(version, older, older_positions, [])
+
+    assert {:ok, %{generation: 1, node_count: 1, source_digest: "synthetic-newer-attempt"}} =
+             World.activate_relayout(0, version)
+
+    assert {:ok, %{x: 100}} = World.lookup_device(scope(), version, "sr:host01")
+    assert {:ok, nil} = World.lookup_device(scope(), version, "sr:host02")
   end
 
   test "explicit relayout records the authorized stage and its exact job version together" do

@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager do
   use GenServer
 
   alias ServiceRadarCoreElx.CameraRelay.BoomboxSidecarWorker
+  alias ServiceRadarCoreElx.CameraRelay.SecureTempCapture
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -42,20 +43,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager do
     if get_in(state.branches, [relay_session_id, branch_id]) do
       {:reply, {:error, :already_exists}, state}
     else
-      worker_opts =
-        attrs
-        |> maybe_put(:result_ingestor, state.result_ingestor)
-        |> maybe_put(:telemetry_module, state.telemetry_module)
-
-      case DynamicSupervisor.start_child(state.supervisor, {BoomboxSidecarWorker, worker_opts}) do
-        {:ok, pid} ->
-          ref = Process.monitor(pid)
-          branch = build_branch(worker_opts, pid, ref)
-          next_state = put_branch(state, relay_session_id, branch_id, branch)
-          {:reply, {:ok, branch}, next_state}
-
+      case sidecar_output_path(attrs, relay_session_id, branch_id) do
         {:error, reason} ->
           {:reply, {:error, reason}, state}
+
+        {:ok, output_path} ->
+          start_sidecar(state, attrs, relay_session_id, branch_id, output_path)
       end
     end
   end
@@ -85,6 +78,48 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager do
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     {:noreply, delete_branch_by_ref(state, ref)}
+  end
+
+  # Allocated here rather than left to the worker's default, so the branch this
+  # manager returns names the same file the worker writes.
+  defp sidecar_output_path(attrs, relay_session_id, branch_id) do
+    case Map.get(attrs, :output_path) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        prefix = "serviceradar-boombox-sidecar-#{relay_session_id}-#{branch_id}"
+        SecureTempCapture.allocate_path(prefix, ".h264")
+    end
+  end
+
+  defp start_sidecar(state, attrs, relay_session_id, branch_id, output_path) do
+    worker_opts =
+      attrs
+      |> Map.put(:output_path, output_path)
+      |> maybe_put(:result_ingestor, state.result_ingestor)
+      |> maybe_put(:telemetry_module, state.telemetry_module)
+
+    case DynamicSupervisor.start_child(state.supervisor, {BoomboxSidecarWorker, worker_opts}) do
+      {:ok, pid} ->
+        ref = Process.monitor(pid)
+        branch = build_branch(worker_opts, pid, ref)
+        next_state = put_branch(state, relay_session_id, branch_id, branch)
+        {:reply, {:ok, branch}, next_state}
+
+      {:error, reason} ->
+        maybe_cleanup_allocated_path(attrs, worker_opts.output_path)
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  # Only a path this manager allocated is ours to remove; a caller-supplied
+  # path stays with the caller.
+  defp maybe_cleanup_allocated_path(attrs, path) do
+    case Map.get(attrs, :output_path) do
+      supplied when is_binary(supplied) and supplied != "" -> :ok
+      _ -> SecureTempCapture.cleanup_path(path)
+    end
   end
 
   defp build_branch(attrs, pid, ref) do

@@ -42,8 +42,9 @@ Checked:
 
 - `EventWriter.Processors.Telemetry` writes `timeseries_metrics` with
   `on_conflict: :nothing`.
-- `EventWriter.Processors.Flows` and `Sweep` write
-  `ocsf_network_activity` with `on_conflict: :nothing`.
+- `EventWriter.Processors.Flows` writes
+  `ocsf_network_activity` with `on_conflict: :nothing` (`EventWriter.Processors.Sweep`
+  was a historical example here; that unregistered processor has been removed).
 - No `UPDATE` / `Repo.update` / `on_conflict: {:replace, ...}` targeting
   either table showed up in core-elx.
 

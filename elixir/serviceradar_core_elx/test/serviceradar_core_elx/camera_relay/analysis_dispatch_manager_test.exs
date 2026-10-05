@@ -692,6 +692,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
+  # Previously intermittent: remove_analysis_branch used to reply before the child
+  # was gone, so a quick re-open of the same branch name hit "Duplicated names";
+  # fixed by deferring the reply to handle_child_terminated/3.
   test "emits timeout and failure paths without crashing relay ingest" do
     relay_session_id = "relay-analysis-dispatch-3"
     branch_id = "analysis-http-3"

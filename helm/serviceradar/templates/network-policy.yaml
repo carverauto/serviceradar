@@ -67,6 +67,12 @@
 {{- $gatewayApiEnvoyNamespace := default "envoy-gateway-system" $gatewayApi.envoyGatewayNamespace -}}
 {{- $gatewayApiAgentGatewayEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiAgentGateway.envoyGatewayNamespace -}}
 {{- $gatewayApiAgentGatewayPorts := list (dict "protocol" "TCP" "port" $agentGatewayGrpcPort) (dict "protocol" "TCP" "port" $agentGatewayArtifactPort) -}}
+{{- $gatewayApiNatsLeaf := default (dict) $gatewayApi.natsLeaf -}}
+{{- $gatewayApiNatsLeafEnabled := default false $gatewayApiNatsLeaf.enabled -}}
+{{- $gatewayApiNatsLeafEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiNatsLeaf.envoyGatewayNamespace -}}
+{{- $natsLeafnodes := default (dict) (default (dict) .Values.nats).leafnodes -}}
+{{- $natsLeafnodesEnabled := default false $natsLeafnodes.enabled -}}
+{{- $natsLeafnodesPort := int (default 7422 $natsLeafnodes.port) -}}
 {{- $gatewayApiFlowCollector := default (dict) $gatewayApi.flowCollector -}}
 {{- $gatewayApiFlowCollectorEnabled := default false $gatewayApiFlowCollector.enabled -}}
 {{- $gatewayApiFlowCollectorEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiFlowCollector.envoyGatewayNamespace -}}
@@ -367,6 +373,32 @@ spec:
               kubernetes.io/metadata.name: {{ $gatewayApiAgentGatewayEnvoyNamespace | quote }}
       ports:
 {{- include "serviceradar.networkPolicyPorts" $gatewayApiAgentGatewayPorts | trim | nindent 8 }}
+{{- end }}
+{{- if and $natsLeafnodesEnabled $gatewayApiNatsLeafEnabled }}
+---
+# Gateway-mode edge leaf ingress: edge-site NATS leaf servers reach the Gateway
+# API data plane first, whose envoy proxy pods forward raw TCP to the NATS
+# leafnode listener. Admit only that namespace and only the leafnode port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-nats-leaf-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-nats
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiNatsLeafEnvoyNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $natsLeafnodesPort }}
 {{- end }}
 {{- if and $flowCollectorEnabled $flowCollectorExternalEnabled $hasFlowCollectorExternalCIDRs $hasFlowCollectorExternalPorts (ne $flowCollectorServiceType "ClusterIP") }}
 ---

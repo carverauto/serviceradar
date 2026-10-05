@@ -685,6 +685,7 @@ Wasm packages are served by the web-ng API and stored using a configurable backe
 For core plugin blob delivery, set:
 
 - `PLUGIN_STORAGE_PUBLIC_URL` — base URL for web-ng (your deployment's web-ng endpoint)
+- `AGENT_PLUGIN_STORAGE_PUBLIC_URL` — optional agent-facing override minted into agent download URLs ahead of `PLUGIN_STORAGE_PUBLIC_URL`; use it when agents reach artifacts through a different address (for example the in-cluster gateway service when the load balancer has no hairpin NAT)
 - `PLUGIN_STORAGE_SIGNING_SECRET` — must match web-ng
 - `PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS` — default `86400`
 
@@ -722,18 +723,11 @@ Page size, pages per invocation, request timeout, retry attempts, the pull-wide 
 
 There is no separate `Max IOCs` completeness cap. Legacy `max_iocs`, `max_indicators`, and `otx_max_indicators` values are accepted and ignored. Assignment edits preserve unrelated configuration while removing the obsolete keys. The legacy database column remains inert for rollback compatibility during this release window and can be removed by a later cleanup migration after older supported releases no longer read it.
 
-Core-hosted OTX sync is also available for deployments that prefer the control plane to poll OTX directly. Configure the core worker with these environment variables:
+Core-hosted OTX sync polls from the control plane when **Settings -> Networks -> Threat Intel** has OTX enabled, **Execution Mode** set to **Core Worker**, and a **Core OTX credential** selected. Create or rotate an **AlienVault OTX (core)** API token in **Settings -> Networks -> Credentials**. The singleton feed supplies the scope; this core-owned descriptor does not provision device-query rules or edge assignments. The saved reference has a restrictive foreign key, appears in credential usage with a link back to Threat Intel settings, and prevents deletion while selected.
 
-- `SERVICERADAR_OTX_API_KEY` or `SERVICERADAR_OTX_API_KEY_FILE`
-- `SERVICERADAR_OTX_BASE_URL` (defaults to `https://otx.alienvault.com`)
-- `SERVICERADAR_OTX_PAGE_SIZE`
-- `SERVICERADAR_OTX_TIMEOUT_MS`
-- `SERVICERADAR_OTX_MAX_RETRIES`
-- `SERVICERADAR_OTX_BACKOFF_MS`
-- `SERVICERADAR_OTX_MODIFIED_SINCE`
-- `SERVICERADAR_OTX_PARTITION`
+Upgrades move a previously saved OTX key into the canonical CNPG credential inventory without key re-entry. The migration copies encrypted scalar material inside CNPG and clears the legacy settings copy; it never prints or decrypts the key. The worker resolves its token through a persisted, audited broker grant restricted to GET requests to `otx.alienvault.com:443`. OTX API-key environment and file secrets are no longer consumed. The core endpoint is `https://otx.alienvault.com`; runtime settings can tune page size, timeout, retries, backoff, partition and the initial modified-since cursor without carrying authentication.
 
-Prefer the `*_FILE` form for Kubernetes secrets. Rotate OTX keys through the secret backend or Kubernetes secret, then restart or roll the affected pod so runtime config is refreshed. After rotation, use **Sync Now** on the Threat Intel settings page and verify Sync Health shows a fresh successful run.
+The NetFlow security scheduler keeps one sync chain on the configured interval, which is at least one hour. **Edge Plugin** mode leaves the core worker off. Use **Sync Now** and verify Sync Health shows a new successful run. **Sync Now** says the sync is already queued when a job is waiting. Sync Health shows the last attempt, last success, last failure, counts, and the `modified_since` cursor. A **Stale** badge means there has been no successful sync, or the last success is older than twice the longer of the configured interval and one day. A failed fetch records only the error kind and keeps the last success, counts, and cursor.
 
 When raw payload archival is enabled in Threat Intel settings, core stores decoded OTX page payload snapshots in NATS Object Store. Archival is optional; if NATS Object Store is unavailable, normalized indicator ingest continues and the archive failure is logged. The core defaults are:
 

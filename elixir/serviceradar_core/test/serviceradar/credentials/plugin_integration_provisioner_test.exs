@@ -663,6 +663,54 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
     end
   end
 
+  test "NOM config retrieval waits for devices without disarming inventory or unrelated secondary schedules" do
+    for {config, retrieve_enabled} <- [
+          {%{}, false},
+          {%{"devices" => []}, false},
+          {%{"devices" => [], "device_id" => "1001", "device_uid" => "sr:host01.example.com"},
+           false},
+          {%{"devices" => [%{"device_id" => "1001", "device_uid" => "sr:host01.example.com"}]},
+           true},
+          {%{"device_id" => "1001", "device_uid" => "sr:host01.example.com"}, true}
+        ] do
+      profile = multi_schedule_profile()
+
+      retrieve =
+        profile["producer_schedules"]
+        |> List.last()
+        |> Map.put("schedule_id", "opentext-nom.config.retrieve")
+
+      profile =
+        profile
+        |> put_in(["provisioning", "schedule_ids"], [
+          "example-inventory.refresh",
+          "opentext-nom.config.retrieve",
+          "example-inventory.telemetry"
+        ])
+        |> Map.update!("producer_schedules", &(&1 ++ [retrieve]))
+        |> put_in(["config_schema"], %{"type" => "object"})
+
+      rule =
+        integration_rule()
+        |> put_in([:metadata, "schedule_enabled"], true)
+        |> put_in([:metadata, "plugin_config"], config)
+
+      assert {:ok, result} =
+               PluginIntegrationProvisioner.reconcile_rule(rule, profile,
+                 actor: %{id: "system"},
+                 assignment_store: AssignmentStore,
+                 schedule_store: ScheduleStore
+               )
+
+      assert Enum.find(result.schedules, &(&1.schedule_id == "example-inventory.refresh")).enabled
+
+      assert Enum.find(result.schedules, &(&1.schedule_id == "example-inventory.telemetry")).enabled
+
+      assert Enum.find(result.schedules, &(&1.schedule_id == "opentext-nom.config.retrieve")).enabled ==
+               retrieve_enabled
+    end
+  end
+
   defp multi_schedule_profile do
     refresh = integration_profile()["producer_schedule"]
 

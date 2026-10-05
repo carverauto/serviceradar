@@ -193,8 +193,8 @@ The system SHALL schedule OTX sync, edge collector runs, current NetFlow matchin
 #### Scenario: Operator triggers manual sync
 - **GIVEN** an operator has permission to manage threat intelligence settings
 - **WHEN** the operator selects "Sync now"
-- **THEN** the system SHALL enqueue an OTX sync job
-- **AND** the UI SHALL show whether the job was enqueued or the scheduler is unavailable
+- **THEN** the system SHALL enqueue an OTX sync job only when no incomplete core sync job exists
+- **AND** the UI SHALL show that the sync was queued, that it is already queued, or that the scheduler is unavailable
 
 #### Scenario: Operator triggers current NetFlow matching
 - **GIVEN** active OTX indicators are available

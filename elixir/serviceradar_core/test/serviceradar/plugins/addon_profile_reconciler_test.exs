@@ -623,8 +623,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
   end
 
   test "a containerized agent is skipped for a systemd-supervised add-on" do
-    # A container has no host system unit dir and no root-owned agent-updater, and the
-    # agent refuses the whole assignment set on such a host. Materializing one anyway is
+    # A container has no host system unit dir and no root-owned agent-updater, so it
+    # cannot install a systemd-supervised add-on. Materializing one anyway is
     # what produced a permanently-silent rollout target that timed out and failed the
     # rollout for every bare-metal host in the fleet.
     profile =

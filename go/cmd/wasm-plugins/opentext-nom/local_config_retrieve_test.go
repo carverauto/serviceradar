@@ -108,8 +108,21 @@ func TestLocalHostRunsConfigRetrieveAndStagesArtifact(t *testing.T) {
 	if string(body) != syntheticIOS {
 		t.Fatalf("staged body = %q", body)
 	}
-	if artifact.ObjectKey != "opentext-nom/running-config/1001" {
+	if !strings.HasPrefix(artifact.ObjectKey, "opentext-nom/running-config/1001/") {
 		t.Fatalf("object key = %q", artifact.ObjectKey)
+	}
+
+	next, err := sdk.RunLocalHost(sdk.LocalHostOptions{
+		ConfigJSON: runtimeConfig, HTTPHandler: broker.Handle, ArtifactDir: artifactDir,
+	}, runPlugin)
+	if err != nil || len(next.Artifacts) != 1 {
+		t.Fatalf("repeated retrieval failed: %v", err)
+	}
+	if next.Artifacts[0].ObjectKey == artifact.ObjectKey {
+		t.Fatal("repeated retrieval overwrote the earlier attempt's object")
+	}
+	if _, err := os.Stat(artifact.Path); err != nil {
+		t.Fatal("earlier result lost its own staged object")
 	}
 
 	var result struct {

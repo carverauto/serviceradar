@@ -72,7 +72,15 @@ defmodule ServiceRadar.Plugins.StorageToken do
 
     cond do
       base_url == nil ->
-        Logger.debug("plugin storage public URL not configured")
+        # Agents get no download URL for this artifact and cannot fetch it;
+        # an operator must see that before a scheduled run fails.
+        Logger.warning(
+          "Plugin storage public URL not configured: agents receive no download URL for " <>
+            "#{url_path}. Set PLUGIN_STORAGE_PUBLIC_URL (or AGENT_PLUGIN_STORAGE_PUBLIC_URL) " <>
+            "on the node that generates agent configs.",
+          package_id: package_id
+        )
+
         nil
 
       secret == nil ->
@@ -85,7 +93,7 @@ defmodule ServiceRadar.Plugins.StorageToken do
       true ->
         exp =
           DateTime.utc_now()
-          |> DateTime.add(download_ttl_seconds(), :second)
+          |> DateTime.shift(second: download_ttl_seconds())
           |> DateTime.to_unix()
 
         payload = %{

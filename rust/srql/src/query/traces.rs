@@ -1,4 +1,4 @@
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, bucket_overlap_clause};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -262,9 +262,8 @@ fn build_summary_rollup_stats(plan: &QueryPlan) -> Result<Option<TracesStatsSql>
 
     // Apply time range filter on bucket column
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push("bucket >= ?".to_string());
+        clauses.push(bucket_overlap_clause("bucket", "5 minutes", "?", "?"));
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push("bucket < ?".to_string());
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
@@ -308,9 +307,8 @@ fn build_red_rollup_stats(plan: &QueryPlan) -> Result<Option<TracesStatsSql>> {
 
     // Apply time range filter on bucket column
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push("bucket >= ?".to_string());
+        clauses.push(bucket_overlap_clause("bucket", "1 hour", "?", "?"));
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push("bucket < ?".to_string());
         binds.push(SqlBindValue::Timestamp(*end));
     }
 

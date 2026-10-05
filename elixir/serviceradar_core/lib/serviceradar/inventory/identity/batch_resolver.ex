@@ -6,22 +6,32 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   Decision order per update (mirrors `Resolver.resolve_device_id/2`):
 
     1. service-component IDs pass through
-    2. strong-identifier match from the preloaded identifier map
+    2. a retired source-authoritative identifier returned to a record
+       (`SourceReactivation.resolve/3`, the lookups' `reactivated`) resolves to
+       that record
+    3. strong-identifier match from the preloaded identifier map
        (agent_id matches are trusted-checked; merged-away devices are
        followed to their canonical survivor). An update carrying a
        source-authoritative identifier never matches a record holding a
        different one: the source-authoritative identifier decides, the shared
        identifier is evidence only, and the override is recorded
        (`SourceAuthorityGuard.record_overrides/1`).
-    3. pre-set `sr:` device_id — a hint only, canonical-followed
-    4. deterministic UID when strong identifiers exist (canonical-followed);
+    4. a retired source-authoritative identifier re-issued
+       (`SourceReactivation.resolve/3`, the lookups' `reissued`) resolves to
+       the uid it was re-issued to
+    5. pre-set `sr:` device_id — a hint only, canonical-followed
+    6. deterministic UID when strong identifiers exist (canonical-followed);
        a locally administered MAC is not one (`Ids.has_strong_identifier?/1`)
-    5. IP/alias map fallback ONLY when no strong identifier is present
-    6. deterministic (IP-seeded) or random UID
+    7. IP/alias map fallback ONLY when no strong identifier is present
+    8. deterministic (IP-seeded) or random UID
 
-  Step 5's gate is load-bearing: resolving strong-identified updates by
+  Step 7's gate is load-bearing: resolving strong-identified updates by
   IP collapsed distinct integration devices onto whichever device
   happened to hold the IP (the 500-per-batch integration_id pile-ups).
+
+  An update carrying a re-issued identifier is never resolved to a record that
+  held it, whichever step decided: it goes to the uid the identifier was
+  re-issued to instead.
   """
 
   alias ServiceRadar.Ash.Page
@@ -32,6 +42,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
+  alias ServiceRadar.Inventory.Identity.SourceReactivation
   alias ServiceRadar.Inventory.MergeAudit
 
   require Ash.Query
@@ -50,7 +61,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   ]
 
   @type lookup_key :: {atom(), String.t(), String.t()}
-  @type lookups :: %{identifiers: %{lookup_key() => String.t()}, ip: %{String.t() => String.t()}}
+  @type lookups :: %{
+          required(:identifiers) => %{lookup_key() => String.t()},
+          required(:ip) => %{String.t() => String.t()},
+          optional(:reactivated) => %{lookup_key() => String.t()},
+          optional(:reissued) => %{lookup_key() => SourceReactivation.reissue()}
+        }
 
   @doc """
   Resolve a batch of `{update, ids}` pairs.
@@ -67,7 +83,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       identifiers: lookups.identifiers,
       trusted: preload_agent_trust(updates_with_ids, lookups, actor),
       canonical_macs: preload_canonical_macs(updates_with_ids, lookups, actor),
-      source_ids: preload_source_ids(updates_with_ids, lookups, actor)
+      source_ids: preload_source_ids(updates_with_ids, lookups, actor),
+      reactivated: Map.get(lookups, :reactivated, %{}),
+      reissued: Map.get(lookups, :reissued, %{})
     }
 
     # Phase 1: candidate decision per update (no per-update queries). Each
@@ -109,7 +127,10 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     {resolved_rev, strong, overrides_rev} =
       Enum.reduce(candidates, {[], MapSet.new(), []}, fn {update, ids, device_id},
                                                          {acc, strong, overrides} ->
-        final_id = Map.get(canonical, device_id, device_id)
+        final_id =
+          canonical
+          |> Map.get(device_id, device_id)
+          |> away_from_holders(ids, preloads.reissued)
 
         strong =
           if Ids.has_strong_identifier?(ids), do: MapSet.put(strong, final_id), else: strong
@@ -139,7 +160,13 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       Ids.service_device_id?(update.device_id) ->
         update.device_id
 
+      device_id = reactivated_uid(ids, preloads.reactivated) ->
+        device_id
+
       device_id = strong_match(ids, preloads) ->
+        device_id
+
+      device_id = reissued_uid(ids, preloads.reissued) ->
         device_id
 
       Ids.serviceradar_uuid?(update.device_id) ->
@@ -154,6 +181,43 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
           device_id -> device_id
         end
     end
+  end
+
+  # The record a retired source-authoritative identifier the update carries was returned to: the
+  # return is the decision, and the record holds the identifier again.
+  defp reactivated_uid(_ids, reactivated) when map_size(reactivated) == 0, do: nil
+
+  defp reactivated_uid(ids, reactivated) do
+    Enum.find_value(SourceAuthorityGuard.update_source_ids(ids), fn {type, value} ->
+      Map.get(reactivated, {type, value, ids.partition})
+    end)
+  end
+
+  # The uid a retired source-authoritative identifier the update carries was re-issued to, when
+  # no record without a history of the type matched first.
+  defp reissued_uid(_ids, reissued) when map_size(reissued) == 0, do: nil
+
+  defp reissued_uid(ids, reissued) do
+    Enum.find_value(SourceAuthorityGuard.update_source_ids(ids), fn {type, value} ->
+      case Map.get(reissued, {type, value, ids.partition}) do
+        %{device_uid: device_uid} -> device_uid
+        nil -> nil
+      end
+    end)
+  end
+
+  # An update carrying a re-issued identifier is moved off a record that held it, whichever
+  # step resolved it there (a shared identifier, a merge survivor, the sibling heal): writing it
+  # there would hand the record the identifier `SourceReactivation` judged it does not get back.
+  defp away_from_holders(device_id, _ids, reissued) when map_size(reissued) == 0, do: device_id
+
+  defp away_from_holders(device_id, ids, reissued) do
+    Enum.find_value(SourceAuthorityGuard.update_source_ids(ids), device_id, fn {type, value} ->
+      case Map.get(reissued, {type, value, ids.partition}) do
+        %{device_uid: target, holders: holders} -> if device_id in holders, do: target
+        nil -> nil
+      end
+    end)
   end
 
   # Maps tombstoned or purged-after-merge candidate IDs to their canonical

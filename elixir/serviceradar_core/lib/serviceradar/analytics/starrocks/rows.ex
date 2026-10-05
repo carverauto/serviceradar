@@ -15,6 +15,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :otel_metric_points
           | :otel_traces
           | :bmp_routing_events
+          | :flow_attribution_observations
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -110,6 +111,17 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     links: 1_048_576
   }
 
+  # priv/starrocks/0026: every column of flow_process_attribution_observations
+  # under the same name, as built by FlowAttribution.EventRows. comm, cmdline and
+  # workload_identity come from the edge and are truncated UTF-8-safely to their
+  # column widths so no observation is filtered out of a Stream Load batch.
+  @observation_limits %{
+    comm: 256,
+    cmdline: 65_533,
+    container_id: 256,
+    workload_identity: 1_048_576
+  }
+
   @spec encode(dataset(), [map()]) :: [map()]
   def encode(dataset, rows) when is_list(rows) do
     Enum.map(rows, &encode_row(dataset, &1))
@@ -126,6 +138,27 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "comm" => stringify(field(row, :comm)),
       "cmdline" => stringify(field(row, :cmdline)),
       "workload_identity" => json_text(field(row, :workload_identity))
+    }
+  end
+
+  defp encode_row(:flow_attribution_observations, row) do
+    %{
+      "observed_at" => datetime(value(row, :observed_at)),
+      "partition" => stringify(value(row, :partition)),
+      "proto" => value(row, :proto),
+      "local_ip" => stringify(value(row, :local_ip)),
+      "local_port" => value(row, :local_port),
+      "remote_ip" => stringify(value(row, :remote_ip)),
+      "remote_port" => value(row, :remote_port),
+      "agent_id" => stringify(value(row, :agent_id)),
+      "attribution_key" => stringify(value(row, :attribution_key)),
+      "pid" => value(row, :pid),
+      "comm" => observation_bounded(:comm, value(row, :comm)),
+      "cmdline" => observation_bounded(:cmdline, value(row, :cmdline)),
+      "uid" => value(row, :uid),
+      "container_id" => observation_bounded(:container_id, value(row, :container_id)),
+      "workload_identity" =>
+        observation_bounded(:workload_identity, json_text(value(row, :workload_identity)))
     }
   end
 
@@ -634,6 +667,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       _ -> nil
     end
   end
+
+  defp observation_bounded(column, value),
+    do: bmp_bounded(value, Map.fetch!(@observation_limits, column))
 
   defp json_text(nil), do: nil
   defp json_text(value) when is_binary(value), do: value

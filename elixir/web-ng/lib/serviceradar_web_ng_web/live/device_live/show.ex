@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
+  alias ServiceRadarWebNGWeb.DeviceLive.SourceRetiredData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
   alias ServiceRadarWebNGWeb.MetricWindowComponents
@@ -942,6 +943,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       socket
       |> assign(:sysmon_identity, sysmon_identity)
       |> assign(:sysmon_time_range, time_range)
+      |> assign(:can_view_anomaly_capacity, can_view_anomaly_capacity?)
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
       assigns =
@@ -1101,6 +1103,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:limit, limit)
     |> assign(:results, results)
     |> assign(:device_row, device_row)
+    |> assign(:source_retirement, SourceRetiredData.load(device_row, scope))
     |> maybe_reset_supplemental_defaults(refresh?)
     |> assign(:active_tab, requested_tab)
     |> assign(
@@ -2110,12 +2113,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {start_dt, end_dt} =
       if match?(%DateTime{}, start_dt) and match?(%DateTime{}, end_dt) do
         {
-          DateTime.add(start_dt, -@detail_metric_window_padding_seconds, :second),
-          DateTime.add(end_dt, @detail_metric_window_padding_seconds, :second)
+          DateTime.shift(start_dt, second: -@detail_metric_window_padding_seconds),
+          DateTime.shift(end_dt, second: @detail_metric_window_padding_seconds)
         }
       else
         half_window = div(@detail_metric_min_window_seconds, 2)
-        {DateTime.add(center, -half_window, :second), DateTime.add(center, half_window, :second)}
+        {DateTime.shift(center, second: -half_window), DateTime.shift(center, second: half_window)}
       end
 
     expand_detail_window_to_minimum(start_dt, end_dt, center)
@@ -2126,7 +2129,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {start_dt, end_dt}
     else
       half_window = div(@detail_metric_min_window_seconds, 2)
-      {DateTime.add(center, -half_window, :second), DateTime.add(center, half_window, :second)}
+      {DateTime.shift(center, second: -half_window), DateTime.shift(center, second: half_window)}
     end
   end
 

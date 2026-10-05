@@ -1,15 +1,19 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +21,7 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
+	"github.com/rs/zerolog"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -539,6 +544,133 @@ func TestPluginManagerApplyConfigRefreshesDownloadTokenWithoutRestart(t *testing
 	}
 	if _, token := streamAssignment.downloadCredentials(); token != rotatedDownloadToken {
 		t.Fatalf("stream download token = %q, want %s", token, rotatedDownloadToken)
+	}
+}
+
+// actionOnlyPluginConfig builds a single action-only assignment: action-only
+// assignments start no scheduled runner, so the only thing that can fetch
+// their Wasm is the prefetch path under test.
+func actionOnlyPluginConfig(downloadURL, downloadToken string) *proto.PluginConfig {
+	return &proto.PluginConfig{
+		Assignments: []*proto.PluginAssignmentConfig{
+			{
+				AssignmentId:  "action-prefetch-1",
+				PluginId:      "example-inventory",
+				PackageId:     "pkg-prefetch-1",
+				Entrypoint:    "run_check",
+				Enabled:       true,
+				IntervalSec:   3600,
+				TimeoutSec:    5,
+				Capabilities:  []string{pluginCapabilityActionOnly},
+				DownloadUrl:   downloadURL,
+				DownloadToken: downloadToken,
+			},
+		},
+	}
+}
+
+// A download URL that was missing on the first config and is delivered later
+// arrives on the unchanged-config path (the fingerprint excludes the download
+// request). The corrected URL must be fetched right away, not at the first run.
+func TestPluginManagerApplyConfigPrefetchesWhenDownloadURLArrivesLater(t *testing.T) {
+	requests := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r.Header.Get("X-ServiceRadar-Plugin-Token")
+		_, _ = w.Write([]byte("\x00asm"))
+	}))
+	defer server.Close()
+
+	mgr := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger:   logger.NewTestLogger(),
+		CacheDir: t.TempDir(),
+	})
+	defer mgr.Stop()
+
+	mgr.ApplyConfig(actionOnlyPluginConfig("", ""))
+	mgr.ApplyConfig(actionOnlyPluginConfig(server.URL+"/artifacts/plugins/pkg-prefetch-1/blob/download", "token-fresh"))
+
+	select {
+	case token := <-requests:
+		if token != "token-fresh" {
+			t.Fatalf("prefetch sent token %q, want token-fresh", token)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("corrected download URL was never prefetched")
+	}
+
+	ready := func() bool {
+		mgr.stateMu.Lock()
+		defer mgr.stateMu.Unlock()
+		state := mgr.states["action-prefetch-1"]
+		return state != nil && state.ready
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !ready() {
+		if time.Now().After(deadline) {
+			t.Fatal("assignment never became ready after the prefetch download")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// recordingLogger is a logger.Logger that writes JSON lines to a buffer.
+type recordingLogger struct {
+	zerolog.Logger
+}
+
+func (*recordingLogger) SetLevel(zerolog.Level) {}
+func (*recordingLogger) SetDebug(bool)          {}
+func (l *recordingLogger) WithComponent(component string) zerolog.Logger {
+	return l.Logger.With().Str("component", component).Logger()
+}
+func (l *recordingLogger) WithFields(fields map[string]any) zerolog.Logger {
+	return l.Logger.With().Fields(fields).Logger()
+}
+
+// An assignment delivered without a download URL can never fetch its binary.
+// That must be visible at warn level when the config is applied, not only when
+// a scheduled run eventually fails.
+func TestPluginManagerApplyConfigWarnsWhenAssignmentHasNoDownloadURL(t *testing.T) {
+	out := &syncBuffer{}
+	mgr := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger:   &recordingLogger{Logger: zerolog.New(out)},
+		CacheDir: t.TempDir(),
+	})
+	defer mgr.Stop()
+
+	mgr.ApplyConfig(actionOnlyPluginConfig("", ""))
+
+	var warned bool
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		var entry map[string]any
+		if json.Unmarshal([]byte(line), &entry) != nil {
+			continue
+		}
+		message, _ := entry["message"].(string)
+		if entry["level"] == "warn" && entry["assignment_id"] == "action-prefetch-1" &&
+			strings.Contains(message, "no download URL") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("expected a warn log naming the assignment with no download URL, got:\n%s", out.String())
 	}
 }
 

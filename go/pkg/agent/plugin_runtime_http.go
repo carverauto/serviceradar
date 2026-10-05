@@ -553,6 +553,9 @@ func (m *PluginManager) credentialBrokerCacheDecision(grant credentialBrokerGran
 	}
 
 	key := strings.TrimSpace(grant.GrantID)
+	if key == "" && grant.ResolveBindingID != "" {
+		key = "binding:" + grant.ResolveAssignmentID + ":" + grant.ResolveBindingID
+	}
 	if key == "" {
 		key = strings.TrimSpace(grant.CredentialSecretRef)
 	}

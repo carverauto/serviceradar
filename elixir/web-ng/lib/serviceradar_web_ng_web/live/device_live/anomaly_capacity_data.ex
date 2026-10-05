@@ -764,7 +764,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     with %DateTime{} = start_dt <- datetime_value(Map.get(context, "bucket_started_at")),
          %DateTime{} = end_dt <- datetime_value(Map.get(context, "bucket_ended_at")),
          seconds when seconds > 0 <- DateTime.diff(end_dt, start_dt, :second) do
-      start_dt |> DateTime.add(div(seconds, 2), :second) |> DateTime.to_iso8601()
+      start_dt |> DateTime.shift(second: div(seconds, 2)) |> DateTime.to_iso8601()
     else
       _ -> nil
     end

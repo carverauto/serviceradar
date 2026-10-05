@@ -56,6 +56,44 @@ tests:
             name: SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES
             value: "365"
           count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_BMP
+            value: "365"
+          count: 1
+      # Process attribution observations are raw join inputs whose value decays
+      # within days, so their seed is a month, not the warehouse's year.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_ATTRIBUTION
+            value: "30"
+          count: 1
+
+  # Demo keeps one day of attribution observations; the other datasets keep the
+  # shipped year because demo's values set only the attribution key.
+  - it: seeds demo with one day of process attribution
+    values:
+      - ../values-demo.yaml
+    set:
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_ATTRIBUTION
+            value: "1"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
+            value: "365"
+          count: 1
 
   # The hourly views refresh asynchronously with no schedule, so readers need
   # the operator's lag tolerance in the env to know when to stop trusting them.

@@ -145,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   end
 
   defp open_pending_request(relay_state, request_id, return_to) do
-    expires_at = DateTime.add(DateTime.utc_now(), authn_request_ttl_seconds(), :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), second: authn_request_ttl_seconds())
     # An unusable path is dropped rather than failing the login.
     return_to = if is_binary(return_to) and byte_size(return_to) <= 2048, do: return_to
 
@@ -384,9 +384,6 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       Hooks.on_user_authenticated(user, %{"method" => "saml", "assertion" => assertion})
 
       _ = UserAuthEvents.record_login(conn, user, :saml)
-
-      # The stored path from the pending request; log_in_user/3 keeps it same-origin.
-      return_to = return_to || ~p"/dashboard"
 
       identity_claims =
         user_info.attributes

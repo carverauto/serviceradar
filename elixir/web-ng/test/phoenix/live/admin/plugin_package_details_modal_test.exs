@@ -112,15 +112,47 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
     assert html =~ "example_api_token"
     assert html =~ "ssh_private_key"
     assert html =~ "ssh_host_key_policies"
-    # Display contract key, config schema, and every modal section render.
+    # Display contract key, config schema, and read-only modal sections render.
     assert html =~ "com.example.inventory.display@1.0.0"
     assert html =~ "Timeout"
-    assert html =~ "Upload Wasm Blob"
+    refute html =~ "Upload Wasm Blob"
     assert html =~ "Wasm Package Requests"
     assert html =~ "Version History"
     assert html =~ "Assign to Agent"
     # The crashed sites render user timezone-aware timestamps.
     assert html =~ "Etc/UTC"
+  end
+
+  test "viewer details omit upload controls and upload credentials" do
+    package = %{package_fixture() | status: :staged, approved_at: nil}
+
+    assigns =
+      package
+      |> assigns_fixture()
+      |> Map.merge(%{
+        can_stage_plugins: false,
+        upload_url: "https://example.invalid/api/plugin-packages/package-id/blob",
+        upload_token: "synthetic-upload-token"
+      })
+
+    html =
+      assigns
+      |> Index.render()
+      |> rendered_to_string()
+
+    refute html =~ "Upload Wasm Blob"
+    refute html =~ "synthetic-upload-token"
+    refute html =~ "https://example.invalid/api/plugin-packages/package-id/blob"
+    assert html =~ "Download token"
+
+    stager_html =
+      assigns
+      |> Map.put(:can_stage_plugins, true)
+      |> Index.render()
+      |> rendered_to_string()
+
+    assert stager_html =~ "Upload Wasm Blob"
+    assert stager_html =~ "synthetic-upload-token"
   end
 
   defp package_fixture do

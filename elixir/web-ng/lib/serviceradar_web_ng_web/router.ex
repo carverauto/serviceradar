@@ -181,9 +181,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(SecurityHeaders)
     plug(ApiAuth)
     # Confines CLI device-flow tokens to the routes their narrow scope was
-    # granted for. Coarse client-credential scopes, API keys and sessions pass
-    # through untouched. See `Auth.NarrowScopes`.
+    # granted for. Coarse client-credential scopes pass through to the
+    # method-aware gate below. See `Auth.NarrowScopes`.
     plug(ConfineNarrowScope)
+    # A coarse `read` grant permits reads and the audited read-only POST
+    # exception only; `write`/`admin` reach mutations subject to resource RBAC.
+    # Narrow grants retain their exact allowlists. User access tokens and
+    # legacy static keys retain their existing reach on this pipeline.
+    plug(RequireConfigurationScope,
+      read_only_post_paths: [["api", "v1", "identity", "resolve"]],
+      allow_api_key_auth: true
+    )
   end
 
   pipeline :configuration_api do
@@ -467,10 +475,12 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # The provider segment is part of the path so each provider gets a distinct URL
-  # to register with, and so the prefix stays under
-  # `/api/notifications/callbacks/` - RawBodyReader matches on
-  # `String.starts_with?`, so a route at the bare `/api/notifications/callbacks`
-  # would NOT be buffered and every signature check would fail confusingly.
+  # to register with. RawBodyReader buffers notification callbacks two ways:
+  # `buffered?/1` matches the `/api/notifications/callbacks/` prefix on the raw
+  # `request_path`, and `NotificationCallbackBody.callback?/1` matches the
+  # URI-decoded `path_info` segments (so percent-encoded spellings of the
+  # callback path get the same 1 MiB envelope and exact raw-byte retention for
+  # signature verification, including the bare callbacks path).
   scope "/api/notifications/callbacks", ServiceRadarWebNGWeb.Api do
     pipe_through([:notification_callback, :rate_limit_notification_callback])
 
@@ -829,6 +839,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     # NATS account & credentials
     get("/nats/account", CollectorController, :account_status)
     get("/nats/credentials", CollectorController, :credentials)
+
+    # Edge sites (NATS leaf servers)
+    get("/edge-sites", EdgeSiteController, :index)
+    post("/edge-sites", EdgeSiteController, :create)
+    get("/edge-sites/:id", EdgeSiteController, :show)
+    delete("/edge-sites/:id", EdgeSiteController, :delete)
+    post("/edge-sites/:id/bundle", EdgeSiteController, :bundle)
+
+    # Read-only edge views for the CLI
+    get("/agents", AdminAgentController, :index)
+    get("/version", ProductVersionController, :show)
   end
 
   ## CLI plugin publish (stage + bundle upload token).
@@ -1307,6 +1328,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/flows/app-rules/new", Settings.NetflowLive.Index, :new_app_rule)
       live("/settings/flows/app-rules/:id/edit", Settings.NetflowLive.Index, :edit_app_rule)
       live("/settings/mail", Settings.MailLive, :index)
+      live("/settings/data-retention", Settings.DataRetentionLive, :index)
 
       # Integration sources configuration
       live("/settings/networks/integrations", Settings.IntegrationsLive.Index, :index)

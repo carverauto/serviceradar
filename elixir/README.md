@@ -53,7 +53,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_generation`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
 | `elixir/serviceradar_agent_gateway` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/web-ng` | `erlang_app`, `unit_tests`, `deps_cache`, `precommit`, `release_tar` | Phoenix; see `elixir/web-ng/AGENTS.md` |
-| `elixir/serviceradar_core_elx` | `release_tar` | Release wrapper, no `mix_app` |
+| `elixir/serviceradar_core_elx` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/palisade` | none | Not compiled by Bazel; its `BUILD.bazel` only exports `mix.lock` for the Hex closure |
 
 Vendored Hex packages that used to sit in this tree now live in
@@ -345,8 +345,8 @@ PostgreSQL fixture (CNPG with TimescaleDB and Apache AGE).
 
 - **8 lanes**: `integration_tests_async` plus `integration_tests_serial_0` through
   `integration_tests_serial_6`. Each has its own database; CI clones all eight in one
-  `//rust/integration-db:provision_generation` invocation. For legacy target retirement and
-  forthcoming per-lane clone targets, see
+  `//rust/integration-db:provision_generation` invocation. For one lane,
+  `//rust/integration-db:provision_generation_<lane>` clones only that lane's database; see
   [the SRQL fixture runbook](../docs/agent-runbooks.md#srql-fixture-integration-tests).
 - Lane names and the audited source partition live in `//build:integration_shards.bzl`, which
   both the Elixir targets and Rust provisioner read. The async lane runs `max_cases=8`; every
@@ -411,10 +411,11 @@ run's lease for `lease_seconds`. `cleanup_generations` drops a generation only w
 idle past `retention_seconds` with no live lease, no builder lock and no connections, and never
 forces a drop. Changing the policy changes the digest.
 
-#### `sr_core_template` is a frozen rollback artifact
+#### `sr_core_template` is retired
 
-Do not write the frozen singleton or bypass its guards. Current guards, their safety
-rationale, planned target retirement and rollback prerequisites are owned by
+The legacy singleton's targets and authority setting are deleted, and the test database guard
+rejects the name. The frozen database was dropped from the fixture on 2026-10-04. The
+retirement and rollback prerequisites are owned by
 [the SRQL fixture runbook](../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 ### Tags
@@ -638,7 +639,7 @@ the checked-in disposition inventory places every selected source in `partition_
 or serial. Do not assign a file based on a one-off duration measurement.
 
 The normal exception is `test/db/**`, which the glob excludes. Those files are the database
-lifecycle targets (`migrate_db_test.exs` and its helpers), declared individually rather than
+lifecycle targets (`migrate_generation_test.exs` and its helpers), declared individually rather than
 partitioned -- they are not suite tests. Do not put an ordinary test there. A deliberately heavy
 test may also be explicitly source-separated when its complete production-path coverage cannot
 fit the PR lifecycle budget; cold database bootstrap is the current example and runs intact in
@@ -647,8 +648,8 @@ source-membership contract and release-qualification coverage.
 
 **3. If the test is slow**, profile it as a lane step of the
 [canonical fixture lifecycle](../.agents/skills/srql-fixtures-db-tests/SKILL.md), after
-`//rust/integration-db:provision_generation` has cloned that lane's database. For forthcoming
-per-lane clone targets, see
+`//rust/integration-db:provision_generation` (or `provision_generation_<lane>` for that lane
+alone) has cloned that lane's database; see
 [the SRQL fixture runbook](../docs/agent-runbooks.md#srql-fixture-integration-tests).
 Built-in slowest reporting enables trace, forces serial execution,
 and disables test timeouts, so explicitly set the profiling cap to one and never use this command
@@ -819,8 +820,7 @@ reads Rust sources.
 | `40P01 deadlock_detected` across integration groups | Two lanes sharing a database. Check `//rust/integration-db:provision_generation` cloned every lane's database first. |
 | Integration suite green having run zero tests | Fixture URL absent, so `test_helper` took the no-database branch. The `manual` tag exists to prevent this. |
 | `42501 must be owner of schema platform` | Admin DSN has no password; see [Running things locally](#running-things-locally). |
-| `provision_db` fails with `sr_core_test_<run> does not exist; run //rust/integration-db:provision_base first` | The branch's `buildbuddy.yaml` predates the generation cutover and still runs the legacy run-base steps. Rebase onto `staging`. |
-| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Use the generation lifecycle; see [`sr_core_template` is a frozen rollback artifact](#sr_core_template-is-a-frozen-rollback-artifact) for guards and retirement guidance. |
+| `no such target '//rust/integration-db:provision_base'` (or `provision_db`, `prepare_template`) | The branch's `buildbuddy.yaml` predates the generation cutover and still runs the retired legacy steps. Rebase onto `staging`; see [`sr_core_template` is retired](#sr_core_template-is-retired). |
 | `the application :X has a different value set for key :Y during runtime compared to compile time` | A Hex dependency read `Y` with `compile_env` and was compiled without it. Add it to `HEX_COMPILE_ENV_CONFIG` in `//build:hex_compile_env.bzl`. Never `validate_compile_env: false` -- see [Compile-time config a dependency reads](#compile-time-config-a-dependency-reads). |
 | `undefined function config/2` while compiling a Hex package | That package's `config/config.exs` exists but is empty, so nothing imported `Config`. `mix_app` handles this; if you see it, the guard regressed. |
 | `function config/2 imported from both Config and Mix.Config` | That package uses the deprecated `use Mix.Config`. Same guard, other direction. |

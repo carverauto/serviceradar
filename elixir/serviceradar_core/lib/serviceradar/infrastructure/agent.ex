@@ -255,6 +255,14 @@ defmodule ServiceRadar.Infrastructure.Agent do
         to: :unavailable
 
       transition :recover, from: :unavailable, to: :connecting
+
+      # Only :supersede enters :superseded, and only :revive_superseded leaves
+      # it. :recover must not pull a replaced identity back into service.
+      transition :supersede,
+        from: [:connecting, :connected, :degraded, :disconnected, :unavailable],
+        to: :superseded
+
+      transition :revive_superseded, from: :superseded, to: :connected
     end
   end
 
@@ -294,7 +302,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
     read :by_status do
       argument :status, :atom,
         allow_nil?: false,
-        constraints: [one_of: [:connecting, :connected, :degraded, :disconnected, :unavailable]]
+        constraints: [
+          one_of: [:connecting, :connected, :degraded, :disconnected, :unavailable, :superseded]
+        ]
 
       filter expr(status == ^arg(:status))
     end
@@ -349,6 +359,10 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
       upsert? true
       upsert_identity :unique_uid
+
+      # A superseded row is revived only by :revive_superseded, which records
+      # the decision. A failed WHERE surfaces as a stale record.
+      upsert_condition expr(status != :superseded)
 
       upsert_fields @agent_connected_upsert_fields
 
@@ -481,6 +495,32 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
 
       change {PublishStateChange, entity_type: :agent, new_state: :connecting}
+    end
+
+    update :supersede do
+      description "Mark this identity superseded by another agent uid on the same device"
+      argument :superseded_by, :string, allow_nil?: false
+
+      change transition_state(:superseded)
+      change set_attribute(:superseded_by, arg(:superseded_by))
+      change set_attribute(:superseded_at, &DateTime.utc_now/0)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+
+      change {PublishStateChange, entity_type: :agent, new_state: :superseded}
+    end
+
+    update :revive_superseded do
+      description "Return a superseded identity to service after it reports in again"
+
+      change transition_state(:connected)
+      change set_attribute(:superseded_by, nil)
+      change set_attribute(:superseded_at, nil)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+
+      change {PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :reassign_device do
@@ -653,8 +693,27 @@ defmodule ServiceRadar.Infrastructure.Agent do
       allow_nil? false
       default :connecting
       public? true
-      constraints one_of: [:connecting, :connected, :degraded, :disconnected, :unavailable]
+
+      constraints one_of: [
+                    :connecting,
+                    :connected,
+                    :degraded,
+                    :disconnected,
+                    :unavailable,
+                    :superseded
+                  ]
+
       description "Current lifecycle state (state machine managed)"
+    end
+
+    attribute :superseded_by, :string do
+      public? true
+      description "Agent uid that replaced this identity on the same device"
+    end
+
+    attribute :superseded_at, :utc_datetime do
+      public? true
+      description "When this identity was superseded. Set exactly while status is superseded"
     end
 
     attribute :is_healthy, :boolean do
@@ -806,6 +865,13 @@ defmodule ServiceRadar.Infrastructure.Agent do
       destination_attribute :agent_uid
       public? true
     end
+
+    has_many :k8s_inventory_cluster_bindings,
+             ServiceRadar.Infrastructure.K8sInventoryClusterBinding do
+      source_attribute :uid
+      destination_attribute :agent_id
+      public? true
+    end
   end
 
   calculations do
@@ -861,6 +927,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
                   status == :connecting -> "blue"
                   status == :disconnected -> "red"
                   status == :unavailable -> "gray"
+                  status == :superseded -> "gray"
                   true -> "gray"
                 end
               )
@@ -874,6 +941,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
                   status == :degraded -> "Degraded"
                   status == :disconnected -> "Disconnected"
                   status == :unavailable -> "Unavailable"
+                  status == :superseded -> "Superseded"
                   true -> "Unknown"
                 end
               )

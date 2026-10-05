@@ -661,7 +661,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
 
   defp retention_expires_at(policy, now) do
     case positive_int(value(policy, "retention_days")) || @default_retention_days do
-      days when is_integer(days) -> DateTime.add(now, days * 86_400, :second)
+      days when is_integer(days) -> DateTime.shift(now, day: days)
       _ -> nil
     end
   end

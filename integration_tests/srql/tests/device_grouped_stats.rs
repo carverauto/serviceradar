@@ -271,3 +271,55 @@ async fn tag_sub_key_wildcard_filter_executes_as_like() {
     })
     .await;
 }
+
+/// The grouped path writes the default that hides records marked `source_retired` as SQL
+/// of its own, apart from the list and count paths. The fixture's marked record is live,
+/// active and untagged, so each default grouping above would count it in a bucket if that
+/// default broke; these are the two ways a query asks for it.
+#[tokio::test(flavor = "multi_thread")]
+async fn grouped_device_stats_count_marked_records_only_when_asked() {
+    with_srql_harness(|harness| async move {
+        let (status, body) = read_json(
+            harness
+                .query(request(
+                    "in:devices include_inactive:true include_retired:true stats:count() as total by tags.role limit:100",
+                ))
+                .await,
+        )
+        .await;
+        assert_eq!(
+            status.as_u16(),
+            200,
+            "grouping with include_retired: {body}"
+        );
+        assert_eq!(
+            group_counts(&body, "tags.role", "total"),
+            vec![
+                ("Unknown".to_string(), 2),
+                ("core".to_string(), 1),
+                ("edge".to_string(), 2)
+            ],
+            "include_retired adds the marked, untagged record to Unknown: {body}"
+        );
+
+        let (status, body) = read_json(
+            harness
+                .query(request(
+                    "in:devices source_retired:true stats:count() as total by type limit:100",
+                ))
+                .await,
+        )
+        .await;
+        assert_eq!(
+            status.as_u16(),
+            200,
+            "grouping with a source_retired filter: {body}"
+        );
+        assert_eq!(
+            group_counts(&body, "type", "total"),
+            vec![("Router".to_string(), 1)],
+            "source_retired:true counts the marked record only: {body}"
+        );
+    })
+    .await;
+}

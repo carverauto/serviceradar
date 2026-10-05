@@ -971,75 +971,98 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                 <p class="text-xs text-sr-muted">Not assigned to any agent yet.</p>
               <% else %>
                 <ul class="divide-y divide-sr-line">
-                  <%= for assignment <- @assignments do %>
-                    <li class="flex items-center justify-between gap-2 py-2">
-                      <div class="min-w-0">
-                        <div class="text-xs font-mono">{assignment.agent_uid}</div>
-                        <div class="mt-1 flex flex-wrap gap-1">
-                          <.ui_badge size="xs" variant="ghost">
-                            {assignment_source_text(assignment, @addon_profiles)}
-                          </.ui_badge>
-                          <.ui_badge
-                            :if={assignment_reconcile_status(assignment, @addon_profiles)}
-                            size="xs"
-                            variant={
-                              profile_report_status_variant(
-                                assignment_reconcile_status(assignment, @addon_profiles)
-                              )
-                            }
-                          >
-                            {profile_report_status_label(
-                              assignment_reconcile_status(assignment, @addon_profiles)
-                            )}
-                          </.ui_badge>
-                          <.ui_badge
-                            :if={assignment_reconciled_at(assignment, @addon_profiles)}
-                            size="xs"
-                            variant="ghost"
-                          >
-                            reconciled
-                          </.ui_badge>
-                          <.ui_badge size="xs" variant="info">
-                            {update_policy_label(assignment.update_policy)}
-                          </.ui_badge>
-                        </div>
-                        <div
-                          :if={assignment_reconcile_error(assignment, @addon_profiles)}
-                          class="mt-1 truncate text-[11px] text-error"
-                        >
-                          {assignment_reconcile_error(assignment, @addon_profiles)}
-                        </div>
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <.ui_badge
-                          size="sm"
-                          variant={if(assignment.enabled, do: "success", else: "ghost")}
-                        >
-                          {if assignment.enabled, do: "enabled", else: "disabled"}
-                        </.ui_badge>
-                        <.ui_button
-                          :if={@can_assign_addons}
-                          type="button"
-                          phx-click="set_assignment_update_policy"
-                          phx-value-id={assignment.id}
-                          phx-value-policy={next_update_policy(assignment.update_policy)}
-                          size="xs"
-                          variant="ghost"
-                        >
-                          {update_policy_action_label(assignment.update_policy)}
-                        </.ui_button>
-                        <.ui_button
-                          :if={@can_assign_addons}
-                          type="button"
-                          phx-click="delete_assignment"
-                          phx-value-id={assignment.id}
-                          data-confirm="Remove this add-on assignment?"
-                          size="xs"
-                          variant="ghost"
-                        >
-                          Remove
-                        </.ui_button>
-                      </div>
+                  <%= for {agent_uid, agent_assignments} <- group_assignments_by_agent(@assignments) do %>
+                    <li class="py-2.5">
+                      <div class="text-xs font-mono font-semibold">{agent_uid}</div>
+                      <ul class="mt-2 space-y-2 pl-3 border-l-2 border-sr-line/60">
+                        <%= for assignment <- agent_assignments do %>
+                          <li class="flex items-center justify-between gap-2 py-1">
+                            <div class="min-w-0">
+                              <div class="flex flex-wrap items-center gap-1">
+                                <%= if assignment_source_kind(assignment) == :profile do %>
+                                  <% profile = assignment_profile(assignment, @addon_profiles) %>
+                                  <.ui_badge size="xs" variant="ghost">
+                                    managed by profile
+                                    <%= if profile do %>
+                                      <a
+                                        href={"#profile-#{profile.id}"}
+                                        class="ml-1 font-semibold text-sr-brand hover:underline"
+                                      >
+                                        {profile.name}
+                                      </a>
+                                    <% end %>
+                                  </.ui_badge>
+                                <% else %>
+                                  <.ui_badge size="xs" variant="ghost">
+                                    {assignment_source_text(assignment, @addon_profiles)}
+                                  </.ui_badge>
+                                <% end %>
+                                <.ui_badge
+                                  :if={assignment_reconcile_status(assignment, @addon_profiles)}
+                                  size="xs"
+                                  variant={
+                                    profile_report_status_variant(
+                                      assignment_reconcile_status(assignment, @addon_profiles)
+                                    )
+                                  }
+                                >
+                                  {profile_report_status_label(
+                                    assignment_reconcile_status(assignment, @addon_profiles)
+                                  )}
+                                </.ui_badge>
+                                <.ui_badge
+                                  :if={assignment_reconciled_at(assignment, @addon_profiles)}
+                                  size="xs"
+                                  variant="ghost"
+                                >
+                                  reconciled
+                                </.ui_badge>
+                                <.ui_badge size="xs" variant="info">
+                                  {update_policy_label(assignment.update_policy)}
+                                </.ui_badge>
+                              </div>
+                              <div
+                                :if={assignment_reconcile_error(assignment, @addon_profiles)}
+                                class="mt-1 truncate text-[11px] text-error"
+                              >
+                                {assignment_reconcile_error(assignment, @addon_profiles)}
+                              </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <.ui_badge
+                                size="sm"
+                                variant={if(assignment.enabled, do: "success", else: "ghost")}
+                              >
+                                {if assignment.enabled, do: "enabled", else: "disabled"}
+                              </.ui_badge>
+                              <.ui_button
+                                :if={@can_assign_addons}
+                                type="button"
+                                phx-click="set_assignment_update_policy"
+                                phx-value-id={assignment.id}
+                                phx-value-policy={next_update_policy(assignment.update_policy)}
+                                size="xs"
+                                variant="ghost"
+                              >
+                                {update_policy_action_label(assignment.update_policy)}
+                              </.ui_button>
+                              <%= if assignment_source_kind(assignment) == :manual do %>
+                                <.ui_button
+                                  :if={@can_assign_addons}
+                                  type="button"
+                                  phx-click="delete_assignment"
+                                  phx-value-id={assignment.id}
+                                  data-confirm="Remove this add-on assignment?"
+                                  size="xs"
+                                  variant="ghost"
+                                >
+                                  Remove
+                                </.ui_button>
+                              <% end %>
+                            </div>
+                          </li>
+                        <% end %>
+                      </ul>
                     </li>
                   <% end %>
                 </ul>
@@ -1080,7 +1103,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                 <ul class="divide-y divide-sr-line">
                   <%= for profile <- @addon_profiles do %>
                     <% report = profile_reconcile_report(profile) %>
-                    <li class="flex items-center justify-between gap-3 py-2">
+                    <li
+                      id={"profile-#{profile.id}"}
+                      class="flex items-center justify-between gap-3 py-2 scroll-mt-6"
+                    >
                       <div class="min-w-0">
                         <div class="truncate text-xs font-semibold">{profile.name}</div>
                         <div class="truncate font-mono text-[11px] text-sr-muted">
@@ -2357,19 +2383,50 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp update_policy_action_label("track_latest_approved"), do: "Pin"
   defp update_policy_action_label(_), do: "Enable auto-update"
 
+  defp group_assignments_by_agent(assignments) do
+    assignments
+    |> Enum.group_by(& &1.agent_uid)
+    |> Enum.map(fn {agent_uid, list} ->
+      sorted_list =
+        Enum.sort_by(list, fn assignment ->
+          case assignment_source_kind(assignment) do
+            :manual -> 0
+            :profile -> 1
+            :rollout -> 2
+          end
+        end)
+
+      {agent_uid, sorted_list}
+    end)
+    |> Enum.sort_by(fn {agent_uid, _} -> agent_uid end)
+  end
+
+  defp assignment_source_kind(assignment) do
+    cond do
+      not is_nil(assignment.rollout_id) or assignment.source in [:rollout, "rollout"] ->
+        :rollout
+
+      assignment.source in [:profile, "profile"] or not is_nil(assignment.addon_profile_id) ->
+        :profile
+
+      true ->
+        :manual
+    end
+  end
+
   defp assignment_source_text(assignment, profiles) do
-    case source_label(assignment.source) do
-      "profile" ->
+    case assignment_source_kind(assignment) do
+      :rollout ->
+        "Rollout"
+
+      :profile ->
         case assignment_profile(assignment, profiles) do
-          nil -> "profile"
-          profile -> "profile: #{profile.name}"
+          nil -> "Profile"
+          profile -> "Profile: #{profile.name}"
         end
 
-      "manual" ->
-        "manual override"
-
-      source ->
-        source
+      :manual ->
+        "Manual"
     end
   end
 

@@ -447,6 +447,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp consumer_path(%Consumer{kind: :credential_rule, id: id}), do: ~p"/settings/networks/credentials/#{id}/edit"
 
+  defp consumer_path(%Consumer{kind: :otx_settings}), do: ~p"/settings/networks/threat-intel"
+
   defp consumer_path(_consumer), do: nil
 
   defp consumer_accessible_label(%Consumer{kind: :snmp_profile, label: label}), do: "Edit SNMP profile #{label}"

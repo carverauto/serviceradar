@@ -29,6 +29,11 @@ defmodule ServiceRadarCoreElx.TelemetryTest do
                start_async: false
              )
 
+    # start_link links the reporter to this test process. ExUnit runs on_exit
+    # after the test process exits, so the link would kill the reporter before
+    # the callback can stop it.
+    Process.unlink(pid)
+
     on_exit(fn ->
       if Process.alive?(pid), do: GenServer.stop(pid, :normal)
     end)

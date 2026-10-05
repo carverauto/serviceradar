@@ -146,6 +146,51 @@ SELECT 'device-delta',
     '{}'::jsonb
 FROM base;
 
+-- A live record marked source_retired: every source id it held has retired, and it
+-- waits out the grace period. Device queries hide it unless asked (include_retired:true
+-- or a source_retired: filter), so the exact device counts asserted over the four
+-- records above hold only while that default does. It is active, available, seen
+-- within the hour and untagged, so a query that stopped hiding it would also grow
+-- time:last_1h and every "Unknown" tag bucket.
+INSERT INTO public.ocsf_devices (
+        uid,
+        type_id,
+        type,
+        name,
+        hostname,
+        ip,
+        mac,
+        first_seen_time,
+        last_seen_time,
+        created_time,
+        modified_time,
+        discovery_sources,
+        is_available,
+        is_active,
+        metadata,
+        tags,
+        source_retired_at
+    )
+VALUES (
+    'device-retired',
+    12,  -- Router
+    'Router',
+    'Retired Source Router',
+    'retired-router',
+    '192.0.2.77',
+    '00:00:5e:00:53:77',
+    NOW() - INTERVAL '10 days',
+    NOW() - INTERVAL '45 minutes',
+    NOW() - INTERVAL '10 days',
+    NOW() - INTERVAL '45 minutes',
+    ARRAY ['armis','sweep'],
+    TRUE,
+    TRUE,
+    '{"identity_state":"source_retired"}'::jsonb,
+    '{}'::jsonb,
+    NOW() - INTERVAL '1 day'
+);
+
 WITH base AS (
     SELECT NOW() AS now_ts
 )
@@ -989,6 +1034,42 @@ SELECT
     1
 FROM base;
 
+-- Fixed-clock buckets around the absolute window 10:30-11:15: only the 10:00
+-- bucket overlaps it, so the 09:00 and 12:00 buckets bound the overlap logic on
+-- both sides without depending on when the fixture was seeded.
+INSERT INTO endpoint_inventory_package_counts_hourly (
+    bucket,
+    coordinate_hash,
+    package_manager,
+    ecosystem,
+    name,
+    version,
+    architecture,
+    purl_canonical,
+    max_host_count,
+    min_host_count,
+    net_count_delta,
+    sample_count
+)
+SELECT
+    bucket,
+    'coord:apk:overlap-probe:1.0.0:x86_64',
+    'apk',
+    'apk',
+    'overlap-probe',
+    '1.0.0',
+    'x86_64',
+    'pkg:apk/overlap-probe@1.0.0',
+    1,
+    1,
+    0,
+    1
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 09:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 12:00:00+00'
+]) AS probe(bucket);
+
 WITH base AS (
     SELECT NOW() AS now_ts
 )
@@ -1494,6 +1575,54 @@ SELECT base.now_ts - INTERVAL '10 minutes',
     'default',
     base.now_ts
 FROM base;
+-- Fixed-clock rollup buckets around mid-bucket windows: services and trace
+-- summaries use 5-minute buckets (window 10:07:30-10:12:00 overlaps only the
+-- 10:05 bucket), RED uses hourly buckets (window 10:30-11:15 overlaps only the
+-- 10:00 bucket). The neighbours bound the overlap on both sides.
+INSERT INTO services_availability_5m (
+    bucket, gateway_id, agent_id, service_name, service_type,
+    total_count, available_count, unavailable_count
+)
+SELECT bucket, 'gateway-1', 'agent-1', 'overlap-probe', 'http', 1, 1, 0
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:05:00+00',
+    TIMESTAMPTZ '2026-01-05 10:15:00+00'
+]) AS probe(bucket);
+
+INSERT INTO traces_stats_5m (
+    bucket, service_name, total_count, error_count, avg_duration_ms, p95_duration_ms
+)
+SELECT bucket, 'overlap-probe', 1, 0, 10.0, 10.0
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:05:00+00',
+    TIMESTAMPTZ '2026-01-05 10:15:00+00'
+]) AS probe(bucket);
+
+INSERT INTO spans_red_1h (
+    bucket, service_name, service_namespace, deployment_environment,
+    total_count, error_count, slow_count,
+    avg_duration_ms, p50_duration_ms, p95_duration_ms, max_duration_ms
+)
+SELECT bucket, 'overlap-probe', 'default', 'test', 1, 0, 0, 10.0, 10.0, 10.0, 10.0
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 09:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 12:00:00+00'
+]) AS probe(bucket);
+
+INSERT INTO logs_severity_stats_5m (
+    bucket, service_name,
+    total_count, fatal_count, error_count, warning_count, info_count, debug_count
+)
+SELECT bucket, 'overlap-probe', 1, 0, 0, 0, 1, 0
+FROM unnest(ARRAY[
+    TIMESTAMPTZ '2026-01-05 10:00:00+00',
+    TIMESTAMPTZ '2026-01-05 10:05:00+00',
+    TIMESTAMPTZ '2026-01-05 10:15:00+00'
+]) AS probe(bucket);
+
 TRUNCATE timeseries_metrics;
 TRUNCATE timeseries_metrics_hourly;
 WITH base AS (

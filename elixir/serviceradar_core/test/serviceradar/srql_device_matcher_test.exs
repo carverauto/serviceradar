@@ -1,7 +1,9 @@
 defmodule ServiceRadar.SRQLDeviceMatcherTest do
   use ExUnit.Case, async: true
 
+  alias Ash.Filter.Runtime
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SRQLDeviceMatcher
 
   test "extract_filters normalizes SRQL ast filters" do
@@ -78,5 +80,73 @@ defmodule ServiceRadar.SRQLDeviceMatcherTest do
     filters = [%{field: "include_inactive", op: "eq", value: "true"}]
 
     assert %Ash.Query{} = SRQLDeviceMatcher.apply_filters(query, filters)
+  end
+
+  describe "source_retired records" do
+    test "are hidden unless the query asks for them" do
+      assert matching_uids([]) == ["unmarked"]
+      assert matching_uids([filter("include_retired", "eq", "false")]) == ["unmarked"]
+      assert matching_uids([filter("include_retired", "eq", "true")]) == ["marked", "unmarked"]
+      assert matching_uids([filter("include_retired", "eq", true)]) == ["marked", "unmarked"]
+    end
+
+    test "a source_retired filter replaces the default" do
+      assert matching_uids([filter("source_retired", "eq", "true")]) == ["marked"]
+      assert matching_uids([filter("source_retired", "eq", "false")]) == ["unmarked"]
+      assert matching_uids([filter("source_retired", "neq", "true")]) == ["unmarked"]
+      assert matching_uids([filter("source_retired", "not_equals", "false")]) == ["marked"]
+      assert matching_uids([filter("SOURCE_RETIRED", "equals", true)]) == ["marked"]
+    end
+
+    test "a source_retired filter the matcher skips keeps the default" do
+      assert matching_uids([filter("source_retired", "eq", "perhaps")]) == ["unmarked"]
+      assert matching_uids([filter("source_retired", "contains", "true")]) == ["unmarked"]
+    end
+
+    test "the controls are supported filters only in their supported forms" do
+      assert SRQLDeviceMatcher.filters_supported?(%{
+               "filters" => [
+                 %{"field" => "include_retired", "op" => "eq", "value" => "true"},
+                 %{"field" => "source_retired", "op" => "neq", "value" => "false"}
+               ]
+             })
+
+      for unsupported <- [
+            %{"field" => "include_retired", "op" => "neq", "value" => "true"},
+            %{"field" => "include_retired", "value" => "perhaps"},
+            %{"field" => "source_retired", "value" => "perhaps"},
+            %{"field" => "source_retired", "op" => "in", "value" => ["true"]}
+          ] do
+        refute SRQLDeviceMatcher.filters_supported?(%{"filters" => [unsupported]}),
+               inspect(unsupported)
+      end
+    end
+
+    test "do not filter a query on another resource" do
+      for filters <- [[], [filter("source_retired", "eq", "true")]] do
+        assert %Ash.Query{filter: nil, errors: []} =
+                 SRQLDeviceMatcher.apply_filters(Ash.Query.new(Interface), filters,
+                   allow_existing_atom_fields?: false,
+                   tag_fields?: false,
+                   default_active?: false
+                 )
+      end
+    end
+  end
+
+  defp filter(field, op, value), do: %{field: field, op: op, value: value}
+
+  # Evaluates the matcher's filter in memory against one marked and one unmarked record.
+  defp matching_uids(filters) do
+    records = [
+      %Device{uid: "marked", is_active: true, source_retired_at: ~U[2026-01-02 03:04:05.000000Z]},
+      %Device{uid: "unmarked", is_active: true, source_retired_at: nil}
+    ]
+
+    query = SRQLDeviceMatcher.apply_filters(Ash.Query.new(Device), filters)
+    assert query.errors == []
+
+    {:ok, matches} = Runtime.filter_matches(ServiceRadar.Inventory, records, query.filter)
+    matches |> Enum.map(& &1.uid) |> Enum.sort()
   end
 end

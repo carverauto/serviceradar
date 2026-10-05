@@ -19321,7 +19321,7 @@
       },
       "device_cleanup_settings-filter-source_retirement_max_fraction": {
         "additionalProperties": false,
-        "description": "Largest fraction of a source instance's live records one retirement pass may affect; a larger pass is refused",
+        "description": "Largest fraction of a source instance's live records one retirement pass may affect, and of all live records one grace pass may delete; a larger pass is refused",
         "properties": {
           "eq": {
             "format": "float",
@@ -21337,7 +21337,7 @@
       },
       "device_cleanup_settings-filter-source_retirement_guard_override": {
         "additionalProperties": false,
-        "description": "Let the next retirement pass exceed source_retirement_max_fraction; the pass it admits clears it",
+        "description": "Let the next retirement or grace pass exceed source_retirement_max_fraction; the pass it admits clears it",
         "properties": {
           "eq": {
             "type": "boolean"
@@ -21412,6 +21412,28 @@
           "not_eq": {
             "type": "object"
           }
+        },
+        "type": "object"
+      },
+      "device-filter-identity_observed_at": {
+        "additionalProperties": false,
+        "description": "The last observation that carried a strong identifier as the device's own report (a\nsource sync carrying a current source id, an agent check-in, a discovery poll of the\ndevice). Sweeps and address-only sightings never advance it. Null counts as older\nthan any value.\n",
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -26614,6 +26636,15 @@
                 ],
                 "description": "Network interfaces (OCSF Network Interface objects). Field included by default."
               },
+              "identity_observed_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The last observation that carried a strong identifier as the device's own report (a\nsource sync carrying a current source id, an agent check-in, a discovery poll of the\ndevice). Sweeps and address-only sightings never advance it. Null counts as older\nthan any value.\n. Field included by default."
+              },
               "is_active": {
                 "description": "Whether device is currently in service. Field included by default.",
                 "type": "boolean"
@@ -26692,6 +26723,15 @@
                   }
                 ],
                 "description": "Device hostname. Field included by default."
+              },
+              "source_retired_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "When the record was marked source_retired: live, but holding only source ids its\nsource has retired. Hidden from :inventory until the mark clears or the grace pass\nsoft-deletes the record. The database clears it when the record gains an agent or\nsource-authoritative identifier, and on soft delete.\n. Field included by default."
               },
               "is_available": {
                 "anyOf": [
@@ -27550,11 +27590,11 @@
                 "type": "boolean"
               },
               "source_retirement_guard_override": {
-                "description": "Let the next retirement pass exceed source_retirement_max_fraction; the pass it admits clears it. Field included by default.",
+                "description": "Let the next retirement or grace pass exceed source_retirement_max_fraction; the pass it admits clears it. Field included by default.",
                 "type": "boolean"
               },
               "source_retirement_max_fraction": {
-                "description": "Largest fraction of a source instance's live records one retirement pass may affect; a larger pass is refused. Field included by default.",
+                "description": "Largest fraction of a source instance's live records one retirement pass may affect, and of all live records one grace pass may delete; a larger pass is refused. Field included by default.",
                 "format": "float",
                 "type": "number"
               },
@@ -29181,6 +29221,28 @@
         },
         "type": "object"
       },
+      "device-filter-source_retired_at": {
+        "additionalProperties": false,
+        "description": "When the record was marked source_retired: live, but holding only source ids its\nsource has retired. Hidden from :inventory until the mark clears or the grace pass\nsoft-deletes the record. The database clears it when the record gains an agent or\nsource-authoritative identifier, and on soft delete.\n",
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
+        },
+        "type": "object"
+      },
       "service-check-filter-last_error": {
         "additionalProperties": false,
         "description": "Last error message (if failed)",
@@ -29363,6 +29425,9 @@
           "availability_source_profile_id": {
             "$ref": "#/components/schemas/device-filter-availability_source_profile_id"
           },
+          "identity_observed_at": {
+            "$ref": "#/components/schemas/device-filter-identity_observed_at"
+          },
           "is_active": {
             "$ref": "#/components/schemas/device-filter-is_active"
           },
@@ -29380,6 +29445,9 @@
           },
           "hostname": {
             "$ref": "#/components/schemas/device-filter-hostname"
+          },
+          "source_retired_at": {
+            "$ref": "#/components/schemas/device-filter-source_retired_at"
           },
           "is_available": {
             "$ref": "#/components/schemas/device-filter-is_available"
@@ -33250,7 +33318,7 @@
       "get": {
         "callbacks": {},
         "deprecated": false,
-        "description": "/devices operation on device resource",
+        "description": "The device inventory as operators see it: live records, without those marked\n`source_retired` (source_retired_at set) unless include_retired is passed.\ninclude_deleted returns every record, marked or deleted.\n\nA marked record is live, and :read still returns it: identity resolution, the\ndeduplication review queue, bulk actions and every update's atomic re-read must\nkeep seeing it. Only the listing and counting surfaces read through this action.\n",
         "parameters": [
           {
             "description": "Filters the query to results with attributes matching the given filter object",
@@ -33269,7 +33337,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id)(,(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id))*$",
+              "pattern": "^(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id)(,(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -33323,12 +33391,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id"
+                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id"
               },
               "properties": {
                 "device": {
                   "description": "Comma separated field names for device",
-                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id",
+                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id",
                   "type": "string"
                 }
               },
@@ -33339,6 +33407,15 @@
           {
             "in": "query",
             "name": "include_deleted",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "include_retired",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -35928,7 +36005,7 @@
                                 "type": "null"
                               }
                             ],
-                            "description": "Let the next retirement pass exceed source_retirement_max_fraction; the pass it admits clears it"
+                            "description": "Let the next retirement or grace pass exceed source_retirement_max_fraction; the pass it admits clears it"
                           },
                           "source_retirement_max_fraction": {
                             "anyOf": [
@@ -35940,7 +36017,7 @@
                                 "type": "null"
                               }
                             ],
-                            "description": "Largest fraction of a source instance's live records one retirement pass may affect; a larger pass is refused"
+                            "description": "Largest fraction of a source instance's live records one retirement pass may affect, and of all live records one grace pass may delete; a larger pass is refused"
                           },
                           "source_retirement_min_absence_hours": {
                             "anyOf": [
@@ -37198,7 +37275,7 @@
                                 "type": "null"
                               }
                             ],
-                            "description": "Let the next retirement pass exceed source_retirement_max_fraction; the pass it admits clears it"
+                            "description": "Let the next retirement or grace pass exceed source_retirement_max_fraction; the pass it admits clears it"
                           },
                           "source_retirement_max_fraction": {
                             "anyOf": [
@@ -37210,7 +37287,7 @@
                                 "type": "null"
                               }
                             ],
-                            "description": "Largest fraction of a source instance's live records one retirement pass may affect; a larger pass is refused"
+                            "description": "Largest fraction of a source instance's live records one retirement pass may affect, and of all live records one grace pass may delete; a larger pass is refused"
                           },
                           "source_retirement_min_absence_hours": {
                             "anyOf": [
@@ -43239,12 +43316,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id"
+                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id"
               },
               "properties": {
                 "device": {
                   "description": "Comma separated field names for device",
-                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id",
+                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id",
                   "type": "string"
                 }
               },

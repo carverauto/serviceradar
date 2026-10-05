@@ -4,7 +4,7 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogPruneWorkerTest do
   alias ServiceRadar.Observability.OtelServiceCatalogPruneWorker
   alias ServiceRadar.Repo
 
-  defp days_ago(days), do: DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+  defp days_ago(days), do: DateTime.shift(DateTime.utc_now(), day: -days)
 
   defp insert!(name, logs, traces, metrics) do
     last = [logs, traces, metrics] |> Enum.reject(&is_nil/1) |> Enum.max(DateTime)

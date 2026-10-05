@@ -129,7 +129,9 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert {:error, {:non_delivering_adapter, message}} =
              ServiceRadar.OutboundMail.diagnose(mailer)
 
-    assert message =~ "SMTP_RELAY_HOST"
+    assert message =~ "Swoosh.Adapters.Test"
+    assert message =~ "delivers nothing"
+    assert message =~ "set Adapter to SMTP"
   end
 
   test "prod config selects the local mailbox when SERVICERADAR_LOCAL_MAILER is set" do
@@ -150,7 +152,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert opts[:emit_verdicts?] == true
     assert opts[:seasonal_n_sigma] == 3.0
     assert opts[:min_bucket_samples] == 4
-    assert opts[:confirm_slots] == 1
+    assert opts[:confirm_slots] == 2
   end
 
   test "prod config parses capacity forecasting source opt-ins from env" do
@@ -169,6 +171,27 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
       read_prod_config()[:serviceradar_core][Worker]
 
     assert opts[:default_source_opt_ins] == []
+  end
+
+  # Core mints the plugin download URLs embedded in agent configs. An agent that
+  # cannot reach the operator-facing URL (an on-prem load balancer without
+  # hairpin NAT) must be handed the agent-facing one instead.
+  test "prod config mints agent plugin downloads from AGENT_PLUGIN_STORAGE_PUBLIC_URL" do
+    with_env("PLUGIN_STORAGE_PUBLIC_URL", "https://serviceradar.example.com")
+    with_env("AGENT_PLUGIN_STORAGE_PUBLIC_URL", " https://agent-gateway.example.internal:50053 ")
+
+    plugin_storage = read_prod_config()[:serviceradar_core][:plugin_storage]
+
+    assert plugin_storage[:public_url] == "https://agent-gateway.example.internal:50053"
+  end
+
+  test "prod config falls back to PLUGIN_STORAGE_PUBLIC_URL for agent plugin downloads" do
+    with_env("PLUGIN_STORAGE_PUBLIC_URL", "https://serviceradar.example.com")
+    with_env("AGENT_PLUGIN_STORAGE_PUBLIC_URL", "")
+
+    plugin_storage = read_prod_config()[:serviceradar_core][:plugin_storage]
+
+    assert plugin_storage[:public_url] == "https://serviceradar.example.com"
   end
 
   test "prod EventWriter consumes analytics verdicts from the dedicated retention stream" do

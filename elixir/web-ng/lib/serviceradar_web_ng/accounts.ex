@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNG.Accounts do
   def sudo_mode?(user, sudo_at \\ nil, minutes \\ -20)
 
   def sudo_mode?(%{id: _}, %DateTime{} = sudo_at, minutes) do
-    cutoff = DateTime.add(DateTime.utc_now(), minutes, :minute)
+    cutoff = DateTime.shift(DateTime.utc_now(), minute: minutes)
     DateTime.compare(sudo_at, cutoff) != :lt
   end
 

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.2.0
+
+- Edge onboarding from the CLI: `agent list`; `edge package create|list|show|revoke|download`;
+  `edge site create|list|show|bundle [--wait]`; `collector create|list|show|revoke|download`;
+  `nats account status`. All support `--json`, print tables otherwise, and turn 401/403
+  (including a token missing the `edge.manage` scope) into a "re-run `auth login`" hint.
+- `edge install agent|leaf|collector`: root-only edge-host helpers that install the matching
+  release RPM/deb for `--version`, then enroll the agent (`srctl enroll`) or apply the leaf or
+  collector bundle. Every action is printed first; `--dry-run` prints the plan only.
+- `auth login` requests `dashboard.publish edge.manage` by default. `--scope` still overrides
+  and now accepts commas. A server policy that refuses the scope is reported, not papered over.
+- `auth login --web` fails with "not supported by this server" when the PKCE authorize
+  or token endpoint is not routed, instead of falling back to manual token paste.
+- New `srcloud` bin alias. The agent package's `/usr/local/bin/serviceradar-cli` (an `srctl`
+  alias) collides with this package's bin when npm's global prefix is `/usr/local`.
+- `-o <file>` short flag for download commands.
+
 ## 0.1.10
 
 - Add `fixtureResolver` for `dashboard dev`: a project-relative module with a

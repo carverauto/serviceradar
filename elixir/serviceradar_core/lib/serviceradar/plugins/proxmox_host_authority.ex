@@ -8,6 +8,8 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   finite set of target identity fields.
   """
 
+  alias ServiceRadar.Plugins.IdentityUtils
+
   require Logger
 
   @schema "serviceradar.plugin_host_authority.v1"
@@ -68,7 +70,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   def partition(plugin_id, entrypoint, params, assignment_id)
       when is_map(params) and is_binary(plugin_id) and is_binary(entrypoint) do
     if assignment?(plugin_id, entrypoint) do
-      params = stringify_keys(params)
+      params = params |> stringify_keys() |> drop_targets_outside_certificate(assignment_id)
       grant = broker_grant(params)
       auth_mode = auth_mode(plugin_id, params, grant)
       public_params = public_params(plugin_id, params, auth_mode)
@@ -328,6 +330,97 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
       []
     else
       bindings
+    end
+  end
+
+  # The agent verifies a Proxmox certificate against the exact address it dials
+  # and never reroutes, so a target discovered at an address the node
+  # certificate does not list can only fail the handshake (host error -5). Drop
+  # it before the plugin or any binding sees it. The SANs come from an
+  # unverified probe, so they only ever remove a target; an address is never
+  # taken from them. Operator-set URLs and a pinned leaf fingerprint (which
+  # skips address matching) are left alone.
+  defp drop_targets_outside_certificate(params, assignment_id) do
+    if present?(server_cert_fingerprint(params)) do
+      params
+    else
+      keep? = &target_matches_certificate?(&1, assignment_id)
+
+      params
+      |> update_list("targets", &Enum.filter(&1, keep?))
+      |> update_list("inputs", fn inputs -> Enum.map(inputs, &filter_input_items(&1, keep?)) end)
+    end
+  end
+
+  defp filter_input_items(%{"items" => items} = input, keep?) when is_list(items) do
+    case Enum.filter(items, keep?) do
+      ^items ->
+        input
+
+      kept ->
+        input
+        |> Map.put("items", kept)
+        |> Map.put("chunk_hash", IdentityUtils.chunk_hash(kept, &IdentityUtils.item_identity/1))
+    end
+  end
+
+  defp filter_input_items(input, _keep?), do: input
+
+  defp target_matches_certificate?(%{} = target, assignment_id) do
+    with "true" <- value(target, "proxmox_tls_sans_recorded"),
+         false <- explicit_target_url?(target),
+         address when is_binary(address) <-
+           first_string([value(target, "ip"), value(target, "device_ip")]),
+         {:ok, ip} <- parse_ip(address) do
+      covered? = Enum.any?(certificate_ips(target), &(&1 == ip))
+
+      if !covered? do
+        Logger.warning(
+          "Proxmox host authority: dropping target #{inspect(value(target, "uid"))} at " <>
+            "#{address} for assignment #{inspect(assignment_id)}: the node certificate does " <>
+            "not list that address (IP SANs: #{inspect(value(target, "proxmox_tls_san_ips"))}); " <>
+            "discover the node at a listed address, set proxmox_base_url, or pin " <>
+            "server_cert_fingerprint"
+        )
+      end
+
+      covered?
+    else
+      _ -> true
+    end
+  end
+
+  defp target_matches_certificate?(_target, _assignment_id), do: true
+
+  defp explicit_target_url?(target) do
+    Enum.any?(
+      ~w(base_url proxmox_base_url pve_base_url controller_url management_url endpoint),
+      &present?(controller_value(target, &1))
+    )
+  end
+
+  defp certificate_ips(target) do
+    (value(target, "proxmox_tls_san_ips") || "")
+    |> String.split(",", trim: true)
+    |> Enum.flat_map(fn address ->
+      case parse_ip(address) do
+        {:ok, ip} -> [ip]
+        :error -> []
+      end
+    end)
+  end
+
+  defp parse_ip(address) do
+    case address |> String.trim() |> String.to_charlist() |> :inet.parse_address() do
+      {:ok, ip} -> {:ok, ip}
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp update_list(params, key, fun) do
+    case Map.get(params, key) do
+      list when is_list(list) -> Map.put(params, key, fun.(list))
+      _ -> params
     end
   end
 

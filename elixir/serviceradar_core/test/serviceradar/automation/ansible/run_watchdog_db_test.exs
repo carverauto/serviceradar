@@ -35,7 +35,7 @@ defmodule ServiceRadar.Automation.Ansible.RunWatchdogDbTest do
         controller_id: controller.id
       })
 
-    old = DateTime.add(DateTime.utc_now(), -2, :hour)
+    old = DateTime.shift(DateTime.utc_now(), hour: -2)
 
     runs =
       Enum.map([:pending, :launching, :running], fn state ->

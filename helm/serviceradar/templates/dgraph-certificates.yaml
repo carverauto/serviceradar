@@ -1,111 +1,126 @@
+{{/*
+In-chart Dgraph TLS. The Dgraph chart mounts these Secrets and does not create
+them. Public HTTPS stays on the control plane; this CA only identifies Alpha
+inside the cluster. Helm mints the material once and reuses the existing
+Secrets on upgrade so a later release does not rotate the CA. The CA and each
+leaf must stay together: a partial delete fails the render instead of issuing
+a certificate the running process will not trust.
+*/}}
 {{- $d := default (dict) .Values.dgraph -}}
 {{- if $d.enabled }}
 {{- $ns := .Release.Namespace -}}
+{{- $validityDays := 3650 -}}
 {{- $alpha := include "serviceradar.dgraph.alphaFullname" . -}}
 {{- $zero := include "serviceradar.dgraph.zeroFullname" . -}}
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: dgraph-selfsigned
-  namespace: {{ $ns }}
-  labels:
-    app.kubernetes.io/part-of: serviceradar
-    app.kubernetes.io/component: dgraph
-spec:
-  selfSigned: {}
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: dgraph-ca
-  namespace: {{ $ns }}
-  labels:
-    app.kubernetes.io/part-of: serviceradar
-    app.kubernetes.io/component: dgraph
-spec:
-  isCA: true
-  commonName: dgraph-ca
-  secretName: dgraph-ca
-  duration: 87600h
-  renewBefore: 720h
-  privateKey:
-    algorithm: ECDSA
-    size: 256
-  issuerRef:
-    name: dgraph-selfsigned
-    kind: Issuer
-    group: cert-manager.io
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: dgraph-ca-issuer
-  namespace: {{ $ns }}
-  labels:
-    app.kubernetes.io/part-of: serviceradar
-    app.kubernetes.io/component: dgraph
-spec:
-  ca:
-    secretName: dgraph-ca
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: dgraph-alpha-tls
-  namespace: {{ $ns }}
-  labels:
-    app.kubernetes.io/part-of: serviceradar
-    app.kubernetes.io/component: dgraph
-spec:
-  secretName: {{ include "serviceradar.dgraph.alphaTLSSecretName" . }}
-  usages:
-    - digital signature
-    - key encipherment
-    - server auth
-    - client auth
-  commonName: {{ $alpha }}.{{ $ns }}.svc.cluster.local
-  dnsNames:
-    - {{ $alpha }}.{{ $ns }}.svc.cluster.local
-    - {{ $alpha }}-headless.{{ $ns }}.svc.cluster.local
-    - "*.{{ $alpha }}-headless.{{ $ns }}.svc.cluster.local"
-  privateKey:
-    algorithm: ECDSA
-    size: 256
-    encoding: PKCS8
-  issuerRef:
-    name: dgraph-ca-issuer
-    kind: Issuer
-    group: cert-manager.io
+{{- $alphaSecretName := include "serviceradar.dgraph.alphaTLSSecretName" . -}}
+{{- $zeroSecretName := include "serviceradar.dgraph.zeroTLSSecretName" . -}}
+{{- $caSecretName := "dgraph-ca" -}}
 {{- $zeroTLS := default (dict) (default (dict) $d.zero).tls -}}
-{{- if default false $zeroTLS.enabled }}
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
+{{- $zeroEnabled := default false $zeroTLS.enabled -}}
+{{- $alphaDNS := list
+      (printf "%s.%s.svc.cluster.local" $alpha $ns)
+      (printf "%s-headless.%s.svc.cluster.local" $alpha $ns)
+      (printf "*.%s-headless.%s.svc.cluster.local" $alpha $ns) -}}
+{{- $zeroDNS := list
+      (printf "%s.%s.svc.cluster.local" $zero $ns)
+      (printf "%s-headless.%s.svc.cluster.local" $zero $ns)
+      (printf "*.%s-headless.%s.svc.cluster.local" $zero $ns) -}}
+{{- $existingCA := lookup "v1" "Secret" $ns $caSecretName -}}
+{{- $existingAlpha := lookup "v1" "Secret" $ns $alphaSecretName -}}
+{{- $existingZero := lookup "v1" "Secret" $ns $zeroSecretName -}}
+{{- $caData := dict -}}
+{{- if and $existingCA $existingCA.data -}}{{- $caData = $existingCA.data -}}{{- end -}}
+{{- $alphaData := dict -}}
+{{- if and $existingAlpha $existingAlpha.data -}}{{- $alphaData = $existingAlpha.data -}}{{- end -}}
+{{- $zeroData := dict -}}
+{{- if and $existingZero $existingZero.data -}}{{- $zeroData = $existingZero.data -}}{{- end -}}
+{{- $caReady := and (index $caData "tls.crt") (index $caData "tls.key") (index $caData "ca.crt") -}}
+{{- $alphaReady := and (index $alphaData "tls.crt") (index $alphaData "tls.key") (index $alphaData "ca.crt") -}}
+{{- $zeroReady := and (index $zeroData "tls.crt") (index $zeroData "tls.key") (index $zeroData "ca.crt") -}}
+{{- if and $caReady (not $alphaReady) -}}
+{{- fail "dgraph TLS secret is missing while dgraph-ca already exists; restore both Secrets together so the CA is not rotated" -}}
+{{- else if and $alphaReady (not $caReady) -}}
+{{- fail "dgraph-ca is missing while the Alpha TLS secret already exists; restore both Secrets together so the CA is not rotated" -}}
+{{- else if and $zeroEnabled $zeroReady (not $caReady) -}}
+{{- fail "dgraph-ca is missing while the Zero TLS secret already exists; restore both Secrets together so the CA is not rotated" -}}
+{{- else if and $zeroEnabled $caReady (not $zeroReady) -}}
+{{- fail "Zero TLS is enabled but its Secret is missing while dgraph-ca already exists; restore the Zero TLS Secret instead of rotating the CA" -}}
+{{- end -}}
+{{- $caCert := "" -}}
+{{- $caKey := "" -}}
+{{- $alphaCrt := "" -}}
+{{- $alphaKey := "" -}}
+{{- $alphaCA := "" -}}
+{{- $zeroCrt := "" -}}
+{{- $zeroKey := "" -}}
+{{- $zeroCA := "" -}}
+{{- if and $caReady $alphaReady -}}
+{{- $caCert = index $existingCA.data "tls.crt" -}}
+{{- $caKey = index $existingCA.data "tls.key" -}}
+{{- $alphaCrt = index $existingAlpha.data "tls.crt" -}}
+{{- $alphaKey = index $existingAlpha.data "tls.key" -}}
+{{- $alphaCA = index $existingAlpha.data "ca.crt" -}}
+{{- if and $zeroEnabled $zeroReady -}}
+{{- $zeroCrt = index $existingZero.data "tls.crt" -}}
+{{- $zeroKey = index $existingZero.data "tls.key" -}}
+{{- $zeroCA = index $existingZero.data "ca.crt" -}}
+{{- end -}}
+{{- else -}}
+{{- $generatedCA := genCA "dgraph-ca" $validityDays -}}
+{{- $signed := genSignedCert (first $alphaDNS) (list) $alphaDNS $validityDays $generatedCA -}}
+{{- $caCert = $generatedCA.Cert | b64enc -}}
+{{- $caKey = $generatedCA.Key | b64enc -}}
+{{- $alphaCrt = $signed.Cert | b64enc -}}
+{{- $alphaKey = $signed.Key | b64enc -}}
+{{- $alphaCA = $caCert -}}
+{{- if $zeroEnabled -}}
+{{- $zeroSigned := genSignedCert (first $zeroDNS) (list) $zeroDNS $validityDays $generatedCA -}}
+{{- $zeroCrt = $zeroSigned.Cert | b64enc -}}
+{{- $zeroKey = $zeroSigned.Key | b64enc -}}
+{{- $zeroCA = $caCert -}}
+{{- end -}}
+{{- end -}}
+apiVersion: v1
+kind: Secret
 metadata:
-  name: dgraph-zero-tls
+  name: {{ $caSecretName }}
   namespace: {{ $ns }}
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: dgraph
-spec:
-  secretName: {{ include "serviceradar.dgraph.zeroTLSSecretName" . }}
-  commonName: {{ $zero }}.{{ $ns }}.svc.cluster.local
-  dnsNames:
-    - {{ $zero }}.{{ $ns }}.svc.cluster.local
-    - {{ $zero }}-headless.{{ $ns }}.svc.cluster.local
-    - "*.{{ $zero }}-headless.{{ $ns }}.svc.cluster.local"
-  usages:
-    - digital signature
-    - key encipherment
-    - server auth
-    - client auth
-  privateKey:
-    algorithm: ECDSA
-    size: 256
-    encoding: PKCS8
-  issuerRef:
-    name: dgraph-ca-issuer
-    kind: Issuer
-    group: cert-manager.io
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $caCert | quote }}
+  tls.key: {{ $caKey | quote }}
+  ca.crt: {{ $caCert | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $alphaSecretName }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $alphaCrt | quote }}
+  tls.key: {{ $alphaKey | quote }}
+  ca.crt: {{ $alphaCA | quote }}
+{{- if $zeroEnabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $zeroSecretName }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $zeroCrt | quote }}
+  tls.key: {{ $zeroKey | quote }}
+  ca.crt: {{ $zeroCA | quote }}
 {{- end }}
 {{- end }}

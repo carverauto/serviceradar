@@ -1,7 +1,7 @@
 //! Viz metadata builders for fleet inventory entities: agents, devices,
 //! gateways, virtualization, and device-graph queries.
 
-use super::{ColumnMeta, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
+use super::{col, ColumnMeta, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
 
 pub(super) fn agents() -> VizMeta {
     VizMeta {
@@ -26,6 +26,8 @@ pub(super) fn agents() -> VizMeta {
                 Some(ColumnSemantic::Time),
             ),
             col("metadata", ColumnType::Jsonb, None),
+            col("status", ColumnType::Text, None),
+            col("superseded_by", ColumnType::Text, Some(ColumnSemantic::Id)),
         ],
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,

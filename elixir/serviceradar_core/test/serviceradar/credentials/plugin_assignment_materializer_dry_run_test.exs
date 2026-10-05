@@ -35,7 +35,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
     assert params["credential_secret_ref"] ==
              "credentialref:network-credential-secret:#{@secret_id}"
 
-    assert params["credential_broker"]["grant_id"] == "(issued at materialization)"
+    assert params["credential_broker"]["grant_id"] == "(issued at use)"
   end
 
   test "public username is rendered without exposing secret material" do

@@ -317,7 +317,7 @@ defmodule ServiceRadar.CompositeChecks.IncrementalEvaluationTest do
       check = mark_now!(reload!(check))
 
       since =
-        DateTime.add(check.last_incremental_at, -Evaluation.watermark_slack_seconds(), :second)
+        DateTime.shift(check.last_incremental_at, second: -Evaluation.watermark_slack_seconds())
 
       %{fact_check: check, fact_inputs: inputs, since: since}
     end
@@ -381,18 +381,18 @@ defmodule ServiceRadar.CompositeChecks.IncrementalEvaluationTest do
       check = ctx.check
       completed = check.last_evaluated_at
 
-      assert EvaluationWorker.pass_for(check, DateTime.add(completed, 30, :second)) ==
+      assert EvaluationWorker.pass_for(check, DateTime.shift(completed, second: 30)) ==
                :incremental
 
       assert EvaluationWorker.pass_for(
                check,
-               DateTime.add(completed, check.evaluation_interval_seconds, :second)
+               DateTime.shift(completed, second: check.evaluation_interval_seconds)
              ) == :full
     end
 
     test "incremental ticks do not move the full-pass clock, so the full pass stays due", ctx do
       stale =
-        DateTime.add(Evaluation.db_now(), -2 * ctx.check.evaluation_interval_seconds, :second)
+        DateTime.shift(Evaluation.db_now(), second: -2 * ctx.check.evaluation_interval_seconds)
 
       {:ok, check} =
         CompositeCheck.record_pass(ctx.check, %{last_evaluated_at: stale}, actor: actor())

@@ -8,7 +8,9 @@ defmodule ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile do
   while each agent receives exactly one effective assignment per add-on. Two
   enabled anomaly profiles with different params therefore make the delivered
   edge config ambiguous. Other add-ons keep priority-layered multi-profile
-  targeting, so the rule is scoped to the exclusive add-on list.
+  targeting with different target queries (identical-query duplicates are
+  rejected by `Validations.NoDuplicateAddonProfileTarget`), so the rule is
+  scoped to the exclusive add-on list.
 
   This validation is the friendly-error first line; the invariant itself is
   enforced under concurrency by the partial unique index

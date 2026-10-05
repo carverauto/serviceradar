@@ -206,7 +206,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         )
 
       Application.put_env(:serviceradar_core, StatusHandler,
-        flow_attribution_persister: {__MODULE__, :persist_flow_attribution, [self()]},
+        flow_attribution_publisher: {__MODULE__, :persist_flow_attribution, [self()]},
         flow_lane: lane
       )
 
@@ -261,7 +261,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         StatusHandler,
         Keyword.put(
           original,
-          :flow_attribution_persister,
+          :flow_attribution_publisher,
           {__MODULE__, :persist_flow_attribution_result, [self(), {:error, :deadlock_exhausted}]}
         )
       )
@@ -305,7 +305,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         StatusHandler,
         Keyword.put(
           Application.get_env(:serviceradar_core, StatusHandler, []),
-          :flow_attribution_persister,
+          :flow_attribution_publisher,
           {__MODULE__, :persist_flow_attribution_fail_once, [self(), attempt_counter]}
         )
       )
@@ -392,7 +392,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         |> Application.get_env(StatusHandler, [])
         |> Keyword.put(:flow_lane, lane)
         |> Keyword.put(
-          :flow_attribution_persister,
+          :flow_attribution_publisher,
           {__MODULE__, :persist_flow_attribution_after_release, [self(), release_ref]}
         )
       )
@@ -1004,6 +1004,56 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert_receive {:published, "pdns.ocsf", payload}
       assert {:ok, decoded} = Jason.decode(payload)
       refute Map.has_key?(decoded["metadata"]["service_radar"], "signal_schema")
+    end
+
+    test "publishes non-DNS OCSF add-on events to the generic event stream, not pdns.ocsf" do
+      # pdns.ocsf is consumed only by the PowerDNS processor, which keeps DNS Activity
+      # and discards every other class, so another add-on's event routed there is lost.
+      ocsf_event =
+        Jason.encode!(%{
+          "id" => "6f1c1f0e-8a0b-4e8e-9c33-0d2b4c1a7e10",
+          "time" => "2026-06-08T12:00:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "severity_id" => 3,
+          "message" => "telemetry spool above high-water mark"
+        })
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "otel-addon", source_instance: "edge-host-01"},
+          records: [
+            %TelemetryRecord{
+              event_id: "otel-spool-event-1",
+              observed_time_unix_nano: 1_812_456_000_000_000_000,
+              event_time_unix_nano: 1_812_456_000_000_000_000,
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: ocsf_event
+            }
+          ]
+        })
+
+      status = %{
+        source: "addon:otel-addon",
+        service_type: "native-addon",
+        service_name: "addon-telemetry",
+        agent_id: "edge-agent-01",
+        gateway_id: "gateway-a",
+        partition: "default",
+        source_ip: "192.0.2.60",
+        message: batch
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      assert_receive {:published, "events.ocsf.processed", payload}
+      refute_receive {:published, "pdns.ocsf", _payload}
+      assert {:ok, decoded} = Jason.decode(payload)
+      assert decoded["class_uid"] == 1008
+      assert decoded["metadata"]["service_radar"]["addon_id"] == "otel-addon"
+      assert decoded["metadata"]["service_radar"]["agent_id"] == "edge-agent-01"
     end
 
     test "publishes OCSF plugin telemetry records to the generic event stream" do

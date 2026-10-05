@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
   test "today versus yesterday compares against yesterday's full day and links timeline buckets", %{conn: conn} do
     now = DateTime.utc_now()
     today_start = start_of_utc_day(now)
-    yesterday_start = DateTime.add(today_start, -1, :day)
+    yesterday_start = DateTime.shift(today_start, day: -1)
 
     {:ok, _view, html} = live(conn, ~p"/diagnostics/mtr/compare")
 

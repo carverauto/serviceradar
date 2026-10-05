@@ -2,7 +2,28 @@
 set -euo pipefail
 
 ROOT_DIR="$(git rev-parse --show-toplevel)"
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT_DIR"
+
+# macOS /bin/bash is 3.2 and has no mapfile.
+staged_files=()
+while IFS= read -r staged_file; do
+  [ -n "$staged_file" ] || continue
+  staged_files+=("$staged_file")
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+elixir_files=()
+if [ "${#staged_files[@]}" -gt 0 ]; then
+  for staged_file in "${staged_files[@]}"; do
+    case "$staged_file" in
+      *.ex | *.exs | *.heex) elixir_files+=("$staged_file") ;;
+    esac
+  done
+fi
+
+if [ "${#elixir_files[@]}" -gt 0 ]; then
+  "$HOOK_DIR/mix-format-elixir" "${elixir_files[@]}"
+fi
 
 run_pre_commit_hooks() {
   if [[ ! -f .pre-commit-config.yaml ]]; then
@@ -15,7 +36,6 @@ run_pre_commit_hooks() {
     return 0
   fi
 
-  mapfile -t staged_files < <(git diff --cached --name-only --diff-filter=ACMR)
   if [[ "${#staged_files[@]}" -eq 0 ]]; then
     return 0
   fi

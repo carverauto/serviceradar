@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
         source_ip: source_ip
       ]
 
-      case OnboardingPackages.create(attrs, opts) do
+      case create_package(attrs, opts) do
         {:ok, result} ->
           conn
           |> put_status(:created)
@@ -112,13 +112,54 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
             package: package_to_json(result.package),
             join_token: result.join_token,
             download_token: result.download_token,
+            onboarding_token: signed_onboarding_token(result.package, result.download_token),
             bundle_pem: ""
           })
+
+        {:error, :gateway_unavailable} ->
+          conn
+          |> put_status(:service_unavailable)
+          |> json(%{error: "gateway_unavailable", message: "no agent-gateway is online to issue the mTLS bundle"})
 
         {:error, changeset} ->
           {:error, changeset}
       end
     end
+  end
+
+  # mTLS agents get a gateway-issued certificate bundle, exactly as the
+  # edge-package LiveView does; other modes keep the plain package path.
+  defp create_package(%{component_type: "agent", security_mode: "mtls"} = attrs, opts) do
+    case attrs.gateway_id || default_gateway_id() do
+      gateway_id when is_binary(gateway_id) and gateway_id != "" ->
+        attrs
+        |> Map.put(:gateway_id, gateway_id)
+        |> Map.put(:component_id, attrs.component_id || generated_agent_component_id())
+        |> OnboardingPackages.create_with_gateway_cert(Keyword.take(opts, [:actor, :source_ip]))
+
+      _ ->
+        {:error, :gateway_unavailable}
+    end
+  end
+
+  defp create_package(attrs, opts), do: OnboardingPackages.create(attrs, opts)
+
+  defp generated_agent_component_id do
+    "agent-" <> (8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower))
+  end
+
+  defp default_gateway_id do
+    [Node.self() | Node.list()]
+    |> Enum.flat_map(fn node ->
+      case :rpc.call(node, ServiceRadar.GatewayTracker, :list_gateways, [], 1_500) do
+        gateways when is_list(gateways) -> gateways
+        _ -> []
+      end
+    end)
+    |> Enum.find_value(fn
+      %{active: true, gateway_id: id} when is_binary(id) -> id
+      _ -> nil
+    end)
   end
 
   @doc """
@@ -783,4 +824,18 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   defp parse_int(n) when is_integer(n), do: n
+
+  # The signed edgepkg token the CLI hands to the agent enroll and bundle
+  # download flows, the same one the edge-package LiveView shows after create.
+  # nil when this deployment has no onboarding signing key configured.
+  defp signed_onboarding_token(package, download_token) do
+    case ServiceRadarWebNG.Edge.encode_onboarding_token(
+           package.id,
+           download_token,
+           ServiceRadarWebNGWeb.Endpoint.url()
+         ) do
+      {:ok, token} -> token
+      _ -> nil
+    end
+  end
 end

@@ -410,7 +410,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
     test "admin can suppress pending alert", %{alert: alert} do
       actor = admin_actor()
-      suppress_until = DateTime.add(DateTime.utc_now(), 3600, :second)
+      suppress_until = DateTime.shift(DateTime.utc_now(), hour: 1)
 
       {:ok, suppressed} =
         alert
@@ -429,7 +429,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
     test "operator cannot suppress alerts", %{alert: alert} do
       actor = operator_actor()
-      suppress_until = DateTime.add(DateTime.utc_now(), 3600, :second)
+      suppress_until = DateTime.shift(DateTime.utc_now(), hour: 1)
 
       result =
         alert

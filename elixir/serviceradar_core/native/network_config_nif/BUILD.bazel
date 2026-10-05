@@ -22,7 +22,10 @@ rust_shared_library(
     crate_name = "network_config_nif",
     edition = "2021",
     rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
-    rustc_flags = select({
+    # Explicit, not inherited: rules_rs ignores the Cargo [profile] (whose release
+    # panic = "abort" would turn every catch_unwind here into a BEAM abort). The
+    # crate root rejects panic=abort at compile time as well.
+    rustc_flags = ["-Cpanic=unwind"] + select({
         "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
         "//conditions:default": [],
     }),

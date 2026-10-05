@@ -1,15 +1,15 @@
 defmodule ServiceRadar.FlowAttribution.Correlator do
   @moduledoc """
-  Periodically correlates pushed netprobe attributions with collected NetFlow and
-  stamps matching `ocsf_network_activity` flows as `attributed_flow`
-  (see `ServiceRadar.FlowAttribution`), then prunes stale attributions.
+  Periodically correlates netprobe attribution observations with collected
+  NetFlow in the warehouse and stamps matching `ocsf_network_activity` flows as
+  `attributed_flow` (see `ServiceRadar.FlowAttribution.Correlation`).
 
-  Cross-node safety: the correlation statement itself is guarded by a Postgres
-  advisory lock (see `ServiceRadar.FlowAttribution.Correlation`), so even when
-  this GenServer runs on multiple `core` replicas only one node performs a
-  correlation pass at a time. The work is also bounded per pass and the next tick
-  is scheduled only *after* the current pass finishes, so a slow pass cannot pile
-  up overlapping ticks.
+  Runs under the EventWriter supervisor, which the cluster coordinator starts on
+  one node. The next tick is scheduled only *after* the current pass finishes,
+  so a slow pass cannot pile up overlapping ticks. Observations expire with
+  their warehouse partitions, so there is nothing to prune here. Without
+  StarRocks a pass is a no-op (`{:ok, :not_applicable}`); otherwise every pass,
+  successful or not, reports its health through `PassMetrics`.
 
   A runtime kill switch (`FLOW_ATTRIBUTION_CORRELATOR_ENABLED`, or the
   `:flow_attribution_correlator_enabled` app env) lets operators pause just this
@@ -18,16 +18,15 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
 
   use GenServer
 
-  alias ServiceRadar.FlowAttribution
+  alias ServiceRadar.FlowAttribution.Correlation
+  alias ServiceRadar.FlowAttribution.PassMetrics
 
   require Logger
 
   @initial_delay_ms 10_000
-  # Re-correlation cadence. The correlation WINDOW is 30 min (see Correlation), so
-  # this only governs how often that window is re-scanned. At 30s a 30-min window
-  # was re-scanned ~60x per row, churning millions of index-heavy UPDATEs on
-  # flow_process_attribution_current. 2 min keeps delayed-correlation latency well
-  # inside the window while cutting that re-scan load ~4x. Override via
+  # Re-correlation cadence. Each pass re-reads the recent unattributed flows (see
+  # Correlation), so this governs how often that window is re-scanned; 2 min keeps
+  # delayed-correlation latency well inside it. Override via
   # FLOW_ATTRIBUTION_CORRELATOR_INTERVAL_MS or :flow_attribution_correlator_interval_ms.
   @default_interval_ms 120_000
 
@@ -71,7 +70,11 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
   end
 
   defp run_once do
-    case FlowAttribution.correlate() do
+    started_at = System.monotonic_time(:millisecond)
+    {result, matches_by_rank} = Correlation.run_pass()
+    duration_ms = System.monotonic_time(:millisecond) - started_at
+
+    case result do
       {:ok, :not_applicable} ->
         :ok
 
@@ -85,12 +88,8 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
         Logger.warning("FlowAttribution.Correlator correlate failed: #{inspect(reason)}")
     end
 
-    case FlowAttribution.prune() do
-      {:error, reason} ->
-        Logger.warning("FlowAttribution.Correlator prune failed: #{inspect(reason)}")
-
-      _ ->
-        :ok
+    if result != {:ok, :not_applicable} do
+      PassMetrics.report(result, duration_ms, matches_by_rank)
     end
   end
 

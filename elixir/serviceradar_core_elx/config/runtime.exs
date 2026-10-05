@@ -613,12 +613,21 @@ if config_env() == :prod do
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
+  # Core mints the agent-facing plugin download URLs, so it honours the same
+  # AGENT_PLUGIN_STORAGE_PUBLIC_URL override as web-ng and the agent gateway.
+  agent_plugin_storage_public_url =
+    Enum.find_value(["AGENT_PLUGIN_STORAGE_PUBLIC_URL", "PLUGIN_STORAGE_PUBLIC_URL"], fn name ->
+      case System.get_env(name) do
+        nil -> nil
+        value -> if String.trim(value) == "", do: nil, else: String.trim(value)
+      end
+    end)
+
   plugin_storage_overrides =
     []
     |> then(fn acc ->
-      case System.get_env("PLUGIN_STORAGE_PUBLIC_URL") do
+      case agent_plugin_storage_public_url do
         nil -> acc
-        "" -> acc
         value -> Keyword.put(acc, :public_url, value)
       end
     end)
@@ -904,9 +913,6 @@ if config_env() == :prod do
   ocsf_network_activity_chunk_interval_hours =
     "SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
 
-  flow_attribution_retention_minutes =
-    "SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES" |> parse_int_env.(60) |> max(15)
-
   # Enable AshOban scheduler - core-elx is the only service that should run schedulers
   ash_oban_scheduler_enabled =
     System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
@@ -950,7 +956,7 @@ if config_env() == :prod do
   # above the slowest maintenance job rather than a tight timeout.
   oban_lifeline_rescue_after_ms =
     "OBAN_LIFELINE_RESCUE_AFTER_MS"
-    |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
+    |> System.get_env(Integer.to_string(to_timeout(hour: 4)))
     |> String.to_integer()
 
   # How long a stopping node waits for executing jobs before killing them. A job
@@ -1194,7 +1200,6 @@ if config_env() == :prod do
          ProductionSchedule.seasonal_disposition_worker_config()
 
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
-  config :serviceradar_core, ServiceRadar.FlowAttribution, retention_minutes: flow_attribution_retention_minutes
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :oban_enabled, oban_enabled

@@ -80,8 +80,10 @@ changeset** (precedent: `secure_execution_lifecycle_ash_actions.ex:40-43`). The 
 ### D5: Staleness policy is re-resolve once, then drop with telemetry
 
 Not raise: the highest-volume consumers (`event_writer/processors/metrics.ex`,
-`processors/sweep.ex`, `sweep_results_ingestor.ex`) are batch pipelines where one raised
-device kills the batch. Not silently drop: `Alert`, `AnomalyEpisode` and
+`sweep_jobs/sweep_results_ingestor.ex`) are batch pipelines where one raised
+device kills the batch. (`processors/sweep.ex` was a historical example here; that
+unregistered processor has been removed -- the live sweep path is
+`sweep_jobs/sweep_results_ingestor.ex`.) Not silently drop: `Alert`, `AnomalyEpisode` and
 `DeviceCompositeCheckResult` are state machines, and a dropped transition leaves an episode
 open forever.
 

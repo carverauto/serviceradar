@@ -7,7 +7,8 @@ any test.
 
 ## Delivery order (D15)
 
-Eight pull requests, each green and safe on its own:
+Eight pull requests, each green and safe on its own, and the alias fixes (D16) between PR 4 and
+PR 5:
 
 | PR | Decisions | Tasks |
 | --- | --- | --- |
@@ -15,6 +16,7 @@ Eight pull requests, each green and safe on its own:
 | 2 | D1, D2 | 2, 3, 4 (4.2's `source_succession` exception goes with PR 5) |
 | 3 | D5, D6 | 6, 7 |
 | 4 | D7, D8 | 8 |
+| Alias | D16 | 15 |
 | 5 | D3, D4 | 5 |
 | 6 | D9 | 10, 11 |
 | 7 | D12, D13, D14 | 9 |
@@ -23,7 +25,8 @@ Eight pull requests, each green and safe on its own:
 Each fix pull request carries its part of 12.1 and its tests: 14.1 and 14.2 go with PR 2
 (14.2's corroborated succession with PR 5), 14.4 and 14.5 with PR 3, 14.6 with PR 4, 14.3 with
 PR 5, 14.9 with PR 6, 14.7 and 14.8 with PR 7, and 14.10 with PR 8. 14.12 and 14.13 apply to
-every pull request, and 2.4 to every one that adds a migration.
+every pull request, and 2.4 to every one that adds a migration. The alias pull request carries
+section 15.
 
 ## 1. Formal model first (D10)
 
@@ -39,7 +42,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       consult the archive; add the reconciler's `Succeed` and `Review` with D3's succession and
       D4's review decisions; add `addrFresh`, a per-record flag that a sighting which is not
       identity-bearing touched the record last, standing for the identity-observation
-      freshness the sweep never refreshes.
+      freshness the sweep never refreshes. PR 4 replaced it with `idSeen`: the record has an
+      `identity_observed_at`.
 - [x] 1.3 Add the properties `OneSourceRecordPerDevice` (at rest), `CurrentSourceIdResolves`,
       `SuccessionIsCorroborated`, `NoMergeOfCurrentSourceIds` and `NoAddresslessShell`, and the
       `NeverSucceeds` helper for the vacuity check.
@@ -64,7 +68,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       `source_retired` and `seed_released`; add `Retire` (which is also `MarkRetired`) and
       `GraceDelete`, gated by `RetirementEnabled`, an evidence sighting of a `source_retired`
       tombstone, and reactivation; add `RetiredTombstoneStaysDeleted` and
-      `MarkedHoldsNoIdentifier`; add `lifecycle_goal_no_expiry`, `lifecycle_goal_retirement`,
+      `MarkedHoldsOnlyMacs` (first named `MarkedHoldsNoIdentifier`); add
+      `lifecycle_goal_no_expiry`, `lifecycle_goal_retirement`,
       `lifecycle_goal_retirement_chain`, `lifecycle_vacuity_grace_delete` (expects
       `violation:NeverGraceDeletes`) and `lifecycle_vacuity_reactivate` (expects
       `violation:NeverReactivatesRetired`).
@@ -105,8 +110,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       switches `armis_alias_pass_blind` and `foreign_sighting_confirms_alias` to `KnownBugs`
       and `CurrentBugs.ResolutionBugs`, the `aliasRow` variable the second needs, and the
       property `AliasFollowsSyncedDevice`, checked by every `resolution_goal_*` configuration.
-      Each switch has a witness expecting `violation:AliasFollowsSyncedDevice`. Which pull
-      request fixes them is an open question in `design.md`.
+      Each switch has a witness expecting `violation:AliasFollowsSyncedDevice`. D16 fixes both,
+      in the alias pull request (section 15).
 
 ## 2. Schema and settings (D1, D5, D6, D7)
 
@@ -123,7 +128,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [x] 2.3 Add the new fields to the Inventory Cleanup settings page in web-ng.
 - [ ] 2.4 Bump `core.migrations.expectedVersion` in `helm/serviceradar/values.yaml` to the
       newest migration this change adds, in the same pull request as each migration. Done for
-      PR 2's migrations; 9.4's bumps it again.
+      PR 2's and PR 3's migrations; 9.4's bumps it again.
 
 ## 3. Retirement (D1)
 
@@ -146,64 +151,66 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 - [x] 4.1 `SourceAuthorityGuard` consults the archive as well as `device_identifiers`: a record
       that holds or held a different value of the type is never an ingest match.
-- [ ] 4.2 `MergeEngine`: every automatic reason keeps refusing a retired rival; only
+- [x] 4.2 `MergeEngine`: every automatic reason keeps refusing a retired rival; only
       `source_succession` passes when D3 holds; `manual*` and `unmerge` are unchanged. PR 2
-      did all but the `source_succession` exception, which lands with PR 5.
+      did all but the `source_succession` exception, which landed with PR 5.
 - [x] 4.3 Add the new decision kinds `:source_id_retired`, `:source_id_reactivated`,
       `:source_id_reissued` and `:succession_review` to `IdentityDecision`; the last two open a
       de-duplication task.
 
 ## 5. Succession and review (D3, D4)
 
-- [ ] 5.1 In `DuplicateSweep`, after the blocked components are known, find predecessor and
+- [x] 5.1 In `DuplicateSweep`, after the blocked components are known, find predecessor and
       successor pairs and apply D3's conditions: a shared universal, non-zero, non-broadcast
       MAC linking the predecessor to no other current record; agreement on first-seen time, or
       on a hostname no other current record of the source holds when the successor's first-seen
       time is no earlier than the predecessor's last-seen time (a missing time fails the
       guard); one-to-one; no distinct assertion or cooldown.
-- [ ] 5.2 Merge with reason `source_succession`: earliest-created record survives (ties by uid)
+- [x] 5.2 Merge with reason `source_succession`: earliest-created record survives (ties by uid)
       and takes the current id; source-owned metadata from the successor; facts per key by
       newest provenance; the successor's address; `merge_audit` details carrying the evidence
       and proving collections. Cap at `max_successions_per_run`.
-- [ ] 5.3 Record `succession_review` decisions with reasons `corroborated_without_mac`,
+- [x] 5.3 Record `succession_review` decisions with reasons `corroborated_without_mac`,
       `mac_only`, `overlapping_hostname`, `shared_mac` and `not_one_to_one`.
-- [ ] 5.4 An administrative unmerge of a succession records a distinct assertion for the pair.
+- [x] 5.4 An administrative unmerge of a succession records a distinct assertion for the pair.
 
 ## 6. Retired mark, hidden reads and grace delete (D5)
 
-- [ ] 6.1 Mark a retired-only record in the retirement transaction (`source_retired_at` and
+- [x] 6.1 Mark a retired-only record in the retirement transaction (`source_retired_at` and
       `metadata.identity_state`).
-- [ ] 6.2 Hide marked records from the default Ash device reads, inventory counts and the SRQL
-      default device filter (`rust/srql/src/query/devices.rs`); add `include_retired` and its
-      SRQL equivalent; show the mark and the deletion time on the device detail view.
-- [ ] 6.3 `DeviceCleanupWorker`: soft-delete marked records past the grace period with
+- [x] 6.2 Hide marked records from the inventory read (`Device :inventory`), inventory counts
+      and the SRQL default device filter (`rust/srql/src/query/devices.rs`); add
+      `include_retired` and its SRQL equivalent; show the mark and the deletion time on the
+      device detail view. `Device :read` still returns them (design D5).
+- [x] 6.3 `DeviceCleanupWorker`: soft-delete marked records past the grace period with
       `deleted_reason = "source_retired"` and `deleted_by = "system:source_retirement"`,
       releasing the address in the same transaction; hold records named by an open
       de-duplication task; apply the mass guard.
-- [ ] 6.4 Make all three revival writers honor `source_retired`: `Device :gateway_restore`,
+- [x] 6.4 Make all three revival writers honor `source_retired`: `Device :gateway_restore`,
       `Device :restore`, and the raw `on_conflict` in `sync/device_writes.ex`. Grep for the
       attribute, not the action, to confirm there is no fourth.
-- [ ] 6.5 Reconcile the pending copy of "Restore Soft-Deleted Devices" in
+- [x] 6.5 Reconcile the pending copy of "Restore Soft-Deleted Devices" in
       `add-device-delete-guardrails` with this change's version before either is archived.
+      PR 3 copied this change's version there; a later edit to either copy is made to both.
 
 ## 7. Reactivation and reissue (D6)
 
-- [ ] 7.1 Resolve a reported id through the archive; return it to its archived holder or that
+- [x] 7.1 Resolve a reported id through the archive; return it to its archived holder or that
       holder's merge survivor only under D6's conditions, moving the row back, clearing the
       mark, restoring a tombstone through `:restore`, and recording `source_id_reactivated`.
-- [ ] 7.2 Otherwise write a new record and record `source_id_reissued`, naming both.
-- [ ] 7.3 Add an `unarchive` function for the remediation rollback, recording
+- [x] 7.2 Otherwise write a new record and record `source_id_reissued`, naming both.
+- [x] 7.3 Add an `unarchive` function for the remediation rollback, recording
       `source_id_reactivated`.
 
 ## 8. Address claims and released seeds (D7, D8)
 
-- [ ] 8.1 Write `identity_observed_at` only from identity-bearing observations: a source sync
+- [x] 8.1 Write `identity_observed_at` only from identity-bearing observations: a source sync
       carrying a current source id, an agent check-in, a discovery poll of the device itself.
-- [ ] 8.2 `claim_address_from_holder/4`: a retired or `source_retired` holder yields; the
+- [x] 8.2 `claim_address_from_holder/4`: a retired or `source_retired` holder yields; the
       newer-observation rule compares `identity_observed_at`, with null counting as older.
-- [ ] 8.3 Soft-delete a qualifying released seed with `deleted_reason = "seed_released"` in the
+- [x] 8.3 Soft-delete a qualifying released seed with `deleted_reason = "seed_released"` in the
       transaction that releases its address; keep the `ip_conflict` decision.
-- [ ] 8.4 Replace the "stays live until expiry" comment in `sync/device_writes.ex` with the new
+- [x] 8.4 Replace the "stays live until expiry" comment in `sync/device_writes.ex` with the new
       rule.
 
 ## 9. Sweep restore and expiry (D12, D13, D14)
@@ -254,7 +261,14 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       delete its witness configuration and the knockout and trace witness configurations of the
       traces that demonstrate it, regenerate the affected traces with `DIRE_TRACE_WRITE=1`,
       model-check them, and make the property must-pass. Done in PR 2 for
-      `retired_source_id_vetoes`.
+      `retired_source_id_vetoes`. PR 3 removes no switch, since D5 and D6 had none; it adds the
+      lifecycle trace `source_retired_returns` (see the design's revision paragraph). Done in
+      PR 4 for `stale_holder_keeps_address` and `released_seed_stays_live`, which also adds
+      `resolution_vacuity_census_keeps_holder`. Done in the alias pull request for
+      `armis_alias_pass_blind` and `foreign_sighting_confirms_alias`, with the `aliasRow`
+      variable only the second needed. PR 5 removes no switch, since D3 and D4 had none; it
+      tightens the model's `Review` to what D4 records, adds its rivals, and adds the traces
+      `src_rekey_new_first_seen`, `src_rekey_no_macs` and `src_rekey_shared_mac_rival`.
 - [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`.
 
@@ -276,18 +290,20 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 - [x] 14.1 Retirement: one absence, N within T, sustained absence, presence reset, non-exact
       collection, query change, no exact collections, mass refusal, TTL GC exemption.
-- [ ] 14.2 Veto split: a new id with a known MAC gets its own record; a retired id still blocks
+- [x] 14.2 Veto split: a new id with a known MAC gets its own record; a retired id still blocks
       the MAC-only backfill; corroborated succession passes the guard. PR 2 tests the first
-      two; corroborated succession lands with PR 5.
-- [ ] 14.3 Succession: MAC and hostname, MAC and first-seen, MAC only, no MAC, cloned machines
+      two; PR 5 tests corroborated succession.
+- [x] 14.3 Succession: MAC and hostname, MAC and first-seen, MAC only, no MAC, cloned machines
       sharing a MAC and a hostname with overlapping lifetimes, a missing source time, not
-      one-to-one, randomized MAC, before retirement, unmerge then rerun.
-- [ ] 14.4 Mark and grace: immediate mark, agent-held record not marked, grace delete, review
+      one-to-one, randomized MAC, before retirement, unmerge then rerun. PR 5 tests them in
+      `source_succession_test.exs` and the `src_` traces; not one-to-one, and a hostname another
+      current record holds, on constructed snapshots, which the harness cannot build.
+- [x] 14.4 Mark and grace: immediate mark, agent-held record not marked, grace delete, review
       hold, a sweep that keeps answering, no revival through any of the three writers, and a
       revival audit row for every restore.
-- [ ] 14.5 Reactivation and reissue, including a holder that now holds a current id and an
+- [x] 14.5 Reactivation and reissue, including a holder that now holds a current id and an
       update whose hostname fails D3's time guard.
-- [ ] 14.6 Address claims: a retired holder yields; a sweep refresh does not make a holder
+- [x] 14.6 Address claims: a retired holder yields; a sweep refresh does not make a holder
       newer; a released seed is tombstoned; a seed with an identifier row stays live.
 - [ ] 14.7 Sweep restore: an expired sweep-only device returns with an audit row; an
       operator-deleted sweep-only device stays deleted and unchanged; a `source_retired` or
@@ -302,6 +318,30 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.11 Extend the `add-hermetic-armis-dire-e2e` harness with the re-key scenarios.
 - [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
-      Done for PR 2.
+      Done for PR 2, PR 3, PR 4 and the alias pull request. #5171 removed the counts; from PR 5
+      on, a new test file gets its disposition row and its lane entry instead.
 - [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run. Done for PR 2.
+      check not run. Done for PR 2, PR 3, PR 4, the alias pull request and PR 5.
+
+## 15. Alias rows (D16)
+
+- [x] 15.1 `AliasEvents` records a sighting on the sighted device's own row
+      (`DeviceAliasState.lookup_for_device/4`), and `Sync.Aliases` looks an address's aliases up
+      under the device's partition (`AliasEvents.alias_partition/2`). Remove both alias switches
+      as 12.1 says, and regenerate `armis_dhcp` and `src_rekey_succession`.
+- [x] 15.2 `Sync.Aliases` and `AliasGuard` handle every confirmed holder of the address but the
+      device itself (`Resolver.lookup_alias_device_ids/4`, `except:`). Add the traces
+      `armis_dhcp_two_holders` and `mapper_prior_alias_holder`. With either fix reverted, its
+      trace differs from the committed one, and TLC cannot follow the recorded trace to its end.
+- [x] 15.3 Order every reader that picks one holder by `DeviceAliasState.holder_sort/0`. The
+      mapper ranks by state, then by the same order. The pending-alias fallback keeps the row
+      with the most sightings first, breaks a tie by first-seen time, then by device id, and
+      leaves out an `except:` device as the confirmed read does.
+- [x] 15.4 `Reassignments.reassign_alias_states/3` folds a row both records of a merge hold: the
+      merged record's row is `replaced` by the survivor's and carries its confirmation.
+- [x] 15.5 Tests, each shown to fail with its fix reverted: a device seen at an address another
+      device holds gets its own row, and its sightings confirm only that row; an Armis update
+      naming its sync source invalidates a MAC-owning holder's alias; the sync pass and
+      `AliasGuard` invalidate every other identified holder; readers return holders in order,
+      including a tie in recency; the pending-alias fallback leaves out an `except:` device; a
+      merge succeeds when both records hold a row of the address.

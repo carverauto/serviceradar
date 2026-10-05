@@ -126,7 +126,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
   defp create_run(check, resolved, params, actor, opts) do
     deadline =
       opts
-      |> Keyword.get(:deadline_at, DateTime.add(DateTime.utc_now(), @deadline_seconds, :second))
+      |> Keyword.get(:deadline_at, DateTime.shift(DateTime.utc_now(), second: @deadline_seconds))
       |> DateTime.truncate(:microsecond)
 
     requested_by = params["requested_by"] || params[:requested_by]

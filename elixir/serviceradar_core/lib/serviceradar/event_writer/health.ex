@@ -17,6 +17,7 @@ defmodule ServiceRadar.EventWriter.Health do
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Producer
   alias ServiceRadar.EventWriter.Supervisor
+  alias ServiceRadar.FlowAttribution
 
   @doc """
   Returns the full health status of the EventWriter subsystem.
@@ -24,29 +25,42 @@ defmodule ServiceRadar.EventWriter.Health do
   Returns a map with:
   - `enabled` - Whether EventWriter is enabled in configuration
   - `running` - Whether the supervisor is running
-  - `pipeline` - Pipeline status (connected, message count, etc.)
-  - `producer` - Producer status (NATS connection status)
+  - `healthy` - Whether every configured pipeline is running with a ready producer
+  - `reason` - `:ok` or `{:error, reason}` (see `check/0`)
+  - `pipeline` - Shared pipeline status (running, pid)
+  - `producer` - Shared producer status (connection and consumer readiness)
+  - `pipelines` - Per-pipeline `%{pipeline: ..., producer: ...}` map
   - `config` - Current configuration summary
+  - `flow_attribution` - `ServiceRadar.FlowAttribution.health/0`; reports
+    `attribution_disabled: :starrocks_required` without the warehouse
   """
   @spec status() :: map()
   def status do
     config = Config.load()
 
-    base_status = %{
+    pipelines =
+      [{Pipeline, config}, {ServiceRadar.EventWriter.FlowPipeline, Config.load_flow()}]
+      |> Enum.reject(fn {_name, cfg} -> cfg.streams == [] end)
+      |> Map.new(fn {name, _cfg} ->
+        {name, %{pipeline: pipeline_status(name), producer: producer_status(name)}}
+      end)
+
+    running = supervisor_running?()
+    result = health_result(config.enabled, running, pipelines)
+    shared = Map.get(pipelines, Pipeline, %{})
+
+    %{
       enabled: config.enabled,
-      running: supervisor_running?(),
+      running: running,
+      healthy: result == :ok,
+      reason: result,
+      pipeline: Map.get(shared, :pipeline),
+      producer: Map.get(shared, :producer),
+      pipelines: pipelines,
+      config: config_summary(config),
+      flow_attribution: FlowAttribution.health(),
       timestamp: DateTime.utc_now()
     }
-
-    if config.enabled and base_status.running do
-      Map.merge(base_status, %{
-        pipeline: pipeline_status(),
-        producer: producer_status(),
-        config: config_summary(config)
-      })
-    else
-      base_status
-    end
   end
 
   @doc """
@@ -58,21 +72,7 @@ defmodule ServiceRadar.EventWriter.Health do
   """
   @spec check() :: :ok | {:error, term()}
   def check do
-    config = Config.load()
-
-    cond do
-      not config.enabled ->
-        :ok
-
-      not supervisor_running?() ->
-        {:error, :supervisor_not_running}
-
-      not pipeline_running?() ->
-        {:error, :pipeline_not_running}
-
-      true ->
-        :ok
-    end
+    status().reason
   end
 
   @doc """
@@ -92,58 +92,48 @@ defmodule ServiceRadar.EventWriter.Health do
     end
   end
 
-  defp pipeline_running? do
-    case Process.whereis(Pipeline) do
-      nil -> false
-      pid -> Process.alive?(pid)
-    end
+  defp health_result(false, _running, _pipelines), do: :ok
+  defp health_result(true, false, _pipelines), do: {:error, :supervisor_not_running}
+
+  defp health_result(true, true, pipelines) when map_size(pipelines) == 0,
+    do: {:error, :no_streams_configured}
+
+  defp health_result(true, true, pipelines) do
+    Enum.reduce_while(pipelines, :ok, fn {name, status}, :ok ->
+      cond do
+        not status.pipeline.running ->
+          {:halt, {:error, {:pipeline_not_running, name}}}
+
+        not status.producer.ready ->
+          {:halt, {:error, {:producer_not_ready, name}}}
+
+        true ->
+          {:cont, :ok}
+      end
+    end)
   end
 
-  defp pipeline_status do
-    case Process.whereis(Pipeline) do
+  defp pipeline_status(name) do
+    case Process.whereis(name) do
       nil ->
         %{running: false}
 
       pid ->
-        # Get Broadway info if available
-        try do
-          info = Broadway.topology(Pipeline)
-
-          %{
-            running: true,
-            pid: inspect(pid),
-            producers: length(info[:producers] || []),
-            processors: length(info[:processors] || []),
-            batchers: length(info[:batchers] || [])
-          }
-        rescue
-          _ ->
-            %{running: Process.alive?(pid), pid: inspect(pid)}
-        end
+        %{running: Process.alive?(pid), pid: inspect(pid)}
     end
   end
 
-  defp producer_status do
-    case Process.whereis(Producer) do
-      nil ->
-        %{running: false, connected: false}
-
-      pid ->
-        # Try to get producer state
-        try do
-          state = :sys.get_state(pid, 1000)
-
-          %{
-            running: true,
-            connected: state.connected,
-            pending_messages: length(state.pending_messages),
-            demand: state.demand
-          }
-        rescue
-          _ ->
-            %{running: Process.alive?(pid), connected: :unknown}
-        end
+  defp producer_status(pipeline) do
+    # Broadway wraps the producer module in its own named GenStage process;
+    # Producer.start_link/1 and config.producer_name are not used by Broadway.
+    case Broadway.producer_names(pipeline) do
+      [name] -> Producer.status(name)
+      _ -> %{running: false, connected: false, ready: false}
     end
+  rescue
+    _ -> %{running: false, connected: false, ready: false}
+  catch
+    :exit, _ -> %{running: false, connected: false, ready: false}
   end
 
   defp config_summary(config) do

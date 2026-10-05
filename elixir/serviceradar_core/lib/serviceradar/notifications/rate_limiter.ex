@@ -158,7 +158,7 @@ defmodule ServiceRadar.Notifications.RateLimiter do
   """
   @spec next_window_start(DateTime.t()) :: DateTime.t()
   def next_window_start(%DateTime{} = now) do
-    now |> window_start() |> DateTime.add(@window_seconds, :second)
+    now |> window_start() |> DateTime.shift(second: @window_seconds)
   end
 
   @doc """
@@ -257,7 +257,7 @@ defmodule ServiceRadar.Notifications.RateLimiter do
         :ok
 
       {:ok, %{rows: [[_consumed, window_started_at, false] | _]}} ->
-        {:wait, window_started_at |> to_datetime() |> DateTime.add(@window_seconds, :second)}
+        {:wait, window_started_at |> to_datetime() |> DateTime.shift(second: @window_seconds)}
 
       # A concurrent first insert can produce no rows even though the budget is
       # spent: the INSERT waits on the other transaction, while the fallback

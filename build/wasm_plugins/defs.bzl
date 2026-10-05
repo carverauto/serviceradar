@@ -5,6 +5,43 @@ _BUNDLE_MEDIA_TYPE = "application/zip"
 _UPLOAD_SIGNATURE_MEDIA_TYPE = "application/vnd.serviceradar.wasm-plugin.upload-signature.v1+json"
 
 
+def wasm_binary(name, srcs, main_go, tags = [], visibility = ["//visibility:public"]):
+    """Builds `<name>_wasm` (`<name>.wasm`) from a Go main package with the pinned TinyGo."""
+    cmd_parts = [
+        "$(location //build/wasm_plugins:build_wasm_binary.sh)",
+        # One toolchain, already selected for the exec platform by the aliases in this
+        # package. build_wasm_binary.sh prefers an explicit --tinygo/--go-bin over its own
+        # uname dispatch, so passing these two retires the eight per-platform flags without
+        # touching the script.
+        "--tinygo",
+        "$(location //build/wasm_plugins:selected_tinygo)",
+        "--go-bin",
+        "$(location //build/wasm_plugins:selected_go)",
+        "--main-go",
+        "$(location {})".format(main_go),
+        "--out",
+        "$@",
+    ]
+    if tags:
+        cmd_parts.extend([
+            "--tags",
+            "\"{}\"".format(",".join(tags)),
+        ])
+    native.genrule(
+        name = "{}_wasm".format(name),
+        srcs = srcs + [main_go],
+        outs = ["{}.wasm".format(name)],
+        cmd = " ".join(cmd_parts),
+        tools = [
+            "//build/wasm_plugins:build_wasm_binary.sh",
+            "//build/wasm_plugins:selected_tinygo",
+            "//build/wasm_plugins:selected_go",
+            "//build/wasm_plugins:selected_tinygo_tree",
+        ],
+        visibility = visibility,
+    )
+
+
 def declare_wasm_targets(build_targets, plugin_bundles):
     wasm_outputs = []
     metadata_outputs = []
@@ -12,39 +49,11 @@ def declare_wasm_targets(build_targets, plugin_bundles):
     push_targets = []
 
     for build in build_targets:
-        wasm_out = "{}.wasm".format(build["name"])
-        cmd_parts = [
-            "$(location :build_wasm_binary.sh)",
-            # One toolchain, already selected for the exec platform by the aliases in this
-            # package. build_wasm_binary.sh prefers an explicit --tinygo/--go-bin over its own
-            # uname dispatch, so passing these two retires the eight per-platform flags without
-            # touching the script.
-            "--tinygo",
-            "$(location //build/wasm_plugins:selected_tinygo)",
-            "--go-bin",
-            "$(location //build/wasm_plugins:selected_go)",
-            "--main-go",
-            "$(location {})".format(build["main_go"]),
-            "--out",
-            "$@",
-        ]
-        if build["tags"]:
-            cmd_parts.extend([
-                "--tags",
-                "\"{}\"".format(",".join(build["tags"])),
-            ])
-        native.genrule(
-            name = "{}_wasm".format(build["name"]),
-            srcs = build["srcs"] + [build["main_go"]],
-            outs = [wasm_out],
-            cmd = " ".join(cmd_parts),
-            tools = [
-                ":build_wasm_binary.sh",
-                "//build/wasm_plugins:selected_tinygo",
-                "//build/wasm_plugins:selected_go",
-                "//build/wasm_plugins:selected_tinygo_tree",
-            ],
-            visibility = ["//visibility:public"],
+        wasm_binary(
+            name = build["name"],
+            srcs = build["srcs"],
+            main_go = build["main_go"],
+            tags = build["tags"],
         )
         native.filegroup(
             name = "{}_wasm_file".format(build["name"]),

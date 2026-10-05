@@ -144,6 +144,49 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   end
 
   @tag :web_ng_shared_fixture_db
+  test "rollup health counts the bucket that holds the 24-hour window start" do
+    # Health is computed for real here, not stubbed by the setup above.
+    Application.delete_env(:serviceradar_web_ng, :logs_rollup_status_fun)
+
+    # Connection-local stand-ins shadow the unqualified tables the health check
+    # reads; the sandbox transaction pins now(), fixing the clock for the test.
+    ServiceRadar.Repo.query!("CREATE TEMP TABLE logs (timestamp timestamptz NOT NULL) ON COMMIT DROP")
+
+    ServiceRadar.Repo.query!("CREATE TEMP TABLE logs_severity_stats_5m (bucket timestamptz NOT NULL) ON COMMIT DROP")
+
+    # Raw logs span the whole window, starting mid-bucket; the rollup holds
+    # every bucket from the one containing the window start to the current one.
+    ServiceRadar.Repo.query!("""
+    INSERT INTO logs (timestamp) VALUES (now() - INTERVAL '24 hours'), (now())
+    """)
+
+    ServiceRadar.Repo.query!("""
+    INSERT INTO logs_severity_stats_5m (bucket)
+    SELECT generate_series(
+      time_bucket(INTERVAL '5 minutes', now() - INTERVAL '24 hours'),
+      time_bucket(INTERVAL '5 minutes', now()),
+      INTERVAL '5 minutes'
+    )
+    """)
+
+    %{rows: [[first_bucket, window_start]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT time_bucket(INTERVAL '5 minutes', now() - INTERVAL '24 hours'),
+             now() - INTERVAL '24 hours'
+      """)
+
+    # On an exact bucket boundary there is no partial bucket to drop.
+    assert DateTime.before?(first_bucket, window_start)
+
+    status = ServiceRadarWebNGWeb.Stats.logs_rollup_status(coverage_grace_seconds: 0)
+
+    assert status.rollup_present?
+    assert DateTime.compare(status.rollup_window_start_bucket, first_bucket) == :eq
+    assert status.coverage_gap_seconds == 0
+    assert status.healthy?, inspect(status.messages)
+  end
+
+  @tag :web_ng_shared_fixture_db
   test "log signal rows render their selected canonical instants with unique user-time ids", %{conn: conn} do
     path = ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc"}}"
     {:ok, lv, _html} = live_following_redirect(conn, path)
@@ -727,6 +770,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     refute has_element?(lv, "#traces-row-1[phx-click]")
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "Multi-span toggles a numeric summary query and explains an empty filtered result", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    assert has_element?(lv, "#traces-row-1", "orphan summary")
+    drain_srql_calls()
+
+    lv |> element("#traces-multi-span-toggle") |> render_click()
+    assert has_element?(lv, "#traces-multi-span-toggle[title='Show all traces']")
+    refute has_element?(lv, "#traces-row-1")
+    assert has_element?(lv, "#traces-row-0 td:nth-child(5)", "3")
+    assert Enum.any?(drain_srql_calls(), &String.contains?(&1.query, "span_count:>1"))
+
+    lv |> element("#traces-multi-span-toggle") |> render_click()
+    assert has_element?(lv, "#traces-row-1", "orphan summary")
+    refute Enum.any?(drain_srql_calls(), &String.contains?(&1.query, "span_count:>1"))
+
+    :persistent_term.put({__MODULE__, :empty_trace_summaries?}, true)
+    on_exit(fn -> :persistent_term.erase({__MODULE__, :empty_trace_summaries?}) end)
+    lv |> element("#traces-multi-span-toggle") |> render_click()
+    assert has_element?(lv, "#traces", "No multi-span traces found. Single-span traces are excluded by this filter.")
+    refute has_element?(lv, "#traces-row-0")
+    refute Enum.any?(drain_srql_calls(), &String.starts_with?(&1.query, "in:traces "))
+  end
+
   test "default traces tab falls back to raw spans when summaries are stale", %{conn: conn} do
     :persistent_term.put({__MODULE__, :empty_trace_summaries?}, true)
 
@@ -810,7 +877,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           String.contains?(query, "rollup_stats:severity") -> [logs_severity_rollup_payload()]
           String.contains?(query, "rollup_stats:red") -> [red_rollup_payload()]
           String.contains?(query, "rollup_stats:summary") -> [traces_rollup_payload()]
-          String.starts_with?(query, "in:otel_trace_summaries") -> maybe_sample_trace_summaries()
+          String.starts_with?(query, "in:otel_trace_summaries") -> maybe_sample_trace_summaries(query)
           String.starts_with?(query, "in:traces") -> sample_raw_traces()
           String.starts_with?(query, "in:otel_metric_points") -> otlp_points_results(query)
           String.starts_with?(query, "in:otel_metrics") -> sample_metrics()
@@ -1002,11 +1069,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       })
     end
 
-    defp maybe_sample_trace_summaries do
+    defp maybe_sample_trace_summaries(query) do
       if :persistent_term.get({IndexTest, :empty_trace_summaries?}, false) do
         []
       else
-        sample_traces()
+        if String.contains?(query, "span_count:>1"),
+          do: Enum.filter(sample_traces(), &(Map.get(&1, "span_count", 0) > 1)),
+          else: sample_traces()
       end
     end
 

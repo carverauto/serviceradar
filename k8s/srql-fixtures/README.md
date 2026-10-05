@@ -15,7 +15,7 @@ fixture-reachable runners.
 - `cert-manager.yaml` – namespace-local self-signed Issuer, 10-year CA Certificate, CA Issuer, and 90-day server Certificate.
 - `ca-bundle.yaml` – Caddy static publisher for only `ca.crt` on the in-cluster ClusterIP `srql-fixture-ca-incluster`. Envoy backend only. Do not put nginx on this path.
 - `httproute-ca.yaml` / `httproute-redirect.yaml` – LAN HTTPS at `https://srql-fixture-ca.carverauto.dev/ca.crt` on `lan-shared-gateway`. Let's Encrypt terminates; the custom CA is the document being served.
-- `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (currently `23.138.124.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
+- `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (e.g. `198.51.100.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
 - No network policy is applied; the LoadBalancer is publicly reachable once MetalLB advertises it. Use the shared secret/DSN guarding to control access.
 
 ## Deployment
@@ -90,9 +90,9 @@ export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
 - Leftover scratch databases (cancelled CI clones, workstation `codex_*` / `cc_*` /
   `serviceradar_bootstrap_test_*` databases) are dropped hourly by
   `srql-fixture-scratch-reaper`. It never touches `postgres`, `srql_fixture`, or
-  `sr_core_template`. Cluster YAML for the CronJob lives in gitops:
+  any `sr_tpl_*` template generation. Cluster YAML for the CronJob lives in gitops:
   `k8s/srql-fixtures/` (carverauto / Argo) and
-  `clusters/farm01/srql-fixtures/` (farm01 / `bootstrap.sh`). Keep the
+  `clusters/farm01/srql-fixtures/` (farm01, applied by hand). Keep the
   protected-name list in sync with `go/pkg/srqlfixture/reaper` and
   `rust/integration-db`. The Go binary is `//go/cmd/tools/srql-fixture-reaper`
   (`--interval` for daemon mode; default is one pass).

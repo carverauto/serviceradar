@@ -20,6 +20,7 @@ py_test(
         "//config/environments:ci.textproto",
         "//k8s/buildbuddy:values.yaml",
         "//k8s/buildbuddy:values-workflows.yaml",
+        "//k8s/buildbuddy:values-workflows-lig.yaml",
         "//k8s/srql-fixtures:httproute-ca.yaml",
         "//k8s/srql-fixtures:namespace.yaml",
         "//scripts:ci/configure-srql-fixture.sh",

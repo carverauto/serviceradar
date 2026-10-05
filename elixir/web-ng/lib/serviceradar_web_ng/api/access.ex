@@ -81,9 +81,12 @@ defmodule ServiceRadarWebNG.Api.Access do
 
   def slice_srql_catalog(_catalog, _entity), do: {:error, "entity must be a string"}
 
+  # Reads the inventory as operators see it (`Device :inventory`): a record marked
+  # source_retired is listed only when `include_retired` is true.
   @spec list_devices(term(), map()) :: [struct()]
   def list_devices(scope, opts) when is_map(opts) do
     Device
+    |> Ash.Query.for_read(:inventory, %{include_retired: opts[:include_retired] == true}, scope: scope)
     |> Ash.Query.sort(last_seen_time: :desc)
     |> maybe_filter_search(opts[:search])
     |> maybe_filter_status(opts[:status])

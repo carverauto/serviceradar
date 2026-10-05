@@ -19,6 +19,8 @@ const CREDENTIALS_VERSION = 1
 export interface CredentialEntry {
   token: string
   user?: string
+  // Space-separated scopes the token was issued for, when the server said.
+  scope?: string
   obtained_at?: string
   expires_at?: string
 }

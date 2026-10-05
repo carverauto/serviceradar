@@ -381,7 +381,7 @@ defmodule ServiceRadar.Credentials.SecretProviderAdapters.OpenBao do
     case Map.get(body, "lease_duration") do
       seconds when is_integer(seconds) and seconds > 0 ->
         DateTime.utc_now()
-        |> DateTime.add(seconds, :second)
+        |> DateTime.shift(second: seconds)
         |> DateTime.truncate(:second)
 
       _ ->

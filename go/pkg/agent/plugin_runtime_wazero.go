@@ -405,9 +405,13 @@ func assignmentStateContentHash(assignment *pluginAssignment) string {
 	return assignment.PackageID + "|" + assignment.WasmObject + "|" + assignment.Version
 }
 
+// prefetchAssignment warms the Wasm cache for an assignment that is not yet
+// ready. It is called on every config apply, including the unchanged-config
+// path that only refreshes download credentials, so a download URL that was
+// missing or wrong and is later corrected is fetched immediately instead of
+// waiting for the first scheduled run.
 func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
-	downloadURL, _ := assignment.downloadCredentials()
-	if assignment == nil || downloadURL == "" {
+	if assignment == nil {
 		return
 	}
 
@@ -415,7 +419,29 @@ func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
 		return
 	}
 
+	downloadURL, _ := assignment.downloadCredentials()
+	if strings.TrimSpace(downloadURL) == "" {
+		if m.localStoreHasWasm(assignment) {
+			return
+		}
+		// Without a download URL the binary can never be fetched; say so now
+		// rather than leaving the operator to discover it when a run fails.
+		m.logger.Warn().
+			Str("assignment_id", assignment.AssignmentID).
+			Str("plugin_id", assignment.PluginID).
+			Str("package_id", assignment.PackageID).
+			Msg("Plugin wasm prefetch skipped: assignment has no download URL; " +
+				"check the control plane plugin storage public URL " +
+				"(PLUGIN_STORAGE_PUBLIC_URL / AGENT_PLUGIN_STORAGE_PUBLIC_URL)")
+		return
+	}
+
+	if !m.beginPrefetch(assignment.AssignmentID) {
+		return
+	}
+
 	go func() {
+		defer m.endPrefetch(assignment.AssignmentID)
 		ctx, cancel := context.WithTimeout(m.ctx, pluginDefaultHTTPTimeout*2)
 		defer cancel()
 		if _, err := m.loadWasm(ctx, assignment); err != nil && !errors.Is(err, errPluginWasmUnavailable) {
@@ -426,6 +452,43 @@ func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
 			m.tryEnqueueResult(buildPluginErrorResult(assignment, fmt.Sprintf("wasm_prefetch_failed: %s", err)))
 		}
 	}()
+}
+
+// beginPrefetch claims the single in-flight prefetch slot for an assignment so
+// repeated config applies do not stack concurrent downloads of one binary.
+func (m *PluginManager) beginPrefetch(assignmentID string) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	state := m.states[assignmentID]
+	if state == nil {
+		state = &assignmentState{firstSeen: m.stateNow()}
+		m.states[assignmentID] = state
+	}
+	if state.ready || state.prefetching {
+		return false
+	}
+	state.prefetching = true
+	return true
+}
+
+func (m *PluginManager) endPrefetch(assignmentID string) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if state := m.states[assignmentID]; state != nil {
+		state.prefetching = false
+	}
+}
+
+func (m *PluginManager) localStoreHasWasm(assignment *pluginAssignment) bool {
+	if assignment == nil || assignment.WasmObject == "" {
+		return false
+	}
+	localPath, err := safeJoin(m.localStoreDir, assignment.WasmObject)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(localPath)
+	return err == nil
 }
 
 func (m *PluginManager) cachePath(assignment *pluginAssignment) string {

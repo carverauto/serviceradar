@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
         state: "executing",
         attempt: 1,
         max_attempts: 3,
-        attempted_at: DateTime.add(DateTime.utc_now(), -2 * 24 * 60 * 60, :second),
+        attempted_at: DateTime.shift(DateTime.utc_now(), day: -2),
         meta: %{"cron" => true}
       )
 
@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
         state: "executing",
         attempt: 3,
         max_attempts: 3,
-        attempted_at: DateTime.add(DateTime.utc_now(), -2 * 24 * 60 * 60, :second),
+        attempted_at: DateTime.shift(DateTime.utc_now(), day: -2),
         meta: %{"cron" => true}
       )
 
@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNG.Jobs.ReapStalePeriodicJobsWorkerTest do
         state: "executing",
         attempt: 1,
         max_attempts: 3,
-        attempted_at: DateTime.add(DateTime.utc_now(), -2 * 24 * 60 * 60, :second),
+        attempted_at: DateTime.shift(DateTime.utc_now(), day: -2),
         meta: %{}
       )
 

@@ -184,6 +184,72 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
     }
   end
 
+  describe "Proxmox API token descriptor" do
+    # Mirrors the proxmox-inventory manifest's api_token method.
+    @proxmox_profile %{
+      "provider" => "proxmox",
+      "auth_methods" => [
+        %{
+          "id" => "api_token",
+          "credential_kind" => "api_token",
+          "fields" => [
+            %{"id" => "user", "required" => true, "secret" => false, "public" => false},
+            %{"id" => "realm", "required" => true, "secret" => false, "public" => false},
+            %{"id" => "token_id", "required" => true, "secret" => false, "public" => false},
+            %{"id" => "token_secret", "required" => true, "secret" => true, "public" => false}
+          ],
+          "payload" => %{
+            "format" => "template",
+            "template" => "{{user}}@{{realm}}!{{token_id}}={{token_secret}}",
+            "username_field" => "user"
+          }
+        }
+      ]
+    }
+
+    test "renders a complete user@realm!token=secret value" do
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 @proxmox_profile,
+                 "api_token",
+                 proxmox_values(%{}),
+                 %{name: "PVE token"}
+               )
+
+      assert attrs.secret_payload == "svc@pve!inventory=00000000-1111-4222-8333-444444444444"
+    end
+
+    test "rejects identity fields that carry their own @ or !" do
+      assert {:error, {:invalid_credential_field, "user"}} =
+               CredentialSecretBuilder.build(
+                 @proxmox_profile,
+                 "api_token",
+                 proxmox_values(%{"user" => "svc@pve", "realm" => "pam"}),
+                 %{name: "PVE token"}
+               )
+
+      assert {:error, {:invalid_credential_field, "token_id"}} =
+               CredentialSecretBuilder.build(
+                 @proxmox_profile,
+                 "api_token",
+                 proxmox_values(%{"token_id" => "svc@pve!inventory"}),
+                 %{name: "PVE token"}
+               )
+    end
+
+    defp proxmox_values(overrides) do
+      Map.merge(
+        %{
+          "user" => "svc",
+          "realm" => "pve",
+          "token_id" => "inventory",
+          "token_secret" => "00000000-1111-4222-8333-444444444444"
+        },
+        overrides
+      )
+    end
+  end
+
   describe "native SNMP descriptor" do
     # SNMP has no package to publish a descriptor, so NativeDescriptors supplies
     # one in the shape a manifest would. The point of that shape is that the
@@ -276,21 +342,29 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
   describe "native VulnCheck descriptor" do
     alias ServiceRadar.Credentials.NativeDescriptors
 
-    test "stores the API token as a scalar payload" do
-      assert {:ok, attrs} =
-               CredentialSecretBuilder.build(
-                 NativeDescriptors.vulncheck(),
-                 "api_token",
-                 %{"api_token" => "vc-community-token"},
-                 %{name: "VulnCheck community", description: nil}
-               )
+    test "core feed descriptors build scalar inventory tokens with native provenance" do
+      for {profile, provider} <- [
+            {NativeDescriptors.vulncheck(), "vulncheck"},
+            {NativeDescriptors.otx(), "alienvault-otx-core"}
+          ] do
+        assert {:ok, attrs} =
+                 CredentialSecretBuilder.build(
+                   profile,
+                   "api_token",
+                   %{"api_token" => "invented-feed-token"},
+                   %{
+                     name: "Invented feed",
+                     description: nil
+                   }
+                 )
 
-      assert attrs.provider == "vulncheck"
-      assert attrs.credential_kind == :api_token
-      assert attrs.secret_payload == "vc-community-token"
-      assert attrs.metadata["plugin_id"] == "vulncheck"
-      assert attrs.metadata["plugin_version"] == "native"
-      assert attrs.metadata["auth_method"] == "api_token"
+        assert attrs.provider == provider
+        assert attrs.credential_kind == :api_token
+        assert attrs.secret_payload == "invented-feed-token"
+        assert attrs.metadata["plugin_id"] == provider
+        assert attrs.metadata["plugin_version"] == "native"
+        assert attrs.metadata["auth_method"] == "api_token"
+      end
     end
 
     test "rejects an empty token" do

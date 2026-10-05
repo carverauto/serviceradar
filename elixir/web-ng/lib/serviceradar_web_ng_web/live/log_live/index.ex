@@ -1373,7 +1373,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp maybe_enrich_ipinfo(user, ip) when is_binary(ip) do
     if IpInfo.available?() do
       now = DateTime.utc_now()
-      expires_at = DateTime.add(now, 604_800, :second)
+      expires_at = DateTime.shift(now, week: 1)
 
       {attrs, err} =
         case IpInfo.lookup(ip) do
@@ -4660,7 +4660,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <tbody>
           <tr :if={@traces == []}>
             <td colspan="6" class="text-sm text-sr-muted py-8 text-center">
-              No traces found.
+              <%= if multi_span_active?(@query) do %>
+                No multi-span traces found. Single-span traces are excluded by this filter.
+              <% else %>
+                No traces found.
+              <% end %>
             </td>
           </tr>
 
@@ -9362,7 +9366,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> Enum.map(fn {bucket_start, bytes} ->
         %{
           bucket_start: bucket_start,
-          bucket_end: DateTime.add(bucket_start, bucket_seconds, :second),
+          bucket_end: DateTime.shift(bucket_start, second: bucket_seconds),
           bytes: trunc(bytes)
         }
       end)
@@ -9781,10 +9785,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         {cstart, cend} =
           case mode do
             "previous" ->
-              {DateTime.add(start_dt, -span_seconds, :second), start_dt}
+              {DateTime.shift(start_dt, second: -span_seconds), start_dt}
 
             "yesterday" ->
-              {DateTime.add(start_dt, -86_400, :second), DateTime.add(end_dt, -86_400, :second)}
+              {DateTime.shift(start_dt, day: -1), DateTime.shift(end_dt, day: -1)}
           end
 
         compare_time = "[#{DateTime.to_iso8601(cstart)},#{DateTime.to_iso8601(cend)}]"
@@ -9819,7 +9823,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           |> Enum.map(fn {bucket_start, bytes} ->
             %{
               bucket_start: bucket_start,
-              bucket_end: DateTime.add(bucket_start, bucket_seconds, :second),
+              bucket_end: DateTime.shift(bucket_start, second: bucket_seconds),
               bytes: trunc(bytes)
             }
           end)
@@ -10013,7 +10017,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       {n, ""} when n > 0 ->
         case duration_unit_multiplier(unit) do
           seconds when is_integer(seconds) and seconds > 0 ->
-            {:ok, %{start: DateTime.add(now, -(n * seconds), :second), end: now}}
+            {:ok, %{start: DateTime.shift(now, second: -(n * seconds)), end: now}}
 
           _ ->
             {:error, :bad_time}
@@ -10311,8 +10315,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp correlated_logs_time_window(metric) do
     case parse_timestamp(Map.get(metric, "timestamp") || Map.get(metric, "observed_timestamp")) do
       {:ok, dt} ->
-        from = dt |> DateTime.add(-3600, :second) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-        to = dt |> DateTime.add(3600, :second) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+        from = dt |> DateTime.shift(hour: -1) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+        to = dt |> DateTime.shift(hour: 1) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
         "time:[#{from},#{to}]"
 
       _ ->

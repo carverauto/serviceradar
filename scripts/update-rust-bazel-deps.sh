@@ -60,11 +60,10 @@ cd "$REPO_ROOT"
 UPDATE_MODE="${1:-workspace}"
 VERIFY_TARGET="${2:-//rust/...}"
 
-# Vendored third-party forks under //third_party/rust_patches are workspace members, but
-# their test targets reference dev-dependencies they never declare, so they fail
-# `cargo check --tests` on a clean tree. Pre-existing and unrelated to any dep bump; skip
-# them so this script reports real breakage only. Bazel does not build them either.
-BROKEN_FORKS=(--exclude reqsign-azure-storage --exclude reqsign-google --exclude rperf)
+# The retained rperf fork still has undeclared upstream test dependencies.
+# The unused reqsign 1.x forks have been removed; active reqsign 3.x is resolved
+# through the registry and must participate in normal dependency validation.
+BROKEN_FORKS=(--exclude rperf)
 
 run_cargo_update() {
   local mode="$1"

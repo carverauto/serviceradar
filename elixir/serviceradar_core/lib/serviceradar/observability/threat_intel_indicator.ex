@@ -23,7 +23,10 @@ defmodule ServiceRadar.Observability.ThreatIntelIndicator do
 
     read :containing_ip do
       argument :ip, :string, allow_nil?: false
-      filter expr(fragment("? >>= ?::inet", indicator, ^arg(:ip)))
+
+      # The address is bound as text. A bare `?::inet` makes PostgreSQL infer
+      # the parameter as inet, and a text parameter then fails to encode.
+      filter expr(fragment("? >>= (?::text)::inet", indicator, ^arg(:ip)))
     end
 
     create :upsert do

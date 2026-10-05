@@ -150,7 +150,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportScannerWorker do
     Authored.next_due_at(
       schedule.cron,
       schedule.timezone || "UTC",
-      DateTime.add(due_at, 1, :second)
+      DateTime.shift(due_at, second: 1)
     )
   end
 

@@ -37,6 +37,7 @@ cover.
 ```
 in:devices deleted:true sort:last_seen:desc limit:50
 in:devices deleted:true hostname:%farm% limit:25
+in:devices source_retired:true sort:last_seen:desc limit:50
 in:merge_audit device_id:sr:<uuid> sort:created_at:desc limit:25
 in:merge_audit chain:sr:<uuid> limit:50
 in:merge_audit reason:duplicate_mac time:last_7d limit:50
@@ -57,6 +58,11 @@ in:deduplication_tasks device:sr:<uuid> limit:25
 
 `in:devices deleted:true` returns tombstoned devices with `deleted_at`,
 `deleted_by`, and `deleted_reason`. Plain `in:devices` hides them.
+
+Plain `in:devices` also hides live devices marked `source_retired`: their source
+retired every id they held and nothing else identifies them. The cleanup pass
+soft-deletes them after a grace period, with `deleted_reason` `source_retired`.
+`source_retired:true` lists them, and `include_retired:true` includes them.
 
 `chain:` walks the merge graph in BOTH directions from one uid: `direction` is
 `merged_into` (where this device went) or `merged_from` (what came into it), and

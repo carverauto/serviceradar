@@ -129,7 +129,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryDbTest do
                  agent_id: "agent-a",
                  finding_uid: finding_uid,
                  episode_uid: episode_a,
-                 at: DateTime.add(started_at, 1, :second)
+                 at: DateTime.shift(started_at, second: 1)
                )
              ],
              Repo
@@ -144,7 +144,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryDbTest do
                  agent_id: "agent-b",
                  finding_uid: finding_uid,
                  episode_uid: episode_b,
-                 at: DateTime.add(started_at, 302, :second)
+                 at: DateTime.shift(started_at, second: 302)
                )
              ],
              Repo
@@ -156,7 +156,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryDbTest do
                  agent_id: "agent-a",
                  finding_uid: finding_uid,
                  episode_uid: episode_a,
-                 at: DateTime.add(started_at, 500, :second)
+                 at: DateTime.shift(started_at, second: 500)
                )
              ],
              Repo
@@ -213,7 +213,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryDbTest do
       put_in(
         anomaly_row(series, "anomaly_update",
           episode_uid: episode_uid,
-          at: DateTime.add(started_at, 30, :second)
+          at: DateTime.shift(started_at, second: 30)
         ),
         [:metadata, "service_radar", "finding_uid"],
         finding_after
@@ -246,7 +246,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryDbTest do
              [
                anomaly_row(series, "anomaly_open",
                  agent_id: "agent-b",
-                 at: DateTime.add(started_at, 901, :second)
+                 at: DateTime.shift(started_at, second: 901)
                )
              ],
              Repo

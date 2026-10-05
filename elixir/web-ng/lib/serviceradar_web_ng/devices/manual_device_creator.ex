@@ -340,14 +340,15 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   # Atomic Ash.update on a tombstoned row raises StaleRecord because the
   # primary read filters deleted_at. Restore through include_deleted bulk
-  # update, same as MergeEngine.recreate_device/3.
+  # update, same as MergeEngine.recreate_device/3. An operator is adding the
+  # device, so a retained tombstone (Device.retained_reasons/0) is restored too.
   defp restore_deleted(%Device{uid: uid} = device, scope) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid == ^uid)
 
-    case Ash.bulk_update(query, :restore, %{},
+    case Ash.bulk_update(query, :restore, %{allow_retained: true},
            scope: scope,
            return_errors?: true,
            return_records?: true

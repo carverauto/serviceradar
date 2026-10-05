@@ -84,7 +84,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTestSupport do
     suffix = System.unique_integer([:positive])
 
     observed_at =
-      DateTime.utc_now() |> DateTime.add(-30, :second) |> DateTime.truncate(:microsecond)
+      DateTime.utc_now() |> DateTime.shift(second: -30) |> DateTime.truncate(:microsecond)
 
     payload = %{
       "status" => "OK",

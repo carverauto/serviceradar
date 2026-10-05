@@ -67,7 +67,9 @@ defmodule ServiceRadar.TestSupport do
 
       context[:sandbox] == :unboxed ->
         Sandbox.mode(ServiceRadar.Repo, :auto)
+        checkout_unboxed_connection!(context)
 
+        # A mode change checks in every lent connection, including the one checked out above.
         ExUnit.Callbacks.on_exit(fn ->
           Sandbox.mode(ServiceRadar.Repo, :manual)
         end)
@@ -89,6 +91,23 @@ defmodule ServiceRadar.TestSupport do
     end
   end
 
+  # In :auto mode the test process's first query checks a connection out implicitly with
+  # the pool's default ownership timeout. That timer measures ownership, not idleness: it
+  # fires once that much time has passed since the checkout, however busy the connection
+  # is, and disconnects whatever query is in flight. A long unboxed test therefore loses
+  # its connection every two minutes. Checking out explicitly carries the tag-derived
+  # timeout. `sandbox: false` keeps the no-transaction semantics unboxed tests exist for,
+  # and it must follow `mode/2`, which checks in every connection the pool has lent out.
+  defp checkout_unboxed_connection!(context) do
+    case sandbox_ownership_timeout(context) do
+      nil ->
+        :ok
+
+      timeout ->
+        :ok = Sandbox.checkout(ServiceRadar.Repo, sandbox: false, ownership_timeout: timeout)
+    end
+  end
+
   defp configure_async_sandbox_transaction!(%{async: true}) do
     ServiceRadar.Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
     :ok
@@ -106,6 +125,37 @@ defmodule ServiceRadar.TestSupport do
     after
       stop_repo_owner(owner, shared: true)
     end
+  end
+
+  # 10.244.0.0/14 with host octets 0 and 255 skipped: 4 * 256 * 254 addresses.
+  @unique_device_ip_space 4 * 256 * 254
+
+  @doc """
+  Returns a device IP that no other caller in this test VM has been given.
+
+  Devices carry a unique index on their active IP, so drawing fixture IPs at random
+  eventually hands two devices the same address and fails the insert. Addresses
+  come from a monotonic counter inside 10.244.0.0/14, a range no other fixture
+  uses, so they never repeat within one VM.
+
+  The counter starts at an offset derived from the VM's OS process id. Unboxed tests
+  commit their rows, and a counter that restarted at the same address every run
+  would collide with rows a previous run left against the same database.
+  """
+  def unique_device_ip do
+    n =
+      rem(
+        unique_device_ip_offset() + System.unique_integer([:positive, :monotonic]),
+        @unique_device_ip_space
+      )
+
+    subnet = div(n, 254)
+
+    "10.#{244 + div(subnet, 256)}.#{rem(subnet, 256)}.#{rem(n, 254) + 1}"
+  end
+
+  defp unique_device_ip_offset do
+    :erlang.phash2(System.pid(), @unique_device_ip_space)
   end
 
   @doc false

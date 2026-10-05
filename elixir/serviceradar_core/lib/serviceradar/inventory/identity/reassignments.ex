@@ -218,16 +218,52 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
     end
   end
 
+  # Alias rows are per device (AliasEvents), so both records of a merge can hold a row for the same
+  # value, and moving the merged record's row onto the survivor would break the unique key and roll
+  # the merge back. That row stays on the merged record, replaced by the survivor's, and an alias it
+  # had confirmed confirms the survivor's row.
   def reassign_alias_states(from_id, to_id, actor) do
-    bulk_reassign(
-      DeviceAliasState,
-      :reassign_device,
-      :device_id,
-      from_id,
-      %{device_id: to_id},
-      actor
-    )
+    with {:ok, from_rows} <- DeviceAliasState.list_by_device(from_id, actor: actor),
+         {:ok, to_rows} <- DeviceAliasState.list_by_device(to_id, actor: actor) do
+      held = Map.new(to_rows, &{{&1.alias_type, &1.alias_value}, &1})
+
+      {colliding, moving} =
+        Enum.split_with(from_rows, &Map.has_key?(held, {&1.alias_type, &1.alias_value}))
+
+      with :ok <- fold_alias_rows(colliding, held, actor) do
+        reassign_records(moving, %{device_id: to_id}, actor)
+      end
+    end
   end
+
+  defp fold_alias_rows(rows, held, actor) do
+    Enum.reduce_while(rows, :ok, fn row, :ok ->
+      case fold_alias_row(row, Map.fetch!(held, {row.alias_type, row.alias_value}), actor) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp fold_alias_row(row, survivor, actor) do
+    with :ok <- carry_confirmation(row, survivor, actor) do
+      if row.state in [:detected, :confirmed, :updated, :stale] do
+        row |> DeviceAliasState.replace_alias(survivor.id, actor: actor) |> to_ok()
+      else
+        :ok
+      end
+    end
+  end
+
+  defp carry_confirmation(%{state: state}, %{state: survivor_state} = survivor, actor)
+       when state in [:confirmed, :updated] and survivor_state in [:detected, :stale] do
+    survivor |> DeviceAliasState.confirm_from_sweep(actor: actor) |> to_ok()
+  end
+
+  defp carry_confirmation(_row, _survivor, _actor), do: :ok
+
+  defp to_ok({:ok, _}), do: :ok
+  defp to_ok({:error, _} = error), do: error
 
   def reassign_interfaces(from_id, to_id, actor) do
     query =

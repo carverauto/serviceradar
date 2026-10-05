@@ -179,9 +179,20 @@ async function main() {
         measurements.settledCamera = camera
         measurements.cameraChangedAt = performance.now()
       }
+      // layers[0] is absent until deck.gl builds its first layer; reading it bare threw out of
+      // the predicate and failed the wait instead of retrying.
       return viewport.zoom < 8.1 && performance.now() - measurements.cameraChangedAt > 250 &&
-        renderer.cache.pending.size === 0 && renderer.deck.props.layers[0].isLoaded
+        renderer.cache.pending.size === 0 && renderer.deck.props.layers[0]?.isLoaded === true
     })
+    // The tile layer can still request neighbors after the scene reads as settled. Take the
+    // baseline only once geometry requests stop arriving, so the assertion below measures what
+    // the telemetry poll fetched and not a tile load already in flight.
+    // Bounded: if requests never stop, the assertion below reports it.
+    for (let quiet = 0, seen = requests.length, tries = 0; quiet < 3 && tries < 40; tries++) {
+      await new Promise(resolve => setTimeout(resolve, 250))
+      if (requests.length === seen) quiet += 1
+      else [quiet, seen] = [0, requests.length]
+    }
     unhealthy = true
     const beforeTelemetry = requests.length
     await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.renderer.overlays.poll())

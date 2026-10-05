@@ -1504,8 +1504,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     end
   end
 
+  # include_retired:true: a device marked source_retired still has its detail pages.
   defp load_device(srql_module, device_uid, scope) do
-    query = "in:devices uid:\"#{escape_value(device_uid)}\" limit:1"
+    query = "in:devices uid:\"#{escape_value(device_uid)}\" include_retired:true limit:1"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => [result | _]}} when is_map(result) ->

@@ -72,7 +72,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   actions do
-    defaults [:read]
+    defaults [:read, :destroy]
 
     read :by_edge_site do
       description "Find NATS leaf server by edge site"
@@ -103,6 +103,8 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       argument :server_key_pem, :string, allow_nil?: false, sensitive?: true
       argument :ca_chain_pem, :string, allow_nil?: false, sensitive?: true
       argument :config_checksum, :string, allow_nil?: false
+
+      change transition_state(:provisioned)
 
       change fn changeset, _context ->
         leaf_key_pem = Ash.Changeset.get_argument(changeset, :leaf_key_pem)
@@ -138,6 +140,8 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       require_atomic? false
       accept []
 
+      change transition_state(:connected)
+
       change set_attribute(:connected_at, &DateTime.utc_now/0)
 
       # Also update the parent EdgeSite status
@@ -151,6 +155,8 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       # Non-atomic: updates parent EdgeSite via after_action
       require_atomic? false
       accept []
+
+      change transition_state(:disconnected)
 
       change set_attribute(:disconnected_at, &DateTime.utc_now/0)
 
@@ -166,6 +172,8 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       require_atomic? false
       accept []
 
+      change transition_state(:pending)
+
       change fn changeset, _context ->
         AfterAction.after_action_result(changeset, &ProvisionLeafWorker.enqueue(&1.id))
       end
@@ -176,7 +184,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     import ServiceRadar.Policies
 
     system_bypass()
-    admin_action_type(:read)
+    admin_action_type([:read, :destroy])
 
     # Create is done internally
     policy action_type(:create) do

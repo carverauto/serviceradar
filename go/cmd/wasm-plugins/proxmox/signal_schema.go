@@ -4,7 +4,7 @@ import "github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 
 const (
 	proxmoxSignalSchemaProducerID             = "proxmox-inventory"
-	proxmoxSignalSchemaProducerVersion        = "0.1.8"
+	proxmoxSignalSchemaProducerVersion        = "0.1.10"
 	proxmoxSignalSchemaID                     = "com.carverauto.proxmox.resource_event"
 	proxmoxSignalSchemaVersion                = "1.0.0"
 	proxmoxSignalSchemaDisplayContractID      = "com.carverauto.proxmox.resource_event.display"

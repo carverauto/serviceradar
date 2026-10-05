@@ -240,7 +240,7 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
       assert {:ok, outcome} =
                ActionRedemption.redeem(token_for(links, :snooze), actor: actor, now: now)
 
-      expected = DateTime.add(now, 3600, :second)
+      expected = DateTime.shift(now, hour: 1)
 
       assert outcome.status == :applied
       assert DateTime.compare(outcome.snooze_until, expected) == :eq
@@ -271,7 +271,7 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
                )
 
       assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
-      assert DateTime.compare(reloaded.snooze_until, DateTime.add(now, 600, :second)) == :eq
+      assert DateTime.compare(reloaded.snooze_until, DateTime.shift(now, minute: 10)) == :eq
     end
 
     test "resolving moves the alert", %{actor: actor, alert: alert, delivery: delivery} do
@@ -371,7 +371,7 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
 
     test "an expired link applies nothing", %{actor: actor, alert: alert, delivery: delivery} do
       links = issue!(delivery, actor, ttl_seconds: 60)
-      later = DateTime.add(@now, 3600, :second)
+      later = DateTime.shift(@now, hour: 1)
 
       assert {:error, :token_expired} =
                ActionRedemption.redeem(token_for(links, :acknowledge), actor: actor, now: later)
@@ -610,7 +610,7 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
                )
 
       assert outcome.status == :applied
-      assert DateTime.compare(outcome.snooze_until, DateTime.add(now, 900, :second)) == :eq
+      assert DateTime.compare(outcome.snooze_until, DateTime.shift(now, minute: 15)) == :eq
 
       assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
       assert reloaded.status == :pending

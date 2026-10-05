@@ -247,7 +247,7 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
         id: loader_name
       )
 
-    known_at = DateTime.add(DateTime.utc_now(), -90, :second)
+    known_at = DateTime.shift(DateTime.utc_now(), second: -90)
 
     :sys.replace_state(pid, fn state ->
       %{

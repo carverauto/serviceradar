@@ -341,7 +341,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsAuthorizationTest do
         "comment" => "forged",
         "combinator" => "all",
         "starts_at" => local_input(now),
-        "ends_at" => local_input(DateTime.add(now, 3600, :second)),
+        "ends_at" => local_input(DateTime.shift(now, hour: 1)),
         "rows" => %{"0" => %{"field" => "alert.severity", "operator" => "equals", "value" => "warning"}}
       }
     }

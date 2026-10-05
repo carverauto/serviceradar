@@ -201,7 +201,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorkerTest do
   defp age_identifiers(values, days) do
     cutoff =
       DateTime.utc_now()
-      |> DateTime.add(-days * 86_400, :second)
+      |> DateTime.shift(day: -days)
       |> DateTime.truncate(:second)
 
     {count, _} =

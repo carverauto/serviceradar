@@ -5,7 +5,12 @@ defmodule ServiceRadar.Observability.Zen.Native do
 
   use Rustler,
     otp_app: :serviceradar_core,
-    crate: "zen_nif"
+    crate: "zen_nif",
+    # Mix builds path dependencies in :prod, so Rustler compiles this crate in
+    # release mode, where the workspace profile sets panic = "abort". Scope
+    # unwinding to this Cargo invocation, as the Bazel build does with
+    # -Cpanic=unwind: the crate refuses to compile with panic=abort.
+    env: [{"CARGO_PROFILE_RELEASE_PANIC", "unwind"}]
 
   @type rule_json :: {String.t(), String.t()}
 

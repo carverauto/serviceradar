@@ -1,15 +1,137 @@
 defmodule ServiceRadarAgentGateway.CameraMediaForwarderTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadarAgentGateway.CameraMediaForwarder
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaConnectivityStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaErtsIngressStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaRpcStub
 
+  defmodule IngressServer do
+    @moduledoc false
+    use GenServer
+
+    def start_link(mode), do: GenServer.start_link(__MODULE__, mode)
+
+    @impl true
+    def init(mode), do: {:ok, mode}
+
+    @impl true
+    def handle_call({:upload_media, _chunks}, _from, :close), do: {:stop, :normal, :close}
+    def handle_call({:upload_media, _chunks}, _from, :shutdown), do: {:stop, :shutdown, :shutdown}
+    def handle_call({:upload_media, _chunks}, _from, :nodedown), do: {:stop, {:nodedown, :core@synthetic}, :nodedown}
+
+    def handle_call({:upload_media, _chunks}, _from, :other), do: {:stop, :kaboom, :other}
+    def handle_call({:upload_media, _chunks}, _from, :timeout), do: {:noreply, :timeout}
+  end
+
+  test "classifies noproc, shutdown, nodedown, and other ingress exits without returning media bytes" do
+    payload = "synthetic-private-media"
+
+    {:ok, dead} = IngressServer.start_link(:close)
+    Process.unlink(dead)
+    GenServer.stop(dead)
+
+    cases = [
+      {dead, :relay_closed},
+      {:shutdown, :core_unavailable},
+      {:nodedown, :core_unavailable},
+      {:other, :core_unavailable}
+    ]
+
+    for {mode_or_pid, failure} <- cases do
+      pid =
+        case mode_or_pid do
+          pid when is_pid(pid) ->
+            pid
+
+          mode ->
+            {:ok, pid} = IngressServer.start_link(mode)
+            Process.unlink(pid)
+            pid
+        end
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert {:error, ^failure} =
+                   CameraMediaForwarder.upload_media(
+                     [%Camera.MediaChunk{payload: payload, sequence: 7}],
+                     ingress_pid: pid,
+                     timeout: 5_000
+                   )
+        end)
+
+      classification =
+        log
+        |> String.split("\n")
+        |> Enum.filter(&String.contains?(&1, "ERTS camera media ingress call failed"))
+
+      assert classification != []
+      assert Enum.all?(classification, &String.contains?(&1, "failure=#{failure}"))
+      refute Enum.any?(classification, &String.contains?(&1, payload))
+    end
+  end
+
+  test "distinguishes ingress closure and timeout without logging media payloads" do
+    for {mode, failure, timeout} <- [
+          {:close, :relay_closed, 5_000},
+          {:timeout, :core_unavailable, 5}
+        ] do
+      pid = start_supervised!({IngressServer, mode}, id: mode)
+      payload = "synthetic-private-media"
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert {:error, ^failure} =
+                   CameraMediaForwarder.upload_media(
+                     [%Camera.MediaChunk{payload: payload, sequence: 1}],
+                     ingress_pid: pid,
+                     timeout: timeout
+                   )
+        end)
+
+      assert log =~ "core_node="
+      assert log =~ "operation=upload_media failure=#{failure}"
+      refute log =~ payload
+    end
+  end
+
   setup do
     Process.delete({CameraMediaConnectivityStub, :results})
     Process.delete({CameraMediaRpcStub, :results})
     :ok
+  end
+
+  # The relay's core ingress process stops itself after a close or a lapsed
+  # lease. A call that reaches it as it stops, or after, must read as a closed
+  # relay -- reporting core as unavailable made agents drop their connection.
+  test "maps an ingress that ended the relay to :relay_closed and only real failures to :core_unavailable" do
+    heartbeat = %Camera.RelayHeartbeat{relay_session_id: "relay-forwarder-exit-1", media_ingest_id: "media-1"}
+
+    stops_while_called =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", _from, _request} -> exit(:normal)
+        end
+      end)
+
+    assert {:error, :relay_closed} =
+             CameraMediaForwarder.heartbeat(heartbeat, ingress_pid: stops_while_called, timeout: 1_000)
+
+    already_gone = spawn(fn -> :ok end)
+    ref = Process.monitor(already_gone)
+    assert_receive {:DOWN, ^ref, :process, ^already_gone, _reason}
+
+    assert {:error, :relay_closed} =
+             CameraMediaForwarder.heartbeat(heartbeat, ingress_pid: already_gone, timeout: 1_000)
+
+    never_replies = spawn(fn -> Process.sleep(:infinity) end)
+
+    assert {:error, :core_unavailable} =
+             CameraMediaForwarder.heartbeat(heartbeat, ingress_pid: never_replies, timeout: 20)
+
+    Process.exit(never_replies, :kill)
   end
 
   test "pings core before opening a relay session" do

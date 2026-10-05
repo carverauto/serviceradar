@@ -124,7 +124,7 @@ defmodule ServiceRadar.Notifications.DeliveryRetentionWorker do
   """
   @spec cutoff(DateTime.t(), pos_integer()) :: DateTime.t()
   def cutoff(%DateTime{} = now, retention_days) when is_integer(retention_days) do
-    DateTime.add(now, -retention_days * 86_400, :second)
+    DateTime.shift(now, day: -retention_days)
   end
 
   @doc """

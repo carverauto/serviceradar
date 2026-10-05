@@ -46,7 +46,7 @@ Before recording either cohort:
    warms the measured targets and their transitive dependencies without building unrelated
    packages, release archives, OCI images, or push targets. A second prebuild clears the positive
    tag filter and explicitly warms the four manual targets that run inside the clock:
-   `observe_connections`, `sweep_stale_dbs`, `provision_db`, and `teardown_db`.
+   `observe_connections`, `sweep_stale_dbs`, `provision_generation`, and `teardown_db`.
 2. Run the guarded template preparation path. If it reports pending migrations, migrate it and
    repeat preparation in an isolated preflight subshell before starting the clock. The measured
    lifecycle checks the template again but never migrates. If it has become pending, that row is

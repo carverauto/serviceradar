@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
 
   test "drops the first counter sample instead of plotting an artificial zero rate" do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
 
     assert [{"ifInOctets", [{^t1, 10.0}]}] =
              Metrics.counter_rates([{"ifInOctets", [{t0, 100.0}, {t1, 700.0}]}], nil)
@@ -22,8 +22,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
 
   test "marks implausible counter decreases as no-data gaps and resumes from the reset value" do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
-    t2 = DateTime.add(t1, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
+    t2 = DateTime.shift(t1, minute: 1)
 
     assert [{"ifInOctets", [{^t1, nil}, {^t2, 10.0}]}] =
              Metrics.counter_rates([{"ifInOctets", [{t0, 1_000.0}, {t1, 100.0}, {t2, 700.0}]}], nil)
@@ -43,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
 
     assert [{"ifInOctets", [{^t1, nil}]}] =
              Metrics.counter_rates(
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
 
   test "preserves valid near-rollover decreases as rates" do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
 
     assert [{"customCounter", [{^t1, rate}]}] =
              Metrics.counter_rates(
@@ -76,8 +76,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
 
   test "breaks SVG paths at nil counter-gap sentinels" do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
-    t2 = DateTime.add(t1, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
+    t2 = DateTime.shift(t1, minute: 1)
 
     paths = Paths.chart_paths([{t0, 10.0}, {t1, nil}, {t2, 20.0}], nil)
 
@@ -89,8 +89,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
 
   test "positions irregularly sampled points by timestamp instead of array index" do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
-    t2 = DateTime.add(t0, 600, :second)
+    t1 = DateTime.shift(t0, minute: 1)
+    t2 = DateTime.shift(t0, minute: 10)
     points = [{t0, 1.0}, {t1, 2.0}, {t2, 3.0}]
 
     assert Paths.datetime_to_x(t1, points) == 141.6

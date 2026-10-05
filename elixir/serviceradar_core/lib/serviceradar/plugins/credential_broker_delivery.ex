@@ -89,6 +89,40 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
   def refresh_embedded_grant(params, _opts), do: {params, nil}
 
   @doc """
+  Returns `params` with the embedded `credential_broker` payload reduced to its
+  scope: no grant id and no expiry.
+
+  For agents that resolve by binding. Nothing is issued here; core issues or
+  reuses the grant when the agent asks for the credential, so the delivered
+  config no longer changes when a grant rotates. Stored assignments written
+  before the reconcile stopped minting still carry an old grant id, which this
+  removes.
+  """
+  @spec scope_only(map()) :: map()
+  def scope_only(params) when is_map(params) do
+    params = MapUtils.stringify_keys_or_empty(params)
+
+    case broker_payload_location(params) do
+      nil ->
+        params
+
+      {path, payload} ->
+        put_in_params(params, path, Map.drop(payload, ["grant_id", "expires_at"]))
+    end
+  end
+
+  def scope_only(params), do: params
+
+  @doc """
+  Grant issue attrs for an embedded `credential_broker` payload, as config
+  delivery and resolve-by-binding both rebuild them. `:agent_id` and
+  `:consumer_id` fill a payload that lacks them.
+  """
+  @spec grant_attrs_from_payload(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def grant_attrs_from_payload(payload, opts \\ []) when is_map(payload),
+    do: issue_attrs_from_payload(payload, opts)
+
+  @doc """
   Refreshes credential-broker payloads embedded in a top-level `"controllers"`
   list.
 
@@ -245,7 +279,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
   end
 
   defp fresh_enough?(%DateTime{} = expires_at, now, margin) do
-    DateTime.after?(expires_at, DateTime.add(now, margin, :second))
+    DateTime.after?(expires_at, DateTime.shift(now, second: margin))
   end
 
   defp fresh_enough?(_expires_at, _now, _margin), do: false
@@ -285,10 +319,13 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
     exception -> {:error, {:grant_issue_failed, Exception.message(exception)}}
   end
 
+  # A grant of identical scope that outlives the freshness margin is delivered
+  # again rather than minting one per config generation.
   defp default_grant_issuer(attrs, actor) do
-    attrs
-    |> CredentialBrokerGrant.issue_attrs()
-    |> CredentialBrokerGrant.issue_grant(actor: actor)
+    CredentialBrokerGrant.reuse_or_issue(attrs,
+      actor: actor,
+      min_remaining_seconds: @default_min_remaining_seconds
+    )
   end
 
   defp issue_attrs_from_payload(payload, opts) do

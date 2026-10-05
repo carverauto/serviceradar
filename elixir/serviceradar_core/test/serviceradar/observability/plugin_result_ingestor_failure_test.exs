@@ -214,4 +214,31 @@ defmodule ServiceRadar.Observability.PluginResultIngestorFailureTest do
 
     assert [[false, _, ^failed_at]] = current_state_rows(status)
   end
+
+  test "NOM cleanup failure stays retryable after a durable failure marker" do
+    handler = ServiceRadar.NetworkConfig.PluginIngestor
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [handler])
+    {payload, status, _observed_at} = plugin_result_fixture()
+
+    payload =
+      Map.merge(payload, %{
+        "labels" => %{"kind" => "running_config", "assignment_id" => "assign-01"},
+        "details" => %{
+          "artifact" => %{
+            "object_key" =>
+              "agent-artifacts/#{status.agent_id}/assign-02/opentext-nom/running-config/1001"
+          }
+        }
+      })
+
+    retained_status = Map.put(status, :message, Jason.encode!(payload))
+
+    assert {:error, {:plugin_result_artifact_cleanup_failed, [{^handler, error_text}]}} =
+             ResultsRouter.process_retained_plugin(retained_status)
+
+    assert error_text =~ "running_config_artifact_cleanup_failed"
+    assert [[false, _, _]] = current_state_rows(status)
+    assert [_, [_, false, _, details]] = history_rows(status)
+    assert get_in(Jason.decode!(details), ["downstream_ingest", "handlers"]) != []
+  end
 end

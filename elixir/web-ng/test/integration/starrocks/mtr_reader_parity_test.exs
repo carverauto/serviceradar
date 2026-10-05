@@ -560,7 +560,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp anchor do
     now = DateTime.utc_now()
     midnight = DateTime.new!(DateTime.to_date(now), ~T[00:00:00], "Etc/UTC")
-    DateTime.add(midnight, -2, :day)
+    DateTime.shift(midnight, day: -2)
   end
 
   defp shift(%DateTime{} = time, n, unit), do: DateTime.add(time, n, unit)
@@ -611,7 +611,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
             {traces, hops}
           else
             n = length(traces) + 1
-            time = DateTime.add(anchor, slot * 1_200 + n * 7, :second)
+            time = DateTime.shift(anchor, second: slot * 1_200 + n * 7)
             sent = Enum.at([5, 10, 20], Integer.mod(slot + n, 3))
 
             reached? =

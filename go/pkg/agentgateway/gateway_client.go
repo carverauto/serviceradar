@@ -427,6 +427,37 @@ func validateStreamStatusChunks(chunks []*proto.GatewayStatusChunk) ([]*proto.Ga
 	return validChunks, nil
 }
 
+// markDisconnectedOnTransportFailure tears down the gateway connection only
+// when err means the connection itself failed. Camera relay RPCs also fail for
+// reasons scoped to one relay -- the gateway closed it, its core side drained,
+// the caller cancelled -- and dropping the shared connection for those would
+// interrupt every other stream on it, including the relay's own close.
+func (g *GatewayClient) markDisconnectedOnTransportFailure(err error) {
+	if isGatewayTransportFailure(err) {
+		g.markDisconnected()
+	}
+}
+
+// isGatewayTransportFailure reports whether err indicates the connection to the
+// gateway is unusable. gRPC reports transport loss as codes.Unavailable; the
+// gateway reports relay-level failures with other codes.
+func isGatewayTransportFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		return true
+	}
+
+	return st.Code() == codes.Unavailable
+}
+
 // markDisconnected marks the client as disconnected and tears down the current connection.
 func (g *GatewayClient) markDisconnected() {
 	var (
@@ -831,7 +862,7 @@ func (g *GatewayClient) OpenRelaySession(ctx context.Context, req *proto.OpenRel
 	resp, err := client.OpenRelaySession(ctx, req)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to open camera relay session at gateway")
-		g.markDisconnected()
+		g.markDisconnectedOnTransportFailure(err)
 		return nil, fmt.Errorf("failed to open relay session: %w", err)
 	}
 
@@ -853,7 +884,7 @@ func (g *GatewayClient) UploadMedia(ctx context.Context, chunks []*proto.MediaCh
 	stream, err := client.UploadMedia(ctx)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to create camera media upload stream")
-		g.markDisconnected()
+		g.markDisconnectedOnTransportFailure(err)
 		return nil, fmt.Errorf("failed to create media upload stream: %w", err)
 	}
 
@@ -864,8 +895,18 @@ func (g *GatewayClient) UploadMedia(ctx context.Context, chunks []*proto.MediaCh
 		}
 		sentAny = true
 		if err := stream.Send(chunk); err != nil {
+			// io.EOF means the gateway ended the stream; its status arrives
+			// with the response, not from Send.
+			if errors.Is(err, io.EOF) {
+				resp, closeErr := stream.CloseAndRecv()
+				g.markDisconnectedOnTransportFailure(closeErr)
+				if closeErr != nil {
+					return nil, fmt.Errorf("failed to send media chunk: %w", closeErr)
+				}
+				return resp, nil
+			}
 			_ = stream.CloseSend()
-			g.markDisconnected()
+			g.markDisconnectedOnTransportFailure(err)
 			return nil, fmt.Errorf("failed to send media chunk: %w", err)
 		}
 	}
@@ -877,7 +918,7 @@ func (g *GatewayClient) UploadMedia(ctx context.Context, chunks []*proto.MediaCh
 
 	resp, err := stream.CloseAndRecv()
 	if err != nil {
-		g.markDisconnected()
+		g.markDisconnectedOnTransportFailure(err)
 		return nil, fmt.Errorf("failed to receive media upload response: %w", err)
 	}
 
@@ -899,7 +940,7 @@ func (g *GatewayClient) HeartbeatRelaySession(ctx context.Context, req *proto.Re
 	resp, err := client.Heartbeat(ctx, req)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to heartbeat camera relay session")
-		g.markDisconnected()
+		g.markDisconnectedOnTransportFailure(err)
 		return nil, fmt.Errorf("failed to heartbeat relay session: %w", err)
 	}
 
@@ -921,7 +962,7 @@ func (g *GatewayClient) CloseRelaySession(ctx context.Context, req *proto.CloseR
 	resp, err := client.CloseRelaySession(ctx, req)
 	if err != nil {
 		g.logger.Error().Err(err).Msg("Failed to close camera relay session")
-		g.markDisconnected()
+		g.markDisconnectedOnTransportFailure(err)
 		return nil, fmt.Errorf("failed to close relay session: %w", err)
 	}
 

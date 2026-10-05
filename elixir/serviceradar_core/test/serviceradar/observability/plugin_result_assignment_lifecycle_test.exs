@@ -28,7 +28,7 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
     assert [[true, "edge plugin completed", ^first_state_at, "inactive"]] =
              current_state_rows_with_state(status)
 
-    delayed_at = DateTime.add(observed_at, 1, :second)
+    delayed_at = DateTime.shift(observed_at, second: 1)
 
     delayed_payload = %{
       payload
@@ -89,7 +89,7 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
 
   test "an older ineligible status deactivates a newer active orphan" do
     {payload, status, observed_at} = plugin_result_fixture(assignment?: false)
-    newer_at = DateTime.add(observed_at, 10, :second)
+    newer_at = DateTime.shift(observed_at, second: 10)
 
     seed_service_state(status, newer_at,
       available: true,

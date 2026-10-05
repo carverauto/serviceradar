@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeFirstSeenTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
+  alias ServiceRadar.TestSupport
 
   require Ash.Query
 
@@ -31,7 +32,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeFirstSeenTest do
   @recent ~U[2020-06-07 08:09:10Z]
 
   setup_all do
-    ServiceRadar.TestSupport.start_core!()
+    TestSupport.start_core!()
     :ok
   end
 
@@ -102,7 +103,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeFirstSeenTest do
       |> Ash.Changeset.for_create(:create, %{
         uid: "sr:" <> Ecto.UUID.generate(),
         hostname: "merge-first-seen-test",
-        ip: unique_ip()
+        ip: TestSupport.unique_device_ip()
       })
       |> Ash.create(actor: actor)
 
@@ -119,10 +120,5 @@ defmodule ServiceRadar.Inventory.Identity.MergeFirstSeenTest do
       )
 
     :ok
-  end
-
-  defp unique_ip do
-    <<a, b, c>> = :crypto.strong_rand_bytes(3)
-    "10.#{a}.#{b}.#{rem(c, 254) + 1}"
   end
 end

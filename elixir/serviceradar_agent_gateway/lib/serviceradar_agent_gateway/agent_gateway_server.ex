@@ -41,6 +41,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadarAgentGateway.AgentRegistryProxy
+  alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ConfigChunks
@@ -214,7 +215,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       consumer_kind: request.consumer_kind,
       consumer_id: request.consumer_id,
       purpose: request.purpose,
-      resolution_location: request.resolution_location
+      resolution_location: request.resolution_location,
+      assignment_id: request.assignment_id,
+      binding_id: request.binding_id
     }
 
     AgentGatewaySync
@@ -1245,18 +1248,24 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       |> agent_record_attrs(partition_id, nil, source_ip)
       |> maybe_add_config_source(config_source)
 
-    case core_call(AgentGatewaySync, :heartbeat_agent, [agent_id, attrs]) do
-      {:ok, :ok} ->
-        :ok
+    # Fire-and-forget: heartbeat updates are non-critical and must not block the
+    # PushStatus response. A slow or unavailable core causes DEADLINE_EXCEEDED on
+    # the agent side if this runs synchronously. Task.start (not start_link) so
+    # a crash in the background task does not propagate to the handler process.
+    Task.start(fn ->
+      case core_call(AgentGatewaySync, :heartbeat_agent, [agent_id, attrs]) do
+        {:ok, :ok} ->
+          :ok
 
-      {:ok, {:error, reason}} ->
-        Logger.warning("Failed to heartbeat agent record #{agent_id}: #{inspect(reason)}")
-        :ok
+        {:ok, {:error, reason}} ->
+          Logger.warning("Failed to heartbeat agent record #{agent_id}: #{inspect(reason)}")
 
-      {:error, :core_unavailable} ->
-        Logger.warning("Core unavailable while updating agent #{agent_id}")
-        :ok
-    end
+        {:error, :core_unavailable} ->
+          Logger.warning("Core unavailable while updating agent #{agent_id}")
+      end
+    end)
+
+    :ok
   end
 
   defp maybe_add_config_source(attrs, nil), do: attrs
@@ -1385,7 +1394,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     # Prefer nodes with ClusterHealth (core coordinator process), then fall back
     # to the configured core node basename. The basename fallback still avoids
     # selecting gateway/web nodes when the coordinator lock is temporarily absent.
-    coordinators = find_nodes_with_process(remote_nodes, ServiceRadar.ClusterHealth)
+    coordinators = ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth)
     core_nodes = if coordinators == [], do: named_core_nodes(remote_nodes), else: coordinators
 
     if core_nodes == [] and remote_nodes != [] do
@@ -1397,24 +1406,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
 
     core_nodes
-  end
-
-  defp find_nodes_with_process(nodes, process_name) do
-    Enum.filter(nodes, fn node ->
-      case :rpc.call(node, Process, :whereis, [process_name], 5_000) do
-        pid when is_pid(pid) ->
-          true
-
-        {:badrpc, reason} ->
-          Logger.debug("RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}")
-
-          false
-
-        other ->
-          Logger.debug("Process #{inspect(process_name)} not found on #{node}: #{inspect(other)}")
-          false
-      end
-    end)
   end
 
   defp named_core_nodes(nodes) do
@@ -2064,7 +2055,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp control_session_pid({:awaiting_hello, _}), do: nil
 
   defp reconcile_agent_release(agent_id) do
-    _ = core_call(AgentGatewaySync, :reconcile_agent_release, [agent_id], 15_000)
+    # Fire-and-forget: reconcile is non-critical and must not block the handler
+    # response. A 15-second synchronous call here causes DEADLINE_EXCEEDED when
+    # core is slow. Task.start (not start_link) so a crash does not propagate.
+    Task.start(fn ->
+      core_call(AgentGatewaySync, :reconcile_agent_release, [agent_id], 15_000)
+    end)
+
     :ok
   end
 end

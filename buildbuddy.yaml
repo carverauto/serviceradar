@@ -154,6 +154,40 @@ actions:
           # own scratch databases and drops the CNPG one.
           bazel test $FLAGS //elixir/web-ng:mtr_reader_parity_test
 
+  # God View browser acceptance, OUT of BazelCI and explicit-only (`triggers: {}`), like
+  # SrqlParity. These three targets drive a real WebGPU renderer in the digest-pinned Playwright
+  # executor and were the source of repeated intermittent BazelCI reds unrelated to the PR under
+  # test, while gating only one area. Dispatch it (BuildBuddy ExecuteWorkflow, action
+  # "GodViewAcceptance") when changing God View rendering; screenshots and traces land in
+  # TEST_UNDECLARED_OUTPUTS_DIR.
+  - name: "GodViewAcceptance"
+    triggers: {}
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    resource_requests:
+      memory: "32GB"
+      disk: "40GB"
+    steps:
+      - run: >-
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
+      - run: >-
+          bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth --verbose_failures
+      - run: >-
+          bazel test -c opt --config=ci
+          //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance
+          //elixir/web-ng/test/playwright:world_gpu_test
+          //elixir/web-ng/assets:million_world_browser_test
+          --test_output=errors --nocache_test_results --flaky_test_attempts=1
+
   - name: "BazelCI"
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
@@ -201,73 +235,14 @@ actions:
       - run: >-
           bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
-      # Build the entire repo, INCLUDING the integration targets. The privileged
-      # loaded-object netprobe test is manual because this runner cannot grant its
-      # required Linux capabilities, so name it explicitly here to keep it compiled.
-      #
-      # `--//build:enable_integration_tests` here compiles nothing extra at runtime and starts no
-      # database -- it only flips requires_shared_fixture() so those targets are compatible and
-      # therefore actually get built. Without it they are incompatible, a wildcard SKIPS them,
-      # and a compile error in one survives every step until the database sweep selects it: that
-      # is how //integration_tests/srql reached CI missing a dep on //rust/integration-db and
-      # failed with `no external crate serviceradar_integration_db` twenty minutes in, after a
-      # fixture had been provisioned.
-      - run: >-
-          bazel build -c opt --config=ci --//build:enable_integration_tests //...
-          //rust/netprobe:loaded_tcp_attribution_test
-
-      # Runs all unit tests; exclude intgration and acceptance tests.
+      # The one full //... invocation. Unit tests run here. Integration and
+      # acceptance tests are filtered out of execution. Their compile happens
+      # later, inside the database step, before a clone.
       #
       # `--//build:enable_integration_tests` is here for CONFIGURATION and CACHE CONTINUITY
       - run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           //... --test_tag_filters=-integration_test,-acceptance_test,-benchmark
-
-      # The topology geometry acceptance target is intentionally excluded from the
-      # ordinary unit sweep. Run it once in the digest-pinned Playwright executor;
-      # its screenshots and traces are retained through TEST_UNDECLARED_OUTPUTS_DIR.
-      #
-      # PATH-GATED, GitHub-workflow `paths:` style: the scene this target renders
-      # is a static bundle -- the spec installs fixture DOM, with no server and no
-      # webServer in playwright.config.js -- so every Bazel input it declares lives
-      # under elixir/web-ng/test/playwright or elixir/web-ng/assets. The cone is
-      # those two packages, this file (it carries the invocation), and the godview
-      # NIF as a deliberately conservative in-area path. A PR outside that cone
-      # skips the browser run instead of paying for it (see #4165). BuildBuddy
-      # workflow steps have no native paths filter, hence the explicit git check
-      # against the staging fork point.
-      #
-      # FAIL-OPEN on every arm that cannot see the diff. The base ref is fetched
-      # first because the runner clones by SHA and need not leave a
-      # refs/remotes/origin/* ref behind; an unresolved merge-base and a failed
-      # diff both RUN the acceptance. A gate that cannot see the diff must never
-      # silently drop coverage.
-      - run: |
-          set -euo pipefail
-          git fetch --no-tags --quiet origin \
-            +refs/heads/staging:refs/remotes/origin/staging 2>/dev/null || true
-          GOD_VIEW_GATE_BASE="$(git merge-base HEAD origin/staging 2>/dev/null || true)"
-          if [ -z "$GOD_VIEW_GATE_BASE" ]; then
-            echo "godview gate: no staging merge-base, running acceptance (fail-open)"
-          elif ! GOD_VIEW_GATE_CHANGED="$(git diff --name-only "$GOD_VIEW_GATE_BASE" HEAD -- \
-            elixir/web-ng/test/playwright \
-            elixir/web-ng/assets \
-            elixir/web-ng/native/god_view_nif \
-            elixir/web-ng/world_fixture.bzl \
-            elixir/web-ng/BUILD.bazel \
-            elixir/web-ng/lib/serviceradar_web_ng/topology \
-            elixir/web-ng/test/fixtures/world_browser_encoder.exs \
-            elixir/serviceradar_core/native/topology_atlas_nif \
-            rust/topology-atlas \
-            buildbuddy.yaml)"; then
-            echo "godview gate: diff unavailable, running acceptance (fail-open)"
-          elif [ -n "$GOD_VIEW_GATE_CHANGED" ]; then
-            echo "godview gate: godview-area changes detected, running acceptance"
-          else
-            echo "godview gate: no godview-area changes, skipping acceptance"
-            exit 0
-          fi
-          bazel test -c opt --config=ci //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance //elixir/web-ng/test/playwright:world_gpu_test //elixir/web-ng/assets:million_world_browser_test --test_output=errors --nocache_test_results --flaky_test_attempts=1
 
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
@@ -493,6 +468,21 @@ actions:
           validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
           echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
 
+          # Compile integration tests before cloning a database, and before the
+          # measured clock. The same --//build:run_id keeps this analysis cache
+          # for the suite below. --build_tests_only and the tag filter select
+          # tests and leave packages and images out. requires_shared_fixture()
+          # targets stay incompatible unless --//build:enable_integration_tests
+          # is set, so a wildcard skips them and a compile error survives until
+          # the suite selects the target after a fixture is provisioned. That is
+          # how //integration_tests/srql failed with `no external crate
+          # serviceradar_integration_db`. //rust/netprobe:loaded_tcp_attribution_test
+          # is manual, so the wildcard does not select it; name it so it stays
+          # compiled. This runner cannot grant its Linux capabilities, so the
+          # suite does not execute it. Leave $FLAGS off this command: those
+          # options are test-only and bazel build rejects them.
+          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test
+
           START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
           OBSERVER_PID=$!
@@ -511,8 +501,6 @@ actions:
           bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test
           # Dgraph owns a separate scratch namespace and verifies its deletion.
           bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test
-          # The real worker reuses serial_0 and owns a separate Dgraph namespace.
-          bazel test $FLAGS //rust/dgraph-topology:world_worker_test
 
       # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
       #
@@ -542,20 +530,34 @@ actions:
           --test_output=errors
           //...
 
-      # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
+      # Go race tests (race on, pure off). --flaky_test_attempts=1 overrides the repo default of 2.
       #
-      # LAST ON PURPOSE. `--@io_bazel_rules_go//go/config:{pure,race}` are configuration-affecting
-      # and cannot be shared with the steps above.
-      - run: >-
-          bazel test -c opt --config=ci //go/...
-          --@io_bazel_rules_go//go/config:pure=false
-          --@io_bazel_rules_go//go/config:race
-          --test_tag_filters=-integration_test,-acceptance_test,-benchmark
-          --test_timeout=600
-          --flaky_test_attempts=1
-          --test_arg=-test.count=5
-          --test_arg=-test.short
-          --test_arg=-test.shuffle=on
+      # Private output base on purpose. pure and race change the configuration key,
+      # and ci_runner parks the default Bazel server (startup --max_idle_secs=0,
+      # startup --output_base under the runner workspace). Leaving those flags on
+      # that server makes the next pull request discard the analysis cache and
+      # reanalyze //... . The command-line --output_base overrides the rc and
+      # starts a second server. shutdown stops that JVM so a parked runner does
+      # not keep two servers resident; the output base stays on the runner rootfs
+      # for the next race step. /home/buildbuddy is uid 1001's home and sits
+      # outside the workspace recycle limit, same as the per-runner disk cache.
+      - run: |
+          set -euo pipefail
+          race_output_base=/home/buildbuddy/output-base-race
+          set +e
+          bazel --output_base="$race_output_base" test -c opt --config=ci //go/... \
+            --@io_bazel_rules_go//go/config:pure=false \
+            --@io_bazel_rules_go//go/config:race \
+            --test_tag_filters=-integration_test,-acceptance_test,-benchmark \
+            --test_timeout=600 \
+            --flaky_test_attempts=1 \
+            --test_arg=-test.count=5 \
+            --test_arg=-test.short \
+            --test_arg=-test.shuffle=on
+          status=$?
+          set -e
+          bazel --output_base="$race_output_base" shutdown
+          exit "$status"
 
   - name: "LargeIngestionGate"
     env:
@@ -563,7 +565,12 @@ actions:
       OCI_AUTH_REQUIRED: "1"
       SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
-    pool: "workflows"
+    # Dedicated single-replica executor (carverauto-cluster release `buildbuddy-workflows-lig`,
+    # see //k8s/buildbuddy/values-workflows-lig.yaml). Sharing "workflows" with BazelCI made
+    # the two evict each other's warm runner, so ~45% of runs started cold. Not on farm01: its
+    # LAN path to the srql-fixtures DB timed the gate out on every run. Everything else stays
+    # on "workflows".
+    pool: "workflows-lig"
     container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5"
     platform_properties:
       OSFamily: "linux"

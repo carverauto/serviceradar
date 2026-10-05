@@ -42,6 +42,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # reach it (its terms total 45) -- see the issue on the role heuristic; that is
   # currently harmless because no branch distinguishes "host" from "unknown".
   @role_score_threshold 50
+  # Bound on the values bound into one batched IN (...) lookup.
+  @batch_lookup_chunk_size 500
 
   @unifi_interface_metadata_keys ~w(
     unifi_api_urls
@@ -959,16 +961,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> Enum.group_by(& &1.device_id)
       |> Enum.map(fn {device_id, grouped} -> build_grouped_alias_update(device_id, grouped) end)
 
-    Enum.each(grouped_updates, fn update ->
-      persist_role_metadata(update.device_id, update.role, actor)
-
-      create_candidate_devices(
-        update.candidate_ips,
-        update.partition,
-        update.device_id,
-        actor
-      )
-    end)
+    persist_role_metadata(grouped_updates, actor)
+    ensure_candidate_devices(candidate_entries(grouped_updates), actor)
 
     updates =
       grouped_updates
@@ -1170,9 +1164,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   #
   # They used to be included here, and the router clause above was the only thing
   # preventing the consequence. For any other role the device's own addresses
-  # fell through to create_candidate_devices/4, and because non-routers receive
+  # fell through to ensure_candidate_devices/2, and because non-routers receive
   # no interface-derived aliases there was no alias to suppress them either --
-  # so ensure_candidate_device/4 found no device and no alias at that address and
+  # so ensure_candidate_devices/2 found no device and no alias at that address and
   # minted a phantom.
   #
   # Observed on farm01: switch `switchcff8f2` (sr:f3f0e473, 192.168.2.55) reports
@@ -1384,16 +1378,64 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp add_score(score, true, add), do: score + add
   defp add_score(score, false, _add), do: score
 
-  defp persist_role_metadata(device_id, role, actor) do
+  @doc false
+  # Writes each grouped device's inferred role into its metadata when it changed.
+  # The current metadata of every device in the batch is read in one query per
+  # chunk; only a device whose role keys differ is written, and that write still
+  # goes through the per-device merge below.
+  @spec persist_role_metadata([%{device_id: String.t(), role: map()}], term()) :: :ok
+  def persist_role_metadata([], _actor), do: :ok
+
+  def persist_role_metadata(updates, actor) do
+    current = current_device_metadata(Enum.map(updates, & &1.device_id))
+
+    Enum.each(updates, fn %{device_id: device_id, role: role} ->
+      case Map.fetch(current, device_id) do
+        {:ok, metadata} ->
+          if role_metadata_changed?(metadata, role),
+            do: write_role_metadata(device_id, role, actor)
+
+        :error ->
+          :ok
+      end
+    end)
+  end
+
+  # Deleted devices included, as the per-device read this replaced did.
+  defp current_device_metadata(device_ids) do
+    device_ids
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.chunk_every(@batch_lookup_chunk_size)
+    |> Enum.reduce(%{}, fn chunk, acc ->
+      from(d in Device, where: d.uid in ^chunk, select: {d.uid, d.metadata})
+      |> Repo.all()
+      |> Map.new(fn {uid, metadata} -> {uid, Map.new(metadata || %{})} end)
+      |> Map.merge(acc)
+    end)
+  rescue
+    e ->
+      Logger.warning("Failed to read device metadata for role inference: #{inspect(e)}")
+      %{}
+  end
+
+  defp role_metadata(role) do
+    %{
+      "device_role" => role.role,
+      "device_role_confidence" => role.confidence,
+      "device_role_source" => role.source
+    }
+  end
+
+  defp role_metadata_changed?(metadata, role) do
+    Map.merge(metadata, role_metadata(role)) != metadata
+  end
+
+  defp write_role_metadata(device_id, role, actor) do
     case Device.get_by_uid(device_id, true, actor: actor) do
       {:ok, %Device{} = device} ->
         metadata = Map.new(device.metadata || %{})
-
-        role_metadata = %{
-          "device_role" => role.role,
-          "device_role_confidence" => role.confidence,
-          "device_role_source" => role.source
-        }
+        role_metadata = role_metadata(role)
 
         # The comparison still uses the freshly read map -- it is only deciding
         # whether there is anything to write. The WRITE sends the role keys alone
@@ -1414,15 +1456,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       :ok
   end
 
-  defp create_candidate_devices([], _partition, _source_device_id, _actor), do: :ok
-
-  defp create_candidate_devices(candidate_ips, partition, source_device_id, actor) do
-    candidate_ips
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-    |> Enum.each(fn ip ->
-      ensure_candidate_device(ip, partition, source_device_id, actor)
+  # One {ip, partition, source_device_id} entry per candidate, in update order.
+  # The first update to name an address in a partition owns it, as it did when
+  # the updates were processed one after another.
+  defp candidate_entries(updates) do
+    updates
+    |> Enum.flat_map(fn update ->
+      update.candidate_ips
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.map(&{&1, update.partition, update.device_id})
     end)
+    |> Enum.uniq_by(fn {ip, partition, _source} -> {ip, partition} end)
   end
 
   @doc """
@@ -1434,9 +1479,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   """
   def candidate_device_address?(ip), do: AliasPolicy.valid_alias_ip?(ip)
 
-  defp ensure_candidate_device(ip, partition, source_device_id, actor) do
+  defp seedable_candidate_address?(ip) do
     if candidate_device_address?(ip) do
-      do_ensure_candidate_device(ip, partition, source_device_id, actor)
+      true
     else
       # Never mint a device for an address that cannot identify one. AliasPolicy
       # rejects loopback, unspecified, and link-local (fe80::/10, 169.254/16) --
@@ -1450,26 +1495,51 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       # through the undelete path, clearing the deleted_reason. Deleting it by
       # hand was not enough while something kept re-creating it.
       Logger.debug("Skipping candidate device for unroutable address #{ip}")
-      :ok
+      false
     end
   end
 
-  defp do_ensure_candidate_device(ip, partition, source_device_id, actor) do
-    existing = lookup_device_uids_by_ip([ip])
+  @doc false
+  # Seeds a provisional device for each candidate address that no live device
+  # holds and no alias in its partition resolves. The device-IP and alias
+  # lookups for the whole batch run as one query per chunk; creation stays per
+  # address. Entries are handled in order, and an address created for one entry
+  # is held for the entries after it, exactly as a fresh per-address lookup
+  # would have found it.
+  @spec ensure_candidate_devices([{String.t(), String.t() | nil, String.t()}], term()) :: :ok
+  def ensure_candidate_devices(entries, actor) do
+    entries =
+      Enum.filter(entries, fn {ip, _partition, _source} -> seedable_candidate_address?(ip) end)
 
-    if Map.has_key?(existing, ip) do
-      :ok
-    else
-      case find_device_uid_by_alias(ip, partition, actor) do
-        {:ok, alias_uid} when is_binary(alias_uid) and alias_uid != "" ->
-          Logger.debug("Mapper candidate IP #{ip} already mapped via alias #{alias_uid}")
-          :ok
+    ips = entries |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    held = ips |> lookup_device_uids_by_ip_chunked() |> Map.keys() |> MapSet.new()
+    unheld_ips = Enum.reject(ips, &MapSet.member?(held, &1))
+    alias_rows = alias_rows_by_ip(unheld_ips, actor)
 
-        _ ->
-          _ = create_candidate_device_for_ip(ip, partition, source_device_id, actor)
-          :ok
-      end
-    end
+    _held =
+      Enum.reduce(entries, held, fn {ip, partition, source_device_id}, held ->
+        if MapSet.member?(held, ip) do
+          held
+        else
+          case resolve_alias_device_uid(ip, partition, alias_rows, actor) do
+            {:ok, alias_uid} when is_binary(alias_uid) and alias_uid != "" ->
+              Logger.debug("Mapper candidate IP #{ip} already mapped via alias #{alias_uid}")
+              held
+
+            _ ->
+              _ = create_candidate_device_for_ip(ip, partition, source_device_id, actor)
+              MapSet.put(held, ip)
+          end
+        end
+      end)
+
+    :ok
+  end
+
+  defp lookup_device_uids_by_ip_chunked(ips) do
+    ips
+    |> Enum.chunk_every(@batch_lookup_chunk_size)
+    |> Enum.reduce(%{}, &Map.merge(&2, lookup_device_uids_by_ip(&1)))
   end
 
   defp create_candidate_device_for_ip(ip, partition, source_device_id, actor) do
@@ -1756,13 +1826,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       end)
       |> Enum.split_with(&match?({:existing, _polled, _device}, &1))
 
+    # One observation time for the whole poll: a holder this poll also observed is not older
+    # than the device moving onto its address, so it keeps the address.
+    observed_at = DateTime.utc_now()
+
+    existing
+    |> Enum.map(fn {:existing, _entry, device} -> device.uid end)
+    |> stamp_identity_observed(observed_at)
+
     Enum.each(existing, fn {:existing, entry, device} ->
-      maybe_move_device_address(entry, device, records, actor)
+      maybe_move_device_address(entry, device, records, observed_at, actor)
     end)
 
     context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
     kept = Enum.map(existing, fn {:existing, entry, _device} -> entry end)
-    created = create_polled_devices(Enum.map(new, &elem(&1, 1)), records, context, actor)
+    new_entries = Enum.map(new, &elem(&1, 1))
+    created = create_polled_devices(new_entries, records, context, observed_at, actor)
     kept ++ created
   end
 
@@ -1774,12 +1853,31 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Map.new(&{&1.uid, &1})
   end
 
+  # A poll of a device identified by the MACs its own interfaces report is an
+  # identity-bearing observation of it (`DeviceWrites.observed_after?/2`), as an agent
+  # check-in is. An address-seeded device (`create_address_seeded_device/5`) is not: nothing
+  # but the address identifies it. The stamp only moves forward.
+  defp stamp_identity_observed([], _observed_at), do: :ok
+
+  defp stamp_identity_observed(uids, observed_at) do
+    Repo.update_all(
+      from(d in Device,
+        where: d.uid in ^Enum.uniq(uids) and is_nil(d.deleted_at),
+        where: is_nil(d.identity_observed_at) or d.identity_observed_at < ^observed_at
+      ),
+      set: [identity_observed_at: observed_at]
+    )
+
+    :ok
+  end
+
   # What a resolved uid is: a device to write, an existing one to keep, or a tombstone. A poll
   # never revives a device an operator deleted, one a merge tombstoned (the Resolver has already
-  # followed the merge), or one a DIRE remediation removed on purpose. A device an automatic
-  # process deleted (a reaper or an expiry, identified by a `system:` actor) came back online, so
-  # it is restored through the audited `:restore` action rather than the raw upsert, which would
-  # clear the tombstone without a trace.
+  # followed the merge), one a DIRE remediation removed on purpose, or a retained tombstone
+  # (`Device.retained_reasons/0`: its source retired its ids, or it was a released seed). A
+  # device an automatic process deleted (a reaper or an expiry, identified by a `system:` actor)
+  # came back online, so it is restored through the audited `:restore` action rather than the
+  # raw upsert, which would clear the tombstone without a trace.
   defp polled_device_state(nil, _actor), do: :new
 
   defp polled_device_state(%Device{deleted_at: nil} = device, _actor), do: {:existing, device}
@@ -1796,7 +1894,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp restorable_system_delete?("merged"), do: false
   defp restorable_system_delete?("dire_remediation" <> _), do: false
-  defp restorable_system_delete?(_reason), do: true
+  defp restorable_system_delete?(reason), do: not Device.retained_reason?(reason)
 
   # The restored device keeps its recorded address unless another live device holds it now (the
   # address was leased again while the device was gone); then the restore clears it in the same
@@ -1844,18 +1942,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # (`DeviceWrites.bulk_upsert_devices/3`), so the address it was polled at is claimed with the
   # same rules as any other strong write: an anchorless provisional seed holding the address is
   # adopted, and any other live holder is left in place with the conflict recorded.
-  defp create_polled_devices([], _records, _context, _actor), do: []
+  defp create_polled_devices([], _records, _context, _observed_at, _actor), do: []
 
-  defp create_polled_devices(new, records, context, _actor) do
-    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+  defp create_polled_devices(new, records, context, observed_at, _actor) do
+    timestamp = DateTime.truncate(observed_at, :second)
     resolved_updates = Enum.map(new, &{new_device_update(&1), &1.uid})
 
+    # The poll observed each device itself (stamp_identity_observed/2).
     device_records =
       resolved_updates
       |> DeviceRecords.build_device_upsert_records(timestamp)
       |> Enum.map(fn record ->
-        maybe_put(
-          record,
+        record
+        |> Map.put(:identity_observed_at, observed_at)
+        |> maybe_put(
           :management_device_id,
           find_management_device_uid(record.ip, records, context)
         )
@@ -1909,14 +2009,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # address it was polled at, or one its interfaces report (a router polled at its WAN and
   # LAN addresses is one device, and must not flip between them). A recorded address the
   # device no longer reports is stale, and the device moves to the address it was polled at.
-  defp maybe_move_device_address(polled, %Device{} = device, records, actor) do
+  defp maybe_move_device_address(polled, %Device{} = device, records, observed_at, actor) do
     current = normalize_alias_ip(device.ip)
 
     if current in own_addresses(polled.device_ip, records) or
          not valid_alias_ip?(polled.device_ip) do
       :ok
     else
-      move_device_address(device, polled.device_ip, polled.partition, actor)
+      move_device_address(device, polled.device_ip, polled.partition, observed_at, actor)
     end
   end
 
@@ -1935,12 +2035,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp bare_address(_value), do: nil
 
-  # Moves an existing device to the address it was polled at, under the rule of
-  # `DeviceWrites.claim_address_from_holder/4`: the address follows the newer observation. A
-  # live holder last seen before this poll is stale (DHCP churn), so it releases the address in
-  # the same transaction the device takes it in. A holder not older keeps it, the device keeps
-  # its own address, and the refusal is recorded as an active-IP conflict.
-  defp move_device_address(%Device{} = device, ip, partition, actor) do
+  # Moves an existing device to the address it was polled at, under the newer-observation rule
+  # of `DeviceWrites.claim_address_from_holder/5`: the address follows the newer
+  # identity-bearing observation (`DeviceWrites.observed_after?/2`). A live holder whose last
+  # one is before this poll, or that has none, is stale (DHCP churn), so it releases the
+  # address in the same transaction the device takes it in. A holder not older keeps it, the
+  # device keeps its own address, and the refusal is recorded as an active-IP conflict.
+  defp move_device_address(%Device{} = device, ip, partition, observed_at, actor) do
     case live_address_holder(ip, partition, device.uid) do
       nil ->
         case set_device_address(device, ip, actor) do
@@ -1952,7 +2053,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         end
 
       %{uid: holder_uid} = holder ->
-        if DeviceWrites.observed_after?(%{last_seen_time: DateTime.utc_now()}, holder) do
+        if DeviceWrites.observed_after?(%{identity_observed_at: observed_at}, holder) do
           take_address_from_stale_holder(device, holder_uid, ip, actor)
         else
           Logger.info(
@@ -1968,7 +2069,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp take_address_from_stale_holder(%Device{} = device, holder_uid, ip, actor) do
     result =
       Repo.transaction(fn ->
-        DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [{holder_uid, ip}])
+        # A stale release: an anchorless sweep seed that releases its only address is
+        # soft-deleted as seed_released in this transaction.
+        DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [], [{holder_uid, ip}])
 
         case set_device_address(device, ip, actor, return_notifications?: true) do
           {:ok, _device, notifications} -> notifications
@@ -2030,7 +2133,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       from(d in Device,
         where: d.ip == ^ip and d.partition == ^normalize_partition(partition),
         where: is_nil(d.deleted_at) and d.uid != ^device_uid,
-        select: %{uid: d.uid, last_seen_time: d.last_seen_time},
+        select: %{uid: d.uid, identity_observed_at: d.identity_observed_at},
         limit: 1
       )
     )
@@ -2120,12 +2223,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp do_find_device_uid_by_alias(device_ip, partition, actor) do
     case DeviceAliasState.lookup_by_value(:ip, device_ip, actor: actor) do
       {:ok, aliases} ->
-        aliases
-        |> Enum.filter(&eligible_alias_partition?(&1.partition, partition))
-        |> Enum.reject(&(&1.state in [:replaced, :archived]))
-        |> Enum.sort_by(&alias_rank_key/1, :desc)
-        |> Enum.find_value(&alias_device_uid(&1, actor))
-        |> then(&{:ok, &1})
+        {:ok, select_alias_device_uid(aliases, partition, &live_alias_holder?(&1, actor), actor)}
 
       {:error, reason} ->
         Logger.warning(
@@ -2146,14 +2244,79 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     alias_partition == requested_partition
   end
 
-  defp alias_device_uid(alias_state, actor) do
-    case Device.get_by_uid(alias_state.device_id, false, actor: actor) do
-      {:ok, %Device{deleted_at: nil}} ->
+  # The best-ranked eligible alias whose device is live wins, and only that alias
+  # is reactivated when stale.
+  defp select_alias_device_uid(aliases, partition, live?, actor) do
+    aliases
+    |> Enum.filter(&eligible_alias_partition?(&1.partition, partition))
+    |> Enum.reject(&(&1.state in [:replaced, :archived]))
+    |> Enum.sort_by(& &1.device_id)
+    |> Enum.sort_by(&alias_rank_key/1, :desc)
+    |> Enum.find_value(fn alias_state ->
+      if live?.(alias_state) do
         maybe_reactivate_alias(alias_state, actor)
         alias_state.device_id
+      end
+    end)
+  end
 
-      _ ->
-        nil
+  defp live_alias_holder?(alias_state, actor) do
+    match?(
+      {:ok, %Device{deleted_at: nil}},
+      Device.get_by_uid(alias_state.device_id, false, actor: actor)
+    )
+  end
+
+  # Every IP alias row for the given addresses, and which of the devices they
+  # name are live, in one query per chunk each. Feeds resolve_alias_device_uid/4,
+  # which applies find_device_uid_by_alias/3's selection to one address.
+  defp alias_rows_by_ip([], _actor), do: {:ok, %{by_ip: %{}, live: MapSet.new()}}
+
+  defp alias_rows_by_ip(ips, actor) do
+    rows =
+      ips
+      |> Enum.filter(&AliasPolicy.valid_alias_ip?/1)
+      |> Enum.chunk_every(@batch_lookup_chunk_size)
+      |> Enum.flat_map(fn chunk ->
+        DeviceAliasState
+        |> Ash.Query.filter(alias_type == :ip and alias_value in ^chunk)
+        |> Ash.read!(actor: actor)
+      end)
+
+    live =
+      rows
+      |> Enum.map(& &1.device_id)
+      |> Enum.uniq()
+      |> Enum.chunk_every(@batch_lookup_chunk_size)
+      |> Enum.flat_map(fn chunk ->
+        Repo.all(
+          from(d in Device, where: is_nil(d.deleted_at) and d.uid in ^chunk, select: d.uid)
+        )
+      end)
+      |> MapSet.new()
+
+    {:ok, %{by_ip: Enum.group_by(rows, & &1.alias_value), live: live}}
+  rescue
+    e ->
+      Logger.warning("Alias lookup raised for mapper candidate IPs: #{inspect(e)}")
+      {:error, e}
+  end
+
+  @doc false
+  def resolve_alias_device_uid(ip, partition, alias_rows, actor) do
+    cond do
+      not AliasPolicy.valid_alias_ip?(ip) ->
+        {:ok, nil}
+
+      match?({:error, _}, alias_rows) ->
+        find_device_uid_by_alias(ip, partition, actor)
+
+      true ->
+        {:ok, %{by_ip: by_ip, live: live}} = alias_rows
+        aliases = Map.get(by_ip, ip, [])
+
+        {:ok,
+         select_alias_device_uid(aliases, partition, &MapSet.member?(live, &1.device_id), actor)}
     end
   end
 
@@ -2161,6 +2324,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp normalize_partition(""), do: "default"
   defp normalize_partition(value), do: value
 
+  # Alias rows are per device, so the address's rows rank as DeviceAliasState.holder_sort/0
+  # orders them within a state: most recently seen first, then most sightings, then (by the
+  # stable sort after a device_id sort) lowest device id.
   defp alias_rank_key(alias_state) do
     state_rank =
       case alias_state.state do
@@ -2179,7 +2345,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         _ -> 0
       end
 
-    {state_rank, sighting_count, last_seen_unix}
+    {state_rank, last_seen_unix, sighting_count}
   end
 
   defp maybe_reactivate_alias(

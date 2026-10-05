@@ -565,6 +565,10 @@ message CredentialBrokerResolveRequest {
   string consumer_id = 5;
   string purpose = 6;
   string resolution_location = 7;
+  // Resolve-by-binding: with grant_id empty, core authorizes against the
+  // current assignment and binding and reuses or issues the grant itself.
+  string assignment_id = 8;
+  string binding_id = 9;
 }
 
 // CredentialBrokerResolveResponse returns memory-only credential material to

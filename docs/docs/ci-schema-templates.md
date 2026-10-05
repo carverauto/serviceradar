@@ -5,8 +5,9 @@ title: CI Schema Templates
 # CI schema templates
 
 The keyed schema-template lifecycle is the configured source for BazelCI,
-LargeIngestionGate, and the integration benchmark actions. The legacy singleton
-remains protected for rollback, but active callers neither migrate it nor clone it.
+LargeIngestionGate, and the integration benchmark actions, and the only one: the
+legacy singleton's targets are deleted, and its frozen database was dropped on
+2026-10-04 (#4856).
 A successful manifest artifact test proves the build contract, not database
 construction or isolation; the in-cluster evidence below remains mandatory.
 

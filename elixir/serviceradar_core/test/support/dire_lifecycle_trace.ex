@@ -4,8 +4,8 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
   A trace test declares a synthetic world (model device names, typed identifiers, addresses),
   drives the real lifecycle entry points step by step -- ingest, merge, unmerge, soft delete,
-  sweep, expiry, agent check-in, purge -- and after every step records the full model state,
-  read from the database:
+  sweep, expiry, agent check-in, purge, source id retirement and the grace delete -- and after
+  every step records the full model state, read from the database:
 
     * `status`/`reason`: whether each device row is absent, live, tombstoned or purged, and the
       class of its `deleted_reason`;
@@ -13,19 +13,19 @@ defmodule ServiceRadar.DireLifecycleTrace do
     * `ipOf`: each device's address;
     * `audit`: the `merge_audit` rows, oldest first;
     * `work`: the in-flight ingest item between an ingest's resolve and its write;
-    * `marked`: the live devices marked `source_retired` (add-source-id-succession D5). No code
-      writes the mark before D5 lands; until its `source_retired_at` column does, the
-      recorder reads the mark's metadata mirror (`identity_state`);
-    * `arch`: the devices each world identifier retired from. No lifecycle trace retires an id
-      yet, so every entry is written empty. One that does must read `device_identifier_archive`,
-      whose rows move to a merge survivor, while the model keeps the device the id retired from
-      and follows the merge;
+    * `marked`: the live devices marked `source_retired` (`source_retired_at`,
+      add-source-id-succession D5);
+    * `arch`: the devices each world identifier retired from (`device_identifier_archive`). A
+      merge moves an archive row to the survivor, while the model keeps the device the id
+      retired from and follows the merge, so no trace merges a record after one of its ids
+      retired;
     * `sweepOnly`: the devices with no discovery source but the sweep, by the test
       `SweepResultsIngestor.restore_eligible?/1` applies;
     * `act`: the step, with the devices whose `identity_revision` it moved (`bumped`).
 
   An ingest is logged as the model's two steps: `StartWork` (the uid the source reached and
-  the device DIRE resolved it to) and `Commit`. The code runs them in one call, so `work` is
+  the device DIRE resolved it to) and `Commit`, or `Reactivate` when a retired id it reports
+  leaves the archive. The code runs them in one call, so `work` is
   never stale here; a merge landing between the two is the fence's case, which a black-box
   trace cannot schedule and `fence_enforcement_test.exs` covers instead (#4618).
 
@@ -47,11 +47,14 @@ defmodule ServiceRadar.DireLifecycleTrace do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.EphemeralDeviceExpiry
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
+  alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Inventory.SourceRetiredExpiry
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -62,11 +65,34 @@ defmodule ServiceRadar.DireLifecycleTrace do
   # Resolver @max_canonical_follow_depth.
   @follow_depth 5
 
+  # The Armis source instance every trace's source identifiers belong to.
+  @armis_instance "source-trace"
+  @armis_scope %{partition: "default", source: "armis", source_instance: @armis_instance}
+
+  # N = 3 collections, T = 24 hours. Both passes are scoped to one device, so the mass guards'
+  # fraction is 1 of 1.
+  @retirement_settings %{
+    source_retirement_enabled: true,
+    source_retirement_absent_collections: 3,
+    source_retirement_min_absence_hours: 24,
+    source_retirement_max_fraction: 1.0,
+    source_retirement_guard_override: false
+  }
+
+  @grace_settings %{
+    source_retirement_enabled: true,
+    source_retired_grace_days: 7,
+    source_retirement_max_fraction: 1.0,
+    source_retirement_guard_override: false,
+    batch_size: 10
+  }
+
   defstruct [
     :name,
     :actor,
     :world,
     :real,
+    :t0,
     pre_uids: MapSet.new(),
     names: %{},
     last_reason: %{},
@@ -113,7 +139,10 @@ defmodule ServiceRadar.DireLifecycleTrace do
         end)
     }
 
-    trace = %__MODULE__{name: name, actor: actor, world: world, real: real}
+    # The source times and collections a trace places after t0 lie in the past.
+    t0 = DateTime.utc_now() |> DateTime.shift(day: -10) |> DateTime.truncate(:second)
+
+    trace = %__MODULE__{name: name, actor: actor, world: world, real: real, t0: t0}
     trace = %{trace | pre_uids: trace |> read_devices() |> MapSet.new(& &1.uid)}
 
     log(trace, raw(trace), [], act("Init"))
@@ -128,24 +157,52 @@ defmodule ServiceRadar.DireLifecycleTrace do
   # ---------------------------------------------------------------------------------------
   # Ingest steps: StartWork + Commit
 
-  @doc "Armis sync reporting source identifier `i` at address `p`."
-  def armis(trace, i, p) do
+  @doc """
+  Armis sync reporting source identifier `i` at address `p`. Options:
+
+    * `mac: m` - the source reports world MAC `m` with it;
+    * `run: true` - it reports as a sync run of the trace's Armis instance does: the run's
+      instance (`sync_meta`), which files the identifiers under the instance's partition, where
+      a retirement pass counts them (`retire/2`), and the source's first- and last-seen times,
+      t0 and five hours later.
+  """
+  def armis(trace, i, p, opts \\ []) do
     {:src, value} = trace.real.ids[i]
+    macs = List.wrap(opts[:mac])
 
-    update = %{
-      "ip" => trace.real.ip[p],
-      "hostname" => "trace-#{i}",
-      "source" => "armis",
-      "metadata" => %{
-        "integration_type" => "armis",
-        "armis_device_id" => value,
-        "integration_id" => integration_id(value)
+    update =
+      %{
+        "ip" => trace.real.ip[p],
+        "hostname" => "trace-#{i}",
+        "source" => "armis",
+        "metadata" => %{
+          "integration_type" => "armis",
+          "armis_device_id" => value,
+          "integration_id" => integration_id(value)
+        }
       }
-    }
+      |> put_macs(trace, macs)
+      |> put_run(trace, Keyword.get(opts, :run, false))
 
-    ingest(trace, [i], p, nil, fn ->
+    ingest(trace, [i | macs], p, nil, fn ->
       assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor)
     end)
+  end
+
+  defp put_macs(update, _trace, []), do: update
+
+  defp put_macs(update, trace, macs) do
+    Map.put(update, "mac", Enum.map_join(macs, ",", fn m -> elem(trace.real.ids[m], 1) end))
+  end
+
+  defp put_run(update, _trace, false), do: update
+
+  defp put_run(update, trace, true) do
+    Map.merge(update, %{
+      "first_seen_time" => DateTime.to_iso8601(trace.t0),
+      "last_seen_time" => trace.t0 |> DateTime.shift(hour: 5) |> DateTime.to_iso8601(),
+      "sync_meta" => %{"sync_service_id" => @armis_instance}
+    })
   end
 
   @doc "Census (ARP) observation of hardware MAC `i` at address `p`."
@@ -261,7 +318,11 @@ defmodule ServiceRadar.DireLifecycleTrace do
     trace = log(trace, before, [target], act("StartWork", reached, target))
 
     name =
-      if unchanged?(trace, before, after_, target), do: "CommitDropped", else: "Commit"
+      cond do
+        unchanged?(trace, before, after_, target) -> "CommitDropped"
+        Enum.any?(ids, &(after_.archive[&1] != before.archive[&1])) -> "Reactivate"
+        true -> "Commit"
+      end
 
     log(trace, after_, [], act(name, "NoDev", target, 0, bumped(trace, before, after_)))
   end
@@ -305,7 +366,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
     uid = uid_of!(trace, d)
 
     Map.get(before.devices, uid) == Map.get(after_.devices, uid) and
-      before.owners == after_.owners
+      before.owners == after_.owners and before.archive == after_.archive
   end
 
   # ---------------------------------------------------------------------------------------
@@ -562,7 +623,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
   def expire(trace, d) do
     uid = uid_of!(trace, d)
     before = raw(trace)
-    later = DateTime.add(DateTime.utc_now(), 2 * 86_400, :second)
+    later = DateTime.shift(DateTime.utc_now(), day: 2)
     # The pass is scoped to one device, so the mass-expiry guard's fraction is 1 of 1.
     settings = %{
       ephemeral_expiry_enabled: true,
@@ -580,6 +641,121 @@ defmodule ServiceRadar.DireLifecycleTrace do
     if live?(after_, uid), do: flunk("DIRE lifecycle trace #{trace.name}: #{d} did not expire")
 
     log(trace, after_, [], act("Expire", d, "NoDev", 0, bumped(trace, before, after_)))
+  end
+
+  @doc """
+  A retirement pass of the trace's Armis instance (`SourceRetirement.run/2`), scoped to `d`,
+  whose source identifiers a sync run reported (`armis/4` with `run: true`). The rule wants N = 3
+  exact collections that missed them and a last report at least T = 24 hours old, so four
+  collections are activated first, the first reporting them, and their sightings are backdated
+  to t0, so only the collections decide when the source last reported them. The model's
+  `Retire`; the pass must retire them.
+  """
+  def retire(trace, d) do
+    uid = uid_of!(trace, d)
+    before = raw(trace)
+    values = for {i, ^uid} <- before.owners, {:src, value} <- [trace.real.ids[i]], do: value
+
+    if values == [],
+      do: flunk("DIRE lifecycle trace #{trace.name}: #{d} holds no source identifier")
+
+    {trace, before, after_} =
+      run(trace, before, fn ->
+        backdate(trace, uid)
+        collect(trace, 0, uid, values)
+        for hours <- 2..4, do: collect(trace, hours, uid, [])
+
+        assert {:ok, %{status: :completed, devices: 1, failed: 0}} =
+                 SourceRetirement.run(@armis_scope,
+                   settings: @retirement_settings,
+                   now: DateTime.shift(trace.t0, hour: 100),
+                   actor: trace.actor,
+                   uids: [uid]
+                 )
+      end)
+
+    log(trace, after_, [], act("Retire", d, "NoDev", 0, bumped(trace, before, after_)))
+  end
+
+  # Backdates the sightings of the identifiers `uid` holds under the trace's Armis instance.
+  defp backdate(trace, uid) do
+    Repo.query!(
+      "UPDATE platform.device_identifiers SET first_seen = $2, last_seen = $2 " <>
+        "WHERE device_id = $1 AND partition = $3",
+      [uid, DateTime.to_naive(trace.t0), "default:armis:#{@armis_instance}"]
+    )
+  end
+
+  # Activates an exact collection of the trace's Armis instance, observed `hours` after t0,
+  # that reports the source identifiers `values` of `uid`.
+  defp collect(trace, hours, uid, values) do
+    collection_id = "#{@armis_instance}-#{System.unique_integer([:positive, :monotonic])}"
+    content_hash = :sha256 |> :crypto.hash(collection_id) |> Base.encode16(case: :lower)
+    observed_at = DateTime.shift(trace.t0, hour: hours)
+
+    snapshot = %{
+      partition: "default",
+      source: "armis",
+      source_instance: @armis_instance,
+      collection_id: collection_id,
+      content_hash: content_hash,
+      query_hash: nil,
+      observed_at: observed_at,
+      metadata: %{"accounting_status" => "exact"}
+    }
+
+    observations =
+      Enum.map(values, fn value ->
+        %{
+          device_id: uid,
+          partition: "default",
+          source: "armis",
+          source_instance: @armis_instance,
+          source_object_id: value,
+          source_integration_id: "armis:source:#{@armis_instance}:#{value}",
+          collection_id: collection_id,
+          content_hash: content_hash,
+          query_hash: nil,
+          present: true,
+          first_observed_at: observed_at,
+          last_observed_at: observed_at,
+          absent_since: nil,
+          hostname: nil,
+          ip: nil,
+          mac: nil,
+          serial_number: nil,
+          vendor_name: nil,
+          model: nil,
+          device_type: nil,
+          site_name: nil,
+          management_status: nil,
+          metadata: %{}
+        }
+      end)
+
+    assert :ok = DeviceSourceObservationIngestor.activate_resolved(snapshot, observations)
+  end
+
+  @doc """
+  `DeviceCleanupWorker`'s grace pass (`SourceRetiredExpiry.run/3`), scoped to `d` and run with a
+  reference time past the grace period after `d` was marked. The model's `GraceDelete`; the
+  pass must delete `d`.
+  """
+  def grace_delete(trace, d) do
+    uid = uid_of!(trace, d)
+    before = raw(trace)
+    # The mark records when the retirement pass ran, not the pass's reference time.
+    later = DateTime.shift(DateTime.utc_now(), day: 8)
+
+    {trace, before, after_} =
+      run(trace, before, fn ->
+        assert {:ok, %{deleted: 1}} =
+                 SourceRetiredExpiry.run(@grace_settings, trace.actor, uids: [uid], now: later)
+      end)
+
+    if live?(after_, uid), do: flunk("DIRE lifecycle trace #{trace.name}: #{d} was not deleted")
+
+    log(trace, after_, [], act("GraceDelete", d, "NoDev", 0, bumped(trace, before, after_)))
   end
 
   @doc "`DeviceCleanupWorker` hard-deletes the tombstoned `d` (its retention cutoff passed)."
@@ -671,9 +847,12 @@ defmodule ServiceRadar.DireLifecycleTrace do
       work: Enum.map(work, &%{target: &1, stale: false}),
       marked:
         Enum.filter(devices, fn d ->
-          match?(%{deleted_at: nil, identity_state: "source_retired"}, row(trace, raw, d))
+          match?(%{deleted_at: nil, source_retired_at: %_{}}, row(trace, raw, d))
         end),
-      arch: Map.new(Map.keys(trace.world.ids), &{&1, []}),
+      arch:
+        Map.new(raw.archive, fn {i, uids} ->
+          {i, uids |> Enum.map(&name_of!(trace, &1)) |> Enum.sort()}
+        end),
       sweepOnly:
         Enum.filter(devices, fn d ->
           case row(trace, raw, d) do
@@ -849,7 +1028,8 @@ defmodule ServiceRadar.DireLifecycleTrace do
   @device_read_limit 1000
 
   # Every device the world can have produced (named, owning a world identifier, or holding a
-  # world address), its merge_audit rows, and the owner of each world identifier.
+  # world address), its merge_audit rows, and the owner and archive rows of each world
+  # identifier.
   defp raw(trace) do
     rows =
       trace
@@ -867,7 +1047,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
            ip: d.ip,
            identity_revision: d.identity_revision,
            discovery_sources: d.discovery_sources,
-           identity_state: (d.metadata || %{})["identity_state"],
+           source_retired_at: d.source_retired_at,
            version: Map.fetch!(versions, d.uid)
          }}
       end)
@@ -889,7 +1069,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
          }}
       end)
 
-    %{devices: devices, owners: owners(trace), audit: audit}
+    %{devices: devices, owners: owners(trace), archive: archive(trace), audit: audit}
   end
 
   defp read_devices(trace) do
@@ -960,6 +1140,32 @@ defmodule ServiceRadar.DireLifecycleTrace do
     |> Enum.map(& &1.device_id)
   end
 
+  # The devices each world identifier retired from, by its device_identifier_archive rows. A
+  # source identifier retires its two rows together.
+  defp archive(trace) do
+    Map.new(trace.real.ids, fn {i, real} ->
+      uids =
+        real
+        |> identifier_rows()
+        |> Enum.flat_map(fn {type, value} -> archived_uids(type, value) end)
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      {i, uids}
+    end)
+  end
+
+  defp archived_uids(type, value) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT device_id FROM platform.device_identifier_archive " <>
+          "WHERE identifier_type = $1 AND identifier_value = $2",
+        [Atom.to_string(type), value]
+      )
+
+    Enum.map(rows, fn [uid] -> uid end)
+  end
+
   defp owner_uid(trace, type, value) do
     DeviceIdentifier
     |> Ash.Query.filter(identifier_type == ^type and identifier_value == ^value)
@@ -986,7 +1192,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
   defp identifier_key({:mac, mac}), do: {:mac, mac |> String.replace(":", "") |> String.upcase()}
   defp identifier_key({:agent, v}), do: {:agent_id, v}
 
-  defp integration_id(value), do: "armis:source-trace:device:#{value}"
+  defp integration_id(value), do: "armis:#{@armis_instance}:device:#{value}"
 
   defp hex2(n), do: n |> Integer.to_string(16) |> String.pad_leading(2, "0") |> String.upcase()
 
@@ -1099,6 +1305,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
     CONSTANTS
       Devices = #{set(w.devices)}
       Ids = #{set(Map.keys(w.ids))}
+      MacIds = #{set(for {i, :mac} <- w.ids, do: i)}
       Ips = #{set(w.ips)}
       NoDev = NoDev
       NoIp = NoIp

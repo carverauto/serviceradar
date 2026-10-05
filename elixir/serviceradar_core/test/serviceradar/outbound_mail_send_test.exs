@@ -107,7 +107,7 @@ defmodule ServiceRadar.OutboundMailSendTest do
                deliver: fn _email, _config ->
                  {:error,
                   {:send,
-                   {:permanent_failure, ~c"23.138.124.21",
+                   {:permanent_failure, ~c"198.51.100.21",
                     ~c"553 5.7.1 <noreply@serviceradar.cloud>: Sender address rejected: not owned by user farm01@serviceradar.cloud\r\n"}}}
                end
              )

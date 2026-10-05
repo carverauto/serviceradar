@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   # (database unreachable during early request handling, etc). Matches
   # the migration default so the failure mode mirrors a freshly-installed
   # instance.
-  @fallback_allowed_scopes ["dashboard.publish", "plugin.publish", "plugins.manage"]
+  @fallback_allowed_scopes ["dashboard.publish", "plugin.publish", "plugins.manage", "edge.manage"]
   @fallback_session_ttl_days 30
 
   # Per-device-row token-poll rate limit: drives the OAuth `slow_down`
@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
   defp mint_device_authorization(conn, client_id, scope) do
     actor = SystemActor.system(:cli_auth)
-    expires_at = DateTime.add(DateTime.utc_now(), @device_ttl_seconds, :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), second: @device_ttl_seconds)
 
     case mint_with_user_code_retry(actor, client_id, scope, expires_at, @user_code_collision_retries) do
       {:ok, device_code, user_code} ->
@@ -332,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
     expires_at =
       unix_to_dt(claims["exp"]) ||
-        DateTime.add(DateTime.utc_now(), @fallback_session_ttl_days * 24 * 60 * 60, :second)
+        DateTime.shift(DateTime.utc_now(), day: @fallback_session_ttl_days)
 
     attrs = %{
       jti: claims["jti"],

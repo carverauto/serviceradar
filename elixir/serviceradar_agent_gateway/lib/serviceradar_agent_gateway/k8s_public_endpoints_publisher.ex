@@ -57,28 +57,44 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisher do
   defp do_publish(status, config) do
     message = status[:message] || status["message"]
 
-    cond do
-      not is_binary(message) or message == "" ->
-        Logger.warning(
-          "AgentGateway: k8s_public_endpoints status missing binary message",
-          agent_id: status[:agent_id]
-        )
-
-        {:error, :missing_inventory_payload}
-
-      byte_size(message) > @max_payload_bytes ->
-        Logger.warning(
-          "AgentGateway: k8s_public_endpoints payload too large",
-          agent_id: status[:agent_id],
-          message_size: byte_size(message)
-        )
-
-        {:error, :inventory_payload_too_large}
-
-      true ->
-        publish_payload(status, message, config)
+    with :ok <- validate_provenance(status),
+         :ok <- validate_payload(status, message) do
+      publish_payload(status, message, config)
     end
   end
+
+  defp validate_provenance(status) do
+    agent_id = status[:agent_id] || status["agent_id"]
+    partition = status[:partition] || status["partition"]
+
+    if present_string?(agent_id) and present_string?(partition) do
+      :ok
+    else
+      Logger.warning("AgentGateway: k8s_public_endpoints status missing authenticated provenance")
+      {:error, :missing_inventory_provenance}
+    end
+  end
+
+  defp validate_payload(status, message) when not is_binary(message) or message == "" do
+    Logger.warning(
+      "AgentGateway: k8s_public_endpoints status missing binary message",
+      agent_id: status[:agent_id]
+    )
+
+    {:error, :missing_inventory_payload}
+  end
+
+  defp validate_payload(status, message) when byte_size(message) > @max_payload_bytes do
+    Logger.warning(
+      "AgentGateway: k8s_public_endpoints payload too large",
+      agent_id: status[:agent_id],
+      message_size: byte_size(message)
+    )
+
+    {:error, :inventory_payload_too_large}
+  end
+
+  defp validate_payload(_status, _message), do: :ok
 
   defp publish_payload(status, message, config) do
     connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
@@ -125,4 +141,6 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisher do
       fn {_k, v} -> v in [nil, ""] end
     )
   end
+
+  defp present_string?(value), do: is_binary(value) and String.trim(value) != ""
 end

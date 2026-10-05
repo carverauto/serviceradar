@@ -210,6 +210,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.ChronologicalStateMigra
     end)
   end
 
+  # StateStore only loads rows whose expires_at is after the database clock, so
+  # the expiry is relative to that clock: a fixed calendar date would make every
+  # legacy row read as expired once the date passed.
   defp insert_legacy(source, opts \\ []) do
     hod = Keyword.get(opts, :hod, 2)
     started_at = NaiveDateTime.add(~N[2030-01-02 00:00:00], hod * 3_600)
@@ -222,7 +225,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.ChronologicalStateMigra
         last_disposition, last_status, last_score, last_evaluated_at,
         last_bucket_started_at, last_bucket_ended_at, expires_at, inserted_at, updated_at
       ) VALUES ($1, 'series/example', 2, $2, $3, $4, $5, 3.5, $7, $6, $7,
-                '2032-01-01', '2030-01-01', $7)
+                (now() AT TIME ZONE 'UTC') + INTERVAL '30 days', '2030-01-01', $7)
       ON CONFLICT (source, series_key, dow, hod) DO UPDATE SET
         consecutive_anomalous = EXCLUDED.consecutive_anomalous,
         last_disposition = EXCLUDED.last_disposition,

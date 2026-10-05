@@ -68,6 +68,18 @@ Alternative Name list has to contain `IP Address:<the address ServiceRadar dials
 `DNS` SAN never matches an IP literal, so a certificate issued for `pve04.lan` will fail
 against `https://192.168.1.20` no matter who signed it.
 
+**Discovered nodes at an uncovered address are dropped.** A node often answers on more
+than one interface, and auto-discovery may find it at an address its certificate does not
+list. The candidate probe records the IP SANs of the certificate it saw
+(`proxmox_tls_san_ips`), and core leaves out any discovered target whose address is not in
+that list instead of sending it to the agent to fail the handshake. The agent never dials
+a different address than the target names. Core logs `dropping target ... the node
+certificate does not list that address` with the SANs it saw. To collect from that node,
+make sure it is discovered at an address in the list, set `proxmox_base_url` on the device
+to one, or pin `server_cert_fingerprint`. Targets without recorded SAN data are left
+alone. Operator-set URLs are never dropped, and nothing
+is dropped while a fingerprint is pinned.
+
 Work the following steps in order.
 
 #### Step 1: Retrieve the cluster CA
@@ -253,6 +265,8 @@ token_id: serviceradar
 ```
 
 The stored public identity is `root@pam!serviceradar`; the token secret is encrypted and never rendered back in the UI.
+
+Enter each identity field as a single segment: `user`, `realm`, and `token_id` must not contain `@`, `!`, or `=`. Typing a qualified value such as `serviceradar@pve` into the user field is rejected because it renders an identity Proxmox does not know.
 
 ## Least-Privilege Role
 

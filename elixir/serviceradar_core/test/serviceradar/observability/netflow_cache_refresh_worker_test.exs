@@ -138,9 +138,9 @@ defmodule ServiceRadar.Observability.NetflowCacheRefreshWorkerTest do
       # The bug this fixes: a router exports from an interface that is not its
       # primary address, so primary-only matching leaves device_uid NULL and its
       # own exported flows attribute to no device.
-      rows = [%{alias_value: "23.138.124.17", device_id: "sr:tonka"}]
+      rows = [%{alias_value: "198.51.100.17", device_id: "sr:tonka"}]
 
-      assert Worker.unambiguous_alias_owners(rows) == %{"23.138.124.17" => "sr:tonka"}
+      assert Worker.unambiguous_alias_owners(rows) == %{"198.51.100.17" => "sr:tonka"}
     end
 
     test "fails closed when two devices claim the same address" do

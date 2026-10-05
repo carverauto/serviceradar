@@ -1,5 +1,6 @@
-// `auth status` — print the resolved instance, user, and timestamps for
-// each stored credential. The token itself is never written to stdout.
+// `auth status` — print the resolved instance, user, granted scope, and
+// timestamps for each stored credential. The token itself is never written
+// to stdout.
 
 import {normalizeInstanceUrl, readCredentials} from "./credentials.js"
 
@@ -19,6 +20,7 @@ export async function authStatusCommand(options: Record<string, unknown>): Promi
     if (filter && filter !== url) continue
     console.log(`Instance: ${url}`)
     console.log(`  user:        ${entry?.user || "(unknown)"}`)
+    console.log(`  scope:       ${entry?.scope || "(not recorded)"}`)
     console.log(`  obtained_at: ${entry?.obtained_at || "(unknown)"}`)
     console.log(`  expires_at:  ${entry?.expires_at || "(no expiry recorded)"}`)
   }

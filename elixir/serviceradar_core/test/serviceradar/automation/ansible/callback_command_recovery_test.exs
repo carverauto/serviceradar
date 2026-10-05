@@ -51,7 +51,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
       command =
         command(attempt,
           status: :queued,
-          expires_at: DateTime.add(@now, -1, :second)
+          expires_at: DateTime.shift(@now, second: -1)
         )
 
       result =
@@ -78,7 +78,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
 
   test "a terminal command is replayed from its persisted agent and command type" do
     attempt = attempt(:fetch_job, "awx.fetch_job", :dispatched)
-    command = command(attempt, status: :completed, expires_at: DateTime.add(@now, 30, :second))
+    command = command(attempt, status: :completed, expires_at: DateTime.shift(@now, second: 30))
 
     assert %{attempts: 1, cleanup_intents: 0} =
              CallbackCommandRecovery.recover_once(
@@ -101,7 +101,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
 
     command =
       attempt
-      |> command(status: :completed, expires_at: DateTime.add(@now, 30, :second))
+      |> command(status: :completed, expires_at: DateTime.shift(@now, second: 30))
       |> Map.put(:partition_id, "tonka01")
 
     assert %{attempts: 1, cleanup_intents: 0} =
@@ -199,7 +199,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
       :fetch_job
       |> attempt("awx.fetch_job", :waiting)
       |> Map.put(:purpose, :terminal_poll)
-      |> Map.put(:deadline_at, DateTime.add(@now, -1, :second))
+      |> Map.put(:deadline_at, DateTime.shift(@now, second: -1))
 
     test_pid = self()
 
@@ -241,9 +241,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
     attempt =
       :launch_job
       |> attempt("awx.launch_job", :dispatched)
-      |> Map.put(:deadline_at, DateTime.add(@now, -1, :second))
+      |> Map.put(:deadline_at, DateTime.shift(@now, second: -1))
 
-    command = command(attempt, status: :completed, expires_at: DateTime.add(@now, -1, :second))
+    command = command(attempt, status: :completed, expires_at: DateTime.shift(@now, second: -1))
 
     assert %{attempts: 1, cleanup_intents: 0} =
              CallbackCommandRecovery.recover_once(
@@ -275,7 +275,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
     command =
       command(attempt,
         status: :running,
-        expires_at: DateTime.add(@now, 30, :second)
+        expires_at: DateTime.shift(@now, second: 30)
       )
 
     controller = %{
@@ -360,7 +360,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecoveryTest do
       dispatch_partition_id: "farm01",
       stage: stage,
       state: state,
-      deadline_at: DateTime.add(@now, 60, :second)
+      deadline_at: DateTime.shift(@now, minute: 1)
     }
   end
 

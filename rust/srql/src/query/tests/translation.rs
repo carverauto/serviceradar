@@ -1,6 +1,114 @@
 use super::*;
 
 #[test]
+fn stats_aliases_are_bound_as_json_keys() {
+    let aliases = [
+        "x'||(SELECT/**/'synthetic_probe')||'x",
+        "İtotal",
+        "count?",
+        "O'Brien",
+        "1n",
+        "TOTAL_BYTES",
+    ];
+
+    for (entity, group, filter, window) in [
+        (
+            "threat_intel_matches",
+            "source",
+            "source:synthetic_feed",
+            "last_1h",
+        ),
+        ("flows", "src_endpoint_ip", "proto:6", "last_1h"),
+        ("flows", "protocol_num", "proto:6", "last_24h"),
+        ("attributed_flows", "src_endpoint_ip", "proto:6", "last_1h"),
+    ] {
+        for alias in aliases {
+            for grouped in [false, true] {
+                let by = if grouped {
+                    format!(" by {group}")
+                } else {
+                    String::new()
+                };
+                let aggregation = if entity == "threat_intel_matches" {
+                    "count()"
+                } else {
+                    "count(*)"
+                };
+                let query = format!(
+                    "in:{entity} time:{window} {filter} stats:\"{aggregation} as {alias}{by}\""
+                );
+                let response = translate_request(&test_config(), request_for(&query))
+                    .expect("translate alias");
+                assert!(
+                    !response.sql.contains("synthetic_probe"),
+                    "alias became SQL: {}",
+                    response.sql
+                );
+                let expected = if entity == "threat_intel_matches" {
+                    alias.to_ascii_lowercase()
+                } else {
+                    alias.to_string()
+                };
+                assert!(
+                    matches!(&response.params[0], BindParam::Text(value) if value == &expected),
+                    "alias must be first bound JSON key: {:?}",
+                    response.params
+                );
+                assert!(response.sql.contains("$1::text"));
+                assert!(matches!(response.params[1], BindParam::Timestamptz(_)));
+                assert!(matches!(response.params[2], BindParam::Timestamptz(_)));
+                assert_eq!(max_dollar_placeholder(&response.sql), response.params.len());
+            }
+        }
+    }
+}
+
+#[test]
+fn multiple_stats_aliases_remain_data_in_rollup_branches() {
+    let aliases = ["x'||(SELECT/**/'synthetic_probe')||'x", "bytes?"];
+    for entity in ["flows", "attributed_flows"] {
+        for other in [false, true] {
+            let query = format!(
+                "in:{entity} time:last_1h proto:6 stats:\"count(*) as {}, sum(bytes_total) as {} by src_endpoint_ip\" sort:src_endpoint_ip:asc limit:5 other:{other}",
+                aliases[0], aliases[1]
+            );
+            let response =
+                translate_request(&test_config(), request_for(&query)).expect("translate rollup");
+            assert!(
+                !response.sql.contains("synthetic_probe"),
+                "alias became SQL: {}",
+                response.sql
+            );
+            let filter_start = if other { 0 } else { aliases.len() };
+            assert!(matches!(
+                response.params[filter_start],
+                BindParam::Timestamptz(_)
+            ));
+            assert!(matches!(
+                response.params[filter_start + 1],
+                BindParam::Timestamptz(_)
+            ));
+            assert!(matches!(
+                response.params[filter_start + 2],
+                BindParam::Int(6)
+            ));
+            let alias_start = if other { 3 } else { 0 };
+            let copies = if other { 2 } else { 1 };
+            for copy in 0..copies {
+                for (offset, alias) in aliases.iter().enumerate() {
+                    let index = alias_start + copy * aliases.len() + offset;
+                    assert!(
+                        matches!(&response.params[index], BindParam::Text(value) if value == alias)
+                    );
+                    assert!(response.sql.contains(&format!("${}::text", index + 1)));
+                }
+            }
+            assert_eq!(max_dollar_placeholder(&response.sql), response.params.len());
+        }
+    }
+}
+
+#[test]
 fn translate_param_arity_matches_sql_placeholders() {
     let config = test_config();
 

@@ -304,13 +304,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceTest do
     |> Ash.Changeset.for_create(:create, %{
       uid: "sr:" <> Ecto.UUID.generate(),
       hostname: "fence-test",
-      ip: unique_ip()
+      ip: TestSupport.unique_device_ip()
     })
     |> Ash.create(actor: actor)
-  end
-
-  defp unique_ip do
-    <<a, b, c>> = :crypto.strong_rand_bytes(3)
-    "10.#{a}.#{b}.#{rem(c, 254) + 1}"
   end
 end

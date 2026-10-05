@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
-    at = DateTime.add(DateTime.utc_now(), -60, :second)
+    at = DateTime.shift(DateTime.utc_now(), minute: -1)
     marker = "invented-audit-#{System.unique_integer([:positive])}"
     events = for _ <- 1..28, do: record(at, marker)
     events = Enum.sort_by(events, & &1.id, :desc)
@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
 
     view |> element("#audit-events-previous") |> render_click()
     assert hd(row_ids(view)) == latest.id
-    live_event = record(DateTime.add(DateTime.utc_now(), 1, :second), marker)
+    live_event = record(DateTime.shift(DateTime.utc_now(), second: 1), marker)
     handler_id = {__MODULE__, make_ref()}
     test_pid = self()
 
@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditEventsLiveTest do
   test "combined filters, literal search and time changes reset paging; clear restores defaults",
        %{conn: conn, marker: marker, at: at} do
     target =
-      record(DateTime.add(at, 10, :second), marker, %{
+      record(DateTime.shift(at, second: 10), marker, %{
         route: "/invented/%literal",
         correlation_id: "invented-correlation",
         severity: :critical

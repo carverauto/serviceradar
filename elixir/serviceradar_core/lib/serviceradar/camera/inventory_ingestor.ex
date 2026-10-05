@@ -1661,6 +1661,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       ids = IdentityReconciler.extract_strong_identifiers(update)
 
       case resolve_camera_identity(ids, update, descriptor, actor) do
+        {:error, {:identifier_lookup_failed, _}} = error ->
+          error
+
         {:ok, uid} when is_binary(uid) and uid != "" ->
           if reusable_camera_device_uid?(uid, actor) do
             {:ok, uid}
@@ -1711,6 +1714,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       |> resolve_camera_identity(update, descriptor, actor)
     else
       {:ok, uid} -> {:ok, uid}
+      {:error, {:identifier_lookup_failed, _}} = error -> error
       _ -> lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
     end
   end
@@ -1762,6 +1766,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
       {:ok, uid} when is_binary(uid) and uid != "" ->
         {:ok, uid}
 
+      {:error, {:identifier_lookup_failed, _}} = error ->
+        error
+
       _ ->
         {:ok, IdentityReconciler.generate_deterministic_device_id(ids)}
     end
@@ -1770,6 +1777,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp resolve_weak_camera_identity(update, descriptor, actor) when is_map(update) do
     case IdentityReconciler.resolve_device_id(update, actor: actor) do
       {:ok, uid} when is_binary(uid) and uid != "" -> {:ok, uid}
+      {:error, {:identifier_lookup_failed, _}} = error -> error
       _ -> lookup_device_by_hostname(descriptor_hostname(descriptor), actor)
     end
   end

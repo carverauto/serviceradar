@@ -18,13 +18,13 @@
 #       every name the sweep's own query returns.
 #     rust/integration-db/src/lib.rs  `like_prefix/1`
 #       escapes `_` so the sweep's LIKE pattern cannot match wider than it reads.
-#     rust/integration-db/src/template.rs  `TEMPLATE_DATABASE`
-#       deliberately does NOT carry the disposable prefix, so neither teardown nor the sweep
-#       can drop the shared template.
+#     rust/integration-db/src/lib.rs  `PROTECTED_DATABASES`
+#       names the shared fixture and the Postgres templates, so neither teardown nor the
+#       sweep can drop them (template generations are reserved by the `sr_tpl_` prefix).
 #
 #   Covered by unit tests in the same files -- `assert_disposable_rejects_the_shared_fixture`,
-#   `like_prefix_escapes_the_underscore_wildcard` and `the_template_is_not_disposable` --
-#   which run in an ordinary `bazel test //rust/integration-db:...` with no fixture required.
+#   `like_prefix_escapes_the_underscore_wildcard` and `unprotected_stale_query_excludes_the_shared_fixture`
+#   -- which run in an ordinary `bazel test //rust/integration-db:...` with no fixture required.
 #
 # Why it is a stub rather than already deleted:
 #   Kept briefly so anyone with the old path in a runbook or an in-flight branch gets this

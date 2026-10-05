@@ -31,7 +31,7 @@
 {{- if hasKey $webNgObanQueues "alerts" -}}{{- $webNgObanQueueAlerts = get $webNgObanQueues "alerts" -}}{{- end -}}
 {{- $webNgObanQueueServiceChecks := 1 -}}
 {{- if hasKey $webNgObanQueues "serviceChecks" -}}{{- $webNgObanQueueServiceChecks = get $webNgObanQueues "serviceChecks" -}}{{- end -}}
-{{- $webNgObanQueueNotifications := 1 -}}
+{{- $webNgObanQueueNotifications := 0 -}}
 {{- if hasKey $webNgObanQueues "notifications" -}}{{- $webNgObanQueueNotifications = get $webNgObanQueues "notifications" -}}{{- end -}}
 {{- $webNgObanQueueOnboarding := 1 -}}
 {{- if hasKey $webNgObanQueues "onboarding" -}}{{- $webNgObanQueueOnboarding = get $webNgObanQueues "onboarding" -}}{{- end -}}
@@ -448,6 +448,10 @@ spec:
         {{- end }}
         - name: SERVICERADAR_GATEWAY_ADDR
           value: {{ $gatewayAddress | quote }}
+        {{- with include "serviceradar.natsLeafUpstreamUrl" . }}
+        - name: SERVICERADAR_NATS_LEAF_UPSTREAM_URL
+          value: {{ . | quote }}
+        {{- end }}
         - name: NATS_URL
           value: {{ $natsUrl | quote }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}

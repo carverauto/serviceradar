@@ -17,7 +17,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundObanReaper do
     worker_name = inspect(worker)
     now = to_datetime(now)
 
-    cutoff = DateTime.add(now, -cutoff_seconds, :second)
+    cutoff = DateTime.shift(now, second: -cutoff_seconds)
 
     support_module = Keyword.get(opts, :support_module, ObanSupport)
     prefix = support_module.prefix()

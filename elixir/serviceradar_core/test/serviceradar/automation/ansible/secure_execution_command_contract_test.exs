@@ -116,7 +116,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContractTest do
       },
       "allow" => scope.allow,
       "ttl_seconds" => 300,
-      "expires_at" => DateTime.utc_now() |> DateTime.add(300) |> DateTime.to_iso8601()
+      "expires_at" => DateTime.utc_now() |> DateTime.shift(minute: 5) |> DateTime.to_iso8601()
     }
 
     payload = %{

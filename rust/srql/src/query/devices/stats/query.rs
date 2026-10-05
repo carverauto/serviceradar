@@ -26,6 +26,13 @@ pub(in crate::query::devices) fn build_stats_query(
         query = super::super::filters::apply_default_active_filter(query);
     }
 
+    if super::super::filters::should_apply_default_retired_filter(
+        plan.include_deleted,
+        &plan.filters,
+    )? {
+        query = super::super::filters::apply_default_retired_filter(query);
+    }
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(
             col_last_seen_time

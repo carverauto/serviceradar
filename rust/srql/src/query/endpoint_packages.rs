@@ -1,6 +1,6 @@
 //! Query execution for endpoint package inventory rows.
 
-use super::{BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, bucket_overlap_clause};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -399,7 +399,12 @@ fn build_bucket_time_clause(
 
     let start_idx = push_bind(binds, SqlBindValue::Timestamp(*start));
     let end_idx = push_bind(binds, SqlBindValue::Timestamp(*end));
-    format!("bucket >= ${start_idx} AND bucket <= ${end_idx}")
+    bucket_overlap_clause(
+        "bucket",
+        "1 hour",
+        &format!("${start_idx}"),
+        &format!("${end_idx}"),
+    )
 }
 
 fn text_clause(column: &str, filter: &Filter, binds: &mut Vec<SqlBindValue>) -> Result<String> {

@@ -115,13 +115,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
              )
   end
 
-  test "a reported native-addon-host capability is believed for every supervision model" do
+  test "a reported native-addon-host capability is believed per supervision model" do
     now = ~U[2026-07-18 17:00:00Z]
 
-    # An agent that says it hosts none of them is excluded from ALL of them -- the
-    # in-cluster agent refuses the whole assignment set, so a sidecar is no more
-    # hostable there than a systemd unit, and leaving it "eligible" for sidecars is
-    # exactly what left a silent target to time out the rollout.
+    # The in-cluster Kubernetes agent refuses the whole assignment set, so there a
+    # sidecar is no more hostable than a systemd unit, and leaving it "eligible" for
+    # sidecars is exactly what left a silent target to time out the rollout.
     for supervision <- [:systemd_service, :agent_sidecar, :ephemeral_helper, :config_toggle] do
       assert {:incompatible, "agent_cannot_host_native_addons"} =
                Eligibility.classify_target(
@@ -132,6 +131,28 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
                  ),
                  now
                )
+    end
+
+    # Any other container that reports it cannot host native add-ons still runs
+    # sidecars: the capability is about installing systemd units, and a sidecar is a
+    # subprocess of the agent. Excluding it here kept profiles and rollouts from ever
+    # reaching containerized hosts that run the add-on fine.
+    for deployment_type <- ["lxc", "docker", "container"] do
+      lxc_agent =
+        agent(now,
+          deployment_type: deployment_type,
+          capabilities: ["addon.native.host.unavailable"]
+        )
+
+      for supervision <- [:agent_sidecar, :ephemeral_helper, :config_toggle] do
+        assert {:eligible, nil} =
+                 Eligibility.classify_target(package(supervision: supervision), lxc_agent, now)
+      end
+
+      for supervision <- [:systemd_service, :systemd_timer] do
+        assert {:incompatible, "agent_cannot_host_native_addons"} =
+                 Eligibility.classify_target(package(supervision: supervision), lxc_agent, now)
+      end
     end
 
     # ...and a privileged container that says it CAN is trusted over the guess.

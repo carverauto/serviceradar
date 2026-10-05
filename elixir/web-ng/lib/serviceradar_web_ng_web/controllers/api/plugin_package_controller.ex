@@ -108,7 +108,8 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
          {:ok, %{id: token_id, key: object_key}} <- Storage.verify_token(:upload, token),
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
-         true <- same_object_key?(object_key, package.wasm_object_key) do
+         true <- same_object_key?(object_key, package.wasm_object_key),
+         true <- package.status == :staged do
       case read_body_to_tempfile(conn, Storage.max_upload_bytes()) do
         {:ok, upload_path, conn} ->
           try do

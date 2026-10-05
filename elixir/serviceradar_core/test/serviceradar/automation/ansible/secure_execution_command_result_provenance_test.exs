@@ -237,7 +237,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultProvenance
   end
 
   defp recent_jobs_bundle(env) do
-    reconcile_after = DateTime.add(@now, -60, :second)
+    reconcile_after = DateTime.shift(@now, minute: -1)
     {:ok, request} = Contract.recent_jobs_request(env.execution, reconcile_after)
 
     result_payload = %{
@@ -301,7 +301,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultProvenance
         Keyword.merge(
           [
             attempt: 1,
-            deadline_at: DateTime.add(@now, 120, :second),
+            deadline_at: DateTime.shift(@now, minute: 2),
             next_attempt_at: @now
           ],
           attempt_opts
@@ -397,7 +397,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultProvenance
       },
       "allow" => scope.allow,
       "ttl_seconds" => 300,
-      "expires_at" => @now |> DateTime.add(300, :second) |> DateTime.to_iso8601()
+      "expires_at" => @now |> DateTime.shift(minute: 5) |> DateTime.to_iso8601()
     }
   end
 

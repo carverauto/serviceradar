@@ -169,7 +169,7 @@ package bounds, or trigger **Run Now** from that rule.
 
 The `opentext-nom.config.retrieve` producer schedule (default daily, minimum
 `3600` seconds, 5-minute timeout) retrieves the configuration Network
-Automation most recently stored for one device. It reads NA's database and never
+Automation most recently stored for the configured devices. It reads NA's database and never
 opens a session to the device: `list config -deviceid <id>` lists the stored
 revisions, the newest `configuration` revision by `createDate` is chosen, and
 `show config -id <revision> -mask` returns it with passwords and SNMP
@@ -177,14 +177,20 @@ communities masked by NA. The revision ID is reported as `na_config_id`. It
 uses the same service-account credential and `api_url` as inventory, and needs
 these settings:
 
-- `device_id`: the Network Automation device ID sent as `parameters.deviceid`.
-- `device_uid`: the ServiceRadar device UID the revision is recorded against.
+- `devices`: up to 32 entries, each with a Network Automation `device_id`
+  sent as `parameters.deviceid` and the ServiceRadar `device_uid` the
+  revision is recorded against. Retrieval stays disabled until devices are
+  configured. The legacy single-device `device_id` / `device_uid` fields
+  remain supported.
 
 Both may also be set as optional advanced fields in the plugin config;
-per-invocation `input_values` override the configured value, and the target's
+per-invocation `input_values` override the configured value (a single-device
+`input_values` overrides a configured batch), and the target's
 `device_uid` is the last fallback for `device_uid`. A missing ID fails the run
 with `opentext_nom_config_device_id_invalid` or
-`opentext_nom_config_device_uid_invalid`.
+`opentext_nom_config_device_uid_invalid`. See
+[Running-config artifact lifecycle](#running-config-artifact-lifecycle) for
+batch retrieval, staging, and cleanup semantics.
 
 The body is limited to 2 MiB. It is staged as a plugin artifact and is never
 placed in the result details, because status details are viewer-readable. NA
@@ -355,3 +361,24 @@ Before enabling the daily schedule:
 Rollback consists of disabling the schedule or revoking the package. Existing
 source observations remain available for audit and canonical devices are not
 deleted.
+
+## Running-config artifact lifecycle
+
+Configure `devices` with up to 32 entries containing a positive Network Automation
+`device_id` and a ServiceRadar `device_uid`. The existing single-device fields
+remain supported. Config retrieval stays disabled until devices are configured;
+other producer schedules do not depend on this list.
+
+The plugin retrieves all masked stored configurations before staging any
+artifact. A retrieval failure stages nothing. A later staging failure reports a
+critical, incomplete result containing the references already committed, so core
+can delete them without ingesting a partial run. Core deletes staged NOM objects
+after both successful and failed ingestion, including download/hash failures.
+Each upload has a unique per-attempt key, so delayed cleanup cannot delete a newer run.
+Core binds reads and deletes to the host-attested agent and assignment.
+Cleanup failure remains retryable through retained plugin-result admission. The operator-only revision is
+the retained config; status details carry references, never config bodies.
+
+Delivery loss after a remote commit but before its reference is returned remains
+an uploader lifecycle limitation: the plugin cannot delete an object whose
+commit receipt it never received.

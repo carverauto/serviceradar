@@ -352,7 +352,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
         stage: :launch_job,
         purpose: :accepted_job_proof,
         command_type: "awx.launch_job",
-        deadline_at: DateTime.add(now, 60, :second)
+        deadline_at: DateTime.shift(now, minute: 1)
       )
 
     attempt =
@@ -406,7 +406,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
           if(stage == :fetch_job, do: "awx.fetch_job", else: "awx.fetch_job_host_summaries"),
         expected_job_id: 77,
         terminal_job_snapshot: terminal_job_snapshot,
-        deadline_at: DateTime.add(now, 60, :second)
+        deadline_at: DateTime.shift(now, minute: 1)
       )
 
     attempt =
@@ -429,7 +429,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
       |> execution(controller)
       |> put_in([:metadata, "awx_created_by_id"], 23)
 
-    {:ok, request} = Contract.recent_jobs_request(execution, DateTime.add(now, -1, :second))
+    {:ok, request} = Contract.recent_jobs_request(execution, DateTime.shift(now, second: -1))
 
     {:ok, attrs} =
       Contract.build_attempt(
@@ -439,8 +439,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
         stage: :list_recent_jobs,
         purpose: :launch_reconciliation,
         command_type: "awx.list_recent_jobs",
-        reconcile_after: DateTime.add(now, -1, :second),
-        deadline_at: DateTime.add(now, 60, :second)
+        reconcile_after: DateTime.shift(now, second: -1),
+        deadline_at: DateTime.shift(now, minute: 1)
       )
 
     attempt =
@@ -469,7 +469,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
         purpose: :terminal_cleanup,
         command_type: "awx.cancel_job",
         expected_job_id: 77,
-        deadline_at: DateTime.add(now, 60, :second)
+        deadline_at: DateTime.shift(now, minute: 1)
       )
 
     attempt =
@@ -563,7 +563,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
       live_launch_snapshot_digest: String.duplicate("d", 64),
       command_result_digest: String.duplicate("e", 64),
       verified_at: verified_at,
-      expires_at: DateTime.add(verified_at, 60, :second)
+      expires_at: DateTime.shift(verified_at, minute: 1)
     }
 
     {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)
@@ -641,7 +641,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcherTest d
       },
       "allow" => scope.allow,
       "ttl_seconds" => 300,
-      "expires_at" => DateTime.utc_now() |> DateTime.add(300) |> DateTime.to_iso8601()
+      "expires_at" => DateTime.utc_now() |> DateTime.shift(minute: 5) |> DateTime.to_iso8601()
     }
 
     payload = %{

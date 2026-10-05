@@ -6,6 +6,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
   use ServiceRadar.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -993,6 +995,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert revival_audit_rows(uid) == []
   end
 
+  # Nor a retained tombstone (Device.retained_reasons/0), even one an automatic process
+  # deleted: only an operator restore or the return of a retired source id revives it. The
+  # poll leaves it deleted without attempting the restore, which its validation would refuse.
+  test "a poll does not revive a retained tombstone", %{actor: actor} do
+    for reason <- Device.retained_reasons() do
+      uniq = System.unique_integer([:positive, :monotonic])
+      ip = unique_test_ip(198, 51, 130, uniq)
+      mac = unique_global_test_mac(uniq)
+
+      assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+      assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+
+      assert {:ok, deleted} =
+               Device.soft_delete(device, reason, "system:mapper_test", actor: actor)
+
+      log =
+        capture_log(fn ->
+          assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+        end)
+
+      refute log =~ "Mapper could not restore device #{uid}"
+
+      assert {:ok, tombstone} = Device.get_by_uid(uid, true, actor: actor)
+      assert tombstone.deleted_at == deleted.deleted_at
+      assert tombstone.deleted_reason == reason
+      assert tombstone.identity_revision == deleted.identity_revision
+      assert revival_audit_rows(uid) == []
+    end
+  end
+
   test "a restored device whose old address was leased again gives it up and moves to the polled address",
        %{actor: actor} do
     uniq = System.unique_integer([:positive, :monotonic])
@@ -1052,8 +1084,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Ash.Changeset.for_create(:create, %{
         uid: holder_uid,
         ip: held_ip,
-        last_seen_time: DateTime.add(DateTime.utc_now(), 3600, :second)
+        last_seen_time: DateTime.shift(DateTime.utc_now(), hour: 1)
       })
+      |> Ash.Changeset.force_change_attribute(
+        :identity_observed_at,
+        DateTime.shift(DateTime.utc_now(), hour: 1)
+      )
       |> Ash.create(actor: actor)
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(held_ip, [mac]), %{})
@@ -1086,7 +1122,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Ash.Changeset.for_create(:create, %{
         uid: holder_uid,
         ip: held_ip,
-        last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
+        last_seen_time: DateTime.shift(DateTime.utc_now(), hour: -1)
       })
       |> Ash.create(actor: actor)
 
@@ -1104,6 +1140,70 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
              decision.decision_kind == :ip_conflict and decision.subject == held_ip and
                decision.device_uids == Enum.sort([uid, holder_uid])
            end)
+  end
+
+  # A sweep seed is nothing but its address, so the poll that takes the address soft-deletes it
+  # as seed_released (add-source-id-succession D8).
+  test "an existing device polled at a sweep seed's address takes it and the seed is retired",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    own_ip = unique_test_ip(198, 18, 220, uniq)
+    seeded_ip = unique_test_ip(198, 18, 230, uniq + 1)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(own_ip, [mac]), %{})
+    assert [%Device{uid: uid}] = wait_for_devices_by_ip(actor, own_ip)
+
+    seed_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _seed} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: seed_uid,
+        ip: seeded_ip,
+        discovery_sources: ["sweep"],
+        metadata: %{"identity_state" => "provisional", "identity_source" => "sweep_ip_seed"}
+      })
+      |> Ash.create(actor: actor)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(interface_payload(seeded_ip, [mac]), %{})
+
+    assert [%Device{uid: ^uid}] = wait_for_devices_by_ip(actor, seeded_ip)
+    assert {:error, _} = Device.get_by_uid(seed_uid, false, actor: actor)
+
+    assert {:ok, %Device{ip: nil, deleted_reason: "seed_released"}} =
+             Device.get_by_uid(seed_uid, true, actor: actor)
+  end
+
+  # A poll of the device itself is an identity-bearing observation
+  # (DeviceWrites.observed_after?/2), recorded when the poll creates the device and each time
+  # the device is polled again.
+  test "a poll records when it observed the device", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 18, 240, uniq)
+    mac = unique_global_test_mac(uniq)
+    before = DateTime.truncate(DateTime.utc_now(), :second)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert [%Device{uid: uid, identity_observed_at: %DateTime{} = created_at}] =
+             wait_for_devices_by_ip(actor, ip)
+
+    refute DateTime.before?(created_at, before)
+
+    %{num_rows: 1} =
+      Repo.query!("UPDATE platform.ocsf_devices SET identity_observed_at = $2 WHERE uid = $1", [
+        uid,
+        DateTime.to_naive(DateTime.shift(before, hour: -1))
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert {:ok, %Device{identity_observed_at: %DateTime{} = polled_at}} =
+             Device.get_by_uid(uid, false, actor: actor)
+
+    refute DateTime.before?(polled_at, before)
   end
 
   defp wait_for_devices_by_ip(actor, ip, attempts \\ 60)

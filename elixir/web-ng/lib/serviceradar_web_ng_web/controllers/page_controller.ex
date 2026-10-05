@@ -1,9 +1,13 @@
 defmodule ServiceRadarWebNGWeb.PageController do
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadarWebNG.Homepage
+
+  # `/` lands an authenticated user on their resolved homepage
+  # (add-configurable-default-homepage, D2).
   def home(conn, _params) do
     if conn.assigns.current_scope && conn.assigns.current_scope.user do
-      redirect(conn, to: ~p"/dashboard")
+      redirect(conn, to: Homepage.resolve(conn.assigns.current_scope).path)
     else
       redirect(conn, to: ~p"/users/log-in")
     end

@@ -175,6 +175,7 @@ type PluginManager struct {
 type assignmentState struct {
 	firstSeen   time.Time
 	ready       bool
+	prefetching bool
 	contentHash string
 }
 

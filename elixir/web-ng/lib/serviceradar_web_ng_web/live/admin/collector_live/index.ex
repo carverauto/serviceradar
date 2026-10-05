@@ -943,11 +943,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
     attrs = if edge_site_id, do: Map.put(attrs, :edge_site_id, edge_site_id), else: attrs
 
+    # Arguments go in the params: Ash ignores set_argument/3 once
+    # for_create/3 has validated the changeset.
     changeset =
-      CollectorPackage
-      |> Ash.Changeset.for_create(:create, attrs)
-      |> Ash.Changeset.set_argument(:token_hash, token_hash)
-      |> Ash.Changeset.set_argument(:token_expires_at, token_expires_at)
+      Ash.Changeset.for_create(
+        CollectorPackage,
+        :create,
+        Map.merge(attrs, %{token_hash: token_hash, token_expires_at: token_expires_at})
+      )
 
     case Ash.create(changeset, actor: actor) do
       {:ok, package} ->

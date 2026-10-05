@@ -97,27 +97,35 @@ defmodule ServiceRadar.Observability.ThreatIntelSyncStatus do
       public? true
     end
 
+    # Identity columns are NOT NULL with an empty-string default. Ash's :string
+    # type casts "" to nil unless allow_empty? is set, which then fails
+    # allow_nil?: false. The core worker writes "" for agent, gateway, and
+    # plugin when those dimensions are absent.
     attribute :collection_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 
     attribute :agent_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 
     attribute :gateway_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 
     attribute :plugin_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 

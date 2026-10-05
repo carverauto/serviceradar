@@ -110,11 +110,12 @@ Key values: workload identity (`spire`)
 
 Key values: topology graph (`dgraph`, `graph`)
 - `dgraph.enabled` defaults to `true`. The chart installs Dgraph (Zero + Alpha)
-  as a subchart, generates its ACL credential, issues its TLS certificates, and
+  as a subchart, generates its ACL credential, mints its TLS Secrets, and
   applies the topology schema through a post-install Job.
-- **cert-manager is required for that default.** The Dgraph `Issuer` and
-  `Certificate` objects are plain cert-manager resources; without cert-manager
-  installed in the cluster the install fails on unknown kinds.
+- Those Secrets are ordinary `kubernetes.io/tls` objects (`dgraph-ca` and the
+  Alpha TLS Secret the subchart mounts). The chart creates them on install and
+  reuses the same bytes on upgrade. A tenant cluster does not need cert-manager
+  for Dgraph. Public HTTPS is issued separately.
 - To reuse a Dgraph cluster you already run, set `dgraph.enabled=false` and
   `dgraph.external.host`. Its ACL credential comes from a Secret that already
   exists in the namespace (`dgraph.external.credentialsSecret`), never from a
@@ -312,7 +313,7 @@ Important notes:
 - Edge hosts running `serviceradar-agent` outside Kubernetes need their own egress controls (host firewall/VPC/NACL). This policy only governs Kubernetes workloads.
 - External telemetry collectors have dedicated pod-scoped ingress policies. Use them for syslog, NetFlow, sFlow, SNMP traps, and BMP so opening a collector port does not also expose unrelated workloads. See [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 - Plugins and integrations that call public services need explicit egress. For AlienVault OTX, allow `otx.alienvault.com` with an FQDN-aware policy. Its CDN addresses rotate, so a static `allowedCIDRs` entry requires ongoing DNS resolution and CIDR maintenance.
-- Control-plane notification webhooks (Discord, Slack, Teams, generic HTTPS) egress from the `web-ng` pods. Kubernetes NetworkPolicy cannot match FQDNs, so add the current CDN CIDR for each destination to `networkPolicy.egress.allowedCIDRs`. Discord incoming webhooks currently land on Cloudflare `162.159.128.0/18` (resolved 2026-08-13); if a Discord test send times out with `timeout contacting discord.com`, re-resolve `discord.com:443` and update that CIDR. The demo overlay (`values-demo.yaml`) already includes this range.
+- Control-plane notification webhooks (Discord, Slack, Teams, generic HTTPS) egress from the `core` pods. `webNg.obanQueues.notifications` defaults to 0, so web-ng does not run dispatch and does not publish the `notifications.*` firehose. Kubernetes NetworkPolicy cannot match FQDNs, so add the current CDN CIDR for each destination to `networkPolicy.egress.allowedCIDRs`. Discord incoming webhooks currently land on Cloudflare `162.159.128.0/18` (resolved 2026-08-13); if a Discord test send times out with `timeout contacting discord.com`, re-resolve `discord.com:443` and update that CIDR. The demo overlay (`values-demo.yaml`) already includes this range.
 
 Example:
 

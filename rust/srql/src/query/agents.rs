@@ -12,15 +12,16 @@ use crate::{
         ip as col_ip, last_seen_time as col_last_seen_time, last_update_at as col_last_update_at,
         last_update_error as col_last_update_error, modified_time as col_modified_time,
         name as col_name, ocsf_agents, release_rollout_state as col_release_rollout_state,
-        type_id as col_type_id, uid as col_uid, vendor_name as col_vendor_name,
-        version as col_version,
+        status as col_status, superseded_at as col_superseded_at,
+        superseded_by as col_superseded_by, type_id as col_type_id, uid as col_uid,
+        vendor_name as col_vendor_name, version as col_version,
     },
     time::TimeRange,
 };
-use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
@@ -99,8 +100,23 @@ fn build_query(plan: &QueryPlan) -> Result<AgentsQuery<'static>> {
         query = apply_filter(query, filter)?;
     }
 
+    // A superseded identity stays in the table for history. Operational
+    // `in:agents` leaves it out. include_deleted, or a filter on the lifecycle
+    // columns, is how a caller asks for it.
+    if !includes_superseded(plan) {
+        query = query.filter(col_superseded_at.is_null());
+    }
+
     query = apply_ordering(query, &plan.order);
     Ok(query)
+}
+
+fn includes_superseded(plan: &QueryPlan) -> bool {
+    plan.include_deleted
+        || plan.filters.iter().any(|filter| {
+            let field = filter.field.to_ascii_lowercase();
+            field == "status" || field == "superseded_by"
+        })
 }
 
 fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<AgentsQuery<'a>> {
@@ -174,6 +190,12 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
         "last_update_error" => {
             query = apply_text_filter!(query, filter, col_last_update_error)?;
         }
+        "status" => {
+            query = apply_text_filter!(query, filter, col_status)?;
+        }
+        "superseded_by" => {
+            query = apply_text_filter!(query, filter, col_superseded_by)?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for agents: '{other}'"
@@ -217,7 +239,9 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         | "config_source"
         | "desired_version"
         | "release_rollout_state"
-        | "last_update_error" => collect_text_params(params, filter),
+        | "last_update_error"
+        | "status"
+        | "superseded_by" => collect_text_params(params, filter),
         "type_id" => {
             let value =
                 filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -585,5 +609,83 @@ mod tests {
             result.is_ok(),
             "should build query with release_rollout_state filter"
         );
+    }
+
+    fn agent_plan(filters: Vec<Filter>, include_deleted: bool) -> QueryPlan {
+        QueryPlan {
+            entity: Entity::Agents,
+            filters,
+            order: Vec::new(),
+            limit: 50,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted,
+            exhaustive_window: false,
+        }
+    }
+
+    fn eq_filter(field: &str, value: &str) -> Filter {
+        Filter {
+            field: field.into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar(value.to_string()),
+        }
+    }
+
+    #[test]
+    fn default_agent_query_excludes_superseded_identities() {
+        let plan = agent_plan(Vec::new(), false);
+        let (sql, params) = to_sql_and_params(&plan).expect("default agent query");
+
+        assert!(
+            sql.contains("\"superseded_at\" IS NULL"),
+            "default query should exclude superseded rows: {sql}"
+        );
+        assert_eq!(
+            params.len(),
+            2,
+            "only limit and offset are bound: {params:?}"
+        );
+    }
+
+    #[test]
+    fn host_filter_keeps_the_superseded_exclusion() {
+        let plan = agent_plan(vec![eq_filter("host", "host01.example.com")], false);
+        let (sql, params) = to_sql_and_params(&plan).expect("host filter");
+
+        assert!(
+            sql.contains("\"superseded_at\" IS NULL"),
+            "a host filter is not a request for superseded rows: {sql}"
+        );
+        assert_eq!(
+            params.len(),
+            3,
+            "host value plus limit and offset: {params:?}"
+        );
+    }
+
+    #[test]
+    fn include_deleted_and_lifecycle_filters_return_superseded_identities() {
+        let included = agent_plan(Vec::new(), true);
+        let (sql, params) = to_sql_and_params(&included).expect("include_deleted");
+        assert!(
+            !sql.contains("\"superseded_at\" IS NULL"),
+            "include_deleted lifts the exclusion: {sql}"
+        );
+        assert_eq!(params.len(), 2);
+
+        for field in ["status", "superseded_by"] {
+            let plan = agent_plan(vec![eq_filter(field, "agent-new")], false);
+            let (sql, params) = to_sql_and_params(&plan).expect(field);
+            assert!(
+                !sql.contains("\"superseded_at\" IS NULL"),
+                "{field} filter lifts the exclusion: {sql}"
+            );
+            assert_eq!(params.len(), 3, "{field} binds its value: {params:?}");
+        }
     }
 }

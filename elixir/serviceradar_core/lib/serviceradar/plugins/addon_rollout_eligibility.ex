@@ -249,25 +249,28 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
   @doc """
   Whether `agent` can host an add-on with this supervision model.
 
-  Two signals, deliberately of different strength.
+  `addon.native.host.unavailable` means the agent cannot install SYSTEMD-supervised
+  add-ons: writing unit files into the host's system unit dir and enabling them goes
+  through the root-owned agent-updater, which a containerized agent does not have.
+  It does not mean the agent refuses every add-on. An agent-sidecar add-on is just a
+  subprocess of the agent, and containerized agents (LXC, Docker) run them; the
+  agent applies sidecar, helper and config-toggle assignments wherever it runs.
 
-  An agent that REPORTS `addon.native.host` / `.unavailable` is believed outright,
-  for every supervision model. That is the agent stating whether it installs native
-  add-ons at all, which it knows and the control plane does not: the in-cluster agent
-  refuses the whole assignment set, so a sidecar is no more hostable there than a
-  systemd unit.
+  The one agent that refuses the whole assignment set is the in-cluster Kubernetes
+  agent, so a Kubernetes deployment that reports the capability is excluded from
+  every supervision model.
 
-  An agent that reports NEITHER predates the capability, and then only the airtight
-  claim is made: a container has no host system unit dir and no root-owned
-  agent-updater, so it cannot host a `systemd_service` or `systemd_timer`. Nothing is
-  inferred about the other models, because a sidecar is just a subprocess and a
-  container may well be able to run one.
+  An agent that reports `addon.native.host` is believed outright. One that reports
+  neither predates the capability, and then only the airtight claim is made: a
+  container cannot host a `systemd_service` or `systemd_timer`.
 
   The control plane must agree with the agent or the rollout never ends. A rollout's
   default policy is `tolerated_failures: 0`, so one target that can never report
   add-on health ages out at `candidate_health_timeout` and fails the rollout for the
   ENTIRE fleet -- the source's package is then never advanced, which is what makes
   `track_latest_approved` look dead while every bare-metal host was in fact ready.
+  Excluding a container that CAN run a sidecar is the opposite failure: profiles and
+  rollouts skip the host, so the add-on never reaches it.
 
   Public because `AddonProfileReconciler` gates assignment materialization on the
   same question and must not answer it differently -- an agent kept out of rollouts
@@ -278,10 +281,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
     capabilities = agent |> value(:capabilities, []) |> normalize_strings() |> MapSet.new()
 
     cond do
-      MapSet.member?(capabilities, @native_addon_host_capability) -> true
-      MapSet.member?(capabilities, @native_addon_host_unavailable_capability) -> false
-      systemd_supervised?(supervision) -> not containerized?(agent)
-      true -> true
+      MapSet.member?(capabilities, @native_addon_host_capability) ->
+        true
+
+      MapSet.member?(capabilities, @native_addon_host_unavailable_capability) ->
+        not systemd_supervised?(supervision) and deployment_type(agent) != "kubernetes"
+
+      systemd_supervised?(supervision) ->
+        not containerized?(agent)
+
+      true ->
+        true
     end
   end
 
@@ -292,16 +302,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
   # Only a deployment type the agent actually reported as containerized blocks.
   # Agents older than deployment-type reporting send nothing here, and failing
   # closed on that would strand every bare-metal host in an existing fleet.
-  defp containerized?(agent) do
+  defp containerized?(agent), do: deployment_type(agent) in @containerized_deployment_types
+
+  defp deployment_type(agent) do
     metadata = value(agent, :metadata, %{}) || %{}
     labels = value(metadata, :labels, %{}) || %{}
 
-    deployment_type =
-      value(agent, :deployment_type) || value(metadata, :deployment_type) ||
-        value(labels, :deployment_type)
-
-    is_binary(deployment_type) and
-      String.downcase(String.trim(deployment_type)) in @containerized_deployment_types
+    case value(agent, :deployment_type) || value(metadata, :deployment_type) ||
+           value(labels, :deployment_type) do
+      type when is_binary(type) -> type |> String.trim() |> String.downcase()
+      _ -> nil
+    end
   end
 
   defp missing_required_capabilities(package, agent) do

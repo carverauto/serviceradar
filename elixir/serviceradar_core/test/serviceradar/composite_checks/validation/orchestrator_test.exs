@@ -423,7 +423,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
 
     past =
       DateTime.utc_now()
-      |> DateTime.add(-1, :second)
+      |> DateTime.shift(second: -1)
       |> DateTime.truncate(:microsecond)
 
     {:ok, run} =

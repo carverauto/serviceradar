@@ -80,7 +80,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
 
   defp reap_stale_executing_jobs do
     stale_minutes = stale_executing_minutes()
-    cutoff = DateTime.add(DateTime.utc_now(), -stale_minutes * 60, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), minute: -stale_minutes)
 
     query =
       from(j in Job,
@@ -161,9 +161,9 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
 
     now = DateTime.utc_now()
-    rdns_expires_at = DateTime.add(now, rdns_ttl_seconds, :second)
-    geo_expires_at = DateTime.add(now, geo_ttl_seconds, :second)
-    ipinfo_expires_at = DateTime.add(now, ipinfo_ttl_seconds, :second)
+    rdns_expires_at = DateTime.shift(now, second: rdns_ttl_seconds)
+    geo_expires_at = DateTime.shift(now, second: geo_ttl_seconds)
+    ipinfo_expires_at = DateTime.shift(now, second: ipinfo_ttl_seconds)
 
     actor = SystemActor.system(:ip_enrichment_refresh)
 

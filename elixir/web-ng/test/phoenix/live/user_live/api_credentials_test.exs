@@ -55,6 +55,58 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentialsTest do
     end
   end
 
+  describe "create_client modal and scopes" do
+    setup %{conn: conn} do
+      user = user_fixture()
+      conn = conn |> log_in_user(user) |> put_sudo_mode()
+      %{conn: conn, user: user}
+    end
+
+    test "checking Read, Write and MCP preserves all three and creates client with all scopes",
+         %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/api-credentials")
+
+      # Open the create client modal
+      render_click(lv, "open_create_modal")
+      assert has_element?(lv, "#create-api-client-modal")
+
+      # Initially, only Read is checked
+      assert has_element?(lv, "#create-api-client-modal input[value='read'][checked]")
+      refute has_element?(lv, "#create-api-client-modal input[value='write'][checked]")
+      refute has_element?(lv, "#create-api-client-modal input[value='mcp'][checked]")
+
+      # Form with read, write, and mcp checked together
+      create_form =
+        form(lv, "#create-api-client-modal form", %{
+          "client" => %{
+            "name" => "All Scopes Client",
+            "description" => "Testing all scopes",
+            "scopes" => ["read", "write", "mcp"]
+          }
+        })
+
+      # Trigger validate_create (phx-change)
+      render_change(create_form)
+
+      # Assert all three stay checked in the modal
+      assert has_element?(lv, "#create-api-client-modal input[value='read'][checked]")
+      assert has_element?(lv, "#create-api-client-modal input[value='write'][checked]")
+      assert has_element?(lv, "#create-api-client-modal input[value='mcp'][checked]")
+
+      # Submit the form
+      render_submit(create_form)
+
+      # Verify secret modal opens
+      assert has_element?(lv, "#api-client-secret-modal")
+
+      # Verify client is saved in DB with all three scopes
+      {:ok, clients} = OAuthClient.list_by_user(user.id, actor: user)
+      client = Enum.find(clients, &(&1.name == "All Scopes Client"))
+      assert client
+      assert Enum.sort(client.scopes) == ["mcp", "read", "write"]
+    end
+  end
+
   describe "delete_client" do
     setup %{conn: conn} do
       user = user_fixture()

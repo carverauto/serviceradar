@@ -41,9 +41,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData do
     end
   end
 
+  # An operator restore, so a retained tombstone (Device.retained_reasons/0) is
+  # restored too.
   def restore(scope, device_uid) do
     with {:ok, device} <- load(scope, device_uid),
-         {:ok, _} <- Device.restore(device, scope: scope) do
+         {:ok, _} <- Device.restore(device, %{allow_retained: true}, scope: scope) do
       :ok
     else
       {:error, %Invalid{} = error} ->
@@ -79,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData do
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid == ^device_uid)
 
-    case Ash.bulk_update(query, :restore, %{},
+    case Ash.bulk_update(query, :restore, %{allow_retained: true},
            scope: scope,
            return_errors?: true,
            return_records?: false

@@ -366,28 +366,30 @@ test("auth login --web completes a PKCE flow against a stub authorize+token serv
   }
 })
 
-test("auth login --web falls back to manual token when authorize endpoint is missing", async () => {
-  const credsHome = await mkdtemp(join(tmpdir(), "sr-cli-auth-pkce-fallback-"))
+test("auth login --web fails clearly when the server does not route the PKCE endpoints", async () => {
+  // Hosted tenants do not route /api/v1/cli/auth/authorize. --web must say so
+  // and point at the device flow rather than silently dropping to token paste.
+  const credsHome = await mkdtemp(join(tmpdir(), "sr-cli-auth-pkce-unsupported-"))
   const {createServer} = await import("node:http")
   const server = createServer((req, res) => {
     res.writeHead(404, {"content-type": "application/json"})
-    res.end(JSON.stringify({error: "endpoint not implemented"}))
+    res.end(JSON.stringify({errors: {detail: "Not Found"}}))
   })
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen))
   const port = server.address().port
   const instance = `http://127.0.0.1:${port}`
 
   try {
-    const {stderr} = await execFileAsync(
+    const failure = await execFileAsync(
       process.execPath,
-      [cliPath.pathname, "auth", "login", "--instance", instance, "--web", "--no-browser", "--token", "manual-pkce-fallback-token"],
+      [cliPath.pathname, "auth", "login", "--instance", instance, "--web", "--no-browser", "--token", "would-be-pasted"],
       {env: {...process.env, HOME: credsHome, XDG_CONFIG_HOME: credsHome, SERVICERADAR_TOKEN: ""}},
-    )
-    assert.match(stderr, /PKCE web login is not available/)
-    assert.match(stderr, /Falling back to manual token entry/)
-
-    const stored = JSON.parse(await readFile(join(credsHome, "serviceradar", "credentials.json"), "utf8"))
-    assert.equal(stored.instances?.[instance]?.token, "manual-pkce-fallback-token")
+    ).then(() => null, (error) => error)
+    assert.ok(failure, "auth login --web must exit non-zero")
+    assert.match(failure.stderr, /PKCE web login \(--web\) is not supported by this server/)
+    assert.match(failure.stderr, /use the device flow instead/)
+    assert.doesNotMatch(failure.stderr, /Falling back to manual token entry/)
+    await assert.rejects(readFile(join(credsHome, "serviceradar", "credentials.json"), "utf8"))
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose))
   }

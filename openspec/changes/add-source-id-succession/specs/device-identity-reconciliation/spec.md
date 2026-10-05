@@ -286,11 +286,13 @@ one-to-one.
 - **AND** no later scheduled run SHALL merge them again
 
 ### Requirement: Retired Source Identifiers Are Reserved
-The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when exactly one such record qualifies, that record holds no unretired identifier of that type, whether or not the source still reports it, and the update agrees with the archived observation on a universally administered MAC and on the source first-seen time, or on the hostname when the update's first-seen time is no earlier than the archived observation's last-seen time; otherwise it SHALL write the update as a new record and record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
-Returning an identifier SHALL resolve the update to that record, SHALL move its archive row back to the live identifier table, SHALL
-clear a `source_retired` mark, SHALL restore a `source_retired` tombstone through the audited
-restore path, and SHALL record a `source_id_reactivated` identity decision. Returning an
-identifier SHALL NOT merge two live records.
+The system SHALL keep resolving a retired source-authoritative identifier through the identifier archive. When a source reports a retired identifier again, the system SHALL return it to the record that held it when it was retired, or to that record's merge survivor, only when exactly one such record qualifies: the record is live or a tombstone that was not merged away, holds no unretired identifier of that type in the identifier's scope, whether or not the source still reports it, shares a universally administered unicast MAC with the update (its own, its MAC identifiers, its interface MACs, or the MAC the source last reported for the identifier before it retired), and agrees with the update on the source first-seen time, or on the hostname (the one the source last reported or the record's own) when the update's first-seen time is no earlier than the identifier's archived last-seen time. An identifier archived without its source times SHALL be compared on the record's first-seen time, for equality only. Otherwise the system SHALL write the update as a new record, unless the usual resolution matches a record with no history of that type, and never to a record that held the identifier, and SHALL record a `source_id_reissued` identity decision naming both records, which opens a de-duplication task.
+Returning an identifier SHALL resolve the update to that record and, in one transaction, SHALL
+move its newest archive row back to the live identifier table, SHALL clear a `source_retired`
+mark, SHALL restore a tombstone through the audited restore path, and SHALL record a
+`source_id_reactivated` identity decision. When a read or the return fails, the system SHALL
+withhold the updates carrying the identifier until the next sync run. Returning an identifier
+SHALL NOT merge two live records.
 
 #### Scenario: A retired id returns to its holder
 - **GIVEN** device X held Armis device id 1001, retired, with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`
@@ -309,6 +311,18 @@ identifier SHALL NOT merge two live records.
 #### Scenario: A retired id whose holder now holds a current id
 - **GIVEN** device X held Armis device id 1001, retired, and now holds Armis device id 2002 in the live identifier table after a succession
 - **WHEN** Armis reports id 1001 again
+- **THEN** device X SHALL NOT receive Armis device id 1001
+- **AND** a new record SHALL be created and a `source_id_reissued` identity decision SHALL name both records
+
+#### Scenario: A retired id returns to a source_retired tombstone
+- **GIVEN** device X held Armis device id 1001, retired, with MAC `00:00:5e:00:53:01`, and was soft-deleted with `deleted_reason` `source_retired`
+- **WHEN** Armis reports id 1001 again with MAC `00:00:5e:00:53:01` and the first-seen time it reported before
+- **THEN** device X SHALL be restored and SHALL hold Armis device id 1001 in the live identifier table
+- **AND** the restore SHALL be recorded as a device revival
+
+#### Scenario: A shared hostname from before the id was last seen
+- **GIVEN** device X held Armis device id 1001, retired, with MAC `00:00:5e:00:53:01` and hostname `host01.example.com`, last seen by Armis at time T
+- **WHEN** Armis reports id 1001 with MAC `00:00:5e:00:53:01`, hostname `host01.example.com` and a first-seen time earlier than T that differs from the one it reported before
 - **THEN** device X SHALL NOT receive Armis device id 1001
 - **AND** a new record SHALL be created and a `source_id_reissued` identity decision SHALL name both records
 
@@ -404,3 +418,50 @@ next run. A skipped component SHALL be counted in the run record as blocked and 
 - **GIVEN** blocked components recorded under one version of the reconciliation rules
 - **WHEN** a release changes the rules and the next run starts
 - **THEN** every blocked component SHALL be evaluated again once
+
+### Requirement: IP Alias Rows Belong To One Device
+The system SHALL keep an IP alias row per device: every device seen at an address SHALL have its own row of the address, filed under the device's partition, and only that device's sightings SHALL count toward confirming it.
+Where several devices hold a confirmed alias of one address, a source sync, an agent check-in or
+a mapper poll that resolves a device at the address SHALL handle every other holder by the rules
+of requirement "IP Alias Resolution", and every lookup that resolves the address to one confirmed
+holder SHALL take the most recently seen holder, then the one with the most sightings, then the
+lowest device id. A merge of two devices that both hold a row of one address SHALL NOT fail on
+it: the merged device's row SHALL be marked `replaced` by the survivor's, and a confirmation it
+carried SHALL confirm the survivor's row when that row is pending or stale.
+
+#### Scenario: A device seen at another device's alias gets its own row
+- **GIVEN** device X holds a confirmed IP alias of `192.0.2.20`
+- **WHEN** device Y is sighted at `192.0.2.20`
+- **THEN** DIRE SHALL record the sighting on a pending alias row of `192.0.2.20` for device Y
+- **AND** device X's row SHALL be left unchanged
+
+#### Scenario: Sightings confirm only the sighted device's row
+- **GIVEN** device X holds a pending IP alias of `192.0.2.21`
+- **WHEN** device Y is sighted at `192.0.2.21` as often as the confirmation threshold
+- **THEN** device Y's alias of `192.0.2.21` SHALL be confirmed
+- **AND** device X's alias SHALL remain pending with its own sighting count
+
+#### Scenario: Every identified holder of an address is handled
+- **GIVEN** identified devices X and Y each hold a confirmed IP alias of `192.0.2.22`
+- **WHEN** a source sync resolves device Z, identified by its source id, at `192.0.2.22`
+- **THEN** the aliases of both X and Y SHALL be invalidated
+- **AND** an `alias_invalidated` identity decision SHALL be recorded for each
+- **AND** no two of the three devices SHALL be merged
+
+#### Scenario: A device's own alias is not a conflict
+- **GIVEN** devices X and Y each hold a confirmed IP alias of `192.0.2.23`, and Y holds a strong identifier of its own
+- **WHEN** a mapper poll resolves device X at `192.0.2.23` by its interface MACs
+- **THEN** device X's alias SHALL be left unchanged
+- **AND** device Y's alias SHALL be invalidated
+
+#### Scenario: Every lookup takes the same holder
+- **GIVEN** devices X and Y each hold a confirmed IP alias of `192.0.2.24`, and Y's was seen more recently
+- **WHEN** the sweep, a sync, the resolver or the mapper resolves `192.0.2.24` to one holder
+- **THEN** each SHALL resolve it to device Y
+
+#### Scenario: A merge folds an alias both devices hold
+- **GIVEN** devices X and Y each hold an IP alias of `192.0.2.25`, X's confirmed and Y's pending
+- **WHEN** X is merged into Y
+- **THEN** the merge SHALL succeed
+- **AND** X's row SHALL be marked `replaced` by Y's
+- **AND** Y's row SHALL be confirmed

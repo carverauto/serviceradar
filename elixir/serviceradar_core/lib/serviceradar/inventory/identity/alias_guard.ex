@@ -22,13 +22,14 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   require Logger
 
   @doc """
-  Handles a confirmed IP alias of the address a resolved device was just seen at. The alias
-  never merges: an address is evidence, not identity, and DHCP hands the same address to other
-  devices.
+  Handles the confirmed IP aliases other devices hold of the address a resolved device was just
+  seen at. An alias never merges: an address is evidence, not identity, and DHCP hands the same
+  address to other devices.
 
-  When the alias holder owns identifiers of its own, it is a different identified device that
-  once held the address, so the alias is invalidated (marked stale) and the decision is
-  recorded. An address-only holder is left alone.
+  When an alias holder owns identifiers of its own, it is a different identified device that
+  once held the address, so its alias is invalidated (marked stale) and the decision is
+  recorded. An address-only holder is left alone. Alias rows are per device, so the resolved
+  device's own row is never a holder, and every other holder is handled.
   """
   def maybe_merge_ip_alias_device(device_id, ids, actor) do
     ip = Ids.ids_get_string(ids, :ip)
@@ -36,15 +37,16 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
 
     with true <- AliasPolicy.valid_alias_ip?(ip),
          true <- Ids.present_id?(ip),
-         {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" <-
-           Resolver.lookup_alias_device_id(ip, partition, actor),
-         true <- alias_device_id != device_id,
-         false <- Ids.service_device_id?(alias_device_id),
-         true <- identified?(alias_device_id, actor) do
+         {:ok, alias_device_ids} <-
+           Resolver.lookup_alias_device_ids(ip, partition, actor, except: device_id) do
       # Merging here used to require distinct agents or disjoint MACs to veto it, so a holder
       # identified by something else (a source-authoritative id with no MAC reported) counted
       # as "not distinct" and was folded into whichever device leased its old address.
-      invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor)
+      for alias_device_id <- alias_device_ids,
+          not Ids.service_device_id?(alias_device_id),
+          identified?(alias_device_id, actor) do
+        invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor)
+      end
     end
 
     :ok

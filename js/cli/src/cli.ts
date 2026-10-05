@@ -7,6 +7,7 @@ import {parseArgs} from "./args.js"
 import {dispatchAuth} from "./auth/index.js"
 import {dispatchDashboard} from "./dashboard/index.js"
 import {doctorCommand, printVersion} from "./doctor.js"
+import {dispatchAgent, dispatchCollector, dispatchEdge, dispatchNats} from "./edge/index.js"
 import {dispatchNotifications} from "./notifications/index.js"
 import {dispatchPlugin} from "./plugin/index.js"
 import {describeError, ensureExtraCaCertificates} from "./tls_ca.js"
@@ -41,6 +42,26 @@ async function main(): Promise<void> {
     return dispatchAuth(authSub, options)
   }
 
+  if (first === "edge") {
+    return dispatchEdge(rest)
+  }
+
+  if (first === "agent") {
+    const [agentSub = "help", ...agentRest] = rest
+    return dispatchAgent(agentSub, parseArgs(agentRest))
+  }
+
+  if (first === "collector") {
+    const [collectorSub = "help", ...collectorRest] = rest
+    return dispatchCollector(collectorSub, parseArgs(collectorRest))
+  }
+
+  if (first === "nats") {
+    const [natsSub = "help", ...natsRest] = rest
+    const positional = natsRest.filter((arg, index) => index === 0 && !arg.startsWith("-"))
+    return dispatchNats(natsSub, positional, parseArgs(natsRest.slice(positional.length)))
+  }
+
   if (first === "notifications") {
     const [notifySub = "help", ...notifyRest] = rest
     const options = parseArgs(notifyRest)
@@ -71,6 +92,7 @@ function printHelp(): void {
 
 Usage:
   serviceradar-cli <group> <subcommand> [...flags]
+  srcloud <group> <subcommand> [...flags]      (same CLI; see "Bin names" below)
   serviceradar-cli --version
   serviceradar-cli doctor
 
@@ -79,6 +101,16 @@ Groups:
   dashboard   Author and operate ServiceRadar dashboard packages.
   plugin         Author and publish ServiceRadar Wasm plugins.
   notifications  Configure notification routes against a ServiceRadar instance.
+  edge        Edge onboarding: packages, sites (NATS leaf), and edge-host install helpers.
+  agent       List enrolled agents.
+  collector   Create, list, revoke, and download collector packages.
+  nats        Show the tenant's NATS account status.
+
+Bin names:
+  The package installs both \`serviceradar-cli\` and \`srcloud\`. The
+  serviceradar-agent package ships /usr/local/bin/serviceradar-cli as an alias of
+  srctl, which shadows this CLI when npm's global prefix is /usr/local. Use
+  \`srcloud\` on edge hosts.
 
 Top-level commands:
   --version   Print the installed @carverauto/serviceradar-cli version.
@@ -107,8 +139,19 @@ Plugin subcommands:
   serviceradar-cli plugin assignments|secrets|rules|controllers <list|get|create|update|enable|disable> --instance <url>
   serviceradar-cli plugin apply --instance <url> --file playbooks/demo-plugins.yaml [--dry-run]
 
+Edge onboarding subcommands (run \`serviceradar-cli edge help\` for every flag):
+  serviceradar-cli agent list            --instance <url> [--json]
+  serviceradar-cli edge package create   --instance <url> --label <name> [--component-type agent|gateway] [--gateway-id <id>] [--site <s>]
+  serviceradar-cli edge package list|show|revoke|download
+  serviceradar-cli edge site create      --instance <url> --name <name> [--slug <slug>]
+  serviceradar-cli edge site list|show|bundle [--wait]
+  serviceradar-cli collector create      --instance <url> --type flowgger|trapd|netflow|sflow|otel [--edge-site <id>]
+  serviceradar-cli collector list|show|revoke|download
+  serviceradar-cli nats account status   --instance <url>
+  serviceradar-cli edge install agent|leaf|collector ... --version <release> [--dry-run]   (as root, on the edge host)
+
 Auth subcommands:
-  serviceradar-cli auth login   --instance <url> [--no-browser] [--ca-file <pem>] [--token <existing-token>]
+  serviceradar-cli auth login   --instance <url> [--scope "<scopes>"] [--no-browser] [--ca-file <pem>] [--token <existing-token>]
   serviceradar-cli auth status  [--instance <url>]
   serviceradar-cli auth logout  [--instance <url>]
 

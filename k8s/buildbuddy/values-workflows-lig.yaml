@@ -1,0 +1,176 @@
+# Dedicated executor for the LargeIngestionGate workflow action. Deployed on the carverauto
+# cluster (kube context `carverauto`, namespace `buildbuddy`) as its OWN helm release,
+# `buildbuddy-workflows-lig`, beside `buildbuddy-workflows` and `buildbuddy-workflows-2`
+# (pool `workflows`). See "Dedicated LargeIngestionGate pool" in ./README.md for the install
+# command. The rationale for nearly every key below (sizing, runner recycling, hostPath
+# ownership, OCI mounts, private-IP allowlist) is written out in ./values-workflows.yaml and is
+# not repeated here; this file is a copy of it with a different pool, hostPaths and runner count.
+#
+# WHY THIS POOL EXISTS.
+#
+# LargeIngestionGate (every staging push plus nightly, ~16 runs/day) and BazelCI (PRs, ~49
+# runs/day, ~22 min) used to share pool `workflows`, so each kept evicting the other's warm
+# runner and ~45% of runs started cold: a cold `bazel build //...` takes up to 36 min against
+# 1-5 min warm, and one PR run hit BuildBuddy's 1h remote-run cap. //buildbuddy.yaml sends
+# LargeIngestionGate to `pool: "workflows-lig"`; every other action stays on `workflows`.
+#
+# WHY CARVERAUTO AND NOT FARM01.
+#
+# This release first lived on farm01. farm01 reaches the srql-fixtures CNPG (on the carverauto
+# cluster) over a LAN bridge, and LargeIngestionGate's DB-heavy test timed out (>30 min, failed)
+# on EVERY farm01 run: three runs before the pool move and every run after it. On carverauto
+# executors the same test passes in 3-4 min (whole workflow 5-16 min). farm01 can host this pool
+# again only once it has a local srql-fixtures instance (planned separately).
+#
+# THE RELEASE NAME AND THE `-f` MUST MATCH, AND NOTHING ENFORCES IT. Applying this file to
+# `buildbuddy-workflows` would move that release's capacity out of pool `workflows`. Check what
+# is actually deployed:
+#
+#   helm --kube-context carverauto get values buildbuddy-workflows-lig -n buildbuddy \
+#     | grep -E 'poolName|replicas|max_runner_count'
+#
+# DRIFT NOTE (2026-10-04). The live release was installed from a copy of the live
+# `buildbuddy-workflows` values on this cluster, which lag ./values-workflows.yaml in two keys:
+# they warm runner image v1.0.24.3 and their init container still creates /bazel-caches/disk
+# and lacks the root-owned-entry repair. Every other key matches this file. The next
+# `helm upgrade` from this file converges the release.
+
+# Top-level, NOT under config.executor (nested there it is silently ignored). Must equal
+# `pool:` on the LargeIngestionGate action in //buildbuddy.yaml.
+poolName: workflows-lig
+
+image:
+  repository: gcr.io/flame-public/buildbuddy-executor-enterprise
+  # Kept in lockstep with ./values.yaml and ./values-workflows.yaml.
+  tag: enterprise-v2.290.0
+  imagePullPolicy: IfNotPresent
+
+# One pod. LargeIngestionGate does not set allow_concurrent_runs, so a second push queues.
+replicas: 1
+
+autoscaler:
+  enabled: false
+
+# Same sizing as ./values-workflows.yaml (see the measurements there). The executor advertises
+# the full 80Gi limit, so one 36GB LargeIngestionGate run fits with room to spare.
+resources:
+  requests:
+    cpu: "12"
+    memory: "72Gi"
+    ephemeral-storage: "45Gi"
+  limits:
+    cpu: "16"
+    memory: "80Gi"
+    ephemeral-storage: "50Gi"
+
+# One executor per node: never beside a build executor (`buildbuddy`, keeps RBE capacity
+# intact), either workflow release, or a second LIG pod. The hostPaths below are distinct, so
+# this is about memory and RBE headroom, not cache ownership. Required, not preferred: with no
+# eligible node the pod stays Pending and the next staging push fails with `no registered
+# executors in pool "workflows-lig"` -- check node allocatable before adding workflow releases.
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/instance
+              operator: In
+              values:
+                - buildbuddy
+                - buildbuddy-workflows
+                - buildbuddy-workflows-2
+                - buildbuddy-workflows-lig
+        topologyKey: kubernetes.io/hostname
+
+extraVolumes:
+  # Own hostPaths: BuildBuddy's filecache assumes it owns its directory, so no two executors
+  # may share one (see ./values-workflows.yaml).
+  - name: cache-volume
+    hostPath:
+      path: /mnt/buildbuddy/cache-workflows-lig
+      type: DirectoryOrCreate
+  - name: bazel-cache-volume
+    hostPath:
+      path: /mnt/buildbuddy/bazel-caches-workflows-lig
+      type: DirectoryOrCreate
+  - name: dockerhub-auth
+    secret:
+      secretName: dockerhub-auth
+      items:
+        - key: .dockerconfigjson
+          path: config.json
+
+extraVolumeMounts:
+  - name: cache-volume
+    mountPath: /cache
+  - name: bazel-cache-volume
+    mountPath: /bazel-caches
+  - name: dockerhub-auth
+    mountPath: /root/.docker
+    readOnly: true
+
+# Same init container as ./values-workflows.yaml: the hostPath is created root-owned and the
+# runner is uid 1001.
+extraInitContainers:
+  - name: bazel-cache-perms
+    image: gcr.io/flame-public/buildbuddy-executor-enterprise:enterprise-v2.290.0
+    securityContext:
+      runAsUser: 0
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /bazel-caches/repo /bazel-caches/repo-contents
+        chown 1001:1001 /bazel-caches /bazel-caches/repo /bazel-caches/repo-contents
+        find /bazel-caches -xdev ! -user 1001 -exec chown -h 1001:1001 {} +
+    volumeMounts:
+      - name: bazel-cache-volume
+        mountPath: /bazel-caches
+
+# Drain an in-flight run on rollout instead of SIGKILLing it.
+terminationGracePeriodSeconds: 3600
+
+config:
+  max_shutdown_duration: 3570s
+  executor:
+    enable_local_snapshot_sharing: true
+    app_target: grpcs://carverauto.buildbuddy.io:443
+    cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
+    task_allowed_private_ips:
+      - 10.42.0.0/16 # pod CIDR
+      - 10.43.0.0/16 # service CIDR
+      # LAN shared-gateway VIP. Same reason as ./values-workflows.yaml: the HTTPS CA fetch
+      # (SRQL_FIXTURE_CA_URL) resolves here, and BGP leaves the dest IP as the VIP.
+      - 192.168.6.87/32
+    enable_oci: true
+    default_isolation_type: oci
+    default_task_size:
+      estimated_milli_cpu: 2000
+      estimated_memory_bytes: 2147483648 # 2 GiB
+    runner_pool:
+      max_runner_memory_usage_bytes: -1
+      max_runner_disk_size_bytes: 100000000000 # 100 GB workspace bind
+      # One action uses this pool and does not run concurrently, so one warm runner is all it
+      # can reuse; a second slot would only park ~20 GB of memory for nothing.
+      max_runner_count: 1
+    image_pull_timeout: 15m
+    startup_warmup_max_wait_secs: 300
+    warmup_timeout_secs: 300
+    # KEEP IN STEP with the LargeIngestionGate container_image in //buildbuddy.yaml.
+    warmup_additional_images:
+      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5
+    oci:
+      dns: "10.43.0.10"
+      mounts:
+        - source: /bazel-caches
+          destination: /bazel-cache
+          type: bind
+          options:
+            - rbind
+            - rw
+    local_cache_directory: /cache
+    local_cache_size_bytes: 100000000000
+    root_directory: /cache/remotebuilds/
+    # Never committed. Supplied at install time with --set; see ./README.md.
+    api_key: ""

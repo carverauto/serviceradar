@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
 
   def load_availability(srql_module, device_uid, scope, opts \\ []) do
     now = opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> DateTime.truncate(:second)
-    start_at = DateTime.add(now, -@window_seconds, :second)
+    start_at = DateTime.shift(now, second: -@window_seconds)
     range = "[#{DateTime.to_iso8601(start_at)},#{DateTime.to_iso8601(now)}]"
     device_is_available = Keyword.get(opts, :device_is_available)
 

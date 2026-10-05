@@ -22,6 +22,7 @@ EXTENDS Naturals, Sequences, FiniteSets
 CONSTANTS
     Devices,      \* device uids
     Ids,          \* strong identifiers (device_identifiers type+value+partition)
+    MacIds,       \* the hardware MACs among Ids; every other identifier is a source or agent id
     Ips,          \* addresses
     NoDev, NoIp,  \* "none" markers
     Bugs,         \* enabled defect switches, a subset of KnownBugs
@@ -41,6 +42,7 @@ KnownBugs == {
 
 ASSUME Bugs \subseteq KnownBugs
 ASSUME NoDev \notin Devices /\ NoIp \notin Ips
+ASSUME MacIds \subseteq Ids
 ASSUME FollowDepth \in Nat /\ MaxAudit \in Nat /\ MaxWork \in Nat
 ASSUME ExpiryEnabled \in BOOLEAN /\ RetirementEnabled \in BOOLEAN
 
@@ -76,7 +78,7 @@ VARIABLES
     ipOf,    \* ocsf_devices.ip; a tombstone keeps it
     audit,   \* merge_audit rows, oldest first
     work,    \* in-flight ingest items: the uid resolved, and whether its revision moved since
-    marked,  \* live uids with source_retired_at set: every source id they held has retired
+    marked,  \* live uids with source_retired_at set: every source and agent id they held has gone
     arch,    \* device_identifier_archive: identifier -> the uids it retired from, a row each
     sweepOnly, \* uids whose discovery_sources hold only "sweep"
     act      \* the last step, for action properties and trace validation
@@ -108,6 +110,10 @@ TypeOK ==
 Live(u)       == status[u] = "live"
 MergedTomb(u) == status[u] = "tomb" /\ reason[u] = "merged"
 Owned(u)      == {i \in Ids : owner[i] = u}
+\* The identifiers that keep a record from being marked source_retired and whose registration
+\* clears the mark: every one but a MAC (SourceRetirement.marking_identifier_types/0, and the
+\* trigger trg_device_identifiers_clear_source_retired).
+Counted(u)    == Owned(u) \ MacIds
 
 \* A bump of the uids in B marks every in-flight item targeting one of them stale.
 MarkStale(W, B) == {[target |-> w.target, stale |-> w.stale \/ w.target \in B] : w \in W}
@@ -165,8 +171,9 @@ StartWork(u) ==
 \* Retired ids (D6): S may carry an id the archive keeps for t or for a uid merged into t.
 \* Reporting it again moves those archive rows back to t, and is the only write that restores
 \* a source_retired tombstone. The corroboration and the one-holder rules are the resolution
-\* model's; here any such write reactivates. A write that registers an identifier on a
-\* marked record clears the mark, because the record is no longer retired-only.
+\* model's; here any such write reactivates, and bumps the record it returns to whether or not
+\* it was live (SourceReactivation.revive/2). A write that registers a source or agent id on a
+\* marked record clears the mark, because the record is no longer retired-only; a MAC does not.
 \* The upsert unions discovery_sources with the source's own, so the record it writes is no
 \* longer sweep-only.
 CommitWork(w, S, p) ==
@@ -175,6 +182,7 @@ CommitWork(w, S, p) ==
         newIp == IF p = NoIp THEN ipOf[t] ELSE p
         bump  == CASE status[t] \in {"absent", "purged"} -> {t}  \* a new row
                    [] status[t] = "tomb" -> {t}                  \* a revival
+                   [] back # {} -> {t}                           \* a live reactivation
                    [] OTHER -> {}
     IN
     /\ w \in work
@@ -208,7 +216,7 @@ CommitWork(w, S, p) ==
             /\ owner' = [i \in Ids |-> IF i \in S THEN t ELSE owner[i]]
             /\ arch' = [i \in Ids |-> IF i \in back THEN {d \in arch[i] : Follow(d) # t}
                                                  ELSE arch[i]]
-            /\ marked' = IF S # {} THEN marked \ {t} ELSE marked
+            /\ marked' = IF S \ MacIds # {} THEN marked \ {t} ELSE marked
             /\ sweepOnly' = sweepOnly \ {t}
             /\ work' = MarkStale(work \ {w}, bump)
             /\ act' = MkAct(IF back # {} THEN "Reactivate" ELSE "Commit", NoDev, t, 0, w.stale, bump)
@@ -233,9 +241,9 @@ Merge(f, t, kind, S) ==
                                ids |-> S, srcIds |-> Owned(f), recent |-> TRUE])
     /\ status' = [status EXCEPT ![f] = "tomb"]
     /\ reason' = [reason EXCEPT ![f] = "merged"]
-    \* A merged-away record is no longer marked; a marked survivor that takes the other
-    \* record's identifiers (a source_succession merge, D3) is no longer retired-only.
-    /\ marked' = marked \ ({f} \cup (IF Owned(f) # {} THEN {t} ELSE {}))
+    \* A merged-away record is no longer marked; a marked survivor that takes a source or agent
+    \* id from the other record (a source_succession merge, D3) is no longer retired-only.
+    /\ marked' = marked \ ({f} \cup (IF Counted(f) # {} THEN {t} ELSE {}))
     \* The survivor takes the union of both records' discovery_sources.
     /\ sweepOnly' = IF f \in sweepOnly THEN sweepOnly ELSE sweepOnly \ {t}
     /\ work' = MarkStale(work, {f, t})
@@ -246,7 +254,8 @@ Merge(f, t, kind, S) ==
 \* any reason (:restore bumps), leaves a live row alone, or inserts a missing one;
 \* reassign_original_identifiers/4 moves back the identifiers the survivor still holds
 \* that the source owned when it was merged (details.source_identifiers); the survivor
-\* must be live. An unmerge is an operator's restore, so the restored record is not marked.
+\* must be live. A restored tombstone is not marked, because a delete clears the mark; a live
+\* record keeps its mark unless a source or agent id moves back to it.
 Unmerge(u) ==
     LET k    == LatestMergeRow(u)
         row  == audit[k]
@@ -263,7 +272,7 @@ Unmerge(u) ==
     /\ owner' = [i \in Ids |-> IF i \in back THEN u ELSE owner[i]]
     /\ audit' = Append(audit, [from |-> s, to |-> u, kind |-> "unmerge",
                                ids |-> {}, srcIds |-> {}, recent |-> TRUE])
-    /\ marked' = marked \ {u}
+    /\ marked' = IF back \ MacIds # {} THEN marked \ {u} ELSE marked
     /\ work' = MarkStale(work, bump)
     /\ act' = MkAct("Unmerge", u, s, k, FALSE, bump)
     /\ UNCHANGED <<ipOf, arch, sweepOnly>>
@@ -280,11 +289,12 @@ SoftDelete(u) ==
 
 \* EphemeralDeviceExpiry.run/3 (DeviceCleanupWorker, #4603): a live device unseen past the
 \* expiry window that holds no strong identifier is soft-deleted (deleted_reason
-\* "stale_ephemeral", a non-merge reason). Every identifier in this model is strong (randomized
-\* MACs and addresses are evidence and are not in Ids), so only a device owning none is
-\* eligible. The check is platform.device_holds_strong_identifier/1 inside the soft delete's
-\* UPDATE ... WHERE, so selection and delete are one step. Last-seen time is not modeled: any
-\* eligible live device may expire. The pass runs only when ephemeral_expiry_enabled is set.
+\* "stale_ephemeral", a non-merge reason). Every identifier in this model is strong, a MAC in
+\* MacIds included (randomized MACs and addresses are evidence and are not in Ids), so only a
+\* device owning none is eligible. The check is platform.device_holds_strong_identifier/1
+\* inside the soft delete's UPDATE ... WHERE, so selection and delete are one step. Last-seen
+\* time is not modeled: any eligible live device may expire. The pass runs only when
+\* ephemeral_expiry_enabled is set.
 \* A record whose source id retired still carries it in its metadata, and the pass's
 \* in-memory check (strong_attributes?/1) holds it: the grace delete, not expiry, removes a
 \* retired-only record (D13).
@@ -312,8 +322,9 @@ Expire(u) ==
 \* too; once D12 lands, it is left exactly as it was (SweepSkip). Availability and
 \* last_seen_time are not state here, so neither step changes a modeled variable, and the
 \* appended "sweep" discovery source changes no record's sweep-only flag.
-\* (event_writer/processors/sweep.ex carries a copy of this path but is not registered as an
-\* EventWriter processor, so it never runs.)
+\* (The former event_writer/processors/sweep.ex carried a copy of this path but was
+\* unregistered and has been removed, so it never ran; the live sweep path is
+\* sweep_jobs/sweep_results_ingestor.ex.)
 SweepMatch(p, d) ==
     /\ ipOf[d] = p
     /\ IF \E e \in Devices : Live(e) /\ ipOf[e] = p THEN Live(d) ELSE status[d] = "tomb"
@@ -388,26 +399,29 @@ Tick ==
     /\ UNCHANGED <<status, reason, owner, ipOf, work, marked, arch, sweepOnly>>
 
 \* The retirement of source ids R that u holds (D1): each row moves to
-\* device_identifier_archive in one transaction. If u then holds no identifier, the same
-\* transaction marks it source_retired (D5). The absence count, the minimum absence and the
-\* mass guard are the resolution model's, as are the conditions on agent and other-type ids,
-\* recent identity-bearing observations and operator-created records, which only ever
-\* withhold a mark; here any id a live record holds may retire, and every identifier counts
-\* as current until it does.
+\* device_identifier_archive in one transaction, which bumps u's identity_revision
+\* (SourceRetirement.archive/4). A MAC never retires. If u then holds no source or agent id, the
+\* same transaction marks it source_retired (D5); the MACs it holds stay with it. The absence
+\* count, the minimum absence and the mass guard are the resolution model's, as are the
+\* conditions on agent and other-type ids, recent identity-bearing observations and
+\* operator-created records, which only ever withhold a mark; here any source or agent id a live
+\* record holds may retire, and every identifier counts as current until it does.
 Retire(u, R) ==
     /\ RetirementEnabled
     /\ Live(u)
-    /\ R # {} /\ R \subseteq Owned(u)
+    /\ R # {} /\ R \subseteq Counted(u)
     /\ owner' = [i \in Ids |-> IF i \in R THEN NoDev ELSE owner[i]]
     /\ arch' = [i \in Ids |-> IF i \in R THEN arch[i] \cup {u} ELSE arch[i]]
-    /\ marked' = IF R = Owned(u) THEN marked \cup {u} ELSE marked
-    /\ act' = MkAct("Retire", u, NoDev, 0, FALSE, {})
-    /\ UNCHANGED <<status, reason, ipOf, audit, work, sweepOnly>>
+    /\ marked' = IF R = Counted(u) THEN marked \cup {u} ELSE marked
+    /\ work' = MarkStale(work, {u})
+    /\ act' = MkAct("Retire", u, NoDev, 0, FALSE, {u})
+    /\ UNCHANGED <<status, reason, ipOf, audit, sweepOnly>>
 
 \* DeviceCleanupWorker's grace pass (D5): a record marked for the grace period is soft-deleted
 \* through Device :soft_delete with deleted_reason "source_retired", and the same transaction
-\* releases its address. The open-review hold and the mass guard only ever refuse, so they are
-\* left nondeterministic, and elapsed time is not modeled: any marked record may be deleted.
+\* releases its address; the MACs it holds stay with the tombstone. The open-review hold and the
+\* mass guard only ever refuse, so they are left nondeterministic, and elapsed time is not
+\* modeled: any marked record may be deleted.
 GraceDelete(u) ==
     /\ u \in marked
     /\ status' = [status EXCEPT ![u] = "tomb"]
@@ -446,8 +460,9 @@ MergeGraphAcyclic ==
 MergedRedirectsSomewhere == \A u \in Devices : MergedTomb(u) => Follow(u) # u
 
 \* Retired Records Without A Successor (add-source-id-succession D5): a marked record is live
-\* and holds no identifier, so the grace delete never removes a record that holds one.
-MarkedHoldsNoIdentifier == \A u \in marked : Live(u) /\ Owned(u) = {}
+\* and holds no source or agent id, so the grace delete never removes a record that holds one.
+\* A MAC is not evidence the source still reports the record, so a marked record may hold one.
+MarkedHoldsOnlyMacs == \A u \in marked : Live(u) /\ Counted(u) = {}
 
 NoStaleRedirect ==
     \A u \in Devices : (status[u] = "tomb" /\ reason[u] # "merged") => Follow(u) = u

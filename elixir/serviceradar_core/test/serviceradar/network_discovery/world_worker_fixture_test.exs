@@ -200,10 +200,17 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
     IO.puts("WORLD_SCALE_PHASE persist")
 
-    {persist_us, result} =
-      :timer.tc(fn -> World.stage_candidate(version, metadata, positions, relations) end)
+    {persist_us, result, stage_transactions} =
+      measure_transactions(fn ->
+        World.stage_candidate(version, metadata, positions, relations)
+      end)
 
     assert :ok = result
+    # Staging commits bounded batches; one transaction holding the whole world
+    # took minutes here and ran into the staging deadline under load.
+    max_stage_transaction_ms = stage_transactions |> Enum.max() |> div(1000)
+    assert length(stage_transactions) > 1_000
+    assert max_stage_transaction_ms < 60_000
     {publish_us, result} = :timer.tc(fn -> World.activate_relayout(0, version) end)
     assert {:ok, %{node_count: 1_000_000, relation_count: 2_000_000}} = result
 
@@ -287,6 +294,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       "WORLD_SCALE_MEASUREMENTS " <>
         Jason.encode!(%{
           persist_ms: div(persist_us, 1000),
+          stage_transactions: length(stage_transactions),
+          max_stage_transaction_ms: max_stage_transaction_ms,
           publish_ms: div(publish_us, 1000),
           reload_ms: div(reload_us, 1000),
           index_ms: div(index_us, 1000),
@@ -297,6 +306,57 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
     # The guarded lifecycle owns and drops this entire scratch database after
     # this final case. Do not spend another full write pass deleting its rows.
+  end
+
+  # Durations, in microseconds, of every transaction the calling process commits
+  # or rolls back while `fun` runs.
+  defp measure_transactions(fun) do
+    owner = self()
+    handler = {__MODULE__, :stage_transactions, make_ref()}
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, _timings, metadata, owner ->
+          if self() == owner do
+            case metadata.query |> to_string() |> String.downcase() do
+              "begin" ->
+                send(owner, {:stage_transaction, :begin, System.monotonic_time()})
+
+              done when done in ["commit", "rollback"] ->
+                send(owner, {:stage_transaction, :end, System.monotonic_time()})
+
+              _query ->
+                :ok
+            end
+          end
+        end,
+        owner
+      )
+
+    {elapsed_us, result} =
+      try do
+        :timer.tc(fun)
+      after
+        :telemetry.detach(handler)
+      end
+
+    {elapsed_us, result, transaction_durations([], nil)}
+  end
+
+  defp transaction_durations(durations, started) do
+    receive do
+      {:stage_transaction, :begin, at} ->
+        transaction_durations(durations, at)
+
+      {:stage_transaction, :end, at} when is_integer(started) ->
+        duration = System.convert_time_unit(at - started, :native, :microsecond)
+        transaction_durations([duration | durations], nil)
+    after
+      0 -> durations
+    end
   end
 
   # Ecto query shapes contain placeholders; never include parameter or row values.

@@ -408,7 +408,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
     points =
       for hour <- 14..18 do
-        {DateTime.add(~U[2026-06-22 00:00:00Z], hour * 60 * 60, :second), hour * 1.0}
+        {DateTime.shift(~U[2026-06-22 00:00:00Z], hour: hour), hour * 1.0}
       end
 
     metric_sections = [
@@ -492,7 +492,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       metric_statuses: []
     }
 
-    points = for minute <- 0..360//30, do: {DateTime.add(~U[2026-01-08 07:00:00Z], minute * 60), 8.0}
+    points = for minute <- 0..360//30, do: {DateTime.shift(~U[2026-01-08 07:00:00Z], minute: minute), 8.0}
 
     sections = [
       %{
@@ -595,7 +595,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     # and hide the 13:30 episode open; a drift focus reaches back to it.
     points =
       for minute <- 0..(6 * 60)//10 do
-        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+        {DateTime.shift(~U[2026-06-22 10:30:00Z], minute: minute), 120.0 + rem(minute, 7)}
       end
 
     metric_sections = [
@@ -687,7 +687,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
     points =
       for minute <- 0..(6 * 60)//10 do
-        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+        {DateTime.shift(~U[2026-06-22 10:30:00Z], minute: minute), 120.0 + rem(minute, 7)}
       end
 
     metric_sections = [
@@ -773,7 +773,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
     points =
       for minute <- 0..(6 * 60)//10 do
-        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+        {DateTime.shift(~U[2026-06-22 10:30:00Z], minute: minute), 120.0 + rem(minute, 7)}
       end
 
     metric_sections = [
@@ -846,7 +846,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
     points =
       for hour <- 14..18 do
-        {DateTime.add(~U[2026-06-22 00:00:00Z], hour * 60 * 60, :second), hour * 1.0}
+        {DateTime.shift(~U[2026-06-22 00:00:00Z], hour: hour), hour * 1.0}
       end
 
     metric_sections = [
@@ -930,6 +930,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       "Newest cleared low finding",
       "Older cleared low finding"
     ])
+  end
+
+  test "renders loading skeleton and spinner when loading is true" do
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        loading: true,
+        timezone: "Etc/UTC"
+      )
+
+    assert html =~ "sr-ui-spinner"
+    assert html =~ ~s(aria-busy="true")
+    assert html =~ ~s(aria-live="polite")
+    assert html =~ "Loading anomaly and capacity data..."
+    assert html =~ "anomaly-capacity-skeleton"
+    assert html =~ "Anomaly &amp; Capacity"
+    refute html =~ "Recent Anomaly Findings"
+    refute html =~ "Capacity Runway"
+    refute html =~ "Open findings"
+  end
+
+  test "renders loaded content and hides skeleton when loading is false" do
+    overview = %{
+      status: :ok,
+      anomaly_rows: [],
+      capacity_rows: [],
+      anomaly_query: nil,
+      capacity_query: nil,
+      anomaly_filter: nil,
+      capacity_filter: nil,
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        loading: false,
+        overview: overview,
+        timezone: "Etc/UTC"
+      )
+
+    refute html =~ "sr-ui-spinner"
+    refute html =~ ~s(aria-busy="true")
+    refute html =~ "anomaly-capacity-skeleton"
+    assert html =~ "Recent Anomaly Findings"
+    assert html =~ "Capacity Runway"
   end
 
   defp render_findings(rows, filters) do

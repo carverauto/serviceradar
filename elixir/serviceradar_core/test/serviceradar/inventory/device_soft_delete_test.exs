@@ -2,6 +2,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   use ServiceRadar.DataCase, async: true
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync
@@ -123,6 +124,36 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     assert after_check_in.deleted_reason == "merged"
     assert after_check_in.identity_revision == tombstone.identity_revision
     assert revival_audit_reasons(uid) == []
+  end
+
+  # Nor a retained tombstone (Device.retained_reasons/0): only an operator restore or the
+  # return of a retired source id revives one. A record holding an agent identifier is never
+  # marked retired, so in service a check-in reaches one only through evidence such as a
+  # shared MAC; here it arrives through the agent id the record still holds, and is refused
+  # the same way.
+  test "agent check-in never revives a retained tombstone", %{actor: actor} do
+    for reason <- Device.retained_reasons() do
+      agent_id = "retained-agent-#{System.unique_integer([:positive])}"
+      attrs = agent_attrs(agent_id)
+
+      assert {:ok, uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+      {:ok, [device]} = read_including_deleted(uid, actor)
+      {:ok, tombstone} = soft_delete_device(actor, device, reason)
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:retained_tombstone, ^uid}} =
+                   AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+        end)
+
+      assert log =~ "reached retained device #{uid} (deleted_reason #{reason})"
+
+      {:ok, [after_check_in]} = read_including_deleted(uid, actor)
+      assert after_check_in.deleted_at == tombstone.deleted_at
+      assert after_check_in.deleted_reason == reason
+      assert after_check_in.identity_revision == tombstone.identity_revision
+      assert revival_audit_reasons(uid) == []
+    end
   end
 
   describe "managed-state actions" do
@@ -268,6 +299,35 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     assert revival_audit_reasons(merged_away.uid) == []
   end
 
+  # Nor a retained tombstone. The fenced sync path withholds an update resolved to one before
+  # it writes (SyncIngestor); the upsert is the backstop, driven directly here.
+  test "the device upsert never revives a retained tombstone", %{actor: actor} do
+    for reason <- Device.retained_reasons() do
+      {:ok, device} = create_device(actor, sr_uid(), unique_ip(), unique_mac())
+      {:ok, tombstone} = soft_delete_device(actor, device, reason)
+
+      now = DateTime.truncate(DateTime.utc_now(), :second)
+
+      record = %{
+        uid: device.uid,
+        hostname: "stale-write-#{device.uid}",
+        discovery_sources: ["device_soft_delete_test"],
+        last_seen_time: now,
+        modified_time: now
+      }
+
+      assert {:ok, remap} = DeviceWrites.bulk_upsert_devices([record])
+      assert remap == %{}
+
+      {:ok, [after_write]} = read_including_deleted(device.uid, actor)
+      assert after_write.deleted_at == tombstone.deleted_at
+      assert after_write.deleted_reason == reason
+      assert after_write.hostname == tombstone.hostname
+      assert after_write.identity_revision == tombstone.identity_revision
+      assert revival_audit_reasons(device.uid) == []
+    end
+  end
+
   test "cleanup worker purges devices past retention window", %{actor: actor} do
     {:ok, _settings} =
       ensure_cleanup_settings(actor, %{
@@ -283,7 +343,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     {:ok, _} = soft_delete_device(actor, old_device, "stale")
     {:ok, _} = soft_delete_device(actor, recent_device, "recent")
 
-    old_cutoff = DateTime.add(DateTime.utc_now(), -2 * 86_400, :second)
+    old_cutoff = DateTime.shift(DateTime.utc_now(), day: -2)
 
     Repo.update_all(
       from(d in "ocsf_devices",

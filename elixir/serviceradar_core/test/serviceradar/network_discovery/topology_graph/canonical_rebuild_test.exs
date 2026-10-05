@@ -45,14 +45,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
   describe "skip_decision/4 (durable shared skip-guard)" do
     test "unchanged input across restart skips the rebuild" do
-      stored = {"2:aa", DateTime.add(@clock, -1, :second)}
+      stored = {"2:aa", DateTime.shift(@clock, second: -1)}
 
       assert {:skip, %{skipped: true, reason: :unchanged_topology}} =
                CanonicalRebuild.skip_decision("2:aa", stored, @heartbeat_ms, @clock)
     end
 
     test "changed input forces a rebuild even when its edge count is unchanged" do
-      stored = {"2:aa", DateTime.add(@clock, -1, :second)}
+      stored = {"2:aa", DateTime.shift(@clock, second: -1)}
 
       assert {:proceed, "2:bb"} =
                CanonicalRebuild.skip_decision("2:bb", stored, @heartbeat_ms, @clock)
@@ -83,7 +83,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
     end
 
     test "a future stored timestamp does not force an unchanged rebuild" do
-      future_at = DateTime.add(@clock, 1, :second)
+      future_at = DateTime.shift(@clock, second: 1)
 
       assert {:skip, %{skipped: true, reason: :unchanged_topology}} =
                CanonicalRebuild.skip_decision(

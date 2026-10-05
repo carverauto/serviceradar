@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Auth.NarrowScopes do
       and every machine integration holds one.
 
     * **Narrow** scopes minted for the RFC 8628 CLI device flow --
-      `dashboard.publish`, `plugin.publish`, `plugins.manage`
+      `dashboard.publish`, `plugin.publish`, `plugins.manage`, `edge.manage`
       (`AuthorizationSettings` `:cli_allowed_scopes`). Each names one CLI
       operation a developer approved in a browser.
 
@@ -29,8 +29,10 @@ defmodule ServiceRadarWebNGWeb.Auth.NarrowScopes do
 
   Coarse-scoped and unscoped callers (API keys, browser sessions, legacy static
   keys) are deliberately untouched: `allowed?/3` passes them through so this
-  cannot regress an existing integration. Tightening `read` so it cannot POST is
-  a separate, breaking decision that needs its own audit of live clients.
+  cannot regress an existing integration. `Plugs.RequireConfigurationScope`
+  enforces the requested method for coarse scopes downstream, so a `read`
+  grant cannot reach mutations except through its audited read-only POST
+  exceptions.
   """
 
   @coarse_scopes ~w(read write admin mcp)
@@ -51,6 +53,31 @@ defmodule ServiceRadarWebNGWeb.Auth.NarrowScopes do
       {"GET", ~r{^/api/admin/plugin-packages/[^/]+$}},
       {"POST", ~r{^/api/admin/plugin-packages$}},
       {"POST", ~r{^/api/admin/plugin-packages/[^/]+/upload-url$}}
+    ],
+    # Edge onboarding from the CLI: agent edge packages, collectors, the NATS
+    # account view, edge sites (NATS leaf servers) and a read-only agent list.
+    # Package/collector `download` and `bundle` run on token-gated pipelines
+    # (download token, not a user bearer) and never reach this plug.
+    "edge.manage" => [
+      {"GET", ~r{^/api/admin/edge-packages$}},
+      {"POST", ~r{^/api/admin/edge-packages$}},
+      {"GET", ~r{^/api/admin/edge-packages/defaults$}},
+      {"GET", ~r{^/api/admin/edge-packages/[^/]+$}},
+      {"DELETE", ~r{^/api/admin/edge-packages/[^/]+$}},
+      {"POST", ~r{^/api/admin/edge-packages/[^/]+/revoke$}},
+      {"GET", ~r{^/api/admin/collectors$}},
+      {"POST", ~r{^/api/admin/collectors$}},
+      {"GET", ~r{^/api/admin/collectors/[^/]+$}},
+      {"POST", ~r{^/api/admin/collectors/[^/]+/revoke$}},
+      {"GET", ~r{^/api/admin/nats/account$}},
+      {"GET", ~r{^/api/admin/nats/credentials$}},
+      {"GET", ~r{^/api/admin/edge-sites$}},
+      {"POST", ~r{^/api/admin/edge-sites$}},
+      {"GET", ~r{^/api/admin/edge-sites/[^/]+$}},
+      {"DELETE", ~r{^/api/admin/edge-sites/[^/]+$}},
+      {"POST", ~r{^/api/admin/edge-sites/[^/]+/bundle$}},
+      {"GET", ~r{^/api/admin/agents$}},
+      {"GET", ~r{^/api/admin/version$}}
     ],
     "plugins.manage" => [
       {"GET", ~r{^/api/admin/plugins$}},

@@ -612,7 +612,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
     test "without a device MAC anchor the lexical class survives timestamp-only churn" do
       newer = DateTime.utc_now()
-      older = DateTime.add(newer, -3600, :second)
+      older = DateTime.shift(newer, hour: -1)
 
       {:split, first_plan} =
         Decisions.plan_armis_unmerge(mega_device(), [

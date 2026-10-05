@@ -125,7 +125,7 @@ fn attributed_flow_stats_stay_on_raw_table() {
     assert!(sql.contains("FROM ocsf_network_activity f"));
     assert!(!sql.contains("flow_traffic_1h"));
     assert!(sql.contains("f.ocsf_payload ->> 'event_type' = 'attributed_flow'"));
-    assert_eq!(params.len(), 3);
+    assert_eq!(params.len(), 4);
 }
 
 #[test]
@@ -159,5 +159,5 @@ fn attributed_flow_stats_can_group_by_attribution_status() {
     assert!(sql.contains("f.ocsf_payload ->> 'event_type' = 'attributed_flow'"));
     assert!(sql.contains("CASE WHEN f.ocsf_payload -> 'attribution' ->> 'pid' IS NULL"));
     assert!(sql.contains("ORDER BY agg_value_0 DESC"));
-    assert_eq!(params.len(), 2);
+    assert_eq!(params.len(), 4);
 }

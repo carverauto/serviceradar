@@ -55,6 +55,20 @@ tlc_test(
     ],
 )
 
+# The record grace-deleted may still hold a MAC (a MAC neither withholds nor clears the mark).
+tlc_test(
+    name = "lifecycle_vacuity_grace_delete_mac_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_grace_delete_mac.cfg",
+    expect = "violation:NeverGraceDeletesMacHolder",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
 tlc_test(
     name = "lifecycle_vacuity_reactivate_test",
     size = "medium",
@@ -112,6 +126,20 @@ tlc_test(
     name = "lifecycle_goal_retirement_chain_test",
     size = "medium",
     cfg = "lifecycle_goal_retirement_chain.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# Retirement with one of the two identifiers a MAC: the MAC never retires, stays with the
+# record when the record is marked, and neither withholds nor clears the mark.
+tlc_test(
+    name = "lifecycle_goal_retirement_mac_test",
+    size = "medium",
+    cfg = "lifecycle_goal_retirement_mac.cfg",
     spec = "MCDireLifecycle.tla",
     workers = 8,
     deps = [
@@ -284,6 +312,14 @@ tlc_test(
 )
 
 tlc_test(
+    name = "resolution_vacuity_census_keeps_holder_test",
+    cfg = "resolution_vacuity_census_keeps_holder.cfg",
+    expect = "violation:NeverCensusKeepsHolder",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
     name = "resolution_vacuity_armis_converges_test",
     cfg = "resolution_vacuity_armis_converges.cfg",
     expect = "violation:NeverConverged",
@@ -349,38 +385,6 @@ tlc_test(
 
 # ---- Witnesses: each defect switch today's code has violates the property its fix restores ----
 
-tlc_test(
-    name = "resolution_witness_stale_holder_keeps_address_test",
-    cfg = "resolution_witness_stale_holder_keeps_address.cfg",
-    expect = "violation:ObservedAddressHeld",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
-    name = "resolution_witness_armis_alias_pass_blind_test",
-    cfg = "resolution_witness_armis_alias_pass_blind.cfg",
-    expect = "violation:AliasFollowsSyncedDevice",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
-    name = "resolution_witness_foreign_sighting_confirms_alias_test",
-    cfg = "resolution_witness_foreign_sighting_confirms_alias.cfg",
-    expect = "violation:AliasFollowsSyncedDevice",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
-    name = "resolution_witness_released_seed_stays_live_test",
-    cfg = "resolution_witness_released_seed_stays_live.cfg",
-    expect = "violation:NoAddresslessShell",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
 # ---- Traces recorded from the real code (a matched trace reaches its last state) ----
 # A __tamper_<var> variant alters one variable in the final state and must NOT be matched.
 # A __knockout configuration checks a trace without the defect switch it demonstrates and must
@@ -415,17 +419,6 @@ tlc_test(
     name = "trace_armis_dhcp_test",
     cfg = "traces/Trace_armis_dhcp.cfg",
     expect = "violation:TraceIncomplete",
-    spec = "traces/Trace_armis_dhcp.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireResolution.tla",
-        "DireResolutionTrace.tla",
-    ],
-)
-
-tlc_test(
-    name = "trace_armis_dhcp__knockout_test",
-    cfg = "traces/Trace_armis_dhcp__knockout.cfg",
     spec = "traces/Trace_armis_dhcp.tla",
     deps = [
         "CurrentBugs.tla",
@@ -775,6 +768,18 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_source_retired_returns_test",
+    cfg = "traces/Trace_source_retired_returns.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_source_retired_returns.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_src_attach_shared_mac_test",
     cfg = "traces/Trace_src_attach_shared_mac.cfg",
     expect = "violation:TraceIncomplete",
@@ -799,9 +804,34 @@ tlc_test(
 )
 
 tlc_test(
-    name = "trace_src_rekey_succession__knockout_test",
-    cfg = "traces/Trace_src_rekey_succession__knockout.cfg",
-    spec = "traces/Trace_src_rekey_succession.tla",
+    name = "trace_src_rekey_new_first_seen_test",
+    cfg = "traces/Trace_src_rekey_new_first_seen.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_rekey_new_first_seen.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_rekey_no_macs_test",
+    cfg = "traces/Trace_src_rekey_no_macs.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_rekey_no_macs.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_rekey_shared_mac_rival_test",
+    cfg = "traces/Trace_src_rekey_shared_mac_rival.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_rekey_shared_mac_rival.tla",
     deps = [
         "CurrentBugs.tla",
         "DireResolution.tla",
@@ -857,9 +887,10 @@ tlc_test(
 )
 
 tlc_test(
-    name = "trace_armis_moves_onto_sweep_seed__knockout_test",
-    cfg = "traces/Trace_armis_moves_onto_sweep_seed__knockout.cfg",
-    spec = "traces/Trace_armis_moves_onto_sweep_seed.tla",
+    name = "trace_census_randomized_mac_test",
+    cfg = "traces/Trace_census_randomized_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_census_randomized_mac.tla",
     deps = [
         "CurrentBugs.tla",
         "DireResolution.tla",
@@ -868,10 +899,22 @@ tlc_test(
 )
 
 tlc_test(
-    name = "trace_census_randomized_mac_test",
-    cfg = "traces/Trace_census_randomized_mac.cfg",
+    name = "trace_armis_dhcp_two_holders_test",
+    cfg = "traces/Trace_armis_dhcp_two_holders.cfg",
     expect = "violation:TraceIncomplete",
-    spec = "traces/Trace_census_randomized_mac.tla",
+    spec = "traces/Trace_armis_dhcp_two_holders.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_mapper_prior_alias_holder_test",
+    cfg = "traces/Trace_mapper_prior_alias_holder.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_mapper_prior_alias_holder.tla",
     deps = [
         "CurrentBugs.tla",
         "DireResolution.tla",

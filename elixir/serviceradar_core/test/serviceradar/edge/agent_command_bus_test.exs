@@ -36,6 +36,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          partition_id: opts[:partition_id],
          ack_before_reply?: Keyword.get(opts, :ack_before_reply?, false),
          auto_result?: Keyword.get(opts, :auto_result?, false),
+         reply_delay_ms: Keyword.get(opts, :reply_delay_ms, 0),
          marker: Keyword.get(opts, :marker)
        }}
     end
@@ -50,6 +51,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       maybe_ack_before_reply(command, state)
       maybe_broadcast_result(command, context, state)
+      if state.reply_delay_ms > 0, do: Process.sleep(state.reply_delay_ms)
       {:reply, {:ok, command.command_id}, state}
     end
 
@@ -557,6 +559,42 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert Enum.all?(cohort.results, &(&1.payload["match_count"] == 1))
     end
 
+    test "endpoint inventory cohort cache query reports a target whose dispatch outlives its bound",
+         %{
+           agent_id: agent_id
+         } do
+      slow_agent_id = "#{agent_id}-slow"
+
+      {_pid, _metadata} =
+        start_control_session(
+          agent_id,
+          self(),
+          %{partition_id: "default", capabilities: ["endpoint-inventory"]}
+        )
+
+      {_pid, _metadata} =
+        start_control_session(
+          slow_agent_id,
+          self(),
+          %{partition_id: "default", capabilities: ["endpoint-inventory"]},
+          reply_delay_ms: 3_000
+        )
+
+      assert {:ok, cohort} =
+               AgentCommandBus.dispatch_endpoint_inventory_cohort_cache_query(
+                 %{predicate: %{name: "nginx"}},
+                 agent_ids: [agent_id, slow_agent_id],
+                 dispatch_timeout_ms: 1_000,
+                 timeout_ms: 0,
+                 cohort_concurrency: 2
+               )
+
+      assert [%{status: :failed, reason: {:dispatch_exit, :timeout}}] =
+               Enum.filter(cohort.dispatches, &(&1.agent_id == slow_agent_id))
+
+      assert [%{status: :dispatched}] = Enum.filter(cohort.dispatches, &(&1.agent_id == agent_id))
+    end
+
     test "endpoint inventory cache query persists command result lifecycle", %{
       agent_id: agent_id,
       actor: actor
@@ -892,13 +930,13 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       _stale_one =
         create_mtr_command(actor, agent_id, "1.1.1.1",
-          expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
           status: :sent
         )
 
       _stale_two =
         create_mtr_command(actor, agent_id, "8.8.8.8",
-          expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
           status: :acknowledged
         )
 
@@ -1187,7 +1225,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         })
 
       create_bulk_mtr_command(actor, agent_id, ["1.1.1.1", "1.1.1.2"],
-        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
         status: :sent
       )
 
@@ -1507,7 +1545,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           agent_id: agent_id,
           partition_id: metadata.partition_id
         ] ++
-          Keyword.take(opts, [:ack_before_reply?, :auto_result?, :marker])
+          Keyword.take(opts, [:ack_before_reply?, :auto_result?, :marker, :reply_delay_ms])
       )
 
     on_exit(fn ->
@@ -1553,7 +1591,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   defp create_mtr_command(actor, agent_id, target, opts) do
-    expires_at = Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 60, :second))
+    expires_at = Keyword.get(opts, :expires_at, DateTime.shift(DateTime.utc_now(), minute: 1))
     status = Keyword.get(opts, :status, :queued)
 
     {:ok, command} =
@@ -1585,7 +1623,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   defp create_bulk_mtr_command(actor, agent_id, targets, opts) do
-    expires_at = Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 300, :second))
+    expires_at = Keyword.get(opts, :expires_at, DateTime.shift(DateTime.utc_now(), minute: 5))
     status = Keyword.get(opts, :status, :queued)
 
     {:ok, command} =

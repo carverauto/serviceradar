@@ -183,6 +183,25 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       assert result["package"]["security_mode"] == "mtls"
     end
 
+    test "returns the signed onboarding token the download routes accept", %{conn: conn} do
+      params = %{"label" => "token-agent", "component_type" => "agent", "security_mode" => "spire"}
+
+      result = conn |> post(~p"/api/admin/edge-packages", params) |> json_response(201)
+
+      assert "edgepkg-v3:" <> _ = result["onboarding_token"]
+
+      assert {:ok, decoded} = ServiceRadarWebNG.Edge.decode_onboarding_token(result["onboarding_token"])
+      assert decoded.pkg == result["package"]["package_id"]
+      assert decoded.dl == result["download_token"]
+    end
+
+    test "an mTLS agent package needs a gateway to issue its certificate", %{conn: conn} do
+      params = %{"label" => "mtls-agent", "component_type" => "agent", "security_mode" => "mtls"}
+
+      assert conn |> post(~p"/api/admin/edge-packages", params) |> json_response(503) |> Map.get("error") ==
+               "gateway_unavailable"
+    end
+
     test "returns 422 for missing label", %{conn: conn} do
       params = %{"component_type" => "gateway"}
 

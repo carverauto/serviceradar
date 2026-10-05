@@ -156,8 +156,20 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "ip",
         "type_id",
         "capabilities",
-        "config_source"
+        "config_source",
+        "status",
+        "superseded_by"
       ],
+      known_values: %{
+        "status" => [
+          "connecting",
+          "connected",
+          "degraded",
+          "disconnected",
+          "unavailable",
+          "superseded"
+        ]
+      },
       array_fields: ["capabilities"],
       downsample: false
     },
@@ -278,6 +290,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "tags",
         "include_inactive",
         "include_deleted",
+        "include_retired",
+        "source_retired",
         "first_seen",
         "first_seen_time",
         "cve",
@@ -297,6 +311,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "awx_managed",
         "include_inactive",
         "include_deleted",
+        # A record marked source_retired (its source retired its ids) is hidden unless the
+        # query asks: `include_retired:true` shows it, `source_retired:true` lists only those.
+        "include_retired",
+        "source_retired",
         "kev"
       ],
       # Fields backed by array columns - builder will always use list syntax for these
@@ -496,7 +514,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
           "source_id_retired",
           "source_id_reactivated",
           "source_id_reissued",
-          "succession_review"
+          "succession_review",
+          "agent_supersession"
         ]
       },
       downsample: false
@@ -809,7 +828,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "message",
         "short_message"
       ],
-      numeric_fields: ["class_uid", "category_uid", "type_uid", "activity_id", "severity_id", "status_id"],
+      numeric_fields: [
+        "class_uid",
+        "category_uid",
+        "type_uid",
+        "activity_id",
+        "severity_id",
+        "status_id"
+      ],
       downsample: false
     },
     %{
@@ -841,7 +867,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "message",
         "short_message"
       ],
-      numeric_fields: ["class_uid", "category_uid", "type_uid", "activity_id", "severity_id", "status_id"],
+      numeric_fields: [
+        "class_uid",
+        "category_uid",
+        "type_uid",
+        "activity_id",
+        "severity_id",
+        "status_id"
+      ],
       downsample: false
     },
     %{
@@ -873,7 +906,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "message",
         "short_message"
       ],
-      numeric_fields: ["class_uid", "category_uid", "type_uid", "activity_id", "severity_id", "status_id"],
+      numeric_fields: [
+        "class_uid",
+        "category_uid",
+        "type_uid",
+        "activity_id",
+        "severity_id",
+        "status_id"
+      ],
       downsample: false
     },
     %{
@@ -1504,6 +1544,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "protocol_group",
         "protocol_name",
         "protocol_num",
+        "proto",
         "direction",
         "app",
         "sampler_address",
@@ -1552,6 +1593,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_port",
         "protocol_name",
         "protocol_num",
+        "proto",
         "protocol_group",
         "app",
         "direction",
@@ -1647,6 +1689,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "endpoint_port",
         "protocol_name",
         "protocol_num",
+        "proto",
         "protocol_group",
         "direction",
         "app",
@@ -1667,7 +1710,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_endpoint_port",
         "port",
         "endpoint_port",
-        "protocol_num"
+        "protocol_num",
+        "proto"
       ],
       address_fields: [
         "src_endpoint_ip",
@@ -2758,7 +2802,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   defp canonical_json(value) when is_map(value) do
     value
     |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
-    |> Enum.map_join(",", fn {key, nested} -> Jason.encode!(to_string(key)) <> ":" <> canonical_json(nested) end)
+    |> Enum.map_join(",", fn {key, nested} ->
+      Jason.encode!(to_string(key)) <> ":" <> canonical_json(nested)
+    end)
     |> then(&("{" <> &1 <> "}"))
   end
 

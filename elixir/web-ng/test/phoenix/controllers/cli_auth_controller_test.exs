@@ -61,6 +61,13 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
       assert row.scope == "dashboard.publish"
     end
 
+    test "accepts the edge.manage scope alongside dashboard.publish by default", %{conn: conn} do
+      params = %{"client_id" => @client_id, "scope" => "dashboard.publish edge.manage"}
+      body = conn |> post_with_ip(~p"/api/v1/cli/auth/device", params) |> json_response(200)
+
+      assert is_binary(body["device_code"])
+    end
+
     test "rejects unknown client_id with 400 invalid_client", %{conn: conn} do
       conn =
         post_with_ip(conn, ~p"/api/v1/cli/auth/device", %{
@@ -97,9 +104,9 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
       end)
     end
 
-    test "rate-limits at the 11th request in the same window", %{conn: conn} do
-      # Fill the bucket; 11th call should 429.
-      Enum.each(1..10, fn _ -> RateLimiter.record(@device_action, @ip) end)
+    test "rate-limits the next request once the device bucket is full", %{conn: conn} do
+      {limit, _window} = RateLimiter.resolve_bucket(@device_action, [])
+      Enum.each(1..limit, fn _ -> RateLimiter.record(@device_action, @ip) end)
 
       conn =
         post_with_ip(conn, ~p"/api/v1/cli/auth/device", %{
@@ -233,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
 
     # Force the row past its TTL via Ecto so we bypass the Ash validations
     # that lock the changeset after the action callback runs.
-    past = DateTime.add(DateTime.utc_now(), -3600, :second)
+    past = DateTime.shift(DateTime.utc_now(), hour: -1)
 
     Ecto.Adapters.SQL.query!(
       ServiceRadar.Repo,

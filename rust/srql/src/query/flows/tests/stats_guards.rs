@@ -72,18 +72,18 @@ fn translate_grouped_stats_uses_agg_value_for_order_and_includes_filters() {
         "should include time filter"
     );
     assert!(
-        sql.contains("f.src_endpoint_ip = $3"),
+        sql.contains("f.src_endpoint_ip = $4"),
         "should include src_endpoint_ip filter with binds"
     );
     assert!(
-        sql.contains("f.protocol_num::bigint = $4"),
+        sql.contains("f.protocol_num::bigint = $5"),
         "should include proto filter with binds"
     );
     assert!(
         sql.contains("ORDER BY agg_value_0 DESC"),
         "should order by first aggregate expression, not JSON alias"
     );
-    assert_eq!(params.len(), 4, "expected time + 2 filter binds");
+    assert_eq!(params.len(), 5, "expected alias + time + 2 filter binds");
 }
 
 #[test]
@@ -117,10 +117,10 @@ fn grouped_stats_pages_by_keyset_on_the_group_column() {
 
     let (sql, params) = to_sql_and_params_stats(&plan).unwrap();
     assert!(
-        sql.contains("f.src_endpoint_ip > $3"),
+        sql.contains("f.src_endpoint_ip > $4"),
         "keyset lower bound should bind on the group column, got: {sql}"
     );
-    assert_eq!(params.len(), 3, "expected time bounds + keyset bind");
+    assert_eq!(params.len(), 4, "expected alias + time bounds + keyset bind");
 }
 
 #[test]

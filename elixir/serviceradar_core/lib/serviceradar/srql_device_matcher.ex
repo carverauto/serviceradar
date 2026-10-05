@@ -70,8 +70,11 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
     normalized_field = String.downcase(field)
 
     cond do
-      normalized_field == "include_inactive" ->
+      normalized_field in ["include_inactive", "include_retired"] ->
         op in ["eq", "equals"] and is_boolean(normalize_bool(value))
+
+      normalized_field == "source_retired" ->
+        op in @boolean_filter_ops and is_boolean(normalize_bool(value))
 
       field in ["active", "is_active"] ->
         op in @boolean_filter_ops and is_boolean(normalize_bool(value))
@@ -122,6 +125,7 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
   def apply_filters(query, filters, opts \\ []) do
     query
     |> maybe_apply_default_active_filter(filters, opts)
+    |> maybe_hide_source_retired(filters)
     |> then(fn filtered_query ->
       Enum.reduce(filters, filtered_query, fn filter, acc ->
         apply_filter(acc, filter, opts)
@@ -139,10 +143,35 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
     end
   end
 
-  defp include_inactive?(filters) do
+  # SRQL hides a device record marked `source_retired` unless the query asks for it:
+  # `include_retired:true` shows it, and a `source_retired:` filter replaces the default. The
+  # matcher hides it the same way, so a target query selects the same records on both paths.
+  # A `source_retired:` filter the matcher skips, one whose value is not a boolean, keeps the
+  # default.
+  defp maybe_hide_source_retired(%Ash.Query{resource: Device} = query, filters) do
+    if include_control?(filters, "include_retired") or
+         Enum.any?(filters, &source_retired_filter?/1) do
+      query
+    else
+      Ash.Query.filter(query, is_nil(source_retired_at))
+    end
+  end
+
+  defp maybe_hide_source_retired(query, _filters), do: query
+
+  defp source_retired_filter?(%{field: field, op: op, value: value}) when is_binary(field) do
+    String.downcase(field) == "source_retired" and op in @boolean_filter_ops and
+      is_boolean(normalize_bool(value))
+  end
+
+  defp source_retired_filter?(_filter), do: false
+
+  defp include_inactive?(filters), do: include_control?(filters, "include_inactive")
+
+  defp include_control?(filters, control) do
     Enum.any?(filters, fn
       %{field: field, value: value} when is_binary(field) ->
-        String.downcase(field) == "include_inactive" and normalize_bool(value) == true
+        String.downcase(field) == control and normalize_bool(value) == true
 
       _filter ->
         false
@@ -161,8 +190,11 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
 
   defp apply_filter(query, %{field: field, op: op, value: value}, opts) when is_binary(field) do
     cond do
-      String.downcase(field) == "include_inactive" ->
+      String.downcase(field) in ["include_inactive", "include_retired"] ->
         query
+
+      String.downcase(field) == "source_retired" ->
+        apply_source_retired_filter(query, op, normalize_bool(value))
 
       tag_field?(field, opts) ->
         tag_key = String.replace_prefix(field, "tags.", "")
@@ -229,6 +261,22 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
   end
 
   defp apply_standard_filter(query, _field, _op, _value), do: query
+
+  # `source_retired:true` selects the marked records, `source_retired:false` the unmarked ones; a
+  # negated op inverts the choice. A value that is not a boolean is skipped, as
+  # `filters_supported?/1` reports.
+  defp apply_source_retired_filter(%Ash.Query{resource: Device} = query, op, marked?)
+       when is_boolean(marked?) and op in @boolean_filter_ops do
+    negated? = op not in ["eq", "equals"]
+
+    if marked? == negated? do
+      Ash.Query.filter(query, is_nil(source_retired_at))
+    else
+      Ash.Query.filter(query, not is_nil(source_retired_at))
+    end
+  end
+
+  defp apply_source_retired_filter(query, _op, _marked?), do: query
 
   defp apply_tag_filter(query, tag_key, tag_value) do
     Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => tag_value}))

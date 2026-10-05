@@ -239,27 +239,25 @@ test-supervised processes inside test BEAMs only, never for deployed application
 - **AND** every all-async source SHALL appear exactly once in the async lane
 - **AND** every selected serial source SHALL appear exactly once in a serial lane
 - **AND** every load-only source SHALL appear in no ordinary lane
-- **AND** the eight-lane source/identity map and selected-test-count projection SHALL be checked in
-  and input-hashed
+- **AND** the eight-lane source map and its module-count projection SHALL be checked in and
+  input-hashed
 - **AND** no timing result SHALL retune that map
 
 #### Scenario: Serial lanes are deterministic and fixed external work is isolated
-- **GIVEN** the serial source set and exact selected serial test identities emitted by the
-  database-free ExUnit selection runner
+- **GIVEN** the serial source set and its per-source module counts from the disposition inventory
 - **WHEN** serial lanes are assigned
 - **THEN** every `fixed_external` source SHALL preseed `serial_0`
 - **AND** all remaining serial sources SHALL be ranked by descending deterministic LPT weight
-  `1 + selected_serial_test_identity_count` then source path
+  `1 + module_count` then source path
 - **AND** each ranked source SHALL select a lane by current load, then source count, then lane name
-- **AND** the checked-in counts SHALL exactly match the current selected identity union
-- **AND** no runtime duration SHALL enter the source weight
-- **AND** lane-order source counts SHALL be `[26, 22, 22, 23, 23, 22, 22]`
-- **AND** lane-order selected-test counts SHALL be `[185, 190, 190, 189, 189, 188, 188]`
-- **AND** lane-order structural loads SHALL be `[211, 212, 212, 212, 212, 210, 210]`
+- **AND** no per-file test count and no runtime duration SHALL enter the source weight, so adding or
+  removing a test case SHALL NOT change any checked-in projection
+- **AND** no serial lane's structural load SHALL exceed the mean by more than 25% or fall below it by
+  more than 25%
 - **AND** no async or other serial lane SHALL contain a fixed-external source
 
 #### Scenario: Ordinary provisioning uses one clone per lane
-- **WHEN** the ordinary core lifecycle invokes `provision_db`
+- **WHEN** the ordinary core lifecycle invokes `provision_generation`
 - **THEN** it SHALL clone exactly the frozen async and serial lane suffixes for that run
 - **AND** every database-facing test action SHALL retain local, non-cached execution
 - **AND** it SHALL NOT clone the large-ingestion database
@@ -323,7 +321,7 @@ none. The async lane uses ExUnit's cap-eight module scheduler. Serial placement 
 pre-measurement LPT rule and MUST NOT treat its relative source weights as wall-time forecasts.
 
 #### Scenario: Lane placement is deterministic
-- **GIVEN** complete source/module dispositions and exact selected serial test-identity counts
+- **GIVEN** complete source/module dispositions and per-source module counts
 - **WHEN** ordinary sources are placed repeatedly in different input orders
 - **THEN** every selected source SHALL appear in exactly one permitted lane
 - **AND** the resulting lane map SHALL be identical
@@ -394,7 +392,7 @@ of the ordinary wildcard's 114-slot workflow-wide preflight.
 
 #### Scenario: Focused heavy target uses a dedicated database
 - **GIVEN** one guarded run id and a current template
-- **WHEN** `provision_db_large_ingestion` and `large_ingestion_release_gate` run
+- **WHEN** `provision_generation_large_ingestion` and `large_ingestion_release_gate` run
 - **THEN** both targets SHALL derive the same `<run>_large_ingestion` database name
 - **AND** both targets SHALL declare the shared run-id file as data
 - **AND** the Elixir target SHALL load `integration_env.exs` before its test configuration loader
@@ -407,7 +405,7 @@ of the ordinary wildcard's 114-slot workflow-wide preflight.
 #### Scenario: Heavy capacity preflight includes bootstrap pools and direct migration connection
 - **GIVEN** the heavy target's parent Repo remains alive while cold bootstrap starts its child Repo
 - **WHEN** the BuildBuddy action starts its observer and waits for readiness before
-  `provision_db_large_ingestion`
+  `provision_generation_large_ingestion`
 - **THEN** the parent Repo pool size SHALL be exactly 12
 - **AND** the cold-bootstrap child Repo pool size SHALL be exactly 2
 - **AND** the direct Postgrex administrator connection opened by `StartupMigrations` SHALL count as
@@ -645,7 +643,7 @@ deployed application.
 - **AND** it SHALL require `sslmode=verify-full` plus the fixture CA
 - **AND** it SHALL target a disposable `sr_core_test_*` or `codex_*` database
 - **AND** it SHALL reject `demo`, production, the shared `srql_fixture` database, and the
-  `sr_core_template` database outside the typed template-migration lifecycle
+  retired `sr_core_template` database in every mode
 
 #### Scenario: Fixture configuration transport changes first
 - **GIVEN** config-manager adoption removes the current fixture environment bridge

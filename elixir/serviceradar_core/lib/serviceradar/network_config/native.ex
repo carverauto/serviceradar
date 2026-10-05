@@ -8,7 +8,12 @@ defmodule ServiceRadar.NetworkConfig.Native do
 
   use Rustler,
     otp_app: :serviceradar_core,
-    crate: "network_config_nif"
+    crate: "network_config_nif",
+    # Mix builds path dependencies in :prod, so Rustler compiles this crate in
+    # release mode, where the workspace profile sets panic = "abort". Scope
+    # unwinding to this Cargo invocation, as the Bazel build does with
+    # -Cpanic=unwind: the crate refuses to compile with panic=abort.
+    env: [{"CARGO_PROFILE_RELEASE_PANIC", "unwind"}]
 
   @type fact :: %{
           optional(:if_name) => String.t(),

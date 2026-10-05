@@ -26,7 +26,7 @@ defmodule ServiceRadar.CompositeChecks.Resolvers.DeviceMetadataTest do
         Map.put(base, DeviceMetadata.provenance_key(), %{
           "nac_applied" => %{
             "source" => "nco",
-            "updated_at" => @now |> DateTime.add(-seconds) |> DateTime.to_iso8601()
+            "updated_at" => @now |> DateTime.shift(second: -seconds) |> DateTime.to_iso8601()
           }
         })
     end

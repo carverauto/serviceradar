@@ -49,13 +49,24 @@ end
 
 plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
 
+# The URL minted into agent-facing artifact downloads. AGENT_PLUGIN_STORAGE_PUBLIC_URL
+# takes precedence, as in web-ng, so agents can be given an address they can reach (for
+# example the in-cluster gateway service when the load balancer has no hairpin NAT)
+# without changing the URL operators use from outside.
+agent_plugin_storage_public_url =
+  Enum.find_value(["AGENT_PLUGIN_STORAGE_PUBLIC_URL", "PLUGIN_STORAGE_PUBLIC_URL"], fn name ->
+    case System.get_env(name) do
+      nil -> nil
+      value -> if String.trim(value) == "", do: nil, else: String.trim(value)
+    end
+  end)
+
 plugin_storage_overrides =
   []
   |> then(fn acc ->
-    case System.get_env("PLUGIN_STORAGE_PUBLIC_URL") do
+    case agent_plugin_storage_public_url do
       nil -> acc
-      "" -> acc
-      value -> Keyword.put(acc, :public_url, String.trim(value))
+      value -> Keyword.put(acc, :public_url, value)
     end
   end)
   |> then(fn acc ->

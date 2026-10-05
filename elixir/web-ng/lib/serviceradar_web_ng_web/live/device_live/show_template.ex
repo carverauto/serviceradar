@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   import ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents
   import ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents
   import ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents
+  import ServiceRadarWebNGWeb.DeviceLive.FactProvenanceComponents
   import ServiceRadarWebNGWeb.DeviceLive.FlowComponents
   import ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents
   import ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents
@@ -40,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
+  alias ServiceRadarWebNGWeb.DeviceLive.SourceRetiredData
   alias ServiceRadarWebNGWeb.ObservabilityPaths
 
   def render(assigns) do
@@ -66,6 +68,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
       )
       |> assign(:device_ansible_managed, DeviceStateData.ansible_managed?(device_row))
       |> assign(:device_deleted, DeviceStateData.deleted?(device_row))
+      |> assign(:device_source_retired, SourceRetiredData.marked?(device_row))
       |> assign(
         :device_active,
         device_active_state(device_row, MetadataData.row_metadata(device_row))
@@ -127,6 +130,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           device_display_name={@device_display_name}
           agent_device={@agent_device}
           device_deleted={@device_deleted}
+          device_source_retired={@device_source_retired}
           device_active={@device_active}
           device_ansible_managed={@device_ansible_managed}
           can_run_ansible={@can_run_ansible}
@@ -154,6 +158,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             :if={is_map(@device_row) and not @editing}
             device_row={@device_row}
             device_deleted={@device_deleted}
+            source_retirement={@source_retirement}
             editing={@editing}
             snmp_polling_source={@snmp_polling_source}
             timezone={@current_scope.user.timezone || "Etc/UTC"}
@@ -201,6 +206,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               />
 
               <.metadata_summary_section
+                :if={is_map(@device_row)}
+                device_row={@device_row}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+              />
+
+              <.fact_provenance_section
                 :if={is_map(@device_row)}
                 device_row={@device_row}
                 timezone={@current_scope.user.timezone || "Etc/UTC"}
@@ -329,6 +340,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
               <.anomaly_capacity_section
                 :if={@can_view_anomaly_capacity}
+                loading={@metrics_loading}
                 overview={@anomaly_capacity}
                 anomaly_page={@anomaly_capacity_page}
                 anomaly_filters={@anomaly_capacity_filters}

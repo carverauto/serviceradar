@@ -68,7 +68,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
     assert attrs.binding_version == 7
     assert attrs.approval_id == @approval_id
     assert attrs.verified_at == @now
-    assert attrs.expires_at == DateTime.add(@now, 30, :second)
+    assert attrs.expires_at == DateTime.shift(@now, second: 30)
 
     {:ok, reviewed_digest} = AwxLaunchContract.digest(context.binding.reviewed_launch_snapshot)
     {:ok, target_digest} = expected_target_digest(request)
@@ -101,7 +101,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
     assert attestation.live_launch_snapshot_digest == result.preflight_digest
     assert attestation.command_result_digest == result.command_result_digest
     assert attestation.verified_at == @now
-    assert attestation.expires_at == DateTime.add(@now, 30, :second)
+    assert attestation.expires_at == DateTime.shift(@now, second: 30)
     refute Map.has_key?(attestation, :preflight)
     refute Map.has_key?(attestation, :request)
   end
@@ -250,16 +250,17 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
   end
 
   test "binds the assigned controller agent and clips evidence expiry to the reviewed approval" do
-    context = put_in(context(), [:binding, :approval_expires_at], DateTime.add(@now, 10, :second))
+    context =
+      put_in(context(), [:binding, :approval_expires_at], DateTime.shift(@now, second: 10))
 
     provenance = fn _controller, request, _opts -> {:ok, valid_result(request)} end
 
     assert {:ok, attestation} =
              LiveAwxLaunchPreflight.attest(context, options(provenance, evidence_resource()))
 
-    assert attestation.expires_at == DateTime.add(@now, 10, :second)
+    assert attestation.expires_at == DateTime.shift(@now, second: 10)
     assert_receive {:evidence, %{expires_at: expires_at}, _}
-    assert expires_at == DateTime.add(@now, 10, :second)
+    assert expires_at == DateTime.shift(@now, second: 10)
 
     bad_dispatcher = put_in(context(), [:dispatcher_identity, :agent_id], "agent-other")
 
@@ -305,7 +306,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
         current: true,
         approval_state: :approved,
         approval_id: @approval_id,
-        approval_expires_at: DateTime.add(@now, 300, :second),
+        approval_expires_at: DateTime.shift(@now, minute: 5),
         job_template_id: 42,
         project_id: 7,
         scm_revision: String.duplicate("a", 40),

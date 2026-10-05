@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
   use ServiceRadar.ObanEnsureScheduled,
     workers: [
       ServiceRadar.Observability.ThreatIntelFeedRefreshWorker,
+      ServiceRadar.Observability.ThreatIntelOTXSyncWorker,
       ServiceRadar.Observability.NetflowSecurityRefreshWorker,
       ServiceRadar.PrefixTags.ThreatIntelMaterializeWorker,
       ServiceRadar.PrefixTags.DnsPolicyMaterializeWorker

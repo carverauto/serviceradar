@@ -498,7 +498,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
           capabilities: ["sysmon"]
         })
 
-      set_last_seen!(stale_owner_uid, DateTime.add(DateTime.utc_now(), -3600, :second), actor)
+      set_observed!(stale_owner_uid, DateTime.shift(DateTime.utc_now(), hour: -1), actor)
 
       assert {:ok, current_uid} =
                AgentGatewaySync.ensure_device_for_agent(current_agent_id, %{
@@ -556,7 +556,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         |> Ash.Changeset.for_update(:mark_unavailable, %{})
         |> Ash.update(actor: actor)
 
-      set_last_seen!(gone_uid, DateTime.add(DateTime.utc_now(), -3600, :second), actor)
+      set_observed!(gone_uid, DateTime.shift(DateTime.utc_now(), hour: -1), actor)
 
       :ok = AgentGatewaySync.upsert_agent(agent_id, %{host: reused_ip, capabilities: ["sysmon"]})
 
@@ -593,7 +593,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       uniq = System.unique_integer([:positive, :monotonic])
       agent_id = "agent-no-partition-#{uniq}"
       shared_ip = unique_test_ip(uniq, 0)
-      earlier = DateTime.add(DateTime.utc_now(), -3600, :second)
+      earlier = DateTime.shift(DateTime.utc_now(), hour: -1)
 
       # Created first, so an unscoped lookup finds it first.
       other_uid = create_seen_device!("site-b", shared_ip, earlier, actor)
@@ -632,7 +632,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {moving_uid, holder_uid} =
         enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
 
-      set_last_seen!(holder_uid, DateTime.add(DateTime.utc_now(), -3600, :second), actor)
+      set_observed!(holder_uid, DateTime.shift(DateTime.utc_now(), hour: -1), actor)
 
       assert {:ok, ^moving_uid} =
                AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
@@ -672,11 +672,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {moving_uid, holder_uid} =
         enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
 
-      set_last_seen!(holder_uid, DateTime.add(DateTime.utc_now(), -7200, :second), actor)
+      set_observed!(holder_uid, DateTime.shift(DateTime.utc_now(), hour: -2), actor)
 
       set_agent_last_seen!(
         holder_agent_id,
-        DateTime.add(DateTime.utc_now(), -7200, :second),
+        DateTime.shift(DateTime.utc_now(), hour: -2),
         actor
       )
 
@@ -717,7 +717,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {moving_uid, holder_uid} =
         enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
 
-      set_last_seen!(holder_uid, DateTime.add(DateTime.utc_now(), 3600, :second), actor)
+      set_observed!(holder_uid, DateTime.shift(DateTime.utc_now(), hour: 1), actor)
 
       assert {:ok, ^moving_uid} =
                AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
@@ -743,6 +743,135 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         "preserve_source_identity_drop_conflicting_ip",
         actor
       )
+    end
+
+    # A sweep answering at the holder's address keeps refreshing its last_seen_time, here to
+    # after this check-in. Its last identity-bearing observation, its agent's last check-in, is
+    # two hours old, and that is what the check-in is compared with.
+    test "an existing agent check-in takes an address whose holder only a sweep has seen since",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      moving_agent_id = "agent-moving-#{uniq}"
+      holder_agent_id = "agent-holder-#{uniq}"
+      original_ip = unique_test_ip(uniq, 0)
+      held_ip = unique_test_ip(uniq, 1)
+      two_hours_ago = DateTime.shift(DateTime.utc_now(), hour: -2)
+
+      {moving_uid, holder_uid} =
+        enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
+
+      set_observed!(holder_uid, two_hours_ago, actor)
+      set_last_seen!(holder_uid, DateTime.shift(DateTime.utc_now(), hour: 1), actor)
+      set_agent_last_seen!(holder_agent_id, two_hours_ago, actor)
+
+      assert {:ok, ^moving_uid} =
+               AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
+                 hostname: "moving-host-#{uniq}",
+                 source_ip: held_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      {:ok, moving_device} = Device.get_by_uid(moving_uid, false, actor: actor)
+      {:ok, holder_device} = Device.get_by_uid(holder_uid, false, actor: actor)
+
+      assert moving_device.ip == held_ip
+      assert is_nil(holder_device.ip)
+      assert is_nil(holder_device.deleted_at)
+
+      assert_ip_conflict_recorded(
+        moving_uid,
+        holder_uid,
+        held_ip,
+        "preserve_source_identity_release_stale_ip",
+        actor,
+        "holder_stale"
+      )
+    end
+
+    # A sweep seed is nothing but its address, so the check-in that takes the address
+    # soft-deletes it as seed_released (add-source-id-succession D8).
+    test "an existing agent check-in takes a sweep seed's address and the seed is retired",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      agent_id = "agent-moving-#{uniq}"
+      original_ip = unique_test_ip(uniq, 0)
+      seeded_ip = unique_test_ip(uniq, 1)
+      attrs = %{hostname: "moving-host-#{uniq}", partition: "default", capabilities: ["sysmon"]}
+
+      :ok =
+        AgentGatewaySync.upsert_agent(agent_id, %{host: original_ip, capabilities: ["sysmon"]})
+
+      {:ok, device_uid} =
+        AgentGatewaySync.ensure_device_for_agent(
+          agent_id,
+          Map.put(attrs, :source_ip, original_ip)
+        )
+
+      seed_uid = "sr:" <> Ecto.UUID.generate()
+
+      {:ok, _seed} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: seed_uid,
+          ip: seeded_ip,
+          partition: "default",
+          discovery_sources: ["sweep"],
+          metadata: %{"identity_state" => "provisional", "identity_source" => "sweep_ip_seed"}
+        })
+        |> Ash.create(actor: actor)
+
+      assert {:ok, ^device_uid} =
+               AgentGatewaySync.ensure_device_for_agent(
+                 agent_id,
+                 Map.put(attrs, :source_ip, seeded_ip)
+               )
+
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+      assert device.ip == seeded_ip
+
+      assert {:error, _} = Device.get_by_uid(seed_uid, false, actor: actor)
+      {:ok, seed} = Device.get_by_uid(seed_uid, true, actor: actor)
+      assert seed.deleted_reason == "seed_released"
+      assert is_nil(seed.ip)
+
+      assert_ip_conflict_recorded(
+        device_uid,
+        seed_uid,
+        seeded_ip,
+        "preserve_source_identity_release_stale_ip",
+        actor,
+        "holder_stale"
+      )
+    end
+
+    # A check-in is an identity-bearing observation (DeviceWrites.observed_after?/2).
+    test "a check-in records when the agent observed its device", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      agent_id = "agent-observed-#{uniq}"
+      ip = unique_test_ip(uniq, 0)
+
+      attrs = %{
+        hostname: "observed-host-#{uniq}",
+        source_ip: ip,
+        partition: "default",
+        capabilities: ["sysmon"]
+      }
+
+      before = DateTime.shift(DateTime.utc_now(), second: -1)
+      :ok = AgentGatewaySync.upsert_agent(agent_id, %{host: ip, capabilities: ["sysmon"]})
+
+      assert {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+      {:ok, created} = Device.get_by_uid(device_uid, false, actor: actor)
+      assert %DateTime{} = created.identity_observed_at
+      assert DateTime.after?(created.identity_observed_at, before)
+
+      earlier = DateTime.shift(DateTime.utc_now(), hour: -1)
+      set_observed!(device_uid, earlier, actor)
+
+      assert {:ok, ^device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+      {:ok, checked_in} = Device.get_by_uid(device_uid, false, actor: actor)
+      assert DateTime.after?(checked_in.identity_observed_at, earlier)
     end
 
     test "a new agent does not release an address held in another partition", %{actor: actor} do
@@ -797,7 +926,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
                  ip: held_ip,
                  discovery_sources: ["armis"],
                  metadata: %{"armis_device_id" => armis_id, "integration_type" => "armis"},
-                 last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second),
+                 last_seen_time: DateTime.shift(DateTime.utc_now(), hour: -1),
                  is_available: true
                })
                |> Ash.create(actor: actor)
@@ -886,7 +1015,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       )
     end
 
-    test "marks older duplicate-prefix agent unavailable when reenrollment resolves to same device",
+    test "supersedes an older duplicate-prefix agent when reenrollment resolves to the same device",
          %{
            unique_id: unique_id,
            actor: actor
@@ -910,6 +1039,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(old_agent_id, attrs)
 
+      set_agent_last_seen!(
+        old_agent_id,
+        DateTime.shift(DateTime.utc_now(), day: -1),
+        actor
+      )
+
       :ok =
         AgentGatewaySync.upsert_agent(replacement_agent_id, %{
           host: source_ip,
@@ -922,12 +1057,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
       {:ok, replacement_agent} = Agent.get_by_uid(replacement_agent_id, actor: actor)
 
-      assert old_agent.status == :unavailable
+      assert old_agent.status == :superseded
+      assert old_agent.superseded_by == replacement_agent_id
       assert replacement_agent.status == :connected
       assert replacement_agent.device_uid == device_uid
     end
 
-    test "marks older renamed agent unavailable when reenrollment resolves to same device",
+    test "supersedes an older renamed agent when reenrollment resolves to the same device",
          %{
            unique_id: unique_id,
            actor: actor
@@ -951,6 +1087,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(old_agent_id, attrs)
 
+      set_agent_last_seen!(
+        old_agent_id,
+        DateTime.shift(DateTime.utc_now(), day: -1),
+        actor
+      )
+
       :ok =
         AgentGatewaySync.upsert_agent(replacement_agent_id, %{
           host: source_ip,
@@ -963,12 +1105,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
       {:ok, replacement_agent} = Agent.get_by_uid(replacement_agent_id, actor: actor)
 
-      assert old_agent.status == :unavailable
+      assert old_agent.status == :superseded
+      assert old_agent.superseded_by == replacement_agent_id
       assert replacement_agent.status == :connected
       assert replacement_agent.device_uid == device_uid
     end
 
-    test "retires unlinked same-host stale agent and transfers active assignments",
+    test "supersedes a quiet same-device agent and transfers active assignments",
          %{
            unique_id: unique_id,
            actor: actor
@@ -1002,6 +1145,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
                Agent
                |> Ash.Query.for_read(:by_uid, %{uid: old_agent_id})
                |> Ash.read_one(actor: assignment_actor)
+
+      # The host MAC is what makes the replacement the same device. A shared
+      # address alone must not retire the previous identity.
+      host_mac = "00:00:5e:00:53:4c"
+
+      {:ok, device_uid} =
+        AgentGatewaySync.ensure_device_for_agent(old_agent_id, %{
+          hostname: "current-#{unique_id}",
+          source_ip: source_ip,
+          partition: partition,
+          capabilities: ["mapper", "sweep"],
+          host_macs: [host_mac]
+        })
 
       {:ok, mapper_job} =
         MapperJob
@@ -1090,12 +1246,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         )
         |> Ash.create(actor: assignment_actor)
 
-      assert {:ok, _device_uid} =
+      set_agent_last_seen!(
+        old_agent_id,
+        DateTime.shift(DateTime.utc_now(), day: -1),
+        actor
+      )
+
+      assert {:ok, ^device_uid} =
                AgentGatewaySync.ensure_device_for_agent(replacement_agent_id, %{
                  hostname: "current-#{unique_id}",
                  source_ip: source_ip,
                  partition: partition,
-                 capabilities: ["mapper", "sweep"]
+                 capabilities: ["mapper", "sweep"],
+                 host_macs: [host_mac]
                })
 
       {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
@@ -1108,7 +1271,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, updated_replacement_present_group} =
         Ash.get(SweepGroup, replacement_present_group.id, actor: actor)
 
-      assert old_agent.status == :unavailable
+      assert old_agent.status == :superseded
+      assert old_agent.superseded_by == replacement_agent_id
       assert updated_mapper_job.agent_id == replacement_agent_id
       assert updated_first_member_group.agent_ids == [replacement_agent_id, late_other_agent_id]
 
@@ -1405,6 +1569,20 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     {:ok, _device} =
       device
       |> Ash.Changeset.for_update(:gateway_sync, %{last_seen_time: last_seen_time})
+      |> Ash.update(actor: actor)
+  end
+
+  # The device was last seen, and last observed with an identity (its agent's check-in), at
+  # `observed_at`.
+  defp set_observed!(device_uid, observed_at, actor) do
+    {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+
+    {:ok, _device} =
+      device
+      |> Ash.Changeset.for_update(:gateway_sync, %{
+        last_seen_time: observed_at,
+        identity_observed_at: observed_at
+      })
       |> Ash.update(actor: actor)
   end
 

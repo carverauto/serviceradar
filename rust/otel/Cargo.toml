@@ -44,3 +44,6 @@ tonic-prost-build = { workspace = true }
 # no new crate version.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

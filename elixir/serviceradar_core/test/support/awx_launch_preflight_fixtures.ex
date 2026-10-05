@@ -150,7 +150,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchPreflightFixtures do
         current: true,
         approval_state: :approved,
         approval_id: @approval_id,
-        approval_expires_at: DateTime.add(@now, 10 * 60, :second),
+        approval_expires_at: DateTime.shift(@now, minute: 10),
         inventory_id: 8,
         allowed_inventory_ids: [8],
         inventory_group_names: ["linux"],
@@ -237,7 +237,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchPreflightFixtures do
         live_launch_snapshot_digest: String.duplicate("d", 64),
         command_result_digest: String.duplicate("e", 64),
         verified_at: @now,
-        expires_at: DateTime.add(@now, 60, :second)
+        expires_at: DateTime.shift(@now, minute: 1)
       },
       overrides
     )

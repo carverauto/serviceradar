@@ -89,7 +89,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
     if accepted_metric_ids == [] or if_indexes == [] do
       %{}
     else
-      since = DateTime.add(DateTime.utc_now(), -@telemetry_window_minutes * 60, :second)
+      since = DateTime.shift(DateTime.utc_now(), minute: -@telemetry_window_minutes)
 
       rows =
         MetricConsumers.fetch(

@@ -23,7 +23,8 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "scans.read") do
-      if connected?(socket), do: Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
+      connected? = connected?(socket)
+      if connected?, do: Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
 
       {:ok,
        socket
@@ -31,8 +32,10 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
        |> assign(:page_path, "/scans")
        |> assign(:can_execute, RBAC.can?(scope, "scans.execute"))
        |> assign(:can_add_devices, RBAC.can_any?(scope, ["devices.create", "devices.import"]))
-       |> assign(:agents, list_agents())
-       |> assign(:restrict_to_inventory, restrict_to_inventory?(scope))
+       # Agents, scan policy and recent runs load on the connected render only;
+       # the static render is discarded on connect.
+       |> assign(:agents, if(connected?, do: list_agents(), else: []))
+       |> assign(:restrict_to_inventory, connected? and restrict_to_inventory?(scope))
        |> assign(:form, default_form())
        |> assign(:valid_targets, [])
        |> assign(:invalid_targets, [])
@@ -42,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
        |> assign(:scan_run, nil)
        |> assign(:scan_command_id, nil)
        |> assign(:results, [])
-       |> assign(:runs, load_runs(scope))
+       |> assign(:runs, if(connected?, do: load_runs(scope), else: []))
        |> assign(:error, nil)}
     else
       {:ok,

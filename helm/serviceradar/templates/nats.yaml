@@ -9,12 +9,12 @@
 {{- $persistence := default (dict) $nats.persistence -}}
 {{- $jetstream := default (dict) $nats.jetstream -}}
 {{- $replicas := int (default 1 $nats.replicas) -}}
+{{- $leafnodes := default (dict) $nats.leafnodes -}}
+{{- $leafnodesEnabled := default false $leafnodes.enabled -}}
+{{- $leafnodesPort := int (default 7422 $leafnodes.port) -}}
 {{- $clusterName := default "serviceradar" $nats.clusterName -}}
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
 {{- $flowCollector := default (dict) .Values.flowCollector -}}
-{{- $flowCollectorConfig := default (dict) $flowCollector.config -}}
-{{- $flowTemplateStore := default (dict) $flowCollectorConfig.template_store -}}
-{{- $flowTemplateBucket := default "flow_templates" $flowTemplateStore.kv_bucket -}}
 {{- $datasvc := default (dict) .Values.datasvc -}}
 {{- $objectBucket := default "serviceradar-objects" $datasvc.objectBucket -}}
 {{- $webNg := default (dict) .Values.webNg -}}
@@ -64,6 +64,11 @@ spec:
   - name: cluster
     port: 6222
     targetPort: cluster
+  {{- if $leafnodesEnabled }}
+  - name: leafnodes
+    port: {{ $leafnodesPort }}
+    targetPort: leafnodes
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -141,6 +146,28 @@ spec:
             verify: true
             verify_and_map: true
           }
+          {{- if $leafnodesEnabled }}
+
+          # Edge-site leaf servers. TLS terminates here (a Gateway API route,
+          # when enabled, passes raw TCP). verify_and_map requires a client
+          # certificate from the internal CA and binds only certificates that
+          # carry the partition leaf role URI SAN to the platform account.
+          leafnodes {
+            port: {{ $leafnodesPort }}
+            tls {
+              cert_file: "/etc/serviceradar/certs/nats.pem"
+              key_file: "/etc/serviceradar/certs/nats-key.pem"
+              ca_file: "/etc/serviceradar/certs/root.pem"
+              verify_and_map: true
+              timeout: 5
+            }
+            authorization {
+              users: [
+                { user: "spiffe://serviceradar.local/nats-leaf/{{ $partitionId }}", account: SERVICERADAR }
+              ]
+            }
+          }
+          {{- end }}
 
           {{- if gt $replicas 1 }}
           cluster {
@@ -178,9 +205,11 @@ spec:
                 }
               },
               # Web-NG owns browser/API-facing object-store workflows such as
-              # plugin WASM/dashboard package imports and FieldSurvey artifacts.
-              # Keep this identity scoped to object-store and JetStream control
-              # subjects instead of reusing the broader core identity.
+              # plugin WASM/dashboard package imports and FieldSurvey artifacts,
+              # and it publishes the internal logs, OCSF events, and analytics
+              # signals that core code in this release emits. It does not
+              # publish the notifications.* firehose. Do not reuse the core
+              # identity for this user.
               {
                 user: "CN=serviceradar-web-ng,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
@@ -190,6 +219,15 @@ spec:
                       "\$JS.FC.OBJ_{{ $pluginBucket }}.>",
                       "\$O.{{ $fieldSurveyBucket }}.>",
                       "\$JS.FC.OBJ_{{ $fieldSurveyBucket }}.>",
+                      # Internal audit/onboarding logs, OCSF events and analytics
+                      # signals that core code running inside the web-ng release
+                      # publishes (AuditWriter from UI actions, inventory events,
+                      # ObanFailureEventReporter, SignalPublisher). Without these
+                      # the broker rejects the publish with a Permissions
+                      # Violation and DurablePublishWorker retries it.
+                      "logs.internal.>",
+                      "events.internal.>",
+                      "signals.analytics.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
@@ -215,8 +253,9 @@ spec:
               },
               # Core platform service: manages JetStream streams/consumers,
               # publishes normalized platform subjects, and uses request/reply
-              # inboxes. Attributed-flow DB writes are in-process/in-cluster
-              # and no longer publish/read back through flow.attributed.*.
+              # inboxes. Flow attribution observations go out on
+              # flows.attribution.observations; nothing reads back through
+              # flow.attributed.*.
               {
                 user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
@@ -251,6 +290,16 @@ spec:
                       # The publish waits for a PubAck, so a missing entry here
                       # fails loudly rather than dropping traces.
                       "mtr.results.>",
+                      # Flow process attribution observations
+                      # (FlowAttribution.Observations). Core publishes them on
+                      # the flows stream; EventWriter loads them into the
+                      # warehouse. The publish waits for a PubAck, so a missing
+                      # entry fails the admitted batch instead of dropping it.
+                      "flows.attribution.observations",
+                      # Flow attribution correlator health
+                      # (FlowAttribution.PassMetrics), a metric envelope that
+                      # EventWriter persists from the metrics stream.
+                      "metrics.flow_attribution",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
@@ -408,10 +457,10 @@ spec:
                 user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["flows.raw.>", "flow.host-slice.>", "\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                    allow: ["flows.raw.>", "flow.host-slice.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -419,10 +468,10 @@ spec:
                 user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["flows.raw.>", "\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                    allow: ["flows.raw.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.>", "_INBOX.>"]
+                    allow: ["\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -509,6 +558,10 @@ spec:
           name: monitoring
         - containerPort: 6222
           name: cluster
+        {{- if $leafnodesEnabled }}
+        - containerPort: {{ $leafnodesPort }}
+          name: leafnodes
+        {{- end }}
         volumeMounts:
         - name: tmp
           mountPath: /tmp

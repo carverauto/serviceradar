@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksVisualCaptureTest do
         device_uid: device_uid,
         agent_id: agent_id,
         is_available: is_available,
-        checked_at: DateTime.add(DateTime.utc_now(), -90, :second)
+        checked_at: DateTime.shift(DateTime.utc_now(), second: -90)
       },
       actor: system_actor()
     )

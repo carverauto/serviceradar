@@ -17,6 +17,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.TokenRevocation
+  alias ServiceRadarWebNG.Homepage
+  alias ServiceRadarWebNGWeb.Plugs.ApiAuth
+  alias ServiceRadarWebNGWeb.Plugs.RequireConfigurationScope
 
   require Logger
 
@@ -24,6 +27,13 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   @session_started_key :session_started_at
   @user_token_key "user_token"
   @identity_claims_key "identity_claims"
+  @api_path_prefixes [["api"], ["topology"], ["v1", "stream"]]
+  # These POST endpoints only query or analyze caller-supplied data. Every
+  # other POST through UserAuth requires a write or an explicit narrow grant.
+  @read_only_api_post_paths [
+    ["api", "query"],
+    ["api", "admin", "topology", "route-analysis"]
+  ]
   @sudo_at_key "sudo_authenticated_at"
   @sensitive_identity_claim_keys ~w[
     access_token
@@ -46,12 +56,11 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   broadcasting disconnects on logout.
   """
   def log_in_user(conn, user, params \\ %{}) do
-    raw_return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/dashboard"
-    return_to = sanitize_return_path(raw_return_to)
+    return_to = sanitize_return_path(get_session(conn, :user_return_to) || params["return_to"])
 
     case put_user_session(conn, user, params) do
       {:ok, conn} ->
-        redirect(conn, to: return_to)
+        redirect_after_log_in(conn, user, params, return_to)
 
       {:error, _reason} ->
         conn
@@ -59,6 +68,27 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         |> redirect(to: ~p"/users/log-in")
     end
   end
+
+  # A deep link always wins; otherwise the configured homepage does
+  # (add-configurable-default-homepage, D2). The homepage is resolved with the
+  # signing-in user's own scope, so a dashboard they cannot open is skipped.
+  defp redirect_after_log_in(conn, _user, _params, return_to) when is_binary(return_to) do
+    redirect(conn, to: return_to)
+  end
+
+  defp redirect_after_log_in(conn, user, params, nil) do
+    landing = Homepage.resolve(create_scope(user, identity_claims: params_identity_claims(params)))
+
+    conn
+    |> maybe_flash_unavailable_homepage(landing)
+    |> redirect(to: landing.path)
+  end
+
+  defp maybe_flash_unavailable_homepage(conn, %{user_homepage_unavailable?: true}) do
+    put_flash(conn, :info, "Your homepage dashboard is no longer available; showing the default.")
+  end
+
+  defp maybe_flash_unavailable_homepage(conn, _landing), do: conn
 
   @doc """
   Establishes a Guardian-backed browser session without redirecting.
@@ -339,8 +369,19 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     # refresh tokens. Pinning `token_type: "access"` rejected every
     # OAuth-issued bearer token with `authentication_required`.
     case Guardian.verify_token(token) do
-      {:ok, user, _claims} ->
-        assign(conn, :current_scope, create_scope(user, identity_claims: %{}))
+      {:ok, user, claims} ->
+        conn = assign(conn, :current_scope, create_scope(user, identity_claims: %{}))
+
+        if claims["typ"] == "api" do
+          conn
+          |> assign(:oauth_token_scope, ApiAuth.oauth_scope_string(claims))
+          |> RequireConfigurationScope.call(
+            path_prefixes: @api_path_prefixes,
+            read_only_post_paths: @read_only_api_post_paths
+          )
+        else
+          conn
+        end
 
       {:error, reason} ->
         log_session_failure(conn, reason)
@@ -560,9 +601,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   @doc "Returns the path to redirect to after log in."
-  # the user was already logged in, redirect to dashboard
-  def signed_in_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: %{id: _}}}}) do
-    ~p"/dashboard"
+  # The user was already logged in: send them to their resolved homepage.
+  def signed_in_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: %{id: _}} = scope}}) do
+    Homepage.resolve(scope).path
   end
 
   def signed_in_path(_), do: ~p"/"
@@ -669,23 +710,25 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     end
   end
 
+  # Returns nil for a missing or unsafe path, so the caller falls back to the
+  # configured homepage instead of a hard-coded page.
   defp sanitize_return_path(path) when is_binary(path) do
     trimmed = String.trim(path)
 
     cond do
       trimmed == "/analytics" -> ~p"/dashboard"
       # Must start with a single forward slash (relative path)
-      not String.starts_with?(trimmed, "/") -> ~p"/dashboard"
+      not String.starts_with?(trimmed, "/") -> nil
       # Block protocol-relative URLs (//evil.com)
-      String.starts_with?(trimmed, "//") -> ~p"/dashboard"
+      String.starts_with?(trimmed, "//") -> nil
       # Block backslash variants (\\evil.com works in some browsers)
-      String.contains?(trimmed, "\\") -> ~p"/dashboard"
+      String.contains?(trimmed, "\\") -> nil
       # Safe relative path
       true -> trimmed
     end
   end
 
-  defp sanitize_return_path(_), do: ~p"/dashboard"
+  defp sanitize_return_path(_), do: nil
 
   defp oban_running? do
     case Oban.Registry.whereis(Oban) do

@@ -58,7 +58,9 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
     system: system,
     assignment_id: assignment_id
   } do
-    now = ~U[2026-09-27 12:00:00.000000Z]
+    # Anchor to the wall clock: delivery keeps overrides only until 7 days after they
+    # expire, so a fixed date stops being deliverable a week after it was written.
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     payload = %{
       "status" => "succeeded",
@@ -138,8 +140,8 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
                  plugin_assignment_id: assignment_id,
                  override_id: "fault-1",
                  kind: "jam",
-                 starts_at: DateTime.add(now, -600),
-                 expires_at: DateTime.add(now, -60)
+                 starts_at: DateTime.shift(now, minute: -10),
+                 expires_at: DateTime.shift(now, minute: -1)
                },
                actor: system
              )
@@ -164,8 +166,8 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
     now = DateTime.utc_now()
 
     for {id, starts_at, expires_at} <- [
-          {"expired", DateTime.add(now, -600), DateTime.add(now, -60)},
-          {"active", DateTime.add(now, -60), DateTime.add(now, 600)}
+          {"expired", DateTime.shift(now, minute: -10), DateTime.shift(now, minute: -1)},
+          {"active", DateTime.shift(now, minute: -1), DateTime.shift(now, minute: 10)}
         ] do
       assert {:ok, _} =
                PluginRunOverride.record(

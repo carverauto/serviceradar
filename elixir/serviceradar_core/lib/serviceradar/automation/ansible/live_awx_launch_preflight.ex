@@ -542,7 +542,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
          true <- valid_utc_datetime?(verified_at) || {:error, :invalid_preflight_clock} do
       expiry =
         verified_at
-        |> DateTime.add(ttl_seconds, :second)
+        |> DateTime.shift(second: ttl_seconds)
         |> earliest(approval_expires_at)
 
       if DateTime.after?(expiry, verified_at),

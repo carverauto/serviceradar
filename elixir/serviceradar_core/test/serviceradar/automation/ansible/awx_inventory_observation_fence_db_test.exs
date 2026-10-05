@@ -297,7 +297,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
           "source" => "awx",
           "observed_at" =>
             DateTime.to_iso8601(
-              DateTime.add(~U[2031-01-02 03:04:05.000000Z], generation, :second)
+              DateTime.shift(~U[2031-01-02 03:04:05.000000Z], second: generation)
             ),
           "collection_id" => "synthetic-observation-#{generation}",
           "metadata" => %{

@@ -200,7 +200,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
             :sha256
             |> :crypto.hash("ticket-#{System.unique_integer([:positive])}")
             |> Base.encode16(case: :lower),
-          attach_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          attach_expires_at: DateTime.shift(DateTime.utc_now(), minute: 5),
           device_uid: "recording-api-device-#{System.unique_integer([:positive])}",
           target_kind: :inventory_device,
           target_host: "recording-api.example.test",
@@ -275,7 +275,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
             :sha256
             |> :crypto.hash("ticket-#{System.unique_integer([:positive])}")
             |> Base.encode16(case: :lower),
-          attach_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          attach_expires_at: DateTime.shift(DateTime.utc_now(), minute: 5),
           device_uid: "recording-api-device-#{System.unique_integer([:positive])}",
           target_kind: :inventory_device,
           target_host: "recording-api.example.test",

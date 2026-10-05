@@ -205,6 +205,50 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // The 10:00 bucket covers 10:00-11:00 and overlaps a window starting at
+            // 10:30; the 09:00 and 12:00 buckets lie wholly outside it.
+            query: "in:endpoint_packages time:[2026-01-05T10:30:00Z,2026-01-05T11:15:00Z] rollup_stats:package_counts_hourly name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let bucket = body["results"][0]["bucket"].as_str().unwrap_or_default();
+                assert!(
+                    bucket.starts_with("2026-01-05T10:00:00"),
+                    "expected the overlapping 10:00 bucket, got {bucket}"
+                );
+            })),
+        },
+        TestCase {
+            // Only the 10:05 bucket (10:05-10:10) overlaps 10:07:30-10:12:00.
+            query: "in:services time:[2026-01-05T10:07:30Z,2026-01-05T10:12:00Z] rollup_stats:availability service_name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 1, "body: {body}");
+            })),
+        },
+        TestCase {
+            // Only the 10:05 bucket (10:05-10:10) overlaps 10:07:30-10:12:00.
+            query: "in:traces time:[2026-01-05T10:07:30Z,2026-01-05T10:12:00Z] rollup_stats:summary service_name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 1, "body: {body}");
+            })),
+        },
+        TestCase {
+            // Only the 10:00 bucket (10:00-11:00) overlaps 10:30-11:15.
+            query: "in:traces time:[2026-01-05T10:30:00Z,2026-01-05T11:15:00Z] rollup_stats:red service_name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 1, "body: {body}");
+            })),
+        },
+        TestCase {
+            query: "in:logs time:[2026-01-05T10:07:30Z,2026-01-05T10:12:00Z] rollup_stats:severity service_name:overlap-probe",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 1, "body: {body}");
+            })),
+        },
+        TestCase {
             query: "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:current-package-set",
             expected_count: 1,
             validator: Some(Box::new(|body| {
@@ -477,6 +521,50 @@ async fn comprehensive_queries_match_fixtures() {
             validator: Some(Box::new(|body| {
                 assert_eq!(body["results"][0]["uid"], "device-beta");
                 assert_eq!(body["results"][0]["is_active"], false);
+            })),
+        },
+        TestCase {
+            // device-retired (45m) is live but marked source_retired, so only
+            // include_retired:true lists it beside alpha (30m).
+            query: "in:devices include_retired:true time:last_1h",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let mut rows: Vec<_> = body["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| {
+                        (
+                            row["uid"].as_str().unwrap(),
+                            row["source_retired_at"].is_string(),
+                        )
+                    })
+                    .collect();
+                rows.sort_unstable();
+                assert_eq!(rows, vec![("device-alpha", false), ("device-retired", true)]);
+            })),
+        },
+        TestCase {
+            // A source_retired: filter replaces the default and selects the marked records.
+            query: "in:devices source_retired:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-retired")
+            })),
+        },
+        TestCase {
+            // A count hides the marked record as well: alpha, gamma and delta are active.
+            query: "in:devices stats:count() as total",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 3)
+            })),
+        },
+        TestCase {
+            query: "in:devices include_retired:true stats:count() as total",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["total"], 4)
             })),
         },
         TestCase {

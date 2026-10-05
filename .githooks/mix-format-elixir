@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Format staged Elixir files from their Mix project, then fail the commit if
-# that project (or any other first-party Mix project with deps) is still
-# unformatted.
+# Format staged Elixir files before the commit is created, then re-stage them.
 #
-# CI runs `mix format --check-formatted` per project in scripts/elixir_quality.sh.
-# The previous hook always exited 0 (`|| true`) and skipped any project without
-# deps/styler, so an unformatted line in a project you did not `mix deps.get`
-# went straight to a red PR.
+# CI rejects the whole Elixir Quality run on one unformatted line. This hook
+# fixes that line first.
+#
+# Fast path: the Mix project's deps/styler is installed, so `mix format` on the
+# staged files matches that project's .formatter.exs.
+# Otherwise: `bazel run --config=remote //elixir/<project>:format`, the same
+# hermetic formatter Elixir Quality tells you to run. It does not need a local
+# deps/ tree. Set SERVICERADAR_SKIP_ELIXIR_FORMAT=1 to commit without it.
 #
 # POSIX/bash-3 friendly: macOS /bin/bash is 3.2 and has no associative arrays.
 
@@ -17,6 +19,7 @@ cd "$root"
 
 fail=0
 staged_projects=""
+bazel_projects=""
 
 contains_project() {
   case " $1 " in
@@ -30,6 +33,13 @@ add_project() {
     return 0
   fi
   staged_projects="${staged_projects} $1"
+}
+
+add_bazel_project() {
+  if contains_project "$bazel_projects" "$1"; then
+    return 0
+  fi
+  bazel_projects="${bazel_projects} $1"
 }
 
 mix_project_for() {
@@ -54,6 +64,41 @@ relpath() {
   esac
 }
 
+ensure_bazelrc() {
+  if [ -f .bazelrc.remote ]; then
+    return 0
+  fi
+  src="${SERVICERADAR_BAZELRC_DIR:-$HOME/src/serviceradar}"
+  if [ -f "$src/.bazelrc.remote" ]; then
+    ln -s "$src/.bazelrc.remote" .bazelrc.remote
+  fi
+  if [ ! -e .bazelrc.local ] && [ -f "$src/.bazelrc.local" ]; then
+    ln -s "$src/.bazelrc.local" .bazelrc.local
+  fi
+  if [ ! -f .bazelrc.remote ]; then
+    echo "mix format: .bazelrc.remote is missing, so the hermetic formatter cannot run." >&2
+    echo "  Link it from the primary clone, or set SERVICERADAR_BAZELRC_DIR." >&2
+    return 1
+  fi
+}
+
+format_with_bazel() {
+  local d=$1
+  if [ ! -f "$d/BUILD.bazel" ] || ! grep -q 'elixir_quality(' "$d/BUILD.bazel"; then
+    echo "mix format: cannot format $d" >&2
+    echo "  No deps/styler and no //$d:format target. Run: (cd $d && mix deps.get)" >&2
+    return 1
+  fi
+  ensure_bazelrc || return 1
+  echo "mix format: $d has no deps/styler; running bazel run --config=remote //$d:format" >&2
+  bazel run --config=remote "//$d:format"
+}
+
+if [ "${SERVICERADAR_SKIP_ELIXIR_FORMAT:-}" = 1 ]; then
+  echo "mix format: SERVICERADAR_SKIP_ELIXIR_FORMAT=1, leaving staged Elixir unformatted." >&2
+  exit 0
+fi
+
 for raw in "$@"; do
   f=$(relpath "$raw")
   d=$(mix_project_for "$f")
@@ -62,10 +107,7 @@ for raw in "$@"; do
   fi
 
   if [ ! -d "$d/deps/styler" ]; then
-    echo "mix format: cannot format $f" >&2
-    echo "  $d/deps/styler is missing. Run: (cd $d && mix deps.get)" >&2
-    echo "  Skipping lets CI fail later on mix format --check-formatted." >&2
-    fail=1
+    add_bazel_project "$d"
     continue
   fi
 
@@ -75,6 +117,21 @@ for raw in "$@"; do
     fail=1
     continue
   fi
+  git add -- "$f"
+  add_project "$d"
+done
+
+for d in $bazel_projects; do
+  if ! format_with_bazel "$d"; then
+    fail=1
+    continue
+  fi
+  for raw in "$@"; do
+    f=$(relpath "$raw")
+    case "$f" in
+      "$d"/*) git add -- "$f" ;;
+    esac
+  done
   add_project "$d"
 done
 
@@ -85,25 +142,13 @@ check_project() {
   fi
   if ! (cd "$d" && mix format --check-formatted); then
     echo "mix format --check-formatted failed in $d" >&2
-    echo "  CI will fail this project. Run: (cd $d && mix format)" >&2
+    echo "  Run: (cd $d && mix format)" >&2
     return 1
   fi
 }
 
 for d in $staged_projects; do
-  check_project "$d" || fail=1
-done
-
-# CI format-checks every Mix project, not only the one you staged. Catch dirt
-# in sibling projects when their deps are present; warn when they are not.
-for mix in elixir/*/mix.exs; do
-  [ -f "$mix" ] || continue
-  d=${mix%/mix.exs}
-  if contains_project "$staged_projects" "$d"; then
-    continue
-  fi
-  if [ ! -d "$d/deps/styler" ]; then
-    echo "mix format: not checking $d (no deps/styler; CI still will)" >&2
+  if contains_project "$bazel_projects" "$d"; then
     continue
   fi
   check_project "$d" || fail=1

@@ -71,8 +71,9 @@ mod tests;
 #[cfg(test)]
 pub(crate) use cagg::should_route_to_hourly_cagg;
 pub(crate) use cagg::{
-    cagg_column_for_entity, cagg_table_for_entity, hourly_cagg_lower_bound_clause,
-    hourly_cagg_upper_bound_clause, max_time_range_days_for_ast, should_route_plan_to_hourly_cagg,
+    bucket_overlap_clause, cagg_column_for_entity, cagg_table_for_entity,
+    hourly_cagg_lower_bound_clause, hourly_cagg_upper_bound_clause, max_time_range_days_for_ast,
+    should_route_plan_to_hourly_cagg,
 };
 pub use engine::QueryEngine;
 pub(crate) use filters_common::{

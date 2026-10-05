@@ -121,6 +121,31 @@ func buildConfigRetrieveResult(cfg RunningConfig, artifact *sdk.ArtifactCommitRe
 		WithDetails(string(details))
 }
 
+func buildConfigRetrieveBatchResult(results []*sdk.Result, stageError error) *sdk.Result {
+	// Preserve the established single-device result shape.
+	if stageError == nil && len(results) == 1 {
+		return results[0]
+	}
+	entries := make([]map[string]any, 0, len(results))
+	for _, result := range results {
+		var details map[string]any
+		_ = json.Unmarshal([]byte(result.Details), &details)
+		entries = append(entries, details)
+	}
+	details, _ := json.Marshal(map[string]any{
+		"kind":            "running_config",
+		"running_configs": entries,
+		"complete":        stageError == nil,
+	})
+	result := sdk.Ok("OpenText NOM running-configs retrieved")
+	if stageError != nil {
+		// Committed references must still reach core for deletion. Never inline
+		// config bodies or report a partially staged batch as successful.
+		result = sdk.Critical(safeErrorCode(stageError))
+	}
+	return result.WithLabel("source", "opentext-nom").WithLabel("kind", "running_config").WithDetails(string(details))
+}
+
 func artifactMeta(artifact *sdk.ArtifactCommitResponse) map[string]any {
 	if artifact == nil {
 		return nil

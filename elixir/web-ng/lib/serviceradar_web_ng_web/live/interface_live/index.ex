@@ -31,8 +31,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
     query = Map.get(socket.assigns.srql || %{}, :query, "")
     current_page = parse_page_param(params)
 
-    # Get total count for pagination
-    total_count = get_total_count(socket.assigns.current_scope, query)
+    # Get total count for pagination (connected render only; the static
+    # render is discarded on connect).
+    total_count =
+      if connected?(socket), do: get_total_count(socket.assigns.current_scope, query)
 
     {:noreply,
      assign(socket,

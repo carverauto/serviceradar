@@ -228,7 +228,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
 
       assert {:ok, %{planned: [_id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
 
-      later = DateTime.add(now, 60, :second)
+      later = DateTime.shift(now, minute: 1)
       assert {:ok, %{planned: []}} = Dispatcher.route(alert.id, :fire, actor: actor, now: later)
 
       assert length(deliveries_for(alert, actor)) == 1
@@ -291,7 +291,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
       # A pending row whose Oban job was lost is still owed. `:retry_due` finds
       # it only because routing stamped `next_attempt_at`.
       assert %{retry: retry_ids} =
-               Dispatcher.due(DateTime.add(now, 5, :second), actor: actor, limit: 50)
+               Dispatcher.due(DateTime.shift(now, second: 5), actor: actor, limit: 50)
 
       assert delivery.id in retry_ids
     end
@@ -321,7 +321,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
         |> Ash.Changeset.for_update(:acknowledge, %{acknowledged_by: "review-test"}, actor: actor)
         |> Ash.update!(actor: actor)
 
-      due_at = DateTime.add(now, 300, :second)
+      due_at = DateTime.shift(now, minute: 5)
       assert %{escalation: escalation} = Dispatcher.due(due_at, actor: actor, limit: 50)
       assert alert.id in escalation
 
@@ -340,7 +340,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
           "incident_rule_id" => rule.id
         })
 
-      now = DateTime.add(alert.triggered_at, 1, :second)
+      now = DateTime.shift(alert.triggered_at, second: 1)
       assert {:ok, %{planned: [_id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
 
       notified =
@@ -348,11 +348,11 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
         |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
         |> Ash.update!(actor: actor)
 
-      before_due = DateTime.add(notified.last_notification_at, 59, :second)
+      before_due = DateTime.shift(notified.last_notification_at, second: 59)
       assert %{renotify: renotify} = Dispatcher.due(before_due, actor: actor, limit: 50)
       refute alert.id in renotify
 
-      due_at = DateTime.add(notified.last_notification_at, 60, :second)
+      due_at = DateTime.shift(notified.last_notification_at, minute: 1)
       assert %{renotify: renotify} = Dispatcher.due(due_at, actor: actor, limit: 50)
       assert alert.id in renotify
     end
@@ -460,7 +460,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
       assert {:ok, %{suppressed: [^id]}} =
                Dispatcher.route(alert.id, :fire,
                  actor: actor,
-                 now: DateTime.add(now, 30, :second)
+                 now: DateTime.shift(now, second: 30)
                )
 
       assert [delivery] = deliveries_for(alert, actor)
@@ -515,7 +515,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
   # scheduler tick genuinely looks like: a moment after the alert fired.
   defp fired_alert!(actor) do
     alert = create_alert!(actor)
-    {alert, DateTime.add(alert.triggered_at, 1, :second)}
+    {alert, DateTime.shift(alert.triggered_at, second: 1)}
   end
 
   defp create_alert!(actor, metadata \\ %{"alert_class" => "device_down"}) do

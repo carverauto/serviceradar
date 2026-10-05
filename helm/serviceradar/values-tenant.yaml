@@ -40,6 +40,14 @@ hostedRuntime:
     grpcPort: 50052
     gatewayServerName: acme.grpc.serviceradar.cloud
     gatewayAddr: acme.grpc.serviceradar.cloud:50052
+    # Edge-site NATS leaf endpoint. The control plane sets these together with
+    # nats.leafnodes.enabled and gatewayApi.natsLeaf.enabled once the tenant's
+    # nats.pem carries natsLeafHost as a SAN. Setting natsLeafHost renders
+    # SERVICERADAR_NATS_LEAF_UPSTREAM_URL=tls://<natsLeafHost>:<natsLeafPort>
+    # for web-ng, so leave it unset until the listener is enabled.
+    # natsLeafHost: acme.nats.serviceradar.cloud
+    # natsLeafPort: 7422
+    # natsLeafServerName: acme.nats.serviceradar.cloud
   entitlements:
     plan: standard_250
     max_devices: 250

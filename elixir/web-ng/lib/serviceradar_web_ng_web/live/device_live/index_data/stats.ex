@@ -69,14 +69,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Stats do
         key: :new_last_7d,
         token: "last_7d",
         label: "7d",
-        since: DateTime.add(now, -7, :day),
+        since: DateTime.shift(now, week: -1),
         until: now
       },
       %{
         key: :new_last_30d,
         token: "last_30d",
         label: "30d",
-        since: DateTime.add(now, -30, :day),
+        since: DateTime.shift(now, day: -30),
         until: now
       }
     ]
@@ -103,9 +103,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Stats do
       %{new_today: 0, new_last_7d: 0, new_last_30d: 0}
   end
 
+  # Counts the inventory as operators see it, like the rollups: records marked
+  # source_retired are left out.
   defp count_first_seen_between(scope, start_at, end_at) do
     Device
-    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.for_read(:inventory, %{}, scope: scope)
     |> Ash.Query.filter(first_seen_time >= ^start_at and first_seen_time <= ^end_at)
     |> Ash.count(scope: scope)
     |> case do

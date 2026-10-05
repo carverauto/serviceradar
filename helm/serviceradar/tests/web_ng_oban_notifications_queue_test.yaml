@@ -1,0 +1,33 @@
+suite: web-ng notifications Oban queue
+templates:
+  - templates/web.yaml
+tests:
+  # Notification dispatch publishes the notifications.* firehose, which only
+  # core's NATS identity may publish. web-ng must not work that queue unless
+  # an operator opts in.
+  - it: does not run the notifications queue on web-ng by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WEB_NG_OBAN_QUEUE_NOTIFICATIONS
+            value: "0"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+  - it: honors an explicit notifications queue limit
+    set:
+      webNg:
+        obanQueues:
+          notifications: 4
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WEB_NG_OBAN_QUEUE_NOTIFICATIONS
+            value: "4"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

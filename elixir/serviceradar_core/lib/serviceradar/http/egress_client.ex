@@ -1,14 +1,15 @@
 defmodule ServiceRadar.HTTP.EgressClient do
   @moduledoc """
-  HTTPS GET for hosts outside the deployment, over `SERVICERADAR_EGRESS_PROXY`.
+  HTTPS GET and HEAD for hosts outside the deployment, over `SERVICERADAR_EGRESS_PROXY`.
 
   Every fetch of an external host belongs here -- `download_to_file/3` for
-  artifacts and databases, `fetch_body/2` for raw datasets, and `fetch_json/2`
-  for JSON APIs. `fetch_body/2` always returns bytes; unlike `Req`, it never
-  infers a decoder from Content-Type. The
-  shared `ServiceRadar.Finch` pool connects directly and never uses the proxy,
-  so a request on it to an external host bypasses the egress allowlist and is
-  refused wherever a default-deny NetworkPolicy admits only the proxy.
+  artifacts and databases, `fetch_body/2` for raw datasets, `fetch_json/2`
+  for JSON APIs, and `head/2` for revalidating an artifact's validators.
+  `fetch_body/2` always returns bytes; unlike `Req`, it never infers a decoder
+  from Content-Type. The shared `ServiceRadar.Finch` pool connects directly
+  and never uses the proxy, so a request on it to an external host bypasses
+  the egress allowlist and is refused wherever a default-deny NetworkPolicy
+  admits only the proxy.
 
   Uses OTP's `:httpc` instead of `Req` + `ServiceRadar.Finch`, because Mint --
   Finch's transport -- cannot tunnel through the CONNECT proxy this deployment
@@ -107,6 +108,45 @@ defmodule ServiceRadar.HTTP.EgressClient do
     with {:ok, profile} <- ensure_profile(profile),
          :ok <- configure_proxy(profile, opts) do
       request(url, opts, profile)
+    end
+  end
+
+  @doc """
+  Sends a HEAD for `url` and returns its status and headers.
+
+  For revalidating an artifact's validators (`ETag`, `Last-Modified`) after a
+  download, over the same proxy and TLS settings as `get/2`. Redirects are not
+  followed. `:receive_timeout` bounds the whole request and `:connect_timeout`
+  defaults to it. The response body is always empty.
+  """
+  @spec head(String.t(), [option()]) :: {:ok, Req.Response.t()} | {:error, term()}
+  def head(url, opts \\ []) when is_binary(url) do
+    profile = Keyword.get(opts, :profile, @default_profile)
+
+    with {:ok, profile} <- ensure_profile(profile),
+         :ok <- configure_proxy(profile, opts) do
+      timeout = Keyword.get(opts, :receive_timeout, @default_timeout)
+
+      http_options = [
+        ssl: tls_options(opts),
+        timeout: timeout,
+        connect_timeout: Keyword.get(opts, :connect_timeout, timeout),
+        autoredirect: false
+      ]
+
+      case :httpc.request(
+             :head,
+             {String.to_charlist(url), request_headers(opts)},
+             http_options,
+             [body_format: :binary],
+             profile
+           ) do
+        {:ok, {{_version, status, _reason}, headers, _body}} ->
+          {:ok, response(status, headers, "")}
+
+        {:error, reason} ->
+          {:error, transport_error(reason)}
+      end
     end
   end
 
@@ -334,12 +374,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
     timeout = Keyword.get(opts, :receive_timeout, @default_timeout)
     connect_timeout = Keyword.get(opts, :connect_timeout, timeout)
 
-    headers =
-      opts
-      |> Keyword.get(:headers, [])
-      |> Enum.map(fn {name, value} ->
-        {String.to_charlist(to_string(name)), String.to_charlist(to_string(value))}
-      end)
+    headers = request_headers(opts)
 
     http_options = [
       ssl: tls_options(opts),
@@ -360,6 +395,14 @@ defmodule ServiceRadar.HTTP.EgressClient do
       {:ok, request_id} -> await(request_id, profile, opts, timeout)
       {:error, reason} -> {:error, transport_error(reason)}
     end
+  end
+
+  defp request_headers(opts) do
+    opts
+    |> Keyword.get(:headers, [])
+    |> Enum.map(fn {name, value} ->
+      {String.to_charlist(to_string(name)), String.to_charlist(to_string(value))}
+    end)
   end
 
   # `:httpc` only streams 200/206 bodies; every other status arrives whole, which

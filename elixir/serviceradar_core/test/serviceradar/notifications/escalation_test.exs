@@ -187,7 +187,7 @@ defmodule ServiceRadar.Notifications.EscalationTest do
     end
 
     test "a snooze expiry earlier than the fire time cannot pull a rung forward" do
-      earlier = DateTime.add(@fire_time, -600, :second)
+      earlier = DateTime.shift(@fire_time, minute: -10)
 
       assert Escalation.delay_origin(context(now: at(10), snooze_until: earlier)) == @fire_time
     end
@@ -664,7 +664,7 @@ defmodule ServiceRadar.Notifications.EscalationTest do
 
   # --- Fixtures -------------------------------------------------------------
 
-  defp at(offset_seconds), do: DateTime.add(@fire_time, offset_seconds, :second)
+  defp at(offset_seconds), do: DateTime.shift(@fire_time, second: offset_seconds)
 
   defp context(overrides) do
     Enum.into(overrides, %{

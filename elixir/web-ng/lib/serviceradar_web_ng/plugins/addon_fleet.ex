@@ -83,6 +83,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           enabled?: boolean(),
           management_mode: AddonRuntimePolicy.management_mode(),
           running_state: String.t() | nil,
+          observation_stale?: boolean(),
           running_version: String.t() | nil,
           active?: boolean(),
           degradation_reason: String.t() | nil,
@@ -404,7 +405,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       management_mode: management_mode,
       running_state: status && status.state,
       running_version: status && status.version,
-      active?: status != nil and status.active,
+      # A status row is the agent's last word, which may be months old (an agent that
+      # was replaced or went away keeps its final row). Only fresh evidence counts as
+      # running; the stale case is still classified below as unavailable/observed-only.
+      active?: status != nil and status.active and not stale_observation?(status, row_context.now),
+      observation_stale?: stale_status?(status, row_context.now),
       degradation_reason: status && present(status.degradation_reason),
       reported_at: status && status.reported_at,
       last_scan_at: last_scan_at,
@@ -610,7 +615,20 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       stale_timestamp?(agent.last_seen_time, now, freshness_seconds())
   end
 
-  defp stale_observation?(status, now), do: stale_timestamp?(status.reported_at, now, freshness_seconds())
+  defp stale_observation?(status, now), do: stale_status?(status, now)
+
+  @doc """
+  True when an add-on status row is older than the freshness window.
+
+  `addon_statuses` rows are never deleted: an agent that stopped reporting an
+  add-on, or went away entirely, keeps its last row. Its `state` is that last
+  word, not the current state, so callers must not present it as current.
+  """
+  @spec stale_status?(AddonStatus.t() | map() | nil, DateTime.t()) :: boolean()
+  def stale_status?(nil, _now), do: false
+
+  def stale_status?(status, %DateTime{} = now),
+    do: stale_timestamp?(Map.get(status, :reported_at), now, freshness_seconds())
 
   defp stale_timestamp?(nil, _now, _seconds), do: false
 
@@ -698,6 +716,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       |> read(scope)
 
     targets
+    # Targets of deleted assignments keep their history with a nil pointer.
+    |> Enum.reject(&is_nil(&1.assignment_id))
     |> Enum.uniq_by(& &1.assignment_id)
     |> Map.new(fn target ->
       rollout = Map.get(rollouts, target.rollout_id)

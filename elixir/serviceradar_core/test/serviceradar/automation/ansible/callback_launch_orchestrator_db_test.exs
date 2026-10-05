@@ -104,7 +104,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
             attempt,
             %{
               lease_token: token,
-              lease_expires_at: DateTime.add(now, 15, :second),
+              lease_expires_at: DateTime.shift(now, second: 15),
               now: now
             },
             actor: SystemActor.system(:callback_attempt_claim_db_test)
@@ -215,10 +215,10 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       "binding_id" => ids.binding,
       "binding_version" => 1,
       "approval_id" => ids.approval,
-      "approval_expires_at" => DateTime.to_iso8601(DateTime.add(now, 3_600)),
+      "approval_expires_at" => DateTime.to_iso8601(DateTime.shift(now, hour: 1)),
       "reviewed_by_principal_type" => "human",
       "reviewed_by_principal_id" => "callback-reviewer",
-      "reviewed_at" => DateTime.to_iso8601(DateTime.add(now, -60)),
+      "reviewed_at" => DateTime.to_iso8601(DateTime.shift(now, minute: -1)),
       "review_metadata" => %{},
       "issued_at" => DateTime.to_iso8601(now)
     }
@@ -390,7 +390,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       grant_id: ids.grant,
       command_id: ids.command,
       allocation: allocation,
-      expires_at: DateTime.add(now, 120),
+      expires_at: DateTime.shift(now, minute: 2),
       callback_origin: "https://demo.example.com",
       lifecycle_opts: lifecycle_opts,
       envelope_opts: [
@@ -406,7 +406,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
         action: "remote_access.ssh_ca.bundle.read",
         audience: "serviceradar.awx.callback/v1",
         budget: 1,
-        expires_at: DateTime.add(now, 120),
+        expires_at: DateTime.shift(now, minute: 2),
         actor_snapshot: %{
           principal_type: :human,
           principal_id: actor_id,
@@ -580,7 +580,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
                  payload: %{"launch_envelope_ref" => fixture.callback.allocation.reference},
                  context: %{"test" => "callback_launch_orchestrator_db"},
                  ttl_seconds: 300,
-                 expires_at: DateTime.add(fixture.callback.allocation.issued_at, 300, :second),
+                 expires_at: DateTime.shift(fixture.callback.allocation.issued_at, minute: 5),
                  requested_by: "system:callback_launch_orchestrator_db_test"
                },
                actor: actor
@@ -598,7 +598,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       Keyword.merge(
         [
           encryption_key: @encryption_key,
-          now: DateTime.add(fixture.callback.allocation.issued_at, 30, :second)
+          now: DateTime.shift(fixture.callback.allocation.issued_at, second: 30)
         ],
         opts
       )

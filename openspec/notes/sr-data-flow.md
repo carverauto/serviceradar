@@ -211,7 +211,7 @@ Foundational migrations:
   Many indexes (src/dst ip+time, proto+time, ports+time, GIN on payload, top-talkers/ports).
 - Config/enrichment: `netflow_{local_cidrs,provider_cidrs,oui_prefixes,settings,exporter_cache,interface_cache,app_classification_rules,port_anomaly_flags,port_scan_flags}`, dataset snapshots.
 - BGP: `bgp_routing_info`, `bmp_settings`, hypertable `bmp_routing_events` (`20260218235900`).
-- Flow→process attribution: `flow_process_attribution_current`, `workload_identity_current`.
+- Flow→process attribution: `workload_identity_current` (CNPG); observations live in the StarRocks table `flow_process_attribution_observations` (fed from `flows.attribution.observations`); `flow_process_attribution_current` was dropped (`20261005140100`).
 - MTR/traceroute: `mtr_traces` + `mtr_hops` hypertables (`20260228090000`), `mtr_{settings,policies,dispatch_windows,bulk_job_targets}`.
 
 ### 5.4 Service status / monitoring
@@ -224,7 +224,7 @@ Foundational migrations:
 
 ### 5.5 Events / anomalies / alerts
 
-- `events` (`create_timeseries_tables.exs`) — **hypertable** on `event_timestamp`, CloudEvents-style: specversion, id, source, type, subject, host, level, severity, short_message, raw_data. PK `(event_timestamp, id)`.
+- `platform.events` (`create_timeseries_tables.exs`) -- **deprecated, unused** CloudEvents-style hypertable on `event_timestamp`. No shipped processor writes it and SRQL does not read it. Retained for schema compatibility; its shape is not an ingest contract. NATS `events.>` requires OCSF Event Log Activity with `class_uid` and writes `platform.ocsf_events` (or OCSF-shaped StarRocks `serviceradar.events` when that dataset uses the warehouse). For discrete OpenTelemetry events, send an OTLP log record with `event_name`; `Processors.Logs` persists that field in the active logs backend.
 - `ocsf_events` (`20260203120000`) — **hypertable** on `time`, 14-day retention. Primary security/log-derived event store (from log promotion): class/category/type_uid, activity, severity, message, status, metadata/observables jsonb, trace/span ids, actor/device/src/dst endpoint jsonb, raw_data.
 - `event_rules`, `health_events` (`:231`, state-transition history).
 - `alerts` (`:190`) — stateful alerting: title/description/severity/status, source_type/id, `service_check_id`, `device_uid`/`agent_uid`, event_id, metric_name/value, threshold, comparison, triggered/ack/resolved/escalated timestamps, escalation_level, suppressed_until, tags.

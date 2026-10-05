@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageControllerTest do
 
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.PluginStorageTestClient
 
@@ -77,6 +78,40 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageControllerTest do
     assert updated.content_hash == Storage.sha256(payload)
     assert updated.wasm_object_key == object_key
     assert Storage.blob_exists?(object_key)
+  end
+
+  test "PUT /api/plugin-packages/:id/blob rejects a token after the package is approved", %{
+    conn: _conn
+  } do
+    _plugin = create_plugin()
+    package = create_package()
+    object_key = Storage.object_key_for(package)
+    original_payload = "original-wasm-binary"
+    assert :ok = Storage.put_blob(object_key, original_payload)
+    {token, _expires_at} = Storage.sign_token(:upload, package.id, object_key, 300)
+
+    approved =
+      package
+      |> Ash.Changeset.for_update(:update, %{wasm_object_key: object_key}, actor: system_actor())
+      |> Ash.update!(actor: system_actor())
+      |> Ash.Changeset.for_update(:approve, %{approved_by: system_actor().id}, actor: system_actor())
+      |> Ash.update!(actor: system_actor())
+
+    conn =
+      "PUT"
+      |> Plug.Test.conn("/api/plugin-packages/#{approved.id}/blob", "replacement-wasm-binary")
+      |> Plug.Conn.put_req_header("content-type", "application/wasm")
+      |> Plug.Conn.put_req_header("x-serviceradar-plugin-token", token)
+      |> ServiceRadarWebNGWeb.Endpoint.call([])
+
+    assert conn.status == 401
+    assert reload_package(approved.id).content_hash == approved.content_hash
+    assert {:ok, {:binary, ^original_payload}} = Storage.fetch_blob(object_key)
+
+    assert {:error, :package_not_staged} =
+             Packages.upload_blob(package, "stale-socket-replacement", actor: system_actor())
+
+    assert {:ok, {:binary, ^original_payload}} = Storage.fetch_blob(object_key)
   end
 
   test "POST /api/plugin-packages/:id/blob/download returns the blob when token is in header", %{

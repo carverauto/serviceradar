@@ -28,8 +28,9 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
   require Logger
 
   # Every decision kind that leaves two devices unreconciled; listed so a future kind is a
-  # deliberate choice. A retirement and a reactivation name one device and decide its
-  # identity, so they open nothing.
+  # deliberate choice. A retirement, a reactivation, and an agent supersession name one
+  # device and decide its identity, so they open nothing. `:agent_supersession` stays off
+  # this list on purpose.
   @taskable_kinds [
     :policy_block,
     :guard_block,
@@ -73,6 +74,66 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
   end
 
   def asserted_distinct?(_a, _b), do: false
+
+  @doc "The asserted-distinct pairs among `uids`, as sorted `{device_a, device_b}` tuples."
+  @spec asserted_distinct_pairs([String.t()]) :: MapSet.t({String.t(), String.t()})
+  def asserted_distinct_pairs([]), do: MapSet.new()
+
+  def asserted_distinct_pairs(uids) when is_list(uids),
+    do: uids |> Enum.uniq() |> asserted_pairs()
+
+  @doc """
+  Records that `a` and `b` are different devices, as the system: an administrative unmerge of a
+  source succession records one so that the next run does not merge the pair again.
+  """
+  @spec assert_distinct(String.t(), String.t(), String.t() | nil, term()) ::
+          {:ok, DistinctDeviceAssertion.t()} | {:error, term()}
+  def assert_distinct(a, b, note, actor) when is_binary(a) and is_binary(b) and a != b do
+    {device_a, device_b} = Enum.min_max([a, b])
+
+    DistinctDeviceAssertion
+    |> Ash.Changeset.for_create(:assert, %{device_a: device_a, device_b: device_b, note: note},
+      actor: actor
+    )
+    |> Ash.create()
+  end
+
+  @doc """
+  Marks the open task for exactly `a` and `b` merged into `survivor`, after an automatic merge
+  of the pair (a source succession). Whatever decision opened the task, the merge resolved it.
+  Best-effort: a failure is logged, never raised.
+  """
+  @spec resolve_merged_pair(String.t(), String.t(), String.t()) :: :ok
+  def resolve_merged_pair(a, b, survivor) do
+    key = DeduplicationTask.candidate_key([a, b])
+
+    DeduplicationTask
+    |> Ash.Query.filter(candidate_key == ^key and status == :open)
+    |> Ash.read!(actor: SystemActor.system(:identity_deduplication))
+    |> Enum.each(fn task ->
+      case update(
+             task,
+             :mark_merged,
+             %{merged_into: survivor},
+             SystemActor.system(:source_succession)
+           ) do
+        {:ok, _task} ->
+          :ok
+
+        {:error, error} ->
+          Logger.warning(
+            "Failed to mark de-duplication task #{task.id} merged: #{inspect(error, limit: 10)}"
+          )
+      end
+    end)
+  rescue
+    e ->
+      Logger.warning(
+        "Failed to resolve the de-duplication task of a merged pair: #{Exception.message(e)}"
+      )
+
+      :ok
+  end
 
   @doc """
   Resolves an open task by merging every other device into `survivor`, one of the task's

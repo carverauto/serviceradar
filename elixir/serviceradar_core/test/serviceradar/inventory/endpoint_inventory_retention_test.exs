@@ -133,8 +133,52 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
     assert artifact_content_exists?(artifact_hash)
   end
 
+  test "deletes in pages up to the run cap, without re-offering a scan kept back by a failure" do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-retention-paged-agent-#{unique}"
+
+    # Oldest first: blocked, then a, b, c, and d, which the run cap leaves alone.
+    scans =
+      for {label, age_days} <- [blocked: -50, a: -49, b: -48, c: -47, d: -46], into: %{} do
+        scan_ref = insert_scan!(agent_id, "paged-#{label}-#{unique}", false, age_days)
+
+        for index <- 1..3 do
+          insert_package!(scan_ref, agent_id, "paged-#{label}-#{index}-#{unique}", false)
+        end
+
+        {label, scan_ref}
+      end
+
+    blocked_key = "endpoint-inventory/#{agent_id}/blocked/sbom.cdx.json"
+    insert_artifact!(scans.blocked, agent_id, blocked_key)
+
+    delete_object = fn ^blocked_key, _opts -> {:error, :datasvc_unavailable} end
+
+    assert {:ok, summary} =
+             EndpointInventoryRetention.prune(
+               retention_days: 30,
+               batch_size: 4,
+               scan_batch_size: 2,
+               package_batch_size: 2,
+               delete_object: delete_object
+             )
+
+    # Two pages of two. Re-selecting the oldest scans would put the blocked scan
+    # back at the head of the second page and delete only a and b.
+    assert summary.scanned == 4
+    assert summary.failed_objects == 1
+    assert summary.deleted_scans == 3
+    assert summary.deleted_packages == 9
+
+    for label <- [:a, :b, :c], do: refute(scan_exists?(scans[label]))
+    assert scan_exists?(scans.blocked)
+    assert package_exists?("paged-blocked-1-#{unique}")
+    assert scan_exists?(scans.d)
+    assert package_exists?("paged-d-1-#{unique}")
+  end
+
   defp insert_scan!(agent_id, scan_id, current?, age_days) do
-    timestamp = DateTime.add(DateTime.utc_now(), age_days * 86_400, :second)
+    timestamp = DateTime.shift(DateTime.utc_now(), day: age_days)
 
     {1, [%{id: id}]} =
       Repo.insert_all(

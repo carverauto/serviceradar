@@ -34,6 +34,12 @@ data:
       "listen_addr" (default "0.0.0.0:11019" $cfg.listenAddr)
       "read_buffer_bytes" (default 65536 $cfg.readBufferBytes)
       "max_frame_size_bytes" (default 16777216 $cfg.maxFrameSizeBytes)
+      "max_connections" (default 16 $cfg.maxConnections)
+      "read_timeout_secs" (default 30 $cfg.readTimeoutSecs)
+      "metrics_addr" (default "0.0.0.0:9092" $cfg.metricsAddr)
+      "publish_messages_per_second" (default 1000 $cfg.publishMessagesPerSecond)
+      "publish_bytes_per_second" (default 4194304 $cfg.publishBytesPerSecond)
+      "stream_discard_policy" (default "new" $cfg.streamDiscardPolicy)
       "nats_url" (default "nats://serviceradar-nats:4222" $cfg.natsUrl)
       "nats_domain" (($cfg.natsDomain | default "") | empty | ternary nil $cfg.natsDomain)
       "nats_creds_file" (($cfg.natsCredsFile | default "") | empty | ternary nil $cfg.natsCredsFile)
@@ -85,6 +91,9 @@ spec:
         image: {{ default (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "arancini")) .Values.bmpCollector.image.repository }}{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "bmpCollector") }}
         imagePullPolicy: {{ .Values.bmpCollector.image.pullPolicy | default (include "serviceradar.imagePullPolicy" .) }}
         ports:
+        - name: metrics
+          containerPort: 9092
+          protocol: TCP
         {{- if .Values.bmpCollector.service.ports.bmp.enabled }}
         - name: bmp
           containerPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 11019 }}
@@ -183,6 +192,10 @@ spec:
   selector:
     app: serviceradar-bmp-collector
   ports:
+  - name: metrics
+    port: 9092
+    targetPort: metrics
+    protocol: TCP
   {{- if .Values.bmpCollector.service.ports.bmp.enabled }}
   - name: bmp
     port: {{ .Values.bmpCollector.service.ports.bmp.port | default 11019 }}

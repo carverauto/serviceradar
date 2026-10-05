@@ -106,7 +106,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Analytics.StarRocks.Destination
-  alias ServiceRadar.Analytics.StarRocks.Env, as: StarRocksEnv
+  alias ServiceRadar.Analytics.StarRocks.Retention
   alias ServiceRadar.Analytics.StarRocks.TraceSummaries, as: WarehouseSummaries
   alias ServiceRadar.Observability.OtelPubSub
   alias ServiceRadar.Repo
@@ -481,7 +481,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   def rescue_orphaned(opts \\ []) do
     grace_seconds = Keyword.get_lazy(opts, :grace_seconds, &orphan_grace_seconds/0)
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-    cutoff = DateTime.add(now, -grace_seconds, :second)
+    cutoff = DateTime.shift(now, second: -grace_seconds)
 
     result =
       Repo.transact(
@@ -624,7 +624,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp refresh_summaries do
     now = DateTime.utc_now()
     watermark = read_watermark(now)
-    window_start = DateTime.add(watermark, -@watermark_overlap_seconds, :second)
+    window_start = DateTime.shift(watermark, second: -@watermark_overlap_seconds)
 
     with {:ok, changed} <- run_chunked_upsert(window_start, now),
          {:ok, new_watermark} <- advance_watermark(window_start, now),
@@ -652,7 +652,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         DateTime.from_naive!(watermark, "Etc/UTC")
 
       _ ->
-        DateTime.add(now, -@initial_lookback_seconds, :second)
+        DateTime.shift(now, second: -@initial_lookback_seconds)
     end
   end
 
@@ -677,7 +677,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp clamp_end(cursor, bound) do
-    candidate = DateTime.add(cursor, @ingest_chunk_seconds, :second)
+    candidate = DateTime.shift(cursor, second: @ingest_chunk_seconds)
     if DateTime.after?(candidate, bound), do: bound, else: candidate
   end
 
@@ -968,11 +968,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   defp warehouse?, do: Destination.enabled?()
 
-  defp warehouse_retention_days do
-    StarRocksEnv.config()
-    |> Keyword.get(:retention_days, [])
-    |> Keyword.get(:traces, Keyword.fetch!(StarRocksEnv.default_retention_days(), :traces))
-  end
+  # The traces dataset's effective retention (Settings -> Data retention), so
+  # summaries are pruned to the window the spans themselves are kept for.
+  defp warehouse_retention_days, do: Retention.dataset_days(:traces)
 
   defp cleanup_batch_size do
     config_positive_integer(:cleanup_batch_size, @default_cleanup_batch_size)

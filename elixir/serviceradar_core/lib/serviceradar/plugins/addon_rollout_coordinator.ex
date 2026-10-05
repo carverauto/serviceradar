@@ -163,9 +163,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     # then made convergence unprovable forever, because the reap asks every
     # in-scope target for a status >= the candidate and a dead agent has none.
     # The rollout could neither promote (finish_or_advance short-circuits on
-    # :paused) nor fail forward, and reconcile_source skips any source with an
-    # active rollout -- so ONE dead agent silently froze managed updates for its
-    # whole fleet. Observed on demo: seven sources stuck 17-19 days behind.
+    # :paused) nor fail forward, and reconcile_source used to skip any source
+    # with an active rollout -- so ONE dead agent silently froze managed updates
+    # for its whole fleet. Observed on demo: seven sources stuck 17-19 days
+    # behind. A sole paused rollout is now superseded by a strictly newer
+    # eligible candidate instead of blocking it.
     # If every target rolled back, in_scope is empty and the guard below keeps
     # the rollout paused, which is the real failure this must not mask.
     in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled, :rolled_back]))
@@ -260,17 +262,25 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # promoted rather than canceled.
   defp release_superseded_slots(targets, actor, now) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      if target.state in @slot_holding_target_states do
-        case update_target(
-               target,
-               %{state: :promoted, completed_at: target.completed_at || now},
-               actor
-             ) do
-          {:ok, _} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      else
-        {:cont, :ok}
+      cond do
+        deleted_slot_holder?(target) ->
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        target.state in @slot_holding_target_states ->
+          case update_target(
+                 target,
+                 %{state: :promoted, completed_at: target.completed_at || now},
+                 actor
+               ) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        true ->
+          {:cont, :ok}
       end
     end)
   end
@@ -280,9 +290,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # deployment that hit one would stay stranded until someone edited rows by hand,
   # so reconcile finishes them the way supersede now does. Returns :repaired when
   # it changed anything, because the caller's copy of the source is then stale.
+  # Supersessions with blocked_reason "newer_candidate_approved" are excluded:
+  # they intentionally leave the stable source on the previous package until the
+  # replacement proves health, so there is no stranded promotion to repair.
   defp repair_stranded_supersessions(source_rollouts, package_by_id, actor, now) do
     source_rollouts
-    |> Enum.filter(&(&1.state == :superseded))
+    |> Enum.filter(&(&1.state == :superseded and &1.blocked_reason != "newer_candidate_approved"))
     |> Enum.reduce(:none, fn rollout, acc ->
       candidate = Map.get(package_by_id, to_string(rollout.candidate_package_id))
 
@@ -386,9 +399,25 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp reconcile_source(source, packages, package_by_id, rollouts, actor, now, stats) do
     current = Map.get(package_by_id, to_string(source.addon_package_id))
     source_rollouts = Enum.filter(rollouts, &same_source?(&1, source))
+    active = Enum.filter(source_rollouts, &(&1.state in @active_rollout_states))
 
     cond do
-      is_nil(current) or Enum.any?(source_rollouts, &(&1.state in @active_rollout_states)) ->
+      is_nil(current) ->
+        increment(stats, :skipped)
+
+      match?([%AddonRollout{state: :paused}], active) ->
+        replace_paused_candidate(
+          source,
+          hd(active),
+          packages,
+          package_by_id,
+          source_rollouts,
+          actor,
+          now,
+          stats
+        )
+
+      active != [] ->
         increment(stats, :skipped)
 
       repair_stranded_supersessions(source_rollouts, package_by_id, actor, now) == :repaired ->
@@ -400,11 +429,105 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
+  defp replace_paused_candidate(
+         source,
+         paused,
+         packages,
+         package_by_id,
+         source_rollouts,
+         actor,
+         now,
+         stats
+       ) do
+    previous_candidate = Map.get(package_by_id, to_string(paused.candidate_package_id))
+
+    with %AddonPackage{} <- previous_candidate,
+         {:ok, candidate} <-
+           Eligibility.latest_candidate(previous_candidate, packages, source,
+             blocked_candidate_ids: blocked_candidate_ids(source_rollouts)
+           ),
+         {:ok, superseded} <- supersede_failed_candidate(paused, candidate, actor, now),
+         {:ok, refreshed_source} <- source_for_rollout(superseded, actor) do
+      # Re-read after clearing overrides. The failed candidate is never promoted;
+      # the replacement must prove health before the stable source moves.
+      current = Map.get(package_by_id, to_string(refreshed_source.addon_package_id))
+
+      rollouts =
+        Enum.map(source_rollouts, fn rollout ->
+          if rollout.id == superseded.id, do: superseded, else: rollout
+        end)
+
+      start_next_candidate(refreshed_source, current, packages, rollouts, actor, now, stats)
+    else
+      {:error, reason} ->
+        Logger.warning("Failed to replace paused native add-on rollout",
+          rollout_id: to_string(paused.id),
+          reason: inspect(reason)
+        )
+
+        increment(stats, :skipped)
+
+      _ ->
+        increment(stats, :skipped)
+    end
+  end
+
+  defp supersede_failed_candidate(paused, candidate, actor, now) do
+    # Release overrides and unique target slots together with terminalizing the
+    # old rollout. A failed write must leave the paused attempt recoverable.
+    result =
+      Repo.transaction(fn ->
+        with {:ok, rollout} <- get_rollout(paused.id, actor),
+             true <- rollout.state == :paused,
+             {:ok, targets} <- rollout_targets(rollout.id, actor),
+             :ok <- clear_all_overrides(targets, actor),
+             :ok <- mark_targets_canceled(targets, actor, now),
+             {:ok, updated} <-
+               update_rollout(
+                 rollout,
+                 %{
+                   state: :superseded,
+                   completed_at: now,
+                   paused_at: nil,
+                   blocked_reason: "newer_candidate_approved",
+                   error: rollout.error || rollout.blocked_reason
+                 },
+                 actor
+               ) do
+          updated
+        else
+          false -> Repo.rollback(:rollout_not_paused)
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    case result do
+      {:ok, updated} ->
+        details = %{
+          replacement_candidate_version: candidate.version,
+          previous_blocked_reason: paused.blocked_reason
+        }
+
+        audit(:supersede, updated, details)
+        emit(:superseded, updated, details)
+        {:ok, updated}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp blocked_candidate_ids(source_rollouts) do
+    source_rollouts
+    |> Enum.filter(fn rollout ->
+      rollout.state in @failed_rollout_states or
+        (rollout.state == :superseded and rollout.blocked_reason == "newer_candidate_approved")
+    end)
+    |> Enum.map(& &1.candidate_package_id)
+  end
+
   defp start_next_candidate(source, current, packages, source_rollouts, actor, now, stats) do
-    blocked_ids =
-      source_rollouts
-      |> Enum.filter(&(&1.state in @failed_rollout_states))
-      |> Enum.map(& &1.candidate_package_id)
+    blocked_ids = blocked_candidate_ids(source_rollouts)
 
     case Eligibility.latest_candidate(current, packages, source,
            blocked_candidate_ids: blocked_ids
@@ -540,6 +663,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   end
 
   defp target_specs(_source, candidate, assignments, agents, direct_overrides, policy, now) do
+    # Drop superseded identities before a target row exists. Classifying them
+    # as excluded would still insert a row, and a rollout that counts every
+    # target would keep waiting on an identity that will not report.
+    assignments = Enum.reject(assignments, &superseded_assignment?(&1, agents))
+
     classified =
       assignments
       |> Enum.sort_by(& &1.agent_uid)
@@ -566,6 +694,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     Enum.map(classified, fn spec ->
       Map.put(spec, :batch_index, Map.get(batch_by_assignment, spec.assignment.id, 0))
     end)
+  end
+
+  defp superseded_assignment?(assignment, agents) do
+    case Map.get(agents, assignment.agent_uid) do
+      %{status: :superseded} -> true
+      %{status: "superseded"} -> true
+      %{"status" => "superseded"} -> true
+      %{"status" => :superseded} -> true
+      _ -> false
+    end
   end
 
   defp batch_indexes(specs, policy) do
@@ -627,28 +765,32 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     targets
     |> Enum.reduce_while({:ok, []}, fn target, {:ok, acc} ->
       result =
-        case target.state do
-          state when state in [:waiting_health, :healthy_soak] ->
-            evaluate_candidate_target(
-              rollout,
-              target,
-              Map.get(statuses, target.agent_uid),
-              Map.fetch!(packages, to_string(target.candidate_package_id)),
-              actor,
-              now
-            )
+        if deleted_slot_holder?(target) do
+          cancel_deleted_target(target, actor, now)
+        else
+          case target.state do
+            state when state in [:waiting_health, :healthy_soak] ->
+              evaluate_candidate_target(
+                rollout,
+                target,
+                Map.get(statuses, target.agent_uid),
+                Map.fetch!(packages, to_string(target.candidate_package_id)),
+                actor,
+                now
+              )
 
-          :rollback_pending ->
-            evaluate_rollback_target(
-              target,
-              Map.get(statuses, target.agent_uid),
-              Map.fetch!(packages, to_string(target.previous_package_id)),
-              actor,
-              now
-            )
+            :rollback_pending ->
+              evaluate_rollback_target(
+                target,
+                Map.get(statuses, target.agent_uid),
+                Map.fetch!(packages, to_string(target.previous_package_id)),
+                actor,
+                now
+              )
 
-          _ ->
-            {:ok, target}
+            _ ->
+              {:ok, target}
+          end
         end
 
       case result do
@@ -723,7 +865,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
                state: :rollback_pending,
                reason_code: reason,
                rollback_started_at: now,
-               deadline_at: DateTime.add(now, rollout.policy["health_timeout_seconds"] || 900)
+               deadline_at:
+                 DateTime.shift(now, second: rollout.policy["health_timeout_seconds"] || 900)
              },
              actor
            ),
@@ -809,36 +952,50 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       |> Enum.take(policy["max_parallel"])
 
     selected
-    |> Enum.reduce_while(:ok, fn target, :ok ->
-      deadline = DateTime.add(now, policy["health_timeout_seconds"])
-
-      with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
-           {:ok, _} <-
-             update_assignment(
-               assignment,
-               :apply_rollout_override,
-               %{
-                 rollout_package_id: target.candidate_package_id,
-                 rollout_id: rollout.id,
-                 rollout_started_at: now
-               },
-               actor
-             ),
-           {:ok, _} <-
-             update_target(
+    |> Enum.reduce_while(:ok, fn
+      # The assignment was deleted after this target was created (its FK is
+      # ON DELETE SET NULL). There is nothing left to override, so the target
+      # stops holding its slot instead of pausing the whole rollout.
+      %AddonRolloutTarget{assignment_id: nil} = target, :ok ->
+        case update_target(
                target,
-               %{
-                 state: :waiting_health,
-                 override_applied_at: now,
-                 deadline_at: deadline,
-                 reason_code: "waiting_for_fresh_candidate_health"
-               },
+               %{state: :canceled, reason_code: "assignment_deleted", completed_at: now},
                actor
              ) do
-        {:cont, :ok}
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
+          {:ok, _} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      target, :ok ->
+        deadline = DateTime.shift(now, second: policy["health_timeout_seconds"])
+
+        with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
+             {:ok, _} <-
+               update_assignment(
+                 assignment,
+                 :apply_rollout_override,
+                 %{
+                   rollout_package_id: target.candidate_package_id,
+                   rollout_id: rollout.id,
+                   rollout_started_at: now
+                 },
+                 actor
+               ),
+             {:ok, _} <-
+               update_target(
+                 target,
+                 %{
+                   state: :waiting_health,
+                   override_applied_at: now,
+                   deadline_at: deadline,
+                   reason_code: "waiting_for_fresh_candidate_health"
+                 },
+                 actor
+               ) do
+          {:cont, :ok}
+        else
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
     end)
     |> case do
       :ok ->
@@ -893,7 +1050,10 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp tolerated_failures?(%AddonRollout{source_type: :profile} = rollout, targets) do
     tolerated = rollout.policy["tolerated_failures"] || 0
-    rolled_back = Enum.count(targets, &(&1.state == :rolled_back))
+
+    rolled_back =
+      Enum.count(targets, &(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
+
     rolled_back > 0 and rolled_back <= tolerated
   end
 
@@ -906,7 +1066,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
        ) do
     if tolerated_failures?(rollout, targets) do
       targets
-      |> Enum.filter(&(&1.state == :rolled_back))
+      |> Enum.filter(&(&1.state == :rolled_back and not is_nil(&1.assignment_id)))
       |> Enum.reduce_while(:ok, fn target, :ok ->
         with {:ok, assignment} <- get_assignment(target.assignment_id, actor),
              {:ok, _} <-
@@ -968,6 +1128,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp begin_whole_rollback(targets, actor, now, health_timeout_seconds) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
       cond do
+        deleted_slot_holder?(target) ->
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
         target.state in [:waiting_health, :healthy_soak, :succeeded] ->
           with :ok <- clear_assignment_override(target, actor),
                {:ok, _} <-
@@ -976,7 +1142,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
                    %{
                      state: :rollback_pending,
                      rollback_started_at: now,
-                     deadline_at: DateTime.add(now, health_timeout_seconds),
+                     deadline_at: DateTime.shift(now, second: health_timeout_seconds),
                      reason_code: "whole_rollout_rollback"
                    },
                    actor
@@ -1363,6 +1529,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     |> Ash.update(actor: actor, authorize?: true)
   end
 
+  defp clear_assignment_override(%AddonRolloutTarget{assignment_id: nil}, _actor), do: :ok
+
   defp clear_assignment_override(target, actor) do
     with {:ok, assignment} <- get_assignment(target.assignment_id, actor) do
       if assignment.rollout_id == target.rollout_id do
@@ -1391,6 +1559,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end)
   end
 
+  defp deleted_slot_holder?(%AddonRolloutTarget{assignment_id: nil, state: state}),
+    do: state in @slot_holding_target_states
+
+  defp deleted_slot_holder?(_target), do: false
+
+  defp cancel_deleted_target(target, actor, now) do
+    update_target(
+      target,
+      %{state: :canceled, reason_code: "assignment_deleted", completed_at: now},
+      actor
+    )
+  end
+
   # :succeeded belongs in this list even though the target's own work is done.
   # addon_rollout_targets_one_active_target_index treats succeeded as an ACTIVE
   # target for (agent_uid, addon_id), and only promote_source/4 ever moves it to
@@ -1402,26 +1583,42 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # replacement rollout could be created for any of them.
   defp mark_targets_canceled(targets, actor, now) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      if target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending, :succeeded] do
-        case update_target(target, %{state: :canceled, completed_at: now}, actor) do
-          {:ok, _} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      else
-        {:cont, :ok}
+      cond do
+        deleted_slot_holder?(target) ->
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending, :succeeded] ->
+          case update_target(target, %{state: :canceled, completed_at: now}, actor) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        true ->
+          {:cont, :ok}
       end
     end)
   end
 
   defp mark_targets_promoted(targets, actor, now) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      if target.state == :succeeded do
-        case update_target(target, %{state: :promoted, completed_at: now}, actor) do
-          {:ok, _} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      else
-        {:cont, :ok}
+      cond do
+        deleted_slot_holder?(target) ->
+          case cancel_deleted_target(target, actor, now) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        target.state == :succeeded ->
+          case update_target(target, %{state: :promoted, completed_at: now}, actor) do
+            {:ok, _} -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        true ->
+          {:cont, :ok}
       end
     end)
   end
@@ -1461,10 +1658,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp vacate_target_slot(target, actor) do
     if target.state in @slot_holding_target_states do
       attrs =
-        if target.state == :succeeded do
-          %{state: :promoted, completed_at: target.completed_at || DateTime.utc_now()}
-        else
-          %{state: :canceled, completed_at: DateTime.utc_now()}
+        cond do
+          deleted_slot_holder?(target) ->
+            %{
+              state: :canceled,
+              reason_code: "assignment_deleted",
+              completed_at: DateTime.utc_now()
+            }
+
+          target.state == :succeeded ->
+            %{state: :promoted, completed_at: target.completed_at || DateTime.utc_now()}
+
+          true ->
+            %{state: :canceled, completed_at: DateTime.utc_now()}
         end
 
       case update_target(target, attrs, actor) do

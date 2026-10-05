@@ -930,6 +930,39 @@ if object_store_retention_overrides != [] do
          Keyword.merge(object_store_retention_defaults, object_store_retention_overrides)
 end
 
+dashboard_pkg_retention_enabled =
+  to_bool.(System.get_env("DASHBOARD_PACKAGE_RETENTION_ENABLED")) || false
+
+dashboard_pkg_retention_cron =
+  System.get_env("DASHBOARD_PACKAGE_RETENTION_CRON", "0 4 * * *")
+
+dashboard_pkg_retention_overrides =
+  []
+  |> maybe_put_env.(
+    :enabled?,
+    System.get_env("DASHBOARD_PACKAGE_RETENTION_ENABLED"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :dry_run?,
+    System.get_env("DASHBOARD_PACKAGE_RETENTION_DRY_RUN"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :keep_versions,
+    System.get_env("DASHBOARD_PACKAGE_RETENTION_COUNT"),
+    to_int
+  )
+
+if dashboard_pkg_retention_overrides != [] do
+  config :serviceradar_web_ng,
+         :dashboard_package_retention,
+         Keyword.merge(
+           Application.get_env(:serviceradar_web_ng, :dashboard_package_retention, []),
+           dashboard_pkg_retention_overrides
+         )
+end
+
 plugin_verification_overrides =
   []
   |> maybe_put_env.(
@@ -1326,6 +1359,17 @@ if config_env() != :test do
     end
 
   web_crontab =
+    if dashboard_pkg_retention_enabled do
+      web_crontab ++
+        [
+          {dashboard_pkg_retention_cron, ServiceRadarWebNG.Dashboards.PackageRetentionWorker, args: %{"enabled" => true},
+           queue: :web_maintenance}
+        ]
+    else
+      web_crontab
+    end
+
+  web_crontab =
     if dashboard_reports_enabled do
       web_crontab ++
         [
@@ -1358,7 +1402,8 @@ if config_env() != :test do
       :service_checks,
       parse_queue_limit.("WEB_NG_OBAN_QUEUE_SERVICE_CHECKS", 10)
     )
-    |> maybe_queue.(:notifications, parse_queue_limit.("WEB_NG_OBAN_QUEUE_NOTIFICATIONS", 5))
+    # 0 so web-ng does not publish notifications.*; dispatch stays on core.
+    |> maybe_queue.(:notifications, parse_queue_limit.("WEB_NG_OBAN_QUEUE_NOTIFICATIONS", 0))
     |> maybe_queue.(:onboarding, parse_queue_limit.("WEB_NG_OBAN_QUEUE_ONBOARDING", 3))
     |> maybe_queue.(:events, parse_queue_limit.("WEB_NG_OBAN_QUEUE_EVENTS", 10))
     |> maybe_queue.(:sweeps, parse_queue_limit.("WEB_NG_OBAN_QUEUE_SWEEPS", 20))
@@ -1592,6 +1637,16 @@ if config_env() == :prod do
     else
       session_config
     end
+
+  # Effective upstream URL new edge-site NATS leaf servers dial. The chart
+  # renders it from hostedRuntime.publicEndpoints.natsLeafHost/natsLeafPort.
+  case System.get_env("SERVICERADAR_NATS_LEAF_UPSTREAM_URL") do
+    url when is_binary(url) and url != "" ->
+      config :serviceradar, :nats_leaf_upstream_url, String.trim(url)
+
+    _ ->
+      :ok
+  end
 
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")
   gateway_server_name = System.get_env("SERVICERADAR_GATEWAY_SERVER_NAME")

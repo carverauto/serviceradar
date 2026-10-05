@@ -34,7 +34,7 @@ defmodule ServiceRadar.Camera.RelaySessionReaperIntegrationTest do
 
   defp create_session(ctx, status, lease_offset_seconds) do
     now = DateTime.utc_now()
-    lease = lease_offset_seconds && DateTime.add(now, lease_offset_seconds)
+    lease = lease_offset_seconds && DateTime.shift(now, second: lease_offset_seconds)
 
     {:ok, session} =
       RelaySession.create_session(
@@ -118,7 +118,7 @@ defmodule ServiceRadar.Camera.RelaySessionReaperIntegrationTest do
     assert {:ok, _result} = RelaySessionReaper.reap(actor: ctx.actor)
     assert reload(unleased, ctx.actor).status == :requested
 
-    later = DateTime.add(DateTime.utc_now(), 3600)
+    later = DateTime.shift(DateTime.utc_now(), hour: 1)
     assert {:ok, _result} = RelaySessionReaper.reap(actor: ctx.actor, now: later)
 
     reaped = reload(unleased, ctx.actor)
@@ -133,7 +133,7 @@ defmodule ServiceRadar.Camera.RelaySessionReaperIntegrationTest do
     {:ok, _renewed} =
       RelaySession.renew_lease(
         stuck,
-        %{lease_expires_at: DateTime.add(DateTime.utc_now(), 30), viewer_count: 1},
+        %{lease_expires_at: DateTime.shift(DateTime.utc_now(), second: 30), viewer_count: 1},
         actor: ctx.actor
       )
 

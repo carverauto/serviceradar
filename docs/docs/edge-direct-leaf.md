@@ -28,7 +28,7 @@ these values or a NATS `.creds` file.
    OTEL publish, stream-management, and request/ack subject permissions. The
    bundle does not contain the add-on certificate or key.
 4. Install the bundle on the leaf and let `setup.sh` validate and restart the
-   `nats-server` service. Verify the service is healthy before continuing.
+   `serviceradar-nats` service. Verify the service is healthy before continuing.
 5. Mark the exact issued generation ready:
 
    ```text

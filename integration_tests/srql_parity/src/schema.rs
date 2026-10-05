@@ -12,8 +12,8 @@
 //! naming the migration it restates: columns added by migrations newer than the baseline
 //! (`POST_BASELINE_COLUMNS`), hypertables, and the continuous aggregates the CNPG dialect
 //! reads (a pg_dump holds a CAGG only as views over `_timescaledb_internal` objects, which do
-//! not replay; see `rust/integration-db/src/template.rs`). Replaying the real Ecto migrations
-//! would need the Elixir application, which the fixture rules keep off workstations.
+//! not replay). Replaying the real Ecto migrations would need the Elixir application, which
+//! the fixture rules keep off workstations.
 
 /// Splits a StarRocks schema file into statements, dropping `--` comment lines (the Frontend
 /// rejects a comment sent as a statement of its own). Mirrors `Schema.statements/1`: split on

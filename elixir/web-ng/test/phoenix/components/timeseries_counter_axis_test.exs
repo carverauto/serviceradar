@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterAxisTest do
 
   test "clamps interface octet counters to link speed but not packet/error counters" do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
 
     assert [
              {"ifInOctets", [{^t1, 100.0}]},
@@ -27,8 +27,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterAxisTest do
 
   test "keeps byte-rate and count-rate counter series on separate axes when combining" do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
-    t2 = DateTime.add(t1, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
+    t2 = DateTime.shift(t1, minute: 1)
 
     rates =
       Metrics.counter_rates(
@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterAxisTest do
 
   test "uses the computed chart left pad for ticks and hover point coordinates" do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
 
     [series] =
       SeriesData.build_series_data(

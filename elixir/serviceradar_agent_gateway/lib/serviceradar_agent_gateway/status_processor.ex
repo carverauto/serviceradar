@@ -18,6 +18,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   - Distributed routing for partition-aware processing
   """
 
+  alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.IcmpMetricsPublisher
   alias ServiceRadarAgentGateway.K8sPublicEndpointsPublisher
   alias ServiceRadarAgentGateway.MtrMetricsPublisher
@@ -395,20 +396,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   defp core_call_timeout_ms(_status), do: @core_call_timeout_ms
 
-  # Find a node that has the handler running
+  # Find a connected node that runs the handler. The locator answers from its
+  # cache and never waits on a node that does not respond when another one does.
   defp find_handler_node(handler) do
-    nodes = Enum.uniq([Node.self() | Node.list()])
-
-    # First, try to find nodes with the handler
-    handler_nodes =
-      Enum.filter(nodes, fn node ->
-        case :rpc.call(node, Process, :whereis, [handler], 5_000) do
-          pid when is_pid(pid) -> true
-          _ -> false
-        end
-      end)
-
-    case handler_nodes do
+    case ClusterProcessLocator.nodes(handler) do
       [node | _] -> {:ok, node}
       [] -> {:error, :not_found}
     end

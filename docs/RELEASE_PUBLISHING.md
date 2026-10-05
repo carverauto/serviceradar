@@ -5,8 +5,9 @@ GitHub Releases. Tag-gated package, image, native add-on, Wasm plugin, and
 security workflows live under `.github/workflows/` and run on in-cluster ARC
 runners (`serviceradar-signing` for publish/sign, `arc-runner-set` for lint
 and checks). The supported workflow is tag gated: a `v*` tag starts the
-image/package release together with the native add-on, Wasm plugin,
-source-security, and image-security workflows.
+image/package release together with the native add-on, Wasm plugin and
+source-security workflows. Image security starts after publication produces
+the images and draft release, so a delayed publisher cannot exhaust its wait.
 
 The primary workflow is `.github/workflows/release.yml`. It:
 
@@ -16,14 +17,15 @@ The primary workflow is `.github/workflows/release.yml`. It:
 3. Signs and verifies the image set, then packages and publishes the Helm chart.
 4. Creates or updates a draft GitHub release and uploads packages, the managed
    agent archive, and its signed manifest.
-5. Waits for the native add-on and Wasm plugin catalog indexes plus the source
-   and image security bundles from the parallel tag workflows.
+5. Dispatches image security for the same release tag if its bundle is missing,
+   then waits for the native add-on and Wasm plugin catalog indexes plus both
+   security bundles.
 6. Publishes the GitHub release only after every required asset exists.
-7. Advances `demo/prod-release` after publication so the reviewed manual Argo
-   rollout can use the verified semver tag.
+7. Advances `demo/prod-release` after publication so `serviceradar-demo-prod`
+   can sync the verified release commit.
 
 `.github/workflows/native-addons.yml`, `.github/workflows/wasm-plugins.yml`,
-`.github/workflows/source-security.yml`, and
+`.github/workflows/source-security.yml`, and the dispatched
 `.github/workflows/image-security.yml` run for the same tag. A release must
 stay draft until both catalogs and both security bundles have arrived. This
 ordering matters when GitHub immutable releases are enabled because a late
@@ -102,13 +104,14 @@ gh run list --repo carverauto/serviceradar --branch v1.4.10
 gh release view v1.4.10 --repo carverauto/serviceradar
 ```
 
-The tag starts five release workflows:
+The tag starts four release workflows:
 
 - `Publish Release Artifacts`
 - `Publish Native Add-ons`
 - `Publish Wasm Plugins`
 - `Source Security Scan`
-- `Image Security Scan`
+
+Publication dispatches `Image Security Scan` for the same tag once the images and draft release exist.
 
 The main release must remain draft if a catalog or security workflow fails, or
 if one of its required assets does not arrive before the bounded finalization
@@ -151,16 +154,19 @@ scripts/validate-large-ingestion.sh
 
 ## Demo Handoff
 
-Successful stable, non-draft publication advances `demo/prod-release` and updates
-`helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml` to the semver
-image tag. Automated Argo sync and Image Updater are intentionally disabled
-while the live generated-secret, CNPG, and deployment drift is under review.
+`scripts/cut-release.sh` writes `global.imageTag` in
+`helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml` to the release
+tag on the release commit. When that file exists,
+`scripts/validate-release-metadata.sh` fails unless `global.imageTag` equals
+the release tag. `.github/workflows/release.yml` runs that check in its
+release-source steps, before publication. A missing file is allowed.
+Successful stable, non-draft publication then advances `demo/prod-release` to
+that commit.
 
-Do not patch `global.imageTag` directly for a formal release. Follow
-`.agents/skills/release-cut-and-demo-roll/SKILL.md`: verify the release branch,
-review every OutOfSync resource, perform a non-pruning manual sync through an
-authenticated Argo context, and wait for `Synced|Healthy|Succeeded` with the
-key workloads on `v<version>`.
+`serviceradar-demo-prod` tracks the branch and syncs it automatically, with
+prune and self-heal off. Image Updater stays disabled. Do not patch
+`global.imageTag` on the live Application. Rollout checks are in
+`.agents/skills/release-cut-and-demo-roll/SKILL.md`.
 
 ## CI Prerequisites
 
@@ -180,6 +186,14 @@ catalog finalization should not hold that runner while waiting for parallel
 workflows.
 
 ## Recovery
+
+After a transient publish failure, rerun the failed release jobs; never delete
+and recreate the tag. Once publication succeeds, the image-security dispatch
+job starts the scan if its bundle is still missing. If the scan itself fails,
+rerun **Image Security Scan** for that same tag first, then rerun the failed
+release jobs. A successful uploaded bundle is preserved on retry. The macOS
+build remains an optional publish dependency: its failure must not prevent
+the successful Linux/image and Windows artifacts from being published.
 
 Wasm plugin recovery is GitHub Actions: rerun **Publish Wasm Plugins** at the
 release tag (`runs-on: serviceradar-signing`). `make push_all_release` covers

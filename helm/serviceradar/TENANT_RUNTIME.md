@@ -51,6 +51,14 @@ tenant-cluster `external-dns`. It also leaves `gatewayApi.tls.clusterIssuer`
 empty; hosted bootstrap must issue/sync the public TLS secret named by
 `gatewayApi.tls.secretName` before the managed Gateway serves traffic.
 
+Edge-site NATS leaf servers reach the tenant through `gatewayApi.natsLeaf`. It
+is a raw TCP route to the `nats.leafnodes` listener on 7422, and TLS terminates
+in nats-server. Both are off in the baseline. Before turning them on, the
+control plane must issue `nats.pem` with
+`hostedRuntime.publicEndpoints.natsLeafHost` as a SAN, because hosted mode never
+runs the chart's certificate generator. Setting `natsLeafHost` also renders
+`SERVICERADAR_NATS_LEAF_UPSTREAM_URL` for web-ng.
+
 External telemetry NetworkPolicy CIDR lists are intentionally empty in the
 baseline. The hosted control plane's network-security sync writes tenant
 trusted-CIDR allow-lists when that section lands.

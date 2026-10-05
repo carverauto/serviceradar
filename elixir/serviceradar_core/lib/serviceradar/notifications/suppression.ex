@@ -477,7 +477,7 @@ defmodule ServiceRadar.Notifications.Suppression do
          cooldown_seconds: Map.get(throttle, :cooldown_seconds),
          effective_seconds: window,
          last_dispatch_at: last,
-         next_eligible_at: DateTime.add(last, window, :second)
+         next_eligible_at: DateTime.shift(last, second: window)
        }}
     else
       :allow

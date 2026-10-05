@@ -261,7 +261,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
          user_jwt: "test-user-jwt",
          creds_file_content:
            "-----BEGIN NATS USER JWT-----\ntest-user-jwt\n------END NATS USER JWT------",
-         expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+         expires_at: DateTime.shift(DateTime.utc_now(), hour: 1)
        }}
     end
   end

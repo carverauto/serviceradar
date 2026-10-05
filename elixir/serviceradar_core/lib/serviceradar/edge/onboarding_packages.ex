@@ -137,8 +137,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     download_token = Crypto.generate_token()
 
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    join_expires = DateTime.add(now, join_ttl, :second)
-    download_expires = DateTime.add(now, download_ttl, :second)
+    join_expires = DateTime.shift(now, second: join_ttl)
+    download_expires = DateTime.shift(now, second: download_ttl)
 
     # Encrypt join token and hash download token
     join_token_ciphertext = Crypto.encrypt(join_token)

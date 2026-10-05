@@ -128,6 +128,10 @@ defmodule ServiceRadar.TestSupportSandboxTest do
   # holder already uses for "the connection was genuinely never released".
   @db_wait_ms 5_000
 
+  # A pool default the ownership timer reliably fires within, and a query that outlasts it.
+  @short_ownership_timeout_ms 200
+  @outlasting_query_s 1.0
+
   setup_all do
     TestSupport.start_core!(sandbox_owner?: false)
 
@@ -393,6 +397,38 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     assert is_nil(TestSupport.sandbox_ownership_timeout(%{}))
   end
 
+  # The pool's ownership timer counts from checkout and disconnects whatever query is in
+  # flight when it fires. These two tests run a query outlasting a deliberately short pool
+  # default, against a private Repo instance so the application pool is untouched.
+  test "a short unboxed test keeps the pool's default ownership timeout" do
+    with_short_ownership_repo(fn ->
+      TestSupport.checkout_repo!(%{sandbox: :unboxed})
+
+      result = Repo.query("SELECT pg_sleep($1::float8)", [@outlasting_query_s])
+
+      assert ownership_timeout_outcome?(result),
+             "expected the pool ownership timer to interrupt the outlasting query, got: " <>
+               inspect(result)
+    end)
+  end
+
+  test "a long unboxed test owns its connection for the tag-derived ownership timeout" do
+    with_short_ownership_repo(fn ->
+      TestSupport.checkout_repo!(%{sandbox: :unboxed, timeout: 1_800_000})
+
+      assert %{rows: [[1]]} =
+               Repo.query!("SELECT 1 FROM pg_sleep($1::float8)", [@outlasting_query_s])
+
+      # Unboxed means no wrapping transaction, so each statement is its own transaction and
+      # commits like production code. Inside a sandbox BEGIN, now() (transaction start,
+      # predating the pg_sleep above by >= 1s) would lag statement_timestamp(). Exact =
+      # is not guaranteed even in autocommit (microsecond clock granularity), so compare
+      # with a threshold the preceding 1s sleep separates deterministically.
+      assert %{rows: [[true]]} =
+               Repo.query!("SELECT statement_timestamp() - now() < interval '0.5 seconds'")
+    end)
+  end
+
   test "repository owner teardown drains shards started by log promotion" do
     previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
     Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
@@ -461,6 +497,38 @@ defmodule ServiceRadar.TestSupportSandboxTest do
       Sandbox.mode(Repo, :auto)
       Repo.query!("DROP TABLE IF EXISTS #{qualified_table}")
       Sandbox.mode(Repo, :manual)
+    end
+  end
+
+  # The ownership timer counts from checkout and disconnects whatever query is in
+  # flight when it fires. Mid-query that surfaces as one of two documented outcomes,
+  # depending on which side of the teardown wins the race: Postgres cancels the
+  # in-flight statement (57014/query_canceled), or the ownership proxy tears the
+  # connection down first and the caller sees its disconnect reason. That reason is
+  # emitted only by the ownership-timer handler (DBConnection.Ownership.Proxy), so
+  # requiring its exact ":ownership_timeout option" marker both proves the timer fired
+  # and rejects unrelated connection failures. Anything else -- notably :ok -- means the
+  # pool default did not govern this checkout and must stay red.
+  defp ownership_timeout_outcome?({:error, %Postgrex.Error{postgres: %{code: :query_canceled}}}),
+    do: true
+
+  defp ownership_timeout_outcome?({:error, %DBConnection.ConnectionError{message: message}})
+       when is_binary(message),
+       do: message =~ "(set via the :ownership_timeout option)"
+
+  defp ownership_timeout_outcome?(_other), do: false
+
+  defp with_short_ownership_repo(fun) do
+    {:ok, repo} =
+      Repo.start_link(name: nil, pool_size: 1, ownership_timeout: @short_ownership_timeout_ms)
+
+    previous = Repo.put_dynamic_repo(repo)
+
+    try do
+      fun.()
+    after
+      Repo.put_dynamic_repo(previous)
+      Supervisor.stop(repo)
     end
   end
 

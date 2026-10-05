@@ -521,7 +521,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   test "upsert_links is idempotent and updates confidence metadata in place" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    later = DateTime.add(now, 30, :second)
+    later = DateTime.shift(now, second: 30)
 
     TopologyGraph.upsert_links([
       %{
@@ -586,7 +586,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     end)
 
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    stale = DateTime.add(now, -10 * 60, :second)
+    stale = DateTime.shift(now, minute: -10)
 
     TopologyGraph.upsert_links([
       %{

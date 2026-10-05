@@ -2777,9 +2777,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.15"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155"
+checksum = "a9f37a958b41b3b19ee2707c06439c0e9e547e847223eb791ecb0cb821c65e27"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -3490,23 +3490,6 @@ dependencies = [
  "num-cmp",
  "num-traits",
  "serde_json",
-]
-
-[[package]]
-name = "jsonwebtoken"
-version = "10.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eba32bfb4ffdeaca3e34431072faf01745c9b26d25504aa7a6cf5684334fc4fc"
-dependencies = [
- "base64 0.22.1",
- "getrandom 0.2.17",
- "js-sys",
- "pem 3.0.6",
- "serde",
- "serde_json",
- "signature 2.2.0",
- "simple_asn1",
- "zeroize",
 ]
 
 [[package]]
@@ -5580,11 +5563,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d7c30433793fee9e229829da7435a8c202ccd34521449c05f2892db0911a5c6"
 dependencies = [
  "reqsign-aws-v4",
- "reqsign-azure-storage 3.2.0",
+ "reqsign-azure-storage",
  "reqsign-command-execute-tokio",
- "reqsign-core 3.3.0",
+ "reqsign-core",
  "reqsign-file-read-tokio",
- "reqsign-google 3.1.0",
+ "reqsign-google",
  "reqsign-http-send-reqwest",
 ]
 
@@ -5601,7 +5584,7 @@ dependencies = [
  "log",
  "percent-encoding",
  "quick-xml",
- "reqsign-core 3.3.0",
+ "reqsign-core",
  "rust-ini",
  "serde",
  "serde_json",
@@ -5620,32 +5603,8 @@ dependencies = [
  "log",
  "quick-xml",
  "reqsign-aws-core",
- "reqsign-core 3.3.0",
+ "reqsign-core",
  "serde",
-]
-
-[[package]]
-name = "reqsign-azure-storage"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "form_urlencoded",
- "http",
- "jsonwebtoken",
- "log",
- "pem 3.0.6",
- "percent-encoding",
- "reqsign-core 1.0.0",
- "reqwest 0.12.28",
- "rsa",
- "serde",
- "serde_json",
- "sha1 0.10.7",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -5662,7 +5621,7 @@ dependencies = [
  "log",
  "pem 4.0.0",
  "percent-encoding",
- "reqsign-core 3.3.0",
+ "reqsign-core",
  "rsa",
  "serde",
  "serde_json",
@@ -5675,31 +5634,8 @@ version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e167fe8ecbc5457590ff23750c11ba227f77ed18093d07ae0d3177f9d4c93656"
 dependencies = [
- "reqsign-core 3.3.0",
+ "reqsign-core",
  "tokio",
-]
-
-[[package]]
-name = "reqsign-core"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35fd7359352a79b293168785b9cbb239e7017b4fa0c934351518feee394f92bc"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "form_urlencoded",
- "hex",
- "hmac 0.12.1",
- "http",
- "log",
- "percent-encoding",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "thiserror 2.0.20",
- "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5733,27 +5669,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95c3371bfc7e5c7f9627a04133af3583fd6c28715e7c83f79db38f3b384f535f"
 dependencies = [
  "anyhow",
- "reqsign-core 3.3.0",
+ "reqsign-core",
  "tokio",
-]
-
-[[package]]
-name = "reqsign-google"
-version = "1.0.0"
-dependencies = [
- "async-trait",
- "chrono",
- "http",
- "jsonwebtoken",
- "log",
- "percent-encoding",
- "rand 0.8.7",
- "reqsign-core 1.0.0",
- "reqwest 0.12.28",
- "rsa",
- "serde",
- "serde_json",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -5768,7 +5685,7 @@ dependencies = [
  "log",
  "percent-encoding",
  "reqsign-aws-v4",
- "reqsign-core 3.3.0",
+ "reqsign-core",
  "rsa",
  "serde",
  "serde_json",
@@ -5786,7 +5703,7 @@ dependencies = [
  "futures-channel",
  "http",
  "http-body-util",
- "reqsign-core 3.3.0",
+ "reqsign-core",
  "reqwest 0.13.4",
  "wasm-bindgen-futures",
 ]
@@ -6663,10 +6580,14 @@ dependencies = [
  "log",
  "netflow_parser",
  "prost",
+ "rcgen",
  "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
+ "tokio-rustls",
  "tonic-prost-build",
 ]
 
@@ -7041,18 +6962,6 @@ name = "simple-error"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc47a29ce97772ca5c927f75bac34866b16d64e07f330c3248e2d7226623901b"
-
-[[package]]
-name = "simple_asn1"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "297f631f50729c8c99b84667867963997ec0b50f32b2a7dbcab828ef0541e8bb"
-dependencies = [
- "num-bigint 0.4.8",
- "num-traits",
- "thiserror 2.0.20",
- "time",
-]
 
 [[package]]
 name = "siphasher"

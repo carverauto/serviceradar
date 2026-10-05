@@ -857,7 +857,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
       %DateTime{} = lease_expires_at ->
         DateTime.after?(
           lease_expires_at,
-          DateTime.add(now, -@session_expiry_grace_seconds, :second)
+          DateTime.shift(now, second: -@session_expiry_grace_seconds)
         )
 
       _other ->
@@ -866,7 +866,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   end
 
   defp recent_session_update?(session, now) do
-    freshness_cutoff = DateTime.add(now, -@session_fallback_freshness_seconds, :second)
+    freshness_cutoff = DateTime.shift(now, second: -@session_fallback_freshness_seconds)
 
     session
     |> session_activity_timestamps()

@@ -9,7 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
   test "topology recovers bounded counter wraps and drops resets" do
     uid = "sr:wrap-#{Ecto.UUID.generate()}"
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    previous = DateTime.add(now, -10, :second)
+    previous = DateTime.shift(now, second: -10)
     half_second = DateTime.add(now, -500, :millisecond)
     modulus_32 = 4_294_967_296.0
     modulus_64 = 18_446_744_073_709_551_616.0
@@ -70,10 +70,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
   test "topology uses the latest per-producer counter interval, not cumulative totals" do
     uid = "sr:rate-#{Ecto.UUID.generate()}"
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    previous = DateTime.add(now, -30, :second)
-    older = DateTime.add(now, -60, :second)
-    retired_previous = DateTime.add(now, -21 * 60, :second)
-    retired_latest = DateTime.add(now, -20 * 60, :second)
+    previous = DateTime.shift(now, second: -30)
+    older = DateTime.shift(now, minute: -1)
+    retired_previous = DateTime.shift(now, minute: -21)
+    retired_latest = DateTime.shift(now, minute: -20)
 
     samples = [
       {7, "ifOutUcastPkts", "poller-a", older, 100.0},

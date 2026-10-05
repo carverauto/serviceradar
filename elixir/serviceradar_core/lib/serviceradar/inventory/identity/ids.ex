@@ -429,6 +429,22 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     end
   end
 
+  @doc """
+  The uid a re-issued source id's update is written to when the uid the id derives is taken
+  (change `add-source-id-succession`, design D6): writing to the derived uid would land the
+  update on the record that first held the id. It is deterministic in the derived uid and the
+  archive rows the id was retired from, so a retried batch writes the same record.
+  """
+  @spec reissued_device_id(String.t(), [integer()]) :: String.t()
+  def reissued_device_id(derived_uid, archived_identifier_ids)
+      when is_binary(derived_uid) and is_list(archived_identifier_ids) do
+    archived = archived_identifier_ids |> Enum.map(&to_string/1) |> Enum.sort() |> Enum.join(",")
+
+    uuid_from_hash(
+      :crypto.hash(:sha256, "serviceradar-device-v3:reissued:#{derived_uid}:#{archived}")
+    )
+  end
+
   defp maybe_add_seed(acc, _prefix, nil), do: acc
   defp maybe_add_seed(acc, prefix, value), do: acc ++ ["#{prefix}:#{value}"]
 

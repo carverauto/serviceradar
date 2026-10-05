@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
       requested_by: "user-1",
       status: :requested,
       rbac_decision: :allowed,
-      attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+      attach_expires_at: DateTime.shift(DateTime.utc_now(), minute: 1),
       idle_timeout_seconds: 900,
       absolute_timeout_seconds: 3600,
       inserted_at: DateTime.utc_now(),

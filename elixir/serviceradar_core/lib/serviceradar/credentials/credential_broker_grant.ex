@@ -15,6 +15,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
   alias ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle
   alias ServiceRadar.Credentials.Changes.WriteBrokerGrantLifecycleEvent
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Credentials.Validations.GrantPrunableForSecretDeletion
   alias ServiceRadar.Plugins.SecretRefs
@@ -87,6 +88,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_for_consumer, action: :for_consumer, args: [:consumer_kind, :consumer_id]
+    define :list_live_for_scope, action: :live_for_scope
     define :issue_grant, action: :issue
     define :activate, action: :activate
     define :consume, action: :consume
@@ -111,6 +113,23 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       filter expr(consumer_kind == ^arg(:consumer_kind) and consumer_id == ^arg(:consumer_id))
 
       prepare build(sort: [inserted_at: :desc])
+    end
+
+    # Candidates for reuse_or_issue/2; the caller compares the full scope.
+    read :live_for_scope do
+      argument :agent_id, :string, allow_nil?: false
+      argument :consumer_kind, :atom, allow_nil?: false
+      argument :consumer_id, :string, allow_nil?: false
+      argument :secret_id, :uuid, allow_nil?: false
+      argument :expires_after, :utc_datetime, allow_nil?: false
+
+      filter expr(
+               agent_id == ^arg(:agent_id) and consumer_kind == ^arg(:consumer_kind) and
+                 consumer_id == ^arg(:consumer_id) and secret_id == ^arg(:secret_id) and
+                 status in [:issued, :active] and expires_at > ^arg(:expires_after)
+             )
+
+      prepare build(sort: [expires_at: :desc], limit: 20)
     end
 
     create :issue do
@@ -378,7 +397,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     supplied_secret_id = value(attrs, :secret_id)
     secret_ref = value(attrs, :secret_ref) || secret_ref_for(supplied_secret_id)
     secret_id = supplied_secret_id || network_credential_secret_id_from_ref(secret_ref)
-    default_expires_at = now |> DateTime.add(ttl_seconds, :second) |> truncate_datetime()
+    default_expires_at = now |> DateTime.shift(second: ttl_seconds) |> truncate_datetime()
 
     @fields
     |> Enum.reduce(%{}, fn field, acc ->
@@ -391,6 +410,89 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     |> Map.put(:secret_ref, secret_ref)
     |> maybe_put_secret_id(secret_id)
     |> Map.update(:expires_at, default_expires_at, &truncate_datetime/1)
+  end
+
+  @doc """
+  Returns a live grant whose scope is identical to `attrs`, issuing a new one
+  only when none exists.
+
+  For callers that regenerate the same grant on a schedule, such as the plugin
+  assignment reconcile, which rebuilds every assignment template each minute.
+  Minting there produced a grant per cycle that no agent ever received. Reuse
+  never widens access: the candidate must match the full wire scope (secret,
+  rule, consumer, purpose, target, agent, resolution location, inject and every
+  allow-list) plus metadata, must still be issued or active, and must not expire
+  within `:min_remaining_seconds` (default 0). A rule-bound grant is reused only
+  while the rule is still enabled for the same secret, the condition the issue
+  action enforces. Any lookup failure falls back to issuing.
+  """
+  def reuse_or_issue(attrs, opts) when is_map(attrs) and is_list(opts) do
+    actor = Keyword.fetch!(opts, :actor)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    attrs = issue_attrs(attrs, now)
+
+    case find_reusable(attrs, actor, now, Keyword.get(opts, :min_remaining_seconds, 0)) do
+      {:ok, grant} -> {:ok, grant}
+      :none -> issue_grant(attrs, actor: actor)
+    end
+  end
+
+  defp find_reusable(attrs, actor, now, min_remaining_seconds) do
+    args = %{
+      agent_id: value(attrs, :agent_id),
+      consumer_kind: value(attrs, :consumer_kind),
+      consumer_id: value(attrs, :consumer_id),
+      secret_id: value(attrs, :secret_id),
+      expires_after: DateTime.shift(now, second: min_remaining_seconds)
+    }
+
+    with true <- Enum.all?(Map.values(args), &(not is_nil(&1))),
+         :ok <- rule_still_issuable(attrs, actor),
+         {:ok, candidates} <- list_live_for_scope(args, actor: actor),
+         %{} = grant <- Enum.find(candidates, &(scope_key(&1) == scope_key(attrs))) do
+      {:ok, grant}
+    else
+      _ -> :none
+    end
+  rescue
+    ArgumentError -> :none
+  end
+
+  defp rule_still_issuable(attrs, actor) do
+    case value(attrs, :credential_rule_id) do
+      nil ->
+        :ok
+
+      rule_id ->
+        case NetworkCredentialRule.get_by_id(rule_id, actor: actor) do
+          {:ok, %{enabled: true, secret_id: secret_id}} ->
+            if to_string(secret_id) == to_string(value(attrs, :secret_id)),
+              do: :ok,
+              else: :rule_secret_changed
+
+          _ ->
+            :rule_not_issuable
+        end
+    end
+  end
+
+  # The wire payload is the scope the agent and broker enforce; only the
+  # identity and expiry of the grant itself are excluded.
+  defp scope_key(grant_or_attrs) do
+    payload = grant_or_attrs |> to_payload() |> Map.drop(["grant_id", "expires_at"])
+    {payload, value(grant_or_attrs, :metadata) || %{}}
+  end
+
+  @doc """
+  The wire payload of a grant that has not been issued: its full scope, without
+  a grant id or expiry. Assignment templates carry this; the grant itself is
+  issued when the credential is delivered or resolved.
+  """
+  def scope_payload(attrs, extras \\ %{}) when is_map(attrs) do
+    attrs
+    |> Map.drop([:id, "id"])
+    |> to_payload(extras)
+    |> Map.drop(["grant_id", "expires_at"])
   end
 
   @doc "Build the versioned wire payload used by agents and plugins."
@@ -538,7 +640,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     if value(grant_or_attrs, :id) do
       nil
     else
-      DateTime.add(utc_now(), int_value(grant_or_attrs, :ttl_seconds, 300), :second)
+      DateTime.shift(utc_now(), second: int_value(grant_or_attrs, :ttl_seconds, 300))
     end
   end
 

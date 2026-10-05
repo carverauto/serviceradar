@@ -1,6 +1,13 @@
 defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   @moduledoc """
   Per-relay Membrane pipeline that owns the media path inside `core-elx`.
+
+  Every viewer sink and every boombox/analysis branch runs in its own
+  temporary crash group. One viewer's WebRTC connection failing (ICE
+  `connection_failed`, a signaling error) takes down only that viewer's
+  sink; the source, the browser pubsub sink and the other viewers keep
+  running. The crashed member is dropped from the pipeline state and its
+  owner is told through the `:notify` pid it registered with.
   """
 
   use Membrane.Pipeline
@@ -12,6 +19,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   alias ServiceRadarCoreElx.CameraRelay.BoomboxOutputBin
   alias ServiceRadarCoreElx.CameraRelay.ChunkSource
   alias ServiceRadarCoreElx.CameraRelay.PubSubSink
+
+  require Logger
 
   @source :camera_chunk_source
   @browser_tee :camera_browser_tee
@@ -37,7 +46,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       |> child(@webrtc_tee, Membrane.Tee)
     ]
 
-    {[spec: spec], %{relay_session_id: relay_session_id, viewers: %{}, analysis_branches: %{}, boombox_branches: %{}}}
+    {[spec: spec],
+     %{
+       relay_session_id: relay_session_id,
+       viewers: %{},
+       analysis_branches: %{},
+       boombox_branches: %{},
+       pending_removals: %{}
+     }}
   end
 
   @impl true
@@ -71,23 +87,27 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
           payload_rtp: true
         })
 
-      actions = [spec: spec, reply: :ok]
+      actions = [spec: crash_group(spec, {:webrtc_viewer, viewer_session_id}), reply: :ok]
 
       next_state =
-        put_in(state, [:viewers, viewer_session_id], %{sink_name: sink_name, output_pad: output_pad})
+        put_in(state, [:viewers, viewer_session_id], %{
+          sink_name: sink_name,
+          output_pad: output_pad,
+          notify: Keyword.get(opts, :notify)
+        })
 
       {actions, next_state}
     end
   end
 
-  def handle_call({:remove_webrtc_viewer, viewer_session_id}, _ctx, state) do
+  def handle_call({:remove_webrtc_viewer, viewer_session_id}, ctx, state) do
     case Map.pop(state.viewers, viewer_session_id) do
       {nil, _viewers} ->
         {[reply: {:error, :not_found}], state}
 
       {%{sink_name: sink_name, output_pad: output_pad}, viewers} ->
-        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name, reply: :ok]
-        {actions, %{state | viewers: viewers}}
+        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name]
+        {actions, defer_removal_reply(%{state | viewers: viewers}, sink_name, ctx.from)}
     end
   end
 
@@ -107,9 +127,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
         })
 
       next_state =
-        put_in(state, [:boombox_branches, branch_id], %{sink_name: sink_name, output_pad: output_pad})
+        put_in(state, [:boombox_branches, branch_id], %{
+          sink_name: sink_name,
+          output_pad: output_pad,
+          notify: Keyword.get(opts, :notify)
+        })
 
-      {[spec: spec, reply: :ok], next_state}
+      {[spec: crash_group(spec, {:boombox_branch, branch_id}), reply: :ok], next_state}
     end
   end
 
@@ -132,31 +156,95 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
         })
 
       next_state =
-        put_in(state, [:analysis_branches, branch_id], %{sink_name: sink_name, output_pad: output_pad})
+        put_in(state, [:analysis_branches, branch_id], %{
+          sink_name: sink_name,
+          output_pad: output_pad,
+          notify: Keyword.get(opts, :notify)
+        })
 
-      {[spec: spec, reply: :ok], next_state}
+      {[spec: crash_group(spec, {:analysis_branch, branch_id}), reply: :ok], next_state}
     end
   end
 
-  def handle_call({:remove_analysis_branch, branch_id}, _ctx, state) do
+  def handle_call({:remove_analysis_branch, branch_id}, ctx, state) do
     case Map.pop(state.analysis_branches, branch_id) do
       {nil, _analysis_branches} ->
         {[reply: {:error, :not_found}], state}
 
       {%{sink_name: sink_name, output_pad: output_pad}, analysis_branches} ->
-        actions = [remove_link: {@browser_tee, output_pad}, remove_children: sink_name, reply: :ok]
-        {actions, %{state | analysis_branches: analysis_branches}}
+        actions = [remove_link: {@browser_tee, output_pad}, remove_children: sink_name]
+        {actions, defer_removal_reply(%{state | analysis_branches: analysis_branches}, sink_name, ctx.from)}
     end
   end
 
-  def handle_call({:remove_boombox_branch, branch_id}, _ctx, state) do
+  def handle_call({:remove_boombox_branch, branch_id}, ctx, state) do
     case Map.pop(state.boombox_branches, branch_id) do
       {nil, _boombox_branches} ->
         {[reply: {:error, :not_found}], state}
 
       {%{sink_name: sink_name, output_pad: output_pad}, boombox_branches} ->
-        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name, reply: :ok]
-        {actions, %{state | boombox_branches: boombox_branches}}
+        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name]
+        {actions, defer_removal_reply(%{state | boombox_branches: boombox_branches}, sink_name, ctx.from)}
     end
   end
+
+  # A remove call is answered only once its child has terminated. Replying when
+  # the removal is merely requested let a caller re-add the same viewer or
+  # branch before the old child was gone, which Membrane rejects with
+  # "Duplicated names in children specification". A child that crashes while
+  # its removal is pending terminates here too, so the caller still gets :ok.
+  @impl true
+  def handle_child_terminated(child, _ctx, state) do
+    case Map.pop(state.pending_removals, child) do
+      {nil, _pending_removals} ->
+        {[], state}
+
+      {from, pending_removals} ->
+        {[reply_to: {from, :ok}], %{state | pending_removals: pending_removals}}
+    end
+  end
+
+  @impl true
+  def handle_crash_group_down({:webrtc_viewer, viewer_session_id}, ctx, state) do
+    drop_member(state, :viewers, viewer_session_id, :webrtc_viewer, ctx)
+  end
+
+  def handle_crash_group_down({:boombox_branch, branch_id}, ctx, state) do
+    drop_member(state, :boombox_branches, branch_id, :boombox_branch, ctx)
+  end
+
+  def handle_crash_group_down({:analysis_branch, branch_id}, ctx, state) do
+    drop_member(state, :analysis_branches, branch_id, :analysis_branch, ctx)
+  end
+
+  def handle_crash_group_down(_group_name, _ctx, state), do: {[], state}
+
+  # The crashed children are already gone and Membrane unlinks their tee pads;
+  # only the bookkeeping and the owner notification are left to do.
+  defp drop_member(state, key, member_id, kind, ctx) do
+    {member, members} = Map.pop(Map.fetch!(state, key), member_id)
+    reason = Map.get(ctx, :crash_reason)
+
+    Logger.warning(
+      "Camera relay #{kind} crashed and was removed: relay_session_id=#{state.relay_session_id} " <>
+        "member_id=#{member_id} reason=#{inspect(reason)}"
+    )
+
+    notify_member_crash(member, kind, state.relay_session_id, member_id, reason)
+
+    {[], Map.put(state, key, members)}
+  end
+
+  defp notify_member_crash(%{notify: pid}, kind, relay_session_id, member_id, reason) when is_pid(pid) do
+    send(pid, {:camera_relay_member_crashed, kind, relay_session_id, member_id, reason})
+    :ok
+  end
+
+  defp notify_member_crash(_member, _kind, _relay_session_id, _member_id, _reason), do: :ok
+
+  defp defer_removal_reply(state, sink_name, from) do
+    %{state | pending_removals: Map.put(state.pending_removals, sink_name, from)}
+  end
+
+  defp crash_group(spec, group), do: {spec, group: group, crash_group_mode: :temporary}
 end

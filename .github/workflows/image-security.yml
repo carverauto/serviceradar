@@ -1,9 +1,8 @@
 name: Image Security Scan
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # Release publication dispatches this only after images and the draft exist.
+  # Manual dispatch remains available for retrying a failed scan without re-tagging.
   workflow_dispatch:
     inputs:
       tag:
@@ -12,7 +11,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ inputs.tag }}
   cancel-in-progress: true
 
 permissions:
@@ -32,6 +31,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag }}
 
       - name: Install ORAS
         run: ./scripts/install-oras.sh

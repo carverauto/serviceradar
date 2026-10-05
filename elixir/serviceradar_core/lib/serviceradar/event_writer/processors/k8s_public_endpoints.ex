@@ -20,6 +20,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.BulkInsert
+  alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.Repo
 
   require Logger
@@ -53,6 +54,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
     :observed_at,
     :snapshot_at,
     :deleted_at,
+    :deleted_by,
     :updated_at
   ]
 
@@ -69,16 +71,12 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
     if snapshots == [] do
       {:ok, 0}
     else
-      # Process each snapshot independently (batch_size is usually 1).
-      total =
-        Enum.reduce(snapshots, 0, fn snap, acc ->
-          case apply_snapshot(snap) do
-            {:ok, n} -> acc + n
-            {:error, _} -> acc
-          end
-        end)
-
-      {:ok, total}
+      Enum.reduce_while(snapshots, {:ok, 0}, fn snap, {:ok, acc} ->
+        case apply_snapshot(snap) do
+          {:ok, n} -> {:cont, {:ok, acc + n}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
     end
   rescue
     e ->
@@ -89,30 +87,40 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
   @impl true
   def parse_message(message), do: parse_snapshot(message)
 
-  defp parse_snapshot(%{data: data}) do
+  defp parse_snapshot(%{data: data} = message) do
     with {:ok, payload} <- decode_json(data),
          {:ok, cluster_id} <- required_string(payload, "cluster_id"),
          {:ok, snapshot_at} <- parse_time(payload["generated_at"] || payload["snapshot_at"]),
-         endpoints when is_list(endpoints) <- Map.get(payload, "endpoints", []) do
+         endpoints when is_list(endpoints) <- Map.get(payload, "endpoints", []),
+         :ok <- validate_endpoint_clusters(endpoints, cluster_id),
+         {:ok, source} <- snapshot_source(message) do
       %{
         cluster_id: cluster_id,
         snapshot_at: snapshot_at,
-        endpoints: Enum.map(endpoints, &normalize_endpoint(&1, cluster_id, snapshot_at))
+        endpoints: Enum.map(endpoints, &normalize_endpoint(&1, cluster_id, snapshot_at)),
+        source: source
       }
     else
-      _ ->
-        Logger.warning("k8s public endpoints: dropped malformed snapshot")
+      reason ->
+        Logger.warning("k8s public endpoints: dropped snapshot", reason: inspect(reason))
         nil
     end
   end
 
   defp parse_snapshot(_), do: nil
 
-  defp apply_snapshot(%{cluster_id: cluster_id, snapshot_at: snapshot_at, endpoints: rows}) do
+  defp apply_snapshot(%{
+         cluster_id: cluster_id,
+         snapshot_at: snapshot_at,
+         endpoints: rows,
+         source: source
+       }) do
     rows = Enum.reject(rows, &is_nil/1)
     keys = Enum.map(rows, & &1.endpoint_key)
 
     fn ->
+      authorize_source!(cluster_id, source)
+
       if rows != [] do
         BulkInsert.insert_all(@table, rows,
           prefix: @prefix,
@@ -122,6 +130,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
       end
 
       soft_delete_missing!(cluster_id, snapshot_at, keys)
+      record_snapshot!(cluster_id, snapshot_at, source)
       length(rows)
     end
     |> Repo.transaction()
@@ -139,6 +148,64 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
         Logger.error("k8s public endpoints apply failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  defp authorize_source!(_cluster_id, %{mode: :direct}), do: :ok
+
+  defp authorize_source!(cluster_id, %{
+         mode: :agent,
+         agent_id: agent_id,
+         partition_id: partition_id
+       }) do
+    sql = """
+    SELECT agent_id, partition_id
+    FROM #{@prefix}.k8s_inventory_cluster_bindings
+    WHERE cluster_id = $1
+    FOR SHARE
+    """
+
+    case Repo.query!(sql, [cluster_id]).rows do
+      [[^agent_id, ^partition_id]] ->
+        :ok
+
+      _ ->
+        Logger.warning("k8s public endpoints: rejected agent cluster binding",
+          cluster_id: cluster_id,
+          agent_id: agent_id,
+          partition_id: partition_id
+        )
+
+        :telemetry.execute(
+          [:serviceradar, :event_writer, :k8s_public_endpoints, :rejected],
+          %{count: 1},
+          %{reason: :cluster_binding_mismatch, cluster_id: cluster_id}
+        )
+
+        Repo.rollback(:k8s_inventory_cluster_binding_mismatch)
+    end
+  end
+
+  defp record_snapshot!(cluster_id, snapshot_at, source) do
+    {source_mode, agent_id, partition_id} =
+      case source do
+        %{mode: :direct} -> {"direct", nil, nil}
+        %{mode: :agent, agent_id: agent, partition_id: partition} -> {"agent", agent, partition}
+      end
+
+    Repo.query!(
+      """
+      INSERT INTO #{@prefix}.k8s_public_endpoint_snapshots AS current
+        (cluster_id, snapshot_at, source_mode, agent_id, partition_id, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $2)
+      ON CONFLICT (cluster_id) DO UPDATE
+      SET snapshot_at = EXCLUDED.snapshot_at,
+          source_mode = EXCLUDED.source_mode,
+          agent_id = EXCLUDED.agent_id,
+          partition_id = EXCLUDED.partition_id,
+          updated_at = EXCLUDED.updated_at
+      """,
+      [cluster_id, snapshot_at, source_mode, agent_id, partition_id]
+    )
   end
 
   defp soft_delete_missing!(cluster_id, snapshot_at, present_keys) do
@@ -159,7 +226,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
   end
 
   defp normalize_endpoint(ep, default_cluster, snapshot_at) when is_map(ep) do
-    cluster_id = string_or(ep["cluster_id"], default_cluster)
+    cluster_id = default_cluster
     ip = blank_to_nil(ep["ip"])
     hostname = blank_to_nil(ep["hostname"])
     port = to_int(ep["port"], 0)
@@ -221,6 +288,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
       observed_at: observed_at,
       snapshot_at: snapshot_at,
       deleted_at: nil,
+      deleted_by: nil,
       inserted_at: snapshot_at,
       updated_at: snapshot_at
     }
@@ -270,6 +338,40 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
 
   defp decode_json(data) when is_map(data), do: {:ok, data}
   defp decode_json(_), do: {:error, :invalid_json}
+
+  defp validate_endpoint_clusters(endpoints, cluster_id) do
+    if Enum.all?(endpoints, fn
+         endpoint when is_map(endpoint) ->
+           Map.get(endpoint, "cluster_id") in [nil, "", cluster_id]
+
+         _ ->
+           true
+       end) do
+      :ok
+    else
+      {:error, :endpoint_cluster_mismatch}
+    end
+  end
+
+  defp snapshot_source(message) do
+    attribution = IngestAttribution.from_metadata(Map.get(message, :metadata))
+
+    case attribution do
+      %{ingest_identity: "", ingest_agent_id: "", ingest_partition: ""} ->
+        {:ok, %{mode: :direct}}
+
+      %{
+        ingest_identity: "agent:" <> agent_id,
+        ingest_agent_id: agent_id,
+        ingest_partition: partition_id
+      }
+      when agent_id != "" and partition_id != "" ->
+        {:ok, %{mode: :agent, agent_id: agent_id, partition_id: partition_id}}
+
+      _ ->
+        {:error, :incomplete_agent_provenance}
+    end
+  end
 
   defp required_string(map, key) do
     case Map.get(map, key) do

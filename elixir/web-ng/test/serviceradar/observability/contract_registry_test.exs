@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :plugin_id,
       ref: %{
         "producer_id" => "proxmox-inventory",
-        "producer_version" => "0.1.8",
+        "producer_version" => "0.1.10",
         "schema_id" => "com.carverauto.proxmox.resource_event",
         "schema_version" => "1.0.0"
       }

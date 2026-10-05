@@ -628,11 +628,10 @@ Two dispositions cover almost everything:
   describe the actual file, not just repeat the reason. Unlike the
   database-free case, a `serial` disposition **does** need a change to
   `build/integration_test_dispositions.bzl`: add the source's module count to
-  `SERIAL_INTEGRATION_MODULE_COUNTS` (normally `1`) and its selected-test
-  count (the number of `test`/`property` cases the module runs) to
-  `SERIAL_INTEGRATION_SELECTED_TEST_COUNTS`, so
-  `test_starlark_lane_projection_exactly_matches_the_inventory` and
-  `build/integration_selection_equivalence_test.exs` agree with the TSV. This
+  `SERIAL_INTEGRATION_MODULE_COUNTS` (normally `1`), so
+  `test_starlark_lane_projection_exactly_matches_the_inventory` agrees with
+  the TSV. Nothing pins how many tests a file or lane runs: adding or removing
+  a test case never needs a count update anywhere. This
   step is easy to miss because the earlier database-free case explicitly says
   no Starlark change is needed, and a missing entry only fails BazelCI, not
   `mix test`.
@@ -682,23 +681,22 @@ ordinary scratch sweep never touches the `sr_tpl_` namespace. JSON output format
 protocol and failure recovery are in
 [docs/docs/ci-schema-templates.md](docs/docs/ci-schema-templates.md).
 
-**`sr_core_template` is a frozen rollback artifact.** No workflow migrates it or clones from it
-any more. Its three writers -- `//elixir/serviceradar_core:migrate_template`,
-`//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` -- still
-exist and still **refuse** without `--//build:template_authority=true`, and
-`//build/contracts:ci_heavy_gate_contract_test` fails if any active workflow passes that flag
-or names one of those targets. Do not pass it to get past a refusal: the flag is the caller
-declaring "this checkout is trunk", and writing the shared singleton from a branch is exactly
-what once left seven unmerged migrations in it and turned every other pull request red. It
-fails closed -- an absent or empty marker is a refusal -- so adding the flag to a target that
-does not declare `//build:template_authority_file` changes nothing. The run-base targets that
-fed from it (`//rust/integration-db:provision_base`, `//elixir/serviceradar_core:migrate_run`,
-`//rust/integration-db:provision_db*`) also remain in the tree, but no workflow invokes them.
-The accepted retirement plan deletes the writers, the flag, and the run-base targets, and adds
-per-lane `provision_generation_<lane>` clone targets for the one-lane loop; those labels are
-forthcoming, not yet callable. After the retirement lands, rolling back to the singleton
-lifecycle means reverting the retirement code first to restore the targets and their guards,
-then restoring the callers -- the frozen database alone restores nothing.
+**The legacy `sr_core_template` lifecycle is retired.** Its writers
+(`//elixir/serviceradar_core:migrate_template`, `//rust/integration-db:prepare_template`,
+`//rust/integration-db:reset_template`), the `--//build:template_authority` setting that gated
+them, and the run-base targets that fed from it (`//rust/integration-db:provision_base`,
+`//elixir/serviceradar_core:migrate_run`, `//rust/integration-db:provision_db*`) are deleted;
+`//build/contracts:ci_heavy_gate_contract_test` fails if any of them, or their sources, come
+back. Writing a shared singleton from a branch is exactly what once left seven unmerged
+migrations in it and turned every other pull request red. The test database guard rejects
+`sr_core_template` in every mode. The database itself was dropped from the fixture on
+2026-10-04 and removed from the protected-name lists
+(`openspec/changes/archive/2026-10-04-retire-legacy-shared-template`, tasks sections 4-5). Going back to the singleton lifecycle means reverting the retirement code first to
+restore the targets and their guards, then restoring the callers.
+
+For a one-lane loop, `//rust/integration-db:provision_generation_<lane>` clones only that
+lane's database from the run's pinned generation; run it after `prepare_generation` reports
+`ready`, then the matching `integration_tests_<lane>` target.
 
 Every lifecycle invocation passes `-c opt --config=ci --//build:enable_integration_tests`;
 database tests add `--strategy=TestRunner=local --nocache_test_results`. Mint ONE run id for
@@ -779,10 +777,9 @@ Context for the `mix serviceradar.db.migrate` rule in `AGENTS.md`.
   (`_compressed_hypertable_45`, `_direct_view_23` -- names carrying the SOURCE database's OIDs)
   and 42 statements reproducing AGE's per-graph storage. Replaying those is not just privileged,
   it is wrong: `create_hypertable()` and `create_graph()` register objects in catalogs that plain
-  DDL never touches, so the result holds graph tables `ag_catalog.ag_graph` has no row for. See
-  `rust/integration-db/src/template.rs`, which states the non-round-trip property directly.
+  DDL never touches, so the result holds graph tables `ag_catalog.ag_graph` has no row for.
   The fixture lifecycle therefore REPLAYS on an empty database
-  (`elixir/serviceradar_core/test/db/migrate_db_test.exs`) -- one slow run per template rebuild,
-  paid by trunk, after which every run applies only what is pending. Do not reintroduce
+  (`elixir/serviceradar_core/test/db/migrate_generation_test.exs`) -- one slow run per new
+  schema-generation digest, after which every run of that digest clones the ready generation. Do not reintroduce
   baselining there. `ServiceRadar.Cluster.StartupMigrations` still baselines a fresh deployment
   and has the same latent problem; that path is not yet fixed.

@@ -177,17 +177,21 @@ with `make generate-proto` and commit the result.
 
 ## 8. What CI runs
 
-Two workflows cover this tree, and they do different jobs.
+The BazelCI action in buildbuddy.yaml covers this tree, and its steps do different jobs.
 
-`main.yml` runs `tests(//...)` on every push and pull request, which includes all 51 Go test
-targets in the default pure configuration. This is the ordinary test gate.
+The ordinary test gate is the `bazel test` of `//...` in that action (with the
+integration-test configuration that action already uses), which includes the Go tests in the
+default pure configuration.
 
-`golang-tests.yml` runs the same targets under the race detector and nothing else. It exists
-because `main.yml` cannot give you `-race`, and duplicating the non-race pass there would only
-pay twice for the same answer. It is scoped to `//go/...`.
+The race pass is a later step in that same BazelCI action, scoped to `//go/...`, with
+`--@io_bazel_rules_go//go/config:pure=false` and `--@io_bazel_rules_go//go/config:race`.
+It uses a private output base, `/home/buildbuddy/output-base-race`, and shuts that server
+down after the tests, including when they fail, so the parked default server is not left on
+the race configuration.
 
 The three Go tests under `//build/...` are release tooling rather than product code.
-`main.yml` covers them. Keep them out of `//go/...` sweeps, because
+The BazelCI `//...` sweep covers them. Keep them out of `//go/...` sweeps, including the race
+step, because
 `//build/release:publish_packages_test` data-depends on the packaging archives and drags in
 30,000 transitive dependencies against about 1,500 for a typical package here.
 
@@ -267,10 +271,10 @@ nothing about the image until both exist.
 # Build everything
 bazel build //go/...
 
-# Test everything, as main.yml does
+# Test everything, as the BazelCI action in buildbuddy.yaml does
 bazel test //go/...
 
-# Test under the race detector, as golang-tests.yml does
+# Test under the race detector, as the BazelCI action in buildbuddy.yaml does
 bazel test --@io_bazel_rules_go//go/config:pure=false \
            --@io_bazel_rules_go//go/config:race //go/...
 

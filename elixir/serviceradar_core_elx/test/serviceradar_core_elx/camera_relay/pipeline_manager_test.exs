@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
   alias ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager
   alias ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
+  alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
 
   setup do
     previous_analysis_state = :sys.get_state(AnalysisBranchManager)
@@ -21,12 +22,29 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     :ok
   end
 
+  # Removal used to be acknowledged before the child was gone, so re-adding the
+  # same branch right away could collide with the old child's name.
+  test "a removed analysis branch can be re-added under the same id immediately" do
+    relay_session_id = "relay-readd-analysis-1"
+    branch_id = "branch-readd-1"
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+
+    for _round <- 1..20 do
+      assert :ok = PipelineManager.add_analysis_branch(relay_session_id, branch_id, subscriber: self())
+      assert :ok = PipelineManager.remove_analysis_branch(relay_session_id, branch_id)
+    end
+
+    assert :ok = PipelineManager.add_analysis_branch(relay_session_id, branch_id, subscriber: self())
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
   test "pipes media chunks through membrane and republishes them to relay pubsub" do
     relay_session_id = "relay-membrane-1"
     viewer_id = "viewer-membrane-1"
     :ok = RelayPubSub.subscribe_viewer(relay_session_id, viewer_id)
     :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
-    _ = :sys.get_state(ServiceRadarCoreElx.CameraRelay.ViewerRegistry)
+    _ = :sys.get_state(ViewerRegistry)
 
     assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
 
@@ -86,6 +104,65 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     assert String.contains?(sdp, "m=video")
 
     assert :ok = PipelineManager.remove_webrtc_viewer(relay_session_id, viewer_session_id)
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
+  # A browser ICE candidate that reaches the WebRTC sink before the SDP answer
+  # crashes the sink ({:error, :no_remote_description}). That must cost only
+  # this viewer: the relay keeps forwarding media to everyone else.
+  test "a crashed webrtc viewer is dropped without taking down the relay pipeline" do
+    relay_session_id = "relay-webrtc-crash-#{System.unique_integer([:positive])}"
+    viewer_session_id = "viewer-webrtc-crash-1"
+    pubsub_viewer_id = "viewer-pubsub-crash-1"
+    :ok = RelayPubSub.subscribe_viewer(relay_session_id, pubsub_viewer_id)
+    :ok = RelayPubSub.viewer_join(relay_session_id, pubsub_viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+    # Unlinked, as production starts it: the Signaling process stops with the
+    # sink's crash reason, and a link would take this test down with it.
+    signaling = Signaling.start()
+    signaling_pid = signaling.pid
+    :ok = Signaling.register_peer(signaling, message_format: :json_data, pid: self())
+
+    assert :ok =
+             PipelineManager.add_webrtc_viewer(relay_session_id, viewer_session_id, signaling,
+               ice_servers: [],
+               notify: self()
+             )
+
+    assert_receive {:membrane_webrtc_signaling, ^signaling_pid, %{"type" => "sdp_offer"}, _metadata}, 5_000
+
+    :ok =
+      Signaling.signal(signaling, %{
+        "type" => "ice_candidate",
+        "data" => %{
+          "candidate" => "candidate:1 1 UDP 2122252543 192.0.2.10 49152 typ host",
+          "sdpMid" => "0",
+          "sdpMLineIndex" => 0,
+          "usernameFragment" => nil
+        }
+      })
+
+    assert_receive {:camera_relay_member_crashed, :webrtc_viewer, ^relay_session_id, ^viewer_session_id, _reason},
+                   5_000
+
+    assert :ok =
+             PipelineManager.record_chunk(relay_session_id, %{
+               media_ingest_id: "core-media-crash-1",
+               sequence: 12,
+               pts: 33_000_000,
+               dts: 33_000_000,
+               codec: "h264",
+               payload_format: "annexb",
+               track_id: "video",
+               keyframe: true,
+               payload: <<0, 0, 0, 1, 103, 100, 0, 31>>
+             })
+
+    assert_receive {:camera_relay_viewer_chunk, %{relay_session_id: ^relay_session_id, sequence: 12}}, 1_000
+
+    assert {:error, :not_found} = PipelineManager.remove_webrtc_viewer(relay_session_id, viewer_session_id)
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 

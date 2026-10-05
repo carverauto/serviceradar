@@ -338,6 +338,8 @@ The shadow list is included explicitly because it is derived, not set.
   value: {{ $retention.traces | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_BMP
   value: {{ $retention.bmp | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_ATTRIBUTION
+  value: {{ $retention.attribution | default 30 | quote }}
 {{- /* Not `default`: sprig treats 0 as empty, and 0 is the strictest setting
        this knob accepts (serve only a fully current view), not an absent one. */}}
 {{- $rollupStaleAfter := 7200 }}
@@ -1301,7 +1303,7 @@ is correct for a publicly issued certificate and needs no volume either.
 
 {{/*
 `sslrootcert` for the rendered DGRAPH_URL. Without it a `verify-ca` dial checks
-the system trust store, which a private cert-manager CA is not in, so every
+the system trust store, which a private CA is not in, so every
 connection fails the handshake.
 */}}
 {{- define "serviceradar.dgraph.appSslRootCert" -}}
@@ -1391,5 +1393,34 @@ empty, so that form turns an explicit `false` back into true.
 {{- else if eq (lower (toString $v)) "false" -}}false
 {{- else if $v -}}true
 {{- else -}}false
+{{- end -}}
+{{- end -}}
+
+{{/*
+Extra SANs for the NATS runtime certificate so edge-site leaf servers can verify
+the leafnode listener by its public name. Renders a leading-comma list
+(",DNS:a,DNS:b") or nothing.
+*/}}
+{{- define "serviceradar.natsLeafCertSans" -}}
+{{- $hosted := default (dict) .Values.hostedRuntime -}}
+{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
+{{- $leafnodes := default (dict) (default (dict) .Values.nats).leafnodes -}}
+{{- $leafTls := default (dict) $leafnodes.tls -}}
+{{- $names := list -}}
+{{- with $endpoints.natsLeafHost }}{{ $names = append $names . }}{{ end -}}
+{{- range (default (list) $leafTls.extraDnsNames) }}{{ $names = append $names . }}{{ end -}}
+{{- range (uniq $names) }},DNS:{{ . }}{{ end -}}
+{{- end -}}
+
+{{/*
+Effective upstream URL edge-site leaf servers dial, derived from the hosted
+public endpoint facts. Empty when hostedRuntime.publicEndpoints.natsLeafHost is
+unset, so web-ng keeps its configured default.
+*/}}
+{{- define "serviceradar.natsLeafUpstreamUrl" -}}
+{{- $hosted := default (dict) .Values.hostedRuntime -}}
+{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
+{{- with $endpoints.natsLeafHost -}}
+tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 {{- end -}}
 {{- end -}}

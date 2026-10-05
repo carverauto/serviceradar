@@ -18,6 +18,22 @@ commands:
   # fixes, so an agent fix can never introduce a Styler diff. Mix and Hex come
   # from Bazel; nothing depends on a local deps/ directory.
   format: bazel run --config=remote //build/elixir_quality:format
+# The document step also runs the lint pass. Its agent once spent 35 minutes
+# running `mix deps.get` and a cold compile of serviceradar_core's dependency
+# tree on the operator's machine to re-check a two-line format change, because
+# `mix format` failed in a run worktree with no deps/.
+document:
+  instructions: |
+    Never fetch dependencies or compile anything on this machine: no
+    `mix deps.get`, `mix compile`, `mix format`, `mix credo`, `cargo build`,
+    `cargo check` or `go build` in the run worktree. Run worktrees have no
+    deps/ by design, so a local `mix` call fails or starts a cold compile.
+    Elixir formatting is `commands.format`
+    (`bazel run --config=remote //build/elixir_quality:format`), and Credo plus
+    `mix format --check-formatted` run in the `elixir-quality` gate on RBE.
+    Rely on them; do not reproduce them locally. When a formatting or lint
+    question cannot be answered without a build, leave it to that gate and
+    say so instead of building.
 test:
   instructions: |
     Bazel must run on the remote executors, never on this machine. Before any

@@ -1,6 +1,6 @@
 id: opentext-nom-inventory
 name: OpenText Network Operations Management Inventory
-version: 0.1.10
+version: 0.1.11
 description: Collects bounded OpenText NOM device inventory for DIRE reconciliation
 entrypoint: run_check
 runtime: wasi-preview1
@@ -113,7 +113,7 @@ producer_schedules:
         - access_token
   - schedule_id: opentext-nom.config.retrieve
     label: Retrieve OpenText NOM stored config
-    description: Retrieves the configuration NA most recently stored for one device, masked by NA, as an artifact. Never opens a device session. Core downparses it; the plugin does not emit interface facts.
+    description: Retrieves masked stored configurations for the configured devices before staging artifacts. Core downparses and deletes the staged objects after every ingest attempt. Never opens a device session.
     action_id: opentext-nom.config.retrieve
     command_type: plugin.run_action
     schedule_type: interval
@@ -129,8 +129,9 @@ producer_schedules:
       required:
         - instance_id
         - api_url
-        - device_id
-        - device_uid
+      anyOf:
+        - required: [devices]
+        - required: [device_id, device_uid]
       properties:
         instance_id:
           type: string
@@ -141,6 +142,23 @@ producer_schedules:
           type: string
         device_uid:
           type: string
+        devices:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            type: object
+            additionalProperties: false
+            required: [device_id, device_uid]
+            properties:
+              device_id:
+                type: string
+                pattern: '^[1-9][0-9]*$'
+                maxLength: 19
+              device_uid:
+                type: string
+                minLength: 1
+                maxLength: 256
     credential_requirements:
       nom_service_account:
         required: true

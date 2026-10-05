@@ -62,6 +62,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @active_ip_unique_constraint "ocsf_devices_unique_active_ip_idx"
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
   @merged_restore_skipped_event [:serviceradar, :sweep, :restore, :merged_skipped]
+  @retained_restore_skipped_event [:serviceradar, :sweep, :restore, :retained_skipped]
   @banner_grab_counter_dropped_event [
     :serviceradar,
     :sweep,
@@ -1552,7 +1553,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp eligible_restore_uids(devices) do
     {merged, others} = Enum.split_with(devices, &merged_away?/1)
-    record_merged_restore_skips(merged)
+    {retained, others} = Enum.split_with(others, &Device.retained_tombstone?/1)
+    record_restore_skips(merged, "merged-away", @merged_restore_skipped_event)
+    record_restore_skips(retained, "retained", @retained_restore_skipped_event)
 
     others
     |> Enum.filter(&restore_eligible?/1)
@@ -1563,24 +1566,23 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # falls back to a tombstone when no live device holds the address, so a sweep that
   # finds a merged-away device's old address reaches its tombstone; restoring it would
   # bring back a duplicate of the survivor. The sweep saw an address, which is evidence,
-  # not identity, so it is not credited to the survivor either. Each skip is logged and
-  # counted rather than dropped silently.
+  # not identity, so it is not credited to the survivor either. A retained tombstone
+  # (`Device.retained_reasons/0`) is never restored by evidence at all. Each skip is
+  # logged and counted rather than dropped silently.
   defp merged_away?(%{deleted_reason: "merged"}), do: true
   defp merged_away?(_device), do: false
 
-  defp record_merged_restore_skips([]), do: :ok
+  defp record_restore_skips([], _kind, _event), do: :ok
 
-  defp record_merged_restore_skips(devices) do
+  defp record_restore_skips(devices, kind, event) do
     uids = Enum.map(devices, & &1.uid)
 
     Logger.info(
-      "SweepResultsIngestor: not restoring #{length(uids)} merged-away device(s) seen by a " <>
+      "SweepResultsIngestor: not restoring #{length(uids)} #{kind} device(s) seen by a " <>
         "sweep: #{Enum.join(uids, ", ")}"
     )
 
-    :telemetry.execute(@merged_restore_skipped_event, %{count: length(uids)}, %{
-      device_uids: uids
-    })
+    :telemetry.execute(event, %{count: length(uids)}, %{device_uids: uids})
   end
 
   defp restore_eligible_devices([], _actor), do: :ok
@@ -1763,7 +1765,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # This prevents transient network issues from causing availability flapping
     available_wins_window = get_available_wins_window(group)
 
-    available_wins_cutoff = DateTime.add(timestamp, -available_wins_window, :second)
+    available_wins_cutoff = DateTime.shift(timestamp, second: -available_wins_window)
 
     sql = """
     UPDATE ocsf_devices AS d

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
@@ -37,29 +39,43 @@ func runPlugin() error {
 }
 
 func runConfigRetrieve(cfg Config) error {
-	deviceID, deviceUID := loadRuntimeDeviceIdentity()
-	retrieved, err := NewCollector(SDKHTTPDoer{}).RetrieveRunningConfig(
-		context.Background(),
-		cfg,
-		deviceID,
-		deviceUID,
-	)
+	devices, err := runtimeRetrieveDevices(loadRawConfigMap())
 	if err != nil {
 		return submitPluginError(err)
 	}
-	// The artifact is the only carrier of the body: status details are
-	// viewer-readable and running-configs routinely hold device secrets.
-	artifact, err := stageRunningConfigArtifact(retrieved)
-	if err != nil || artifact == nil || artifact.ObjectKey == "" {
-		return submitPluginError(runError("opentext_nom_config_artifact_failed"))
+	collector := NewCollector(SDKHTTPDoer{})
+	configs := make([]RunningConfig, 0, len(devices))
+	for _, device := range devices {
+		config, err := collector.RetrieveRunningConfig(context.Background(), cfg, device.DeviceID, device.DeviceUID)
+		if err != nil {
+			// Retrieve the whole bounded batch before opening any artifact stream.
+			return submitPluginError(err)
+		}
+		configs = append(configs, config)
 	}
-	result := buildConfigRetrieveResult(retrieved, artifact)
+
+	results := make([]*sdk.Result, 0, len(configs))
+	var stageError error
+	for i := range configs {
+		artifact, err := stageRunningConfigArtifact(configs[i])
+		configs[i].Body = ""
+		if err != nil || artifact == nil || artifact.ObjectKey == "" {
+			stageError = runError("opentext_nom_config_artifact_failed")
+			break
+		}
+		results = append(results, buildConfigRetrieveResult(configs[i], artifact))
+	}
+	result := buildConfigRetrieveBatchResult(results, stageError)
 	return sdk.Execute(func() (*sdk.Result, error) { return result, nil })
 }
 
 func stageRunningConfigArtifact(cfg RunningConfig) (*sdk.ArtifactCommitResponse, error) {
+	var attempt [16]byte
+	if _, err := rand.Read(attempt[:]); err != nil {
+		return nil, runError("opentext_nom_config_artifact_failed")
+	}
 	stream, err := sdk.OpenArtifactStream(sdk.ArtifactOpenRequest{
-		ObjectKey:   "opentext-nom/running-config/" + cfg.DeviceID,
+		ObjectKey:   "opentext-nom/running-config/" + cfg.DeviceID + "/" + hex.EncodeToString(attempt[:]),
 		ContentType: "text/plain",
 		SHA256:      cfg.Hash,
 		SizeBytes:   int64(len(cfg.Body)),

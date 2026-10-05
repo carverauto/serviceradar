@@ -27,10 +27,57 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
     assert run("POST", %{oauth_token_scope: "read"}).status == 403
   end
 
+  test "read-only POST exceptions allow only the exact decoded route and method" do
+    opts = [read_only_post_paths: [["api", "query"], ["api", "admin", "topology", "route-analysis"]]]
+
+    for path <- ["/api/query", "/api/%71uery", "/api/admin/topology/route-analysis"] do
+      refute run("POST", %{oauth_token_scope: "read"}, path, opts).halted
+
+      for method <- ["PATCH", "PUT", "DELETE"] do
+        assert run(method, %{oauth_token_scope: "read"}, path, opts).status == 403
+      end
+
+      assert run("POST", %{oauth_token_scope: "read"}, path).status == 403
+    end
+
+    for path <- [
+          "/api/query/extra",
+          "/api/query%2Fextra",
+          "/api/admin/topology/route-analysis/extra",
+          "/api/admin/topology/rebuild",
+          "/api/v2/event-rules"
+        ] do
+      assert run("POST", %{oauth_token_scope: "read"}, path, opts).status == 403
+    end
+  end
+
   test "write and admin capabilities pass to operation-specific RBAC" do
     for scope <- [:write, :admin, "write", "admin"] do
       refute run("POST", %{api_token_scope: scope}).halted
       refute run("DELETE", %{oauth_token_scope: to_string(scope)}).halted
+    end
+  end
+
+  test "API path confinement prevents every coarse grant from authorizing browser flows" do
+    opts = [path_prefixes: [["api"], ["topology"], ["v1", "stream"]]]
+
+    for scope <- ["read", "write", "admin", "mcp"] do
+      assert run("GET", %{oauth_token_scope: scope}, "/oauth/authorize", opts).status == 403
+    end
+
+    refute run("GET", %{oauth_token_scope: "read"}, "/api/v2/event-rules", opts).halted
+    refute run("GET", %{oauth_token_scope: "read"}, "/%61pi/v2/event-rules", opts).halted
+    assert run("GET", %{oauth_token_scope: "read"}, "/api%2Fv2/event-rules", opts).status == 403
+
+    for path <- ["/topology/snapshot/latest", "/topology/tiles/search", "/v1/stream/synthetic-session"] do
+      refute run("GET", %{oauth_token_scope: "read"}, path, opts).halted
+    end
+
+    assert run("POST", %{oauth_token_scope: "read"}, "/topology/tiles/relayout", opts).status == 403
+    refute run("POST", %{oauth_token_scope: "write"}, "/topology/tiles/relayout", opts).halted
+
+    for path <- ["/topology-admin", "/v1/streaming", "/v1/stream%2Fsynthetic-session"] do
+      assert run("GET", %{oauth_token_scope: "admin"}, path, opts).status == 403
     end
   end
 
@@ -67,6 +114,59 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
     assert run("POST", %{api_key_auth: true}).status == 403
   end
 
+  test "api_key_auth boundary gates coarse reads while keeping legacy reach" do
+    opts = [
+      read_only_post_paths: [["api", "v1", "identity", "resolve"]],
+      allow_api_key_auth: true
+    ]
+
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/v1/scans", opts).status == 403
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/admin/edge-packages", opts).status == 403
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/admin/collectors", opts).status == 403
+    assert run("POST", %{api_token_scope: "read"}, "/api/v1/scans", opts).status == 403
+    refute run("GET", %{oauth_token_scope: "read"}, "/api/v1/scans/synthetic-id", opts).halted
+    refute run("GET", %{oauth_token_scope: "read"}, "/api/admin/edge-packages", opts).halted
+    refute run("GET", %{oauth_token_scope: "read"}, "/v1/field-survey/auth-check", opts).halted
+    refute run("POST", %{oauth_token_scope: "read"}, "/api/v1/identity/resolve", opts).halted
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/v1/identity/resolve/extra", opts).status == 403
+    refute run("POST", %{oauth_token_scope: "write"}, "/api/v1/scans", opts).halted
+    refute run("POST", %{oauth_token_scope: "admin"}, "/api/admin/collectors", opts).halted
+    refute run("POST", %{oauth_token_scope: "plugins.manage"}, "/api/admin/plugin-assignments", opts).halted
+    assert run("POST", %{oauth_token_scope: "plugins.manage"}, "/api/v1/scans", opts).status == 403
+    assert run("POST", %{oauth_token_scope: ""}, "/api/v1/scans", opts).status == 403
+    assert run("POST", %{oauth_token_scope: "unknown.scope"}, "/api/v1/scans", opts).status == 403
+    refute run("POST", %{}, "/api/v1/scans", opts).halted
+    refute run("POST", %{api_key_auth: true}, "/api/v1/scans", opts).halted
+  end
+
+  test "legacy static keys reach controllers only where the pipeline opts in" do
+    for method <- ["GET", "POST"] do
+      conn =
+        method
+        |> build_conn("/api/v1/scans", nil)
+        |> assign(:current_scope, %Scope{user: nil})
+        |> assign(:api_key_auth, true)
+        |> RequireConfigurationScope.call(
+          read_only_post_paths: [["api", "v1", "identity", "resolve"]],
+          allow_api_key_auth: true
+        )
+
+      refute conn.halted
+    end
+
+    for method <- ["GET", "POST"] do
+      conn =
+        method
+        |> build_conn("/api/v1/scans", nil)
+        |> assign(:current_scope, %Scope{user: nil})
+        |> assign(:api_key_auth, true)
+        |> RequireConfigurationScope.call([])
+
+      assert conn.halted
+      assert conn.status == 401
+    end
+  end
+
   test "all credential and Ansible configuration routes mount the capability gate" do
     routes = Phoenix.Router.routes(ServiceRadarWebNGWeb.Router)
 
@@ -92,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
     end
   end
 
-  defp run(method, assigns, path \\ "/api/admin/ansible-controllers") do
+  defp run(method, assigns, path \\ "/api/admin/ansible-controllers", opts \\ []) do
     conn =
       method
       |> build_conn(path, nil)
@@ -100,6 +200,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
 
     conn = Enum.reduce(assigns, conn, fn {key, value}, conn -> assign(conn, key, value) end)
     conn = ConfineNarrowScope.call(conn, [])
-    if conn.halted, do: conn, else: RequireConfigurationScope.call(conn, [])
+    if conn.halted, do: conn, else: RequireConfigurationScope.call(conn, opts)
   end
 end

@@ -374,7 +374,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     hours = Keyword.get(opts, :hours, 24)
     limit = Keyword.get(opts, :limit, 100)
 
-    since = DateTime.add(DateTime.utc_now(), -hours, :hour)
+    since = DateTime.shift(DateTime.utc_now(), hour: -hours)
 
     case ensure_tracking_ready() do
       :ok ->

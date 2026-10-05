@@ -34,8 +34,8 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogBackfillWorkerTest do
     names = [logs_only, traced, metered]
 
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    seen = DateTime.add(now, -26 * 3_600, :second)
-    window = {DateTime.add(now, -3 * 86_400, :second), DateTime.add(now, 3_600, :second)}
+    seen = DateTime.shift(now, hour: -26)
+    window = {DateTime.shift(now, day: -3), DateTime.shift(now, hour: 1)}
 
     on_exit(fn ->
       Repo.query!("DELETE FROM platform.logs WHERE service_name = ANY($1)", [names])

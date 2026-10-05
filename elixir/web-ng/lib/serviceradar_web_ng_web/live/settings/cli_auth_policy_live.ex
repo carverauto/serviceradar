@@ -177,7 +177,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
         fallback = %{
           cli_auth_enabled: true,
           cli_session_ttl_days: 30,
-          cli_allowed_scopes: ["dashboard.publish", "plugin.publish", "plugins.manage"]
+          cli_allowed_scopes: ["dashboard.publish", "plugin.publish", "plugins.manage", "edge.manage"]
         }
 
         assign(socket, :form_values, fallback_form(fallback))
@@ -190,7 +190,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
       cli_session_ttl_days: settings.cli_session_ttl_days || 30,
       cli_allowed_scopes:
         Enum.join(
-          settings.cli_allowed_scopes || ["dashboard.publish", "plugin.publish", "plugins.manage"],
+          settings.cli_allowed_scopes || ["dashboard.publish", "plugin.publish", "plugins.manage", "edge.manage"],
           "\n"
         )
     }

@@ -5,8 +5,9 @@
 Every active database workflow (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*`) uses
 these guarded targets: `cleanup_generations`, `prepare_generation`, `provision_generation`,
 `provision_generation_large_ingestion`, and `release_generation`, with
-`//elixir/serviceradar_core:migrate_generation` as the builder. Singleton guards, planned
-target retirement and rollback prerequisites are owned by
+`//elixir/serviceradar_core:migrate_generation` as the builder, plus
+`provision_generation_<lane>` to clone a single lane. The legacy singleton lifecycle is
+retired; its rollback prerequisites are owned by
 [the SRQL fixture runbook](../../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 Generation targets consume the declared `build/schema_template/manifest.json` and `policy.json`;
@@ -178,7 +179,7 @@ ordered sequence of Bazel invocations, not a wrapper script:
 `sweep -> cleanup generations -> prepare generation -> migrate generation if needs_migration ->
 prepare generation (ready) -> provision generation -> suite -> teardown -> release generation`
 
-For the legacy singleton's exclusion from this sequence and rollback prerequisites, see
+For the retired legacy singleton and its rollback prerequisites, see
 [the SRQL fixture runbook](../../docs/agent-runbooks.md#srql-fixture-integration-tests).
 
 Every target must receive `--//build:enable_integration_tests`. Database tests clear the manual

@@ -33,20 +33,24 @@ pub struct ListenerMetrics {
     /// `parse_errors` so one stray packet cannot make a healthy listener look
     /// permanently broken.
     pub undecodable_datagrams: AtomicU64,
-    /// Templates restored from the secondary `TemplateStore` on a primary
-    /// cache miss. Mirrored from the netflow parser's `CacheMetrics` —
-    /// always 0 for sFlow listeners (sFlow is template-less).
+    /// Retired KV counter, kept zero for dashboard compatibility.
     pub template_store_restored: AtomicU64,
-    /// Corrupted/un-decodable secondary-store payloads. Non-zero rate
-    /// indicates a wire-format mismatch or operator-injected garbage.
+    /// Retired KV counter, kept zero for dashboard compatibility.
     pub template_store_codec_errors: AtomicU64,
-    /// Backend (NATS) failures from get/put/remove. Non-zero rate
-    /// indicates the secondary tier is unhealthy. Parsing degrades
-    /// gracefully — packets fall back to the local-only behavior.
+    /// Retired KV counter, kept zero for dashboard compatibility.
     pub template_store_backend_errors: AtomicU64,
     /// Number of distinct exporters (sources) currently tracked by the
     /// AutoScopedParser for this listener. NetFlow only.
     pub source_count: AtomicU64,
+    pub sampler_rate_rejections: AtomicU64,
+    pub source_creator_evictions: AtomicU64,
+    pub source_global_evictions: AtomicU64,
+    pub tls_authenticated_sessions: AtomicU64,
+    pub tls_auth_rejections: AtomicU64,
+    pub tls_active_sessions: AtomicU64,
+    pub tls_session_limit_rejections: AtomicU64,
+    pub ipfix_frame_rejections: AtomicU64,
+    pub udp_template_rejections: AtomicU64,
 }
 
 impl ListenerMetrics {
@@ -64,6 +68,15 @@ impl ListenerMetrics {
             template_store_codec_errors: AtomicU64::new(0),
             template_store_backend_errors: AtomicU64::new(0),
             source_count: AtomicU64::new(0),
+            sampler_rate_rejections: AtomicU64::new(0),
+            source_creator_evictions: AtomicU64::new(0),
+            source_global_evictions: AtomicU64::new(0),
+            tls_authenticated_sessions: AtomicU64::new(0),
+            tls_auth_rejections: AtomicU64::new(0),
+            tls_active_sessions: AtomicU64::new(0),
+            tls_session_limit_rejections: AtomicU64::new(0),
+            ipfix_frame_rejections: AtomicU64::new(0),
+            udp_template_rejections: AtomicU64::new(0),
         }
     }
 }
@@ -271,6 +284,125 @@ fn escape_label(value: &str) -> String {
     out
 }
 
+/// Emit one row per listener. `filter` lets a metric opt out of
+/// listeners where it's structurally always zero (e.g. sFlow has no
+/// templates, so template_store_* rows would be noise).
+fn emit(
+    out: &mut String,
+    name: &str,
+    ms: &[Arc<ListenerMetrics>],
+    filter: impl Fn(&ListenerMetrics) -> bool,
+    get: impl Fn(&ListenerMetrics) -> u64,
+) {
+    for m in ms {
+        if !filter(m) {
+            continue;
+        }
+        let _ = writeln!(
+            out,
+            "{}{{protocol=\"{}\",listen_addr=\"{}\"}} {}",
+            name,
+            escape_label(m.protocol),
+            escape_label(&m.listen_addr),
+            get(m),
+        );
+    }
+}
+
+fn render_admission_metrics(out: &mut String, listeners: &[Arc<ListenerMetrics>]) {
+    type AdmissionValue = fn(&ListenerMetrics) -> u64;
+    let admission_counters: [(&str, &str, AdmissionValue); 3] = [
+        (
+            "flow_collector_sampler_rate_rejections_total",
+            "Sampler rate inserts rejected at capacity",
+            |m: &ListenerMetrics| m.sampler_rate_rejections.load(Ordering::Relaxed),
+        ),
+        (
+            "flow_collector_source_creator_evictions_total",
+            "Parser evictions owned by the creating exporter IP",
+            |m: &ListenerMetrics| m.source_creator_evictions.load(Ordering::Relaxed),
+        ),
+        (
+            "flow_collector_source_global_evictions_total",
+            "Global parser evictions for new exporter IPs",
+            |m: &ListenerMetrics| m.source_global_evictions.load(Ordering::Relaxed),
+        ),
+    ];
+    for (name, help, value) in admission_counters {
+        let _ = writeln!(out, "# HELP {name} {help}\n# TYPE {name} counter");
+        emit(
+            out,
+            name,
+            listeners,
+            |m| matches!(m.protocol, "netflow" | "ipfix_tls"),
+            value,
+        );
+    }
+
+    let security_counters: [(&str, AdmissionValue); 5] = [
+        ("tls_authenticated_sessions", |m| {
+            m.tls_authenticated_sessions.load(Ordering::Relaxed)
+        }),
+        ("tls_auth_rejections", |m| {
+            m.tls_auth_rejections.load(Ordering::Relaxed)
+        }),
+        ("tls_session_limit_rejections", |m| {
+            m.tls_session_limit_rejections.load(Ordering::Relaxed)
+        }),
+        ("ipfix_frame_rejections", |m| {
+            m.ipfix_frame_rejections.load(Ordering::Relaxed)
+        }),
+        ("udp_template_rejections", |m| {
+            m.udp_template_rejections.load(Ordering::Relaxed)
+        }),
+    ];
+    for (name, value) in security_counters {
+        let full = format!("flow_collector_{name}_total");
+        let _ = writeln!(
+            out,
+            "# HELP {full} Collector security admission events\n# TYPE {full} counter"
+        );
+        emit(out, &full, listeners, |_| true, value);
+    }
+    let _ = writeln!(
+        out,
+        "# HELP flow_collector_tls_active_sessions Authenticated active sessions\n# TYPE flow_collector_tls_active_sessions gauge"
+    );
+    emit(
+        out,
+        "flow_collector_tls_active_sessions",
+        listeners,
+        |m| m.protocol == "ipfix_tls",
+        |m| m.tls_active_sessions.load(Ordering::Relaxed),
+    );
+
+    // Retired KV metrics remain zero for dashboard compatibility.
+    let (rejected, failed, bytes) = (0, 0, 0);
+    for (name, help, kind, value) in [
+        (
+            "flow_collector_template_store_budget_rejections_total",
+            "Store calls rejected before enqueue by operation or value-size budgets",
+            "counter",
+            rejected,
+        ),
+        (
+            "flow_collector_template_store_mutation_failures_total",
+            "Failed or expired NATS KV mutations",
+            "counter",
+            failed,
+        ),
+        (
+            "flow_collector_template_store_bucket_bytes",
+            "Bytes in the shared NATS KV template bucket",
+            "gauge",
+            bytes,
+        ),
+    ] {
+        let _ = writeln!(out, "# HELP {name} {help}\n# TYPE {name} {kind}");
+        let _ = writeln!(out, "{name} {value}");
+    }
+}
+
 /// Render the current ListenerMetrics snapshot in Prometheus text exposition
 /// format (https://prometheus.io/docs/instrumenting/exposition_formats/).
 ///
@@ -286,32 +418,10 @@ pub fn render_prometheus(listeners: &[Arc<ListenerMetrics>]) -> String {
         }};
     }
 
-    /// Emit one row per listener. `filter` lets a metric opt out of
-    /// listeners where it's structurally always zero (e.g. sFlow has no
-    /// templates, so template_store_* rows would be noise).
-    fn emit(
-        out: &mut String,
-        name: &str,
-        ms: &[Arc<ListenerMetrics>],
-        filter: impl Fn(&ListenerMetrics) -> bool,
-        get: impl Fn(&ListenerMetrics) -> u64,
-    ) {
-        for m in ms {
-            if !filter(m) {
-                continue;
-            }
-            let _ = writeln!(
-                out,
-                "{}{{protocol=\"{}\",listen_addr=\"{}\"}} {}",
-                name,
-                escape_label(m.protocol),
-                escape_label(&m.listen_addr),
-                get(m),
-            );
-        }
-    }
     let any = |_: &ListenerMetrics| true;
-    let netflow_only = |m: &ListenerMetrics| m.protocol == "netflow";
+    let netflow_only = |m: &ListenerMetrics| matches!(m.protocol, "netflow" | "ipfix_tls");
+
+    render_admission_metrics(&mut out, listeners);
 
     help_type!(
         "flow_collector_packets_received_total",

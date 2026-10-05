@@ -520,6 +520,62 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
     end
   end
 
+  test "a target whose address the node certificate does not list never reaches the agent" do
+    items = [
+      san_item("device-covered", "192.0.2.10", %{"proxmox_tls_san_ips" => "127.0.0.1,192.0.2.10"}),
+      san_item("device-uncovered", "192.0.2.20", %{"proxmox_tls_san_ips" => "198.51.100.20"}),
+      san_item("device-no-ip-sans", "192.0.2.21", %{}),
+      san_item("device-unprobed", "192.0.2.30", %{"proxmox_tls_sans_recorded" => nil}),
+      san_item("device-operator-url", "192.0.2.40", %{
+        "proxmox_base_url" => "https://198.51.100.40:8006"
+      })
+    ]
+
+    params =
+      %{}
+      |> trust_material_params()
+      |> put_in(["inputs"], [%{"name" => "targets", "chunk_hash" => "stale", "items" => items}])
+
+    {public, host} = partition("proxmox-inventory", "run_check", params, "assignment-san")
+
+    [input] = public["inputs"]
+
+    assert Enum.map(input["items"], & &1["uid"]) ==
+             ["device-covered", "device-unprobed", "device-operator-url"]
+
+    assert input["chunk_hash"] =~ ~r/\A[0-9a-f]{64}\z/
+
+    assert host["bindings"] |> Enum.map(& &1["origin"]) |> Enum.sort() == [
+             "https://192.0.2.10:8006",
+             "https://192.0.2.30:8006",
+             "https://198.51.100.40:8006"
+           ]
+
+    # A pinned leaf fingerprint replaces address matching, so nothing is dropped.
+    pinned =
+      put_in(
+        params,
+        ["template", "server_cert_fingerprint"],
+        "sha256:" <> String.duplicate("ab", 32)
+      )
+
+    {pinned_public, _host} = partition("proxmox-inventory", "run_check", pinned, "assignment-pin")
+    assert length(hd(pinned_public["inputs"])["items"]) == length(items)
+  end
+
+  defp san_item(uid, ip, extra) do
+    %{
+      "uid" => uid,
+      "ip" => ip,
+      "integration_id" => "proxmox:v2:lab01:node:#{uid}",
+      "provider_ref" => "proxmox:node:#{uid}",
+      "target_kind" => "pve_host",
+      "proxmox_tls_sans_recorded" => "true"
+    }
+    |> Map.merge(extra)
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
   defp trust_material_params(template_extra) do
     %{
       "schema" => "serviceradar.plugin_inputs.v1",

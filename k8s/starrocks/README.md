@@ -601,7 +601,7 @@ day-partitioned hourly rollups, waits for the rebuild; earlier migrations do
 not. Every table is copied before any old table is dropped, so peak storage is
 about twice the in-retention warehouse. A failure is logged as
 `StarRocks partition rebuild of <table> failed` and retried on the migrator's
-backoff, continuing from the days already copied; retention logs
+backoff, continuing from the hours already copied; retention logs
 `is not range partitioned` for a table until its rebuild completes. A fresh
 warehouse is partitioned from `0001` and is not affected.
 
@@ -665,6 +665,29 @@ up with its source (`mtr_hops`, or `mtr_traces` for the destination view);
 otherwise they read the raw tables. A bucket shorter than an hour stays on
 the raw tables and keeps its cutoff. Retention of `mtr_traces` and `mtr_hops`
 stays `analytics.starrocks.retentionDays.mtr`, as `0019` describes.
+
+## Retention
+
+Each `analytics.starrocks.retentionDays.<dataset>` value is a seed, not an
+override. The first time core starts with the warehouse enabled it stores
+every dataset's retention in CNPG (`platform.warehouse_retention_settings`),
+seeded from these values; from then on the value saved in
+Settings -> System -> Data retention wins, and changing Helm alone changes
+nothing. Saving on that page applies `partition_live_number` to the dataset's
+tables without a restart (core retries with backoff while the Frontend does
+not answer) and the page shows the last applied value, status and time. Core
+still re-applies every stored value at startup, so a warehouse rebuilt from
+DDL defaults converges again. Datasets: `flows`, `metrics`, `logs`, `events`,
+`mtr`, `otel`, `traces` and `bmp` default to 365 days; `attribution` (process
+attribution observations) defaults to 30 and always keeps at least two daily
+partitions, because the correlator's skew window straddles midnight.
+
+To see what core stored and applied:
+
+```sql
+SELECT dataset, days, seed_days, last_applied_days, last_applied_status, last_applied_at
+FROM platform.warehouse_retention_settings ORDER BY dataset;
+```
 
 Metric, log and event panels stay on CNPG until explicitly cut over. For the
 flow-specific defaults and delivery contract, see

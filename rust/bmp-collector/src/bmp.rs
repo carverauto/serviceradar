@@ -11,11 +11,13 @@ use bgpkit_parser::bmp::messages::{
     parse_peer_down_notification, parse_per_peer_header, parse_route_mirroring, parse_stats_report,
     parse_termination_message,
 };
-use bgpkit_parser::models::{Afi, Asn, AsnLength, BgpMessage, BgpOpenMessage};
+use bgpkit_parser::models::{Afi, Asn, AsnLength, AttributeValue, BgpMessage, BgpOpenMessage};
 use bytes::Bytes;
 use log::debug;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
+
+const MAX_PREFIXES_PER_ROUTE_MONITORING: usize = 8192;
 
 pub async fn process_bmp_message<T: StateStore, S: UpdateSender>(
     state: Option<AsyncState<T>>,
@@ -40,12 +42,11 @@ pub async fn process_bmp_message<T: StateStore, S: UpdateSender>(
 
     match message.message_body {
         BmpMessageBody::InitiationMessage(body) => {
-            let tlvs_info = body
-                .tlvs
-                .iter()
-                .map(|tlv| tlv.info.clone())
-                .collect::<Vec<_>>();
-            debug!("{socket}: InitiationMessage: {tlvs_info:?}");
+            if log::log_enabled!(log::Level::Debug) {
+                for tlv in &body.tlvs {
+                    debug!("{socket}: InitiationMessage: {}", tlv.info);
+                }
+            }
         }
         BmpMessageBody::PeerUpNotification(body) => {
             let metadata = metadata.clone().ok_or_else(|| {
@@ -65,6 +66,7 @@ pub async fn process_bmp_message<T: StateStore, S: UpdateSender>(
             let metadata = metadata
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("{socket}: RouteMonitoring: no per-peer header"))?;
+            validate_prefix_count(&body.bgp_message)?;
             if !metadata.peer_addr.is_unspecified() {
                 route_monitoring(state, tx, metadata.clone(), body)
                     .await
@@ -104,6 +106,27 @@ pub async fn process_bmp_message<T: StateStore, S: UpdateSender>(
         }
     }
 
+    Ok(())
+}
+
+fn validate_prefix_count(message: &BgpMessage) -> Result<()> {
+    if let BgpMessage::Update(update) = message {
+        let mut count = update.announced_prefixes.len() + update.withdrawn_prefixes.len();
+        for attribute in &update.attributes {
+            match attribute {
+                AttributeValue::MpReachNlri(nlri) | AttributeValue::MpUnreachNlri(nlri) => {
+                    count += nlri.prefixes.len()
+                }
+                _ => {}
+            }
+        }
+        if count > MAX_PREFIXES_PER_ROUTE_MONITORING {
+            crate::metrics::REJECTED_PREFIXES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            anyhow::bail!(
+                "BMP route-monitoring prefix count {count} exceeds {MAX_PREFIXES_PER_ROUTE_MONITORING}"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -424,6 +447,114 @@ fn parse_peer_up_tlvs(data: &mut Bytes) -> Vec<PeerUpNotificationTlv> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Invented frames assembled from BMP/BGP field layouts, never a capture.
+    fn route_frame(announced: &[u8], withdrawn: &[u8], attributes: &[u8]) -> Bytes {
+        let mut bgp = vec![255; 16];
+        bgp.extend_from_slice(
+            &((23 + announced.len() + withdrawn.len() + attributes.len()) as u16).to_be_bytes(),
+        );
+        bgp.push(2);
+        bgp.extend_from_slice(&(withdrawn.len() as u16).to_be_bytes());
+        bgp.extend_from_slice(withdrawn);
+        bgp.extend_from_slice(&(attributes.len() as u16).to_be_bytes());
+        bgp.extend_from_slice(attributes);
+        bgp.extend_from_slice(announced);
+        let mut peer = vec![0; 42];
+        peer[22..26].copy_from_slice(&[192, 0, 2, 2]);
+        peer[26..30].copy_from_slice(&64512u32.to_be_bytes());
+        peer[30..34].copy_from_slice(&[192, 0, 2, 2]);
+        peer[34..38].copy_from_slice(&1_893_456_000u32.to_be_bytes());
+        let mut frame = vec![3];
+        frame.extend_from_slice(&((6 + peer.len() + bgp.len()) as u32).to_be_bytes());
+        frame.push(0);
+        frame.extend_from_slice(&peer);
+        frame.extend_from_slice(&bgp);
+        Bytes::from(frame)
+    }
+
+    fn mp_attribute(kind: u8, count: usize) -> Vec<u8> {
+        let mut body = vec![0, 2, 1]; // IPv6 unicast.
+        if kind == 14 {
+            body.push(16);
+            body.extend_from_slice(&[0x20, 1, 0xd, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+            body.push(0);
+        }
+        body.extend_from_slice(&[32, 0x20, 1, 0xd, 0xb8].repeat(count));
+        let mut attribute = vec![0x90, kind];
+        attribute.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        attribute.extend_from_slice(&body);
+        attribute
+    }
+
+    #[tokio::test]
+    async fn rejects_combined_nlri_before_sending_and_preserves_valid_controls() {
+        use arancini_lib::state_store::memory::MemoryStore;
+        let socket = "192.0.2.1:11019".parse().unwrap();
+        let prefix = [24, 192, 0, 2];
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8193);
+        let mut exact = route_frame(&prefix.repeat(8192), &[], &[]);
+        process_bmp_message::<MemoryStore, _>(None, tx.clone(), socket, &mut exact)
+            .await
+            .unwrap();
+        for _ in 0..8192 {
+            let update = rx.try_recv().unwrap();
+            assert!(update.announced);
+            assert_eq!(update.prefix_len, 24);
+            assert_eq!(
+                update.prefix_addr,
+                "::ffff:192.0.2.0".parse::<std::net::IpAddr>().unwrap()
+            );
+        }
+        assert!(rx.try_recv().is_err());
+        let mut path_prefixes = Vec::new();
+        for id in 0..8193u32 {
+            // Small path IDs keep the leading zero byte so the strict parse
+            // engages Add-Path decoding and yields 8193 prefixes for the bound
+            // to reject. High IDs fail strict decoding and degrade to zero
+            // prefixes under treat-as-withdraw, which the bound accepts.
+            path_prefixes.extend_from_slice(&id.to_be_bytes());
+            path_prefixes.push(0); // Synthetic default route with Add-Path.
+        }
+        let mut duplicate_mp = mp_attribute(14, 4096);
+        duplicate_mp.extend_from_slice(&mp_attribute(15, 4097));
+        let oversized = [
+            route_frame(&prefix.repeat(8193), &[], &[]),
+            route_frame(&prefix.repeat(4096), &prefix.repeat(4097), &[]),
+            route_frame(&[], &[], &duplicate_mp),
+            route_frame(
+                &[],
+                &[],
+                &[mp_attribute(14, 4096), mp_attribute(14, 4097)].concat(),
+            ),
+            route_frame(&path_prefixes, &[], &[]),
+        ];
+        for mut frame in oversized {
+            let error = process_bmp_message::<MemoryStore, _>(None, tx.clone(), socket, &mut frame)
+                .await
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("prefix count"),
+                "wrong rejection: {error:#}"
+            );
+            assert!(
+                rx.try_recv().is_err(),
+                "oversized message partially published"
+            );
+        }
+        let mut mp = mp_attribute(14, 1);
+        mp.extend_from_slice(&mp_attribute(15, 1));
+        let mut valid = route_frame(&prefix, &prefix, &mp);
+        process_bmp_message::<MemoryStore, _>(None, tx, socket, &mut valid)
+            .await
+            .unwrap();
+        let mut directions = Vec::new();
+        for _ in 0..4 {
+            directions.push(rx.try_recv().unwrap().announced);
+        }
+        assert_eq!(directions, [true, false, true, false]);
+        assert!(rx.try_recv().is_err());
+    }
 
     #[test]
     fn decodes_gobgp_add_path_route_monitoring_frame() {

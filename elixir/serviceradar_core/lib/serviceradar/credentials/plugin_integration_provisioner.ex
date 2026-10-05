@@ -240,7 +240,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     requirement = profile["provisioning"]["credential_requirement"]
 
     attrs = %{
-      enabled: schedule_enabled?(rule),
+      enabled: schedule_enabled?(rule, entry.schedule_id, params),
       schedule_type: :interval,
       cadence_seconds: cadence_seconds,
       plugin_assignment_id: assignment.id,
@@ -595,6 +595,22 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   end
 
   defp schedule_enabled?(rule), do: RuleAccessors.metadata_bool(rule, "schedule_enabled", false)
+
+  defp schedule_enabled?(rule, "opentext-nom.config.retrieve", params) do
+    configured? =
+      case Map.fetch(params, "devices") do
+        {:ok, devices} ->
+          match?([_ | _], devices)
+
+        :error ->
+          is_binary(params["device_id"]) and params["device_id"] != "" and
+            is_binary(params["device_uid"]) and params["device_uid"] != ""
+      end
+
+    schedule_enabled?(rule) and configured?
+  end
+
+  defp schedule_enabled?(rule, _schedule_id, _params), do: schedule_enabled?(rule)
 
   defp ensure_one_assignment_per_agent(assignments, agent_uid) do
     if Enum.count(assignments, &(to_string(&1.agent_uid) == agent_uid)) <= 1 do

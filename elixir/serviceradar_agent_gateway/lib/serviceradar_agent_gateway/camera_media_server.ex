@@ -31,6 +31,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
   @max_chunk_bytes 1_048_576
   @agent_gateway_component_types [:agent]
 
+  # Relay-level failures use :aborted, never :unavailable. Agents treat
+  # :unavailable as loss of the gateway connection and tear it down; a relay
+  # whose core side closed or failed must not cost the agent its connection.
+  @relay_closed_message "relay session closed; drain"
+
   @typep open_relay_session_request :: %Camera.OpenRelaySessionRequest{}
   @typep open_relay_session_response :: %Camera.OpenRelaySessionResponse{}
   @typep upload_media_response :: %Camera.UploadMediaResponse{}
@@ -159,9 +164,15 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
           maybe_mark_upload_closing(session_ref, response.message)
           response
 
+        {:error, :relay_closed} ->
+          %Camera.UploadMediaResponse{received: false, message: @relay_closed_message}
+
+        {:error, %GRPC.RPCError{} = error} ->
+          raise relay_rpc_error(error)
+
         {:error, reason} ->
           raise GRPC.RPCError,
-            status: :unavailable,
+            status: :aborted,
             message: "failed to forward media stream: #{inspect(reason)}"
       end
     after
@@ -198,7 +209,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
       }
     else
       {:error, %GRPC.RPCError{} = error} ->
-        raise error
+        raise relay_rpc_error(error)
 
       {:error, :not_found} ->
         raise GRPC.RPCError, status: :not_found, message: "relay session not found"
@@ -208,6 +219,12 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
 
       {:error, :agent_id_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "relay session owner mismatch"
+
+      {:error, :relay_closed} ->
+        %Camera.RelayHeartbeatAck{accepted: false, message: @relay_closed_message}
+
+      {:error, reason} ->
+        raise GRPC.RPCError, status: :aborted, message: "failed to heartbeat upstream relay session: #{inspect(reason)}"
     end
   end
 
@@ -223,10 +240,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
 
     with {:ok, forwarding_session} <- forwarding_session(relay_session_id, media_ingest_id, agent_id),
          {:ok, %Camera.CloseRelaySessionResponse{} = upstream_response} <-
-           forwarder().close_relay_session(
-             request,
-             ingress_pid: Map.get(forwarding_session, :ingress_pid)
-           ) do
+           close_upstream(request, Map.get(forwarding_session, :ingress_pid)) do
       case session_tracker().close_session(relay_session_id, media_ingest_id, agent_id, %{reason: request.reason}) do
         :ok ->
           %Camera.CloseRelaySessionResponse{closed: true, message: upstream_response.message}
@@ -242,7 +256,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
       end
     else
       {:error, %GRPC.RPCError{} = error} ->
-        raise error
+        raise relay_rpc_error(error)
 
       {:error, :not_found} ->
         raise GRPC.RPCError, status: :not_found, message: "relay session not found"
@@ -254,7 +268,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
         raise GRPC.RPCError, status: :permission_denied, message: "relay session owner mismatch"
 
       {:error, reason} ->
-        raise GRPC.RPCError, status: :unavailable, message: "failed to close upstream relay session: #{inspect(reason)}"
+        raise GRPC.RPCError, status: :aborted, message: "failed to close upstream relay session: #{inspect(reason)}"
     end
   end
 
@@ -289,6 +303,18 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
     end
   end
 
+  # The core side may already have ended the relay (a lapsed lease or a lost
+  # media pipeline); the close still has to release the gateway session.
+  defp close_upstream(request, ingress_pid) do
+    case forwarder().close_relay_session(request, ingress_pid: ingress_pid) do
+      {:error, :relay_closed} ->
+        {:ok, %Camera.CloseRelaySessionResponse{closed: true, message: "core relay session already closed"}}
+
+      other ->
+        other
+    end
+  end
+
   defp forwarder do
     Application.get_env(:serviceradar_agent_gateway, :camera_media_forwarder, CameraMediaForwarder)
   end
@@ -302,10 +328,10 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
         {:ok, response, %{}}
 
       {:error, %GRPC.RPCError{} = error} ->
-        raise error
+        raise relay_rpc_error(error)
 
       {:error, reason} ->
-        raise GRPC.RPCError, status: :unavailable, message: "failed to open upstream relay session: #{inspect(reason)}"
+        raise GRPC.RPCError, status: :aborted, message: "failed to open upstream relay session: #{inspect(reason)}"
     end
   end
 
@@ -418,5 +444,17 @@ defmodule ServiceRadarAgentGateway.CameraMediaServer do
 
   defp extract_identity_from_stream(stream) do
     MediaIdentity.extract_identity_from_stream(stream, identity_resolver(), "Camera media")
+  end
+
+  # GRPC.RPCError stores the numeric status code. UNAVAILABLE on the wire is
+  # what agents read as a lost gateway connection, so a relay-level failure
+  # carrying it is rewritten to ABORTED. Every other upstream status and its
+  # message pass through. Open, upload, heartbeat, and close all use this.
+  defp relay_rpc_error(%GRPC.RPCError{status: status} = error) do
+    if status == GRPC.Status.unavailable() do
+      GRPC.RPCError.exception(status: :aborted, message: error.message)
+    else
+      error
+    end
   end
 end

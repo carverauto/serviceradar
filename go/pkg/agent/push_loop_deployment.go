@@ -180,11 +180,12 @@ func supportsHostNetworkVisibility(goos, deploymentType string) bool {
 	return goos == linuxOS && deploymentType == deploymentTypeBareMetal
 }
 
-// supportsNativeAddonHosting reports whether this agent installs native add-ons at
-// all. Installing a systemd-supervised one means writing unit files into the host's
-// system unit dir and enabling them through the root-owned agent-updater, which a
-// containerized agent does not have -- and applyAddonAssignments already refuses the
-// whole set on such a host, whatever the supervision model.
+// supportsNativeAddonHosting reports whether this agent can install systemd-supervised
+// native add-ons. That means writing unit files into the host's system unit dir and
+// enabling them through the root-owned agent-updater, which a containerized agent
+// does not have. It says nothing about agent-sidecar, helper or config-toggle add-ons:
+// the agent runs those as its own subprocesses or settings wherever it runs. Only the
+// in-cluster Kubernetes agent skips the whole assignment set.
 //
 // Reported so the control plane stops treating a container as a viable target. A
 // silent target is not harmless: rollouts default to tolerated_failures: 0, so one

@@ -22,6 +22,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   update carrying a value it does not currently hold, and two records that each have a
   history of one type in one scope never merge automatically, even when the values are equal
   (change `add-source-id-succession`, design D2).
+
+  A retired identifier its source reports again is not matched here at all:
+  `ServiceRadar.Inventory.Identity.SourceReactivation` returns it to the record that held it,
+  or re-issues it, before resolution (D6).
+
+  A source succession is the one exception (D3): `ensure_succession_allowed/3` lets a record
+  whose id of a type retired merge with the record holding the current id, in the partitions
+  where the one's id retired and the other holds one. Any other history of a
+  source-authoritative type in those records still conflicts.
   """
 
   import Ecto.Query
@@ -156,7 +165,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   A retired value counts: a record whose only identifier of the type retired is not a match
   for an update carrying a different one. Nor is it a match for an update carrying the
-  retired value itself, which this guard does not return to the record.
+  retired value itself: `SourceReactivation` decides whether that value returns to the
+  record, and once it has, the record holds it again.
 
   A device with no history of that type is not a mismatch: a discovered record of the same
   device, found through its MAC, or a record of the same device from a different source, is
@@ -286,6 +296,44 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     end
   end
 
+  @type succession :: %{
+          identifier_type: atom(),
+          partitions: [String.t()],
+          predecessor: String.t(),
+          successor: String.t()
+        }
+
+  @doc """
+  `conflict_details/2` for a source succession: the history of the succession's type that the
+  predecessor and the successor hold in its partitions does not conflict, when the predecessor
+  holds no current id of the type and, in each of the partitions, a retired one, and the
+  successor holds a current one there.
+  """
+  @spec succession_conflict([String.t()], succession(), keyword()) :: map() | nil
+  def succession_conflict(device_ids, succession, opts \\ []) when is_list(device_ids) do
+    device_ids = device_ids |> Enum.filter(&is_binary/1) |> Enum.uniq()
+
+    if length(device_ids) < 2 do
+      nil
+    else
+      device_ids
+      |> identifier_rows(Keyword.get(opts, :lock, false))
+      |> without_succession_scope(succession)
+      |> conflict_from_rows(device_ids)
+    end
+  end
+
+  @doc "`ensure_merge_allowed/2` for a source succession (`succession_conflict/3`)."
+  @spec ensure_succession_allowed([String.t()], succession(), keyword()) :: :ok | {:error, term()}
+  def ensure_succession_allowed(device_ids, succession, opts \\ []) do
+    with :ok <- maybe_lock_ownership(device_ids, Keyword.get(opts, :lock, false)) do
+      case succession_conflict(device_ids, succession, opts) do
+        nil -> :ok
+        details -> {:error, {:source_authority_conflict, details}}
+      end
+    end
+  end
+
   # Two or more of `device_ids` with a history of one source-authoritative type in one scope
   # conflict: their current values (`source_ids`) and their retired ones (`retired_source_ids`,
   # rows marked `archived: true`) are different devices' identities, or the same identity held
@@ -317,6 +365,44 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   end
 
   def conflict_from_rows(_rows, _device_ids), do: nil
+
+  defp without_succession_scope(rows, %{
+         identifier_type: type,
+         partitions: [_ | _] = partitions,
+         predecessor: predecessor,
+         successor: successor
+       })
+       when predecessor != successor do
+    rows = Enum.map(rows, &Map.put(&1, :identifier_type, identifier_type(&1.identifier_type)))
+    typed = Enum.filter(rows, &(&1.identifier_type == type))
+
+    succession? =
+      not Enum.any?(typed, &(&1.device_id == predecessor and not archived?(&1))) and
+        Enum.all?(partitions, fn partition ->
+          Enum.any?(
+            typed,
+            &(&1.device_id == predecessor and &1.partition == partition and archived?(&1))
+          ) and
+            Enum.any?(
+              typed,
+              &(&1.device_id == successor and &1.partition == partition and not archived?(&1))
+            )
+        end)
+
+    if succession? do
+      Enum.reject(
+        rows,
+        &(&1.identifier_type == type and &1.partition in partitions and
+            &1.device_id in [predecessor, successor])
+      )
+    else
+      rows
+    end
+  end
+
+  defp without_succession_scope(rows, _succession), do: rows
+
+  defp archived?(row), do: Map.get(row, :archived, false)
 
   defp scoped_values(rows, device_ids, archived?) do
     Map.new(device_ids, fn device_id ->

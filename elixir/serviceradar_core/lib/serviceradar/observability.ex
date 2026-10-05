@@ -64,6 +64,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.NetflowSettings
     resource ServiceRadar.Observability.BmpSettings
     resource ServiceRadar.Observability.MtrSettings
+    resource ServiceRadar.Observability.WarehouseRetentionSetting
     resource ServiceRadar.Observability.NetflowLocalCidr
     resource ServiceRadar.Observability.NetflowAppClassificationRule
     resource ServiceRadar.Observability.NetflowExporterCache

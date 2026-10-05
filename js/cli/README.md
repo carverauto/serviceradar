@@ -12,6 +12,12 @@ serviceradar-cli auth      <login|status|logout>
 serviceradar-cli dashboard <init|build|dev|validate|manifest|publish|import|list|status>
 serviceradar-cli plugin    <init|validate|publish|status|assignments|secrets|rules|controllers|apply>
 serviceradar-cli notifications <ensure-k8s-alerts>
+serviceradar-cli agent     <list>
+serviceradar-cli edge      package <create|list|show|revoke|download>
+serviceradar-cli edge      site <create|list|show|bundle>
+serviceradar-cli edge      install <agent|leaf|collector>
+serviceradar-cli collector <create|list|show|revoke|download>
+serviceradar-cli nats      account status
 ```
 
 Help for any group:
@@ -22,7 +28,22 @@ serviceradar-cli auth help
 serviceradar-cli dashboard --help     # delegates through to the dashboard subgroup
 serviceradar-cli plugin --help
 serviceradar-cli notifications help
+serviceradar-cli edge help
+serviceradar-cli collector help
 ```
+
+## Bin names: `serviceradar-cli` and `srcloud`
+
+The package installs the same CLI under two names: `serviceradar-cli` and
+`srcloud`.
+
+The `serviceradar-agent` RPM/deb ships `/usr/local/bin/serviceradar-cli` as a
+deprecated alias of `srctl`, the Go helper on edge hosts. npm's default global
+prefix on Linux is `/usr/local`, so on a host with the agent installed
+`npm install -g @carverauto/serviceradar-cli` and the agent package fight over
+`/usr/local/bin/serviceradar-cli`: whichever was installed last wins, and an
+agent upgrade can silently replace this CLI with `srctl`. On edge hosts, use
+`srcloud`. No ServiceRadar package ships a binary by that name.
 
 For Kubernetes node alert setup, prerequisites, and the fire/clear probe,
 see [Kubernetes node NotReady](../../docs/docs/notifications.md#kubernetes-node-notready).
@@ -117,8 +138,99 @@ issuer PEM at `~/.config/serviceradar/ca-bundle.pem` or pass `--ca-file`
 / `SERVICERADAR_CA_FILE` / `NODE_EXTRA_CA_CERTS`. Tokens persist to
 `~/.config/serviceradar/credentials.json` (mode 0600), keyed by instance URL.
 
-`auth status` prints the resolved identity without leaking the token.
+Without `--scope`, login requests `dashboard.publish edge.manage`, which
+covers dashboard publishing and the edge onboarding commands below. Pass
+`--scope` (space- or comma-separated) to request something else, such as
+`--scope "plugin.publish plugins.manage"`. If the instance's CLI auth policy
+does not allow `edge.manage` yet, login fails with `invalid_scope` and says
+so. It does not fall back to a narrower token.
+
+`--web` (PKCE with a localhost callback) needs `/api/v1/cli/auth/authorize`
+and `/api/v1/cli/auth/token`. A 404 from either fails `--web` with
+"not supported by this server"; use the default device flow there.
+
+`auth status` prints the resolved identity and granted scopes without leaking the token.
 `auth logout` removes a credential entry.
+
+## Edge onboarding
+
+The `agent`, `edge`, `collector` and `nats` groups do the whole edge
+onboarding from a terminal against a hosted tenant. Every API command takes
+`--instance <url>` (or `SERVICERADAR_INSTANCE`), accepts `--json` for one JSON
+document on stdout (an array for lists), and prints a table otherwise. A
+401 tells you to run `auth login` again. A 403 `insufficient_scope` tells you
+the token lacks `edge.manage` and to run `auth login` again. Any other 403
+names the `settings.edge.manage` permission your account needs.
+
+The `edge install` helpers run on the edge host as root. Each prints every
+action before taking it, and `--dry-run` prints the plan without root and
+without changing anything. They download packages from the GitHub release
+for `--version`
+(`https://github.com/carverauto/serviceradar/releases/download/v<ver>/`). The
+server does not report its version to the CLI, so `--version` is required:
+use the release shown in the web UI. `--format rpm|deb` and `--arch` override
+host detection.
+
+### Walkthrough: Oracle Linux 9 edge host
+
+On the edge host (Node 20+), work in a root shell. The install helpers need
+root, they read root's `~/.config/serviceradar` credentials, and RHEL-family
+`sudo` drops `/usr/local/bin` from `PATH` (`secure_path`).
+
+```bash
+sudo -i
+dnf module install -y nodejs:20           # or any Node >= 20
+npm install -g @carverauto/serviceradar-cli
+export SERVICERADAR_INSTANCE=https://acme.serviceradar.cloud
+export SR_VERSION=1.4.81                  # the release your tenant runs
+
+# 1. Log in. The default scopes include edge.manage.
+srcloud auth login --no-browser
+srcloud nats account status
+
+# 2. Create an edge site. The tenant provisions its NATS leaf in the background.
+srcloud edge site create --name "Branch office 1"
+#    → prints the site id; `srcloud edge site show <site-id>` reports the leaf status
+
+# 3. Install the local NATS leaf. Waits until the leaf is provisioned, installs
+#    serviceradar-nats, fetches the site bundle and runs its setup.sh.
+srcloud edge install leaf --site <site-id> --version $SR_VERSION
+
+# 4. Create an agent package. This prints the package id and a one-time
+#    edgepkg-v3 onboarding token.
+srcloud edge package create --label branch-office-1 --component-type agent
+
+# 5. Install and enroll the agent: downloads serviceradar-agent, runs
+#    `dnf install`, runs `srctl enroll --core-url $SERVICERADAR_INSTANCE --token ...`,
+#    then enables and restarts serviceradar-agent.service.
+srcloud edge install agent --package <package-id> --token '<onboarding-token>' --version $SR_VERSION
+srcloud agent list
+
+# 6. Optional: add a collector that publishes through the local leaf.
+srcloud collector create --type sflow --edge-site <site-id>
+#    → prints the collector id and a one-time enrollment token
+srcloud edge install collector --id <collector-id> --token '<enrollment-token>' --version $SR_VERSION
+```
+
+Packages and sites can be created from a workstation too. Only the
+`edge install` steps have to run on the edge host.
+
+Notes:
+
+- `edge package download <id> --token <t>` fetches the agent bundle tarball,
+  and that marks the package delivered. The same token then cannot be used by
+  `edge install agent`, so use one or the other.
+- `edge site bundle <id> --wait [-o file]` downloads the leaf bundle by itself,
+  polling while the server answers `409 leaf_not_ready`. Tune it with
+  `--interval`/`--timeout` (seconds).
+- `collector download <id> --token <t> [-o file]` fetches a collector bundle
+  without logging in. `-o -` writes it to stdout.
+- Collector types map to release packages as follows: `flowgger` and `otel`
+  use `serviceradar-log-collector`, `netflow` and `sflow` use
+  `serviceradar-flow-collector`, and `trapd` uses `serviceradar-trapd`.
+- `install leaf` and `install collector` call the API, and their `--token`
+  already means something else. Pass an explicit bearer with `--api-token`, or
+  rely on the stored credential or `SERVICERADAR_TOKEN`.
 
 ## Publish
 
@@ -251,13 +363,16 @@ js/cli/
 ├── bin/
 │   ├── serviceradar-cli.js          # 5-line shim → ../dist/cli.js
 │   └── serviceradar-dashboard.js    # transitional alias → serviceradar-cli
-├── src/                             # CLI implementation (TypeScript, 22 modules)
+├── src/                             # CLI implementation (TypeScript)
 │   ├── cli.ts, args.ts, config.ts, manifest.ts, validation.ts,
 │   │   doctor.ts, paths.ts, utils.ts
 │   ├── auth/                        # auth/{credentials,login,status,logout,index}.ts
-│   └── dashboard/                   # dashboard/{init,build,manifest,validate,
+│   ├── dashboard/                   # dashboard/{init,build,manifest,validate,
 │                                    #            dev,publish,import,list,status,
 │                                    #            resolve,index}.ts
+│   ├── edge/                        # agent, edge package/site/install, collector, nats
+│   ├── notifications/               # notifications/ensure_k8s_alerts.ts
+│   └── plugin/                      # plugin init, validate, publish, apply
 ├── dist/                            # generated by `npm run build` (compiled JS + sourcemaps)
 ├── harness/                         # browser-side dev harness
 │   ├── index.html                   # legacy form-field harness (preserved at /?advanced)

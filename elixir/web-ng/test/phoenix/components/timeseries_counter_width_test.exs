@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterWidthTest do
 
   defp rollover_points_64 do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
 
     [
       {t0, @counter_max_64 - 10_000_000.0},
@@ -140,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterWidthTest do
 
   defp rollover_points_32 do
     t0 = ~U[2026-01-01 00:00:00Z]
-    t1 = DateTime.add(t0, 60, :second)
+    t1 = DateTime.shift(t0, minute: 1)
 
     [
       {t0, @counter_max_32 - 1_000.0},

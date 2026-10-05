@@ -47,9 +47,9 @@ The system SHALL expose Dgraph to Elixir only through a Rustler NIF wrapping `dg
 - **AND** no mutation is submitted to Dgraph
 
 #### Scenario: Scheduler isolation
-- **WHEN** a NIF call panics
-- **THEN** the DirtyIo scheduler thread is not killed
-- **AND** the Elixir caller receives `{:error, _}`
+Superseded by `openspec/changes/update-dgraph-nif-async-calls/specs/dgraph-client-nif/spec.md`
+("Dgraph calls hold no BEAM scheduler" and "Native panics unwind in every NIF build").
+Dgraph NIFs now run on normal schedulers; `DirtyIo` is no longer used for Dgraph calls.
 
 ### Requirement: Self-cluster credentials
 The system SHALL supply Dgraph ACL credentials as ServiceRadar-to-self configuration (environment, Kubernetes Secret, or Docker secret), not through `network_credential_secrets`.

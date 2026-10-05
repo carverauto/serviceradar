@@ -170,6 +170,22 @@ pub(crate) fn should_route_plan_to_hourly_cagg(plan: &QueryPlan) -> bool {
     )
 }
 
+/// Time filter for a continuous-aggregate read whose rows each cover
+/// `[bucket, bucket + width)`: keep every bucket that overlaps the window.
+/// Comparing `bucket` against the raw window start drops the bucket holding the
+/// start, which empties short windows right after a bucket boundary.
+pub(crate) fn bucket_overlap_clause(
+    time_col: &str,
+    width: &str,
+    start_bind: &str,
+    end_bind: &str,
+) -> String {
+    format!(
+        "{time_col} >= time_bucket('{width}', {start_bind}::timestamptz) \
+         AND {time_col} < time_bucket('{width}', {end_bind}::timestamptz) + INTERVAL '{width}'"
+    )
+}
+
 pub(crate) fn hourly_cagg_lower_bound_clause(time_col: &str) -> String {
     format!("{time_col} >= time_bucket('1 hour', ?::timestamptz)")
 }

@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponentsTest d
       scanner_metrics: %{},
       completed_at: completed_at,
       updated_at: completed_at,
-      started_at: DateTime.add(completed_at, -5, :second)
+      started_at: DateTime.shift(completed_at, second: -5)
     }
   end
 end

@@ -105,7 +105,7 @@ fn translate_grouped_stats_can_scope_by_snmp_interface_indices() {
         sql.contains("GREATEST(COALESCE(f.sampling_rate, 1), 1)"),
         "expected sampled byte weighting in SQL: {sql}"
     );
-    assert_eq!(params.len(), 3);
+    assert_eq!(params.len(), 4);
 }
 
 #[test]

@@ -69,7 +69,6 @@ defmodule ServiceRadar.Application do
         starrocks_schema_migrator_child(),
         starrocks_mysql_child(),
         starrocks_rollup_freshness_cache_child(),
-        starrocks_retention_child(),
 
         # Supervise asynchronous config dependency notifications so shutdown and
         # database ownership boundaries can drain them deterministically.
@@ -83,6 +82,10 @@ defmodule ServiceRadar.Application do
 
         # RBAC permission cache (shared ETS, must start after PubSub)
         ServiceRadar.Identity.RBAC.Cache,
+
+        # Applies stored warehouse retention; subscribes to setting changes, so
+        # it starts after PubSub.
+        starrocks_retention_child(),
 
         # AS Lookup cache for BGP routing (queries GeoIP/ipinfo enrichment caches)
         as_lookup_child(),

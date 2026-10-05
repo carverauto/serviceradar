@@ -3,7 +3,12 @@ defmodule ServiceRadar.TopologyAtlas.Native do
 
   use Rustler,
     otp_app: :serviceradar_core,
-    crate: "topology_atlas_nif"
+    crate: "topology_atlas_nif",
+    # Mix builds path dependencies in :prod, so Rustler compiles this crate in
+    # release mode, where the workspace profile sets panic = "abort". Scope
+    # unwinding to this Cargo invocation, as the Bazel build does with
+    # -Cpanic=unwind: the crate refuses to compile with panic=abort.
+    env: [{"CARGO_PROFILE_RELEASE_PANIC", "unwind"}]
 
   def algorithm_version, do: :erlang.nif_error(:nif_not_loaded)
 
@@ -12,7 +17,10 @@ defmodule ServiceRadar.TopologyAtlas.Native do
   def add_relations(_builder, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def add_inventory(_builder, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def finish_world(_builder), do: :erlang.nif_error(:nif_not_loaded)
-  def read_graph(_url, _stale_cutoff), do: :erlang.nif_error(:nif_not_loaded)
+  # Asynchronous: `{:ok, ref, handle}` now, the graph later as a
+  # `:dgraph_nif_reply` message (see ServiceRadar.Dgraph.Call).
+  def read_graph(_url, _stale_cutoff, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+  def cancel_read(_handle), do: :erlang.nif_error(:nif_not_loaded)
   def reconcile(_builder, _graph), do: :erlang.nif_error(:nif_not_loaded)
   def candidate_info(_candidate), do: :erlang.nif_error(:nif_not_loaded)
   def world_info(_world), do: :erlang.nif_error(:nif_not_loaded)

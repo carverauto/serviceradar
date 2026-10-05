@@ -3,10 +3,19 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
 
   @behaviour Plug
 
+  alias ServiceRadarWebNGWeb.NotificationCallbackBody
+
   @impl true
   def init(opts) do
     %{
       default: Plug.Parsers.init(opts),
+      notification_callback:
+        opts
+        |> Keyword.put(:parsers, [:urlencoded, :json])
+        |> Keyword.put(:pass, [])
+        |> Keyword.put(:length, NotificationCallbackBody.limit())
+        |> Keyword.put(:read_length, 65_536)
+        |> Plug.Parsers.init(),
       automation_callback: Plug.Parsers.init(Keyword.put(opts, :length, 4_096))
     }
   end
@@ -16,7 +25,13 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
     if raw_field_survey_room_artifact?(conn) do
       conn
     else
-      parser_opts = if automation_callback?(conn), do: opts.automation_callback, else: opts.default
+      parser_opts =
+        cond do
+          NotificationCallbackBody.callback?(conn) -> opts.notification_callback
+          automation_callback?(conn) -> opts.automation_callback
+          true -> opts.default
+        end
+
       parse(conn, parser_opts)
     end
   end
@@ -24,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
   defp parse(conn, opts) do
     Plug.Parsers.call(conn, opts)
   rescue
-    _err in [Plug.Parsers.ParseError, Plug.Parsers.RequestTooLargeError] ->
+    _err in [Plug.Parsers.ParseError, Plug.Parsers.RequestTooLargeError, Plug.Parsers.UnsupportedMediaTypeError] ->
       send_malformed_request(conn)
   end
 
