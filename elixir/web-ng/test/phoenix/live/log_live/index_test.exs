@@ -144,6 +144,49 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   end
 
   @tag :web_ng_shared_fixture_db
+  test "rollup health counts the bucket that holds the 24-hour window start" do
+    # Health is computed for real here, not stubbed by the setup above.
+    Application.delete_env(:serviceradar_web_ng, :logs_rollup_status_fun)
+
+    # Connection-local stand-ins shadow the unqualified tables the health check
+    # reads; the sandbox transaction pins now(), fixing the clock for the test.
+    ServiceRadar.Repo.query!("CREATE TEMP TABLE logs (timestamp timestamptz NOT NULL) ON COMMIT DROP")
+
+    ServiceRadar.Repo.query!("CREATE TEMP TABLE logs_severity_stats_5m (bucket timestamptz NOT NULL) ON COMMIT DROP")
+
+    # Raw logs span the whole window, starting mid-bucket; the rollup holds
+    # every bucket from the one containing the window start to the current one.
+    ServiceRadar.Repo.query!("""
+    INSERT INTO logs (timestamp) VALUES (now() - INTERVAL '24 hours'), (now())
+    """)
+
+    ServiceRadar.Repo.query!("""
+    INSERT INTO logs_severity_stats_5m (bucket)
+    SELECT generate_series(
+      time_bucket(INTERVAL '5 minutes', now() - INTERVAL '24 hours'),
+      time_bucket(INTERVAL '5 minutes', now()),
+      INTERVAL '5 minutes'
+    )
+    """)
+
+    %{rows: [[first_bucket, window_start]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT time_bucket(INTERVAL '5 minutes', now() - INTERVAL '24 hours'),
+             now() - INTERVAL '24 hours'
+      """)
+
+    # On an exact bucket boundary there is no partial bucket to drop.
+    assert DateTime.before?(first_bucket, window_start)
+
+    status = ServiceRadarWebNGWeb.Stats.logs_rollup_status(coverage_grace_seconds: 0)
+
+    assert status.rollup_present?
+    assert DateTime.compare(status.rollup_window_start_bucket, first_bucket) == :eq
+    assert status.coverage_gap_seconds == 0
+    assert status.healthy?, inspect(status.messages)
+  end
+
+  @tag :web_ng_shared_fixture_db
   test "log signal rows render their selected canonical instants with unique user-time ids", %{conn: conn} do
     path = ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc"}}"
     {:ok, lv, _html} = live_following_redirect(conn, path)

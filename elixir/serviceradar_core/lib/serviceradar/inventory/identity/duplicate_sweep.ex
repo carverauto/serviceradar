@@ -6,6 +6,11 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   Components larger than two devices are ambiguous and fail closed. Flattening
   a transitive graph into one canonical device can merge vertices that share no
   direct evidence, which is not a safe unattended identity decision.
+
+  After the duplicate pass, the succession pass (`SourceSuccession`, design D3 and D4) merges
+  a record whose source-authoritative id retired into the record holding the source's current
+  id when the evidence is strong enough, and records a `succession_review` decision when it is
+  not.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -19,9 +24,20 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   alias ServiceRadar.Inventory.Identity.MergePolicy
   alias ServiceRadar.Inventory.Identity.ReconciliationRun
   alias ServiceRadar.Inventory.Identity.Resolver
+  alias ServiceRadar.Inventory.Identity.SourceSuccession
 
   require Ash.Query
   require Logger
+
+  # The run record has no columns for the succession counters; they are logged with the
+  # stats, and each merge, review and skip emits telemetry (`SourceSuccession`).
+  @succession_stats [
+    :successions,
+    :successions_skipped,
+    :successions_deferred,
+    :succession_reviews,
+    :max_successions_configured
+  ]
 
   @doc """
   Reconcile duplicate devices by shared strong identifiers.
@@ -46,6 +62,8 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       started_at: DateTime.utc_now(),
       started_monotonic: System.monotonic_time(:millisecond),
       max_merges: max_merges,
+      # nil reads `max_successions_per_run` from the device cleanup settings.
+      max_successions: Keyword.get(opts, :max_successions),
       trigger: normalize_trigger(Keyword.get(opts, :trigger)),
       job_schedule_id: Keyword.get(opts, :job_schedule_id)
     }
@@ -76,6 +94,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     |> run_stage(&collect_duplicate_candidates/1)
     |> run_stage(&classify_and_report/1)
     |> run_stage(&merge_stage(&1, actor, context.max_merges))
+    |> run_stage(&succession_stage(&1, actor, context.max_successions))
   end
 
   defp run_stage({:error, _acc, _error} = failure, _fun), do: failure
@@ -97,6 +116,11 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       largest_blocked_component: 0,
       merges: 0,
       errors: 0,
+      successions: 0,
+      successions_skipped: 0,
+      successions_deferred: 0,
+      succession_reviews: 0,
+      max_successions_configured: nil,
       blocked_component_devices: [],
       identifier_duplicates: [],
       components: []
@@ -151,6 +175,20 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     %{acc | merges: merge_count, errors: error_count}
   end
 
+  # After the duplicate pass, so the succession pass sees the records it merged as merged.
+  defp succession_stage(acc, actor, max_successions) do
+    {:ok, counts} = SourceSuccession.run(actor: actor, max_successions: max_successions)
+
+    %{
+      acc
+      | successions: counts.merged,
+        successions_skipped: counts.skipped,
+        successions_deferred: counts.deferred,
+        succession_reviews: counts.reviewed,
+        max_successions_configured: counts.max_successions
+    }
+  end
+
   @doc false
   def build_run_stats(acc, context) do
     %{
@@ -164,6 +202,11 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       errors: acc.errors,
       max_merges_configured: context.max_merges,
       merge_cap_reached: merge_cap_reached?(context.max_merges, acc.merges),
+      successions: acc.successions,
+      successions_skipped: acc.successions_skipped,
+      successions_deferred: acc.successions_deferred,
+      succession_reviews: acc.succession_reviews,
+      max_successions_configured: acc.max_successions_configured,
       duration_ms: System.monotonic_time(:millisecond) - context.started_monotonic
     }
   end
@@ -179,6 +222,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     attrs =
       stats
       |> Map.delete(:duration_ms)
+      |> Map.drop(@succession_stats)
       |> Map.merge(%{
         run_id: context.run_id,
         started_at: context.started_at,

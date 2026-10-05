@@ -199,10 +199,13 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # own record, since its Armis id decides; m1 stays with A; each sync of B records the override.
   # Then the source stops reporting A: one collection reports both, three more report B alone,
   # the retirement pass retires a1 from A's record, and the reconciler runs. Expected: the two
-  # are different devices, so they never merge. The reconciler leaves both alone: B's record
+  # are different devices, so they never merge. The duplicate pass leaves both alone: B's record
   # carries m1 in its MAC column, but m1 is filed under the source's partition, which the
-  # duplicate pass never pairs a device row with. A's record, left holding only m1, is marked
-  # source_retired (D5), which the resolution model does not express, so the test asserts it.
+  # duplicate pass never pairs a device row with. The succession pass finds m1 linking A's record
+  # to B's alone, but the hostnames differ and so do the first-seen times, so it records the pair
+  # for review (succession_review, mac_only) and merges nothing (D4). A's record, left holding
+  # only m1, is marked source_retired (D5), which the resolution model does not express, so the
+  # test asserts it.
   test "src_attach_shared_mac", %{actor: actor} do
     world =
       two_devices(%{
@@ -243,8 +246,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # record's own alias row, never on the row a1's sync created, so a2's record, not a1's, gets
   # p1 confirmed (fixed: foreign_sighting_confirms_alias). The three absences retire a1 from
   # its record, which keeps it as history, so a2's record is the one record holding a source id
-  # that describes A. Nothing joins the two yet (corroborated succession, D3): the reconciler
-  # leaves both alone, as in src_attach_shared_mac.
+  # that describes A. The reconciler's succession pass then joins the two (D3): m1 links a1's
+  # record to a2's alone, and Armis reports A's first-seen time under both ids. a1's record,
+  # created first, survives with a2 and the address.
   test "src_rekey_succession", %{actor: actor} do
     world = %{
       phys: ["h1"],
@@ -270,6 +274,89 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.retire()
     |> DireTrace.reconcile()
     |> DireTrace.assert_golden!()
+  end
+
+  # Armis re-keys A (m1) from a1 to a2 and reports a first-seen time of a2's own, later than A's
+  # last sighting under a1. Steps as in src_rekey_succession. Expected: the first-seen times
+  # differ, but the hostnames agree and a2 was first seen no earlier than a1 was last seen, so
+  # the succession pass merges the two (D3); a1's record survives.
+  test "src_rekey_new_first_seen", %{actor: actor} do
+    world = Map.put(rekey_world(), :new_first_seen_ids, ["a2"])
+
+    "src_rekey_new_first_seen"
+    |> DireTrace.start(world, actor)
+    |> rekey_and_retire()
+    |> DireTrace.assert_golden!()
+  end
+
+  # Armis re-keys A from a1 to a2 and reports no MAC for it. Steps as in src_rekey_succession.
+  # Expected: no MAC links the two records, so nothing merges them, but the hostname and the
+  # first-seen time agree, so the succession pass records the pair for review
+  # (succession_review, corroborated_without_mac).
+  test "src_rekey_no_macs", %{actor: actor} do
+    world = %{rekey_world() | armis_macs: false}
+
+    "src_rekey_no_macs"
+    |> DireTrace.start(world, actor)
+    |> rekey_and_retire()
+    |> DireTrace.assert_golden!()
+  end
+
+  # Two Armis devices report the same MAC (A under a1, B under a2), and Armis re-keys A to a3.
+  # Steps: A and B are synced at p1 and p2; Armis re-keys A; three collections report B and A
+  # under a3; the retirement pass and the reconciler run. Expected: m1 links a1's record to both
+  # current records, so nothing merges; the succession pass records one review naming all three
+  # (succession_review, shared_mac).
+  test "src_rekey_shared_mac_rival", %{actor: actor} do
+    world =
+      two_devices(%{
+        ifaces: %{"x1" => %{phys: "h1", mac: "m1"}, "x2" => %{phys: "h2", mac: "m1"}},
+        src_of: %{"h1" => "a1", "h2" => "a2"},
+        src_ids: ["a1", "a2", "a3"],
+        hw_ids: ["m1"],
+        observers: ["Armis"],
+        rekeys: true
+      })
+
+    "src_rekey_shared_mac_rival"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.lease("x2", "p2")
+    |> DireTrace.collect()
+    |> DireTrace.rekey("h1", "a3")
+    |> DireTrace.collect()
+    |> DireTrace.collect()
+    |> DireTrace.collect()
+    |> DireTrace.retire()
+    |> DireTrace.reconcile()
+    |> DireTrace.assert_golden!()
+  end
+
+  defp rekey_world do
+    %{
+      phys: ["h1"],
+      ifaces: %{"x1" => %{phys: "h1", mac: "m1"}},
+      src_of: %{"h1" => "a1"},
+      armis_macs: true,
+      rekeys: true,
+      src_ids: ["a1", "a2"],
+      hw_ids: ["m1"],
+      laa_ids: [],
+      ips: ["p1"],
+      observers: ["Armis"]
+    }
+  end
+
+  defp rekey_and_retire(trace) do
+    trace
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.collect()
+    |> DireTrace.rekey("h1", "a2")
+    |> DireTrace.collect()
+    |> DireTrace.collect()
+    |> DireTrace.collect()
+    |> DireTrace.retire()
+    |> DireTrace.reconcile()
   end
 
   # #4612 (fixed): a router's interfaces are sighted one MAC at a time, then the mapper polls it.
