@@ -19,7 +19,9 @@ defmodule ServiceRadarWebNG.ApiTokenUsage do
   unaffected.
   """
 
-  use GenServer
+  # The supervisor's shutdown wait must outlast @write_timeout_ms so that
+  # terminate/2 can finish its final flush before the process is killed.
+  use GenServer, shutdown: to_timeout(second: 20)
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.ApiToken
@@ -31,11 +33,6 @@ defmodule ServiceRadarWebNG.ApiTokenUsage do
   @default_task_supervisor ServiceRadarWebNG.TaskSupervisor
   @max_concurrent_writes 4
   @write_timeout_ms to_timeout(second: 15)
-
-  # shutdown must exceed @write_timeout_ms so terminate/2 can complete its flush
-  def child_spec(opts) do
-    %{super(opts) | shutdown: to_timeout(second: 20)}
-  end
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do

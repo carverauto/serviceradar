@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNG.ApiTokenUsageTest do
 
   alias ServiceRadarWebNG.ApiTokenUsage
 
+  @moduletag :db_free
+
   setup do
     # Under `mix test` the application runs its own recorder under this name.
     if Process.whereis(ApiTokenUsage) do
@@ -78,6 +80,14 @@ defmodule ServiceRadarWebNG.ApiTokenUsageTest do
     :ok = stop_supervised(ApiTokenUsage)
 
     assert_received {:usage_written, "shutdown", "192.0.2.9", 1}
+  end
+
+  test "starts from its child spec and gives its shutdown flush longer than a write", ctx do
+    spec = Supervisor.child_spec({ApiTokenUsage, task_supervisor: ctx.task_supervisor}, [])
+    assert spec.shutdown > to_timeout(second: 15)
+
+    start_supervised!(spec)
+    assert ApiTokenUsage.record(token("spec"), "192.0.2.4") == :ok
   end
 
   test "without the recorder, recording is a no-op" do
