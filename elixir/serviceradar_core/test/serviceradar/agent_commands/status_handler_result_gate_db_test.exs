@@ -2,7 +2,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.AgentCommands.StatusHandler
+  alias ServiceRadar.AgentCommands.PersistenceWorker
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.TestSupport
 
@@ -40,7 +40,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       payload: %{"ok" => true, "value" => 7}
     }
 
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, exact}, state)
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_result, exact}, state)
     assert_all_consumers(exact)
 
     assert {:ok, completed} = AgentCommand.get_by_id(command.id, actor: @actor)
@@ -49,7 +49,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
     assert completed.result_payload == exact.payload
 
     replay = %{exact | message: "must not replace terminal message"}
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, replay}, state)
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_result, replay}, state)
     refute_receive {:broadcast, _}, 25
     refute_receive {:cleanup, _}, 25
     refute_receive {:callback_coordinate, _}, 25
@@ -61,7 +61,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
 
     # An exact replay remains eligible for crash-window recovery; every field
     # visible to downstream consumers must match the durable row.
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, exact}, state)
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_result, exact}, state)
     assert_all_consumers(exact)
 
     mismatches = [
@@ -74,7 +74,9 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
     ]
 
     Enum.each(mismatches, fn mismatch ->
-      assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, mismatch}, state)
+      assert {:noreply, ^state} =
+               PersistenceWorker.handle_info({:command_result, mismatch}, state)
+
       refute_receive {:broadcast, _}, 25
       refute_receive {:cleanup, _}, 25
       refute_receive {:callback_coordinate, _}, 25
@@ -115,7 +117,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       payload: %{"details" => secret, "raw_result_base64" => Base.encode64(secret)}
     }
 
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, unsafe}, state)
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_result, unsafe}, state)
 
     assert_receive {:broadcast, safe}
     assert safe.message == "automation command failed"
@@ -163,8 +165,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
       payload: %{"details" => secret}
     }
 
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_ack, mismatched}, state)
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_progress, mismatched}, state)
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_ack, mismatched}, state)
+
+    assert {:noreply, ^state} =
+             PersistenceWorker.handle_info({:command_progress, mismatched}, state)
 
     assert {:ok, untouched} = AgentCommand.get_by_id(command.id, actor: @actor)
     assert untouched.status == :queued
@@ -172,8 +176,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
     assert is_nil(untouched.progress_payload)
 
     protected = %{mismatched | command_type: command.command_type}
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_ack, protected}, state)
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_progress, protected}, state)
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_ack, protected}, state)
+
+    assert {:noreply, ^state} =
+             PersistenceWorker.handle_info({:command_progress, protected}, state)
 
     assert {:ok, running} = AgentCommand.get_by_id(command.id, actor: @actor)
     assert running.status == :running
@@ -187,8 +193,10 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerResultGateDbTest do
           do: %{protected | partition_id: wrong_partition},
           else: Map.delete(protected, :partition_id)
 
-      assert {:noreply, ^state} = StatusHandler.handle_info({:command_ack, rejected}, state)
-      assert {:noreply, ^state} = StatusHandler.handle_info({:command_progress, rejected}, state)
+      assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_ack, rejected}, state)
+
+      assert {:noreply, ^state} =
+               PersistenceWorker.handle_info({:command_progress, rejected}, state)
     end
   end
 
