@@ -31,18 +31,36 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
   test "a transient metrics warehouse failure retries without repeating the completed CNPG insert" do
     previous = Application.get_env(:serviceradar_core, StarRocks, [])
-    Application.put_env(:serviceradar_core, StarRocks,
-      previous |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [:metrics]))
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      previous |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [:metrics])
+    )
+
     on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous) end)
 
-    metric = %{timestamp: ~U[2026-01-15 10:00:00Z], gateway_id: "gateway-01",
-      series_key: "cpu:usage", metric_name: "cpu_usage", metric_type: "gauge", value: 42.0}
+    metric = %{
+      timestamp: ~U[2026-01-15 10:00:00Z],
+      gateway_id: "gateway-01",
+      series_key: "cpu:usage",
+      metric_name: "cpu_usage",
+      metric_type: "gauge",
+      value: 42.0
+    }
+
     parent = self()
     calls = :counters.new(1, [])
-    insert = fn rows -> send(parent, {:cnpg, rows}); {:ok, length(rows)} end
+
+    insert = fn rows ->
+      send(parent, {:cnpg, rows})
+      {:ok, length(rows)}
+    end
+
     http = fn request ->
       send(parent, {:warehouse, request})
       :counters.add(calls, 1, 1)
+
       if :counters.get(calls, 1) == 1 do
         {:error, {:connect_failed, :econnrefused}}
       else
@@ -60,31 +78,45 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     refute_received {:warehouse, _}
 
     failure = fn _, _, _ -> {:error, {:connect_failed, :econnrefused}} end
-    assert {:error, {:missing_destinations, %{completed: [:cnpg], missing: [:starrocks],
-      errors: %{starrocks: {:connect_failed, :econnrefused}}}}} =
-      Destination.ack_cnpg_batch(:metrics, [metric], insert, persist: failure)
+
+    assert {:error,
+            {:missing_destinations,
+             %{
+               completed: [:cnpg],
+               missing: [:starrocks],
+               errors: %{starrocks: {:connect_failed, :econnrefused}}
+             }}} =
+             Destination.ack_cnpg_batch(:metrics, [metric], insert, persist: failure)
   end
 
   test "warehouse failure counters travel as decodable delta metrics through a JetStream PubAck" do
     parent = self()
+
     request = fn subject, body, _opts ->
       send(parent, {:published, subject, body})
       {:ok, %{body: Jason.encode!(%{"stream" => "metrics", "seq" => 1})}}
     end
 
-    assert :ok = LoadHealth.report(:metrics, [%{metric_name: "cpu_usage"}], true, request: request)
+    assert :ok =
+             LoadHealth.report(:metrics, [%{metric_name: "cpu_usage"}], true, request: request)
+
     assert_received {:published, "metrics.event_writer.warehouse", body}
     assert {:ok, rows} = MetricEnvelope.decode_rows(body)
+
     assert Enum.sort(Enum.map(rows, & &1.metric_name)) ==
-      ["event_writer_warehouse_load_failures", "event_writer_warehouse_partial_writes"]
+             ["event_writer_warehouse_load_failures", "event_writer_warehouse_partial_writes"]
+
     assert Enum.all?(rows, &(&1.is_delta and &1.value == 1.0 and &1.tags["dataset"] == "metrics"))
 
     assert :ok = LoadHealth.report(:metrics, rows, true, request: request)
     refute_received {:published, _, _}
 
     assert {:error, {:jetstream, %{"code" => 503}}} =
-      LoadHealth.report(:otel_traces, [%{id: "span-01"}], false,
-        request: fn _, _, _ -> {:ok, %{body: Jason.encode!(%{"error" => %{"code" => 503}})}} end)
+             LoadHealth.report(:otel_traces, [%{id: "span-01"}], false,
+               request: fn _, _, _ ->
+                 {:ok, %{body: Jason.encode!(%{"error" => %{"code" => 503}})}}
+               end
+             )
   end
 
   test "binary UUID log ids encode as JSON-safe hyphenated UUIDs" do

@@ -38,18 +38,41 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     request = stream_load_request(config, table, label, body, opts)
     request = maybe_override_url(request, Keyword.get(opts, :url))
     opts = opts |> Keyword.put(:table, table) |> Keyword.put(:label, label)
-    deadline = System.monotonic_time(:millisecond) + min(Keyword.get(opts, :http_timeout, @retry_budget_ms), @retry_budget_ms)
 
-    retry_load(%{request: request, http: http, count: length(rows), rows: rows, opts: opts,
-      attempt: 1, deadline: deadline, mode: :load})
+    deadline =
+      System.monotonic_time(:millisecond) +
+        min(Keyword.get(opts, :http_timeout, @retry_budget_ms), @retry_budget_ms)
+
+    retry_load(%{
+      request: request,
+      http: http,
+      count: length(rows),
+      rows: rows,
+      opts: opts,
+      attempt: 1,
+      deadline: deadline,
+      mode: :load
+    })
   end
 
-  defp retry_load(%{request: request, http: http, count: count, opts: opts,
-    attempt: attempt, deadline: deadline, mode: mode} = context) do
+  defp retry_load(
+         %{
+           request: request,
+           http: http,
+           count: count,
+           opts: opts,
+           attempt: attempt,
+           deadline: deadline,
+           mode: mode
+         } =
+           context
+       ) do
     {result, dialed} =
       if mode == :reconcile do
         state = state_request(request.config, opts[:label], opts)
-        {reconcile_or_retry(opts[:label], opts[:table], count, budget_opts(opts, deadline)), state}
+
+        {reconcile_or_retry(opts[:label], opts[:table], count, budget_opts(opts, deadline)),
+         state}
       else
         load_once(request, context, Keyword.get(opts, :redirects, 3))
       end
@@ -68,13 +91,15 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
           attempt: attempt,
           host: uri.host,
           port: uri.port,
-          endpoint_role: if({uri.host, uri.port} == {fe.host, fe.port}, do: :fe, else: :coordinator),
+          endpoint_role:
+            if({uri.host, uri.port} == {fe.host, fe.port}, do: :fe, else: :coordinator),
           reason: reason,
           retrying: retry?,
           cnpg_completed: Keyword.get(opts, :cnpg_completed, false)
         }
 
-        Logger.warning("StarRocks Stream Load attempt failed",
+        Logger.warning(
+          "StarRocks Stream Load attempt failed",
           Keyword.new(Map.put(metadata, :reason, inspect(reason))) ++ [rows: count]
         )
 
@@ -85,7 +110,8 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         )
 
         LoadHealth.report(metadata.dataset, context.rows, metadata.cnpg_completed,
-          timeout: min(500, max(remaining(deadline), 1)))
+          timeout: min(500, max(remaining(deadline), 1))
+        )
 
         if retry? and remaining(deadline) > delay do
           Process.sleep(delay)
@@ -100,7 +126,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     end
   end
 
-  defp load_once(request, %{http: http, count: count, opts: opts, deadline: deadline} = context, redirects) do
+  defp load_once(
+         request,
+         %{http: http, count: count, opts: opts, deadline: deadline} = context,
+         redirects
+       ) do
     request = %{request | timeout: min(request.timeout, max(remaining(deadline), 1))}
 
     case http.(request) do
@@ -110,8 +140,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
             {{:error, {:http_status, status, opts[:label]}}, request}
 
           location ->
-            load_once(%{request | url: URI.merge(request.url, location) |> URI.to_string()},
-              context, redirects - 1)
+            load_once(
+              %{request | url: request.url |> URI.merge(location) |> URI.to_string()},
+              context,
+              redirects - 1
+            )
         end
 
       {:ok, %{status: status, body: response_body}} when status in 200..299 ->
@@ -121,7 +154,8 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         {{:error, {:http_status, status, opts[:label]}}, request}
 
       {:error, :timeout} ->
-        {reconcile_or_retry(opts[:label], opts[:table], count, budget_opts(opts, deadline)), request}
+        {reconcile_or_retry(opts[:label], opts[:table], count, budget_opts(opts, deadline)),
+         request}
 
       {:error, reason} ->
         {{:error, {reason, opts[:label]}}, request}
@@ -142,7 +176,10 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   defp retryable?({{:connect_failed, _cause}, _label}), do: true
   defp retryable?({:unresolved_label, _label, _table}), do: true
   defp retryable?({:http_status, status, _label}), do: status in [408, 429, 500, 502, 503, 504]
-  defp retryable?({reason, _label}) when reason in [:closed, :econnreset, :socket_closed_remotely], do: true
+
+  defp retryable?({reason, _label})
+       when reason in [:closed, :econnreset, :socket_closed_remotely], do: true
+
   defp retryable?(_reason), do: false
 
   def load_label(table, rows) when is_binary(table) and is_list(rows) do
@@ -313,27 +350,30 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     # OTP 28.1 httpc automatically replays 503 Retry-After responses and has no
     # switch to disable that. Req's explicit retry/redirect controls keep this
     # module in charge of both the attempt budget and the actual dialed host.
-    result = with {:ok, _} <- Application.ensure_all_started(:req) do
-      Req.request(
-        method: request.method,
-        url: request.url,
-        headers: request.headers ++ request_auth(request),
-        body: request.body,
-        decode_body: false,
-        retry: false,
-        redirect: false,
-        request_timeout: timeout,
-        receive_timeout: timeout,
-        pool_timeout: min(5_000, timeout),
-        connect_options: [timeout: min(5_000, timeout)]
-      )
-    end
+    result =
+      with {:ok, _} <- Application.ensure_all_started(:req) do
+        Req.request(
+          method: request.method,
+          url: request.url,
+          headers: request.headers ++ request_auth(request),
+          body: request.body,
+          decode_body: false,
+          retry: false,
+          redirect: false,
+          request_timeout: timeout,
+          receive_timeout: timeout,
+          pool_timeout: min(5_000, timeout),
+          connect_options: [timeout: min(5_000, timeout)]
+        )
+      end
 
     case result do
       {:ok, response} ->
-        headers = Enum.flat_map(response.headers, fn {key, values} ->
-          Enum.map(List.wrap(values), &{key, &1})
-        end)
+        headers =
+          Enum.flat_map(response.headers, fn {key, values} ->
+            Enum.map(List.wrap(values), &{key, &1})
+          end)
+
         {:ok, %{status: response.status, headers: headers, body: response.body}}
 
       {:error, %Req.TransportError{reason: :timeout}} ->

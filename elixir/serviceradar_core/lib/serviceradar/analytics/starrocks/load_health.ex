@@ -7,13 +7,13 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadHealth do
   from feeding an unbounded metrics loop. Logs and local telemetry still emit.
   """
 
-  alias ServiceRadar.NATS.JetStreamPublish
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
   alias Serviceradar.Metric.V1.MetricBatch
   alias Serviceradar.Metric.V1.MetricPoint
   alias Serviceradar.Metric.V1.MetricResource
   alias Serviceradar.Metric.V1.StringMapEntry
+  alias ServiceRadar.NATS.JetStreamPublish
 
   require Logger
 
@@ -29,27 +29,43 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadHealth do
       now = DateTime.to_unix(DateTime.utc_now(), :nanosecond)
       names = if cnpg_completed?, do: [@failure, @partial], else: [@failure]
 
-      body = MetricBatch.encode(%MetricBatch{
-        schema_version: "serviceradar.metric.v1",
-        emitted_at_unix_nano: now,
-        resource: %MetricResource{gateway_id: "core:#{node()}", service_name: "core", service_type: "event_writer"},
-        ingest_identity: %IngestIdentity{source: "event-writer-warehouse", producer_kind: "core", payload_kind: "metrics"},
-        metrics: Enum.map(names, fn name ->
-          %Metric{
-            name: name,
-            kind: :METRIC_KIND_SUM,
-            temporality: :METRIC_TEMPORALITY_DELTA,
-            is_monotonic: true,
-            tags: [%StringMapEntry{key: "dataset", value: to_string(dataset)}],
-            points: [%MetricPoint{value: 1.0, observed_at_unix_nano: now}]
-          }
-        end)
-      })
+      body =
+        MetricBatch.encode(%MetricBatch{
+          schema_version: "serviceradar.metric.v1",
+          emitted_at_unix_nano: now,
+          resource: %MetricResource{
+            gateway_id: "core:#{node()}",
+            service_name: "core",
+            service_type: "event_writer"
+          },
+          ingest_identity: %IngestIdentity{
+            source: "event-writer-warehouse",
+            producer_kind: "core",
+            payload_kind: "metrics"
+          },
+          metrics:
+            Enum.map(names, fn name ->
+              %Metric{
+                name: name,
+                kind: :METRIC_KIND_SUM,
+                temporality: :METRIC_TEMPORALITY_DELTA,
+                is_monotonic: true,
+                tags: [%StringMapEntry{key: "dataset", value: to_string(dataset)}],
+                points: [%MetricPoint{value: 1.0, observed_at_unix_nano: now}]
+              }
+            end)
+        })
 
       case JetStreamPublish.publish(@subject, body, Keyword.put_new(opts, :timeout, 500)) do
-        :ok -> :ok
+        :ok ->
+          :ok
+
         {:error, reason} = error ->
-          Logger.warning("Warehouse failure metric publish failed", dataset: dataset, reason: inspect(reason))
+          Logger.warning("Warehouse failure metric publish failed",
+            dataset: dataset,
+            reason: inspect(reason)
+          )
+
           error
       end
     end

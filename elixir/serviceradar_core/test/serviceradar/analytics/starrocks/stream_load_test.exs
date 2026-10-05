@@ -27,8 +27,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
           {:ok, %{status: 200, body: %{"Status" => "Success", "NumberLoadedRows" => 2}}}
         end
       else
-        {:ok,
-         %{status: 307, headers: [{"location", "http://coordinator.example.com/load"}]}}
+        {:ok, %{status: 307, headers: [{"location", "http://coordinator.example.com/load"}]}}
       end
     end
 
@@ -44,6 +43,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
 
   test "persistent connection failures exhaust three attempts and retain the cause" do
     parent = self()
+
     http = fn request ->
       send(parent, {:request, request})
       {:error, {:connect_failed, :econnrefused}}
@@ -309,39 +309,57 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
   end
 
   test "the real HTTP adapter does not hide extra Retry-After attempts" do
-    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
     {:ok, {_ip, port}} = :inet.sockname(listener)
     on_exit(fn -> :gen_tcp.close(listener) end)
     parent = self()
 
-    start_supervised!({Task, fn ->
-      for _ <- 1..3 do
-        {:ok, socket} = :gen_tcp.accept(listener, 3_000)
-        {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 3_000)
-        headers = receive_headers(socket, %{})
-        :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
-        :ok = :inet.setopts(socket, packet: :raw)
-        {:ok, body} = :gen_tcp.recv(socket, String.to_integer(headers["content-length"]), 3_000)
-        send(parent, {:wire_request, headers["label"], Jason.decode!(body)})
-        :ok = :gen_tcp.send(socket,
-          "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-        :gen_tcp.close(socket)
-      end
-    end})
+    start_supervised!(
+      {Task,
+       fn ->
+         for _ <- 1..3 do
+           {:ok, socket} = :gen_tcp.accept(listener, 3_000)
+           {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 3_000)
+           headers = receive_headers(socket, %{})
+           :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
+           :ok = :inet.setopts(socket, packet: :raw)
+
+           {:ok, body} =
+             :gen_tcp.recv(socket, String.to_integer(headers["content-length"]), 3_000)
+
+           send(parent, {:wire_request, headers["label"], Jason.decode!(body)})
+
+           :ok =
+             :gen_tcp.send(
+               socket,
+               "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+             )
+
+           :gen_tcp.close(socket)
+         end
+       end}
+    )
 
     assert {:error, {:http_status, 503, label}} =
-      StreamLoad.persist("otel_traces", @rows,
-        config: %{fe_http: "http://127.0.0.1:#{port}"}, http_timeout: 3_000)
+             StreamLoad.persist("otel_traces", @rows,
+               config: %{fe_http: "http://127.0.0.1:#{port}"},
+               http_timeout: 3_000
+             )
 
     for _ <- 1..3 do
       assert_received {:wire_request, ^label, @rows}
     end
+
     refute_received {:wire_request, _, _}
   end
 
   defp receive_headers(socket, headers) do
     case :gen_tcp.recv(socket, 0, 3_000) do
-      {:ok, :http_eoh} -> headers
+      {:ok, :http_eoh} ->
+        headers
+
       {:ok, {:http_header, _, key, _, value}} ->
         receive_headers(socket, Map.put(headers, key |> to_string() |> String.downcase(), value))
     end

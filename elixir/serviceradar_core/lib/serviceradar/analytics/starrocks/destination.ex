@@ -234,10 +234,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
       missing: missing_dests(starrocks_result, completed)
     }
 
-    progress = case starrocks_result do
-      {:error, reason} -> Map.put(progress, :errors, %{starrocks: reason})
-      _ -> progress
-    end
+    progress =
+      case starrocks_result do
+        {:error, reason} -> Map.put(progress, :errors, %{starrocks: reason})
+        _ -> progress
+      end
 
     cond do
       progress.missing == [] ->
