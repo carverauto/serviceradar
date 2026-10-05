@@ -25,4 +25,3 @@ ALTER MATERIALIZED VIEW serviceradar.mtr_hops_hourly SET ("partition_refresh_num
 
 ALTER MATERIALIZED VIEW serviceradar.mtr_destination_hourly REFRESH ASYNC EVERY(INTERVAL 30 SECOND);
 ALTER MATERIALIZED VIEW serviceradar.mtr_destination_hourly SET ("partition_refresh_number" = "1");
-
