@@ -237,9 +237,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     end)
   end
 
+  # FullDiff persists array items as %{"added"/"removed"/"unchanged" => value}
+  # maps (each with an "index" map) under %{"to" => [...]} -- see
+  # AshPaperTrail.ChangeBuilders.FullDiff.ListChange. There are no per-item
+  # "from"/"to" keys.
   defp assignment_delta(%{"agent_ids" => %{"to" => items}}) when is_list(items) do
-    removed = for %{"from" => uid} <- items, is_binary(uid), do: uid
-    added = for %{"to" => uid} <- items, is_binary(uid), do: uid
+    removed = for %{"removed" => uid} <- items, is_binary(uid), do: uid
+    added = for %{"added" => uid} <- items, is_binary(uid), do: uid
     {Enum.sort(removed), Enum.sort(added)}
   end
 
