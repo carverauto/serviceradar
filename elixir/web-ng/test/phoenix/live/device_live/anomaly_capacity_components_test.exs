@@ -932,6 +932,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     ])
   end
 
+  test "renders loading skeleton and spinner when loading is true" do
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        loading: true,
+        timezone: "Etc/UTC"
+      )
+
+    assert html =~ "sr-ui-spinner"
+    assert html =~ ~s(aria-busy="true")
+    assert html =~ ~s(aria-live="polite")
+    assert html =~ "Loading anomaly and capacity data..."
+    assert html =~ "anomaly-capacity-skeleton"
+    assert html =~ "Anomaly &amp; Capacity"
+    refute html =~ "Recent Anomaly Findings"
+    refute html =~ "Capacity Runway"
+    refute html =~ "Open findings"
+  end
+
+  test "renders loaded content and hides skeleton when loading is false" do
+    overview = %{
+      status: :ok,
+      anomaly_rows: [],
+      capacity_rows: [],
+      anomaly_query: nil,
+      capacity_query: nil,
+      anomaly_filter: nil,
+      capacity_filter: nil,
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        loading: false,
+        overview: overview,
+        timezone: "Etc/UTC"
+      )
+
+    refute html =~ "sr-ui-spinner"
+    refute html =~ ~s(aria-busy="true")
+    refute html =~ "anomaly-capacity-skeleton"
+    assert html =~ "Recent Anomaly Findings"
+    assert html =~ "Capacity Runway"
+  end
+
   defp render_findings(rows, filters) do
     overview = %{
       status: :ok,

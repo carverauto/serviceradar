@@ -33,9 +33,11 @@ defmodule ServiceRadar.Identity.User do
   alias ServiceRadar.Identity.Changes.InvalidateUserRbacCache
   alias ServiceRadar.Identity.Changes.NormalizeTimezonePreference
   alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
+  alias ServiceRadar.Identity.Changes.SetHomepage
   alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.PasswordHash
   alias ServiceRadar.Identity.Validations.CurrentPassword
+  alias ServiceRadar.Identity.Validations.HomepageTarget
   alias ServiceRadar.Identity.Validations.PasswordConfirmationMatches
   alias ServiceRadar.Identity.Validations.ProfileTimezone
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -83,6 +85,7 @@ defmodule ServiceRadar.Identity.User do
     define :provision_sso_user
     define :update
     define :update_timezone_preference, action: :update_timezone_preference
+    define :update_homepage_preference, action: :update_homepage_preference, args: [:homepage]
     define :change_password
     define :record_authentication
     define :record_login
@@ -230,6 +233,19 @@ defmodule ServiceRadar.Identity.User do
       accept [:timezone]
       change NormalizeTimezonePreference
       validate ProfileTimezone
+    end
+
+    update :update_homepage_preference do
+      description "Set or clear (inherit) only the acting user's own default homepage"
+      accept []
+
+      argument :homepage, :map do
+        allow_nil? true
+        description "A ServiceRadar.Identity.Homepage choice, or nil to inherit"
+      end
+
+      validate HomepageTarget
+      change SetHomepage
     end
 
     update :update_email do
@@ -409,6 +425,12 @@ defmodule ServiceRadar.Identity.User do
       authorize_if expr(id == ^actor(:id))
     end
 
+    # Self only: not even an auth manager sets another user's homepage. Group
+    # and deployment defaults exist for steering other people.
+    policy action(:update_homepage_preference) do
+      authorize_if expr(id == ^actor(:id))
+    end
+
     # Password is IdP-owned for SSO-linked accounts. Local accounts must both
     # be changing their own password and hold settings.password.manage — the
     # previous single policy ORed those, so a custom profile that omitted the
@@ -471,6 +493,17 @@ defmodule ServiceRadar.Identity.User do
       default "Etc/UTC"
       public? true
       description "IANA timezone used to display this user's local times"
+    end
+
+    attribute :homepage, :map do
+      allow_nil? true
+      public? true
+
+      description """
+      This user's own default homepage (ServiceRadar.Identity.Homepage), or nil
+      to inherit a group or deployment default. Written only by
+      `update_homepage_preference`.
+      """
     end
 
     attribute :role, :atom do

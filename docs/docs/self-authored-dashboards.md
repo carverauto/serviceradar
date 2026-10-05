@@ -27,7 +27,7 @@ From the library you can:
 - search dashboards with SRQL-style filters such as `in:dashboards`;
 - open a dashboard by its generated seven-digit ID or optional slug;
 - mark dashboards as favorites;
-- set a personal default dashboard when more than one dashboard is available;
+- set a personal default dashboard when more than one dashboard is available (this sets your sign-in homepage; see [Default Homepage After Sign-In](./auth-configuration.md#default-homepage-after-sign-in));
 - import a report from a first-party release, a GitHub repository, or an uploaded
   definition file (requires create and edit dashboard permissions).
 

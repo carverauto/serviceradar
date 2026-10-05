@@ -19,6 +19,13 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   - value: the threshold value to compare against
   - duration_seconds: how long the threshold must be exceeded
 
+  ## Evaluation State
+
+  Each run reads the per-metric violation start and last alert time from
+  `platform.interface_threshold_states` and writes back only what changed, so
+  the duration and cooldown checks hold across nodes and restarts. A metric
+  that alerted is skipped for the cooldown period that follows.
+
   ## Alert Generation
 
   When a threshold is violated, an OCSF event is recorded with:
@@ -35,11 +42,14 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: :incomplete]
 
+  import Ecto.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Jobs.SelfScheduling
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
@@ -50,6 +60,11 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   # Cooldown period to avoid duplicate alerts for same interface (5 minutes)
   @alert_cooldown_ms to_timeout(minute: 5)
+
+  @state_table "interface_threshold_states"
+  @state_prefix "platform"
+  @state_write_batch 1_000
+  @idle_state %{violation_started_at: nil, last_alert_at: nil}
 
   @severity_map %{
     "emergency" => OCSF.severity_fatal(),
@@ -81,8 +96,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp check_existing_job do
-    import Ecto.Query
-
     query =
       from(j in Oban.Job,
         where: j.worker == ^Oban.Worker.to_string(__MODULE__),
@@ -90,44 +103,50 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         limit: 1
       )
 
-    ServiceRadar.Repo.exists?(query, prefix: ObanSupport.prefix())
+    Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     Logger.info("Running interface threshold evaluation")
 
-    evaluate_and_reschedule(args)
+    result = run()
+
+    # Reschedule even when this run failed, so evaluation resumes next interval.
+    schedule_next_check(args)
+    result
   end
 
-  defp evaluate_and_reschedule(args) do
-    case get_enabled_thresholds() do
-      {:ok, settings} when settings != [] ->
-        Logger.info("Evaluating #{length(settings)} interface thresholds")
+  @doc """
+  Evaluates every enabled interface threshold once, without rescheduling.
 
-        Enum.each(settings, fn setting ->
-          evaluate_threshold(setting)
-        end)
+  Options:
 
-        # Reschedule for next check
-        schedule_next_check(args)
-        :ok
+    * `:now` - the wall-clock time the duration and cooldown checks use;
+      defaults to `DateTime.utc_now/0` (tests)
+  """
+  @spec run(keyword()) :: :ok | {:error, term()}
+  def run(opts \\ []) do
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
 
-      {:ok, []} ->
-        Logger.debug("No enabled interface thresholds, rescheduling anyway")
-        schedule_next_check(args)
-        :ok
+    with {:ok, settings} <- get_enabled_thresholds(),
+         {:ok, states} <- load_states() do
+      log_evaluation_start(settings)
 
-      {:error, reason} ->
-        Logger.error("Failed to get interface thresholds",
-          reason: inspect(reason)
-        )
-
-        # Still reschedule on error
-        schedule_next_check(args)
-        {:error, reason}
+      settings
+      |> evaluate_settings(states, now)
+      |> persist_states(states, now)
+    else
+      {:error, reason} = error ->
+        Logger.error("Failed to evaluate interface thresholds", reason: inspect(reason))
+        error
     end
   end
+
+  defp log_evaluation_start([]), do: Logger.debug("No enabled interface thresholds")
+
+  defp log_evaluation_start(settings),
+    do: Logger.info("Evaluating #{length(settings)} interface thresholds")
 
   defp schedule_next_check(args) do
     case ObanSupport.safe_insert(
@@ -151,32 +170,39 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     |> Ash.read(actor: actor)
   end
 
-  defp evaluate_threshold(setting) do
-    selected_metrics = normalize_metrics(setting.metrics_selected)
-    metric_thresholds = normalize_metric_thresholds(setting.metric_thresholds)
-
-    Enum.each(metric_thresholds, fn {metric, config} ->
-      metric_name = normalize_metric_name(metric)
-
-      if metric_selected?(metric_name, selected_metrics) and config_enabled?(config) do
-        evaluate_metric_threshold(setting, metric_name, config)
-      end
+  # Threads every configured {setting, metric} through its persisted state and
+  # returns the state each one holds after this run. A metric configured twice
+  # on one interface (a legacy threshold on a metric that also has a per-metric
+  # threshold) shares one state, evaluated in order, as before.
+  defp evaluate_settings(settings, states, now) do
+    Enum.reduce(settings, %{}, fn setting, acc ->
+      setting
+      |> threshold_checks()
+      |> Enum.reduce(acc, fn {metric_name, config}, acc ->
+        key = {setting.id, metric_name}
+        state = Map.get(acc, key) || Map.get(states, key, @idle_state)
+        Map.put(acc, key, evaluate_metric_threshold(setting, metric_name, config, state, now))
+      end)
     end)
-
-    maybe_evaluate_legacy_threshold(setting, selected_metrics)
-  rescue
-    error ->
-      Logger.error("Error evaluating threshold",
-        device_id: setting.device_id,
-        interface_uid: setting.interface_uid,
-        error: inspect(error)
-      )
   end
 
-  defp in_cooldown?(cooldown_key, now) do
-    last_alert_time = :persistent_term.get(cooldown_key, 0)
-    now - last_alert_time < @alert_cooldown_ms
+  defp threshold_checks(setting) do
+    selected_metrics = normalize_metrics(setting.metrics_selected)
+
+    metric_checks =
+      setting.metric_thresholds
+      |> normalize_metric_thresholds()
+      |> Enum.filter(fn {metric_name, config} ->
+        metric_selected?(metric_name, selected_metrics) and config_enabled?(config)
+      end)
+
+    metric_checks ++ legacy_threshold_checks(setting, selected_metrics)
   end
+
+  defp in_cooldown?(%{last_alert_at: %DateTime{} = last_alert_at}, now),
+    do: DateTime.diff(now, last_alert_at, :millisecond) < @alert_cooldown_ms
+
+  defp in_cooldown?(_state, _now), do: false
 
   defp log_cooldown_skip(setting, metric_name) do
     Logger.debug("Skipping threshold check due to cooldown",
@@ -186,23 +212,29 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     )
   end
 
-  defp evaluate_metric_threshold(setting, metric_name, config) do
-    cooldown_key =
-      {__MODULE__, :last_alert, setting.device_id, setting.interface_uid, metric_name}
-
-    now = System.monotonic_time(:millisecond)
-
-    if in_cooldown?(cooldown_key, now) do
+  defp evaluate_metric_threshold(setting, metric_name, config, state, now) do
+    if in_cooldown?(state, now) do
       log_cooldown_skip(setting, metric_name)
+      state
     else
-      evaluate_threshold_value(setting, metric_name, config, cooldown_key, now)
+      evaluate_threshold_value(setting, metric_name, config, state, now)
     end
+  rescue
+    error ->
+      Logger.error("Error evaluating threshold",
+        device_id: setting.device_id,
+        interface_uid: setting.interface_uid,
+        metric: metric_name,
+        error: inspect(error)
+      )
+
+      state
   end
 
-  defp evaluate_threshold_value(setting, metric_name, config, cooldown_key, now) do
+  defp evaluate_threshold_value(setting, metric_name, config, state, now) do
     case get_latest_metric_value(setting, metric_name) do
       {:ok, metric_value} when not is_nil(metric_value) ->
-        check_threshold(setting, metric_name, config, metric_value, cooldown_key, now)
+        check_threshold(setting, metric_name, config, metric_value, state, now)
 
       {:ok, nil} ->
         Logger.debug("No metric data available for interface",
@@ -211,6 +243,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
           metric: metric_name
         )
 
+        state
+
       {:error, reason} ->
         Logger.warning("Failed to get metric value for interface",
           device_id: setting.device_id,
@@ -218,10 +252,12 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
           metric: metric_name,
           reason: inspect(reason)
         )
+
+        state
     end
   end
 
-  defp check_threshold(setting, metric_name, config, metric_value, cooldown_key, now) do
+  defp check_threshold(setting, metric_name, config, metric_value, state, now) do
     comparison = config_value(config, :comparison)
     threshold_type = config_value(config, :threshold_type, "absolute")
     raw_threshold = parse_number(config_value(config, :value))
@@ -229,9 +265,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     # Resolve effective threshold based on type
     {effective_threshold, if_speed_bps, utilization_pct} =
       resolve_threshold(setting, metric_name, threshold_type, raw_threshold, metric_value)
-
-    violation_start_key =
-      {__MODULE__, :violation_start, setting.device_id, setting.interface_uid, metric_name}
 
     if threshold_violated?(metric_value, comparison, effective_threshold) do
       # Store utilization info in config for event metadata
@@ -241,20 +274,12 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         |> Map.put("if_speed_bps", if_speed_bps)
         |> Map.put("utilization_percent", utilization_pct)
 
-      handle_violation(
-        setting,
-        metric_name,
-        enriched_config,
-        metric_value,
-        cooldown_key,
-        violation_start_key,
-        now
-      )
+      handle_violation(setting, metric_name, enriched_config, metric_value, state, now)
     else
       clear_violation_tracking(
         setting,
         metric_name,
-        violation_start_key,
+        state,
         metric_value,
         comparison,
         effective_threshold
@@ -311,8 +336,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   # Get interface speed (in bps) from the Interface resource
   defp get_interface_speed(setting) do
-    import Ecto.Query
-
     if_index = get_if_index(setting)
 
     if is_nil(if_index) do
@@ -328,7 +351,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
           select: %{speed_bps: i.speed_bps, if_speed: i.if_speed}
         )
 
-      case ServiceRadar.Repo.one(query) do
+      case Repo.one(query) do
         nil ->
           {:ok, nil}
 
@@ -346,24 +369,15 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     error -> {:error, error}
   end
 
-  defp handle_violation(
-         setting,
-         metric_name,
-         config,
-         metric_value,
-         cooldown_key,
-         violation_start_key,
-         now
-       ) do
-    violation_start = get_or_start_violation(violation_start_key, now)
+  defp handle_violation(setting, metric_name, config, metric_value, state, now) do
+    violation_started_at = state.violation_started_at || now
     duration_seconds = parse_int(config_value(config, :duration_seconds, 0)) || 0
     duration_ms = duration_seconds * 1000
-    violation_duration = now - violation_start
+    violation_duration = DateTime.diff(now, violation_started_at, :millisecond)
 
     if violation_duration >= duration_ms do
       generate_metric_event(setting, metric_name, config, metric_value, violation_duration)
-      :persistent_term.put(cooldown_key, now)
-      :persistent_term.erase(violation_start_key)
+      %{violation_started_at: nil, last_alert_at: now}
     else
       Logger.debug("Threshold violated but duration not met",
         device_id: setting.device_id,
@@ -372,30 +386,12 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         violation_duration_ms: violation_duration,
         required_duration_ms: duration_ms
       )
+
+      %{state | violation_started_at: violation_started_at}
     end
   end
 
-  defp get_or_start_violation(violation_start_key, now) do
-    case :persistent_term.get(violation_start_key, nil) do
-      nil ->
-        :persistent_term.put(violation_start_key, now)
-        now
-
-      start_time ->
-        start_time
-    end
-  end
-
-  defp clear_violation_tracking(
-         setting,
-         metric_name,
-         violation_start_key,
-         metric_value,
-         comparison,
-         threshold
-       ) do
-    :persistent_term.erase(violation_start_key)
-
+  defp clear_violation_tracking(setting, metric_name, state, metric_value, comparison, threshold) do
     Logger.debug("Threshold not violated",
       device_id: setting.device_id,
       interface_uid: setting.interface_uid,
@@ -404,6 +400,100 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
       threshold: threshold,
       comparison: comparison
     )
+
+    %{state | violation_started_at: nil}
+  end
+
+  # Evaluation state lives in `platform.interface_threshold_states`, one row per
+  # {interface setting, metric} that is violating or inside its alert cooldown,
+  # so it is shared by every node that runs this job and survives restarts. A
+  # row whose metric is neither is deleted, as is the row of a metric no longer
+  # configured; deleting the interface setting cascades to its rows.
+  #
+  # The times are wall-clock UTC rather than monotonic: monotonic time is
+  # node-local and usually negative, so it can neither be compared across
+  # nodes nor seeded with 0 to mean "never".
+  defp load_states do
+    query =
+      from(s in @state_table,
+        select:
+          {type(s.interface_settings_id, Ecto.UUID), s.metric_name,
+           type(s.violation_started_at, :utc_datetime_usec),
+           type(s.last_alert_at, :utc_datetime_usec)}
+      )
+
+    states =
+      query
+      |> Repo.all(prefix: @state_prefix)
+      |> Map.new(fn {setting_id, metric_name, violation_started_at, last_alert_at} ->
+        {{setting_id, metric_name},
+         %{violation_started_at: violation_started_at, last_alert_at: last_alert_at}}
+      end)
+
+    {:ok, states}
+  rescue
+    error -> {:error, error}
+  end
+
+  defp persist_states(new_states, old_states, now) do
+    live = Map.reject(new_states, fn {_key, state} -> idle?(state, now) end)
+    stale = old_states |> Map.keys() |> Enum.reject(&Map.has_key?(live, &1))
+    changed = Enum.reject(live, fn {key, state} -> Map.get(old_states, key) == state end)
+
+    delete_states(stale)
+    upsert_states(changed, now)
+    :ok
+  rescue
+    error ->
+      Logger.error("Failed to persist interface threshold state", error: inspect(error))
+      {:error, error}
+  end
+
+  defp idle?(%{violation_started_at: nil} = state, now), do: not in_cooldown?(state, now)
+  defp idle?(_state, _now), do: false
+
+  defp delete_states(keys) do
+    keys
+    |> Enum.chunk_every(@state_write_batch)
+    |> Enum.each(fn chunk ->
+      setting_ids = Enum.map(chunk, fn {setting_id, _metric} -> Ecto.UUID.dump!(setting_id) end)
+      metric_names = Enum.map(chunk, fn {_setting_id, metric_name} -> metric_name end)
+
+      query =
+        from(s in @state_table,
+          where:
+            fragment(
+              "(?, ?) IN (SELECT * FROM unnest(CAST(? AS uuid[]), CAST(? AS text[])))",
+              s.interface_settings_id,
+              s.metric_name,
+              ^setting_ids,
+              ^metric_names
+            )
+        )
+
+      Repo.delete_all(query, prefix: @state_prefix)
+    end)
+  end
+
+  defp upsert_states(entries, now) do
+    entries
+    |> Enum.map(fn {{setting_id, metric_name}, state} ->
+      %{
+        interface_settings_id: Ecto.UUID.dump!(setting_id),
+        metric_name: metric_name,
+        violation_started_at: state.violation_started_at,
+        last_alert_at: state.last_alert_at,
+        updated_at: now
+      }
+    end)
+    |> Enum.chunk_every(@state_write_batch)
+    |> Enum.each(fn rows ->
+      Repo.insert_all(@state_table, rows,
+        prefix: @state_prefix,
+        on_conflict: {:replace, [:violation_started_at, :last_alert_at, :updated_at]},
+        conflict_target: [:interface_settings_id, :metric_name]
+      )
+    end)
   end
 
   defp get_latest_metric_value(setting, metric_name) do
@@ -412,8 +502,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     if is_nil(if_index) do
       {:error, :missing_if_index}
     else
-      import Ecto.Query
-
       query =
         from(m in "timeseries_metrics",
           where: m.device_id == ^setting.device_id,
@@ -425,7 +513,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
           select: m.value
         )
 
-      case ServiceRadar.Repo.one(query) do
+      case Repo.one(query) do
         nil -> {:ok, nil}
         value -> {:ok, value}
       end
@@ -737,7 +825,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   defp config_enabled?(_), do: false
 
-  defp maybe_evaluate_legacy_threshold(setting, selected_metrics) do
+  defp legacy_threshold_checks(setting, selected_metrics) do
     if setting.threshold_enabled && setting.threshold_metric && setting.threshold_comparison &&
          not is_nil(setting.threshold_value) do
       metric_name = legacy_metric_name_for(setting.threshold_metric)
@@ -751,8 +839,12 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
           "severity" => setting.threshold_severity
         }
 
-        evaluate_metric_threshold(setting, metric_name, config)
+        [{metric_name, config}]
+      else
+        []
       end
+    else
+      []
     end
   end
 

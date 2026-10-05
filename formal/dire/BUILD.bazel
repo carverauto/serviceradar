@@ -804,6 +804,42 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_src_rekey_new_first_seen_test",
+    cfg = "traces/Trace_src_rekey_new_first_seen.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_rekey_new_first_seen.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_rekey_no_macs_test",
+    cfg = "traces/Trace_src_rekey_no_macs.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_rekey_no_macs.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_rekey_shared_mac_rival_test",
+    cfg = "traces/Trace_src_rekey_shared_mac_rival.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_rekey_shared_mac_rival.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_stale_redirect_test",
     cfg = "traces/Trace_stale_redirect.cfg",
     expect = "violation:TraceIncomplete",

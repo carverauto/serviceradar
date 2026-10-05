@@ -61,6 +61,16 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     end
   end
 
+  @doc false
+  def activate_after_count(_event, _measurements, %{query: query}, {parent, activate}) do
+    if self() == parent and not Process.get(:collection_activated, false) and
+         String.contains?(query, "SELECT count(DISTINCT di.device_id)") do
+      Process.put(:collection_activated, true)
+      activate.()
+      send(parent, :collection_activated)
+    end
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -290,6 +300,21 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
 
       refute held?(ctx, b)
       assert held?(ctx, c)
+    end
+
+    test "an id a collection reports after the pass read its candidates is kept", ctx do
+      {a, b} = sustained_absence(ctx)
+
+      # Not exact, so it leaves b's absence count alone and writes only b's observation time,
+      # after the time the pass's candidates read for b.
+      after_candidates(ctx, fn -> collect(ctx, 5, [a, b], hours: 8, exact: false) end)
+
+      result = retire(ctx, 30)
+      assert_received :collection_activated
+      assert {:ok, %{status: :completed, candidates: 1, retired: 0, skipped: 1}} = result
+      assert held?(ctx, b)
+      assert archived(b) == []
+      assert %{absent_count: 3} = absence(ctx, b)
     end
 
     test "the dry run classifies what a pass would retire and writes nothing", ctx do
@@ -604,6 +629,49 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     end
   end
 
+  describe "query work" do
+    # A join that reads one table once per row of another goes unseen while the planner's
+    # estimates are right, and is chosen when they are wrong, as they are for the rows an
+    # activation has just written. With every join a nested loop and no inner side kept in
+    # memory, such a join reads its inner table again for each outer row, and the counters see
+    # it.
+    @tag timeout: 300_000
+    test "counting, the dry run and a pass read rows in proportion to the instance", ctx do
+      n = 400
+      records = bulk_armis_records(ctx, n)
+      {present, absent} = Enum.split(records, div(n, 2))
+      nested_loops_only()
+
+      linear_reads(n, "collection 1", fn -> collect(ctx, 1, records, hours: 0) end)
+
+      for k <- 2..4 do
+        linear_reads(n, "collection #{k}", fn -> collect(ctx, k, present, hours: k) end)
+      end
+
+      assert {:ok, %{retirable_count: retirable}} =
+               linear_reads(n, "dry run", fn ->
+                 SourceIdentityRepair.dry_run("armis", ctx.inst,
+                   settings: @unguarded,
+                   now: DateTime.shift(ctx.t0, hour: 30)
+                 )
+               end)
+
+      assert retirable == length(absent)
+
+      # A pass retires an id only after T of absence, by which time a deployment's inventory has
+      # been analyzed. The table sizes ANALYZE records outlive the test's transaction; its column
+      # statistics do not.
+      Repo.query!("ANALYZE platform.ocsf_devices, platform.device_identifiers")
+
+      assert {:ok, %{retired: retired, failed: 0}} =
+               linear_reads(n, "retirement pass", fn -> retire(ctx, 30, @unguarded) end)
+
+      assert retired == length(absent)
+      assert Enum.all?(present, &held?(ctx, &1))
+      refute Enum.any?(absent, &held?(ctx, &1))
+    end
+  end
+
   # One Armis source instance per test. t0 lies ten days back, so the collections and passes a
   # test places after it are in the past. `ip_base` keeps the addresses of two instances in one
   # test apart.
@@ -649,6 +717,34 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     source_id = "#{ctx.n}0#{i}"
     register(ctx, device.uid, :armis_device_id, source_id, ctx.id_partition)
     %{uid: device.uid, source_id: source_id}
+  end
+
+  # n records holding one Armis id each, written in two statements rather than through the
+  # actions, which would take most of the test's time.
+  defp bulk_armis_records(ctx, n) do
+    t0 = DateTime.to_naive(ctx.t0)
+
+    records =
+      Enum.map(1..n, &%{uid: "sr:" <> Ecto.UUID.generate(), source_id: "#{ctx.n}0#{&1}"})
+
+    {^n, _} = Repo.insert_all("ocsf_devices", Enum.map(records, &%{uid: &1.uid}), prefix: @prefix)
+
+    identifiers =
+      Enum.map(records, fn record ->
+        %{
+          device_id: record.uid,
+          identifier_type: "armis_device_id",
+          identifier_value: record.source_id,
+          partition: ctx.id_partition,
+          confidence: "strong",
+          source: "test",
+          first_seen: t0,
+          last_seen: t0
+        }
+      end)
+
+    {^n, _} = Repo.insert_all("device_identifiers", identifiers, prefix: @prefix)
+    records
   end
 
   defp netbox_record(ctx, i) do
@@ -836,6 +932,58 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     snapshot
   end
 
+  # The most rows a step may read per record of the instance, from the tables below. The steps
+  # read 10 to 25 here, and a statement that reads a table once per row of another reads in
+  # proportion to n: about 200 or more per record at the test's n of 400.
+  @reads_per_record 75
+
+  # Rows and index entries this transaction has read so far from the tables the retirement
+  # statements join.
+  @rows_read_sql """
+  WITH tables AS (
+    SELECT unnest(ARRAY[
+      'platform.ocsf_devices', 'platform.device_identifiers',
+      'platform.device_source_observations', 'platform.source_identifier_absences'
+    ]::regclass[])::oid AS oid
+  ),
+  relations AS (
+    SELECT oid FROM tables
+    UNION ALL
+    SELECT indexrelid FROM pg_index WHERE indrelid = ANY (ARRAY(SELECT oid FROM tables))
+  )
+  SELECT CAST(COALESCE(sum(pg_stat_get_xact_tuples_returned(oid) +
+                           pg_stat_get_xact_tuples_fetched(oid)), 0) AS bigint)
+  FROM relations
+  """
+
+  # For the rest of the test's transaction, every join is a nested loop and no inner side is
+  # materialized. A lookup an index can serve also goes through it: the test's tables are a few
+  # pages each, small enough that reading one in full looks cheaper than a single index lookup,
+  # which is not true of a deployment's tables. Every statement is planned under these settings,
+  # the foreign key checks included, rather than from a plan cached earlier in the session.
+  defp nested_loops_only do
+    for setting <- ~w(enable_hashjoin enable_mergejoin enable_material enable_seqscan) do
+      Repo.query!("SET LOCAL #{setting} = off")
+    end
+
+    Repo.query!("SET LOCAL plan_cache_mode = force_custom_plan")
+  end
+
+  # Runs `fun`, asserting it read at least one row per record (so the counters count) and at
+  # most @reads_per_record. Returns its result.
+  defp linear_reads(n, step, fun) do
+    %{rows: [[before]]} = Repo.query!(@rows_read_sql)
+    result = fun.()
+    %{rows: [[after_step]]} = Repo.query!(@rows_read_sql)
+    read = after_step - before
+    assert read >= n, "#{step} read #{read} rows for #{n} records: the counters are not counting"
+
+    assert read <= @reads_per_record * n,
+           "#{step} read #{read} rows for #{n} records, over #{@reads_per_record} per record"
+
+    result
+  end
+
   defp retire(ctx, hours, settings \\ @settings) do
     SourceRetirement.run(ctx.instance,
       settings: settings,
@@ -933,6 +1081,22 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
         ],
         &__MODULE__.forward_event/4,
         {self(), ctx.inst}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  # Runs `activate` once, when this process next counts the live holders of the scope: a pass
+  # counts them for the mass guard after reading its candidates and before retiring any.
+  defp after_candidates(ctx, activate) do
+    handler_id = "source-retirement-after-candidates-#{ctx.n}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:service_radar, :repo, :query],
+        &__MODULE__.activate_after_count/4,
+        {self(), activate}
       )
 
     on_exit(fn -> :telemetry.detach(handler_id) end)

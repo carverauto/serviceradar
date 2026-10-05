@@ -943,6 +943,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       socket
       |> assign(:sysmon_identity, sysmon_identity)
       |> assign(:sysmon_time_range, time_range)
+      |> assign(:can_view_anomaly_capacity, can_view_anomaly_capacity?)
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
       assigns =

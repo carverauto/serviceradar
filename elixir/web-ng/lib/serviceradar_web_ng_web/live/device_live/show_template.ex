@@ -340,6 +340,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
               <.anomaly_capacity_section
                 :if={@can_view_anomaly_capacity}
+                loading={@metrics_loading}
                 overview={@anomaly_capacity}
                 anomaly_page={@anomaly_capacity_page}
                 anomaly_filters={@anomaly_capacity_filters}

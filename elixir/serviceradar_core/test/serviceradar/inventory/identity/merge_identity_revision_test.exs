@@ -143,7 +143,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeIdentityRevisionTest do
     |> Ash.Changeset.for_create(:create, %{
       uid: "sr:" <> Ecto.UUID.generate(),
       hostname: "merge-revision-test",
-      ip: unique_ip()
+      ip: TestSupport.unique_device_ip()
     })
     |> Ash.create(actor: actor)
   end
@@ -187,11 +187,6 @@ defmodule ServiceRadar.Inventory.Identity.MergeIdentityRevisionTest do
     })
     |> Ash.read_one!(actor: actor)
     |> Map.fetch!(:device_id)
-  end
-
-  defp unique_ip do
-    <<a, b, c>> = :crypto.strong_rand_bytes(3)
-    "10.#{a}.#{b}.#{rem(c, 254) + 1}"
   end
 
   defp unique_mac do

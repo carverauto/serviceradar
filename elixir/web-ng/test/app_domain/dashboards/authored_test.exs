@@ -465,15 +465,13 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert preference.favorite
     refute preference.is_default
 
-    assert {:ok, default_preference} = Dashboards.set_default_dashboard(scope, :authored, dashboard.id)
-    assert default_preference.favorite
-    assert default_preference.is_default
+    assert {:ok, updated_user} = Dashboards.set_default_dashboard(scope, :authored, dashboard.id)
+    assert updated_user.homepage == %{"kind" => "dashboard", "target_type" => "authored", "target_id" => dashboard.id}
 
     assert [stored] = Dashboards.list_dashboard_preferences(scope)
     assert stored.target_type == :authored
     assert stored.target_id == dashboard.id
     assert stored.favorite
-    assert stored.is_default
   end
 
   test "dashboard ownership is bound to the creating user", %{scope: scope} do

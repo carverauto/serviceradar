@@ -220,7 +220,8 @@ The merge itself:
   - `merge_audit` details carry the shared MAC, the corroborating field, the retired and
     current ids, and the collection ids that proved the retirement.
   - The merge is not an identity decision, because it is not a block, so it opens no
-    de-duplication task.
+    de-duplication task. An open task for exactly the merged pair is marked merged into the
+    survivor, whatever decision opened it (see "Hostname agreement at ingest").
 - **Reversal.** An administrative unmerge of a `source_succession` merge restores both records.
   It also records a distinct assertion for the pair, so the next run does not merge them again.
 - **Cap.** `max_successions_per_run`, default 200, alongside the existing merge cap.
@@ -253,7 +254,7 @@ puts it in the existing review queue at `/devices/deduplication`:
 | --- | --- |
 | Equal hostname and first-seen time, no shared universal MAC | `corroborated_without_mac` |
 | Shared universal MAC, neither field agrees | `mac_only` |
-| Shared universal MAC and hostname, but the time guard fails: the successor was first seen before the predecessor was last seen, or a time is missing | `overlapping_hostname` |
+| Shared universal MAC and hostname, but the time guard fails (the successor was first seen before the predecessor was last seen, or a time is missing) or another current record of the source holds the hostname | `overlapping_hostname` |
 | The MAC links the predecessor to more than one current record | `shared_mac` |
 | More than one predecessor or successor (including multi-generation re-keys) | `not_one_to_one` |
 
@@ -995,6 +996,8 @@ Effects:
   records a `policy_block` decision (`hostname_agreement_not_identity`), which opens a
   de-duplication task. It emits no telemetry beside it, which `DecisionLog` expects of every
   caller. A re-key at the same address therefore opens a task today, before D3 or D4 decide
-  anything. PR 5 must decide what D3's merge does to that task and whether D4's
-  `succession_review` replaces the decision. Whether the telemetry lands with PR 2 or PR 5 is
-  open.
+  anything. Resolved in PR 5: D3's merge marks the open task for exactly the merged pair merged
+  into the survivor (`Deduplication.resolve_merged_pair/3`). D4's `succession_review` does not
+  replace the decision. A review of the same pair updates the same task, which is keyed by its
+  device set. The telemetry landed with PR 2
+  (`[:serviceradar, :identity_reconciler, :hostname_agreement, :refused]`).

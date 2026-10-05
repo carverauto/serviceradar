@@ -60,10 +60,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
   def resolve_sysmon_filter_tokens(_srql_module, identity, _scope, _opts) when identity == %{} or identity == nil, do: []
 
   def resolve_sysmon_filter_tokens(srql_module, identity, scope, opts) do
+    sort? = Keyword.get(opts, :sort?, false)
+
     probe_opts =
       case Keyword.fetch(opts, :time_range) do
-        {:ok, time_range} -> [time_range: time_range, bucket: bucket_for_time_range(time_range)]
-        :error -> [time_range: "last_24h", bucket?: false]
+        {:ok, time_range} -> [time_range: time_range, bucket: bucket_for_time_range(time_range), sort?: sort?]
+        :error -> [time_range: "last_24h", bucket?: false, sort?: sort?]
       end
 
     # Widen the device dimension across every UID this device has been keyed by

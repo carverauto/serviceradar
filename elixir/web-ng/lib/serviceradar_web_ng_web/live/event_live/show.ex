@@ -2420,7 +2420,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     Enum.flat_map(
       [
         {"src_endpoint_ip", dig_event_value(event, ["src_endpoint", "ip"])},
-        {"src_endpoint_port", dig_event_value(event, ["src_endpoint", "port"])},
         {"dst_endpoint_ip", dig_event_value(event, ["dst_endpoint", "ip"])},
         {"dst_endpoint_port", dig_event_value(event, ["dst_endpoint", "port"])}
       ],
@@ -2428,9 +2427,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         {field, value} when field in ["src_endpoint_ip", "dst_endpoint_ip"] ->
           if is_binary(value) and valid_ip?(value), do: [{field, value}], else: []
 
-        {field, value} when field in ["src_endpoint_port", "dst_endpoint_port"] ->
+        {"dst_endpoint_port", value} ->
           case normalize_port(value) do
-            port when is_integer(port) and port > 0 -> [{field, port}]
+            port when is_integer(port) and port > 0 -> [{"dst_endpoint_port", port}]
             _ -> []
           end
       end

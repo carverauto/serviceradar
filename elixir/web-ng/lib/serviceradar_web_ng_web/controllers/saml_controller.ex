@@ -385,9 +385,6 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       _ = UserAuthEvents.record_login(conn, user, :saml)
 
-      # The stored path from the pending request; log_in_user/3 keeps it same-origin.
-      return_to = return_to || ~p"/dashboard"
-
       identity_claims =
         user_info.attributes
         |> Map.merge(%{

@@ -238,10 +238,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
       tokens
       |> maybe_add_token("series", series_field)
       |> Kernel.++(filter_tokens)
-      |> Kernel.++(["sort:timestamp:desc"])
+      |> maybe_add_sort(opts)
       |> maybe_add_limit(limit)
 
     Enum.join(tokens, " ")
+  end
+
+  defp maybe_add_sort(tokens, opts) when is_list(opts) do
+    cond do
+      Keyword.get(opts, :sort?) == false or Keyword.get(opts, :sort) == false ->
+        tokens
+
+      sort = Keyword.get(opts, :sort) ->
+        tokens ++ ["sort:#{sort}"]
+
+      true ->
+        tokens ++ ["sort:timestamp:desc"]
+    end
   end
 
   defp maybe_add_limit(tokens, nil), do: tokens
