@@ -159,7 +159,10 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   defp validate_secret_linkage(_schema, _params), do: :ok
 
   defp authorize_policy_assignment(changeset, actor) do
-    if Ash.Changeset.get_attribute(changeset, :source) in [:policy, "policy"] and
+    new_source = Ash.Changeset.get_attribute(changeset, :source)
+    existing_source = Map.get(changeset.data, :source)
+
+    if (new_source in [:policy, "policy"] or existing_source in [:policy, "policy"]) and
          not SystemActor.system_actor?(actor),
        do: {:error, :policy_assignment_forbidden},
        else: :ok

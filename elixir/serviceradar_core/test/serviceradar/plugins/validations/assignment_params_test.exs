@@ -87,7 +87,8 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParamsTest do
 
     %PluginAssignment{
       params: existing_params,
-      plugin_package_id: Keyword.get(opts, :existing_package_id)
+      plugin_package_id: Keyword.get(opts, :existing_package_id),
+      source: Keyword.get(opts, :existing_source, :manual)
     }
     |> Changeset.new()
     |> Changeset.set_context(%{config_schema: schema})
@@ -216,6 +217,31 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParamsTest do
 
     assert error[:field] == :source
     assert error[:message] =~ "trusted system process"
+  end
+
+  test "rejects detaching a policy-owned assignment to manual" do
+    actor = %{
+      id: "77777777-7777-4777-8777-777777777777",
+      role: :operator,
+      permissions: MapSet.new(["settings.plugins.manage"])
+    }
+
+    assert {:error, error} =
+             validate(%{"timeout_ms" => 30_000, "include_guests" => false},
+               source: :manual,
+               existing_source: :policy,
+               actor: actor
+             )
+
+    assert error[:field] == :source
+    assert error[:message] =~ "trusted system process"
+
+    assert :ok =
+             validate(%{"timeout_ms" => 30_000, "include_guests" => false},
+               source: :manual,
+               existing_source: :policy,
+               actor: SystemActor.system(:assignment_params_test)
+             )
   end
 
   test "treats credential refs as new when an update changes package schema" do
