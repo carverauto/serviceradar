@@ -12,6 +12,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Scans.ScanResult
   alias ServiceRadar.Scans.ScanRun
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -595,6 +596,65 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     assert result.inputs["k8s"]["covered"] == true
     assert result.inputs["k8s"]["probed"] == false
     assert result.inputs["k8s"]["reason"] == "scan_failed"
+  end
+
+  test "inline facts notify after commit and rolled-back facts notify nothing" do
+    ip = unique_ip()
+    device = create_device!(ip)
+    ip2 = unique_ip()
+    second = create_device!(ip2)
+
+    check =
+      enabled_check!(
+        "agent-witness-#{System.unique_integer([:positive])}",
+        "agent-isolation-#{System.unique_integer([:positive])}"
+      )
+
+    :ok = DevicePubSub.subscribe()
+
+    # Positive control: the canonical bus delivers a direct fact write.
+    device
+    |> Ash.Changeset.for_update(:write_facts, %{facts: %{"acl_enforced" => false}},
+      actor: actor()
+    )
+    |> Ash.update!()
+
+    assert_receive {:device_updated, control_uid, control_record}, 1_000
+    assert control_uid == device.uid
+    assert control_record.metadata["acl_enforced"] == false
+
+    # Facts committed by Orchestrator.start notify on the same bus.
+    assert {:ok, _run} =
+             Orchestrator.start(
+               %{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}},
+               actor: actor(),
+               enqueue?: false
+             )
+
+    assert_receive {:device_updated, committed_uid, committed_record}, 1_000
+    assert committed_uid == device.uid
+    assert committed_record.metadata["acl_enforced"] == true
+
+    # An invalid batch rolls back, so neither target notifies.
+    assert {:error, _} =
+             Orchestrator.start(
+               %{
+                 "check" => check.slug,
+                 "devices" => [
+                   %{"ip" => ip, "facts" => %{"acl_enforced" => false}},
+                   %{"ip" => ip2, "facts" => %{"acl_enforced" => %{"invalid" => true}}}
+                 ]
+               },
+               actor: actor(),
+               enqueue?: false
+             )
+
+    refute_receive {:device_updated, _, _}, 200
+
+    {:ok, rolled_back} = Device.get_by_uid(device.uid, false, actor: actor())
+    assert rolled_back.metadata["acl_enforced"] == true
+    {:ok, untouched} = Device.get_by_uid(second.uid, false, actor: actor())
+    refute Map.has_key?(untouched.metadata || %{}, "acl_enforced")
   end
 
   test "an invalid target fact rolls back every fact write and creates no run" do
