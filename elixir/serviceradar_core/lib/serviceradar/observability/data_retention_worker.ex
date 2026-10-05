@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   alias ServiceRadar.Inventory.EndpointInventoryRetention
   alias ServiceRadar.Inventory.EndpointInventorySettingsRuntime
   alias ServiceRadar.Observability.DatasetSnapshotPrune
+  alias ServiceRadar.Observability.SeasonalDisposition.StateStore
   alias ServiceRadar.Repo
 
   require Logger
@@ -100,7 +101,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         config,
         batch_size
       ),
-      prune_mapper_topology_links(config, batch_size)
+      prune_mapper_topology_links(config, batch_size),
+      prune_seasonal_disposition_states(config, batch_size)
     ]
 
     deleted = Enum.sum(results)
@@ -694,6 +696,35 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
         Logger.warning("Failed to prune retained observability data",
           table: table_name,
           reason: Exception.message(error)
+        )
+
+        0
+    end
+  end
+
+  defp prune_seasonal_disposition_states(config, batch_size) do
+    effective_batch_size =
+      config
+      |> Keyword.get(:seasonal_disposition_state_batch_size, batch_size)
+      |> positive_integer(batch_size)
+
+    case StateStore.cleanup_expired(repo: Repo, batch_size: effective_batch_size) do
+      {:ok, deleted} ->
+        if deleted > 0 do
+          Logger.info("Pruned expired seasonal disposition states",
+            deleted_rows: deleted,
+            batch_size: effective_batch_size
+          )
+        end
+
+        deleted
+
+      {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
+        0
+
+      {:error, error} ->
+        Logger.warning(
+          "Failed to prune expired seasonal disposition states: #{format_error(error)}"
         )
 
         0

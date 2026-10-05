@@ -50,9 +50,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
        }}
     end
 
-    def query("DELETE " <> _ = sql, params) do
-      send(Process.get(:test_pid), {:cleanup, sql, params})
-      {:ok, %{num_rows: 1}}
+    def query(sql, params) when is_binary(sql) do
+      if String.starts_with?(sql, "WITH doomed AS (") or String.starts_with?(sql, "DELETE ") do
+        send(Process.get(:test_pid), {:cleanup, sql, params})
+        {:ok, %{num_rows: 1}}
+      else
+        {:error, :unhandled_query}
+      end
     end
 
     def insert_all(table, rows, opts) do
@@ -167,5 +171,28 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
     assert :expires_at in fields
     assert :updated_at in fields
     refute_received {:cleanup, _cleanup_sql, []}
+  end
+
+  test "cleanup_expired executes bounded batch delete and handles options" do
+    assert {:ok, 1} = StateStore.cleanup_expired(repo: FakeRepo, batch_size: 50)
+
+    assert_received {:cleanup, sql, [50]}
+    assert sql =~ "WITH doomed AS ("
+    assert sql =~ "SELECT source, series_key, dow, hod"
+    assert sql =~ "FROM platform.seasonal_disposition_chronological_states"
+    assert sql =~ "WHERE expires_at <= now()"
+    assert sql =~ "ORDER BY expires_at ASC"
+    assert sql =~ "LIMIT $1"
+    assert sql =~ "DELETE FROM platform.seasonal_disposition_chronological_states AS target"
+    assert sql =~ "USING doomed"
+    assert sql =~ "target.source = doomed.source"
+    assert sql =~ "target.series_key = doomed.series_key"
+    assert sql =~ "target.dow = doomed.dow"
+    assert sql =~ "target.hod = doomed.hod"
+  end
+
+  test "cleanup_expired defaults to default batch size and handles module atom repo" do
+    assert {:ok, 1} = StateStore.cleanup_expired(FakeRepo)
+    assert_received {:cleanup, _sql, [10_000]}
   end
 end
