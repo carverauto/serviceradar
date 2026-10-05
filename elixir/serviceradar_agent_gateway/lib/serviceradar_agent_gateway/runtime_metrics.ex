@@ -24,7 +24,6 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
 
   @subject "metrics.agent_gateway"
   @max_pending 100
-  @enqueue_timeout_ms 50
   @publish_timeout_ms 1_000
 
   def start_link(opts \\ []) do
@@ -53,17 +52,14 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
     enqueue(%{name: "agent_gateway_status_buffer_depth", value: depth, unit: "entries", tags: %{}})
   end
 
+  # A cast, not a call: reporting runs on the PushStatus path and must never
+  # block it. A call with a short timeout silently dropped samples whenever the
+  # BEAM was busy (CI runners under memory pressure, a loaded gateway), which is
+  # exactly when the metric matters. The queue stays bounded by @max_pending.
   defp enqueue(sample) do
     case Process.whereis(__MODULE__) do
-      pid when is_pid(pid) ->
-        try do
-          GenServer.call(pid, {:enqueue, sample}, @enqueue_timeout_ms)
-        catch
-          :exit, _reason -> :ok
-        end
-
-      _missing ->
-        :ok
+      pid when is_pid(pid) -> GenServer.cast(pid, {:enqueue, sample})
+      _missing -> :ok
     end
   end
 
@@ -73,16 +69,16 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
   end
 
   @impl true
-  def handle_call({:enqueue, %{name: "agent_gateway_status_buffer_depth"} = sample}, _from, state) do
-    {:reply, :ok, schedule_publish(%{state | depth: sample})}
+  def handle_cast({:enqueue, %{name: "agent_gateway_status_buffer_depth"} = sample}, state) do
+    {:noreply, schedule_publish(%{state | depth: sample})}
   end
 
-  def handle_call({:enqueue, sample}, _from, state) do
+  def handle_cast({:enqueue, sample}, state) do
     if :queue.len(state.queue) >= @max_pending do
       Logger.warning("Gateway runtime metric queue full; dropping core-call sample")
-      {:reply, :ok, state}
+      {:noreply, state}
     else
-      {:reply, :ok, schedule_publish(%{state | queue: :queue.in(sample, state.queue)})}
+      {:noreply, schedule_publish(%{state | queue: :queue.in(sample, state.queue)})}
     end
   end
 
