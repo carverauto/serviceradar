@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Identity.HomepageDbTest do
   @moduledoc false
 
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias Ash.Error.Forbidden
   alias Ash.Error.Invalid
