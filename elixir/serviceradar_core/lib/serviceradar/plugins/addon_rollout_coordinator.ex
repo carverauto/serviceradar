@@ -163,9 +163,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     # then made convergence unprovable forever, because the reap asks every
     # in-scope target for a status >= the candidate and a dead agent has none.
     # The rollout could neither promote (finish_or_advance short-circuits on
-    # :paused) nor fail forward, and reconcile_source skips any source with an
-    # active rollout -- so ONE dead agent silently froze managed updates for its
-    # whole fleet. Observed on demo: seven sources stuck 17-19 days behind.
+    # :paused) nor fail forward, and reconcile_source used to skip any source
+    # with an active rollout -- so ONE dead agent silently froze managed updates
+    # for its whole fleet. Observed on demo: seven sources stuck 17-19 days
+    # behind. A sole paused rollout is now superseded by a strictly newer
+    # eligible candidate instead of blocking it.
     # If every target rolled back, in_scope is empty and the guard below keeps
     # the rollout paused, which is the real failure this must not mask.
     in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled, :rolled_back]))
@@ -288,9 +290,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # deployment that hit one would stay stranded until someone edited rows by hand,
   # so reconcile finishes them the way supersede now does. Returns :repaired when
   # it changed anything, because the caller's copy of the source is then stale.
+  # Supersessions with blocked_reason "newer_candidate_approved" are excluded:
+  # they intentionally leave the stable source on the previous package until the
+  # replacement proves health, so there is no stranded promotion to repair.
   defp repair_stranded_supersessions(source_rollouts, package_by_id, actor, now) do
     source_rollouts
-    |> Enum.filter(&(&1.state == :superseded))
+    |> Enum.filter(&(&1.state == :superseded and &1.blocked_reason != "newer_candidate_approved"))
     |> Enum.reduce(:none, fn rollout, acc ->
       candidate = Map.get(package_by_id, to_string(rollout.candidate_package_id))
 
@@ -394,9 +399,25 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp reconcile_source(source, packages, package_by_id, rollouts, actor, now, stats) do
     current = Map.get(package_by_id, to_string(source.addon_package_id))
     source_rollouts = Enum.filter(rollouts, &same_source?(&1, source))
+    active = Enum.filter(source_rollouts, &(&1.state in @active_rollout_states))
 
     cond do
-      is_nil(current) or Enum.any?(source_rollouts, &(&1.state in @active_rollout_states)) ->
+      is_nil(current) ->
+        increment(stats, :skipped)
+
+      match?([%AddonRollout{state: :paused}], active) ->
+        replace_paused_candidate(
+          source,
+          hd(active),
+          packages,
+          package_by_id,
+          source_rollouts,
+          actor,
+          now,
+          stats
+        )
+
+      active != [] ->
         increment(stats, :skipped)
 
       repair_stranded_supersessions(source_rollouts, package_by_id, actor, now) == :repaired ->
@@ -408,11 +429,105 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
+  defp replace_paused_candidate(
+         source,
+         paused,
+         packages,
+         package_by_id,
+         source_rollouts,
+         actor,
+         now,
+         stats
+       ) do
+    previous_candidate = Map.get(package_by_id, to_string(paused.candidate_package_id))
+
+    with %AddonPackage{} <- previous_candidate,
+         {:ok, candidate} <-
+           Eligibility.latest_candidate(previous_candidate, packages, source,
+             blocked_candidate_ids: blocked_candidate_ids(source_rollouts)
+           ),
+         {:ok, superseded} <- supersede_failed_candidate(paused, candidate, actor, now),
+         {:ok, refreshed_source} <- source_for_rollout(superseded, actor) do
+      # Re-read after clearing overrides. The failed candidate is never promoted;
+      # the replacement must prove health before the stable source moves.
+      current = Map.get(package_by_id, to_string(refreshed_source.addon_package_id))
+
+      rollouts =
+        Enum.map(source_rollouts, fn rollout ->
+          if rollout.id == superseded.id, do: superseded, else: rollout
+        end)
+
+      start_next_candidate(refreshed_source, current, packages, rollouts, actor, now, stats)
+    else
+      {:error, reason} ->
+        Logger.warning("Failed to replace paused native add-on rollout",
+          rollout_id: to_string(paused.id),
+          reason: inspect(reason)
+        )
+
+        increment(stats, :skipped)
+
+      _ ->
+        increment(stats, :skipped)
+    end
+  end
+
+  defp supersede_failed_candidate(paused, candidate, actor, now) do
+    # Release overrides and unique target slots together with terminalizing the
+    # old rollout. A failed write must leave the paused attempt recoverable.
+    result =
+      Repo.transaction(fn ->
+        with {:ok, rollout} <- get_rollout(paused.id, actor),
+             true <- rollout.state == :paused,
+             {:ok, targets} <- rollout_targets(rollout.id, actor),
+             :ok <- clear_all_overrides(targets, actor),
+             :ok <- mark_targets_canceled(targets, actor, now),
+             {:ok, updated} <-
+               update_rollout(
+                 rollout,
+                 %{
+                   state: :superseded,
+                   completed_at: now,
+                   paused_at: nil,
+                   blocked_reason: "newer_candidate_approved",
+                   error: rollout.error || rollout.blocked_reason
+                 },
+                 actor
+               ) do
+          updated
+        else
+          false -> Repo.rollback(:rollout_not_paused)
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    case result do
+      {:ok, updated} ->
+        details = %{
+          replacement_candidate_version: candidate.version,
+          previous_blocked_reason: paused.blocked_reason
+        }
+
+        audit(:supersede, updated, details)
+        emit(:superseded, updated, details)
+        {:ok, updated}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp blocked_candidate_ids(source_rollouts) do
+    source_rollouts
+    |> Enum.filter(fn rollout ->
+      rollout.state in @failed_rollout_states or
+        (rollout.state == :superseded and rollout.blocked_reason == "newer_candidate_approved")
+    end)
+    |> Enum.map(& &1.candidate_package_id)
+  end
+
   defp start_next_candidate(source, current, packages, source_rollouts, actor, now, stats) do
-    blocked_ids =
-      source_rollouts
-      |> Enum.filter(&(&1.state in @failed_rollout_states))
-      |> Enum.map(& &1.candidate_package_id)
+    blocked_ids = blocked_candidate_ids(source_rollouts)
 
     case Eligibility.latest_candidate(current, packages, source,
            blocked_candidate_ids: blocked_ids
