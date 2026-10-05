@@ -25,6 +25,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
     :ok
   end
 
+  # Partition is left nil unless a test sets it: the Ash default ("default")
+  # would scope every target query, which belongs to the partition-scoping
+  # tests below, not to the resolution, memoization and error-path tests
+  # that share this helper.
   defp group(attrs) do
     struct!(
       SweepGroup,
@@ -36,6 +40,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
           cron_expression: nil,
           static_targets: [],
           target_query: nil,
+          partition: nil,
           ports: nil,
           sweep_modes: nil,
           overrides: %{},
@@ -222,6 +227,44 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
              }
 
       assert_received {:scoped_query, explicit}
+    end
+
+    test "the same base query in two partitions resolves each group's own devices" do
+      query_page_fn = fn query, _opts ->
+        send(self(), {:scoped_query, query})
+
+        rows =
+          if String.contains?(query, "partition:site-a") do
+            [%{"ip" => "198.51.100.21", "uid" => "sr:dev-0021"}]
+          else
+            [%{"ip" => "198.51.100.22", "uid" => "sr:dev-0022"}]
+          end
+
+        {:ok, %{rows: rows, next_cursor: nil}}
+      end
+
+      groups = [
+        group(%{
+          id: "sg-scope-a",
+          name: "scope-a",
+          partition: "site-a",
+          target_query: @lab_query
+        }),
+        group(%{
+          id: "sg-scope-b",
+          name: "scope-b",
+          partition: "site-b",
+          target_query: @lab_query
+        })
+      ]
+
+      compiled = compile_by_id(groups, query_page_fn: query_page_fn)
+
+      assert networks(compiled["sg-scope-a"]) == ["198.51.100.21"]
+      assert networks(compiled["sg-scope-b"]) == ["198.51.100.22"]
+
+      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-a"}
+      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-b"}
     end
 
     test "a query-target group resolves the device targets compile would deliver" do
