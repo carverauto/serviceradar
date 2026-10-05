@@ -13,29 +13,33 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Cluster.CoordinatorChildren
+  alias ServiceRadar.Ingestion.RuntimeMetrics
+  alias ServiceRadar.Ingestion.WorkerBudget
 
   test "JetStream metrics retry an identical frame and cannot hold up ingestion" do
     parent = self()
+
     request = fn subject, body, opts ->
       send(parent, {:metric_publish, self(), subject, body, opts})
+
       receive do
         {:puback, response} -> response
       after
         2_000 -> {:error, :timeout}
       end
     end
-    start_supervised!({ServiceRadar.Ingestion.RuntimeMetrics,
-      interval_ms: 20, publish_opts: [request: request]})
-    ServiceRadar.Ingestion.RuntimeMetrics.record(:sweep, :state,
-      %{pending_count: 2, pending_bytes: 512})
-    assert_receive {:metric_publish, publisher, "metrics.core.result_ingestion", body, opts}, 1_000
+
+    start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
+    RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
+
+    assert_receive {:metric_publish, publisher, "metrics.core.result_ingestion", body, opts},
+                   1_000
 
     for _ <- 1..1_000 do
-      ServiceRadar.Ingestion.RuntimeMetrics.record(:sweep, :state,
-        %{pending_count: 0, pending_bytes: 0})
-      ServiceRadar.Ingestion.RuntimeMetrics.record("invented-unbounded-label", :state,
-        %{pending_count: 1})
+      RuntimeMetrics.record(:sweep, :state, %{pending_count: 0, pending_bytes: 0})
+      RuntimeMetrics.record("invented-unbounded-label", :state, %{pending_count: 1})
     end
+
     lane = start_lane(fn _ -> :ok end)
     ref = admit(lane, status("agent01.example.com", "independent"))
     assert_receive {^ref, :ok}, 250
@@ -43,15 +47,25 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     # A plain NATS success without a storage PubAck is insufficient.
     send(publisher, {:puback, {:ok, %{body: "{}"}}})
-    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", retry, retry_opts}, 1_000
+
+    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", retry,
+                    retry_opts},
+                   1_000
+
     assert retry == body
     assert retry_opts[:headers] == opts[:headers]
     assert Enum.any?(opts[:headers], fn {key, id} -> key == "Nats-Msg-Id" and is_binary(id) end)
     send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
 
-    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", drained, _opts}, 1_000
-    rows = ServiceRadar.EventWriter.Processors.Metrics.parse_message(%{
-      data: drained, metadata: %{subject: "metrics.core.result_ingestion"}})
+    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", drained, _opts},
+                   1_000
+
+    rows =
+      ServiceRadar.EventWriter.Processors.Metrics.parse_message(%{
+        data: drained,
+        metadata: %{subject: "metrics.core.result_ingestion"}
+      })
+
     depth = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_count"))
     bytes = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_bytes"))
     failure = Enum.find(rows, &(&1.metric_name == "result_ingestion_events_publish_failure"))
@@ -68,23 +82,29 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   test "legacy plugins cannot occupy the retained database reservation" do
-    budget = start_supervised!({ServiceRadar.Ingestion.WorkerBudget, pool_size: 7})
+    budget = start_supervised!({WorkerBudget, pool_size: 7})
     tasks = start_supervised!({Task.Supervisor, []})
     parent = self()
-    {:ok, legacy} = Task.Supervisor.start_child(tasks, fn ->
-      ServiceRadar.Ingestion.WorkerBudget.run(budget, :legacy_plugin, fn ->
-        send(parent, {:legacy_started, self()})
-        receive do
-          :release -> :ok
-        end
+
+    {:ok, legacy} =
+      Task.Supervisor.start_child(tasks, fn ->
+        WorkerBudget.run(budget, :legacy_plugin, fn ->
+          send(parent, {:legacy_started, self()})
+
+          receive do
+            :release -> :ok
+          end
+        end)
       end)
-    end)
+
     assert_receive {:legacy_started, ^legacy}, 1_000
-    {:ok, retained} = Task.Supervisor.start_child(tasks, fn ->
-      result = ServiceRadar.Ingestion.WorkerBudget.run(budget, :retained_plugin_result,
-        fn -> :committed end)
-      send(parent, {:retained_result, self(), result})
-    end)
+
+    {:ok, retained} =
+      Task.Supervisor.start_child(tasks, fn ->
+        result = WorkerBudget.run(budget, :retained_plugin_result, fn -> :committed end)
+        send(parent, {:retained_result, self(), result})
+      end)
+
     assert_receive {:retained_result, ^retained, :committed}, 250
     send(legacy, :release)
   end
@@ -92,15 +112,18 @@ defmodule ServiceRadar.AdmissionLaneTest do
   test "boot rejects queues that exceed memory or reserved Repo capacity" do
     key = ServiceRadar.Ingestion.Supervisor
     previous = Application.get_env(:serviceradar_core, key)
+
     on_exit(fn ->
-      if previous == nil, do: Application.delete_env(:serviceradar_core, key),
+      if previous == nil,
+        do: Application.delete_env(:serviceradar_core, key),
         else: Application.put_env(:serviceradar_core, key, previous)
     end)
+
     Application.put_env(:serviceradar_core, key, memory_budget_bytes: 1_024)
     assert {:error, _} = start_supervised(ServiceRadar.Ingestion.Supervisor)
     assert Process.whereis(ServiceRadar.Ingestion.Supervisor) == nil
-    assert {:error, _} = start_supervised({ServiceRadar.Ingestion.WorkerBudget, pool_size: 6})
-    assert Process.whereis(ServiceRadar.Ingestion.WorkerBudget) == nil
+    assert {:error, _} = start_supervised({WorkerBudget, pool_size: 6})
+    assert Process.whereis(WorkerBudget) == nil
   end
 
   test "count, byte, per-agent, and source limits return distinct reasons" do
@@ -666,6 +689,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     for config <- [flow_config, plugin_config] do
       assert :ok = Lane.validate_config(config, 15_000)
       assert config[:gateway_call_timeout_ms] < 20_000
+
       assert config[:queue_wait_ms] + config[:worker_timeout_ms] + 3_000 <=
                config[:gateway_call_timeout_ms]
     end

@@ -158,8 +158,12 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestor do
 
               {:error, reason} = error ->
                 emit(:enqueue_rejected, %{updates: length(updates)}, attested)
+
                 Logger.warning("DiscoveryIngestor: queue rejected discovery updates",
-                  reason: inspect(reason), schema: inspect(envelope.schema))
+                  reason: inspect(reason),
+                  schema: inspect(envelope.schema)
+                )
+
                 error
             end
 
