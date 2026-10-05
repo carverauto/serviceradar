@@ -30,19 +30,41 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
 
   A reading whose device could not be resolved is skipped before it reaches the
   database. `device_uid` is a foreign key to `ocsf_devices.uid`, so such a row
-  can never be written; rows are upserted individually, so the failure would be
-  contained either way, but on a fleet with unresolved devices it would be a
-  guaranteed-failing round trip for every such reading on every poll.
+  can never be written, and one in a chunk would fail the chunk's statement.
+
+  Facts are validated by the resource's `:create` action and written as one
+  upsert statement per chunk, not one `Ash.create` round trip per reading. A
+  chunk whose statement fails (a device deleted while its readings were in
+  flight, say) is retried row by row, so one bad reading still costs only
+  itself.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceSNMPFact
+  alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   require Ash.Query
   require Logger
 
   @snmp_metric_type "snmp"
+
+  # Facts per upsert statement: 13 bound columns each, well inside the
+  # PostgreSQL parameter limit.
+  @chunk_size 1_000
+
+  # The `:create` action's upsert identity and upsert fields, plus the update
+  # timestamp an upsert through the action also refreshes.
+  @conflict_target [:device_uid, :oid, :oid_index]
+  @replace_fields [
+    :oid_name,
+    :value,
+    :data_type,
+    :snmp_profile_id,
+    :plugin_package_id,
+    :collected_at,
+    :updated_at
+  ]
 
   @doc """
   Writes one fact per SNMP reading in the batch.
@@ -63,7 +85,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
 
         facts
         |> attach_plugin_package_ids(actor)
-        |> Enum.each(&upsert(&1, actor))
+        |> Enum.chunk_every(@chunk_size)
+        |> Enum.each(&upsert_chunk(&1, actor))
     end
   rescue
     error ->
@@ -170,6 +193,66 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
     end
   end
 
+  defp upsert_chunk(facts, actor) do
+    now = DateTime.utc_now()
+
+    rows =
+      Enum.flat_map(facts, fn attrs ->
+        case validated_row(attrs, actor, now) do
+          {:ok, row} ->
+            [row]
+
+          {:error, error} ->
+            log_rejected(attrs, error)
+            []
+        end
+      end)
+
+    if rows != [] do
+      Repo.insert_all(DeviceSNMPFact, rows,
+        on_conflict: {:replace, @replace_fields},
+        conflict_target: @conflict_target,
+        returning: false
+      )
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.debug("device SNMP fact chunk upsert failed; retrying row by row",
+        rows: length(facts),
+        error: inspect(error)
+      )
+
+      Enum.each(facts, &upsert(&1, actor))
+  end
+
+  # The row the action would insert, after its casts, constraints and
+  # validations; nothing is written here.
+  defp validated_row(attrs, actor, now) do
+    changeset = Ash.Changeset.for_create(DeviceSNMPFact, :create, attrs, actor: actor)
+
+    if changeset.valid? do
+      {:ok,
+       changeset.attributes
+       |> Map.take(
+         [:device_uid, :oid, :oid_name, :oid_index, :value, :data_type] ++
+           [:plugin_package_id, :snmp_profile_id, :collected_at]
+       )
+       |> Map.merge(%{id: Ecto.UUID.generate(), inserted_at: now, updated_at: now})}
+    else
+      {:error, Ash.Error.to_error_class(changeset.errors)}
+    end
+  end
+
+  defp log_rejected(attrs, error) do
+    Logger.debug("device SNMP fact upsert rejected",
+      device_uid: attrs.device_uid,
+      oid: attrs.oid,
+      error: inspect(error)
+    )
+  end
+
   defp upsert(attrs, actor) do
     DeviceSNMPFact
     |> Ash.Changeset.for_create(:create, attrs)
@@ -179,12 +262,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
         :ok
 
       {:error, error} ->
-        Logger.debug("device SNMP fact upsert rejected",
-          device_uid: attrs.device_uid,
-          oid: attrs.oid,
-          error: inspect(error)
-        )
-
+        log_rejected(attrs, error)
         :ok
     end
   end
