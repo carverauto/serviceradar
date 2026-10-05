@@ -12,6 +12,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
   alias ServiceRadar.Plugins.Changes.BindAssignmentPartition
   alias ServiceRadar.Plugins.Changes.RejectLegacyUnboundAssignmentMutation
+  alias ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroy
   alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
   alias ServiceRadar.Plugins.Validations.AssignmentParams
   alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment
@@ -109,6 +110,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     destroy :destroy do
       require_atomic? false
       change RejectLegacyUnboundAssignmentMutation
+      change RejectPolicyOwnedAssignmentDestroy
     end
   end
 
