@@ -2,6 +2,7 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
   use ExUnit.Case, async: false
 
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
+  alias ServiceRadar.Admission.Lane
   alias ServiceRadar.StatusHandler
 
   defmodule HeldPluginIngestor do
@@ -51,7 +52,7 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
       endpoint_queue
     )
 
-    ServiceRadar.TestSupport.start_ingestion_topology!()
+    topology = ServiceRadar.TestSupport.start_ingestion_topology!()
 
     on_exit(fn ->
       restore_env(StatusHandler, original_handler)
@@ -61,7 +62,40 @@ defmodule ServiceRadar.StatusAdmissionIsolationTest do
       restore_env(:status_admission_held_plugin, original_plugin_holder)
     end)
 
-    %{handler: StatusHandler, release_ref: release_ref}
+    %{handler: StatusHandler, release_ref: release_ref, topology: topology}
+  end
+
+  test "worker-tree downtime rejects admission without restarting the dispatcher", %{
+    topology: topology
+  } do
+    handler = Process.whereis(StatusHandler)
+
+    status = %{
+      source: "synthetic-heartbeat",
+      service_name: "agent",
+      agent_id: "agent01",
+      partition: "test-partition",
+      message: nil
+    }
+
+    descriptor = Lane.descriptor(status, 15_000)
+
+    assert :ok = Supervisor.terminate_child(topology, ServiceRadar.Ingestion.Supervisor)
+
+    assert {:error, {:admission_lane_unavailable, :noproc}} =
+             GenServer.call(handler, {:reserve_status, descriptor}, 500)
+
+    assert Process.whereis(StatusHandler) == handler
+    assert Process.alive?(handler)
+
+    assert {:ok, _workers} =
+             Supervisor.restart_child(topology, ServiceRadar.Ingestion.Supervisor)
+
+    assert {:ok, {lane, _reservation}} =
+             GenServer.call(handler, {:reserve_status, descriptor}, 500)
+
+    assert Process.alive?(lane)
+    assert Process.whereis(StatusHandler) == handler
   end
 
   test "held retained plugin ingestion does not delay flow completion", %{
