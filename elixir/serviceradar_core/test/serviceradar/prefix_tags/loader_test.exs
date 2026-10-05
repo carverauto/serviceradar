@@ -33,9 +33,11 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
 
     on_exit(fn ->
       Store.clear()
+      Loader.clear_status_for_test()
     end)
 
     Store.clear()
+    Loader.clear_status_for_test()
     :ok
   end
 
@@ -46,6 +48,7 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
 
     assert {:error, _} = Preview.local_lookup("192.0.2.1")
     :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+    Loader.put_status_for_test(:sys.get_state(pid))
     assert {:ok, [%{tags: ["role:example"]}]} = Preview.local_lookup("192.0.2.1")
     assert {:ok, []} = Preview.local_lookup("198.51.100.1")
   end
@@ -274,5 +277,46 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
 
     refute_receive {:telemetry, [:serviceradar, :prefix_tags, :snapshot_age], _,
                     %{source: "provider"}}
+  end
+
+  test "status and preview lookup never wait on a slow reload" do
+    test_pid = self()
+
+    slow_runner = fn state, target ->
+      send(test_pid, {:reload_started, target})
+      Process.sleep(300)
+      {state, :ok}
+    end
+
+    loader_name = :prefix_tags_slow_reload_test
+
+    pid =
+      start_supervised!(
+        {Loader, load_on_init: false, name: loader_name, reload_runner: slow_runner},
+        id: loader_name
+      )
+
+    :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+    Loader.put_status_for_test(:sys.get_state(pid))
+    Store.put_rows("manual", [%{prefix: "192.0.2.0/24", tags: ["role:fast"], source: "manual"}])
+
+    # Trigger slow reload in background
+    reload_task = Task.async(fn -> GenServer.call(pid, {:reload, "manual"}) end)
+
+    assert_receive {:reload_started, "manual"}, 1_000
+
+    # While reload is still in flight (sleeping 300ms), status and Preview.local_lookup return immediately
+    start_time = System.monotonic_time(:millisecond)
+
+    status = Loader.status(pid)
+    assert status.initial_boot_complete? == true
+
+    assert {:ok, [%{tags: ["role:fast"]}]} = Preview.local_lookup("192.0.2.1")
+
+    elapsed_ms = System.monotonic_time(:millisecond) - start_time
+    assert elapsed_ms < 50, "Status/lookup blocked on reload for #{elapsed_ms}ms"
+
+    # Reload completes successfully
+    assert :ok = Task.await(reload_task, 2_000)
   end
 end

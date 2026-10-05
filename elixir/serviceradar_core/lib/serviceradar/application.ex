@@ -87,9 +87,6 @@ defmodule ServiceRadar.Application do
         # it starts after PubSub.
         starrocks_retention_child(),
 
-        # AS Lookup cache for BGP routing (queries GeoIP/ipinfo enrichment caches)
-        as_lookup_child(),
-
         # Minimal HTTP client for background jobs (GeoLite downloads, optional ipinfo refresh)
         finch_child(),
 
@@ -236,13 +233,6 @@ defmodule ServiceRadar.Application do
 
   defp starrocks_retention_child do
     ServiceRadar.Analytics.StarRocks.Retention.child_spec([])
-  end
-
-  defp as_lookup_child do
-    # Start AS lookup cache when repo is available (always enabled)
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
-      ServiceRadar.BGP.ASLookup
-    end
   end
 
   defp finch_child do
