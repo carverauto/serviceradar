@@ -33,6 +33,10 @@ The system SHALL limit concurrent in-flight Dgraph calls, and SHALL make calls b
 - **THEN** the excess calls wait and run as slots free
 - **AND** no call is rejected for being over the limit
 
+#### Scenario: Stalled bulk calls
+- **WHEN** whole-graph reads, pruning or canonical rebuilds stall in numbers above every limit
+- **THEN** a single-item call still obtains a slot from its own pool
+
 ### Requirement: Cancelled calls leave no reply
 The system SHALL cancel a Dgraph call whose caller stops waiting, and SHALL ensure that a cancelled call never delivers a reply to the caller's mailbox.
 
@@ -44,6 +48,10 @@ The system SHALL cancel a Dgraph call whose caller stops waiting, and SHALL ensu
 #### Scenario: Reply already in flight
 - **WHEN** the caller cancels after the native task has claimed its reply
 - **THEN** the caller collects that reply before returning
+
+#### Scenario: Caller exits while waiting
+- **WHEN** the calling process exits before its call replies
+- **THEN** the native task is cancelled and its in-flight slot is released immediately
 
 ### Requirement: Retry only idempotent Dgraph writes
 The system SHALL retry a Dgraph call after a timeout or transient failure only when the operation is an idempotent keyed upsert, with a bounded number of attempts and jittered backoff, and SHALL return the final failure to the caller as `{:error, _}`.

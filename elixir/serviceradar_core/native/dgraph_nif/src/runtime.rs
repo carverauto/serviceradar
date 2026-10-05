@@ -22,10 +22,22 @@ use tokio::sync::Semaphore;
 /// the remaining call deadline.
 pub const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 
-/// Dgraph calls in flight at once. Excess calls wait for a permit as cheap
-/// futures, and that wait counts against their deadline: this is backpressure
-/// on Dgraph, not a refusal.
-pub const MAX_IN_FLIGHT: usize = 8;
+/// Per-item Dgraph calls in flight at once. Excess calls wait for a permit as
+/// cheap futures, and that wait counts against their deadline: this is
+/// backpressure on Dgraph, not a refusal.
+pub const MAX_ITEM_IN_FLIGHT: usize = 8;
+
+/// Whole-graph reads, pruning and the canonical rebuild in flight at once. A
+/// separate pool, so a few long bulk calls can never take every slot the
+/// per-item writes need, and a burst of item writes cannot starve bulk work.
+pub const MAX_BULK_IN_FLIGHT: usize = 2;
+
+/// Which in-flight pool a call draws its permit from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pool {
+    Item,
+    Bulk,
+}
 
 struct CachedClient {
     url: String,
@@ -34,7 +46,8 @@ struct CachedClient {
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static CLIENT: OnceLock<Mutex<Option<CachedClient>>> = OnceLock::new();
-static IN_FLIGHT: OnceLock<Arc<Semaphore>> = OnceLock::new();
+static ITEM_IN_FLIGHT: OnceLock<Arc<Semaphore>> = OnceLock::new();
+static BULK_IN_FLIGHT: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
 /// Dedicated multi-thread runtime for Dgraph RPCs.
 ///
@@ -60,11 +73,13 @@ pub fn runtime() -> Result<&'static Runtime, String> {
     }
 }
 
-/// The process-wide in-flight limit.
-pub fn in_flight() -> Arc<Semaphore> {
-    IN_FLIGHT
-        .get_or_init(|| Arc::new(Semaphore::new(MAX_IN_FLIGHT)))
-        .clone()
+/// The process-wide in-flight limit for `pool`.
+pub fn in_flight(pool: Pool) -> Arc<Semaphore> {
+    let (cell, limit) = match pool {
+        Pool::Item => (&ITEM_IN_FLIGHT, MAX_ITEM_IN_FLIGHT),
+        Pool::Bulk => (&BULK_IN_FLIGHT, MAX_BULK_IN_FLIGHT),
+    };
+    cell.get_or_init(|| Arc::new(Semaphore::new(limit))).clone()
 }
 
 /// Cached client for `url`, reconnecting when the URL changes.

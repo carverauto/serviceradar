@@ -28,8 +28,15 @@ itself, with no timeout and no keepalive.
   scheduler per call for up to the deadline.
 - **Semaphore inside the deadline.** A permit is acquired inside the timed
   future, so queue wait counts against the deadline and a call queued past it
-  fails as `timeout ... waiting for an in-flight slot`. The limit is 8,
-  sized for Dgraph and not tied to any scheduler count.
+  fails as `timeout ... waiting for an in-flight slot`. Per-item calls
+  share 8 slots; whole-graph reads, pruning and the canonical rebuild draw
+  from a separate pool of 2, so long bulk calls cannot take the slots
+  per-item writes need, and a burst of item writes cannot starve bulk work.
+  The limits are sized for Dgraph and not tied to any scheduler count.
+- **Caller exit cancels.** The call handle is a monitored resource: the NIF
+  monitors the calling process at submit and the resource's `down` callback
+  cancels the call, so an abandoned call releases its slot at once instead of
+  holding it until its deadline (up to 300 s for bulk work).
 - **Cancel/reply race on one atomic.** The handle holds `RUNNING`,
   `REPLYING` or `CANCELLED`. The task moves it to `REPLYING` before sending;
   `cancel` moves it to `CANCELLED` and aborts the task. If cancel loses, the
