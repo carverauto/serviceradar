@@ -339,20 +339,13 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   # Forward to local core process (same node)
   defp forward_local(status, handler) do
     # Check if core is available locally
-    message = handler_message(status)
-
     case Process.whereis(handler) do
       nil ->
         {:error, :not_available}
 
       pid when is_pid(pid) ->
         try do
-          if ack_result_status?(status) do
-            GenServer.call(pid, message, core_call_timeout_ms(status))
-          else
-            GenServer.cast(pid, message)
-            :ok
-          end
+          forward_handler(pid, status)
         catch
           :exit, {:timeout, _call} ->
             {:error, :forward_timeout}
@@ -369,19 +362,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   # Forward to distributed core process via RPC
   defp forward_distributed(status, handler) do
-    message = handler_message(status)
-
     case find_handler_node(handler) do
       {:ok, node} ->
         try do
           # Cast to the core handler on the remote node
-          result =
-            if ack_result_status?(status) do
-              GenServer.call({handler, node}, message, core_call_timeout_ms(status))
-            else
-              GenServer.cast({handler, node}, message)
-              :ok
-            end
+          result = forward_handler({handler, node}, status)
 
           Logger.debug("Forwarded status to #{inspect(handler)} on #{node}")
 
@@ -397,6 +382,53 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
         {:error, :not_available}
     end
   end
+
+  # Metadata first: a rejected status never enters a core payload mailbox.
+  # Never fall back on a probe timeout: that is precisely when transferring an
+  # unreserved payload could grow a saturated core's mailbox. Legacy forwarding
+  # is an explicit rollout setting, not an overload escape hatch.
+  defp forward_handler(target, status) do
+    status = ServiceRadar.Ingestion.Admission.prepare(status)
+    deadline = System.monotonic_time(:millisecond) + core_call_timeout_ms(status)
+
+    if Application.get_env(:serviceradar_agent_gateway, :reserved_core_admission, true) do
+      remaining = min(remaining_ms(deadline), ServiceRadar.Ingestion.Admission.budget_ms())
+      descriptor = ServiceRadar.Admission.Lane.descriptor(status, remaining)
+
+      with true <- reserved_admission?(target),
+           {:ok, {lane, id}} <- GenServer.call(target, {:reserve_status, descriptor},
+                                             min(remaining_ms(deadline), 1_100)) do
+        mode = if ack_result_status?(status), do: :wait, else: :best_effort
+        GenServer.call(lane, {:submit, id, status, mode}, remaining_ms(deadline))
+      else
+        false -> {:error, :core_admission_protocol_unavailable}
+        {:error, _} = error -> error
+      end
+    else
+      message = handler_message(status)
+      if ack_result_status?(status) do
+        GenServer.call(target, message, remaining_ms(deadline))
+      else
+        GenServer.cast(target, message)
+        :ok
+      end
+    end
+  end
+
+  defp reserved_admission?(target) do
+    # Probe the deployed module, not an older GenServer's unknown callback.
+    # An unsupported core pair fails closed without crashing its dispatcher.
+    target_node = case target do
+      pid when is_pid(pid) -> node(pid)
+      {_name, target_node} -> target_node
+      _name -> node()
+    end
+    :erpc.call(target_node, ServiceRadar.StatusHandler, :admission_protocol, [], 50) == :reserved_v1
+  catch
+    _, _ -> false
+  end
+
+  defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 1)
 
   defp handler_message(status), do: {:status_update, status}
 

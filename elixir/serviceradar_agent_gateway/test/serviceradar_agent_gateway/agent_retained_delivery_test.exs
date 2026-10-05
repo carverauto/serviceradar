@@ -35,6 +35,8 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   end
 
   setup do
+    StatusHandlerTestHelpers.legacy_core_transport!()
+
     previous_config =
       try do
         {:ok, Config.get()}

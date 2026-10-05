@@ -16,7 +16,6 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
-  alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Mac
@@ -24,7 +23,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
-  alias ServiceRadar.ResultsRouter
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.TestSupport
 
@@ -511,7 +510,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   # One sync run of the source that reports each `{ip, armis_id}` in `devices`. The updates are
   # ingested one at a time, and then the run's collection activates with exact accounting, as
   # SyncIngestorQueue activates a run after its final chunk.
-  defp ingest_collection!(actor, source_id, devices) do
+  defp ingest_collection!(_actor, source_id, devices) do
     count = length(devices)
 
     sync_meta = %{
@@ -548,11 +547,11 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
           "sync_meta" => sync_meta
         }
 
-        :ok = SyncIngestor.ingest_updates([update], actor: actor)
         update
       end)
 
-    :ok = ArmisSourceSnapshot.activate(updates, sync_meta, actor: actor)
+    updates = if updates == [], do: [%{"_sync_control" => "collection_final", "sync_meta" => sync_meta}], else: updates
+    :ok = ServiceRadar.Inventory.SyncIngestorQueue.ingest_sync_results(Jason.encode!(updates))
   end
 
   defp eligible_ids(population), do: MapSet.new(population.eligible, & &1.source_object_id)
@@ -655,7 +654,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
         is_final: sync_meta["is_final"]
       }
 
-      assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+      assert :ok = ResultIngestor.process_and_publish(status)
     end)
   end
 
@@ -708,7 +707,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
         message: Jason.encode!(payload)
       }
 
-      assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+      assert :ok = ResultIngestor.process_and_publish(status)
     end)
   end
 

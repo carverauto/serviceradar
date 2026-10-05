@@ -25,8 +25,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
         message: Jason.encode!(payload)
       })
 
-    assert {:reply, :ok, %{}} =
-             ResultsRouter.handle_call({:results_update, routed_status}, self(), %{})
+    assert :ok = ServiceRadar.Ingestion.ResultIngestor.process_and_publish(routed_status)
 
     assert [[reported_at, true, "edge plugin completed", _details] = reported_row] =
              history_rows(status)
@@ -60,7 +59,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
     refute_receive {:service_status_updated, _duplicate}, 50
   end
 
-  test "buffered results router persists and broadcasts through the plugin ingestor" do
+  test "retained supervised delivery keeps plugin history and state under the plugin ingestor" do
     previous_ingestor = Application.get_env(:serviceradar_core, :plugin_result_ingestor)
     previous_batching = Application.get_env(:serviceradar_core, :results_router_batching)
 
@@ -83,16 +82,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
         message: Jason.encode!(payload)
       })
 
-    initial_state = %{buffer: [], buffer_size: 0, timer: nil}
-
-    assert {:noreply, buffered_state} =
-             ResultsRouter.handle_cast({:results_update, routed_status}, initial_state)
-
-    assert buffered_state.buffer_size == 1
+    ServiceRadar.TestSupport.start_ingestion_topology!()
+    routed_status = Map.put(routed_status, :delivery_capabilities, ["plugin-result-retained:v1"])
     assert [] = history_rows(status)
-
-    assert {:noreply, flushed_state} = ResultsRouter.handle_info(:flush_results, buffered_state)
-    if is_reference(flushed_state.timer), do: Process.cancel_timer(flushed_state.timer)
+    assert :ok = GenServer.call(ServiceRadar.StatusHandler, {:status_update, routed_status}, 5_000)
 
     assert [[reported_at, true, "edge plugin completed", _] = reported_row] =
              history_rows(status)

@@ -28,7 +28,6 @@ defmodule ServiceRadar.DireTrace do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
-  alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -410,8 +409,11 @@ defmodule ServiceRadar.DireTrace do
       end)
 
     step(trace, "Collect", nil, nil, [], fn ->
-      assert :ok =
-               ArmisSourceSnapshot.activate(Enum.reverse(updates), sync_meta, actor: trace.actor)
+      updates = case Enum.reverse(updates) do
+        [] -> [%{"_sync_control" => "collection_final", "sync_meta" => sync_meta}]
+        updates -> updates
+      end
+      assert :ok = ServiceRadar.Inventory.SyncIngestorQueue.ingest_sync_results(Jason.encode!(updates))
     end)
   end
 
