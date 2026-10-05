@@ -9,8 +9,7 @@ defmodule ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroyTest do
   defp destroy_changeset(source, actor) do
     # for_destroy runs the destroy action's changes at build time with the
     # given actor, which is the same path Ash.destroy takes.
-    %PluginAssignment{source: source}
-    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
+    Ash.Changeset.for_destroy(%PluginAssignment{source: source}, :destroy, %{}, actor: actor)
   end
 
   defp plugin_manager do
