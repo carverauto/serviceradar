@@ -30,6 +30,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   @default_indicator_ttl_seconds 604_800
   @default_reschedule_seconds 86_400
   @default_max_indicators_per_feed 250_000
+  @upsert_batch_size 1_000
 
   @doc """
   Schedules the refresh job if not already scheduled.
@@ -122,14 +123,35 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
     Logger.info("Threat intel feed refresh", url: OutboundFeedPolicy.redact_url(url))
 
     with {:ok, body} <- download_feed(url, timeout_ms) do
-      source = normalize_source(url)
-
-      body
-      |> parse_feed_indicators(max_indicators_per_feed)
-      |> Enum.each(&upsert_indicator(&1, source, actor, now, expires_at))
+      ingest_feed_body(body, normalize_source(url),
+        actor: actor,
+        now: now,
+        expires_at: expires_at,
+        max_indicators: max_indicators_per_feed
+      )
     end
 
     :ok
+  end
+
+  @doc false
+  # The persistence half of a feed refresh, separate from the download so it can
+  # be exercised without an outbound fetch. Returns the number of indicators the
+  # feed contributed.
+  @spec ingest_feed_body(binary(), String.t(), keyword()) :: non_neg_integer()
+  def ingest_feed_body(body, source, opts) when is_binary(body) and is_binary(source) do
+    actor = Keyword.fetch!(opts, :actor)
+    now = Keyword.fetch!(opts, :now)
+    expires_at = Keyword.fetch!(opts, :expires_at)
+    max_indicators = Keyword.get(opts, :max_indicators, @default_max_indicators_per_feed)
+
+    indicators = parse_feed_indicators(body, max_indicators)
+
+    indicators
+    |> Enum.map(&indicator_attrs(&1, source, now, expires_at))
+    |> upsert_indicators(source, actor)
+
+    length(indicators)
   end
 
   defp maybe_reload_ti_trie do
@@ -190,13 +212,16 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
     |> Stream.map(&take_first_token/1)
     |> Stream.reject(&(&1 == "" or is_nil(&1)))
     |> Stream.map(&String.trim/1)
-    |> Stream.filter(&valid_cidr?/1)
+    |> Stream.map(&normalize_cidr/1)
+    |> Stream.reject(&is_nil/1)
     |> Stream.take(max_indicators_per_feed)
+    # Deduplicated on the stored form: one batched upsert may not name the same
+    # (source, indicator) twice, and "192.0.2.1" and "192.0.2.1/32" are one row.
     |> Enum.uniq()
   end
 
-  defp upsert_indicator(indicator, source, actor, now, expires_at) do
-    attrs = %{
+  defp indicator_attrs(indicator, source, now, expires_at) do
+    %{
       indicator: indicator,
       indicator_type: "cidr",
       source: source,
@@ -204,18 +229,33 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
       last_seen_at: now,
       expires_at: expires_at
     }
+  end
 
-    changeset = Ash.Changeset.for_create(ThreatIntelIndicator, :upsert, attrs)
+  # One INSERT ... ON CONFLICT per batch through the same :upsert action the
+  # per-indicator path used, so the conflict target and updated fields are
+  # unchanged. A failed batch is logged and the remaining batches still run.
+  defp upsert_indicators([], _source, _actor), do: :ok
 
-    case Ash.create(changeset, actor: actor) do
-      {:ok, _} ->
+  defp upsert_indicators(attrs, source, actor) do
+    result =
+      Ash.bulk_create(attrs, ThreatIntelIndicator, :upsert,
+        actor: actor,
+        batch_size: @upsert_batch_size,
+        transaction: :batch,
+        return_records?: false,
+        return_errors?: true,
+        stop_on_error?: false
+      )
+
+    case result do
+      %Ash.BulkResult{error_count: 0} ->
         :ok
 
-      {:error, reason} ->
+      %Ash.BulkResult{error_count: count, errors: errors} ->
         Logger.warning("Threat intel upsert failed",
-          indicator: indicator,
           source: source,
-          reason: inspect(reason)
+          failed: count,
+          reason: inspect(Enum.take(List.wrap(errors), 3))
         )
 
         :error
@@ -231,10 +271,10 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
     |> String.trim_trailing(",")
   end
 
-  defp valid_cidr?(value) when is_binary(value) do
+  defp normalize_cidr(value) when is_binary(value) do
     case ServiceRadar.Types.Cidr.cast_input(value, []) do
-      {:ok, normalized} when is_binary(normalized) and normalized != "" -> true
-      _ -> false
+      {:ok, normalized} when is_binary(normalized) and normalized != "" -> normalized
+      _ -> nil
     end
   end
 
