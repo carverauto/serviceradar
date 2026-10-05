@@ -185,14 +185,16 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
             log_import_failures(summary.failed)
 
-            record_success(repository, sync_summary(summary, release_tag(args), repository), actor)
+            run_summary = sync_summary(summary, release_tag(args), repository)
+
+            record_success(repository, run_summary, actor)
 
             if summary.failed != [] do
               # A run whose discovery worked but whose imports failed is a
               # partial failure the hourly cadence would otherwise hide: the
               # per-plugin errors are in the summary, and one event makes the
               # run alertable.
-              publish_sync_failed_event(repository, sync_summary(summary, release_tag(args), repository))
+              publish_sync_failed_event(repository, run_summary)
             end
 
             :ok

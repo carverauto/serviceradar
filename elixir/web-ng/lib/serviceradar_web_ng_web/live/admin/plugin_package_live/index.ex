@@ -3814,6 +3814,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       is_nil(at) ->
         "Last sync: never"
 
+      summary["status"] == "failed" ->
+        "Last sync: failed - #{summary["error"] || repository.last_sync_error || "unknown reason"}"
+
       repository.last_sync_error ->
         "Last sync: failed - #{repository.last_sync_error}"
 
