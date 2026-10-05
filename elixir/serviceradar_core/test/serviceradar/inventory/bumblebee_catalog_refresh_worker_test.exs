@@ -277,6 +277,12 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert length(stored_entries) == entry_count
 
     # Test 2: Chunk size 250 -> 600 entries produces ceil(600/250) = 3 batched INSERTs.
+    # A perform refreshes every enabled source, so disable the first source first:
+    # otherwise its 600 entries are re-inserted in 3 more batches and the count doubles to 6.
+    source
+    |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: actor)
+    |> Ash.update!(actor: actor)
+
     unique2 = System.unique_integer([:positive])
 
     catalog_body2 =
