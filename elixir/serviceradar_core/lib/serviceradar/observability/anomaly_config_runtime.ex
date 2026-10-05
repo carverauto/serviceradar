@@ -176,6 +176,20 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
           )
 
           normalize_cache(%{})
+      catch
+        :exit, reason ->
+          Logger.warning("Failed to refresh anomaly config runtime cache on init",
+            reason: inspect(reason)
+          )
+
+          normalize_cache(%{})
+
+        :throw, value ->
+          Logger.warning("Failed to refresh anomaly config runtime cache on init",
+            reason: inspect(value)
+          )
+
+          normalize_cache(%{})
       end
 
     :persistent_term.put(@cache_key, cache)
@@ -227,13 +241,25 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   defp start_refresh_task(%{refresh_task: nil} = state, from) do
     fetchers = {state.anomaly_fetcher, state.forecast_fetcher}
 
-    task =
-      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-        compute_cache(elem(fetchers, 0), elem(fetchers, 1))
-      end)
+    try do
+      task =
+        Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+          compute_cache(elem(fetchers, 0), elem(fetchers, 1))
+        end)
 
-    waiters = if from, do: [from | state.waiters], else: state.waiters
-    %{state | refresh_task: task, waiters: waiters}
+      waiters = if from, do: [from | state.waiters], else: state.waiters
+      %{state | refresh_task: task, waiters: waiters}
+    rescue
+      error ->
+        if from, do: GenServer.reply(from, {:error, error})
+        schedule_refresh(state)
+        state
+    catch
+      :exit, reason ->
+        if from, do: GenServer.reply(from, {:error, reason})
+        schedule_refresh(state)
+        state
+    end
   end
 
   defp start_refresh_task(state, from) do

@@ -243,12 +243,29 @@ defmodule ServiceRadar.PrefixTags.Loader do
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{reload_task: %Task{ref: ref}} = state) do
     Logger.warning("PrefixTags.Loader reload task died: #{inspect(reason)}")
     merged_state = publish_status(%{state | last_error: inspect(reason)})
+    completed_target = state.reload_target
 
-    for {from, _target} <- state.waiters, not is_nil(from) do
+    {satisfied, remaining} =
+      if completed_target == :all do
+        {state.waiters, []}
+      else
+        Enum.split_with(state.waiters, fn {_from, target} -> target == completed_target end)
+      end
+
+    for {from, _target} <- satisfied, not is_nil(from) do
       GenServer.reply(from, {:error, reason})
     end
 
-    {:noreply, %{merged_state | reload_task: nil, reload_target: nil, waiters: []}}
+    state_after_reply = %{merged_state | reload_task: nil, reload_target: nil, waiters: remaining}
+
+    case remaining do
+      [] ->
+        {:noreply, state_after_reply}
+
+      [{next_from, next_target} | rest] ->
+        st = %{state_after_reply | waiters: rest}
+        {:noreply, start_reload_task(st, next_target, next_from)}
+    end
   end
 
   def handle_info({:retry_initial_load, delay_ms}, state) when is_integer(delay_ms) do
@@ -316,13 +333,25 @@ defmodule ServiceRadar.PrefixTags.Loader do
     runner = state.reload_runner
     task_input_state = Map.drop(state, [:reload_task, :reload_target, :waiters])
 
-    task =
-      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-        runner.(task_input_state, target)
-      end)
+    try do
+      task =
+        Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+          runner.(task_input_state, target)
+        end)
 
-    waiters = if from, do: [{from, target} | state.waiters], else: state.waiters
-    %{state | reload_task: task, reload_target: target, waiters: waiters}
+      waiters = if from, do: [{from, target} | state.waiters], else: state.waiters
+      %{state | reload_task: task, reload_target: target, waiters: waiters}
+    rescue
+      error ->
+        failed = publish_status(%{state | last_error: Exception.message(error)})
+        if from, do: GenServer.reply(from, {:error, error})
+        failed
+    catch
+      :exit, reason ->
+        failed = publish_status(%{state | last_error: inspect(reason)})
+        if from, do: GenServer.reply(from, {:error, reason})
+        failed
+    end
   end
 
   defp start_reload_task(state, target, from) do
