@@ -18,7 +18,9 @@ test source. It checks the two routing facts a formatter cannot see:
   * a file is routed when the evaluated Bazel query puts it in any
     ``//elixir/web-ng`` ``ex_unit_test`` target's ``srcs``, or when the
     ``unit_tests`` glob loads it (everything under ``test/`` except
-    ``test/integration`` and ``test/property``);
+    ``test/integration`` and ``test/property``) -- unless the file is on
+    the shared-fixture inventory, which is routed only by database-lane
+    ``srcs`` membership (see db_selected);
   * files excluded from that glob and absent from every such target's
     evaluated ``srcs`` are never loaded, so each one must be listed below
     with a reason. A new such file fails this test until it is deliberately
@@ -126,7 +128,9 @@ def lane_src_union(srcs):
     return union
 
 
-def _routed(source, lane_srcs):
+def _routed(source, lane_srcs, lane_srcs_by_target):
+    if source in SHARED_FIXTURE_SOURCES:
+        return db_selected(source, lane_srcs_by_target)
     if source in lane_srcs:
         return True
     return not source.startswith(GLOB_EXCLUDED_DIRS)
@@ -188,33 +192,23 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
             },
         )
 
-    def test_shared_fixture_inventory_is_db_selected(self):
-        unselected = [
-            source
-            for source in sorted(SHARED_FIXTURE_SOURCES)
-            if source not in self.lane_srcs_by_target.get(NETWORKS_TARGET, set())
-        ]
-        self.assertEqual(
-            unselected,
-            [],
-            "shared-fixture files no database lane selects (unit-glob "
-            "loading does not execute them): %s. Add each file to the "
-            "owning DB target's srcs." % unselected,
-        )
-
-    def test_db_selection_model_rejects_unit_loaded_file_without_db_owner(self):
+    def test_routing_decision_distinguishes_loading_from_selection(self):
         by_target = {
-            NETWORKS_TARGET: {"test/a_test.exs"},
+            NETWORKS_TARGET: {"test/app_domain/accounts_test.exs"},
             TOPOLOGY_TARGET: set(),
             "//elixir/web-ng:unit_tests": {
-                "test/a_test.exs",
+                "test/app_domain/accounts_test.exs",
+                "test/plain_unit_test.exs",
                 "test/phoenix/controllers/api/device_remove_facts_controller_test.exs",
             },
         }
-        self.assertTrue(db_selected("test/a_test.exs", by_target))
+        union = lane_src_union(by_target)
+        self.assertTrue(_routed("test/app_domain/accounts_test.exs", union, by_target))
+        self.assertTrue(_routed("test/plain_unit_test.exs", union, by_target))
         self.assertFalse(
-            db_selected(
+            _routed(
                 "test/phoenix/controllers/api/device_remove_facts_controller_test.exs",
+                union,
                 by_target,
             )
         )
@@ -222,7 +216,7 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
     def test_every_file_is_routed_or_declared_unrouted(self):
         routed = []
         for source in self.files:
-            if _routed(source, self.lane_srcs):
+            if _routed(source, self.lane_srcs, self.lane_srcs_by_target):
                 routed.append(source)
                 self.assertNotIn(
                     source,
