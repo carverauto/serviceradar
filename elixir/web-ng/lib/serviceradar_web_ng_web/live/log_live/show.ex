@@ -58,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     body =
       if is_map(log) do
-        log_message(log)
+        display_message(log)
       else
         ""
       end
@@ -153,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   def handle_event("copy_message", _params, socket) do
     text =
       case socket.assigns.log do
-        %{} = log -> log |> log_message() |> redact_secret_text()
+        %{} = log -> display_message(log)
         _ -> ""
       end
 
