@@ -1,8 +1,8 @@
 defmodule ServiceRadar.StatusAdmissionIsolationTest do
   use ExUnit.Case, async: false
 
-  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Admission.Lane
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.StatusHandler
 
   defmodule HeldPluginIngestor do
