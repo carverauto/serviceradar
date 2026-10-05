@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentCommands.PersistenceWorker
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor
   alias ServiceRadar.AgentCommands.StatusHandler
@@ -814,7 +815,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       result_payload = Jason.encode!(%{"completed_targets" => 4, "failed_targets" => 0})
 
       assert {:noreply, %{actor: ^actor}} =
-               StatusHandler.handle_info(
+               PersistenceWorker.handle_info(
                  {:command_progress,
                   %{
                     command_id: command_id,
@@ -831,7 +832,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       _command = wait_for_status(command_id, :running, actor)
 
       assert {:noreply, %{actor: ^actor}} =
-               StatusHandler.handle_info(
+               PersistenceWorker.handle_info(
                  {:command_result,
                   %{
                     command_id: command_id,
@@ -1071,21 +1072,20 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
-      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :running, actor)
 
-      assert {:ok, %{rows: statuses}} =
-               ServiceRadar.Repo.query(
-                 """
-                 SELECT protocol, status
-                 FROM platform.mtr_bulk_job_targets
-                 WHERE command_id::text = $1 AND target = '192.0.2.1'
-                 ORDER BY protocol
-                 """,
-                 [uuid_text(command.id)]
-               )
+      expected_rows = [["icmp", "queued"], ["tcp", "completed"]]
 
-      assert statuses == [["icmp", "queued"], ["tcp", "completed"]]
+      assert wait_for_rows(
+               """
+               SELECT protocol, status
+               FROM platform.mtr_bulk_job_targets
+               WHERE command_id::text = $1 AND target = '192.0.2.1'
+               ORDER BY protocol
+               """,
+               [uuid_text(command.id)],
+               expected_rows
+             ) == expected_rows
     end
 
     test "multi-protocol bulk mtr to an agent without protocol-set support runs the first protocol",
@@ -1143,8 +1143,6 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
-      # Status rows are written before bulk target upserts.
-      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :running, actor)
 
       assert {:ok, %{rows: [["object"]]}} =
@@ -1157,21 +1155,19 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  [command_id]
                )
 
-      assert {:ok, %{rows: rows}} =
-               ServiceRadar.Repo.query(
-                 """
-                 SELECT target, status, result_payload
-                 FROM platform.mtr_bulk_job_targets
-                 WHERE command_id::text = $1
-                 ORDER BY target
-                 """,
-                 [command_id]
-               )
+      target_sql = """
+      SELECT target, status, result_payload
+      FROM platform.mtr_bulk_job_targets
+      WHERE command_id::text = $1
+      ORDER BY target
+      """
 
-      assert rows == [
-               ["1.1.1.1", "running", nil],
-               ["router-a", "completed", %{"summary" => "ok"}]
-             ]
+      expected_rows = [
+        ["1.1.1.1", "running", nil],
+        ["router-a", "completed", %{"summary" => "ok"}]
+      ]
+
+      assert wait_for_rows(target_sql, [command_id], expected_rows) == expected_rows
 
       send(
         StatusHandler,
@@ -1192,9 +1188,12 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
-      # Wait for the whole callback before the sandbox owner is released.
-      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :completed, actor)
+
+      # Command persistence and the MTR consumer have separate owners. Observe
+      # the consumer's durable rows before releasing the sandbox transaction.
+      completed_rows = for [target, _status, payload] <- expected_rows, do: [target, "completed", payload]
+      assert wait_for_rows(target_sql, [command_id], completed_rows) == completed_rows
     end
 
     test "blocks bulk mtr dispatches while another bulk job is active", %{
@@ -1665,6 +1664,19 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           {:cont, nil}
       end
     end) || flunk("Expected command #{command_id} to reach status #{inspect(expected_status)}")
+  end
+
+  defp wait_for_rows(sql, params, expected_rows) do
+    Enum.reduce_while(1..40, nil, fn _, _previous ->
+      assert {:ok, %{rows: rows}} = ServiceRadar.Repo.query(sql, params)
+
+      if rows == expected_rows do
+        {:halt, rows}
+      else
+        Process.sleep(25)
+        {:cont, rows}
+      end
+    end)
   end
 
   defp uuid_text(id) do

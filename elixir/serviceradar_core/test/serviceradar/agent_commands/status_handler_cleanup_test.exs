@@ -3,6 +3,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
 
   import ExUnit.CaptureLog
 
+  alias ServiceRadar.AgentCommands.PersistenceWorker
   alias ServiceRadar.AgentCommands.StatusHandler
 
   @moduletag :requires_app
@@ -96,7 +97,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
 
     for mismatch <- [:wrong_agent, :wrong_type, :unknown_uuid, :contradictory_terminal_replay] do
       data = Map.put(valid_result(), :mismatch, mismatch)
-      assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, data}, state)
+      assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_result, data}, state)
       refute_received {:broadcast, _}
       refute_received {:cleanup, _}
       refute_received {:callback_coordinate, _}
@@ -113,7 +114,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
       end)
 
     data = valid_result()
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, data}, state)
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_result, data}, state)
     assert_receive {:persist, ^data}
     assert_receive {:broadcast, ^data}
     assert_receive {:cleanup, ^data}
@@ -142,7 +143,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
       payload: %{"details" => secret, "raw_result_base64" => Base.encode64(secret)}
     }
 
-    assert {:noreply, ^state} = StatusHandler.handle_info({:command_result, data}, state)
+    assert {:noreply, ^state} = PersistenceWorker.handle_info({:command_result, data}, state)
 
     assert_receive {:persist, safe}
 
