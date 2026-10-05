@@ -50,15 +50,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryLastSeenTest do
       document = LazyHTML.from_fragment(html)
 
       row_tree =
-        Enum.find(
-          document |> LazyHTML.query("div") |> LazyHTML.to_tree(skip_whitespace_nodes: true),
-          fn {"div", _, children} ->
-            Enum.any?(children, fn
-              {"span", _, ["Last Seen:"]} -> true
-              _ -> false
-            end)
-          end
-        )
+        document
+        |> LazyHTML.query("div")
+        |> LazyHTML.to_tree(skip_whitespace_nodes: true)
+        |> Enum.find(fn {"div", _, children} ->
+          Enum.any?(children, fn
+            {"span", _, ["Last Seen:"]} -> true
+            _ -> false
+          end)
+        end)
 
       assert row_tree, "Last Seen row is missing"
       row = LazyHTML.from_tree([row_tree])
