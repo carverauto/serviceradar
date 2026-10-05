@@ -1,0 +1,352 @@
+{
+  "uid": "serviceradar-ingestion-lanes",
+  "title": "ServiceRadar Ingestion Lanes",
+  "tags": [
+    "serviceradar",
+    "ingestion",
+    "lanes"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "text": "Prometheus",
+          "value": "prometheus"
+        }
+      },
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": "label_values(kube_pod_info, namespace)",
+        "current": {
+          "text": "demo",
+          "value": "demo"
+        },
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Queued Results",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(serviceradar_result_ingestion_pending_count{namespace=\"$namespace\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Queued Admission-Lane Results",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(serviceradar_admission_lane_pending_count{namespace=\"$namespace\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Rejected Results (1h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(serviceradar_result_ingestion_rejected_count{namespace=\"$namespace\"}[1h])) + sum(increase(serviceradar_admission_lane_rejected_count{namespace=\"$namespace\"}[1h]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Incomplete Sync Runs (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(serviceradar_sync_ingestion_incomplete_run_count{namespace=\"$namespace\"}[24h]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Result Queue Depth by Class",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (class) (serviceradar_result_ingestion_pending_count{namespace=\"$namespace\"})",
+          "legendFormat": "{{class}} queued"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (class) (serviceradar_result_ingestion_in_flight_count{namespace=\"$namespace\"})",
+          "legendFormat": "{{class}} in flight"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Admission Lane Depth",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (lane) (serviceradar_admission_lane_pending_count{namespace=\"$namespace\"})",
+          "legendFormat": "{{lane}} queued"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (lane) (serviceradar_admission_lane_in_flight_count{namespace=\"$namespace\"})",
+          "legendFormat": "{{lane}} in flight"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Result Queue Rejections",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (class, reason) (rate(serviceradar_result_ingestion_rejected_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{class}} {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Admission Lane NACKs",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (lane, reason) (rate(serviceradar_admission_lane_rejected_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{lane}} rejected {{reason}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (lane) (rate(serviceradar_admission_lane_timeout_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{lane}} timed out"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (lane) (rate(serviceradar_admission_lane_crash_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{lane}} crashed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Sync Ingestion Queue",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(serviceradar_sync_ingestion_pending_count{namespace=\"$namespace\"})",
+          "legendFormat": "chunks queued"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(serviceradar_sync_ingestion_rejected_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "chunks rejected / s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Result Queue Timeouts and Crashes",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (class) (rate(serviceradar_result_ingestion_timeout_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{class}} timed out"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (class) (rate(serviceradar_result_ingestion_crash_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{class}} crashed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

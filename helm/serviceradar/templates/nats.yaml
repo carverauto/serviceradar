@@ -300,6 +300,10 @@ spec:
                       # (FlowAttribution.PassMetrics), a metric envelope that
                       # EventWriter persists from the metrics stream.
                       "metrics.flow_attribution",
+                      # Ingestion lane depth and outcomes
+                      # (ResultIngestion.LaneMetrics), published once per
+                      # interval and persisted by EventWriter like the above.
+                      "metrics.ingestion_lanes",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"

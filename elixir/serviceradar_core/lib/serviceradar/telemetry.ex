@@ -327,7 +327,10 @@ defmodule ServiceRadar.Telemetry do
       starrocks_load_metrics() ++
       prefix_tag_metrics() ++
       capacity_forecasting_metrics() ++
-      stateful_alert_engine_metrics() ++ admission_lane_metrics() ++ notification_metrics()
+      stateful_alert_engine_metrics() ++
+      admission_lane_metrics() ++
+      result_ingestion_metrics() ++
+      notification_metrics()
   end
 
   @doc "Returns Stream Load counts, payload sizes, failures and duration by dataset."
@@ -451,6 +454,77 @@ defmodule ServiceRadar.Telemetry do
         event_name: [:serviceradar, :admission_lane, :crash],
         measurement: :count,
         tags: [:lane, :reason, :exit_reason]
+      )
+    ]
+  end
+
+  @doc """
+  Returns depth and outcome metrics for the per-class result ingestion queues
+  and the sync ingestion queue. Tags are bounded: class, reason, never agent.
+  """
+  @spec result_ingestion_metrics() :: list()
+  def result_ingestion_metrics do
+    import Telemetry.Metrics
+
+    state_event = [:serviceradar, :result_ingestion, :state]
+    sync_state_event = [:serviceradar, :sync_ingestion, :state]
+
+    [
+      last_value("serviceradar.result_ingestion.pending.count",
+        event_name: state_event,
+        measurement: :pending_count,
+        tags: [:class]
+      ),
+      last_value("serviceradar.result_ingestion.pending.bytes",
+        event_name: state_event,
+        measurement: :pending_bytes,
+        tags: [:class]
+      ),
+      last_value("serviceradar.result_ingestion.in_flight.count",
+        event_name: state_event,
+        measurement: :in_flight_count,
+        tags: [:class]
+      ),
+      counter("serviceradar.result_ingestion.admitted.count",
+        event_name: [:serviceradar, :result_ingestion, :admitted],
+        measurement: :count,
+        tags: [:class]
+      ),
+      counter("serviceradar.result_ingestion.rejected.count",
+        event_name: [:serviceradar, :result_ingestion, :rejected],
+        measurement: :count,
+        tags: [:class, :reason]
+      ),
+      counter("serviceradar.result_ingestion.timeout.count",
+        event_name: [:serviceradar, :result_ingestion, :timeout],
+        measurement: :count,
+        tags: [:class]
+      ),
+      counter("serviceradar.result_ingestion.crash.count",
+        event_name: [:serviceradar, :result_ingestion, :crash],
+        measurement: :count,
+        tags: [:class, :exit_reason]
+      ),
+      last_value("serviceradar.sync_ingestion.pending.count",
+        event_name: sync_state_event,
+        measurement: :pending_count
+      ),
+      last_value("serviceradar.sync_ingestion.pending.bytes",
+        event_name: sync_state_event,
+        measurement: :pending_bytes
+      ),
+      counter("serviceradar.sync_ingestion.admitted.count",
+        event_name: [:serviceradar, :sync_ingestion, :admitted],
+        measurement: :count
+      ),
+      counter("serviceradar.sync_ingestion.rejected.count",
+        event_name: [:serviceradar, :sync_ingestion, :rejected],
+        measurement: :count,
+        tags: [:reason]
+      ),
+      counter("serviceradar.sync_ingestion.incomplete_run.count",
+        event_name: [:serviceradar, :sync_ingestion, :incomplete_run],
+        measurement: :count
       )
     ]
   end

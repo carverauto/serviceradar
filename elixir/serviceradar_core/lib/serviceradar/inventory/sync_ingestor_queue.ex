@@ -90,8 +90,28 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       Logger.warning("Sync ingestion queue full; rejected a #{bytes}-byte chunk")
       {:reply, {:error, :sync_ingest_queue_full}, state}
     else
-      {:reply, :ok, enqueue_message(state, message, bytes)}
+      :telemetry.execute(
+        [:serviceradar, :sync_ingestion, :admitted],
+        %{count: 1, bytes: bytes},
+        %{}
+      )
+
+      {:reply, :ok, state |> enqueue_message(message, bytes) |> emit_state()}
     end
+  end
+
+  defp emit_state(state) do
+    :telemetry.execute(
+      [:serviceradar, :sync_ingestion, :state],
+      %{
+        pending_count: state.queue.chunk_count,
+        pending_bytes: state.queue.bytes,
+        in_flight_count: if(state.queue.inflight, do: 1, else: 0)
+      },
+      %{}
+    )
+
+    state
   end
 
   # The ingestion task reports the chunks it ingested for runs not yet final.
@@ -119,7 +139,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     else
       queue = %{queue | timer_ref: nil, ready: true}
       state = %{state | queue: queue}
-      {:noreply, maybe_start_ingestion(state)}
+      {:noreply, state |> maybe_start_ingestion() |> emit_state()}
     end
   end
 
@@ -133,7 +153,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
         Logger.warning("Sync ingestion task exited: #{inspect(reason)}")
       end
 
-      {:noreply, maybe_start_ingestion(state)}
+      {:noreply, state |> maybe_start_ingestion() |> emit_state()}
     else
       {:noreply, state}
     end
@@ -275,7 +295,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
   end
 
-  defp max_pending_chunks do
+  @doc false
+  # Chunk capacity, for operator views of ingestion lanes.
+  def max_pending_chunks do
     Application.get_env(
       :serviceradar_core,
       :sync_ingestor_queue_max_pending_chunks,

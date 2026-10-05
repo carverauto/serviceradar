@@ -66,5 +66,9 @@ defmodule ServiceRadar.Admission.FlowLane do
     |> Keyword.get(:flow_lane, __MODULE__)
   end
 
+  @doc "The lane's effective admission limits (defaults merged with configuration)."
+  @spec limits() :: keyword()
+  def limits, do: Keyword.merge(@default_config, configured_limits())
+
   defp configured_limits, do: Application.get_env(:serviceradar_core, __MODULE__, [])
 end

@@ -247,7 +247,11 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
       )
     )
 
-    builtin_slugs = [SystemReports.new_devices_slug(), SystemReports.mtr_path_analytics_slug()]
+    builtin_slugs = [
+      SystemReports.new_devices_slug(),
+      SystemReports.mtr_path_analytics_slug(),
+      SystemReports.ingestion_lanes_slug()
+    ]
 
     Repo.delete_all(
       from(d in "authored_dashboards",

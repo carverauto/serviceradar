@@ -61,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         |> assign(:is_admin, is_admin)
         |> assign(:job_counts, if(connected?, do: load_job_counts(scope), else: %{total: 0}))
         |> assign(:oban_stats, if(connected?, do: load_oban_stats(), else: %{queues: %{}, total_executing: 0}))
+        |> assign(:ingestion_lanes, if(connected?, do: load_ingestion_lanes(), else: :loading))
         |> assign(:events, [])
 
       {:ok, socket}
@@ -99,7 +100,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:gateways, gateways)
      |> assign_agents(refreshed_agents_cache)
      |> assign(:job_counts, job_counts)
-     |> assign(:oban_stats, load_oban_stats())}
+     |> assign(:oban_stats, load_oban_stats())
+     |> assign(:ingestion_lanes, load_ingestion_lanes())}
   end
 
   def handle_info({:node_up, node}, socket) do
@@ -276,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         </div>
 
         <!-- Health Metrics Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <.health_card
             title="Cluster"
             value={if @cluster_status.enabled, do: "Active", else: "Standalone"}
@@ -309,7 +311,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             variant={oban_variant(@oban_stats)}
             icon="hero-queue-list"
           />
+          <.health_card
+            title="Ingestion"
+            value={ingestion_summary(@ingestion_lanes)}
+            variant={ingestion_variant(@ingestion_lanes)}
+            icon="hero-inbox-stack"
+          />
         </div>
+
+        <.ingestion_lanes_panel lanes={@ingestion_lanes} />
 
         <!-- Cluster Nodes -->
         <.ui_panel :if={@is_admin}>
@@ -498,6 +508,61 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   end
 
   # Components
+
+  attr(:lanes, :any, required: true)
+
+  defp ingestion_lanes_panel(assigns) do
+    ~H"""
+    <.ui_panel id="ingestion-lanes">
+      <:header>
+        <div class="flex w-full items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-semibold">Ingestion Lanes</div>
+            <p class="text-xs text-sr-muted">
+              Results waiting in each bounded lane, and what was turned away in the last few minutes
+            </p>
+          </div>
+          <.link
+            navigate={~p"/dashboard/ingestion-lanes"}
+            class="text-xs font-medium text-sr-brand hover:underline"
+          >
+            Trends
+          </.link>
+        </div>
+      </:header>
+
+      <div :if={@lanes == :loading} class="text-sm text-sr-muted">Loading lane stats...</div>
+      <div :if={@lanes == :unavailable} id="ingestion-lanes-unavailable" class="text-sm text-sr-muted">
+        Lane stats are unavailable: no core node is reporting ingestion lane metrics.
+      </div>
+
+      <div :if={is_list(@lanes)} class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
+          <thead>
+            <tr>
+              <th>Lane</th>
+              <th>Queued</th>
+              <th>In flight</th>
+              <th>Rejected</th>
+              <th>NACKed</th>
+              <th>Incomplete runs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={lane <- @lanes} id={"ingestion-lane-#{lane.lane}"}>
+              <td class="font-mono text-xs">{lane.lane}</td>
+              <td>{lane.depth}{if lane.capacity, do: " / #{lane.capacity}"}</td>
+              <td>{lane.in_flight}</td>
+              <td>{lane.rejected}</td>
+              <td>{lane.nacked}</td>
+              <td>{lane.incomplete_runs}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </.ui_panel>
+    """
+  end
 
   attr(:title, :string, required: true)
   attr(:value, :any, required: true)
@@ -1154,6 +1219,37 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   defp oban_variant(%{total_executing: n}) when n > 0, do: "success"
   defp oban_variant(_), do: "info"
+
+  defp load_ingestion_lanes do
+    case ingestion_lanes_module().stats() do
+      {:ok, lanes} -> lanes
+      {:error, _reason} -> :unavailable
+    end
+  rescue
+    _error -> :unavailable
+  catch
+    :exit, _reason -> :unavailable
+  end
+
+  defp ingestion_lanes_module,
+    do: Application.get_env(:serviceradar_web_ng, :ingestion_lanes, ServiceRadarWebNG.IngestionLanes)
+
+  defp ingestion_summary(lanes) when is_list(lanes), do: lanes |> Enum.map(& &1.depth) |> Enum.sum()
+  defp ingestion_summary(:loading), do: "..."
+  defp ingestion_summary(_unavailable), do: "Unavailable"
+
+  # Warning when anything was turned away or a lane is at least 80% full.
+  defp ingestion_variant(lanes) when is_list(lanes) do
+    pressured? =
+      Enum.any?(lanes, fn lane ->
+        lane.rejected > 0 or lane.nacked > 0 or lane.incomplete_runs > 0 or
+          (is_integer(lane.capacity) and lane.capacity > 0 and lane.depth * 5 >= lane.capacity * 4)
+      end)
+
+    if pressured?, do: "warning", else: "success"
+  end
+
+  defp ingestion_variant(_lanes), do: "info"
 
   defp schedule_refresh do
     Process.send_after(self(), :refresh, @refresh_interval)

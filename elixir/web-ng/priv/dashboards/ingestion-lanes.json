@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "slug": "ingestion-lanes",
+  "title": "Ingestion lanes",
+  "description": "How the bounded ingestion lanes in core are coping: how much work is waiting, what is turned away, and what agents are told to resend. Metrics are published once a minute on JetStream and kept in timeseries_metrics.",
+  "default_time_range": "last_24h",
+  "metadata": {
+    "system_report": true,
+    "report_kind": "ingestion_lanes"
+  },
+  "panels": [
+    {
+      "title": "Queued results by lane",
+      "srql_query": "in:timeseries_metrics metric_name:ingestion_lane_depth time:last_24h bucket:5m agg:max series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Results waiting in each ingestion lane, sampled once a minute. A lane that stays near its capacity is falling behind; compare with its rejections below."
+      },
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      },
+      "position": 0
+    },
+    {
+      "title": "Rejected results by lane",
+      "srql_query": "in:timeseries_metrics metric_name:ingestion_lane_rejected time:last_24h bucket:15m agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Results a lane turned away because it was full. Results from an agent that retries (retained plugin results) are sent again; other rejected results are lost."
+      },
+      "layout": {
+        "x": 0,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "position": 1
+    },
+    {
+      "title": "Negative acknowledgements by lane",
+      "srql_query": "in:timeseries_metrics metric_name:ingestion_lane_nacked time:last_24h bucket:15m agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Gateway calls answered with a failure (rejected, timed out, or crashed) by the acknowledging lanes. The agent keeps and resends what was not acknowledged."
+      },
+      "layout": {
+        "x": 6,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "position": 2
+    },
+    {
+      "title": "Rejections by reason",
+      "srql_query": "in:timeseries_metrics metric_name:ingestion_lane_rejected time:last_24h stats:\"sum(value) as rejected by tags.reason\" sort:rejected:desc limit:20",
+      "visual_type": "table",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Which bound turned results away: total items, total bytes, or one agent's share."
+      },
+      "layout": {
+        "x": 0,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "position": 3
+    },
+    {
+      "title": "Incomplete sync runs",
+      "srql_query": "in:timeseries_metrics metric_name:ingestion_lane_incomplete_runs time:last_24h bucket:1h agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Sync runs that finished with chunks missing. Their devices were ingested but the run was recorded as failed and its snapshot was not activated."
+      },
+      "layout": {
+        "x": 6,
+        "y": 8,
+        "w": 6,
+        "h": 4
+      },
+      "position": 4
+    }
+  ]
+}

@@ -36,6 +36,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         command_result_coordination_supervisor_child(),
         command_status_handler_child(),
         result_ingestion_child(),
+        ingestion_lane_metrics_child(),
         results_router_child(),
         health_check_runner_supervisor_child(),
         health_check_registrar_child(),
@@ -157,6 +158,14 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp result_ingestion_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.ResultIngestion
+    end
+  end
+
+  # Aggregates lane telemetry and publishes it on JetStream once per interval.
+  defp ingestion_lane_metrics_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) and
+         Application.get_env(:serviceradar_core, :ingestion_lane_metrics_enabled, true) do
+      ServiceRadar.ResultIngestion.LaneMetrics
     end
   end
 

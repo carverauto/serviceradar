@@ -89,6 +89,10 @@ defmodule ServiceRadar.ResultIngestion do
   @spec queue(class()) :: atom()
   def queue(class), do: Module.concat(__MODULE__, Macro.camelize(Atom.to_string(class)))
 
+  @doc "A class's item capacity (queued plus in flight)."
+  @spec max_items(class()) :: pos_integer()
+  def max_items(class), do: Keyword.fetch!(class_config(class), :max_items)
+
   @doc "Whether a class is routed through its queue (on unless configured off)."
   @spec enabled?(class()) :: boolean()
   def enabled?(class), do: Keyword.get(class_config(class), :enabled, true) != false

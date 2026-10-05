@@ -6,9 +6,78 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
   alias ServiceRadar.AgentTracker
   alias ServiceRadarWebNG.AccountsFixtures
 
+  defmodule StubIngestionLanes do
+    @moduledoc false
+    def stats do
+      if pid = Application.get_env(:serviceradar_web_ng, :ingestion_lanes_test_pid),
+        do: send(pid, :ingestion_lane_stats_requested)
+
+      Application.get_env(:serviceradar_web_ng, :ingestion_lanes_test_result, {:error, :unavailable})
+    end
+  end
+
   setup %{conn: conn} do
+    previous =
+      Map.new(
+        [:ingestion_lanes, :ingestion_lanes_test_pid, :ingestion_lanes_test_result],
+        &{&1, Application.fetch_env(:serviceradar_web_ng, &1)}
+      )
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
+        {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
+      end)
+    end)
+
+    Application.put_env(:serviceradar_web_ng, :ingestion_lanes, StubIngestionLanes)
     user = AccountsFixtures.user_fixture(%{role: :admin})
     %{conn: log_in_user(conn, user)}
+  end
+
+  test "the Ingestion card shows each lane's depth against its capacity", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :ingestion_lanes_test_result,
+      {:ok,
+       [
+         %{lane: "sweep", depth: 3, in_flight: 2, bytes: 0, capacity: 512, rejected: 4, nacked: 0, incomplete_runs: 0},
+         %{lane: "sync", depth: 0, in_flight: 0, bytes: 0, capacity: 256, rejected: 0, nacked: 0, incomplete_runs: 1}
+       ]}
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/settings/cluster")
+
+    assert view |> element("#ingestion-lane-sweep") |> render() =~ "3 / 512"
+    assert view |> element("#ingestion-lane-sweep") |> render() =~ "4"
+    assert view |> element("#ingestion-lane-sync") |> render() =~ "0 / 256"
+    assert has_element?(view, ~s|a[href="/dashboard/ingestion-lanes"]|)
+  end
+
+  test "the Ingestion card says so when no core node reports lane stats", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :ingestion_lanes_test_result, {:error, :unavailable})
+
+    {:ok, view, _html} = live(conn, ~p"/settings/cluster")
+
+    assert has_element?(view, "#ingestion-lanes-unavailable")
+    refute has_element?(view, "#ingestion-lane-sweep")
+  end
+
+  test "lane stats are requested on the connected render and each refresh, not the static one", %{
+    conn: conn
+  } do
+    Application.put_env(:serviceradar_web_ng, :ingestion_lanes_test_pid, self())
+
+    static_html = conn |> get(~p"/settings/cluster") |> html_response(200)
+    assert static_html =~ "Loading lane stats"
+    refute_received :ingestion_lane_stats_requested
+
+    {:ok, view, _html} = live(conn, ~p"/settings/cluster")
+    assert_received :ingestion_lane_stats_requested
+
+    send(view.pid, :refresh)
+    _ = render(view)
+    assert_received :ingestion_lane_stats_requested
   end
 
   test "renders connected agent runtime metadata", %{conn: conn} do

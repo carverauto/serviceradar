@@ -37,6 +37,14 @@ filegroup(
     ],
 )
 
+# The Grafana dashboards, read by
+# elixir/serviceradar_core_elx/test/serviceradar_core_elx/grafana_dashboards_test.exs,
+# which checks every ServiceRadar metric a panel queries is one core-elx exports.
+filegroup(
+    name = "grafana_dashboards",
+    srcs = glob(["dashboards/*.json"]),
+)
+
 # Keeps core.migrations.expectedVersion in step with the migrations the repo
 # actually ships. The value is what the `wait-migrations` init container compares
 # the database's high-water mark against, so a stale value silently restores the

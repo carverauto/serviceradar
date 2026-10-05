@@ -57,6 +57,19 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
       assert length(Enum.uniq(slugs)) == length(slugs), "slugs must be unique"
     end
 
+    test "ships the ingestion lanes dashboard over metrics core publishes" do
+      spec = Enum.find(SystemReports.dashboard_specs(), &(&1.slug == SystemReports.ingestion_lanes_slug()))
+      assert %{panels: [_ | _] = panels} = spec
+
+      published = ServiceRadar.ResultIngestion.LaneMetrics.metric_names()
+
+      for panel <- panels do
+        assert panel.srql_query =~ ~r/^in:timeseries_metrics /
+        [_, metric] = Regex.run(~r/ metric_name:(\S+)/, panel.srql_query)
+        assert metric in published, "#{panel.title} queries #{metric}, which core does not publish"
+      end
+    end
+
     test "every panel carries a query, a visual type and a distinct position" do
       for spec <- SystemReports.dashboard_specs() do
         assert spec.panels != [], "#{spec.slug} must define at least one panel"

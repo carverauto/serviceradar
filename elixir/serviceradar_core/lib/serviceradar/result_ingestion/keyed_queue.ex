@@ -23,7 +23,7 @@ defmodule ServiceRadar.ResultIngestion.KeyedQueue do
   reason}}`) is sent to that caller with `GenServer.reply/2`.
 
   Telemetry: `[:serviceradar, :result_ingestion, event]` with `%{class: class}`
-  metadata, for `:state` (pending/in-flight count and bytes), `:admission`
+  metadata, for `:admitted`, `:state` (pending/in-flight count and bytes), `:admission`
   (queue wait), `:execution` (duration, result), `:rejected` (reason),
   `:timeout` and `:crash`.
   """
@@ -105,6 +105,7 @@ defmodule ServiceRadar.ResultIngestion.KeyedQueue do
 
     case coalesce_or_admit(state, job) do
       {:ok, state} ->
+        emit(state, :admitted, %{count: 1, bytes: bytes}, %{})
         state = dispatch(state)
         emit_state(state)
         {:reply, :ok, state}

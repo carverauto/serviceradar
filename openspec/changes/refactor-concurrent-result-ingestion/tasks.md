@@ -4,7 +4,7 @@
 - [ ] 0.2 Confirm Agent B's PushStatus internal deadline, not-accepted mapping, supported version pairing, and rollout order on #5195.
 - [ ] 0.3 Audit all result entry points, direct ingestion calls, shared writers (including raw Ecto), ordering keys, and current retained durable terminal outcomes on fresh staging.
 - [x] 1.1 Add a supervised keyed queue (generalizing `EndpointInventoryIngestorQueue`): total and per-key item/byte bounds counting queued and in-flight work, one in-flight job per key, fair key interleaving, configurable workers on a dedicated `Task.Supervisor`, per-job timeout with task kill, optional per-key coalescing, and explicit rejection reasons.
-- [ ] 1.2 Emit `[:serviceradar, :result_ingestion, ...]` telemetry mirroring the admission-lane events, tagged by class; register metrics alongside `admission_lane_metrics/0`.
+- [x] 1.2 Emit `[:serviceradar, :result_ingestion, ...]` telemetry mirroring the admission-lane events, tagged by class; register metrics alongside `admission_lane_metrics/0`.
 - [x] 1.3 Tests: per-key ordering, cross-key concurrency, each bound's rejection, coalescing, timeout and task exit, gauges back to zero.
 
 ## 1. Bounded keyed execution
