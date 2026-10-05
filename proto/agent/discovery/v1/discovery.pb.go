@@ -66,10 +66,11 @@ type DiscoveryEnvelope struct {
 	// telemetry only. It is NOT an identity claim and MUST NOT be used to
 	// attribute an observation to a device or an agent.
 	ProducerId string `protobuf:"bytes,2,opt,name=producer_id,json=producerId,proto3" json:"producer_id,omitempty"`
-	// observation_scope is the supersession key: within one schema, a later
-	// envelope with the same scope replaces an earlier one. netprobe uses the
-	// capture interface name, so a snapshot of eth0 never hides eth1. Empty
-	// means no supersession.
+	// observation_scope is the producer-local supersession key: within one
+	// schema and gateway-attested producer identity, a later envelope with the
+	// same scope replaces an earlier one. netprobe uses the capture interface
+	// name, so a snapshot of eth0 never hides eth1 and one agent's eth0 never
+	// hides another agent's eth0. Empty means no supersession.
 	ObservationScope string `protobuf:"bytes,3,opt,name=observation_scope,json=observationScope,proto3" json:"observation_scope,omitempty"`
 	// snapshot_id set means SNAPSHOT semantics: the envelope (with its siblings,
 	// see part_index) is a complete replacement for observation_scope, and a

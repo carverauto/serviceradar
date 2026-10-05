@@ -99,7 +99,7 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
   Test-facing. The watermarks persist by design -- that is what makes a late
   snapshot unable to undo a newer one -- so tests that exercise supersession need
   a way back to a known state. They cannot get it by starting their own Buffer:
-  `DiscoveryIngestor` calls `offer/1` with the default name, so a second instance
+  `DiscoveryIngestor` calls `offer/2` with the default name, so a second instance
   under a test name would simply never be consulted, and starting one under the
   DEFAULT name fails because the application supervisor already owns it.
   """
