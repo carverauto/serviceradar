@@ -1150,11 +1150,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp agent_registry_metadata(partition_id, capabilities, stream) do
+    # Status is not part of a push. The registry proxy marks `:connected`
+    # only after the control session is monitored.
     metadata = %{
       partition_id: partition_id,
       domain: Config.domain(),
       capabilities: capabilities,
-      status: :connected,
       gateway_id: Config.gateway_id(),
       source_ip: get_peer_ip(stream)
     }
