@@ -349,7 +349,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     {threshold, nil, nil}
   end
 
-  # Get interface speed (in bps) from the Interface resource
+  # Get interface speed (in bps) from the latest discovered_interfaces record
   defp get_interface_speed(setting) do
     if_index = get_if_index(setting)
 
