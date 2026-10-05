@@ -70,7 +70,12 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGeneratorTest do
 
     test "setup script is valid bash" do
       path = Path.join(System.tmp_dir!(), "leaf-setup-#{System.unique_integer([:positive])}.sh")
-      File.write!(path, NatsLeafConfigGenerator.generate_setup_script(@site, with_credentials: true))
+
+      File.write!(
+        path,
+        NatsLeafConfigGenerator.generate_setup_script(@site, with_credentials: true)
+      )
+
       on_exit(fn -> File.rm(path) end)
 
       assert {_, 0} = System.cmd("bash", ["-n", path], stderr_to_stdout: true)

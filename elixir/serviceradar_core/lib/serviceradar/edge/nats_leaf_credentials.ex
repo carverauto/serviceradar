@@ -79,7 +79,11 @@ defmodule ServiceRadar.Edge.NatsLeafCredentials do
         user_name: user_name,
         credential_type: :service,
         expires_at: creds.expires_at,
-        metadata: %{purpose: "nats-leaf", edge_site_id: edge_site.id, edge_site_slug: edge_site.slug},
+        metadata: %{
+          purpose: "nats-leaf",
+          edge_site_id: edge_site.id,
+          edge_site_slug: edge_site.slug
+        },
         user_public_key: creds.user_public_key,
         onboarding_package_id: nil
       },

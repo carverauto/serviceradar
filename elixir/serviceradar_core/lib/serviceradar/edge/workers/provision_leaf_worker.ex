@@ -76,7 +76,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   defp load_leaf_server(leaf_server_id) do
     actor = SystemActor.system(:provision_leaf)
 
-    case Ash.get(NatsLeafServer, leaf_server_id, actor: actor) do
+    case Ash.get(NatsLeafServer, leaf_server_id, actor: actor, not_found_error?: false) do
       {:ok, nil} -> {:error, :leaf_server_not_found}
       {:ok, server} -> {:ok, server}
       {:error, error} -> {:error, error}

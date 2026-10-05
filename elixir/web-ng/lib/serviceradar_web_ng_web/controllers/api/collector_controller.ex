@@ -367,7 +367,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
          {:ok, creds_content} <- get_nats_creds(package),
          {:ok, tls_key_pem} <- get_tls_key(package),
          {:ok, tarball} <-
-           collector_bundle_generator().create_tarball(package, creds_content, tls_key_pem),
+           collector_bundle_generator().create_tarball(package, creds_content, tls_key_pem, []),
          {:ok, _updated_package} <- mark_downloaded(package, source_ip) do
       filename = CollectorBundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}
@@ -378,7 +378,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
-         |> Ash.Query.load(:edge_site)
+         |> Ash.Query.load([:edge_site, :nats_creds_ciphertext, :tls_key_pem_ciphertext])
          |> Ash.read_one(actor: nil, authorize?: false) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
@@ -430,58 +430,39 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   end
 
   defp get_nats_creds(package) do
-    # Decrypt the NATS credentials from the encrypted storage
-    case package.nats_creds_ciphertext do
-      nil ->
-        {:error, :nats_creds_not_found}
-
-      encrypted_creds when is_binary(encrypted_creds) ->
-        case ServiceRadar.Vault.decrypt(encrypted_creds) do
-          {:ok, creds_content} when is_binary(creds_content) and creds_content != "" ->
-            {:ok, creds_content}
-
-          {:ok, _} ->
-            {:error, :nats_creds_empty}
-
-          {:error, reason} ->
-            {:error, {:decrypt_failed, reason}}
-        end
-
-      _ ->
-        {:error, :nats_creds_invalid}
+    # AshCloak exposes the decrypted credential as a calculation. Loading it
+    # returns the plaintext; the encrypted column is encrypted_nats_creds_ciphertext.
+    case cloak_plaintext(package.nats_creds_ciphertext) do
+      {:ok, creds} when creds != "" -> {:ok, creds}
+      {:ok, _} -> {:error, :nats_creds_empty}
+      :missing -> {:error, :nats_creds_not_found}
+      :invalid -> {:error, :nats_creds_invalid}
     end
   end
 
   defp get_tls_key(package) do
-    # Verify TLS certs are present
     if is_nil(package.tls_cert_pem) or is_nil(package.ca_chain_pem) do
       {:error, :tls_cert_not_found}
     else
-      decrypt_tls_key(package.tls_key_pem_ciphertext)
+      case cloak_plaintext(package.tls_key_pem_ciphertext) do
+        {:ok, key} when key != "" -> {:ok, key}
+        {:ok, _} -> {:error, :tls_key_empty}
+        :missing -> {:error, :tls_key_not_found}
+        :invalid -> {:error, :tls_key_invalid}
+      end
     end
   end
 
-  defp decrypt_tls_key(nil), do: {:error, :tls_key_not_found}
-
-  defp decrypt_tls_key(encrypted_key) when is_binary(encrypted_key) do
-    case ServiceRadar.Vault.decrypt(encrypted_key) do
-      {:ok, key_pem} when is_binary(key_pem) and key_pem != "" ->
-        {:ok, key_pem}
-
-      {:ok, _} ->
-        {:error, :tls_key_empty}
-
-      {:error, reason} ->
-        {:error, {:decrypt_failed, reason}}
-    end
-  end
-
-  defp decrypt_tls_key(_), do: {:error, :tls_key_invalid}
+  defp cloak_plaintext(nil), do: :missing
+  defp cloak_plaintext(%Ash.NotLoaded{}), do: :missing
+  defp cloak_plaintext(value) when is_binary(value), do: {:ok, value}
+  defp cloak_plaintext(_value), do: :invalid
 
   defp mark_downloaded(package, source_ip) do
     package
-    |> Ash.Changeset.for_update(:download)
+    |> Ash.Changeset.new()
     |> Ash.Changeset.set_argument(:downloaded_by_ip, source_ip)
+    |> Ash.Changeset.for_update(:download, %{})
     |> Ash.update(actor: nil, authorize?: false)
   end
 

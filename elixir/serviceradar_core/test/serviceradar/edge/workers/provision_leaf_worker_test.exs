@@ -70,7 +70,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorkerTest do
     assert provisioned.ca_chain_pem =~ "BEGIN CERTIFICATE"
     assert is_binary(provisioned.config_checksum)
     assert %DateTime{} = provisioned.cert_expires_at
-    decrypted = Ash.load!(provisioned, [:leaf_key_pem_ciphertext, :server_key_pem_ciphertext], actor: actor)
+
+    decrypted =
+      Ash.load!(provisioned, [:leaf_key_pem_ciphertext, :server_key_pem_ciphertext], actor: actor)
+
     assert decrypted.leaf_key_pem_ciphertext =~ "PRIVATE KEY"
     assert decrypted.server_key_pem_ciphertext =~ "PRIVATE KEY"
   end
