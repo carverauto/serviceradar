@@ -31,7 +31,7 @@ use crate::abi::{
     NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite, NifInterfaceWrite,
     NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
 };
-use crate::runtime::{client_for, require_url, Failure, CONNECT_DEADLINE};
+use crate::runtime::{client_for, require_url, Failure, Pool, CONNECT_DEADLINE};
 
 mod atoms {
     rustler::atoms! { error }
@@ -42,6 +42,7 @@ mod atoms {
 fn dgraph_call<'a, T, R, Op, Fut>(
     env: Env<'a>,
     url: String,
+    pool: Pool,
     deadline_ms: u64,
     op: Op,
     finish: impl FnOnce(Result<T, String>) -> R + Send + 'static,
@@ -58,6 +59,7 @@ where
         }
         call::submit(
             env,
+            pool,
             deadline_ms,
             move |remaining| async move {
                 let client = client_for(&url, CONNECT_DEADLINE.min(remaining)).await?;
@@ -80,7 +82,21 @@ where
     Op: FnOnce(TopologyClient) -> Fut + Send + 'static,
     Fut: Future<Output = Result<(), TopologyError>> + Send + 'static,
 {
-    dgraph_call(env, url, deadline_ms, op, |result| match result {
+    write_call_in(env, url, Pool::Item, deadline_ms, op)
+}
+
+fn write_call_in<'a, Op, Fut>(
+    env: Env<'a>,
+    url: String,
+    pool: Pool,
+    deadline_ms: u64,
+    op: Op,
+) -> Term<'a>
+where
+    Op: FnOnce(TopologyClient) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<(), TopologyError>> + Send + 'static,
+{
+    dgraph_call(env, url, pool, deadline_ms, op, |result| match result {
         Ok(()) => WriteResult::Ok,
         Err(reason) => WriteResult::Error(reason),
     })
@@ -233,6 +249,7 @@ fn prune_stale(
     dgraph_call(
         env,
         url,
+        Pool::Bulk,
         deadline_ms,
         move |client| async move { client.prune_stale(&cutoff, &kinds).await },
         |result| match result {
@@ -250,9 +267,13 @@ fn rebuild_canonical(
     deadline_ms: u64,
 ) -> Term<'_> {
     let writes: Vec<_> = edges.into_iter().map(NifEdgeWrite::into_write).collect();
-    write_call(env, url, deadline_ms, move |client| async move {
-        client.rebuild_canonical(&writes).await
-    })
+    write_call_in(
+        env,
+        url,
+        Pool::Bulk,
+        deadline_ms,
+        move |client| async move { client.rebuild_canonical(&writes).await },
+    )
 }
 
 #[rustler::nif]
@@ -266,6 +287,7 @@ fn downstream_of(
     dgraph_call(
         env,
         url,
+        Pool::Item,
         deadline_ms,
         move |client| async move { client.downstream_of(&from_ids, &to_ids).await },
         |result| match result {
@@ -281,6 +303,7 @@ fn query_canonical_edges(env: Env<'_>, url: String, deadline_ms: u64) -> Term<'_
     dgraph_call(
         env,
         url,
+        Pool::Bulk,
         deadline_ms,
         |client| async move { client.query_canonical_edges().await },
         |result| match result {
@@ -297,6 +320,7 @@ fn query_canonical_graph(env: Env<'_>, url: String, deadline_ms: u64) -> Term<'_
     dgraph_call(
         env,
         url,
+        Pool::Bulk,
         deadline_ms,
         |client| async move { client.query_canonical_graph().await },
         |result| match result {
@@ -311,6 +335,7 @@ fn query_neighbourhood(env: Env<'_>, url: String, device_id: String, deadline_ms
     dgraph_call(
         env,
         url,
+        Pool::Item,
         deadline_ms,
         move |client| async move { client.query_neighbourhood(&device_id).await },
         |result| match result {
@@ -331,6 +356,7 @@ fn query_dql(env: Env<'_>, url: String, dql: String, deadline_ms: u64) -> Term<'
     dgraph_call(
         env,
         url,
+        Pool::Item,
         deadline_ms,
         move |client| async move { client.query_dql(&dql).await },
         |result| match result

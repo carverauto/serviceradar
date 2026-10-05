@@ -21,7 +21,7 @@ const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 
 use dgraph_topology::{TopologyClient, TopologyView};
 use rustler::env::OwnedEnv;
-use rustler::{Atom, Encoder, Env, Resource, ResourceArc, Term};
+use rustler::{Atom, Encoder, Env, LocalPid, Monitor, Resource, ResourceArc, Term};
 use tokio::task::AbortHandle;
 
 use crate::admission::GRAPH_READ;
@@ -42,7 +42,15 @@ pub(crate) struct ReadHandle {
 }
 
 #[rustler::resource_impl]
-impl Resource for ReadHandle {}
+impl Resource for ReadHandle {
+    const IMPLEMENTS_DOWN: bool = true;
+
+    /// The caller exited while waiting: abort the read and free the
+    /// GRAPH_READ permit now rather than at the deadline.
+    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
+        let _ = self.cancel();
+    }
+}
 
 impl ReadHandle {
     fn new() -> Self {
@@ -108,9 +116,16 @@ pub(crate) async fn read_topology_view(
 ) -> (Result<TopologyView>, Kind) {
     let entry = Instant::now();
     let connect_deadline = CONNECT_DEADLINE.min(deadline);
-    let client = match tokio::time::timeout(connect_deadline, TopologyClient::connect(url)).await {
-        Ok(Ok(c)) => c,
-        Ok(Err(err)) => return (Err(err.to_string()), Kind::Error),
+    let connect = CatchUnwind(Box::pin(TopologyClient::connect(url)));
+    let client = match tokio::time::timeout(connect_deadline, connect).await {
+        Ok(Ok(Ok(c))) => c,
+        Ok(Ok(Err(err))) => return (Err(err.to_string()), Kind::Error),
+        Ok(Err(())) => {
+            return (
+                Err("topology view connect panicked (call isolated)".into()),
+                Kind::Panic,
+            )
+        }
         Err(_elapsed) => {
             return (
                 Err(format!(
@@ -203,6 +218,8 @@ fn read_graph(env: Env<'_>, url: String, stale_cutoff: String, deadline_ms: u64)
     if let Ok(mut abort) = handle.abort.lock() {
         *abort = Some(task.abort_handle());
     }
+    // A monitor on the caller cancels the read if it exits before the reply.
+    let _ = handle.monitor(Some(env), &pid);
     (atoms::ok(), reference, handle).encode(env)
 }
 

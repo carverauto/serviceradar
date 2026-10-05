@@ -33,11 +33,11 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use rustler::env::OwnedEnv;
-use rustler::{Atom, Encoder, Env, Resource, ResourceArc, Term};
+use rustler::{Atom, Encoder, Env, LocalPid, Monitor, Resource, ResourceArc, Term};
 use tokio::sync::Semaphore;
 use tokio::task::AbortHandle;
 
-use crate::runtime::{in_flight, runtime, Failure};
+use crate::runtime::{in_flight, runtime, Failure, Pool};
 
 mod atoms {
     rustler::atoms! {
@@ -175,7 +175,16 @@ pub struct CallHandle {
 }
 
 #[rustler::resource_impl]
-impl Resource for CallHandle {}
+impl Resource for CallHandle {
+    const IMPLEMENTS_DOWN: bool = true;
+
+    /// The calling process exited while waiting: nobody can receive the
+    /// reply, so abort the call and release its in-flight permit now rather
+    /// than at its deadline.
+    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
+        let _ = self.cancel();
+    }
+}
 
 impl CallHandle {
     pub fn new() -> Self {
@@ -230,6 +239,7 @@ fn micros(duration: Duration) -> u64 {
 /// term from the call's result.
 pub fn submit<'a, T, R, Fut>(
     env: Env<'a>,
+    pool: Pool,
     deadline_ms: u64,
     work: impl FnOnce(Duration) -> Fut + Send + 'static,
     finish: impl FnOnce(Result<T, String>) -> R + Send + 'static,
@@ -250,7 +260,7 @@ where
     let handle = ResourceArc::new(CallHandle::new());
     let task_handle = handle.clone();
     let deadline = Duration::from_millis(deadline_ms);
-    let permits = in_flight();
+    let permits = in_flight(pool);
 
     let task = runtime.spawn(async move {
         let report = execute(permits, deadline, work).await;
@@ -274,6 +284,8 @@ where
         }
     });
     handle.set_abort(task.abort_handle());
+    // A monitor on the caller cancels the call if it exits before the reply.
+    let _ = handle.monitor(Some(env), &pid);
     (atoms::ok(), reference, handle).encode(env)
 }
 
@@ -373,15 +385,28 @@ mod tests {
     }
 
     #[test]
-    fn work_gets_the_deadline_left_after_queueing() {
-        let remaining = block_on(execute(
-            Arc::new(Semaphore::new(1)),
-            Duration::from_secs(30),
-            |remaining| async move { Ok::<_, Failure>(remaining) },
-        ));
-        let remaining = remaining.result.expect("ran");
-        assert!(remaining <= Duration::from_secs(30));
-        assert!(remaining > Duration::from_secs(29));
+    fn queued_work_gets_only_what_is_left_of_its_deadline() {
+        block_on(async {
+            let permits = Arc::new(Semaphore::new(1));
+            let held = permits.clone().acquire_owned().await.expect("permit");
+            let release = tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                drop(held);
+            });
+
+            let report = execute(permits, Duration::from_secs(1), |remaining| async move {
+                Ok::<_, Failure>(remaining)
+            })
+            .await;
+            release.await.expect("release task");
+
+            let remaining = report.result.expect("ran once the permit was free");
+            assert!(report.queue_wait >= Duration::from_millis(200));
+            assert!(
+                remaining <= Duration::from_secs(1) - Duration::from_millis(200),
+                "queue wait must come out of the deadline, left {remaining:?}"
+            );
+        });
     }
 
     #[test]
