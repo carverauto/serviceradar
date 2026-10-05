@@ -48,25 +48,30 @@ defmodule ServiceRadar.Inventory.SyncRunLedger do
              ["sync-ingest-run:" <> source <> ":" <> run]
            )
 
-           {:ok, row} = read(source, run)
-           attrs = receipt_attrs(row, meta, rejected)
+           case read(source, run) do
+             {:ok, row} ->
+               attrs = receipt_attrs(row, meta, rejected)
 
-           result =
-             if row do
-               row
-               |> Ash.Changeset.for_update(:record, attrs, actor: actor)
-               |> Ash.update(actor: actor)
-             else
-               attrs = Map.merge(attrs, %{sync_service_id: source, sync_run_id: run})
+               result =
+                 if row do
+                   row
+                   |> Ash.Changeset.for_update(:record, attrs, actor: actor)
+                   |> Ash.update(actor: actor)
+                 else
+                   attrs = Map.merge(attrs, %{sync_service_id: source, sync_run_id: run})
 
-               SyncIngestRun
-               |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-               |> Ash.create(actor: actor)
-             end
+                   SyncIngestRun
+                   |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+                   |> Ash.create(actor: actor)
+                 end
 
-           case result do
-             {:ok, _} -> :ok
-             {:error, reason} -> Repo.rollback(reason)
+               case result do
+                 {:ok, _} -> :ok
+                 {:error, reason} -> Repo.rollback(reason)
+               end
+
+             {:error, reason} ->
+               Repo.rollback(reason)
            end
          end) do
       {:ok, :ok} -> :ok

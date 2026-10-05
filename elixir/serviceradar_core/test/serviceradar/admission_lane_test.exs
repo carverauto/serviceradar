@@ -13,6 +13,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Cluster.CoordinatorChildren
+  alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.Ingestion.LeaseSupervisor
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Ingestion.WorkerBudget
@@ -175,6 +176,59 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     assert {:error, :wire_payload_too_large} =
              Lane.admit(source_lane, status("agent-a", "12345"), {self(), make_ref()})
+  end
+
+  test "per-agent byte credit isolates independent keys" do
+    parent = self()
+    probe = status("agent-a", "payload-a")
+    retained = Lane.descriptor(probe, 10_000).retained_bytes
+
+    lane =
+      start_lane(held_processor(parent),
+        max_items: 8,
+        max_items_per_agent: 8,
+        max_bytes: 4 * retained,
+        max_bytes_per_agent: 2 * retained - 1,
+        source_max_bytes: 1_024
+      )
+
+    first = admit(lane, status("agent-a", "payload-a"))
+    assert_receive {:started, "payload-a", first_release}
+
+    assert {:error, :per_agent_byte_full} =
+             Lane.admit(lane, status("agent-a", "payload-a"), {self(), make_ref()})
+
+    second = admit(lane, status("agent-b", "payload-b"))
+    send(first_release, :release)
+    assert_receive {^first, :ok}
+    assert_receive {:started, "payload-b", second_release}
+    send(second_release, :release)
+    assert_receive {^second, :ok}
+    assert_empty(lane)
+  end
+
+  test "lane owners derive a bounded per-agent byte credit" do
+    sweep_limits = LaneSupervisor.limits(:sweep)
+    flow_limits = FlowLane.limits()
+    retained_limits = RetainedPluginLane.limits()
+
+    assert sweep_limits[:max_bytes_per_agent] <= sweep_limits[:max_bytes]
+    assert flow_limits[:max_bytes_per_agent] <= flow_limits[:max_bytes]
+    assert retained_limits[:max_bytes_per_agent] <= retained_limits[:max_bytes]
+
+    assert sweep_limits[:max_bytes_per_agent] >= 16 * 1_024 * 1_024
+    assert flow_limits[:max_bytes_per_agent] >= 6 * 1_024 * 1_024
+    assert retained_limits[:max_bytes_per_agent] >= 16 * 1_024 * 1_024
+
+    assert :ok = Lane.validate_config(sweep_limits, 15_000)
+    assert :ok = Lane.validate_config(flow_limits, 15_000)
+    assert :ok = Lane.validate_config(retained_limits, 15_000)
+
+    assert {:error, {:non_positive, :max_bytes_per_agent}} =
+             Lane.validate_config(
+               Keyword.put(sweep_limits, :max_bytes_per_agent, 0),
+               15_000
+             )
   end
 
   test "saturation accounting is independent between runtime lanes" do
