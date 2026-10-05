@@ -39,7 +39,7 @@ defmodule ServiceRadar.OutboundMail.SmtpTlsTest do
   test "uses the HELO hostname for SNI when the relay is an IP" do
     config =
       SmtpTls.attach(
-        relay: "23.138.124.21",
+        relay: "198.51.100.21",
         hostname: "mail.serviceradar.cloud",
         tls: :always,
         ssl: false
@@ -50,7 +50,7 @@ defmodule ServiceRadar.OutboundMail.SmtpTlsTest do
   end
 
   test "disables SNI when only an IP is configured" do
-    config = SmtpTls.attach(relay: "23.138.124.21", tls: :always, ssl: false)
+    config = SmtpTls.attach(relay: "198.51.100.21", tls: :always, ssl: false)
 
     assert Keyword.fetch!(config, :tls_options)[:server_name_indication] == :disable
     assert Keyword.fetch!(config, :tls_options)[:cacerts] != :undefined

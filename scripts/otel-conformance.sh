@@ -17,11 +17,11 @@
 #
 # Examples:
 #   # Against the demo LoadBalancer, skipping private-CA verification:
-#   OTLP_ENDPOINT=23.138.124.20:4317 TG_FLAGS="--otlp-insecure-skip-verify" \
+#   OTLP_ENDPOINT=198.51.100.20:4317 TG_FLAGS="--otlp-insecure-skip-verify" \
 #     ./scripts/otel-conformance.sh
 #
 #   # Full verification against CNPG:
-#   OTLP_ENDPOINT=23.138.124.20:4317 TG_FLAGS="--otlp-insecure-skip-verify" \
+#   OTLP_ENDPOINT=198.51.100.20:4317 TG_FLAGS="--otlp-insecure-skip-verify" \
 #     PSQL_DSN="postgres://user:pass@db:5432/serviceradar" ./scripts/otel-conformance.sh
 #
 #   # In-cluster without docker (telemetrygen runs via `kubectl run`):
@@ -77,7 +77,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "${OTLP_ENDPOINT:-}" ]; then
-  echo "ERROR: OTLP_ENDPOINT is required (e.g. OTLP_ENDPOINT=23.138.124.20:4317)" >&2
+  echo "ERROR: OTLP_ENDPOINT is required (e.g. OTLP_ENDPOINT=198.51.100.20:4317)" >&2
   exit 2
 fi
 

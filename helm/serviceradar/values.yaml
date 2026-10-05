@@ -798,7 +798,7 @@ faker:
       maxPrefixesPerTick: 3
       localAsn: 401642
       advertisedPrefixes:
-        - "23.138.124.0/24"
+        - "198.51.100.0/24"
         - "2602:f678::/48"
       peers:
         - name: "k8s-cp1-control"

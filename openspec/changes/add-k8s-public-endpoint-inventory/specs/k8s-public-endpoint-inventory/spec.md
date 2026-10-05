@@ -4,11 +4,11 @@
 The system SHALL provide a Kubernetes public endpoint inventory capability that maps public or edge-facing addresses (IP and/or hostname) and ports to owning Service and/or Gateway API resources without requiring operators to run kubectl.
 
 #### Scenario: IR lookup by public VIP
-- **WHEN** an operator queries inventory for IP `23.138.124.7`
+- **WHEN** an operator queries inventory for IP `198.51.100.7`
 - **THEN** the system returns the owning LoadBalancer Service and/or Gateway identity, exposed ports, and related route/backend summary for that cluster
 
 #### Scenario: Lookup by port narrows listeners
-- **WHEN** an operator queries inventory for IP `23.138.124.7` and port `22` protocol TCP
+- **WHEN** an operator queries inventory for IP `198.51.100.7` and port `22` protocol TCP
 - **THEN** the system returns the SSH listener path (Gateway listener and/or Service port) rather than unrelated ports on the same VIP
 
 ### Requirement: Dedicated cluster-plane collector without host-agent API access
