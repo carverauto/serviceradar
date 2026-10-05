@@ -19,6 +19,11 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   You can also add `static_targets` as explicit CIDRs/IPs to include.
 
+  Compilation adds this group's device partition to a target query that does
+  not already name one. Static targets are left as written. A selected agent
+  that lives in another partition still runs the group, so an isolation scan
+  probes the group's device partition rather than the agent's home partition.
+
   ## Profile Inheritance
 
   Optionally link to a SweepProfile for base scan settings. Override specific
