@@ -481,7 +481,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   def rescue_orphaned(opts \\ []) do
     grace_seconds = Keyword.get_lazy(opts, :grace_seconds, &orphan_grace_seconds/0)
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-    cutoff = DateTime.add(now, -grace_seconds, :second)
+    cutoff = DateTime.shift(now, second: -grace_seconds)
 
     result =
       Repo.transact(
@@ -624,7 +624,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp refresh_summaries do
     now = DateTime.utc_now()
     watermark = read_watermark(now)
-    window_start = DateTime.add(watermark, -@watermark_overlap_seconds, :second)
+    window_start = DateTime.shift(watermark, second: -@watermark_overlap_seconds)
 
     with {:ok, changed} <- run_chunked_upsert(window_start, now),
          {:ok, new_watermark} <- advance_watermark(window_start, now),
@@ -652,7 +652,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         DateTime.from_naive!(watermark, "Etc/UTC")
 
       _ ->
-        DateTime.add(now, -@initial_lookback_seconds, :second)
+        DateTime.shift(now, second: -@initial_lookback_seconds)
     end
   end
 
@@ -677,7 +677,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp clamp_end(cursor, bound) do
-    candidate = DateTime.add(cursor, @ingest_chunk_seconds, :second)
+    candidate = DateTime.shift(cursor, second: @ingest_chunk_seconds)
     if DateTime.after?(candidate, bound), do: bound, else: candidate
   end
 

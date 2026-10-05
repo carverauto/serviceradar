@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn translates_public_endpoints_ip_port() {
-        let plan = plan("in:public_endpoints ip:23.138.124.7 port:22 limit:10");
+        let plan = plan("in:public_endpoints ip:198.51.100.7 port:22 limit:10");
         let (sql, binds) = to_sql_and_params(&plan).expect("sql");
         assert!(sql.contains("platform.public_endpoints_current"));
         assert!(sql.contains("ep.deleted_at IS NULL"));

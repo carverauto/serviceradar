@@ -282,7 +282,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   defp trace_time_bound(%DateTime{} = time) do
     second = time |> utc() |> DateTime.truncate(:second)
 
-    " AND `time` >= #{datetime(second)} AND `time` < #{datetime(DateTime.add(second, 1, :second))}"
+    " AND `time` >= #{datetime(second)} AND `time` < #{datetime(DateTime.shift(second, second: 1))}"
   end
 
   defp trace_time_bound(_time), do: ""
@@ -311,7 +311,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   def recent_traces(limit, opts \\ []) when is_integer(limit) and limit > 0 do
     # Bounded so the newest-N read prunes to recent day partitions instead of
     # scanning every partition the table holds.
-    since = DateTime.add(Keyword.get_lazy(opts, :now, &DateTime.utc_now/0), -@recent_trace_days, :day)
+    since = DateTime.shift(Keyword.get_lazy(opts, :now, &DateTime.utc_now/0), day: -@recent_trace_days)
 
     sql = """
     SELECT #{columns(@compare_trace_columns)}

@@ -43,7 +43,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorkerTest do
 
     stale_time =
       DateTime.utc_now()
-      |> DateTime.add(-2, :hour)
+      |> DateTime.shift(hour: -2)
       |> DateTime.truncate(:second)
 
     Repo.query!(
@@ -117,7 +117,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorkerTest do
 
     stale_time =
       DateTime.utc_now()
-      |> DateTime.add(-2, :hour)
+      |> DateTime.shift(hour: -2)
       |> DateTime.truncate(:second)
 
     Repo.query!(

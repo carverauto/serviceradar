@@ -26,7 +26,7 @@ defmodule ServiceRadar.Observability.PluginResultSlotLockTest do
 
     observed_at =
       DateTime.utc_now()
-      |> DateTime.add(-30, :second)
+      |> DateTime.shift(second: -30)
       |> DateTime.truncate(:microsecond)
 
     payload = %{

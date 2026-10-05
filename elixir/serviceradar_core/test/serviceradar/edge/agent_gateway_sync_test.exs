@@ -498,7 +498,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
           capabilities: ["sysmon"]
         })
 
-      set_observed!(stale_owner_uid, DateTime.add(DateTime.utc_now(), -3600, :second), actor)
+      set_observed!(stale_owner_uid, DateTime.shift(DateTime.utc_now(), hour: -1), actor)
 
       assert {:ok, current_uid} =
                AgentGatewaySync.ensure_device_for_agent(current_agent_id, %{
@@ -556,7 +556,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         |> Ash.Changeset.for_update(:mark_unavailable, %{})
         |> Ash.update(actor: actor)
 
-      set_observed!(gone_uid, DateTime.add(DateTime.utc_now(), -3600, :second), actor)
+      set_observed!(gone_uid, DateTime.shift(DateTime.utc_now(), hour: -1), actor)
 
       :ok = AgentGatewaySync.upsert_agent(agent_id, %{host: reused_ip, capabilities: ["sysmon"]})
 
@@ -593,7 +593,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       uniq = System.unique_integer([:positive, :monotonic])
       agent_id = "agent-no-partition-#{uniq}"
       shared_ip = unique_test_ip(uniq, 0)
-      earlier = DateTime.add(DateTime.utc_now(), -3600, :second)
+      earlier = DateTime.shift(DateTime.utc_now(), hour: -1)
 
       # Created first, so an unscoped lookup finds it first.
       other_uid = create_seen_device!("site-b", shared_ip, earlier, actor)
@@ -632,7 +632,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {moving_uid, holder_uid} =
         enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
 
-      set_observed!(holder_uid, DateTime.add(DateTime.utc_now(), -3600, :second), actor)
+      set_observed!(holder_uid, DateTime.shift(DateTime.utc_now(), hour: -1), actor)
 
       assert {:ok, ^moving_uid} =
                AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
@@ -672,11 +672,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {moving_uid, holder_uid} =
         enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
 
-      set_observed!(holder_uid, DateTime.add(DateTime.utc_now(), -7200, :second), actor)
+      set_observed!(holder_uid, DateTime.shift(DateTime.utc_now(), hour: -2), actor)
 
       set_agent_last_seen!(
         holder_agent_id,
-        DateTime.add(DateTime.utc_now(), -7200, :second),
+        DateTime.shift(DateTime.utc_now(), hour: -2),
         actor
       )
 
@@ -717,7 +717,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {moving_uid, holder_uid} =
         enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
 
-      set_observed!(holder_uid, DateTime.add(DateTime.utc_now(), 3600, :second), actor)
+      set_observed!(holder_uid, DateTime.shift(DateTime.utc_now(), hour: 1), actor)
 
       assert {:ok, ^moving_uid} =
                AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
@@ -755,13 +755,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       holder_agent_id = "agent-holder-#{uniq}"
       original_ip = unique_test_ip(uniq, 0)
       held_ip = unique_test_ip(uniq, 1)
-      two_hours_ago = DateTime.add(DateTime.utc_now(), -7200, :second)
+      two_hours_ago = DateTime.shift(DateTime.utc_now(), hour: -2)
 
       {moving_uid, holder_uid} =
         enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
 
       set_observed!(holder_uid, two_hours_ago, actor)
-      set_last_seen!(holder_uid, DateTime.add(DateTime.utc_now(), 3600, :second), actor)
+      set_last_seen!(holder_uid, DateTime.shift(DateTime.utc_now(), hour: 1), actor)
       set_agent_last_seen!(holder_agent_id, two_hours_ago, actor)
 
       assert {:ok, ^moving_uid} =
@@ -858,7 +858,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         capabilities: ["sysmon"]
       }
 
-      before = DateTime.add(DateTime.utc_now(), -1, :second)
+      before = DateTime.shift(DateTime.utc_now(), second: -1)
       :ok = AgentGatewaySync.upsert_agent(agent_id, %{host: ip, capabilities: ["sysmon"]})
 
       assert {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
@@ -866,7 +866,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert %DateTime{} = created.identity_observed_at
       assert DateTime.after?(created.identity_observed_at, before)
 
-      earlier = DateTime.add(DateTime.utc_now(), -3600, :second)
+      earlier = DateTime.shift(DateTime.utc_now(), hour: -1)
       set_observed!(device_uid, earlier, actor)
 
       assert {:ok, ^device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
@@ -926,7 +926,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
                  ip: held_ip,
                  discovery_sources: ["armis"],
                  metadata: %{"armis_device_id" => armis_id, "integration_type" => "armis"},
-                 last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second),
+                 last_seen_time: DateTime.shift(DateTime.utc_now(), hour: -1),
                  is_available: true
                })
                |> Ash.create(actor: actor)
@@ -1041,7 +1041,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       set_agent_last_seen!(
         old_agent_id,
-        DateTime.add(DateTime.utc_now(), -86_400, :second),
+        DateTime.shift(DateTime.utc_now(), day: -1),
         actor
       )
 
@@ -1089,7 +1089,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       set_agent_last_seen!(
         old_agent_id,
-        DateTime.add(DateTime.utc_now(), -86_400, :second),
+        DateTime.shift(DateTime.utc_now(), day: -1),
         actor
       )
 
@@ -1248,7 +1248,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       set_agent_last_seen!(
         old_agent_id,
-        DateTime.add(DateTime.utc_now(), -86_400, :second),
+        DateTime.shift(DateTime.utc_now(), day: -1),
         actor
       )
 

@@ -20,7 +20,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
   setup do
     # Drain only this test's jobs: the sandbox rolls these deletes back.
     Repo.delete_all(from(job in Oban.Job, where: job.queue == "maintenance"))
-    set_watermark!(DateTime.add(DateTime.utc_now(), -300, :second))
+    set_watermark!(DateTime.shift(DateTime.utc_now(), minute: -5))
     # No run has committed recently, which is what an orphan looks like.
     age_watermark_write!(3600)
     :ok
@@ -44,11 +44,11 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
 
   test "a run that ends with spans past its watermark schedules one follow-up that summarizes them" do
     now = DateTime.utc_now()
-    early_trace = insert_span!(DateTime.add(now, -10, :second))
+    early_trace = insert_span!(DateTime.shift(now, second: -10))
 
     # A batch the run cannot cover: stamped after the run's upper bound, the way a span committed
     # while the refresh is executing is. The margin keeps a slow runner from reaching it.
-    late_trace = insert_span!(DateTime.add(now, 1, :hour))
+    late_trace = insert_span!(DateTime.shift(now, hour: 1))
 
     assert {:ok, %Oban.Job{id: job_id, conflict?: false}} = request_refresh()
 
@@ -82,7 +82,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
     # transaction back and released its lock. Every enqueue coalesces into the dead row, so
     # without a rescue nothing refreshes until the 240-minute age-based rescuers fire.
     test "is rescued when the refresh lock is free, and the refresh then runs" do
-      trace = insert_span!(DateTime.add(DateTime.utc_now(), -10, :second))
+      trace = insert_span!(DateTime.shift(DateTime.utc_now(), second: -10))
       orphan = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
 
       assert {:ok, [%{id: id}]} = RefreshTraceSummariesWorker.rescue_orphaned()
@@ -189,7 +189,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
   defp request_refresh, do: RefreshTraceSummariesWorker.enqueue()
 
   defp insert_executing!(opts) do
-    attempted_at = DateTime.add(DateTime.utc_now(), -Keyword.fetch!(opts, :attempted_seconds_ago))
+    attempted_at =
+      DateTime.shift(DateTime.utc_now(), second: -Keyword.fetch!(opts, :attempted_seconds_ago))
 
     %{}
     |> RefreshTraceSummariesWorker.new()

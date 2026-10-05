@@ -62,6 +62,9 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
       {:push, {:text, encode(%{type: "ready", session_id: session.id})},
        %{state | attached?: true, session: session, broker: broker}}
     else
+      {:error, :broker_start_failed, reason, attached_state} ->
+        stop_for_broker_start_error(reason, attached_state)
+
       {:error, :console_broker_unavailable} ->
         _ = state.sessions_module.fail_session(state.session_id, :console_broker_unavailable, scope: state.scope)
 
@@ -197,7 +200,10 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
         rows: rows
       ]
 
-      state.broker_module.start_link(session, self(), opts)
+      case state.broker_module.start_link(session, self(), opts) do
+        {:ok, broker} -> {:ok, broker}
+        {:error, reason} -> {:error, :broker_start_failed, reason, state}
+      end
     end
   end
 
@@ -220,6 +226,28 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
       {:error, :permission_revoked} ->
         {:error, :forbidden}
     end
+  end
+
+  defp stop_for_broker_start_error(reason, state) do
+    # The one-use ticket was accepted. Report a start failure and retire the
+    # attached session instead of presenting this as a ticket rejection.
+    safe_reason = if is_atom(reason), do: reason, else: :console_broker_unavailable
+    _ = state.sessions_module.fail_session(state.session_id, safe_reason, scope: state.scope)
+
+    Logger.warning("Proxmox console broker failed after ticket attachment",
+      session_id: state.session_id,
+      reason: safe_reason
+    )
+
+    {:stop, :normal, 1011,
+     [
+       {:text,
+        encode(%{
+          type: "error",
+          code: "console_start_failed",
+          message: "Proxmox console could not start. Check edge-agent connectivity and console assignment."
+        })}
+     ], %{state | closing_action: :failed}}
   end
 
   defp stop_for_broker_error(reason, state) do

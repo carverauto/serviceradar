@@ -287,7 +287,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
           positive_int(value(attrs, :ttl_seconds)) ||
             Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
 
-        {:ok, DateTime.add(RemoteAccessRequest.utc_now(), ttl, :second)}
+        {:ok, DateTime.shift(RemoteAccessRequest.utc_now(), second: ttl)}
     end
   end
 

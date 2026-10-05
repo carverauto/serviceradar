@@ -156,7 +156,7 @@ defmodule ServiceRadar.ColdTier.Pruner do
              timeout: @query_timeout_ms
            ) do
       manifested = Map.new(rows, fn [key, status] -> {key, status} end)
-      cutoff = DateTime.add(DateTime.utc_now(), -@orphan_safety_hours * 3600, :second)
+      cutoff = DateTime.shift(DateTime.utc_now(), hour: -@orphan_safety_hours)
 
       # Staging objects are never manifested (the manifest records the
       # published key) and are never readable, so a stale one past the safety
@@ -244,7 +244,7 @@ defmodule ServiceRadar.ColdTier.Pruner do
   end
 
   defp abort_stale_multipart_uploads do
-    cutoff = DateTime.add(DateTime.utc_now(), -@orphan_safety_hours * 3600, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), hour: -@orphan_safety_hours)
 
     case ObjectStore.list_multipart_uploads() do
       {:ok, uploads} ->

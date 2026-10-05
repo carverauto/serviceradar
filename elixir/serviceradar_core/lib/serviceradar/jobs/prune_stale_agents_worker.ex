@@ -138,7 +138,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
           positive_integer(hours, configured_retention_hours())
       end
 
-    DateTime.add(DateTime.utc_now(), -retention_hours * 3_600, :second)
+    DateTime.shift(DateTime.utc_now(), hour: -retention_hours)
   end
 
   defp retention_hours_from_days_or_hours(value, opts) do

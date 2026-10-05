@@ -136,7 +136,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycleTest do
     assert {:ok, %{replayed?: true, phase: replay}} =
              MutationLifecycle.record(context(), bytes, source(),
                actions: FakeActions,
-               now: DateTime.add(@deadline, 3_600, :second)
+               now: DateTime.shift(@deadline, hour: 1)
              )
 
     assert replay.phase == :initial
@@ -239,7 +239,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycleTest do
     assert terminal.phase.phase == :unknown
 
     Process.put(:mutation_lifecycle_phases, [])
-    expired_now = DateTime.add(@deadline, 1, :second)
+    expired_now = DateTime.shift(@deadline, second: 1)
 
     assert {:error, {:mutation_state_unknown, :mutation_deadline_expired, expired}} =
              MutationLifecycle.record(
@@ -275,7 +275,7 @@ defmodule ServiceRadar.Automation.Ansible.MutationLifecycleTest do
     assert {:ok, result} =
              MutationLifecycle.expire(context(),
                actions: FakeActions,
-               now: DateTime.add(@deadline, 1, :second)
+               now: DateTime.shift(@deadline, second: 1)
              )
 
     assert result.expired?

@@ -39,7 +39,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineLegacyResolveCallTest do
 
   test "legacy 3-tuple resolve message behaves like an empty live-set call", %{pid: pid} do
     now = DateTime.utc_now()
-    cutoff = DateTime.add(now, -6 * 3600, :second)
+    cutoff = DateTime.shift(now, hour: -6)
 
     capture_log(fn ->
       legacy_reply =

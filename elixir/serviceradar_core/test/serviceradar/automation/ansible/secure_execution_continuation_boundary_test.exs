@@ -68,8 +68,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundaryTes
       controller_security_snapshot_digest: security_digest,
       live_launch_snapshot_digest: String.duplicate("4", 64),
       command_result_digest: String.duplicate("5", 64),
-      verified_at: DateTime.add(now, -120, :second),
-      expires_at: DateTime.add(now, -60, :second)
+      verified_at: DateTime.shift(now, minute: -2),
+      expires_at: DateTime.shift(now, minute: -1)
     }
 
     {:ok, attrs} = Attestation.attrs(snapshot)
@@ -248,7 +248,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundaryTes
         purpose: :accepted_job_proof,
         command_type: "awx.fetch_job",
         expected_job_id: 17,
-        deadline_at: DateTime.add(c.now, 60)
+        deadline_at: DateTime.shift(c.now, minute: 1)
       )
 
     attempt = struct!(Attempt, Map.merge(attrs, %{id: Ash.UUID.generate(), state: :dispatched}))
@@ -272,7 +272,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundaryTes
       "inject" => %{"type" => "http_header", "name" => "Authorization", "scheme" => "Bearer"},
       "allow" => scope.allow,
       "ttl_seconds" => 300,
-      "expires_at" => DateTime.to_iso8601(DateTime.add(c.now, 300))
+      "expires_at" => DateTime.to_iso8601(DateTime.shift(c.now, minute: 5))
     }
 
     command = %AgentCommand{

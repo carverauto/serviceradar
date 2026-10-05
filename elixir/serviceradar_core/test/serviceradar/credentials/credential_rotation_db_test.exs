@@ -27,7 +27,7 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
     plugin_id = "credential-rotation-db-plugin-#{suffix}"
     password_marker = "rotation-db-secret-marker-#{suffix}"
     legacy_password = "rotation-db-legacy-password-#{suffix}"
-    due_at = DateTime.add(DateTime.utc_now(), 86_400, :second)
+    due_at = DateTime.shift(DateTime.utc_now(), day: 1)
 
     package = approved_descriptor_fixture!(plugin_id, provider)
     user = credential_manager!(suffix)

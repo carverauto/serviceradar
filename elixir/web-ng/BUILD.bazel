@@ -523,6 +523,7 @@ ex_unit_test(
         "test/phoenix/live/settings/ansible_live_test.exs",
         "test/phoenix/live/settings/audit_events_live_test.exs",
         "test/phoenix/live/settings/cli_auth_policy_live_test.exs",
+        "test/phoenix/live/settings/cluster_live_test.exs",
         "test/phoenix/live/settings/integrations_live_test.exs",
         "test/phoenix/live/settings/network_credential_rules_live_test.exs",
         "test/phoenix/live/settings/networks_live_test.exs",
@@ -647,7 +648,7 @@ ex_unit_test(
 
 # The topology control lane uses only the Repo, and runs after the other web-ng
 # database lane on its migrated, quiescent serial_0 scratch clone. Its helper
-# enforces the exact nine real authorization/inventory/health cases.
+# rejects an empty selection of authorization/inventory/health cases.
 ex_unit_test(
     name = "topology_atlas_db_test",
     size = "enormous",

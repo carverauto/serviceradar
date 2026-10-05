@@ -78,20 +78,20 @@ defmodule ServiceRadarWebNG.AlertActionsTest do
     end
 
     test "is derived from status plus a future snooze_until", %{now: now} do
-      future = DateTime.add(now, 600, :second)
+      future = DateTime.shift(now, minute: 10)
 
       assert AlertActions.snoozed?(%{status: :pending, snooze_until: future}, now)
       assert AlertActions.snoozed?(%{status: :escalated, snooze_until: future}, now)
     end
 
     test "an elapsed snooze is not snoozed", %{now: now} do
-      past = DateTime.add(now, -1, :second)
+      past = DateTime.shift(now, second: -1)
 
       refute AlertActions.snoozed?(%{status: :pending, snooze_until: past}, now)
     end
 
     test "only pending and escalated can be snoozed", %{now: now} do
-      future = DateTime.add(now, 600, :second)
+      future = DateTime.shift(now, minute: 10)
 
       for status <- [:acknowledged, :resolved, :suppressed] do
         refute AlertActions.snoozed?(%{status: status, snooze_until: future}, now)
@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNG.AlertActionsTest do
 
     test "unsnooze is offered only while the alert is actually snoozed" do
       now = ~U[2026-08-09 12:00:00.000000Z]
-      future = DateTime.add(now, 600, :second)
+      future = DateTime.shift(now, minute: 10)
 
       snoozed = AlertActions.action_states(%{status: :pending, snooze_until: future}, now)
       plain = AlertActions.action_states(%{status: :pending, snooze_until: nil}, now)

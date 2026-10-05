@@ -67,7 +67,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
 
   @impl Oban.Worker
   def perform(_job) do
-    cutoff = DateTime.add(DateTime.utc_now(), -@stale_after_days * 86_400, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -@stale_after_days)
 
     Logger.info("StatefulAlertCleanupWorker: Starting cleanup",
       cutoff: cutoff

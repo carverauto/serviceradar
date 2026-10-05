@@ -274,7 +274,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   # tick would rerun about once a minute, so only successors older than the window move.
   defp promote_scheduled_now(failure_reschedule_seconds) do
     now = DateTime.utc_now()
-    backoff_started_at = DateTime.add(now, -max(failure_reschedule_seconds, 3_600), :second)
+    backoff_started_at = DateTime.shift(now, second: -max(failure_reschedule_seconds, 3_600))
 
     query =
       from(j in Oban.Job,

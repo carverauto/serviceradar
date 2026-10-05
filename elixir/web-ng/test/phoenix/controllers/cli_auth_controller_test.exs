@@ -240,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
 
     # Force the row past its TTL via Ecto so we bypass the Ash validations
     # that lock the changeset after the action callback runs.
-    past = DateTime.add(DateTime.utc_now(), -3600, :second)
+    past = DateTime.shift(DateTime.utc_now(), hour: -1)
 
     Ecto.Adapters.SQL.query!(
       ServiceRadar.Repo,

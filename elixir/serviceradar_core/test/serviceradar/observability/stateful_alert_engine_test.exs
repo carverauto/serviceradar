@@ -117,7 +117,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert alert
     assert alert.status in [:pending, :acknowledged, :escalated]
 
-    later = DateTime.add(base_time, 180, :second)
+    later = DateTime.shift(base_time, minute: 3)
     assert :ok = StatefulAlertEngine.evaluate_events([event.(later)])
 
     {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
@@ -192,8 +192,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert :ok =
              StatefulAlertEngine.evaluate_metrics([
                metric.(base_time, 0.62),
-               metric.(DateTime.add(base_time, 60, :second), 0.66),
-               metric.(DateTime.add(base_time, 120, :second), 0.70)
+               metric.(DateTime.shift(base_time, minute: 1), 0.66),
+               metric.(DateTime.shift(base_time, minute: 2), 0.70)
              ])
 
     threshold_events =
@@ -231,7 +231,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     assert :ok =
              StatefulAlertEngine.evaluate_metrics([
-               metric.(DateTime.add(base_time, 600, :second), 0.52)
+               metric.(DateTime.shift(base_time, minute: 10), 0.52)
              ])
 
     {:ok, resolved} = Alert.get_by_id(active_alert.id, actor: actor)
@@ -513,7 +513,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     event = fn state, offset ->
       %{
         id: Ash.UUID.generate(),
-        time: DateTime.add(base_time, offset, :second),
+        time: DateTime.shift(base_time, second: offset),
         severity_id: OCSF.severity_high(),
         severity: OCSF.severity_name(OCSF.severity_high()),
         message: "Anomaly #{state}",
@@ -653,7 +653,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     event = fn state, offset ->
       %{
         id: Ash.UUID.generate(),
-        time: DateTime.add(base_time, offset, :second),
+        time: DateTime.shift(base_time, second: offset),
         severity_id: OCSF.severity_high(),
         severity: OCSF.severity_name(OCSF.severity_high()),
         message: "Anomaly #{state}",
@@ -868,8 +868,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       |> Ash.create()
 
     base_time = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    bucket_started_at = DateTime.add(base_time, -60, :second)
-    bucket_ended_at = DateTime.add(base_time, 3600, :second)
+    bucket_started_at = DateTime.shift(base_time, minute: -1)
+    bucket_ended_at = DateTime.shift(base_time, hour: 1)
     dow = base_time |> DateTime.to_date() |> Date.day_of_week() |> rem(7)
     hod = base_time.hour
 
@@ -893,7 +893,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     event = fn verdict_source, offset ->
       %{
         id: Ash.UUID.generate(),
-        time: DateTime.add(base_time, offset, :second),
+        time: DateTime.shift(base_time, second: offset),
         severity_id: OCSF.severity_high(),
         severity: OCSF.severity_name(OCSF.severity_high()),
         message: "Anomaly #{verdict_source}",
@@ -948,8 +948,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     reset_engine()
 
     base_time = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    bucket_started_at = DateTime.add(base_time, -60, :second)
-    bucket_ended_at = DateTime.add(base_time, 3600, :second)
+    bucket_started_at = DateTime.shift(base_time, minute: -1)
+    bucket_ended_at = DateTime.shift(base_time, hour: 1)
     dow = base_time |> DateTime.to_date() |> Date.day_of_week() |> rem(7)
     hod = base_time.hour
 
@@ -1019,7 +1019,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
       event = %{
         id: Ash.UUID.generate(),
-        time: DateTime.add(base_time, unique, :second),
+        time: DateTime.shift(base_time, second: unique),
         severity_id: severity_id,
         severity: OCSF.severity_name(severity_id),
         message: "Anomaly edge-spike",
@@ -1108,7 +1108,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     event = fn state, offset ->
       %{
         id: Ash.UUID.generate(),
-        time: DateTime.add(base_time, offset, :second),
+        time: DateTime.shift(base_time, second: offset),
         severity_id: OCSF.severity_high(),
         severity: OCSF.severity_name(OCSF.severity_high()),
         message: "Anomaly #{state}",
@@ -1135,8 +1135,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     # The series goes silent (no anomaly_clear ever arrives). A cutoff after its
     # last_seen_at marks the open snapshot stale, and the sweep resolves it.
-    cutoff = DateTime.add(base_time, 3600, :second)
-    now = DateTime.add(base_time, 3600, :second)
+    cutoff = DateTime.shift(base_time, hour: 1)
+    now = DateTime.shift(base_time, hour: 1)
     assert {:ok, 1} = StatefulAlertEngine.resolve_stale_anomalies(rule_name, cutoff, now)
 
     {:ok, resolved} = Alert.get_by_id(active_alert.id, actor: actor)
@@ -1205,7 +1205,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     event = fn status, offset ->
       %{
         id: Ash.UUID.generate(),
-        time: DateTime.add(base_time, offset, :second),
+        time: DateTime.shift(base_time, second: offset),
         severity_id: OCSF.severity_critical(),
         severity: OCSF.severity_name(OCSF.severity_critical()),
         message: "Capacity forecast #{status}",
@@ -1352,10 +1352,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert :ok = StatefulAlertEngine.evaluate_events([event.(base_time)])
 
     assert :ok =
-             StatefulAlertEngine.evaluate_events([event.(DateTime.add(base_time, 30, :second))])
+             StatefulAlertEngine.evaluate_events([event.(DateTime.shift(base_time, second: 30))])
 
     assert :ok =
-             StatefulAlertEngine.evaluate_events([event.(DateTime.add(base_time, 90, :second))])
+             StatefulAlertEngine.evaluate_events([event.(DateTime.shift(base_time, second: 90))])
 
     alerts =
       Alert
@@ -1420,7 +1420,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.count(Enum.filter(history, &(&1.event_type == :fired))) == 1
     refute Enum.any?(history, &(&1.event_type == :cooldown))
 
-    rollover_time = DateTime.add(base_time, 420, :second)
+    rollover_time = DateTime.shift(base_time, minute: 7)
     assert :ok = StatefulAlertEngine.evaluate_events([event.(rollover_time)])
 
     active_alerts_after_rollover =
@@ -1673,7 +1673,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         with_registry_contention(fn ->
           StatefulAlertEngine.resolve_stale_anomalies(
             "lookup-lag-no-such-rule",
-            DateTime.add(now, -3600, :second),
+            DateTime.shift(now, hour: -1),
             now
           )
         end)

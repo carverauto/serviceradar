@@ -50,11 +50,11 @@
 - [x] 4.1 Publish only `ca.crt` at `https://srql-fixture-ca.serviceradar.cloud/ca.crt`
       (or the hostname recorded in design.md if DNS forces a different name), terminated by
       the cluster's existing Let's Encrypt issuer.
-      Service shares MetalLB IP `23.138.124.18` with `srql-fixture-rw-ext`.
+      Service shares MetalLB IP `198.51.100.18` with `srql-fixture-rw-ext`.
 - [x] 4.2 Verify the URL is reachable from outside the cluster and from a Firecracker-like
       network namespace (public DNS + public trust store, no kubeconfig).
       Public HTTPS: NodePort `10.0.2.8:30327` and in-pod wget work; this workstation cannot
-      open `23.138.124.18:443`. GitHub ARC uses the in-cluster ClusterIP HTTP service
+      open `198.51.100.18:443`. GitHub ARC uses the in-cluster ClusterIP HTTP service
       instead (`srql-fixture-ca-incluster`), which is the path that must stay green.
 - [x] 4.3 Ensure the CA private key is not in the published object, the Ingress/HTTPRoute,
       or any CI secret.

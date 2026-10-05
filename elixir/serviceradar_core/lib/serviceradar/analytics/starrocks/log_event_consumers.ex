@@ -68,7 +68,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
   # with no error -- `bucket < end` admits the row covering the whole hour
   # holding `end`, while `time < end` truncates it.
   defp window_bounds(start_at, end_at, bucket_seconds) when rem(bucket_seconds, 3600) == 0,
-    do: {floor_hour(start_at), DateTime.add(floor_hour(end_at), 3600, :second)}
+    do: {floor_hour(start_at), DateTime.shift(floor_hour(end_at), hour: 1)}
 
   defp window_bounds(start_at, end_at, _bucket_seconds), do: {start_at, end_at}
 

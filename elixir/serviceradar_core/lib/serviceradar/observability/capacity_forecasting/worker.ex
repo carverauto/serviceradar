@@ -74,7 +74,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
         |> positive_integer(horizon_seconds)
         |> min(horizon_seconds)
 
-      horizon_ends_at = DateTime.add(forecasted_at, horizon_seconds, :second)
+      horizon_ends_at = DateTime.shift(forecasted_at, second: horizon_seconds)
 
       opts =
         opts
@@ -936,7 +936,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       |> Keyword.get(:warning_horizon_seconds, Keyword.fetch!(opts, :horizon_seconds))
       |> positive_integer(Keyword.fetch!(opts, :horizon_seconds))
 
-    warning_ends_at = DateTime.add(forecasted_at, warning_horizon_seconds, :second)
+    warning_ends_at = DateTime.shift(forecasted_at, second: warning_horizon_seconds)
 
     # Already-exhausted resources remain at risk; the verdict severity clamps
     # negative runway to the highest severity in VerdictEmitter.

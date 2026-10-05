@@ -199,21 +199,21 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
       assignment = %AddonAssignment{
         id: Ecto.UUID.generate(),
         enabled: true,
-        inserted_at: DateTime.add(now, -60),
-        updated_at: DateTime.add(now, -60)
+        inserted_at: DateTime.shift(now, minute: -1),
+        updated_at: DateTime.shift(now, minute: -1)
       }
 
       agent = %Agent{
         status: :connected,
         is_healthy: true,
-        last_seen_time: DateTime.add(now, -5)
+        last_seen_time: DateTime.shift(now, second: -5)
       }
 
       status = %AddonStatus{
         state: "running",
         active: true,
         version: "1.0.0",
-        reported_at: DateTime.add(now, -5)
+        reported_at: DateTime.shift(now, second: -5)
       }
 
       base = %{assigned_version: "1.0.0"}
@@ -236,8 +236,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
     end
 
     test "classifies offline or stale desired state as unavailable, not a current failure", context do
-      agent = %{context.agent | status: :disconnected, last_seen_time: DateTime.add(context.now, -600)}
-      status = %{context.status | state: "unhealthy", reported_at: DateTime.add(context.now, -600)}
+      agent = %{context.agent | status: :disconnected, last_seen_time: DateTime.shift(context.now, minute: -10)}
+      status = %{context.status | state: "unhealthy", reported_at: DateTime.shift(context.now, minute: -10)}
 
       assert AddonFleet.classify(
                context.base,
@@ -276,7 +276,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
       stale_unhealthy = %{
         context.status
         | state: "unhealthy",
-          reported_at: DateTime.add(context.now, -600)
+          reported_at: DateTime.shift(context.now, minute: -10)
       }
 
       assert AddonFleet.classify(
@@ -327,7 +327,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
         reason_code: "unsupported_platform"
       }
 
-      offline_agent = %{context.agent | status: :disconnected, last_seen_time: DateTime.add(context.now, -600)}
+      offline_agent = %{context.agent | status: :disconnected, last_seen_time: DateTime.shift(context.now, minute: -10)}
 
       assert AddonFleet.classify(
                context.base,

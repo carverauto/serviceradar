@@ -43,8 +43,8 @@ defmodule ServiceRadar.Observability.PluginResultReportedMarkerTrustTest do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
 
     {payload, status, observed_at} = plugin_result_fixture()
-    forged_at = DateTime.add(observed_at, 1, :day)
-    newer_at = DateTime.add(observed_at, 1, :second)
+    forged_at = DateTime.shift(observed_at, day: 1)
+    newer_at = DateTime.shift(observed_at, second: 1)
 
     forged_payload =
       payload

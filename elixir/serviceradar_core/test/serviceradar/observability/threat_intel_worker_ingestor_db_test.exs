@@ -286,7 +286,7 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
     limit_batches_to_one_indicator()
 
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    observed_at = DateTime.add(now, -60, :second)
+    observed_at = DateTime.shift(now, minute: -1)
 
     indicator_id = seed_indicator("alienvault_otx", "203.0.113.0/24", 4, now)
     _second_indicator_id = seed_indicator("alienvault_otx", "198.51.100.0/24", 3, now)
@@ -331,7 +331,7 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
     seed_indicator("alienvault_otx", "198.51.100.0/24", 3, now)
     seed_sync_status_with_unsupported_count(now, %{"domain" => 2, "url" => 1})
 
-    cut_flows_over(warehouse_aggregates(DateTime.add(now, -60, :second)))
+    cut_flows_over(warehouse_aggregates(DateTime.shift(now, minute: -1)))
 
     assert :ok = ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: retrohunt_args()})
 

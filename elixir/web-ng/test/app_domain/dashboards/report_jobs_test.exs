@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
   end
 
   test "scanner enqueues one delivery for each due enabled schedule", %{scope: scope, dashboard: dashboard} do
-    due_at = DateTime.add(DateTime.utc_now(), -60, :second)
+    due_at = DateTime.shift(DateTime.utc_now(), minute: -1)
     schedule = schedule_fixture(scope, dashboard, next_due_at: due_at)
 
     assert :ok = ReportScannerWorker.perform(%Oban.Job{args: %{"enabled" => true, "limit" => 10}})
@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     schedule =
       schedule_fixture(scope, dashboard,
         enabled: false,
-        next_due_at: DateTime.add(DateTime.utc_now(), -60, :second)
+        next_due_at: DateTime.shift(DateTime.utc_now(), minute: -1)
       )
 
     assert :ok = ReportScannerWorker.perform(%Oban.Job{args: %{"enabled" => true, "limit" => 10}})
@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
   end
 
   test "delivery creation is idempotent for a schedule due time", %{scope: scope, dashboard: dashboard} do
-    due_at = DateTime.add(DateTime.utc_now(), -120, :second)
+    due_at = DateTime.shift(DateTime.utc_now(), minute: -2)
     schedule = schedule_fixture(scope, dashboard, next_due_at: due_at)
 
     attrs = %{
@@ -140,7 +140,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
 
   @tag :web_ng_shared_fixture_db
   test "delivery worker sends email and records success", %{scope: scope, dashboard: dashboard} do
-    schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.add(DateTime.utc_now(), 3600, :second))
+    schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.shift(DateTime.utc_now(), hour: 1))
     delivery = delivery_fixture(schedule, dashboard, recipients: ["noc@example.com"])
 
     assert :ok = ReportDeliveryWorker.perform(%Oban.Job{args: %{"delivery_id" => delivery.id}})
@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
                })
     end)
 
-    schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.add(DateTime.utc_now(), 3600, :second))
+    schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.shift(DateTime.utc_now(), hour: 1))
     delivery = delivery_fixture(schedule, dashboard, recipients: ["noc@example.com"])
 
     assert :ok = ReportDeliveryWorker.perform(%Oban.Job{args: %{"delivery_id" => delivery.id}})
@@ -200,7 +200,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
   end
 
   test "delivery worker records failures on delivery errors", %{scope: scope, dashboard: dashboard} do
-    schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.add(DateTime.utc_now(), 3600, :second))
+    schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.shift(DateTime.utc_now(), hour: 1))
     delivery = delivery_fixture(schedule, dashboard, recipients: [])
 
     assert {:error, :no_recipients} = ReportDeliveryWorker.perform(%Oban.Job{args: %{"delivery_id" => delivery.id}})
@@ -223,7 +223,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
       cron: "* * * * *",
       timezone: "UTC",
       enabled: true,
-      next_due_at: DateTime.add(DateTime.utc_now(), 60, :second)
+      next_due_at: DateTime.shift(DateTime.utc_now(), minute: 1)
     }
 
     {:ok, schedule} = Dashboards.create_authored_report_schedule(scope, Map.merge(defaults, Map.new(attrs)))

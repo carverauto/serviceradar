@@ -133,7 +133,7 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
   def warehouse_counts_sql(now) do
     cutoff =
       now
-      |> DateTime.add(-@window_minutes * 60, :second)
+      |> DateTime.shift(minute: -@window_minutes)
       |> DateTime.to_naive()
       |> NaiveDateTime.truncate(:second)
       |> NaiveDateTime.to_string()

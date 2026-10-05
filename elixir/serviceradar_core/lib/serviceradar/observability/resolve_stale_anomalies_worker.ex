@@ -51,7 +51,7 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorker do
   def perform(_job) do
     now = DateTime.utc_now()
     hours = stale_hours()
-    cutoff = DateTime.add(now, -hours * 3600, :second)
+    cutoff = DateTime.shift(now, hour: -hours)
     live_series_keys = live_episode_series_keys(now)
 
     case StatefulAlertEngine.resolve_stale_anomalies(@rule_name, cutoff, now, live_series_keys) do
@@ -82,7 +82,7 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorker do
     if episode_liveness_check?() do
       cutoff =
         now
-        |> DateTime.add(-episode_freshness_hours() * 3600, :second)
+        |> DateTime.shift(hour: -episode_freshness_hours())
         |> DateTime.to_naive()
         |> NaiveDateTime.truncate(:microsecond)
 

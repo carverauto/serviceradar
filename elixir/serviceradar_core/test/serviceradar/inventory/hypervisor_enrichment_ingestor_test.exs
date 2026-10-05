@@ -88,7 +88,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
       provider: "vsphere",
       provider_ref: "vsphere:vcenter-a:host:host-42",
       name: "old",
-      observed_at: DateTime.add(@observed_at, -60, :second)
+      observed_at: DateTime.shift(@observed_at, minute: -1)
     }
 
     fresh = %{

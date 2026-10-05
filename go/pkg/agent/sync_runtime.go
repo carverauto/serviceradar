@@ -49,6 +49,31 @@ type SyncRuntime struct {
 	stateMu sync.Mutex
 	ctx     context.Context
 	sources map[string]*syncSourceRunner
+
+	// runTimeout overrides the per-run deadline derived from the source's
+	// interval. Zero means derive it (see syncRunTimeout).
+	runTimeout time.Duration
+}
+
+const (
+	minSyncRunTimeout = 15 * time.Minute
+	maxSyncRunTimeout = 2 * time.Hour
+)
+
+// syncRunTimeout is the deadline for one run of source: its schedule interval,
+// clamped to [minSyncRunTimeout, maxSyncRunTimeout]. Runs execute one at a
+// time per source, so a run that never returns would stop the source from
+// syncing until the agent restarts.
+func syncRunTimeout(source models.SourceConfig) time.Duration {
+	interval, _, ok := scheduledSyncRun(source)
+	if !ok || interval < minSyncRunTimeout {
+		return minSyncRunTimeout
+	}
+	if interval > maxSyncRunTimeout {
+		return maxSyncRunTimeout
+	}
+
+	return interval
 }
 
 type syncGateway interface {
@@ -290,8 +315,15 @@ func (r *SyncRuntime) executeRun(ctx context.Context, runner *syncSourceRunner, 
 
 	runID := uuid.NewString()
 
+	timeout := r.runTimeout
+	if timeout <= 0 {
+		timeout = syncRunTimeout(runner.config)
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	start := time.Now()
-	count, err := r.runSourceOnce(ctx, runner, runKind, runID)
+	count, err := r.runSourceOnce(runCtx, runner, runKind, runID)
 	duration := time.Since(start)
 
 	logEvent := r.logger.Info()

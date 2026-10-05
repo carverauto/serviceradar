@@ -60,7 +60,7 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorkerPruneIntegrationTest do
     Application.put_env(:serviceradar_core, :ansible_retention_run_detail_days, 90)
     Application.delete_env(:serviceradar_core, :ansible_retention_run_summary_days)
 
-    run = seed_terminal_run(ended_at: DateTime.add(DateTime.utc_now(), -400, :day))
+    run = seed_terminal_run(ended_at: DateTime.shift(DateTime.utc_now(), day: -400))
 
     # Before the fix this raised Ash.Error.Invalid.NoPrimaryAction from
     # old_terminal_run_ids/2's bare Ash.read! and, once reached, from the
@@ -104,7 +104,7 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorkerPruneIntegrationTest do
       playbook_id: playbook.id,
       controller_id: controller.id,
       state: :succeeded,
-      started_at: DateTime.add(ended_at, -60, :second),
+      started_at: DateTime.shift(ended_at, minute: -1),
       ended_at: ended_at
     })
   end

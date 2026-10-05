@@ -88,7 +88,7 @@ defmodule ServiceRadar.Edge.AgentCommand do
 
         expires_at =
           Ash.Changeset.get_attribute(changeset, :expires_at) ||
-            DateTime.add(DateTime.utc_now(), ttl, :second)
+            DateTime.shift(DateTime.utc_now(), second: ttl)
 
         Ash.Changeset.change_attribute(changeset, :expires_at, expires_at)
       end
@@ -103,7 +103,7 @@ defmodule ServiceRadar.Edge.AgentCommand do
 
         expires_at =
           Ash.Changeset.get_attribute(changeset, :expires_at) ||
-            DateTime.add(DateTime.utc_now(), ttl, :second)
+            DateTime.shift(DateTime.utc_now(), second: ttl)
 
         changeset
         |> Ash.Changeset.force_change_attribute(

@@ -32,7 +32,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.QueryResultsTest do
 
     assert Page.route_target_for_query(@query, "/devices") == {"/dashboard", %{}}
     socket = load_query()
-    assert_receive {:dashboard_query, @query, %{limit: 1000, scope: %{test_pid: owner}}}
+    # The query asks for limit:1000; the results table holds at most one page.
+    assert_receive {:dashboard_query, @query, %{limit: 100, scope: %{test_pid: owner}}}
     assert owner == self()
     assert socket.assigns.query_results == [row]
 
@@ -67,10 +68,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.QueryResultsTest do
     Process.get(:dashboard_query_response)
   end
 
-  defp load_query do
-    socket = %Socket{assigns: %{__changed__: %{}, current_scope: %{test_pid: self()}}}
+  test "the disconnected render runs no query" do
+    Process.put(:dashboard_query_response, {:ok, %{"results" => [%{"id" => "row"}]}})
+    socket = load_query(%Socket{assigns: %{__changed__: %{}, current_scope: %{test_pid: self()}}})
+    refute_received {:dashboard_query, _, _}
+    assert socket.assigns.query_results == []
+  end
+
+  defp load_query(socket \\ connected_socket()) do
     {:noreply, socket} = Index.handle_params(%{"q" => @query}, "/dashboard?#{URI.encode_query(%{"q" => @query})}", socket)
     socket
+  end
+
+  defp connected_socket do
+    %Socket{transport_pid: self(), assigns: %{__changed__: %{}, current_scope: %{test_pid: self()}}}
   end
 
   defp render_results(socket) do

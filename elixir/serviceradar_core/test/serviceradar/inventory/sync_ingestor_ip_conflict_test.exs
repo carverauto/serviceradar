@@ -480,7 +480,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
       stale_at =
         DateTime.utc_now()
-        |> DateTime.add(-30 * 24 * 3600, :second)
+        |> DateTime.shift(day: -30)
         |> DateTime.truncate(:second)
         |> DateTime.to_naive()
 
@@ -841,7 +841,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       "ip" => ip,
       "hostname" => "armis-4705",
       "source" => "armis",
-      "last_seen_time" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), offset, :second)),
+      "last_seen_time" => DateTime.to_iso8601(DateTime.shift(DateTime.utc_now(), second: offset)),
       "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
     }
   end

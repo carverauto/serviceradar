@@ -39,11 +39,11 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     assert :ok = InterfaceThresholdWorker.run(now: t0)
     assert event_count(device_id) == 1
 
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 60, :second))
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 299, :second))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, minute: 1))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 299))
     assert event_count(device_id) == 1
 
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 301, :second))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 301))
     assert event_count(device_id) == 2
   end
 
@@ -55,10 +55,10 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     t0 = DateTime.utc_now()
 
     assert :ok = InterfaceThresholdWorker.run(now: t0)
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 60, :second))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, minute: 1))
     assert event_count(device_id) == 0
 
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 121, :second))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 121))
     assert event_count(device_id) == 1
   end
 
@@ -72,13 +72,13 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     assert :ok = InterfaceThresholdWorker.run(now: t0)
 
     insert_metric!(device_id, 100.0, -1)
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 60, :second))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, minute: 1))
 
     insert_metric!(device_id, 900.0, 0)
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 121, :second))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 121))
     assert event_count(device_id) == 0
 
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 241, :second))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 241))
     assert event_count(device_id) == 1
   end
 
@@ -104,7 +104,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     assert state_count(setting_id) == 1
 
     insert_metric!(device_id, 100.0, 0)
-    assert :ok = InterfaceThresholdWorker.run(now: DateTime.add(t0, 400, :second))
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 400))
     assert state_count(setting_id) == 0
     assert event_count(device_id) == 1
   end

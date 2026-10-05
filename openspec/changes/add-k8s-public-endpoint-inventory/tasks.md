@@ -14,7 +14,7 @@
 - [x] 2.3 EndpointSlice join for backend targets (`targetRef`, ports) → DNAT hints (`VIP:port → podIP:targetPort`)
 - [x] 2.4 Gateway API list path (Gateway + HTTPRoute/TCPRoute/UDPRoute/GRPCRoute/TLSRoute via dynamic client)
 - [x] 2.8 Unit tests (pure fixtures + fake clientset + unstructured Gateway/TCPRoute) proving Forgejo VIP associations
-- [x] 2.8b Live smoke: `k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22` returns LB + Gateway ownership and envoy DNAT hint
+- [x] 2.8b Live smoke: `k8s-inventory snapshot --cluster-id demo --ip 198.51.100.7 --port 22` returns LB + Gateway ownership and envoy DNAT hint
 - [x] 2.9a Bazel BUILD for package + binary (image packaging later)
 
 ### Phase B — continuous collector + publish path (no core ingest yet)
@@ -55,7 +55,7 @@
 
 - [ ] 6.1 Review RBAC: confirm no secrets/pods/exec/nodes access in rendered manifests
 - [ ] 6.2 Document and test: host agent paths unchanged (no new ClusterRole for node agents)
-- [ ] 6.3 Demo validation checklist: resolve `23.138.124.7` → forgejo-gateway + ports 22/443; TCPRoute ssh backend
+- [ ] 6.3 Demo validation checklist: resolve `198.51.100.7` → forgejo-gateway + ports 22/443; TCPRoute ssh backend
 - [ ] 6.4 Document untested/experimental matrix (EKS/GKE/AKS/Tanzu hostname LBs; non-IPVS kube-proxy)
 
 ## 7. Explicitly deferred (track, do not block P0)

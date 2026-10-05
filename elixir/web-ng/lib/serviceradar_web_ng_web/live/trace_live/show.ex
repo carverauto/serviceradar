@@ -847,12 +847,12 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     case parse_timestamp(Map.get(summary, "timestamp")) do
       {:ok, ts} ->
         duration_ms = to_number(Map.get(summary, "duration_ms")) || 0
-        from_dt = DateTime.add(ts, -@log_window_pad_seconds, :second)
+        from_dt = DateTime.shift(ts, second: -@log_window_pad_seconds)
 
         to_dt =
           ts
           |> DateTime.add(round(duration_ms), :millisecond)
-          |> DateTime.add(@log_window_pad_seconds, :second)
+          |> DateTime.shift(second: @log_window_pad_seconds)
 
         {:ok, DateTime.truncate(from_dt, :second), DateTime.truncate(to_dt, :second)}
 

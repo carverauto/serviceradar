@@ -164,10 +164,46 @@ struct Inner {
 
 /// Durable, crash-safe relay spool. Shared (`Arc`) between the
 /// [`super::AgentForwardOutput`] writer and the `RelayOtlp` reader.
+///
+/// Appends, acks and reads take the `inner` lock and may fsync while holding
+/// it (segment rotation, relay-id reservation, watermark advance). Async
+/// callers therefore go through [`Spool::append_batch_blocking`],
+/// [`Spool::advance_watermark_blocking`] and [`SpoolReader::next_frames_blocking`],
+/// which run that work on the blocking pool. Observers (`stats`, `config`,
+/// health checks, [`Spool::wait_for_frame_after`]) read a snapshot published
+/// at the end of every mutation and never wait behind an fsync.
 pub struct Spool {
     inner: Mutex<Inner>,
+    /// State observers read without taking `inner`.
+    snapshot: Mutex<Snapshot>,
+    /// The free-disk probe, shared with `inner`, for lock-free observers.
+    disk_free: Arc<dyn DiskFree>,
     /// Wakes relay readers blocked in [`Spool::wait_for_frame_after`].
     notify: Notify,
+}
+
+/// What observers need, as of the end of the last mutation.
+#[derive(Clone)]
+struct Snapshot {
+    stats: SpoolStats,
+    config: SpoolConfig,
+    max_available_id: u64,
+}
+
+impl Snapshot {
+    fn of(inner: &Inner) -> Self {
+        Self {
+            stats: SpoolStats {
+                watermark: inner.watermark,
+                next_relay_id: inner.next_relay_id,
+                total_bytes: inner.total_bytes(),
+                frames: inner.total_frames(),
+                evicted: inner.evicted,
+            },
+            config: inner.config.clone(),
+            max_available_id: inner.max_available_id(),
+        }
+    }
 }
 
 impl Spool {
@@ -198,7 +234,7 @@ impl Spool {
             ceiling: ceiling.max(next_relay_id),
             watermark,
             evicted: EvictionCounters::default(),
-            disk_free,
+            disk_free: Arc::clone(&disk_free),
         };
 
         inner.release_acked()?;
@@ -219,9 +255,41 @@ impl Spool {
         inner.enforce_limits()?;
 
         Ok(Self {
+            snapshot: Mutex::new(Snapshot::of(&inner)),
+            disk_free,
             inner: Mutex::new(inner),
             notify: Notify::new(),
         })
+    }
+
+    /// Runs one mutation under the `inner` lock and publishes the resulting
+    /// snapshot, on success and on error alike (an eviction may have happened
+    /// before a rejection).
+    fn mutate<T>(&self, f: impl FnOnce(&mut Inner) -> Result<T>) -> Result<T> {
+        let mut inner = self.lock();
+        let result = f(&mut inner);
+        let snapshot = Snapshot::of(&inner);
+        *self.snapshot_lock() = snapshot;
+        result
+    }
+
+    /// [`Spool::append_batch`] on the blocking pool, for async callers: the
+    /// append can fsync while holding the spool lock, which must not happen on
+    /// an async worker thread.
+    pub async fn append_batch_blocking(self: &Arc<Self>, batch: TelemetryBatch) -> Result<u64> {
+        let spool = Arc::clone(self);
+        tokio::task::spawn_blocking(move || spool.append_batch(batch))
+            .await
+            .map_err(|e| anyhow!("spool append task failed: {e}"))?
+    }
+
+    /// [`Spool::advance_watermark`] on the blocking pool, for async callers:
+    /// every ack fsyncs the meta file.
+    pub async fn advance_watermark_blocking(self: &Arc<Self>, acked_relay_id: u64) -> Result<()> {
+        let spool = Arc::clone(self);
+        tokio::task::spawn_blocking(move || spool.advance_watermark(acked_relay_id))
+            .await
+            .map_err(|e| anyhow!("spool ack task failed: {e}"))?
     }
 
     /// Appends one batch as a new [`OtlpRelayFrame`], assigning the next
@@ -234,9 +302,7 @@ impl Spool {
     /// that still cannot make room the error downcasts to [`SpoolFull`] so
     /// the caller can count a per-signal rejection instead of retrying.
     pub fn append_batch(&self, mut batch: TelemetryBatch) -> Result<u64> {
-        let relay_id = {
-            let mut inner = self.lock();
-
+        let relay_id = self.mutate(|inner| {
             // Free-disk floor before any growth (id reservation included:
             // the meta rewrite is itself a write on a possibly-full volume).
             // +64 over-estimates the frame wrapper + length prefix.
@@ -259,8 +325,8 @@ impl Spool {
             inner.append_with_enospc_retry(relay_id, &payload)?;
             inner.maybe_rotate()?;
             inner.enforce_limits()?;
-            relay_id
-        };
+            Ok(relay_id)
+        })?;
 
         self.notify.notify_waiters();
         Ok(relay_id)
@@ -270,10 +336,9 @@ impl Spool {
     /// segments whose every frame is now acked. Acks are cumulative; stale or
     /// duplicate acks are ignored.
     pub fn advance_watermark(&self, acked_relay_id: u64) -> Result<()> {
-        {
-            let mut inner = self.lock();
+        let advanced = self.mutate(|inner| {
             if acked_relay_id <= inner.watermark {
-                return Ok(());
+                return Ok(false);
             }
             inner.watermark = acked_relay_id;
             // Defensive: never assign ids at or below an acked watermark.
@@ -285,38 +350,35 @@ impl Spool {
             }
             write_meta(&inner.config.dir, inner.watermark, inner.ceiling)?;
             inner.release_acked()?;
+            Ok(true)
+        })?;
+        if advanced {
+            self.notify.notify_waiters();
         }
-        self.notify.notify_waiters();
         Ok(())
     }
 
     /// Current spool accounting (watermark, sizes, eviction counters).
+    /// As of the last completed mutation; never waits behind spool IO.
     pub fn stats(&self) -> SpoolStats {
-        let inner = self.lock();
-        SpoolStats {
-            watermark: inner.watermark,
-            next_relay_id: inner.next_relay_id,
-            total_bytes: inner.total_bytes(),
-            frames: inner.total_frames(),
-            evicted: inner.evicted,
-        }
+        self.snapshot_lock().stats
     }
 
     /// Total spool budget, for usage-ratio health checks.
     pub fn max_bytes(&self) -> u64 {
-        self.lock().config.max_bytes
+        self.snapshot_lock().config.max_bytes
     }
 
     /// Snapshot of the spool's current configuration.
     pub fn config(&self) -> SpoolConfig {
-        self.lock().config.clone()
+        self.snapshot_lock().config.clone()
     }
 
     /// Available bytes on the spool volume, per the configured probe
     /// (`None` when the platform cannot report it).
     pub fn disk_free_bytes(&self) -> Option<u64> {
-        let inner = self.lock();
-        inner.disk_free.available_bytes(&inner.config.dir)
+        let dir = self.snapshot_lock().config.dir.clone();
+        self.disk_free.available_bytes(&dir)
     }
 
     /// Applies new bounds to the open spool immediately: `max_bytes`,
@@ -326,23 +388,23 @@ impl Spool {
     /// directory is the spool's identity and cannot change here — callers
     /// must open a new spool to relocate.
     pub fn reconfigure(&self, config: SpoolConfig) -> Result<()> {
-        let mut inner = self.lock();
-        if config.dir != inner.config.dir {
-            return Err(anyhow!(
-                "spool reconfigure cannot change the spool directory (open at {}, requested {})",
-                inner.config.dir.display(),
-                config.dir.display()
-            ));
-        }
-        inner.config = config;
-        inner.enforce_limits()?;
-        Ok(())
+        self.mutate(|inner| {
+            if config.dir != inner.config.dir {
+                return Err(anyhow!(
+                    "spool reconfigure cannot change the spool directory (open at {}, requested {})",
+                    inner.config.dir.display(),
+                    config.dir.display()
+                ));
+            }
+            inner.config = config;
+            inner.enforce_limits()
+        })
     }
 
     /// Creates a reader that resumes from the current ack watermark
     /// (drain-on-reconnect: every unacked frame is replayed in order).
     pub fn reader(self: &Arc<Self>) -> SpoolReader {
-        let watermark = self.lock().watermark;
+        let watermark = self.snapshot_lock().stats.watermark;
         SpoolReader {
             spool: Arc::clone(self),
             segment_first_id: None,
@@ -357,9 +419,9 @@ impl Spool {
         loop {
             let notified = self.notify.notified();
             {
-                let inner = self.lock();
-                let target = relay_id.max(inner.watermark);
-                if inner.max_available_id() > target {
+                let snapshot = self.snapshot_lock();
+                let target = relay_id.max(snapshot.stats.watermark);
+                if snapshot.max_available_id > target {
                     return;
                 }
             }
@@ -369,6 +431,19 @@ impl Spool {
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Holds the spool lock the way an append or ack does across an fsync,
+    /// so tests can stand in for a slow disk.
+    #[cfg(test)]
+    pub(crate) fn stall_io(&self) -> impl Sized + '_ {
+        self.lock()
+    }
+
+    fn snapshot_lock(&self) -> MutexGuard<'_, Snapshot> {
+        self.snapshot
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -491,6 +566,35 @@ mod tests {
 
     use super::testutil::{FakeVolume, segment_count, small_config, test_batch};
     use super::{Spool, SpoolFull, is_enospc};
+
+    #[test]
+    fn observers_do_not_wait_behind_spool_io() {
+        let dir = tempfile::tempdir().unwrap();
+        let spool = Arc::new(Spool::open(small_config(dir.path())).unwrap());
+        let relay_id = spool
+            .append_batch(test_batch(TelemetryPayloadKind::OtlpTraces, vec![3; 64]))
+            .unwrap();
+
+        // An append or ack is mid-fsync on a slow disk.
+        let stalled = spool.stall_io();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let observer = Arc::clone(&spool);
+        std::thread::spawn(move || {
+            let stats = observer.stats();
+            let max_bytes = observer.max_bytes();
+            let config = observer.config();
+            let _ = tx.send((stats, max_bytes, config));
+        });
+
+        let (stats, max_bytes, config) = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("stats/config (health checks) waited behind spool IO");
+        assert_eq!(stats.next_relay_id, relay_id + 1);
+        assert_eq!(stats.frames, 1);
+        assert_eq!(max_bytes, config.max_bytes);
+        drop(stalled);
+    }
 
     #[test]
     fn free_disk_floor_evicts_oldest_and_keeps_accepting() {

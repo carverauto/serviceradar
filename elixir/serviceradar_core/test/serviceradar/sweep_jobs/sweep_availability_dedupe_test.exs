@@ -14,7 +14,7 @@ defmodule ServiceRadar.SweepJobs.SweepAvailabilityDedupeTest do
   end
 
   test "keeps only the freshest row per (device_uid, agent_id)" do
-    older = DateTime.add(DateTime.utc_now(), -60, :second)
+    older = DateTime.shift(DateTime.utc_now(), minute: -1)
     newer = DateTime.utc_now()
 
     deduped =

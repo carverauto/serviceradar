@@ -14,6 +14,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   """
 
   alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
 
   require Logger
 
@@ -29,8 +30,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     "resolved",
     "closed"
   ]
-  @rate_guard_table :serviceradar_anomaly_episode_rate_guard
-  @tripwire_table :serviceradar_anomaly_episode_tripwire
   @default_rate_limit_per_hour 12
   @default_flood_threshold_per_minute 100
   @default_flap_window_seconds 300
@@ -293,23 +292,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   def upsert_sql, do: @upsert_sql
 
   @doc false
-  def reset_rate_guard!, do: delete_table_if_present(@rate_guard_table)
+  def reset_rate_guard!, do: clear_table(AnomalyEpisodeGuardTables.rate_guard_table())
 
   @doc false
-  def reset_tripwire!, do: delete_table_if_present(@tripwire_table)
+  def reset_tripwire!, do: clear_table(AnomalyEpisodeGuardTables.tripwire_table())
 
-  defp delete_table_if_present(table) do
-    case :ets.whereis(table) do
-      :undefined ->
-        :ok
-
-      tid ->
-        :ets.delete(tid)
-        :ok
-    end
+  defp clear_table(table) do
+    :ets.delete_all_objects(table)
+    :ok
   rescue
-    # Test-owned tables are deleted automatically when their owner exits. The
-    # owner can terminate between whereis/1 and delete/1 during ExUnit teardown.
     ArgumentError -> :ok
   end
 
@@ -669,14 +660,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   defp rate_guard_allows?(%{finding_uid: finding_uid} = attrs) do
     limit = rate_limit_per_hour()
 
-    if limit <= 0 do
-      true
-    else
-      table = rate_guard_table()
-      bucket = div(System.system_time(:second), 3600)
-      key = {finding_uid, bucket}
-      count = :ets.update_counter(table, key, {2, 1}, {key, 0})
-
+    # Fails open: no limit configured, or no guard table on this node.
+    with true <- limit > 0,
+         {:ok, count} <- count_rate_guard(finding_uid) do
       if count <= limit do
         true
       else
@@ -694,7 +680,18 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
 
         false
       end
+    else
+      _unlimited_or_unavailable -> true
     end
+  end
+
+  defp count_rate_guard(finding_uid) do
+    key = {finding_uid, div(System.system_time(:second), 3600)}
+
+    {:ok,
+     :ets.update_counter(AnomalyEpisodeGuardTables.rate_guard_table(), key, {2, 1}, {key, 0})}
+  rescue
+    ArgumentError -> :unavailable
   end
 
   defp rate_limit_per_hour do
@@ -721,38 +718,25 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     end
   end
 
-  defp rate_guard_table do
-    case :ets.whereis(@rate_guard_table) do
-      :undefined ->
-        try do
-          :ets.new(@rate_guard_table, [
-            :named_table,
-            :public,
-            read_concurrency: true,
-            write_concurrency: true
-          ])
-        rescue
-          ArgumentError ->
-            :ets.whereis(@rate_guard_table)
-        end
-
-      tid ->
-        tid
-    end
-  end
-
   defp record_tripwire(attrs) do
     threshold = flood_threshold_per_minute()
 
-    if threshold > 0 do
-      table = tripwire_table()
-      bucket = div(System.system_time(:second), 60)
-      count = :ets.update_counter(table, {:count, bucket}, {2, 1}, {{:count, bucket}, 0})
-
-      if count > threshold and :ets.insert_new(table, {{:fired, bucket}, true}) do
-        publish_flood_event(attrs, count, threshold)
-      end
+    with true <- threshold > 0,
+         {:ok, count, true} <- count_tripwire(threshold) do
+      publish_flood_event(attrs, count, threshold)
     end
+  end
+
+  # Returns whether this call is the one that crossed the threshold in the
+  # current minute. No tripwire table on this node: the tripwire is off,
+  # ingestion is not.
+  defp count_tripwire(threshold) do
+    table = AnomalyEpisodeGuardTables.tripwire_table()
+    bucket = div(System.system_time(:second), 60)
+    count = :ets.update_counter(table, {:count, bucket}, {2, 1}, {{:count, bucket}, 0})
+    {:ok, count, count > threshold and :ets.insert_new(table, {{:fired, bucket}, true})}
+  rescue
+    ArgumentError -> :unavailable
   end
 
   defp flood_threshold_per_minute do
@@ -762,26 +746,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     case configured do
       value when is_integer(value) and value >= 0 -> value
       _ -> @default_flood_threshold_per_minute
-    end
-  end
-
-  defp tripwire_table do
-    case :ets.whereis(@tripwire_table) do
-      :undefined ->
-        try do
-          :ets.new(@tripwire_table, [
-            :named_table,
-            :public,
-            read_concurrency: true,
-            write_concurrency: true
-          ])
-        rescue
-          ArgumentError ->
-            :ets.whereis(@tripwire_table)
-        end
-
-      tid ->
-        tid
     end
   end
 

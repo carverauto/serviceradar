@@ -171,7 +171,7 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
         |> Map.put(
           "modified_since",
           now
-          |> DateTime.add(-@completed_walk_overlap_seconds, :second)
+          |> DateTime.shift(second: -@completed_walk_overlap_seconds)
           |> DateTime.truncate(:second)
           |> DateTime.to_iso8601()
         )

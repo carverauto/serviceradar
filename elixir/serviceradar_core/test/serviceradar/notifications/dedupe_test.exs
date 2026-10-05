@@ -463,22 +463,22 @@ defmodule ServiceRadar.Notifications.DedupeTest do
     end
 
     test "is false before the cadence elapses" do
-      last = DateTime.add(@now, -120, :second)
+      last = DateTime.shift(@now, minute: -2)
       refute Dedupe.renotify_due?(last, 600, @now)
     end
 
     test "is true exactly on the boundary" do
-      last = DateTime.add(@now, -600, :second)
+      last = DateTime.shift(@now, minute: -10)
       assert Dedupe.renotify_due?(last, 600, @now)
     end
 
     test "is true after the cadence elapses" do
-      last = DateTime.add(@now, -601, :second)
+      last = DateTime.shift(@now, second: -601)
       assert Dedupe.renotify_due?(last, 600, @now)
     end
 
     test "a zero or nil cadence makes every repeat due" do
-      last = DateTime.add(@now, -1, :second)
+      last = DateTime.shift(@now, second: -1)
       assert Dedupe.renotify_due?(last, 0, @now)
       assert Dedupe.renotify_due?(last, nil, @now)
     end
@@ -492,18 +492,18 @@ defmodule ServiceRadar.Notifications.DedupeTest do
   describe "evaluate_cadence/2" do
     test "withholds inside the rule cooldown and names the throttled reason" do
       cadence = %{
-        last_notified_at: DateTime.add(@now, -120, :second),
+        last_notified_at: DateTime.shift(@now, minute: -2),
         cooldown_seconds: 600
       }
 
       assert {:withheld, :throttled, details} = Dedupe.evaluate_cadence(cadence, @now)
       assert details.effective_seconds == 600
-      assert details.next_eligible_at == DateTime.add(@now, 480, :second)
+      assert details.next_eligible_at == DateTime.shift(@now, minute: 8)
     end
 
     test "is due once the renotify interval elapses and reuses no other knob" do
       cadence = %{
-        last_notified_at: DateTime.add(@now, -21_600, :second),
+        last_notified_at: DateTime.shift(@now, hour: -6),
         renotify_seconds: 21_600
       }
 
@@ -518,7 +518,7 @@ defmodule ServiceRadar.Notifications.DedupeTest do
 
     test "a notification-layer knob cannot page more often than the rule allows" do
       cadence = %{
-        last_notified_at: DateTime.add(@now, -400, :second),
+        last_notified_at: DateTime.shift(@now, second: -400),
         cooldown_seconds: 600,
         throttle_seconds: 60
       }
@@ -528,7 +528,7 @@ defmodule ServiceRadar.Notifications.DedupeTest do
     end
 
     test "is deterministic for the same inputs" do
-      cadence = %{last_notified_at: DateTime.add(@now, -120, :second), cooldown_seconds: 600}
+      cadence = %{last_notified_at: DateTime.shift(@now, minute: -2), cooldown_seconds: 600}
       decisions = for _repeat <- 1..25, do: Dedupe.evaluate_cadence(cadence, @now)
       assert length(Enum.uniq(decisions)) == 1
     end

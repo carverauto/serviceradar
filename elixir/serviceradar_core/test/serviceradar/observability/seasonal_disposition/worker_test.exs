@@ -242,7 +242,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
       "bucket_count" => length(baseline_points) + 1,
       "bucket_sum" => sum,
       "bucket_sum_sq" => sum_sq,
-      "bucket" => DateTime.add(@bucket_at, dow * 86_400 + hod * 3_600, :second)
+      "bucket" => DateTime.shift(@bucket_at, second: dow * 86_400 + hod * 3_600)
     }
   end
 
@@ -748,7 +748,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
           "robust_bucket_count" => historical,
           "center" => if(historical == 0, do: nil, else: 10.0),
           "mad" => if(historical == 0, do: nil, else: 1.0),
-          "bucket" => DateTime.add(~U[2026-06-07 00:00:00Z], hod * 3_600, :second)
+          "bucket" => DateTime.shift(~U[2026-06-07 00:00:00Z], hour: hod)
         }
       end
 
@@ -945,7 +945,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
   end
 
   defp chronological_row(series, hour, value, baseline \\ [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]) do
-    bucket = DateTime.add(~U[2026-01-04 23:00:00Z], hour * 3_600, :second)
+    bucket = DateTime.shift(~U[2026-01-04 23:00:00Z], hour: hour)
     dow = rem(Date.day_of_week(DateTime.to_date(bucket)), 7)
 
     series

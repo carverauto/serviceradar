@@ -451,7 +451,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
          cutoff:
            opts
            |> Keyword.get(:now, DateTime.utc_now())
-           |> DateTime.add(-settings.source_retirement_min_absence_hours * 3_600, :second),
+           |> DateTime.shift(hour: -settings.source_retirement_min_absence_hours),
          uids: Keyword.get(opts, :uids),
          actor: Keyword.get(opts, :actor, SystemActor.system(:source_retirement))
        }}

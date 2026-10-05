@@ -227,7 +227,7 @@ defmodule ServiceRadar.Notifications.Escalation do
   """
   @spec due_at(DateTime.t(), non_neg_integer()) :: DateTime.t()
   def due_at(%DateTime{} = origin, delay_seconds) when is_integer(delay_seconds) do
-    DateTime.add(origin, delay_seconds, :second)
+    DateTime.shift(origin, second: delay_seconds)
   end
 
   # --- Candidate generation -------------------------------------------------
@@ -253,7 +253,7 @@ defmodule ServiceRadar.Notifications.Escalation do
   defp cycle_origin(origin, 0, _span, _interval), do: origin
 
   defp cycle_origin(origin, cycle, span, interval) when is_integer(interval) do
-    DateTime.add(origin, cycle * (span + interval), :second)
+    DateTime.shift(origin, second: cycle * (span + interval))
   end
 
   defp ladder_span([]), do: 0

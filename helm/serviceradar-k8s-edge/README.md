@@ -104,12 +104,16 @@ kubectl -n serviceradar-edge logs deploy/acme-edge -c k8s-inventory --tail=50
 kubectl -n serviceradar-edge logs deploy/acme-edge -c agent --tail=50
 ```
 
-On the platform (once agent_spool path is fully wired — see OpenSpec
+On the platform (agent_spool path — see OpenSpec
 `add-remote-k8s-inventory-via-agent`):
 
 ```text
 in:public_endpoints cluster_id:acme-prod-eks limit:20
 ```
+
+Agent-spooled snapshots additionally require a Kubernetes inventory cluster
+binding; without it the snapshot is rejected before any write. See
+`docs/docs/k8s-public-endpoint-inventory.md`.
 
 ## Status of the agent_spool data path
 

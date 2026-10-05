@@ -85,9 +85,9 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecoveryTest do
     now = ~U[2026-07-15 12:00:00.000000Z]
 
     assert Lease.claimable?(:requested, nil, now)
-    refute Lease.claimable?(:executing, DateTime.add(now, 1, :second), now)
+    refute Lease.claimable?(:executing, DateTime.shift(now, second: 1), now)
     assert Lease.claimable?(:executing, now, now)
-    assert Lease.claimable?(:executing, DateTime.add(now, -1, :second), now)
+    assert Lease.claimable?(:executing, DateTime.shift(now, second: -1), now)
     refute Lease.claimable?(:reconciled, nil, now)
   end
 

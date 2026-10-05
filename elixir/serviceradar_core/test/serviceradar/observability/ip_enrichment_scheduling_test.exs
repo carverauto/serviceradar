@@ -61,7 +61,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentSchedulingTest do
 
   test "ensure_scheduled/0 rescues only refresh jobs executing past the stale threshold" do
     now = DateTime.utc_now()
-    stale = insert_executing_refresh_job!(DateTime.add(now, -7_200, :second))
+    stale = insert_executing_refresh_job!(DateTime.shift(now, hour: -2))
     running = insert_executing_refresh_job!(now)
     expected = %{stale.id => "available", running.id => "executing"}
 
@@ -83,7 +83,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentSchedulingTest do
   end
 
   defp backdate_inserted_at!(%Oban.Job{id: id}, seconds) do
-    inserted_at = DateTime.add(DateTime.utc_now(), -seconds, :second)
+    inserted_at = DateTime.shift(DateTime.utc_now(), second: -seconds)
     query = from(job in Oban.Job, where: job.id == ^id)
 
     {1, _} = Repo.update_all(query, set: [inserted_at: inserted_at])

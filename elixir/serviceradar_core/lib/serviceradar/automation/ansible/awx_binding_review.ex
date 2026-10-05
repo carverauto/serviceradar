@@ -363,7 +363,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxBindingReview do
       "current" => true,
       "approval_state" => "approved",
       "approval_id" => Ash.UUID.generate(),
-      "approval_expires_at" => DateTime.add(now, ttl, :second),
+      "approval_expires_at" => DateTime.shift(now, second: ttl),
       "reviewed_by_principal_type" => "human",
       "reviewed_by_principal_id" => reviewer_id,
       "reviewed_at" => now

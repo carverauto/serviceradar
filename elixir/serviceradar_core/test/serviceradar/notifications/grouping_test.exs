@@ -14,7 +14,7 @@ defmodule ServiceRadar.Notifications.GroupingTest do
              step_number: 1,
              first_step_number: 1,
              last_sent_at: nil
-           }) == DateTime.add(@due, 30, :second)
+           }) == DateTime.shift(@due, second: 30)
 
     assert Grouping.not_before(%{
              route: route,
@@ -26,7 +26,7 @@ defmodule ServiceRadar.Notifications.GroupingTest do
   end
 
   test "holds a later update until the group interval elapses" do
-    last_sent_at = DateTime.add(@due, -60, :second)
+    last_sent_at = DateTime.shift(@due, minute: -1)
 
     assert Grouping.not_before(%{
              route: %{group_wait_seconds: 30, group_interval_seconds: 300},
@@ -34,7 +34,7 @@ defmodule ServiceRadar.Notifications.GroupingTest do
              step_number: 1,
              first_step_number: 1,
              last_sent_at: last_sent_at
-           }) == DateTime.add(last_sent_at, 300, :second)
+           }) == DateTime.shift(last_sent_at, minute: 5)
   end
 
   test "never moves a dispatch earlier than the escalation due instant" do
@@ -43,7 +43,7 @@ defmodule ServiceRadar.Notifications.GroupingTest do
              due_at: @due,
              step_number: 1,
              first_step_number: 1,
-             last_sent_at: DateTime.add(@due, -300, :second)
+             last_sent_at: DateTime.shift(@due, minute: -5)
            }) == @due
   end
 

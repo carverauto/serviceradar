@@ -65,7 +65,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
 
     case Map.get(source, :northbound_last_run_at) do
       %DateTime{} = last_run_at ->
-        next_run_at = DateTime.add(last_run_at, interval, :second)
+        next_run_at = DateTime.shift(last_run_at, second: interval)
         max(DateTime.diff(next_run_at, now, :second), 0)
 
       _ ->

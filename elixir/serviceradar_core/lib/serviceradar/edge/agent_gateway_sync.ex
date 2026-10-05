@@ -1046,7 +1046,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   # not keep holding an address.
   defp live_agent?(agent_id, actor) do
     agent_id = normalize_optional_string(agent_id)
-    cutoff = DateTime.add(DateTime.utc_now(), -@agent_live_window_minutes * 60, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), minute: -@agent_live_window_minutes)
 
     Agent
     |> Ash.Query.for_read(:read, %{})

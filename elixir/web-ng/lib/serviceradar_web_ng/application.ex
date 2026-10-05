@@ -66,7 +66,9 @@ defmodule ServiceRadarWebNG.Application do
           base_children ++
           [
             ServiceRadarWebNG.FieldSurveyStreamLimiter,
-            {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
+            {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor},
+            # After the task supervisor: its shutdown flush writes through it.
+            ServiceRadarWebNG.ApiTokenUsage
           ]
       )
 

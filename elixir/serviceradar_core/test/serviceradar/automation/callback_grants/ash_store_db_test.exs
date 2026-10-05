@@ -610,7 +610,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
       action_version: "1.0.0",
       audience: "serviceradar.awx.callback/v1",
       issued_at: now,
-      expires_at: DateTime.add(now, 300),
+      expires_at: DateTime.shift(now, minute: 5),
       budget_total: 1,
       budget_remaining: 1,
       target_keys: [String.duplicate("9", 64)],

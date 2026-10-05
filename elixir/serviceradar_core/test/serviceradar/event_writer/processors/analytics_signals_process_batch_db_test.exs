@@ -1,6 +1,7 @@
 defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
@@ -83,6 +84,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Application.put_env(:serviceradar_core, :anomaly_episodes_enabled, true)
     Application.put_env(:serviceradar_core, :anomaly_episode_stale_after_minutes, 30)
+
+    if !Process.whereis(AnomalyEpisodeGuardTables),
+      do: start_supervised!(AnomalyEpisodeGuardTables)
+
     AnomalyEpisodeRegistry.reset_rate_guard!()
     AnomalyEpisodeRegistry.reset_tripwire!()
 
@@ -303,7 +308,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     assert payload_bytes < 2_048
 
-    old_seen_at = DateTime.add(DateTime.utc_now(), -3_600, :second)
+    old_seen_at = DateTime.shift(DateTime.utc_now(), hour: -1)
 
     Repo.query!(
       "UPDATE platform.anomaly_episodes SET last_seen_at = $2 WHERE series_key = $1",

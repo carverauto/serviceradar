@@ -87,6 +87,25 @@ impl SpoolReader {
         }
     }
 
+    /// Reads up to `max` frames on the blocking pool, for async callers:
+    /// reading takes the spool lock, which an append may hold across an
+    /// fsync. Returns the reader with the frames read (empty when caught up).
+    /// A read error consumes the reader; the caller stops relaying.
+    pub async fn next_frames_blocking(mut self, max: usize) -> Result<(Self, Vec<OtlpRelayFrame>)> {
+        tokio::task::spawn_blocking(move || {
+            let mut frames = Vec::new();
+            while frames.len() < max {
+                match self.try_next()? {
+                    Some(frame) => frames.push(frame),
+                    None => break,
+                }
+            }
+            Ok((self, frames))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("spool read task failed: {e}"))?
+    }
+
     /// Awaits the next unacked frame.
     pub async fn next_frame(&mut self) -> Result<OtlpRelayFrame> {
         loop {

@@ -96,7 +96,7 @@ defmodule ServiceRadar.Notifications.DeliveryRetentionTest do
   # `inserted_at` is a create timestamp, so aging a row is a database edit
   # rather than an attribute the resource accepts.
   defp backdate!(id, days) do
-    cutoff = DateTime.add(@now, -days * 86_400, :second)
+    cutoff = DateTime.shift(@now, day: -days)
 
     SQL.query!(
       Repo,

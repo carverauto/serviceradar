@@ -41,7 +41,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionPolicyTest do
     changeset =
       Ash.Changeset.for_create(RemoteAccessSession, :create, %{
         attach_ticket_hash: unique("ticket"),
-        attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+        attach_expires_at: DateTime.shift(DateTime.utc_now(), minute: 1),
         target_kind: :inventory_device,
         target_host: "target.example.test",
         target_port: port,

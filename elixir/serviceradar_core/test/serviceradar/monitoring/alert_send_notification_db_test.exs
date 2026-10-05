@@ -68,7 +68,7 @@ defmodule ServiceRadar.Monitoring.AlertSendNotificationDbTest do
       alert
       |> Ash.Changeset.for_update(
         :snooze,
-        %{snooze_until: DateTime.add(DateTime.utc_now(), 3600, :second)},
+        %{snooze_until: DateTime.shift(DateTime.utc_now(), hour: 1)},
         actor: actor
       )
       |> Ash.update()

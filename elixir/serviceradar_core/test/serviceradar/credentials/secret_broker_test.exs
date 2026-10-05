@@ -139,7 +139,7 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest do
   defp grant_for(secret, id, opts) do
     expires_at =
       opts
-      |> Keyword.get(:expires_at, DateTime.add(DateTime.utc_now(), 300, :second))
+      |> Keyword.get(:expires_at, DateTime.shift(DateTime.utc_now(), minute: 5))
       |> DateTime.truncate(:second)
 
     %{

@@ -1,6 +1,7 @@
 defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
 
@@ -60,6 +61,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
 
     Application.put_env(:serviceradar_core, :anomaly_episodes_enabled, true)
     Process.put(:episode_test_pid, self())
+
+    if !Process.whereis(AnomalyEpisodeGuardTables),
+      do: start_supervised!(AnomalyEpisodeGuardTables)
+
     AnomalyEpisodeRegistry.reset_rate_guard!()
     AnomalyEpisodeRegistry.reset_tripwire!()
 
@@ -208,6 +213,44 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
     assert finding_uid == row.metadata["service_radar"]["finding_uid"]
   end
 
+  test "the rate limit outlives the process that first counted a finding" do
+    Application.put_env(:serviceradar_core, :anomaly_episode_rate_limit_per_hour, 1)
+    row = anomaly_row("anomaly_open", severity_id: 4)
+    test_pid = self()
+
+    first =
+      fn ->
+        Process.put(:episode_test_pid, test_pid)
+        AnomalyEpisodeRegistry.transition_rows([row], RepoStub)
+      end
+      |> Task.async()
+      |> Task.await()
+
+    assert [_row] = first
+    assert [] = AnomalyEpisodeRegistry.transition_rows([row], RepoStub)
+  end
+
+  test "pruning drops counters from past buckets and keeps the current ones" do
+    row = anomaly_row("anomaly_open", severity_id: 4)
+    assert [_row] = AnomalyEpisodeRegistry.transition_rows([row], RepoStub)
+
+    # One rate-guard count for the finding this hour, one tripwire count this minute.
+    assert AnomalyEpisodeGuardTables.size() == 2
+    assert AnomalyEpisodeGuardTables.prune() == 0
+    assert AnomalyEpisodeGuardTables.prune(System.system_time(:second) + 7_200) == 2
+    assert AnomalyEpisodeGuardTables.size() == 0
+  end
+
+  test "without the guard tables the rate guard and tripwire fail open" do
+    Application.put_env(:serviceradar_core, :anomaly_episode_rate_limit_per_hour, 1)
+    Application.put_env(:serviceradar_core, :anomaly_ingest_flood_threshold_per_minute, 1)
+    stop_guard_tables()
+    row = anomaly_row("anomaly_open", severity_id: 4)
+
+    assert [_row] = AnomalyEpisodeRegistry.transition_rows([row], RepoStub)
+    assert [_row] = AnomalyEpisodeRegistry.transition_rows([row], RepoStub)
+  end
+
   test "flood tripwire emits one operational event when per-minute upserts cross threshold" do
     Application.put_env(:serviceradar_core, :anomaly_ingest_flood_threshold_per_minute, 1)
 
@@ -325,6 +368,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
         received_at: ~U[2026-07-04 12:00:00Z]
       }
     })
+  end
+
+  defp stop_guard_tables do
+    :ok = stop_supervised(AnomalyEpisodeGuardTables)
+    refute Process.whereis(AnomalyEpisodeGuardTables)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)

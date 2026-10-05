@@ -349,7 +349,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ProviderUploadTest do
     %{
       id: "0000000#{sequence}-0000-0000-0000-000000000000",
       changes: changes,
-      version_inserted_at: DateTime.add(~U[2026-01-01 00:00:00Z], sequence, :second),
+      version_inserted_at: DateTime.shift(~U[2026-01-01 00:00:00Z], second: sequence),
       version_action_name: Keyword.get(opts, :action, "update"),
       version_action_type: "update"
     }

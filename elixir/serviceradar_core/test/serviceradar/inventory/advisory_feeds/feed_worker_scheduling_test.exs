@@ -61,7 +61,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerSchedulingTest do
     assert [%Oban.Job{conflict?: false, args: %{"feed" => "nist-nvd2"}} = successor] =
              successors
 
-    scheduled_from = DateTime.add(successor.scheduled_at, -7_200, :second)
+    scheduled_from = DateTime.shift(successor.scheduled_at, hour: -2)
 
     assert DateTime.compare(scheduled_from, before_perform) in [:eq, :gt]
     assert DateTime.compare(scheduled_from, after_perform) in [:eq, :lt]

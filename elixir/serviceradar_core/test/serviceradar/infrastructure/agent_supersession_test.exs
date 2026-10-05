@@ -199,7 +199,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   defp went_quiet!(agent_uid) do
     Repo.query!(
       "UPDATE platform.ocsf_agents SET last_seen_time = $1 WHERE uid = $2",
-      [DateTime.add(DateTime.utc_now(), -86_400, :second), agent_uid]
+      [DateTime.shift(DateTime.utc_now(), day: -1), agent_uid]
     )
   end
 

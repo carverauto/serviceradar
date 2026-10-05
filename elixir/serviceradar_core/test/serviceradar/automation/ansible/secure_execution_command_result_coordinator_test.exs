@@ -167,7 +167,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         expected_job_id: 77,
         candidate_job_ids: [],
         state: :dispatched,
-        deadline_at: DateTime.add(DateTime.utc_now(), 60, :second)
+        deadline_at: DateTime.shift(DateTime.utc_now(), minute: 1)
       )
 
     sync_secret = Ash.UUID.generate()
@@ -262,7 +262,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
       },
       "allow" => scope.allow,
       "ttl_seconds" => 300,
-      "expires_at" => DateTime.utc_now() |> DateTime.add(300) |> DateTime.to_iso8601()
+      "expires_at" => DateTime.utc_now() |> DateTime.shift(minute: 5) |> DateTime.to_iso8601()
     }
 
     command = %{

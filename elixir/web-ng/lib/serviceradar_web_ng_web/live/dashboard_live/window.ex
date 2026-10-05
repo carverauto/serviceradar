@@ -20,7 +20,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Window do
   def resolve(value, kind, now \\ DateTime.utc_now()) do
     value = normalize(value, kind)
     {^value, label, seconds} = Enum.find(@presets, &(elem(&1, 0) == value))
-    %{value: value, label: label, start: DateTime.add(now, -seconds, :second), end: now, seconds: seconds}
+    %{value: value, label: label, start: DateTime.shift(now, second: -seconds), end: now, seconds: seconds}
   end
 
   def label(value), do: Enum.find_value(@presets, fn {preset, label, _} -> if preset == value, do: label end)

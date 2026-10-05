@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
       confidence: 80,
       first_seen_at: now,
       last_seen_at: now,
-      expires_at: DateTime.add(now, seconds, :second)
+      expires_at: DateTime.shift(now, second: seconds)
     })
     |> Ash.create!(actor: actor)
 
@@ -136,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
       max_severity: 4,
       sources: [source],
       looked_up_at: now,
-      expires_at: DateTime.add(now, seconds, :second)
+      expires_at: DateTime.shift(now, second: seconds)
     })
     |> Ash.create!(actor: system_actor())
   end

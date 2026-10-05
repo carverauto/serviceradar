@@ -86,7 +86,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
 
     assert {:error, :invalid_launch_envelope_expiry} =
              issued_at
-             |> DateTime.add(601, :second)
+             |> DateTime.shift(second: 601)
              |> context_attrs()
              |> Context.new(issued_at: issued_at)
   end
@@ -132,7 +132,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
     issued_at = ~U[2026-07-13 01:00:00.000000Z]
 
     issued_at
-    |> DateTime.add(300, :second)
+    |> DateTime.shift(minute: 5)
     |> context_attrs()
     |> Context.new(issued_at: issued_at)
     |> then(fn {:ok, context} -> context end)
@@ -185,7 +185,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
       callback_credential_type_id: context.callback_credential_type_id + 1,
       callback_credential_organization_id: context.callback_credential_organization_id + 1,
       callback_credential_injector_sha256: String.duplicate("1", 64),
-      expires_at: DateTime.add(context.expires_at, -1, :second)
+      expires_at: DateTime.shift(context.expires_at, second: -1)
     ]
   end
 

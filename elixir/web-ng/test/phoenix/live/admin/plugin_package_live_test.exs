@@ -598,7 +598,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     |> Ash.Changeset.force_change_attribute(:status, :unavailable)
     |> Ash.Changeset.force_change_attribute(
       :last_seen_time,
-      DateTime.add(DateTime.utc_now(), -3_600, :second)
+      DateTime.shift(DateTime.utc_now(), hour: -1)
     )
     |> Ash.update!()
 

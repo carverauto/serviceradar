@@ -30,7 +30,7 @@ defmodule ServiceRadar.Identity.SAMLConsumedAssertionTest do
     actor: actor,
     issuer: issuer
   } do
-    not_on_or_after = DateTime.add(DateTime.utc_now(), 120, :second)
+    not_on_or_after = DateTime.shift(DateTime.utc_now(), minute: 2)
 
     assert {:ok, _row} =
              SAMLConsumedAssertion.record(issuer, "_assertion-1", not_on_or_after, actor: actor)
@@ -71,7 +71,7 @@ defmodule ServiceRadar.Identity.SAMLConsumedAssertionTest do
         SAMLConsumedAssertion.record(
           issuer,
           assertion_id,
-          DateTime.add(now, offset_seconds, :second),
+          DateTime.shift(now, second: offset_seconds),
           actor: actor
         )
     end

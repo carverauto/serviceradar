@@ -93,7 +93,7 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
   @impl Oban.Worker
   def perform(_job) do
     now = DateTime.utc_now()
-    retention_cutoff = DateTime.add(now, -retention_days() * 86_400, :second)
+    retention_cutoff = DateTime.shift(now, day: -retention_days())
 
     expire_stale_commands(now)
     delete_old_commands(retention_cutoff)

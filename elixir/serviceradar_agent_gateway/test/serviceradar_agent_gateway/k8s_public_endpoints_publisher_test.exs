@@ -73,6 +73,7 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisherTest do
              K8sPublicEndpointsPublisher.publish(%{
                service_type: "k8s_public_endpoints",
                agent_id: "a1",
+               partition: "SITE01",
                message: huge
              })
 
@@ -89,7 +90,24 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisherTest do
              K8sPublicEndpointsPublisher.publish(%{
                service_type: "k8s_public_endpoints",
                agent_id: "a1",
+               partition: "SITE01",
                message: "{}"
              })
+  end
+
+  test "rejects inventory without complete authenticated provenance" do
+    Application.put_env(:serviceradar_agent_gateway, :k8s_public_endpoints_publisher,
+      enabled: true,
+      connection: FakeNATS
+    )
+
+    assert {:error, :missing_inventory_provenance} =
+             K8sPublicEndpointsPublisher.publish(%{
+               service_type: "k8s_public_endpoints",
+               agent_id: "agent-example-1",
+               message: ~s({"cluster_id":"cluster-example-1","endpoints":[]})
+             })
+
+    refute_receive {:published, _subject, _payload, _opts}
   end
 end

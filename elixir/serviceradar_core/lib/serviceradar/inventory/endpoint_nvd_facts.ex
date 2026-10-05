@@ -24,11 +24,39 @@ defmodule ServiceRadar.Inventory.EndpointNvdFacts do
   @spec build(map() | nil, [map()], map()) :: map()
   def build(current_package, current_packages, context)
       when is_list(current_packages) and is_map(context) do
+    build_with_application_cpes(
+      current_package,
+      device_application_cpes(current_packages),
+      context
+    )
+  end
+
+  def build(current_package, _current_packages, context) when is_map(context),
+    do: build(current_package, [], context)
+
+  def build(current_package, current_packages, _context),
+    do: build(current_package, current_packages, %{})
+
+  @doc """
+  The application CPEs of a device's current packages, as `build/3` derives
+  them. A caller building facts for every package of one device computes this
+  once and passes it to `build_with_application_cpes/3`, instead of re-parsing
+  every package's CPEs for each package.
+  """
+  @spec device_application_cpes([map()]) :: [map()]
+  def device_application_cpes(current_packages) when is_list(current_packages),
+    do: Enum.flat_map(current_packages, &package_cpes/1)
+
+  @doc """
+  `build/3` with the device's application CPEs already computed by
+  `device_application_cpes/1`.
+  """
+  @spec build_with_application_cpes(map() | nil, [map()], map()) :: map()
+  def build_with_application_cpes(current_package, application_cpes, context)
+      when is_list(application_cpes) and is_map(context) do
     %{
       "current_application_cpes" => package_cpes(current_package),
-      "application_cpes" =>
-        Enum.flat_map(current_packages, &package_cpes/1) ++
-          context_cpes(context, :application_cpes),
+      "application_cpes" => application_cpes ++ context_cpes(context, :application_cpes),
       "application_inventory_complete" => application_complete?(current_package, context),
       "os" => os_fact(current_package, context),
       "os_cpes" => context_cpes(context, :os_cpes),
@@ -38,12 +66,6 @@ defmodule ServiceRadar.Inventory.EndpointNvdFacts do
       "runtime_inventory_complete" => explicit_boolean(context, :runtime_inventory_complete)
     }
   end
-
-  def build(current_package, _current_packages, context) when is_map(context),
-    do: build(current_package, [], context)
-
-  def build(current_package, current_packages, _context),
-    do: build(current_package, current_packages, %{})
 
   defp package_cpes(package) when is_map(package) do
     package_version = value(package, :version)

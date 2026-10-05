@@ -97,7 +97,7 @@ defmodule ServiceRadar.Notifications.DispatcherTelemetryTest do
 
     test "an unrouted alert emits routed with no matches and a suppressed event", %{actor: actor} do
       alert = create_alert!(actor)
-      now = DateTime.add(alert.triggered_at, 1, :second)
+      now = DateTime.shift(alert.triggered_at, second: 1)
 
       assert {:ok, %{planned: [], suppressed: [id]}} =
                Dispatcher.route(alert.id, :fire, actor: actor, now: now)
@@ -122,7 +122,7 @@ defmodule ServiceRadar.Notifications.DispatcherTelemetryTest do
 
     test "a repeat carries the incremented occurrence count", %{actor: actor} do
       alert = create_alert!(actor)
-      now = DateTime.add(alert.triggered_at, 1, :second)
+      now = DateTime.shift(alert.triggered_at, second: 1)
 
       assert {:ok, _first} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
       assert_receive {:telemetry, [:serviceradar, :notifications, :suppressed], first, _metadata}
@@ -131,7 +131,7 @@ defmodule ServiceRadar.Notifications.DispatcherTelemetryTest do
       assert {:ok, _second} =
                Dispatcher.route(alert.id, :fire,
                  actor: actor,
-                 now: DateTime.add(now, 30, :second)
+                 now: DateTime.shift(now, second: 30)
                )
 
       assert_receive {:telemetry, [:serviceradar, :notifications, :suppressed], second, _metadata}
@@ -153,7 +153,7 @@ defmodule ServiceRadar.Notifications.DispatcherTelemetryTest do
       assert {:ok, %{planned: [_first]}} =
                Dispatcher.route(alert.id, :fire, actor: actor, now: now)
 
-      later = DateTime.add(alert.triggered_at, 120, :second)
+      later = DateTime.shift(alert.triggered_at, minute: 2)
 
       assert {:ok, %{planned: [second_id]}} =
                Dispatcher.route(alert.id, :escalate, actor: actor, now: later)
@@ -197,7 +197,7 @@ defmodule ServiceRadar.Notifications.DispatcherTelemetryTest do
 
       # Five minutes after the alert fired. Measuring from `queued_at` would
       # report a near-zero latency for a page that took five minutes to land.
-      now = DateTime.add(alert.triggered_at, 300, :second)
+      now = DateTime.shift(alert.triggered_at, minute: 5)
 
       assert {:ok, :sent} =
                Dispatcher.deliver(id, actor: actor, now: now, transport: StubTransport)
@@ -331,7 +331,7 @@ defmodule ServiceRadar.Notifications.DispatcherTelemetryTest do
       alert: alert,
       channel: channel,
       policy: policy,
-      now: DateTime.add(alert.triggered_at, 1, :second)
+      now: DateTime.shift(alert.triggered_at, second: 1)
     }
   end
 
@@ -343,7 +343,7 @@ defmodule ServiceRadar.Notifications.DispatcherTelemetryTest do
     create_route!(actor, policy)
 
     alert = create_alert!(actor)
-    now = DateTime.add(alert.triggered_at, 1, :second)
+    now = DateTime.shift(alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
 

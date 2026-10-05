@@ -66,7 +66,7 @@ defmodule ServiceRadar.Identity.DeviceAuthorizationTest do
             user_code: "WDJB-MJHT",
             client_id: "serviceradar-cli",
             scope: "dashboard.publish",
-            expires_at: DateTime.add(now, 900, :second),
+            expires_at: DateTime.shift(now, minute: 15),
             interval_seconds: 5
           }
         })
@@ -90,7 +90,7 @@ defmodule ServiceRadar.Identity.DeviceAuthorizationTest do
         client_id: "serviceradar-cli",
         scope: "dashboard.publish",
         status: :pending,
-        expires_at: DateTime.add(DateTime.utc_now(), 900, :second),
+        expires_at: DateTime.shift(DateTime.utc_now(), minute: 15),
         interval_seconds: 5
       }
 
@@ -111,7 +111,7 @@ defmodule ServiceRadar.Identity.DeviceAuthorizationTest do
         client_id: "serviceradar-cli",
         scope: "dashboard.publish",
         status: :pending,
-        expires_at: DateTime.add(DateTime.utc_now(), 900, :second),
+        expires_at: DateTime.shift(DateTime.utc_now(), minute: 15),
         interval_seconds: 5
       }
 

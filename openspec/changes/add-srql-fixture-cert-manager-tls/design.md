@@ -119,8 +119,8 @@ rotate with the CA.
 
 A one-file publisher in `srql-fixtures` serves only `ca.crt` from the cert-manager
 Secret. Public HTTPS is an HTTPRoute on `serviceradar-shared-gateway`
-(`*.serviceradar.cloud` wildcard, 23.138.124.5). A dedicated MetalLB Service on
-`23.138.124.18:443` is not reachable from workstations or Firecracker, so it is
+(`*.serviceradar.cloud` wildcard, 198.51.100.5). A dedicated MetalLB Service on
+`198.51.100.18:443` is not reachable from workstations or Firecracker, so it is
 not the publish path. ExternalDNS creates `srql-fixture-ca.serviceradar.cloud`
 from the HTTPRoute. Gateway TLS is the shared wildcard, not the fixture CA —
 otherwise fetching the CA would require the CA.

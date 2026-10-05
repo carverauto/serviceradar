@@ -1638,12 +1638,18 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             if ":telemetry.attach"
             in (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
         }
-        filtered_source = "test/serviceradar/inventory/agent_link_repair_worker_test.exs"
+        agent_link_source = "test/serviceradar/inventory/agent_link_repair_worker_test.exs"
+        fact_writer_source = "test/serviceradar/inventory/device_snmp_fact_writer_test.exs"
 
-        self.assertEqual({filtered_source}, telemetry_sources)
-        source = (CORE_TEST_ROOT.parent / filtered_source).read_text(encoding="utf-8")
+        self.assertEqual({agent_link_source, fact_writer_source}, telemetry_sources)
+
+        source = (CORE_TEST_ROOT.parent / agent_link_source).read_text(encoding="utf-8")
         self.assertEqual(2, source.count(":telemetry.attach("))
         self.assertEqual(2, source.count("if metadata.agent_uid == agent_uid do"))
+
+        source = (CORE_TEST_ROOT.parent / fact_writer_source).read_text(encoding="utf-8")
+        self.assertEqual(1, source.count(":telemetry.attach("))
+        self.assertEqual(1, source.count("if self() == test_pid"))
 
     def test_async_modules_do_not_mutate_vm_global_logger_configuration(self):
         for row in integration_dispositions():

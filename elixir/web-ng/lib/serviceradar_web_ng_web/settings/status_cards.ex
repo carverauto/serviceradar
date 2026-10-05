@@ -239,7 +239,7 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   # `last_login_at` is empty and filtering on it alone always returned 0. We now
   # count a user active when EITHER activity timestamp falls in the window.
   defp active_users_30d do
-    cutoff = DateTime.add(DateTime.utc_now(), -30 * 86_400, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -30)
 
     User
     |> Ash.Query.for_read(:read, %{})
@@ -300,7 +300,7 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   # these over PubSub but also reads them from the `security_events` table, so a
   # windowed count is a real value here.
   defp audit_events_24h do
-    cutoff = DateTime.add(DateTime.utc_now(), -24 * 3600, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -1)
 
     SecurityEvent
     |> Ash.Query.for_read(:read, %{})
@@ -315,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   # AshPaperTrail version rows written in the last 24h, summed across the same
   # resource allow-list the Audit → History page reads from.
   defp config_changes_24h do
-    cutoff = DateTime.add(DateTime.utc_now(), -24 * 3600, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -1)
 
     AuditHistory.resources()
     |> Enum.map(&count_versions_since(&1, cutoff))

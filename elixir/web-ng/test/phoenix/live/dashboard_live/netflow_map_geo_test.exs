@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.NetflowMapGeoTest do
             latitude = EXCLUDED.latitude,
             longitude = EXCLUDED.longitude
       """,
-      [ip, city, country, latitude, longitude, now, DateTime.add(now, 3600, :second)]
+      [ip, city, country, latitude, longitude, now, DateTime.shift(now, hour: 1)]
     )
   end
 

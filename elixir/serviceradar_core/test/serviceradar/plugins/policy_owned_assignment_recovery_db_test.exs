@@ -80,7 +80,7 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecoveryDbTest do
     stolen = executing_lease_fixture!(worker_lease_token: Ash.UUID.generate())
 
     expired =
-      executing_lease_fixture!(lease_expires_at: DateTime.add(DateTime.utc_now(), -1, :second))
+      executing_lease_fixture!(lease_expires_at: DateTime.shift(DateTime.utc_now(), second: -1))
 
     # These unique agent IDs are the identities a materializer would write
     # assignments/credential-broker grants for. A rejected fence must leave
@@ -124,12 +124,12 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecoveryDbTest do
     live = executing_lease_fixture!([])
 
     expired =
-      executing_lease_fixture!(lease_expires_at: DateTime.add(DateTime.utc_now(), -1, :second))
+      executing_lease_fixture!(lease_expires_at: DateTime.shift(DateTime.utc_now(), second: -1))
 
     actor = SystemActor.system(:plugin_policy_assignment_recovery_executor)
     now = DateTime.utc_now()
     replacement_token = Ash.UUID.generate()
-    replacement_expiry = DateTime.add(now, 30 * 60, :second)
+    replacement_expiry = DateTime.shift(now, minute: 30)
 
     assert {:error, :recovery_lease_lost} =
              Lease.claim_current(
@@ -159,7 +159,7 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecoveryDbTest do
 
   test "an expired lease cannot atomically finish a recovery request" do
     fixture =
-      executing_lease_fixture!(lease_expires_at: DateTime.add(DateTime.utc_now(), -1, :second))
+      executing_lease_fixture!(lease_expires_at: DateTime.shift(DateTime.utc_now(), second: -1))
 
     actor = SystemActor.system(:plugin_policy_assignment_recovery_executor)
 
@@ -350,7 +350,7 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecoveryDbTest do
     worker_lease_token = Keyword.get(overrides, :worker_lease_token, stored_lease_token)
 
     lease_expires_at =
-      Keyword.get(overrides, :lease_expires_at, DateTime.add(now, 5 * 60, :second))
+      Keyword.get(overrides, :lease_expires_at, DateTime.shift(now, minute: 5))
 
     {1, _} =
       Repo.insert_all(

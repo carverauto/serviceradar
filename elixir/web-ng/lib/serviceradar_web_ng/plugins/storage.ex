@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   @spec sign_token(atom(), String.t(), String.t(), pos_integer()) :: {String.t(), DateTime.t()}
   def sign_token(action, package_id, object_key, ttl_seconds) do
-    expires_at = DateTime.add(DateTime.utc_now(), ttl_seconds, :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), second: ttl_seconds)
 
     payload = %{
       "id" => package_id,
