@@ -157,6 +157,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
       anchor: anchor,
       traces: traces,
       hops: hops,
+      starrocks: starrocks,
+      database: sr_env.database,
       cnpg_query: cnpg_query,
       starrocks_query: starrocks_query
     }
@@ -295,6 +297,129 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   # ---------------------------------------------------------------------------
   # The dashboard card and sparklines: rollup against raw fallback
   # ---------------------------------------------------------------------------
+
+  @tag timeout: 180_000
+  test "late terminal hops refresh and scan only their event day across midnight", ctx do
+    conn = ctx.starrocks
+    database = ctx.database
+    trace_template = hd(ctx.traces)
+    hop_template = Enum.find(ctx.hops, &(&1.trace_id == trace_template.id))
+
+    # These are event times, not load times. All three days exist before the
+    # first day's missing hops arrive, after the newer days have been refreshed.
+    traces =
+      for {seconds, n} <- [{86_399, 1}, {86_401, 2}, {172_801, 3}] do
+        time = DateTime.shift(ctx.anchor, second: seconds)
+
+        %{
+          trace_template
+          | id: uuid(0x21, n),
+            time: time,
+            created_at: time,
+            target_reached: n != 3
+        }
+      end
+
+    make_hop = fn trace, n, sent, received, avg_us ->
+      %{
+        hop_template
+        | id: uuid(0x22, n),
+          trace_id: trace.id,
+          time: trace.time,
+          created_at: trace.time,
+          hop_number: trace.total_hops,
+          sent: sent,
+          received: received,
+          avg_us: avg_us
+      }
+    end
+
+    [before_midnight, after_midnight, unreached] = traces
+    initial_hops = [make_hop.(after_midnight, 4, 10, 10, 1_000), make_hop.(unreached, 5, 10, 9, 9_000)]
+    lower = ctx.anchor |> DateTime.shift(hour: 23) |> DateTime.to_naive() |> NaiveDateTime.to_string()
+
+    # Disable the schedule only in this disposable fixture. Otherwise a
+    # scheduled refresh can consume the change before the measured manual run.
+    sr!(MySQL.query("ALTER MATERIALIZED VIEW #{database}.mtr_destination_hourly REFRESH MANUAL", conn: conn))
+
+    try do
+      seed_starrocks!(conn, database, traces, initial_hops)
+      refresh_starrocks_views!(conn, database)
+
+      late_hops = [
+        make_hop.(before_midnight, 1, 100, 100, 60_000),
+        make_hop.(before_midnight, 2, 20, 18, 9_000),
+        %{make_hop.(before_midnight, 3, 500, 0, 0) | hop_number: 1}
+      ]
+
+      seed_starrocks!(conn, database, [], late_hops)
+
+      assert {:ok, %{rows: [[query_id]]}} =
+               MySQL.query("REFRESH MATERIALIZED VIEW #{database}.mtr_destination_hourly WITH SYNC MODE",
+                 conn: conn,
+                 timeout: 120_000
+               )
+
+      assert {:ok, %{rows: [["SUCCESS", encoded]]}} =
+               MySQL.query(
+                 "SELECT STATE, EXTRA_MESSAGE FROM information_schema.task_runs WHERE QUERY_ID = #{quote_sr(query_id)}",
+                 conn: conn
+               )
+
+      metadata = Jason.decode!(encoded)
+      day = Calendar.strftime(before_midnight.time, "%Y%m%d")
+      next_day = before_midnight.time |> DateTime.shift(day: 1) |> Calendar.strftime("%Y%m%d")
+      partition = "p#{day}"
+
+      assert metadata["mvPartitionsToRefresh"] == ["p#{day}_#{next_day}"]
+
+      for key <- ["refBasePartitionsToRefreshMap", "basePartitionsToRefreshMap"] do
+        assert metadata[key] == %{"mtr_traces" => [partition], "mtr_hops" => [partition]}
+      end
+
+      # This is the engine's generated refresh plan, not a grep of SQL source.
+      assert metadata["planBuilderMessage"] == %{"mtr_traces" => partition, "mtr_hops" => partition}
+
+      assert {:ok, %{rows: rows}} =
+               MySQL.query(
+                 """
+                 SELECT path_count, endpoint_sample_count, loss_sample_count,
+                   latency_sample_count, sent_total, received_total, avg_us_weighted,
+                   latency_weight, degraded_count
+                 FROM #{database}.mtr_destination_hourly
+                 WHERE bucket >= #{quote_sr(lower)} ORDER BY bucket
+                 """,
+                 conn: conn
+               )
+
+      assert rows == [
+               [1, 1, 1, 1, 20, 18, 162_000.0, 18, 1],
+               [1, 1, 1, 1, 10, 10, 10_000.0, 10, 0],
+               [1, 0, 0, 0, nil, nil, nil, nil, 1]
+             ]
+
+      cutoff = DateTime.shift(ctx.anchor, hour: 23)
+
+      assert {:ok, %{rows: raw}} =
+               MtrWarehouse.dashboard_summary(cutoff, starrocks_query: ctx.starrocks_query, query: stale_marks())
+
+      assert {:ok, %{rows: rollup}} =
+               MtrWarehouse.dashboard_summary(cutoff, starrocks_query: ctx.starrocks_query, query: fresh_marks())
+
+      assert_lists_equal(raw, rollup, "late terminal hops across midnight")
+    after
+      ids = Enum.map_join(traces, ",", &quote_sr(&1.id))
+      sr!(MySQL.query("DELETE FROM #{database}.mtr_hops WHERE trace_id IN (#{ids})", conn: conn))
+      sr!(MySQL.query("DELETE FROM #{database}.mtr_traces WHERE id IN (#{ids})", conn: conn))
+      refresh_starrocks_views!(conn, database)
+
+      sr!(
+        MySQL.query("ALTER MATERIALIZED VIEW #{database}.mtr_destination_hourly REFRESH ASYNC EVERY (INTERVAL 30 SECOND)",
+          conn: conn
+        )
+      )
+    end
+  end
 
   test "the dashboard card's rollup read equals its raw fallback", ctx do
     cutoff = shift(ctx.anchor, 2, :hour)

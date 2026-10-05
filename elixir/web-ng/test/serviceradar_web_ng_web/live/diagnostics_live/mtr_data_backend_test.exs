@@ -252,7 +252,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataBackendTest do
       assert sql =~ "LIMIT 20"
       # The #4625 bounds: a hop is never older than its trace, and the hop scan
       # starts at the oldest selected trace.
-      assert sql =~ "AND h.`time` >= st.`time`"
+      assert sql =~ "AND h.`time` = st.`time`"
       assert sql =~ "WHERE h.`time` >= (SELECT MIN(`time`) FROM selected_traces)"
       assert sql =~ "ORDER BY h.`time` DESC, h.`id` DESC"
 
@@ -517,7 +517,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataBackendTest do
       assert summary_a =~ "WHERE t.`time` >= '2026-01-02 00:00:00' AND t.`time` < '2026-01-03 00:00:00'"
       # Terminal hops keep CNPG's window bounds; the depth scan keeps its lower bound only.
       assert summary_a =~ "WHERE h.`time` >= '2026-01-02 00:00:00' AND h.`time` < '2026-01-03 00:00:00'"
-      assert summary_a =~ "AND h.`time` >= st.`time`"
+      assert summary_a =~ "AND h.`time` = st.`time`"
       assert summary_a =~ "COALESCE(st.last_responding_hop, hd.responding_depth, st.total_hops)"
       assert summary_a =~ "COALESCE(MAX(CASE WHEN h.received > 0 THEN h.hop_number END), 0) AS responding_depth"
 

@@ -27,6 +27,11 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   way a batch that failed part way and is redelivered does not duplicate the
   traces that did land.
 
+  A hop's stored event time is always its trace's event time, independent of
+  arrival time or timestamps on individual hops. The warehouse boundary
+  normalizes the built rows before loading them; CNPG uses the same invariant
+  in `MtrMetricsIngestor`. This keeps late loads in the original trace partition.
+
   A result that can never be stored (`:missing_target_ip`, `:invalid_payload`)
   is logged and dropped, since redelivery cannot fix it; the rest of the batch
   is still stored. Any other failure is returned, so JetStream redelivers.
@@ -150,7 +155,12 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
     ready = for {result, {:ok, rows}} <- built, do: {result, rows}
     failures = for {_result, {:error, _} = error} <- built, do: classify(error)
     traces = Enum.flat_map(ready, fn {_result, rows} -> rows.traces end)
-    hops = Enum.flat_map(ready, fn {_result, rows} -> rows.hops end)
+
+    hops =
+      Enum.flat_map(ready, fn {_result, rows} ->
+        trace_times = Map.new(rows.traces, &{&1.id, &1.time})
+        Enum.map(rows.hops, &Map.put(&1, :time, Map.fetch!(trace_times, &1.trace_id)))
+      end)
 
     with :ok <- Enum.find(failures, :ok, &match?({:error, _}, &1)),
          {:ok, _loaded} <- load_rows(load, :mtr_traces, traces),

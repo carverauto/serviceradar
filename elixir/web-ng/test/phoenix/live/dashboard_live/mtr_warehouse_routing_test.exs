@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
     assert length(Regex.scan(~r/`time` >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?'/, sql)) ==
              2
 
-    assert sql =~ "AND h.`time` >= st.`time`"
+    assert sql =~ "AND h.`time` = st.`time`"
     assert sql =~ "COUNT(CASE WHEN dh.sent > 0 THEN dh.trace_id END) AS loss_sample_count"
 
     assert sql =~
@@ -368,7 +368,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
       # last_1h buckets by the minute; time_slice aligns it to midnight UTC as time_bucket does.
       assert sql =~ "time_slice(h.trace_time, INTERVAL 60 SECOND) AS bucket"
       assert sql =~ "LIMIT 96"
-      assert sql =~ "AND h.`time` >= t.`time`"
+      assert sql =~ "AND h.`time` = t.`time`"
       refute sql =~ "time_bucket"
       refute sql =~ "FILTER ("
       refute sql =~ "::"
