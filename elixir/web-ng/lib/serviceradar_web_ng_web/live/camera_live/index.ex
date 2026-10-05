@@ -8,7 +8,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
 
   @layout_options [2, 4, 8, 16, 32]
   @default_layout_count 4
-  @camera_relay_poll_interval_ms 1_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -20,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
       |> assign(:layout_options, @layout_options)
       |> assign(:layout_count, @default_layout_count)
       |> assign(:camera_tiles, [])
+      |> assign(:camera_relay_subscriptions, MapSet.new())
       |> assign(:relay_notice, nil)
 
     socket =
@@ -97,19 +97,41 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   end
 
   @impl true
+  # Fallback timer for one tile: re-read it and re-arm.
   def handle_info({:refresh_camera_multiview_relay_session, relay_session_id}, socket) do
+    {:noreply, refresh_camera_tile(socket, relay_session_id, rearm: true)}
+  end
+
+  # The relay published a state change for a tile's session.
+  def handle_info({:camera_relay_state, %{relay_session_id: relay_session_id}}, socket)
+      when is_binary(relay_session_id) do
+    {:noreply, refresh_camera_tile(socket, relay_session_id, rearm: false)}
+  end
+
+  def handle_info({:camera_relay_state, _payload}, socket), do: {:noreply, socket}
+
+  defp refresh_camera_tile(socket, relay_session_id, rearm: rearm?) do
     tiles =
       Enum.map(socket.assigns.camera_tiles, fn tile ->
         if CameraMultiview.session_id(tile) == relay_session_id do
           refreshed = CameraMultiview.refresh_tile_session(socket.assigns.current_scope, tile)
-          schedule_camera_refresh(refreshed)
+          if rearm? or CameraMultiview.session_id(refreshed) != relay_session_id, do: schedule_camera_refresh(refreshed)
           refreshed
         else
           tile
         end
       end)
 
-    {:noreply, assign(socket, :camera_tiles, tiles)}
+    socket
+    |> assign(:camera_tiles, tiles)
+    |> subscribe_camera_tiles(tiles)
+  end
+
+  defp subscribe_camera_tiles(socket, tiles) do
+    subscribed =
+      Enum.reduce(tiles, socket.assigns.camera_relay_subscriptions, &CameraMultiview.subscribe_relay_state(&2, &1))
+
+    assign(socket, :camera_relay_subscriptions, subscribed)
   end
 
   defp open_camera_layout(socket, count) do
@@ -118,6 +140,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
       Enum.each(tiles, &schedule_camera_refresh/1)
 
       socket
+      |> subscribe_camera_tiles(tiles)
       |> assign(:layout_count, count)
       |> assign(:camera_tiles, pad_camera_tiles(tiles, count))
       |> assign(:relay_notice, camera_layout_notice(tiles, count))
@@ -192,18 +215,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
         Process.send_after(
           self(),
           {:refresh_camera_multiview_relay_session, session_id},
-          camera_relay_poll_interval_ms()
+          CameraMultiview.fallback_refresh_ms()
         )
 
       _ ->
         :ok
-    end
-  end
-
-  defp camera_relay_poll_interval_ms do
-    case Application.get_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms, @camera_relay_poll_interval_ms) do
-      value when is_integer(value) and value > 0 -> value
-      _other -> @camera_relay_poll_interval_ms
     end
   end
 end

@@ -147,6 +147,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
         {:reply, {:error, {:limit_exceeded, :gateway, limit}}, state}
 
       true ->
+        session = monitor_ingress(session)
         log_session(:info, "Gateway camera relay opened", session)
         emit_session_event(:opened, session)
         {:reply, {:ok, session}, put_in(state, [:sessions, session.relay_session_id], session)}
@@ -303,6 +304,26 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   end
 
   @impl true
+  # Core ingress lives on another ERTS node. A monitor reports its exit the
+  # moment it happens, at no per-sweep cost; the sweep used to probe every
+  # remote ingress pid with a 1s :erpc.call inside this process, holding up
+  # every chunk call behind it. :noconnection means the node is unreachable,
+  # not that ingress stopped: keep the session and let its lease reap it.
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    case Enum.find(state.sessions, fn {_id, session} -> Map.get(session, :ingress_monitor_ref) == ref end) do
+      {relay_session_id, session} when reason == :noconnection ->
+        {:noreply, put_in(state, [:sessions, relay_session_id], Map.delete(session, :ingress_monitor_ref))}
+
+      {relay_session_id, session} ->
+        log_session(:info, "Gateway camera relay expired", session, %{reason: "ingress_pid_dead"})
+        emit_session_event(:expired, session, %{reason: "ingress_pid_dead"})
+        {:noreply, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
+
+      nil ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(:sweep_expired_sessions, state) do
     updated = sweep_expired_sessions(state)
     schedule_sweep(Map.get(updated, :sweep_interval_ms, @default_sweep_interval_ms))
@@ -533,42 +554,19 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     Map.put(state, :sessions, Map.new(active))
   end
 
-  defp stale_session?(session, now), do: session_expired?(session, now) or ingress_pid_dead?(session)
+  defp stale_session?(session, now), do: session_expired?(session, now)
 
   defp session_expired?(session, now) do
     normalize_uint(Map.get(session, :lease_expires_at_unix, 0)) <= now
   end
 
-  # Core ingress lives on another ERTS node. Process.alive?/1 only accepts local
-  # PIDs and raises ArgumentError on remote ones — that crash took down the whole
-  # tracker GenServer and wiped every gateway camera session. Probe remote PIDs
-  # via :erpc; if the remote node is unreachable, leave the session (lease expiry
-  # still reaps it).
-  defp ingress_pid_dead?(%{ingress_pid: ingress_pid}) when is_pid(ingress_pid) do
-    not process_alive?(ingress_pid)
+  defp monitor_ingress(%{ingress_pid: ingress_pid} = session) when is_pid(ingress_pid) do
+    Map.put(session, :ingress_monitor_ref, Process.monitor(ingress_pid))
   end
 
-  defp ingress_pid_dead?(_session), do: false
+  defp monitor_ingress(session), do: session
 
-  defp process_alive?(pid) when is_pid(pid) do
-    case node(pid) do
-      n when n == node() ->
-        Process.alive?(pid)
-
-      remote ->
-        try do
-          :erpc.call(remote, Process, :alive?, [pid], 1_000)
-        rescue
-          _ -> true
-        catch
-          :exit, _ -> true
-        end
-    end
-  end
-
-  defp expiry_reason(session, now) do
-    if session_expired?(session, now), do: "lease_expired", else: "ingress_pid_dead"
-  end
+  defp expiry_reason(_session, _now), do: "lease_expired"
 
   defp schedule_sweep(:disabled), do: :ok
 
