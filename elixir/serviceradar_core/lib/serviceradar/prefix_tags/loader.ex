@@ -328,7 +328,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   defp start_reload_task(state, target, from) do
-    if is_nil(from) and Enum.any?(state.waiters, fn {_queued_from, queued} -> queued == target end) do
+    if is_nil(from) and
+         Enum.any?(state.waiters, fn {_queued_from, queued} -> queued == target end) do
       state
     else
       %{state | waiters: [{from, target} | state.waiters]}
