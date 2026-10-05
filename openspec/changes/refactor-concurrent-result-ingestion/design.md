@@ -38,6 +38,22 @@ There are two existing delivery classes:
 | Retained plugin, flow attribution, endpoint inventory | Existing durable completion condition has been confirmed by its worker/lane | Not-accepted / received:false; pending payload remains with the agent |
 | Existing cast/best-effort status | Existing gateway forwarding acceptance contract | Explicit core rejection/drop telemetry; do not invent a retained guarantee |
 
+Per-class queue layout:
+
+  | Class | Ordering key | Default workers | Overflow |
+  | --- | --- | --- | --- |
+  | sweep | `agent_id` | 4 | reject newest, counted |
+  | mapper (discovery runs, interfaces, topology) | `agent_id` | 2 | reject newest, counted |
+  | bumblebee | `agent_id` | 2 | reject newest, counted |
+  | plugin results reaching the router (non-retained, or the lane switched off) | `agent_id` | 2 | reject newest, counted |
+
+  Sweep is keyed by agent rather than by agent and sweep group because the group
+  is only known after decoding the payload, which the router must not do; per
+  agent is the stronger order and still lets agents ingest concurrently. The
+  three mapper result types share one class so an agent's interfaces are
+  ingested before the topology that refers to them. Classes are independent of
+  each other.
+
 For retained plugin results, a committed handler-domain failure marker remains
 an accepted terminal outcome, as ResultsRouter.process_retained_plugin already
 implements. A persistence failure is not an accepted terminal outcome. The

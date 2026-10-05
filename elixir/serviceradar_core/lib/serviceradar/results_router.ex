@@ -15,6 +15,16 @@ defmodule ServiceRadar.ResultsRouter do
 
   Synchronous (`call`) paths stay per-item and immediate — they need a reply.
 
+  ## Per-class ingestion queues
+
+  Classes that do database work (sweep, mapper, bumblebee, plugin results) are
+  not ingested in this process. They are admitted to their
+  `ServiceRadar.ResultIngestion` queue, which ingests each agent's results in
+  arrival order and different agents concurrently. A queued cast reports its
+  successful status back here for the batched service-state publish; a queued
+  call is answered by the queue once its ingest finishes. A class whose queue is
+  not running, or that is configured off, is ingested inline as before.
+
   Configure with app env (defaults shown):
 
       config :serviceradar_core,
@@ -35,6 +45,8 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
+  alias ServiceRadar.ResultIngestion
+  alias ServiceRadar.ResultIngestion.KeyedQueue
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
   require Logger
@@ -85,18 +97,44 @@ defmodule ServiceRadar.ResultsRouter do
 
   @impl true
   def handle_cast({:results_update, status}, state) do
+    case queue_class(status) do
+      nil ->
+        if batching_enabled?() do
+          {:noreply, buffer_status(state, {:process, status})}
+        else
+          _result = process_and_publish(status)
+          {:noreply, state}
+        end
+
+      class ->
+        _ = admit_queued(class, status, nil)
+        {:noreply, state}
+    end
+  end
+
+  # A queued cast ingested successfully; publish its service state with the batch.
+  def handle_cast({:service_state, status}, state) do
     if batching_enabled?() do
-      {:noreply, buffer_status(state, status)}
+      {:noreply, buffer_status(state, {:publish, status})}
     else
-      _result = process_and_publish(status)
+      publish_status_update(status)
       {:noreply, state}
     end
   end
 
   @impl true
-  def handle_call({:results_update, status}, _from, state) do
-    # Sync path must reply per-item: process + publish immediately, not buffered.
-    {:reply, process_and_publish(status), state}
+  def handle_call({:results_update, status}, from, state) do
+    case queue_class(status) do
+      nil ->
+        # Sync path must reply per-item: process + publish immediately, not buffered.
+        {:reply, process_and_publish(status), state}
+
+      class ->
+        case admit_queued(class, status, from) do
+          :ok -> {:noreply, state}
+          {:error, _reason} = error -> {:reply, error, state}
+        end
+    end
   end
 
   @impl true
@@ -114,8 +152,8 @@ defmodule ServiceRadar.ResultsRouter do
   # Async buffer + flush (cast path only)
   # ============================================================================
 
-  defp buffer_status(state, status) do
-    state = %{state | buffer: [status | state.buffer], buffer_size: state.buffer_size + 1}
+  defp buffer_status(state, entry) do
+    state = %{state | buffer: [entry | state.buffer], buffer_size: state.buffer_size + 1}
 
     if state.buffer_size >= max_buffer() do
       state |> flush_buffer() |> reschedule_flush()
@@ -127,18 +165,23 @@ defmodule ServiceRadar.ResultsRouter do
   defp flush_buffer(%{buffer_size: 0} = state), do: state
 
   defp flush_buffer(state) do
-    statuses = Enum.reverse(state.buffer)
+    entries = Enum.reverse(state.buffer)
 
     # Per-status type-specific routing stays per item; only collect the ones whose
     # processing succeeded for the batched service-state publish, matching the
-    # single-item contract (publish only on :ok / {:ok, _}).
+    # single-item contract (publish only on :ok / {:ok, _}). Statuses a queue has
+    # already ingested arrive as {:publish, status}.
     publishable =
-      Enum.filter(statuses, fn status ->
-        case process(status, []) do
-          :ok -> true
-          {:ok, _result} -> true
-          {:error, reason} -> log_processing_error(reason)
-        end
+      Enum.flat_map(entries, fn
+        {:publish, status} ->
+          [status]
+
+        {:process, status} ->
+          case process(status, []) do
+            :ok -> [status]
+            {:ok, _result} -> [status]
+            {:error, reason} -> log_processing_error(reason)
+          end
       end)
 
     publish_status_batch(publishable)
@@ -148,7 +191,83 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp log_processing_error(reason) do
     Logger.warning("Results processing failed: #{inspect(reason)}")
-    false
+    []
+  end
+
+  # ============================================================================
+  # Per-class ingestion queues
+  # ============================================================================
+
+  defp queue_class(%{source: source, service_type: service_type})
+       when source in ["results", :results] do
+    case service_type do
+      "sweep" ->
+        queued_class(:sweep)
+
+      type when type in ["mapper", "mapper_discovery", "mapper_interfaces", "mapper_topology"] ->
+        queued_class(:mapper)
+
+      "bumblebee" ->
+        queued_class(:bumblebee)
+
+      _other ->
+        nil
+    end
+  end
+
+  defp queue_class(%{source: source}) when source in ["plugin-result", :plugin_result],
+    do: queued_class(:plugin_result)
+
+  defp queue_class(_status), do: nil
+
+  defp queued_class(class) do
+    if ResultIngestion.enabled?(class) and is_pid(Process.whereis(ResultIngestion.queue(class))),
+      do: class
+  end
+
+  # Within a class, one agent's results apply in arrival order: the sweep chunks
+  # of one request, mapper interfaces before the topology that refers to them.
+  # Classes are independent of each other.
+  defp queue_key(status), do: status[:agent_id] || status["agent_id"] || :unknown_agent
+
+  defp payload_bytes(%{message: message}) when is_binary(message), do: byte_size(message)
+  defp payload_bytes(_status), do: 0
+
+  defp admit_queued(class, status, reply_to) do
+    router = self()
+
+    job =
+      if reply_to do
+        fn -> process_and_publish(status) end
+      else
+        fn -> ingest_queued(status, router) end
+      end
+
+    case KeyedQueue.admit(
+           ResultIngestion.queue(class),
+           queue_key(status),
+           payload_bytes(status),
+           job, reply_to: reply_to) do
+      :ok ->
+        :ok
+
+      {:error, reason} = error ->
+        Logger.warning("#{class} result not admitted for ingestion: #{inspect(reason)}")
+        error
+    end
+  end
+
+  # Runs in the class queue's task.
+  defp ingest_queued(status, router) do
+    case process(status, []) do
+      {:error, reason} = error ->
+        log_processing_error(reason)
+        error
+
+      result ->
+        if !plugin_result_status?(status), do: GenServer.cast(router, {:service_state, status})
+        result
+    end
   end
 
   defp publish_status_batch([]), do: :ok

@@ -35,6 +35,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         status_handler_child(),
         command_result_coordination_supervisor_child(),
         command_status_handler_child(),
+        result_ingestion_child(),
         results_router_child(),
         health_check_runner_supervisor_child(),
         health_check_registrar_child(),
@@ -148,6 +149,14 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       {Task.Supervisor,
        name: ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor, max_children: 32}
+    end
+  end
+
+  # Per-class ingestion queues the ResultsRouter admits work to; started first so
+  # the router finds them.
+  defp result_ingestion_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.ResultIngestion
     end
   end
 

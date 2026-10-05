@@ -3,6 +3,9 @@
 - [ ] 0.1 Obtain explicit user approval of the revised proposal; this PR contains documentation only and closes neither issue.
 - [ ] 0.2 Confirm Agent B's PushStatus internal deadline, not-accepted mapping, supported version pairing, and rollout order on #5195.
 - [ ] 0.3 Audit all result entry points, direct ingestion calls, shared writers (including raw Ecto), ordering keys, and current retained durable terminal outcomes on fresh staging.
+- [x] 1.1 Add a supervised keyed queue (generalizing `EndpointInventoryIngestorQueue`): total and per-key item/byte bounds counting queued and in-flight work, one in-flight job per key, fair key interleaving, configurable workers on a dedicated `Task.Supervisor`, per-job timeout with task kill, optional per-key coalescing, and explicit rejection reasons.
+- [ ] 1.2 Emit `[:serviceradar, :result_ingestion, ...]` telemetry mirroring the admission-lane events, tagged by class; register metrics alongside `admission_lane_metrics/0`.
+- [x] 1.3 Tests: per-key ordering, cross-key concurrency, each bound's rejection, coalescing, timeout and task exit, gauges back to zero.
 
 ## 1. Bounded keyed execution
 
@@ -10,6 +13,10 @@
 - [ ] 1.2 Give each result class independent capacity and supervisors; preserve per-key ordering, mapper interface/topology ordering, fairness, cancellation observation, and exactly-once credit release.
 - [ ] 1.3 Validate global worker/memory/Repo budgets and reserve capacity for acknowledged lanes and other core services.
 - [ ] 1.4 Load test-audit, then add behavioral tests for bounds, ordering, cross-key execution, worker exit, cancellation, coalescing eligibility, and safe restart/replay; register any new core test file in INTEGRATION_SOURCE_DISPOSITIONS.tsv.
+- [x] 2.1 Route sweep, mapper interfaces, mapper topology, bumblebee, and non-retained plugin results to per-class queues, each behind a per-class flag that defaults on.
+- [ ] 2.2 Move service-state upserts into a batcher whose flush runs in a task; arm the timer only while items are pending and ignore ticks whose token does not match the armed timer (#5210 item 2).
+- [x] 2.3 Remove database work from `handle_call({:results_update, _})`: any status still arriving by call is admitted to its class queue with the caller's reply reference.
+- [ ] 2.4 Tests: a deliberately slow sweep ingestor does not delay another class's ingestion or an acknowledged result; the stale-tick race leaves one timer; no Repo query telemetry is attributed to the router process.
 
 ## 2. Dispatcher and inline-write removal
 
