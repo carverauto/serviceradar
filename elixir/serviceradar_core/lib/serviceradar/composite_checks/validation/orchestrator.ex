@@ -383,6 +383,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
 
       available_by_ip =
         if scan.status == :completed, do: availability_by_ip(scan, results), else: %{}
+
       targets = MapSet.new(List.wrap(scan.targets), &to_string/1)
 
       Enum.each(run.devices, fn device ->
@@ -490,6 +491,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
         now: now,
         validation_coverage: coverage
       )
+
     by_uid = Map.new(rows, &{&1.device_uid, &1})
 
     Enum.each(run.devices, fn device ->

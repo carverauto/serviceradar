@@ -358,7 +358,9 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
 
   defp validation_observation(meta) do
     observed_at = observation_time(meta["observed_at"])
-    observed? = meta["state"] == "observed" and is_boolean(meta["is_available"]) and not is_nil(observed_at)
+
+    observed? =
+      meta["state"] == "observed" and is_boolean(meta["is_available"]) and not is_nil(observed_at)
 
     value =
       cond do
@@ -437,7 +439,9 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
            "stale" => resolution.stale,
            "reason" => resolution.reason && to_string(resolution.reason)
          },
-         resolution |> Map.take([:covered, :probed]) |> Map.new(fn {key, value} -> {to_string(key), value} end)
+         resolution
+         |> Map.take([:covered, :probed])
+         |> Map.new(fn {key, value} -> {to_string(key), value} end)
        )}
     end)
   end

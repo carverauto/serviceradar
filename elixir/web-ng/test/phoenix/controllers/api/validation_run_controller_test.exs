@@ -209,8 +209,10 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
 
     assert [%{"ip" => ^ip, "uid" => _uid}] = response["data"]
   end
+
   test "POST writes target facts before returning the queued run", %{conn: conn, device: device, ip: ip, check: check} do
-    response = conn
+    response =
+      conn
       |> post(~p"/api/v1/validation-runs", %{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}})
       |> json_response(202)
 
@@ -221,11 +223,13 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
 
   test "execute permission alone cannot write facts", %{device: device, ip: ip, check: check, user: user} do
     scope = %Scope{user: user, permissions: MapSet.new(["validation_runs.execute"])}
-    conn = build_conn() |> assign(:current_scope, scope)
-    response = ValidationRunController.create(conn, %{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}})
+    conn = assign(build_conn(), :current_scope, scope)
+
+    response =
+      ValidationRunController.create(conn, %{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}})
+
     assert json_response(response, 403)["error"] == "forbidden"
     {:ok, unchanged} = Device.get_by_uid(device.uid, false, actor: SystemActor.system(:validation_run_api_test))
     refute Map.has_key?(unchanged.metadata || %{}, "acl_enforced")
   end
-
 end

@@ -274,20 +274,32 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
 
     for {agent, available?} <- [{agent_a, true}, {agent_b, false}] do
       DeviceAgentAvailability
-      |> Ash.Changeset.for_create(:create, %{
-        device_uid: device.uid,
-        agent_id: agent,
-        is_available: available?,
-        checked_at: DateTime.utc_now()
-      }, actor: actor())
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          device_uid: device.uid,
+          agent_id: agent,
+          is_available: available?,
+          checked_at: DateTime.utc_now()
+        },
+        actor: actor()
+      )
       |> Ash.create!()
     end
 
-    {:ok, run} = Orchestrator.start(%{"check" => check.slug, "ip" => ip}, actor: actor(), enqueue?: false)
-    caller = self()
-    dispatcher = fn _, _, _ -> send(caller, :unexpected_probe); {:error, :unexpected_probe} end
+    {:ok, run} =
+      Orchestrator.start(%{"check" => check.slug, "ip" => ip}, actor: actor(), enqueue?: false)
 
-    assert {:ok, :completed} = Orchestrator.advance(run.id, actor: actor(), dispatcher: dispatcher)
+    caller = self()
+
+    dispatcher = fn _, _, _ ->
+      send(caller, :unexpected_probe)
+      {:error, :unexpected_probe}
+    end
+
+    assert {:ok, :completed} =
+             Orchestrator.advance(run.id, actor: actor(), dispatcher: dispatcher)
+
     refute_received :unexpected_probe
     {:ok, completed} = ValidationRun.get_by_id(run.id, actor: actor())
     assert [%{verdict: "not_probed", verdict_status: :unknown} = result] = completed.devices
@@ -295,7 +307,9 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     assert result.inputs["alma"]["probed"] == false
     assert result.inputs["alma"]["reason"] == "uncovered"
     assert result.inputs["k8s"]["observed_at"] == nil
-    assert {:error, _} = DeviceCompositeCheckResult.get_by_device_check(device.uid, check.id, actor: actor())
+
+    assert {:error, _} =
+             DeviceCompositeCheckResult.get_by_device_check(device.uid, check.id, actor: actor())
   end
 
   test "a vantage with no covering group is not probed" do
@@ -387,16 +401,27 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     assert device.coverage[agent_narrow]["state"] == "uncovered"
 
     DeviceAgentAvailability
-    |> Ash.Changeset.for_create(:create, %{
-      device_uid: device.device_uid,
-      agent_id: agent_narrow,
-      is_available: false,
-      checked_at: DateTime.utc_now()
-    }, actor: actor())
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        device_uid: device.device_uid,
+        agent_id: agent_narrow,
+        is_available: false,
+        checked_at: DateTime.utc_now()
+      },
+      actor: actor()
+    )
     |> Ash.create!()
 
     {:ok, scan} = ScanRun.get(device.coverage[agent_a]["scan_id"], actor: actor())
-    {:ok, _} = ScanRun.update_status(scan, %{status: :completed, hosts_up: 1, finished_at: DateTime.utc_now()}, actor: actor())
+
+    {:ok, _} =
+      ScanRun.update_status(
+        scan,
+        %{status: :completed, hosts_up: 1, finished_at: DateTime.utc_now()},
+        actor: actor()
+      )
+
     assert {:ok, :completed} = Orchestrator.advance(run.id, actor: actor())
     {:ok, run} = ValidationRun.get_by_id(run.id, actor: actor())
     assert [%{verdict: "not_probed", verdict_status: :unknown} = result] = run.devices
@@ -445,11 +470,14 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     check = enabled_check!(agent_a, agent_b, with_fact: true)
 
     device
-    |> Ash.Changeset.for_update(:write_facts, %{facts: %{"acl_enforced" => false}}, actor: actor())
+    |> Ash.Changeset.for_update(:write_facts, %{facts: %{"acl_enforced" => false}},
+      actor: actor()
+    )
     |> Ash.update!()
 
     {:ok, run} =
-      Orchestrator.start(%{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}},
+      Orchestrator.start(
+        %{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}},
         actor: actor(),
         enqueue?: false
       )
@@ -575,16 +603,36 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     agent_b = "agent-isolation-#{System.unique_integer([:positive])}"
     covering_groups!(agent_a, agent_b)
     check = enabled_check!(agent_a, agent_b)
-    {:ok, run} = Orchestrator.start(%{"check" => check.slug, "ip" => ip}, actor: actor(), enqueue?: false)
+
+    {:ok, run} =
+      Orchestrator.start(%{"check" => check.slug, "ip" => ip}, actor: actor(), enqueue?: false)
 
     dispatcher = fn agent, targets, opts ->
-      {:ok, scan} = ScanRun.create(%{
-        agent_id: agent, modes: opts[:modes], ports: opts[:ports], targets: targets, target_count: length(targets)
-      }, actor: actor())
+      {:ok, scan} =
+        ScanRun.create(
+          %{
+            agent_id: agent,
+            modes: opts[:modes],
+            ports: opts[:ports],
+            targets: targets,
+            target_count: length(targets)
+          },
+          actor: actor()
+        )
+
       status = if agent == agent_a, do: :completed, else: :failed
-      {:ok, _} = ScanRun.update_status(scan, %{
-        status: status, hosts_up: if(agent == agent_a, do: 1, else: 0), finished_at: DateTime.utc_now()
-      }, actor: actor())
+
+      {:ok, _} =
+        ScanRun.update_status(
+          scan,
+          %{
+            status: status,
+            hosts_up: if(agent == agent_a, do: 1, else: 0),
+            finished_at: DateTime.utc_now()
+          },
+          actor: actor()
+        )
+
       {:ok, scan.id}
     end
 
@@ -662,16 +710,27 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     device = create_device!(ip)
     ip2 = unique_ip()
     second = create_device!(ip2)
-    check = enabled_check!("agent-witness-#{System.unique_integer([:positive])}", "agent-isolation-#{System.unique_integer([:positive])}")
+
+    check =
+      enabled_check!(
+        "agent-witness-#{System.unique_integer([:positive])}",
+        "agent-isolation-#{System.unique_integer([:positive])}"
+      )
+
     {:ok, before} = ValidationRun.list_recent(actor: actor())
 
-    assert {:error, _} = Orchestrator.start(%{
-      "check" => check.slug,
-      "devices" => [
-        %{"ip" => ip, "facts" => %{"acl_enforced" => true}},
-        %{"ip" => ip2, "facts" => %{"acl_enforced" => %{"invalid" => true}}}
-      ]
-    }, actor: actor(), enqueue?: false)
+    assert {:error, _} =
+             Orchestrator.start(
+               %{
+                 "check" => check.slug,
+                 "devices" => [
+                   %{"ip" => ip, "facts" => %{"acl_enforced" => true}},
+                   %{"ip" => ip2, "facts" => %{"acl_enforced" => %{"invalid" => true}}}
+                 ]
+               },
+               actor: actor(),
+               enqueue?: false
+             )
 
     {:ok, unchanged} = Device.get_by_uid(device.uid, false, actor: actor())
     {:ok, unchanged_second} = Device.get_by_uid(second.uid, false, actor: actor())
