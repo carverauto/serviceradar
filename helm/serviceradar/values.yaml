@@ -724,7 +724,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261006140000"
+    expectedVersion: "20261006150000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -2331,10 +2331,10 @@ graph:
   read: age
 
 # Topology graph store. Enabled by default so `helm upgrade --install` is
-# black-box: Zero and Alpha come up, an ACL HMAC Secret is generated, TLS is
-# issued, then the schema Job applies the topology predicates. Set
-# dgraph.enabled=false and dgraph.external.host to reuse dgraph-ci or a
-# cluster already installed in this namespace.
+# black-box: Zero and Alpha come up, an ACL HMAC Secret is generated, the
+# chart mints the Dgraph TLS Secrets, then the schema Job applies the topology
+# predicates. Set dgraph.enabled=false and dgraph.external.host to reuse an
+# external cluster. The chart does not install cert-manager for these Secrets.
 dgraph:
   enabled: true
   # When enabled=false, callers dial this instead of the in-chart Service.

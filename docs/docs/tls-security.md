@@ -72,10 +72,10 @@ mechanics.
 ### Dgraph server TLS (separate path)
 
 Neither option covers the topology graph. When the chart installs Dgraph
-(`dgraph.enabled=true`, the default), its server certificates come from
-**cert-manager** resources the chart renders, so cert-manager must be installed
-in the cluster. The schema and migrator Jobs verify Dgraph against that CA;
-application pods connect encrypted without verifying it (`sslmode=require`).
+(`dgraph.enabled=true`, the default), it mints a private CA and the Alpha
+serving certificate into Secrets. cert-manager is not required for that. The
+schema and migrator Jobs verify Dgraph against that CA; application pods
+connect encrypted without verifying it (`sslmode=require`).
 See [Helm Deployment and Configuration](./helm-configuration.md) and
 [Network Topology](./network-topology.md).
 

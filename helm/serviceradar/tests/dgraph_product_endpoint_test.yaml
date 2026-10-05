@@ -1,7 +1,8 @@
 # The in-chart counterpart of //k8s/dgraph/tests:dgraph_endpoint_contract_test.
-# TLS verifies the name DIALED, so the host the chart hands its clients has to be
-# a SAN on the certificate the chart issues. That test reads k8s/dgraph YAML and
-# cannot see these names, which only exist after rendering.
+# Clients dial the Alpha Service name. The chart puts that same name on the
+# serving certificate it stores in the Secret the subchart mounts. The SAN
+# bytes are inside the certificate, so this suite checks the Secret name and
+# the dialed host; a render check reads the SANs.
 suite: dgraph product endpoint agrees with the issued certificate
 release:
   name: serviceradar
@@ -34,19 +35,19 @@ tests:
           path: kind
           value: Deployment
       - equal:
-          path: spec.commonName
-          value: serviceradar-dgraph-alpha.serviceradar-test.svc.cluster.local
+          path: metadata.name
+          value: serviceradar-dgraph-alpha-tls-secret
         template: templates/dgraph-certificates.yaml
         documentSelector:
           path: metadata.name
-          value: dgraph-alpha-tls
-      - contains:
-          path: spec.dnsNames
-          content: serviceradar-dgraph-alpha.serviceradar-test.svc.cluster.local
+          value: serviceradar-dgraph-alpha-tls-secret
+      - equal:
+          path: type
+          value: kubernetes.io/tls
         template: templates/dgraph-certificates.yaml
         documentSelector:
           path: metadata.name
-          value: dgraph-alpha-tls
+          value: serviceradar-dgraph-alpha-tls-secret
       - matchRegex:
           path: spec.template.spec.containers[0].env[?(@.name=="DGRAPH_URL")].value
           pattern: '@serviceradar-dgraph-alpha\.serviceradar-test\.svc\.cluster\.local:9080\?'

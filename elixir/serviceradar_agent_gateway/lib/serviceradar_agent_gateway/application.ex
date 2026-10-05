@@ -137,6 +137,7 @@ defmodule ServiceRadarAgentGateway.Application do
         metrics_children() ++
         [
           {Task.Supervisor, name: ServiceRadarAgentGateway.DeliveryTaskSupervisor},
+          ServiceRadarAgentGateway.ClusterProcessLocator,
           ServiceRadarAgentGateway.AgentRegistryProxy,
           ServiceRadarAgentGateway.AgentCertificateRevocation,
           ServiceRadarAgentGateway.ControlStreamTelemetry,

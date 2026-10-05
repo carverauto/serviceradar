@@ -1303,7 +1303,7 @@ is correct for a publicly issued certificate and needs no volume either.
 
 {{/*
 `sslrootcert` for the rendered DGRAPH_URL. Without it a `verify-ca` dial checks
-the system trust store, which a private cert-manager CA is not in, so every
+the system trust store, which a private CA is not in, so every
 connection fails the handshake.
 */}}
 {{- define "serviceradar.dgraph.appSslRootCert" -}}

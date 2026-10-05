@@ -151,28 +151,28 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 - [x] 4.1 `SourceAuthorityGuard` consults the archive as well as `device_identifiers`: a record
       that holds or held a different value of the type is never an ingest match.
-- [ ] 4.2 `MergeEngine`: every automatic reason keeps refusing a retired rival; only
+- [x] 4.2 `MergeEngine`: every automatic reason keeps refusing a retired rival; only
       `source_succession` passes when D3 holds; `manual*` and `unmerge` are unchanged. PR 2
-      did all but the `source_succession` exception, which lands with PR 5.
+      did all but the `source_succession` exception, which landed with PR 5.
 - [x] 4.3 Add the new decision kinds `:source_id_retired`, `:source_id_reactivated`,
       `:source_id_reissued` and `:succession_review` to `IdentityDecision`; the last two open a
       de-duplication task.
 
 ## 5. Succession and review (D3, D4)
 
-- [ ] 5.1 In `DuplicateSweep`, after the blocked components are known, find predecessor and
+- [x] 5.1 In `DuplicateSweep`, after the blocked components are known, find predecessor and
       successor pairs and apply D3's conditions: a shared universal, non-zero, non-broadcast
       MAC linking the predecessor to no other current record; agreement on first-seen time, or
       on a hostname no other current record of the source holds when the successor's first-seen
       time is no earlier than the predecessor's last-seen time (a missing time fails the
       guard); one-to-one; no distinct assertion or cooldown.
-- [ ] 5.2 Merge with reason `source_succession`: earliest-created record survives (ties by uid)
+- [x] 5.2 Merge with reason `source_succession`: earliest-created record survives (ties by uid)
       and takes the current id; source-owned metadata from the successor; facts per key by
       newest provenance; the successor's address; `merge_audit` details carrying the evidence
       and proving collections. Cap at `max_successions_per_run`.
-- [ ] 5.3 Record `succession_review` decisions with reasons `corroborated_without_mac`,
+- [x] 5.3 Record `succession_review` decisions with reasons `corroborated_without_mac`,
       `mac_only`, `overlapping_hostname`, `shared_mac` and `not_one_to_one`.
-- [ ] 5.4 An administrative unmerge of a succession records a distinct assertion for the pair.
+- [x] 5.4 An administrative unmerge of a succession records a distinct assertion for the pair.
 
 ## 6. Retired mark, hidden reads and grace delete (D5)
 
@@ -266,7 +266,9 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       PR 4 for `stale_holder_keeps_address` and `released_seed_stays_live`, which also adds
       `resolution_vacuity_census_keeps_holder`. Done in the alias pull request for
       `armis_alias_pass_blind` and `foreign_sighting_confirms_alias`, with the `aliasRow`
-      variable only the second needed.
+      variable only the second needed. PR 5 removes no switch, since D3 and D4 had none; it
+      tightens the model's `Review` to what D4 records, adds its rivals, and adds the traces
+      `src_rekey_new_first_seen`, `src_rekey_no_macs` and `src_rekey_shared_mac_rival`.
 - [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`.
 
@@ -288,12 +290,14 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 - [x] 14.1 Retirement: one absence, N within T, sustained absence, presence reset, non-exact
       collection, query change, no exact collections, mass refusal, TTL GC exemption.
-- [ ] 14.2 Veto split: a new id with a known MAC gets its own record; a retired id still blocks
+- [x] 14.2 Veto split: a new id with a known MAC gets its own record; a retired id still blocks
       the MAC-only backfill; corroborated succession passes the guard. PR 2 tests the first
-      two; corroborated succession lands with PR 5.
-- [ ] 14.3 Succession: MAC and hostname, MAC and first-seen, MAC only, no MAC, cloned machines
+      two; PR 5 tests corroborated succession.
+- [x] 14.3 Succession: MAC and hostname, MAC and first-seen, MAC only, no MAC, cloned machines
       sharing a MAC and a hostname with overlapping lifetimes, a missing source time, not
-      one-to-one, randomized MAC, before retirement, unmerge then rerun.
+      one-to-one, randomized MAC, before retirement, unmerge then rerun. PR 5 tests them in
+      `source_succession_test.exs` and the `src_` traces; not one-to-one, and a hostname another
+      current record holds, on constructed snapshots, which the harness cannot build.
 - [x] 14.4 Mark and grace: immediate mark, agent-held record not marked, grace delete, review
       hold, a sweep that keeps answering, no revival through any of the three writers, and a
       revival audit row for every restore.
@@ -314,9 +318,10 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.11 Extend the `add-hermetic-armis-dire-e2e` harness with the re-key scenarios.
 - [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
-      Done for PR 2, PR 3, PR 4 and the alias pull request.
+      Done for PR 2, PR 3, PR 4 and the alias pull request. #5171 removed the counts; from PR 5
+      on, a new test file gets its disposition row and its lane entry instead.
 - [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run. Done for PR 2, PR 3, PR 4 and the alias pull request.
+      check not run. Done for PR 2, PR 3, PR 4, the alias pull request and PR 5.
 
 ## 15. Alias rows (D16)
 

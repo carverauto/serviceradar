@@ -70,6 +70,49 @@ func newSystemdAddonPushLoop(t *testing.T) *PushLoop {
 	return NewPushLoop(&Server{config: &ServerConfig{}}, nil, 30*time.Second, logger.NewTestLogger())
 }
 
+func TestTimerActivationIsRequestedOnlyForANewVersion(t *testing.T) {
+	timer := "serviceradar-netprobe.timer"
+	for _, tc := range []struct {
+		name, prior, supervision string
+		wantFresh                bool
+	}{
+		{"upgrade", "versions/1.0.0", addonSupervisionSystemdTimer, true},
+		{"first install", "", addonSupervisionSystemdTimer, true},
+		{"same version failure", "versions/1.1.0", addonSupervisionSystemdTimer, false},
+		{"service upgrade", "versions/1.0.0", addonSupervisionSystemdService, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			units := []string{netprobeTestUnit}
+			if tc.supervision == addonSupervisionSystemdTimer {
+				units = append(units, timer)
+			}
+			root := stageSystemdAddonFixture(t, map[string][]string{
+				"1.0.0": units, "1.1.0": units,
+			})
+			assignment := &proto.AddonAssignmentConfig{
+				AddonId: netprobeTestAddonID, Version: "1.1.0",
+			}
+			pl := newSystemdAddonPushLoop(t)
+			called := false
+			install := func(_ context.Context, _ string, _ []string, _ string,
+				_ agentaddon.Resources, fresh bool) error {
+				called = true
+				if fresh != tc.wantFresh {
+					t.Fatalf("fresh timer execution = %v, want %v", fresh, tc.wantFresh)
+				}
+				return nil
+			}
+			if !pl.reconcileStagedSystemdUnits(context.Background(), assignment,
+				tc.supervision, root, tc.prior, install) {
+				t.Fatal("candidate systemd activation failed")
+			}
+			if !called {
+				t.Fatal("candidate never reached the privileged install boundary")
+			}
+		})
+	}
+}
+
 func currentAddonTarget(t *testing.T, runtimeRoot, addonID string) string {
 	t.Helper()
 
@@ -95,7 +138,7 @@ func TestReconcileStagedSystemdUnitsRollsBackOnInstallFailure(t *testing.T) {
 
 	pl := newSystemdAddonPushLoop(t)
 	installAttempted := false
-	failingInstall := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources) error {
+	failingInstall := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources, _ bool) error {
 		installAttempted = true
 		return errAgentUpdaterUnavailable
 	}
@@ -132,7 +175,7 @@ func TestReconcileStagedSystemdUnitsRollsBackWhenNoUnits(t *testing.T) {
 	})
 
 	pl := newSystemdAddonPushLoop(t)
-	install := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources) error {
+	install := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources, _ bool) error {
 		t.Error("install must not run when the staged bundle has no units")
 		return nil
 	}
@@ -165,7 +208,7 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 	pl := newSystemdAddonPushLoop(t)
 	var gotUnits []string
 	var gotEnable string
-	okInstall := func(_ context.Context, _ string, units []string, enable string, _ agentaddon.Resources) error {
+	okInstall := func(_ context.Context, _ string, units []string, enable string, _ agentaddon.Resources, _ bool) error {
 		gotUnits = units
 		gotEnable = enable
 		return nil
@@ -386,7 +429,7 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 			deliveries++
 			return filepath.Join(versionDir, "serviceradar-netprobe"), addonDeliverySucceeded, nil
 		},
-		func(context.Context, string, []string, string, agentaddon.Resources) error {
+		func(context.Context, string, []string, string, agentaddon.Resources, bool) error {
 			installs++
 			return nil
 		},
@@ -425,7 +468,7 @@ func TestReconcileStagedSystemdUnitsRelabelsBeforeInstall(t *testing.T) {
 		relabelledRoot, relabelledAddon = root, addonID
 	}
 
-	install := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources) error {
+	install := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources, _ bool) error {
 		order = append(order, "install")
 		return nil
 	}

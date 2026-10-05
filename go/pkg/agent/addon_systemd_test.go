@@ -219,6 +219,147 @@ func TestInstallAddonSystemdUnitsValidation(t *testing.T) {
 	}
 }
 
+func TestTimerCandidateActivationReevaluatesBackingServiceHealth(t *testing.T) {
+	for _, tc := range []struct {
+		name, timerContent, service string
+	}{
+		{"default service", "[Timer]\nOnUnitActiveSec=6h\n", "serviceradar-np.service"},
+		{"explicit service", "[Timer]\nUnit=serviceradar-np-scan.service\n", "serviceradar-np-scan.service"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			state := filepath.Join(root, "service-state")
+			run := filepath.Join(root, "candidate-run")
+			if err := os.WriteFile(state, []byte("failed"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			installTimerSystemctlFixture(t, root, state, run, tc.service)
+			timerPath := filepath.Join(root, "serviceradar-np.timer")
+			if err := os.WriteFile(timerPath, []byte(tc.timerContent), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			units := []string{"serviceradar-np.timer", tc.service}
+			service, err := stagedTimerService(timerPath, units[0], units)
+			if err != nil {
+				t.Fatal(err)
+			}
+			health := func() systemdUnitStatus {
+				return systemdAddonUnitStatusWithReader(units, readSystemdUnitStatusDefault)
+			}
+			if health().state != agentaddon.StateUnhealthy {
+				t.Fatal("the previous scanner failure must be visible before candidate activation")
+			}
+			if err := activateAddonSystemdUnits(context.Background(), units[0], service); err != nil {
+				t.Fatal(err)
+			}
+			if got := health(); got.state != agentaddon.StateRunning || got.lastError != "" {
+				t.Fatalf("candidate inherited previous failure: %#v", got)
+			}
+			if got, err := os.ReadFile(run); err != nil || string(got) != tc.service {
+				t.Fatalf("the staged candidate was not queued for execution: %q, %v", got, err)
+			}
+
+			// A failure of this candidate remains observable; a same-version
+			// timer reconciliation cannot erase it or continually rerun the scan.
+			if err := os.WriteFile(state, []byte("failed"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(run); err != nil {
+				t.Fatal(err)
+			}
+			if err := activateAddonSystemdUnits(context.Background(), units[0], ""); err != nil {
+				t.Fatal(err)
+			}
+			if health().state != agentaddon.StateUnhealthy {
+				t.Fatal("same-version reconciliation erased a genuine candidate failure")
+			}
+			if _, err := os.Stat(run); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("same-version reconciliation unexpectedly queued another run: %v", err)
+			}
+		})
+	}
+}
+
+func TestTimerCandidateActivationRejectsUnbundledServiceBeforeInstallation(t *testing.T) {
+	root := t.TempDir()
+	stageTestAddonUnit(t, resolveAddonArtifactRoot(root), "serviceradar-np.timer",
+		"[Timer]\nUnit=unrelated-host.service\n")
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot: root, AddonID: "np", Units: []string{"serviceradar-np.timer"},
+		Enable: "serviceradar-np.timer", RunTimerNow: true,
+	})
+	if !errors.Is(err, ErrAddonSystemdEnableNotListed) {
+		t.Fatalf("unbundled backing service was not rejected before host writes: %v", err)
+	}
+}
+
+func TestTimerCandidateActivationPropagatesResetAndQueueFailures(t *testing.T) {
+	for _, fail := range []string{"reset-failed", "queue"} {
+		t.Run(fail, func(t *testing.T) {
+			root := t.TempDir()
+			state := filepath.Join(root, "service-state")
+			run := filepath.Join(root, "candidate-run")
+			installTimerSystemctlFixture(t, root, state, run, "serviceradar-np.service")
+			t.Setenv("TIMER_FIXTURE_FAIL", fail)
+			if err := activateAddonSystemdUnits(context.Background(), "serviceradar-np.timer",
+				"serviceradar-np.service"); err == nil {
+				t.Fatal("a failed fresh activation must not be reported as successful")
+			}
+			if _, err := os.Stat(run); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("failed activation unexpectedly executed the candidate: %v", err)
+			}
+		})
+	}
+}
+
+func installTimerSystemctlFixture(t *testing.T, dir, state, run, service string) {
+	t.Helper()
+	// This executable supplies only the external systemctl protocol. Production
+	// command execution and health parsing run unchanged, without host systemd.
+	script := `#!/bin/sh
+set -eu
+command=$1
+shift
+case "$command" in
+  reset-failed)
+    [ "${TIMER_FIXTURE_FAIL:-}" != reset-failed ] || exit 1
+    printf inactive > "$TIMER_FIXTURE_STATE"
+    ;;
+  enable) ;;
+  restart)
+    if [ "$1" = --no-block ]; then
+      [ "${TIMER_FIXTURE_FAIL:-}" != queue ] || exit 1
+      [ "$2" = "$TIMER_FIXTURE_SERVICE" ] || exit 2
+      [ "$(cat "$TIMER_FIXTURE_STATE")" = inactive ] || exit 3
+      printf active > "$TIMER_FIXTURE_STATE"
+      printf '%s' "$2" > "$TIMER_FIXTURE_RUN"
+    fi
+    ;;
+  show)
+    for unit in "$@"; do :; done
+    case "$unit" in
+      *.timer) printf 'ActiveState=active\nSubState=waiting\nNextElapseUSecMonotonic=123456\n' ;;
+      *.service)
+        if [ "$(cat "$TIMER_FIXTURE_STATE")" = failed ]; then
+          printf 'ActiveState=failed\nResult=exit-code\nExecMainStatus=1\n'
+        else
+          printf 'ActiveState=active\nMainPID=456\nResult=success\nExecMainStatus=0\n'
+        fi
+        ;;
+    esac
+    ;;
+  *) exit 4 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TIMER_FIXTURE_STATE", state)
+	t.Setenv("TIMER_FIXTURE_RUN", run)
+	t.Setenv("TIMER_FIXTURE_SERVICE", service)
+}
+
 func TestUninstallAddonSystemdUnitsValidation(t *testing.T) {
 	if err := UninstallAddonSystemdUnits(context.Background(), nil); !errors.Is(err, ErrAddonSystemdNoUnits) {
 		t.Fatalf("want ErrAddonSystemdNoUnits, got %v", err)
