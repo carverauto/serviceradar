@@ -23,7 +23,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
 
   test "a violated threshold emits an event on the first evaluation", %{device_id: device_id} do
     insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
-    insert_metric!(device_id, 900.0)
+    insert_rate!(device_id, 900.0)
 
     assert :ok = InterfaceThresholdWorker.perform(%Oban.Job{args: %{}})
 
@@ -34,7 +34,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     device_id: device_id
   } do
     insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
-    insert_metric!(device_id, 900.0)
+    insert_rate!(device_id, 900.0)
     t0 = DateTime.utc_now()
 
     assert :ok = InterfaceThresholdWorker.run(now: t0)
@@ -52,7 +52,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     device_id: device_id
   } do
     insert_setting!(device_id, %{"comparison" => "gt", "value" => 500, "duration_seconds" => 120})
-    insert_metric!(device_id, 900.0)
+    insert_rate!(device_id, 900.0)
     t0 = DateTime.utc_now()
 
     assert :ok = InterfaceThresholdWorker.run(now: t0)
@@ -67,15 +67,16 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     device_id: device_id
   } do
     insert_setting!(device_id, %{"comparison" => "gt", "value" => 500, "duration_seconds" => 120})
-    insert_metric!(device_id, 900.0, -2)
+    insert_sample!(device_id, 0.0, -3)
+    insert_sample!(device_id, 900.0, -2)
     t0 = DateTime.utc_now()
 
     assert :ok = InterfaceThresholdWorker.run(now: t0)
 
-    insert_metric!(device_id, 100.0, -1)
+    insert_sample!(device_id, 1_000.0, -1)
     assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, minute: 1))
 
-    insert_metric!(device_id, 900.0, 0)
+    insert_sample!(device_id, 1_900.0, 0)
     assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 121))
     assert event_count(device_id) == 0
 
@@ -85,7 +86,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
 
   test "run/1 returns {:error, _} when the state persist fails", %{device_id: device_id} do
     insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
-    insert_metric!(device_id, 900.0)
+    insert_rate!(device_id, 900.0)
 
     Repo.query!(
       "ALTER TABLE platform.interface_threshold_states ADD CONSTRAINT force_fail_test CHECK (false)"
@@ -98,7 +99,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
     enable_metrics_warehouse!()
 
-    query = fn _sql ->
+    query = fn sql ->
+      assert rate_sql?(sql)
       {:ok, %{rows: [[device_id, @if_index, @metric, 900.0]]}}
     end
 
@@ -110,7 +112,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     device_id: device_id
   } do
     insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
-    insert_metric!(device_id, 900.0)
+    insert_rate!(device_id, 900.0)
     enable_metrics_warehouse!()
 
     query = fn _sql -> {:ok, %{rows: []}} end
@@ -123,16 +125,146 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     device_id: device_id
   } do
     setting_id = insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
-    insert_metric!(device_id, 900.0, -1)
+    insert_sample!(device_id, 0.0, -2)
+    insert_sample!(device_id, 900.0, -1)
     t0 = DateTime.utc_now()
 
     assert :ok = InterfaceThresholdWorker.run(now: t0)
     assert state_count(setting_id) == 1
 
-    insert_metric!(device_id, 100.0, 0)
+    insert_sample!(device_id, 1_000.0, 0)
     assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 400))
     assert state_count(setting_id) == 0
     assert event_count(device_id) == 1
+  end
+
+  test "a 32-bit counter wrap fires from the wrapped rate", %{device_id: device_id} do
+    insert_setting!(device_id, %{"comparison" => "gt", "value" => 100})
+    insert_sample!(device_id, 4_294_967_200.0, -1, 32)
+    insert_sample!(device_id, 50.0, 0, 32)
+
+    assert :ok = InterfaceThresholdWorker.perform(%Oban.Job{args: %{}})
+
+    assert event_count(device_id) == 1
+  end
+
+  test "a 64-bit counter reset skips the sample and keeps an open violation", %{
+    device_id: device_id
+  } do
+    setting_id =
+      insert_setting!(device_id, %{
+        "comparison" => "gt",
+        "value" => 500,
+        "duration_seconds" => 120
+      })
+
+    insert_rate!(device_id, 900.0)
+    t0 = DateTime.utc_now()
+
+    assert :ok = InterfaceThresholdWorker.run(now: t0)
+    assert event_count(device_id) == 0
+    assert state_count(setting_id) == 1
+
+    insert_sample!(device_id, 10.0, 1, 64)
+
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 30))
+    assert event_count(device_id) == 0
+    assert state_count(setting_id) == 1
+  end
+
+  test "a percentage threshold ignores a high counter whose rate is under the link share", %{
+    device_id: device_id
+  } do
+    insert_setting!(device_id, %{
+      "comparison" => "gt",
+      "value" => 50,
+      "threshold_type" => "percentage"
+    })
+
+    insert_speed!(device_id, 8_000)
+    insert_sample!(device_id, 10_000.0, -1)
+    insert_sample!(device_id, 10_200.0, 0)
+
+    assert :ok = InterfaceThresholdWorker.perform(%Oban.Job{args: %{}})
+
+    assert event_count(device_id) == 0
+  end
+
+  test "a percentage threshold fires when the rate exceeds the link share", %{
+    device_id: device_id
+  } do
+    insert_setting!(device_id, %{
+      "comparison" => "gt",
+      "value" => 50,
+      "threshold_type" => "percentage"
+    })
+
+    insert_speed!(device_id, 8_000)
+    insert_sample!(device_id, 10_000.0, -1)
+    insert_sample!(device_id, 10_900.0, 0)
+
+    assert :ok = InterfaceThresholdWorker.perform(%Oban.Job{args: %{}})
+
+    assert event_count(device_id) == 1
+  end
+
+  test "a warehouse wrapped rate emits a threshold event", %{device_id: device_id} do
+    insert_setting!(device_id, %{"comparison" => "gt", "value" => 100})
+    enable_metrics_warehouse!()
+
+    query = fn sql ->
+      assert rate_sql?(sql)
+      {:ok, %{rows: [[device_id, @if_index, @metric, 146.0]]}}
+    end
+
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.utc_now(), metric_query: query)
+    assert event_count(device_id) == 1
+  end
+
+  test "a warehouse reset leaves an open violation in place", %{device_id: device_id} do
+    setting_id =
+      insert_setting!(device_id, %{
+        "comparison" => "gt",
+        "value" => 500,
+        "duration_seconds" => 120
+      })
+
+    enable_metrics_warehouse!()
+    query = sequenced_query(device_id, [900.0, :empty])
+    t0 = DateTime.utc_now()
+
+    assert :ok = InterfaceThresholdWorker.run(now: t0, metric_query: query)
+    assert event_count(device_id) == 0
+    assert state_count(setting_id) == 1
+
+    assert :ok =
+             InterfaceThresholdWorker.run(
+               now: DateTime.shift(t0, second: 30),
+               metric_query: query
+             )
+
+    assert event_count(device_id) == 0
+    assert state_count(setting_id) == 1
+  end
+
+  test "a warehouse rate under the threshold clears a fired alert", %{device_id: device_id} do
+    setting_id = insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
+    enable_metrics_warehouse!()
+    query = sequenced_query(device_id, [900.0, 100.0])
+    t0 = DateTime.utc_now()
+
+    assert :ok = InterfaceThresholdWorker.run(now: t0, metric_query: query)
+    assert event_count(device_id) == 1
+    assert state_count(setting_id) == 1
+
+    assert :ok =
+             InterfaceThresholdWorker.run(
+               now: DateTime.shift(t0, second: 400),
+               metric_query: query
+             )
+
+    assert event_count(device_id) == 1
+    assert state_count(setting_id) == 0
   end
 
   defp enable_metrics_warehouse! do
@@ -166,17 +298,58 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     Ecto.UUID.load!(id)
   end
 
-  # `offset_seconds` orders samples relative to one another; every sample stays
-  # inside the worker's five-minute lookback.
-  defp insert_metric!(device_id, value, offset_seconds \\ 0) do
+  # One second between a zero baseline and `rate` makes the per-second rate
+  # equal to `rate`. `offset_seconds` only orders samples; each one stays inside
+  # the worker's five-minute lookback.
+  defp insert_rate!(device_id, rate) do
+    insert_sample!(device_id, 0.0, -1)
+    insert_sample!(device_id, rate, 0)
+  end
+
+  defp insert_sample!(device_id, value, offset_seconds, width \\ nil) do
     Repo.query!(
       """
       INSERT INTO platform.timeseries_metrics
-        ("timestamp", gateway_id, metric_name, metric_type, device_id, value, if_index, series_key)
-      VALUES (now() + make_interval(secs => $1), 'test-gateway', $2, 'counter', $3, $4, $5, $6)
+        ("timestamp", gateway_id, metric_name, metric_type, device_id, value,
+         if_index, series_key, counter_width)
+      VALUES (now() + make_interval(secs => $1), 'test-gateway', $2, 'counter', $3, $4, $5, $6, $7)
       """,
-      [offset_seconds, @metric, device_id, value, @if_index, "#{device_id}:#{@metric}"]
+      [offset_seconds, @metric, device_id, value, @if_index, "#{device_id}:#{@metric}", width]
     )
+  end
+
+  defp insert_speed!(device_id, speed_bps) do
+    Repo.query!(
+      """
+      INSERT INTO platform.discovered_interfaces
+        ("timestamp", device_id, if_index, interface_uid, speed_bps)
+      VALUES (now(), $1, $2, $3, $4)
+      """,
+      [device_id, @if_index, "#{device_id}:#{@if_index}", speed_bps]
+    )
+  end
+
+  defp sequenced_query(device_id, rates) do
+    {:ok, calls} = Agent.start_link(fn -> rates end)
+
+    fn sql ->
+      assert rate_sql?(sql)
+      {:ok, %{rows: rate_rows(device_id, Agent.get_and_update(calls, &pop_rate/1))}}
+    end
+  end
+
+  defp pop_rate([rate | rest]), do: {rate, rest}
+  defp pop_rate([]), do: {:empty, []}
+
+  defp rate_rows(_device_id, :empty), do: []
+  defp rate_rows(device_id, rate), do: [[device_id, @if_index, @metric, rate]]
+
+  defp rate_sql?(sql) do
+    compact = String.replace(sql, ~r/\s+/, " ")
+
+    String.contains?(compact, "previous_value") and
+      String.contains?(compact, "4294967296") and
+      String.contains?(compact, "18446744073709551616")
   end
 
   defp event_count(device_id) do

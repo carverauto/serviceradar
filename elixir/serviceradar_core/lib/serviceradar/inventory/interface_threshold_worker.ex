@@ -9,8 +9,11 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   ## Scheduling
 
   This worker runs every minute and checks all interfaces with metric_thresholds configured.
-  It reads the latest stored sample for each configured metric from the store
-  `Readers.mode_for(:metrics)` selects, then compares that value against the threshold.
+  It reads a per-second rate for each configured counter from the store
+  `Readers.mode_for(:metrics)` selects. The rate is the shared counter rule in
+  `MetricConsumers.counter_rate_sql/1` over the two newest samples: a plausible
+  wrap counts, and a reset is skipped. Percentage thresholds compare that
+  rate with link speed (`rate * 8 / ifSpeed`).
 
   ## Threshold Configuration
 
@@ -269,6 +272,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp check_threshold(setting, metric_name, config, metric_value, state, now) do
+    metric_value = coerce_number(metric_value)
     comparison = config_value(config, :comparison)
     threshold_type = config_value(config, :threshold_type, "absolute")
     raw_threshold = parse_number(config_value(config, :value))
@@ -354,7 +358,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     else
       # Query latest interface record for speed_bps or if_speed
       query =
-        from(i in "interfaces",
+        from(i in "discovered_interfaces",
           where: i.device_id == ^setting.device_id,
           where: i.if_index == ^if_index,
           order_by: [desc: i.timestamp],
@@ -363,22 +367,31 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         )
 
       case Repo.one(query) do
-        nil ->
-          {:ok, nil}
-
-        %{speed_bps: speed_bps} when is_number(speed_bps) and speed_bps > 0 ->
-          {:ok, speed_bps}
-
-        %{if_speed: if_speed} when is_number(if_speed) and if_speed > 0 ->
-          {:ok, if_speed}
-
-        _ ->
-          {:ok, nil}
+        nil -> {:ok, nil}
+        row -> {:ok, positive_speed(row)}
       end
     end
   rescue
     error -> {:error, error}
   end
+
+  defp positive_speed(%{speed_bps: speed_bps, if_speed: if_speed}) do
+    first_positive_speed([speed_bps, if_speed])
+  end
+
+  defp first_positive_speed([candidate | rest]) do
+    case coerce_number(candidate) do
+      speed when is_number(speed) and speed > 0 -> speed
+      _ -> first_positive_speed(rest)
+    end
+  end
+
+  defp first_positive_speed([]), do: nil
+
+  # `extract(epoch)` makes the CNPG rate numeric, which Postgrex returns as a
+  # Decimal. Term ordering would treat that struct as greater than any threshold.
+  defp coerce_number(%Decimal{} = number), do: Decimal.to_float(number)
+  defp coerce_number(number), do: number
 
   defp handle_violation(setting, metric_name, config, metric_value, state, now) do
     violation_started_at = state.violation_started_at || now
@@ -521,7 +534,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         Readers.fetch(:metrics, %{
           cnpg: fn -> cnpg_latest_metric_values(keys) end,
           starrocks: fn ->
-            MetricConsumers.latest_interface_values(keys, warehouse_query_opts(opts))
+            MetricConsumers.latest_interface_rates(keys, warehouse_query_opts(opts))
           end
         })
     end
@@ -565,34 +578,48 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     if_indexes = Enum.map(keys, &elem(&1, 1))
     metric_names = Enum.map(keys, &elem(&1, 2))
 
-    query =
-      from(m in "timeseries_metrics",
-        distinct: [m.device_id, m.if_index, m.metric_name],
-        where:
-          fragment(
-            "(?, ?, ?) IN (SELECT * FROM unnest(?, ?, ?))",
-            m.device_id,
-            m.if_index,
-            m.metric_name,
-            type(^device_ids, {:array, :string}),
-            type(^if_indexes, {:array, :integer}),
-            type(^metric_names, {:array, :string})
-          ),
-        where: m.timestamp > ago(5, "minute"),
-        order_by: [asc: m.device_id, asc: m.if_index, asc: m.metric_name, desc: m.timestamp],
-        select: {m.device_id, m.if_index, m.metric_name, m.value}
+    rate =
+      MetricConsumers.counter_rate_sql("extract(epoch FROM timestamp - previous_timestamp)")
+
+    sql = """
+    WITH samples AS (
+      SELECT m.device_id, m.if_index, m.metric_name, m.value, m.counter_width,
+        CAST(NULL AS double precision) AS max_rate_per_second,
+        m.timestamp,
+        lead(m.value) OVER w AS previous_value,
+        lead(m.timestamp) OVER w AS previous_timestamp,
+        row_number() OVER w AS sample_rank
+      FROM platform.timeseries_metrics m
+      JOIN unnest($1::text[], $2::int[], $3::text[]) AS k(device_id, if_index, metric_name)
+        ON m.device_id = k.device_id
+       AND m.if_index = k.if_index
+       AND m.metric_name = k.metric_name
+      WHERE m.timestamp > now() - interval '5 minutes'
+      WINDOW w AS (
+        PARTITION BY m.device_id, m.if_index, m.metric_name
+        ORDER BY m.timestamp DESC
       )
+    )
+    SELECT device_id, if_index, metric_name, rate_value
+    FROM (
+      SELECT device_id, if_index, metric_name, #{rate} AS rate_value
+      FROM samples
+      WHERE sample_rank = 1
+        AND timestamp > previous_timestamp
+        AND previous_value >= 0
+        AND value >= 0
+    ) rated
+    WHERE rate_value IS NOT NULL
+    """
 
-    values =
-      query
-      |> Repo.all()
-      |> Map.new(fn {device_id, if_index, metric_name, value} ->
-        {{device_id, if_index, metric_name}, value}
-      end)
+    case Repo.query(sql, [device_ids, if_indexes, metric_names]) do
+      {:ok, %{rows: rows}} -> {:ok, Map.new(rows, &rate_row/1)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-    {:ok, values}
-  rescue
-    error -> {:error, error}
+  defp rate_row([device_id, if_index, metric_name, value]) do
+    {{device_id, if_index, metric_name}, value}
   end
 
   defp lookup_metric_value(values, setting, metric_name) do
