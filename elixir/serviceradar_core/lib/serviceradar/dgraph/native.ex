@@ -17,7 +17,12 @@ defmodule ServiceRadar.Dgraph.Native do
 
   use Rustler,
     otp_app: :serviceradar_core,
-    crate: "dgraph_nif"
+    crate: "dgraph_nif",
+    # Mix builds path dependencies in :prod, so Rustler compiles this crate in
+    # release mode, where the workspace profile sets panic = "abort". Scope
+    # unwinding to this Cargo invocation, as the Bazel build does with
+    # -Cpanic=unwind: the crate refuses to compile with panic=abort.
+    env: [{"CARGO_PROFILE_RELEASE_PANIC", "unwind"}]
 
   @type url :: String.t()
   @type deadline_ms :: non_neg_integer()
