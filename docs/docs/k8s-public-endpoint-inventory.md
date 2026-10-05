@@ -225,6 +225,12 @@ agent. The transfer revokes the old agent in the same database transaction used
 to authorize subsequent snapshots. Do not create a second `clusterId` merely to
 rotate the agent.
 
+Deleting a binding offboards that cluster: the delete retires the cluster's
+active endpoint rows in the same transaction, stamping the deleting
+administrator's identity, and holds the binding row lock so a concurrent
+snapshot cannot insert rows that outlive the binding. After deletion, snapshots
+for that cluster are rejected until the binding is recreated.
+
 The co-located `publishMode: nats` path uses the inventory service's platform
 NATS credential and does not use an agent binding. A message carrying any agent
 provenance is always treated as agent-forwarded and cannot fall back to the
