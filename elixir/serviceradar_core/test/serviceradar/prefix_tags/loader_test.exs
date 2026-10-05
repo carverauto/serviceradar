@@ -432,9 +432,7 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
     pid =
       start_supervised!(
         {Loader,
-         load_on_init: false,
-         name: loader_name,
-         task_supervisor: :prefix_tags_dead_supervisor_xyz},
+         load_on_init: false, name: loader_name, task_supervisor: :prefix_tags_dead_supervisor_xyz},
         id: loader_name
       )
 
