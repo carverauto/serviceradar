@@ -172,7 +172,7 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
       assert_received {:broadcast, %{command_id: "cmd-2"}}
     end
 
-    defp trace_message_for(trace_uuid, target, extra \\ %{}) do
+    defp trace_message_for(trace_uuid, target, extra) do
       result = %{
         "target" => target,
         "trace_uuid" => trace_uuid,

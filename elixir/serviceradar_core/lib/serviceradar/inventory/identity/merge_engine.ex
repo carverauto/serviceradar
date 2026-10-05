@@ -25,6 +25,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.Identity.Reassignments
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.Identity.SourceSuccession
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Monitoring.Alert
@@ -129,6 +130,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   A source succession (`SourceSuccession`) passes reason `#{@succession_reason}` with
   `succession:`, the pair it merges; neither is accepted without the other.
+
+  `fingerprint:` is the evidence fingerprint of the pair (`BlockFingerprint`). A guard block
+  records it in its decision, so the next scheduled run can skip the pair while the evidence is
+  unchanged (`block_decision_keys/2`).
   """
   @spec merge_devices(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def merge_devices(from_device_id, to_device_id, opts \\ []) do
@@ -136,6 +141,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     reason = Keyword.get(opts, :reason, "identity_resolution")
     details = Keyword.get(opts, :details, %{})
     succession = Keyword.get(opts, :succession)
+    fingerprint = Keyword.get(opts, :fingerprint)
 
     cond do
       from_device_id == to_device_id ->
@@ -145,9 +151,15 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         {:error, error}
 
       merge_guard_blocked =
-          merge_guard_violation(from_device_id, to_device_id, reason, succession, actor) ->
+          merge_guard_violation(from_device_id, to_device_id, reason, actor,
+            succession: succession,
+            fingerprint: fingerprint
+          ) ->
         emit_merge_guard_telemetry(merge_guard_blocked, reason, from_device_id, to_device_id)
-        record_guard_block(merge_guard_blocked, reason, from_device_id, to_device_id, details)
+
+        record_guard_block(merge_guard_blocked, reason, {from_device_id, to_device_id}, details,
+          fingerprint: fingerprint
+        )
 
         Logger.info(
           "Blocked merge #{from_device_id} -> #{to_device_id} " <>
@@ -182,7 +194,14 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   # Guards that apply to every automatic merge path (ingest-time, alias,
   # scheduled backfill). Manual/administrative merges bypass them.
-  defp merge_guard_violation(from_device_id, to_device_id, reason, succession, actor) do
+  #
+  # The scheduled run skips a pair these guards blocked while its evidence fingerprint is
+  # unchanged (`BlockFingerprint`). A change to any guard here, or to what one reads, must bump
+  # `BlockFingerprint`'s rule version, and the fingerprint must keep covering every input a guard
+  # reads. The cooldown is the exception: it depends on time, so its blocks are never skipped.
+  defp merge_guard_violation(from_device_id, to_device_id, reason, actor, opts) do
+    succession = Keyword.get(opts, :succession)
+
     cond do
       manual_override_merge_reason?(reason) or reason == "unmerge" ->
         nil
@@ -195,7 +214,11 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         :distinct_agent_identity
 
       source_conflict = source_conflict(from_device_id, to_device_id, succession) ->
-        _ = SourceAuthorityGuard.record_blocked(source_conflict, reason)
+        _ =
+          SourceAuthorityGuard.record_blocked(source_conflict, reason, %{},
+            fingerprint: Keyword.get(opts, :fingerprint)
+          )
+
         :source_authority_conflict
 
       guard = provisional_topology_merge_violation(from_device_id, to_device_id, actor) ->
@@ -250,12 +273,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   defp provisional_topology_sighting_device?(device_id, actor) when is_binary(device_id) do
     case Device.get_by_uid(device_id, true, actor: actor) do
-      {:ok, %Device{metadata: metadata}} when is_map(metadata) ->
-        Map.get(metadata, "identity_state") == "provisional" and
-          Map.get(metadata, "identity_source") == "mapper_topology_sighting"
-
-      _ ->
-        false
+      {:ok, %Device{metadata: metadata}} -> provisional_topology_sighting?(metadata)
+      _ -> false
     end
   rescue
     e ->
@@ -267,6 +286,18 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   end
 
   defp provisional_topology_sighting_device?(_device_id, _actor), do: false
+
+  @doc """
+  Whether a device's metadata marks it a provisional identity minted from mapper topology
+  sightings, which the provisional-identity guard never lets absorb a corroborated device.
+  """
+  @spec provisional_topology_sighting?(term()) :: boolean()
+  def provisional_topology_sighting?(%{} = metadata) do
+    Map.get(metadata, "identity_state") == "provisional" and
+      Map.get(metadata, "identity_source") == "mapper_topology_sighting"
+  end
+
+  def provisional_topology_sighting?(_metadata), do: false
 
   # Oscillation breaker: a pair that already merged (in either direction)
   # within the cooldown window is ping-ponging — re-merging would feed the
@@ -300,19 +331,62 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     |> Keyword.get(:merge_cooldown_seconds, 86_400)
   end
 
-  # The source-authority guard records its own decision (SourceAuthorityGuard.record_blocked/3,
-  # a `:source_block` carrying both source id sets), so it is not recorded twice here.
-  defp record_guard_block(:source_authority_conflict, _reason, _from, _to, _details), do: :ok
+  # Guards whose blocks a scheduled run may skip while the pair's evidence is unchanged: each
+  # decides from the inputs `BlockFingerprint` covers. The cooldown is left out, because it
+  # depends on time.
+  @fingerprinted_guards [
+    :asserted_distinct,
+    :distinct_agent_identity,
+    :source_authority_conflict,
+    :provisional_identity_absorb,
+    :distinct_mac_identity
+  ]
 
-  defp record_guard_block(guard, reason, from_device_id, to_device_id, details) do
+  @doc """
+  The keys of the decisions a guard block of `device_a` and `device_b` records, one for each
+  guard whose block a scheduled run may skip (`BlockFingerprint`). The keys do not depend on
+  the direction.
+  """
+  @spec block_decision_keys(String.t(), String.t()) :: [String.t()]
+  def block_decision_keys(device_a, device_b) do
+    Enum.map(@fingerprinted_guards, fn
+      :source_authority_conflict ->
+        IdentityDecision.decision_key(
+          :source_block,
+          "source_authority_conflict",
+          [device_a, device_b],
+          nil
+        )
+
+      guard ->
+        IdentityDecision.decision_key(:guard_block, to_string(guard), [device_a, device_b], nil)
+    end)
+  end
+
+  # The source-authority guard records its own decision (SourceAuthorityGuard.record_blocked/4,
+  # a `:source_block` carrying both source id sets), so it is not recorded twice here.
+  defp record_guard_block(:source_authority_conflict, _reason, _pair, _details, _opts), do: :ok
+
+  defp record_guard_block(guard, reason, {from_device_id, to_device_id}, details, opts) do
+    evidence = %{
+      "merge_reason" => reason,
+      "from_device_id" => from_device_id,
+      "to_device_id" => to_device_id,
+      "details" => details
+    }
+
+    evidence =
+      case Keyword.get(opts, :fingerprint) do
+        fingerprint when is_binary(fingerprint) and guard in @fingerprinted_guards ->
+          Map.put(evidence, "fingerprint", fingerprint)
+
+        _ ->
+          evidence
+      end
+
     DecisionLog.record(:guard_block, to_string(guard), [from_device_id, to_device_id],
       source: reason,
-      evidence: %{
-        "merge_reason" => reason,
-        "from_device_id" => from_device_id,
-        "to_device_id" => to_device_id,
-        "details" => details
-      }
+      evidence: evidence
     )
   end
 

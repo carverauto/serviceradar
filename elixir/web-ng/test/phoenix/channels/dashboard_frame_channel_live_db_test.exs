@@ -1,17 +1,18 @@
 defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
   @moduledoc """
-  Database-backed coverage for the dashboard channel's plugin-action and
-  live-event paths: capability and permission rejection, dispatch with the
-  viewer as actor, progress pushed to a terminal state, event matching, and
-  subscriptions dropped when event access is revoked.
+  Database-backed coverage for the dashboard channel: frame streaming, Arrow IPC,
+  cursor paging, refresh recovery, caching, token validation and access grants,
+  plus plugin-action and live-event paths.
   """
 
   use ServiceRadarWebNG.DataCase, async: false
 
   import Phoenix.ChannelTest
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Dashboards.DashboardInstance
+  alias ServiceRadar.Dashboards.DashboardInstanceAccessGrant
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Identity.RBAC
@@ -28,11 +29,81 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
   @endpoint ServiceRadarWebNGWeb.Endpoint
   @action_id "northbound:showcase-fault"
   @confirm_action_id "northbound:showcase-reset"
-  @data_frames [%{"id" => "rows", "query" => "in:dashboard_live_rows", "encoding" => "json_rows", "limit" => 1}]
+  @data_frames [
+    %{
+      "id" => "rows",
+      "query" => "in:dashboard_live_rows",
+      "encoding" => "json_rows",
+      "limit" => 1
+    }
+  ]
 
   defmodule FakeSRQL do
     @moduledoc false
+
+    def query("in:test_rows", _opts) do
+      notify_query("in:test_rows")
+      {:ok, %{"results" => [%{"id" => "row-1", "value" => 7}], "pagination" => %{"limit" => 1}}}
+    end
+
+    def query("in:test_paged_rows", opts) do
+      notify_query({"in:test_paged_rows", Map.get(opts, :cursor)})
+      id = if Map.get(opts, :cursor) == "page-two", do: "row-2", else: "row-1"
+
+      {:ok,
+       %{
+         "results" => [%{"id" => id, "value" => 7}],
+         "pagination" => %{
+           "next_cursor" => "page-two",
+           "prev_cursor" => Map.get(opts, :cursor),
+           "limit" => 1
+         }
+       }}
+    end
+
+    def query("in:test_optional_rows", _opts) do
+      notify_query("in:test_optional_rows")
+
+      {:ok, %{"results" => [%{"id" => "row-optional", "value" => 9}], "pagination" => %{"limit" => 1}}}
+    end
+
+    def query("in:test_flaky_rows", _opts) do
+      notify_query("in:test_flaky_rows")
+
+      case Application.get_env(:serviceradar_web_ng, :dashboard_frame_flaky_mode) do
+        :error ->
+          {:error, :flaky_error}
+
+        _ ->
+          {:ok, %{"results" => [%{"id" => "row-good", "value" => 13}], "pagination" => %{"limit" => 1}}}
+      end
+    end
+
+    def query("in:test_slow_rows", _opts) do
+      if pid = Application.get_env(:serviceradar_web_ng, :dashboard_frame_test_pid) do
+        send(pid, {:srql_query_started, "in:test_slow_rows", self()})
+      end
+
+      receive do
+        :release_dashboard_frame_query ->
+          {:ok, %{"results" => [%{"id" => "row-slow", "value" => 11}], "pagination" => %{"limit" => 1}}}
+      after
+        5_000 ->
+          {:error, :timeout}
+      end
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => [], "pagination" => %{"limit" => 1}}}
+
+    def query_arrow("in:test_arrow", _opts) do
+      {:ok, %{payload: "arrow bytes", schema: %{"columns" => ["id"]}}}
+    end
+
+    defp notify_query(query) do
+      if pid = Application.get_env(:serviceradar_web_ng, :dashboard_frame_test_pid) do
+        send(pid, {:srql_query, query})
+      end
+    end
   end
 
   defmodule FakeCatalog do
@@ -43,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
           id: "northbound:showcase-fault",
           descriptor_id: nil,
           label: "Inject fault",
-          description: nil,
+          description: "Forces a transient fault.",
           provider_type: "wasm_plugin",
           provider_name: "showcase",
           scope: "device",
@@ -63,7 +134,10 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
           provider_name: "showcase",
           scope: "device",
           destination: nil,
-          input_schema: %{"type" => "object", "properties" => %{"reason" => %{"type" => "string"}}},
+          input_schema: %{
+            "type" => "object",
+            "properties" => %{"reason" => %{"type" => "string"}}
+          },
           safety_classification: "destructive",
           requires_confirmation: true,
           timeout_seconds: 30,
@@ -81,7 +155,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
   defmodule RecordingInvocationService do
     @moduledoc false
     def create_and_dispatch(attrs, opts) do
-      send(Application.fetch_env!(:serviceradar_web_ng, :dashboard_live_test_pid), {:invocation_requested, attrs, opts})
+      send(
+        Application.fetch_env!(:serviceradar_web_ng, :dashboard_live_test_pid),
+        {:invocation_requested, attrs, opts}
+      )
+
       system = AshTestHelpers.system_actor()
 
       ActionInvocation
@@ -104,17 +182,37 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
   setup do
     previous =
-      Map.new([:srql_module, :northbound_catalog_module, :northbound_invocation_service_module], fn key ->
-        {key, Application.get_env(:serviceradar_web_ng, key)}
-      end)
+      Map.new(
+        [
+          :srql_module,
+          :northbound_catalog_module,
+          :northbound_invocation_service_module,
+          :dashboard_frame_flaky_mode,
+          :dashboard_frame_test_pid
+        ],
+        fn key ->
+          {key, Application.get_env(:serviceradar_web_ng, key)}
+        end
+      )
 
     Application.put_env(:serviceradar_web_ng, :srql_module, FakeSRQL)
     Application.put_env(:serviceradar_web_ng, :northbound_catalog_module, FakeCatalog)
-    Application.put_env(:serviceradar_web_ng, :northbound_invocation_service_module, RecordingInvocationService)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_invocation_service_module,
+      RecordingInvocationService
+    )
+
     Application.put_env(:serviceradar_web_ng, :dashboard_live_test_pid, self())
+
+    user = AccountsFixtures.user_fixture()
+    scope = Scope.for_user(user, permissions: RBAC.permissions_for_user(user))
 
     on_exit(fn ->
       Application.delete_env(:serviceradar_web_ng, :dashboard_live_test_pid)
+      Application.delete_env(:serviceradar_web_ng, :dashboard_frame_test_pid)
+      Application.delete_env(:serviceradar_web_ng, :dashboard_frame_flaky_mode)
 
       Enum.each(previous, fn
         {key, nil} -> Application.delete_env(:serviceradar_web_ng, key)
@@ -122,7 +220,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       end)
     end)
 
-    :ok
+    {:ok, user: user, scope: scope}
   end
 
   describe "actions:invoke" do
@@ -131,7 +229,10 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
       ref = push(socket, "actions:invoke", invoke_payload())
 
-      assert_reply ref, :error, %{"reason" => "dashboard capability is not approved: actions.invoke"}
+      assert_reply(ref, :error, %{
+        "reason" => "dashboard capability is not approved: actions.invoke"
+      })
+
       refute_received {:invocation_requested, _attrs, _opts}
     end
 
@@ -140,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
       ref = push(socket, "actions:invoke", invoke_payload())
 
-      assert_reply ref, :error, %{"reason" => "You are not authorized to launch actions."}
+      assert_reply(ref, :error, %{"reason" => "You are not authorized to launch actions."})
       refute_received {:invocation_requested, _attrs, _opts}
     end
 
@@ -150,7 +251,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       ref = push(socket, "actions:invoke", invoke_payload())
 
       # Creating and dispatching the invocation makes several database round trips.
-      assert_reply ref, :ok, %{"invocation_id" => invocation_id, "state" => "dispatching"}, 8_000
+      assert_reply(ref, :ok, %{"invocation_id" => invocation_id, "state" => "dispatching"}, 8_000)
       assert_received {:invocation_requested, attrs, opts}
       assert Keyword.fetch!(opts, :actor).id == user.id
       assert attrs.source == :user
@@ -166,9 +267,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       |> Ash.Changeset.for_update(:record_succeeded, %{result_summary: %{"ok" => true}}, actor: system)
       |> Ash.update!()
 
-      assert_push "actions:progress",
-                  %{"invocation_id" => ^invocation_id, "state" => "succeeded"},
-                  8_000
+      assert_push(
+        "actions:progress",
+        %{"invocation_id" => ^invocation_id, "state" => "succeeded"},
+        8_000
+      )
     end
   end
 
@@ -177,11 +280,17 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
   # answers it the way the LiveView does.
   describe "actions:invoke with requires_confirmation" do
     test "holds the invocation for the host and dispatches nothing" do
-      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      {socket, user} =
+        join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
 
       ref = push(socket, "actions:invoke", confirm_payload())
 
-      assert_reply ref, :ok, %{"state" => "confirmation_required", "confirmation_id" => id, "expires_in_ms" => ttl}
+      assert_reply(ref, :ok, %{
+        "state" => "confirmation_required",
+        "confirmation_id" => id,
+        "expires_in_ms" => ttl
+      })
+
       assert ttl == ActionConfirmations.ttl_ms()
       assert_receive {:dashboard_action_confirmation_request, request}
       assert request.id == id
@@ -194,28 +303,40 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
     end
 
     test "dispatches exactly once after the host confirms" do
-      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      {socket, user} =
+        join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+
       request = request_confirmation!(socket)
-      reply = {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)}
+
+      reply =
+        {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)}
 
       send(socket.channel_pid, reply)
       send(socket.channel_pid, reply)
 
-      assert_push "actions:confirmation",
-                  %{"state" => "confirmed", "invocation" => %{"invocation_id" => _id}},
-                  8_000
+      assert_push(
+        "actions:confirmation",
+        %{"state" => "confirmed", "invocation" => %{"invocation_id" => _id}},
+        8_000
+      )
 
       assert_received {:invocation_requested, attrs, opts}
       assert Keyword.fetch!(opts, :actor).id == user.id
       assert attrs.targets == [%{kind: "device", device_uid: "sr:device:plc-07"}]
       assert attrs.input_values == %{"reason" => "scheduled"}
-      assert attrs.metadata["confirmation"] == %{"method" => "host_dialog", "confirmation_id" => request.id}
+
+      assert attrs.metadata["confirmation"] == %{
+               "method" => "host_dialog",
+               "confirmation_id" => request.id
+             }
 
       refute_receive {:invocation_requested, _attrs, _opts}, 500
     end
 
     test "rejects a confirmation bound to a different target set and burns it" do
-      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      {socket, user} =
+        join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+
       request = request_confirmation!(socket)
 
       other_binding =
@@ -233,29 +354,41 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
          %{user_id: to_string(user.id), binding: other_binding}}
       )
 
-      assert_push "actions:confirmation", %{"state" => "rejected", "reason" => reason}
+      assert_push("actions:confirmation", %{"state" => "rejected", "reason" => reason})
       assert reason == "The confirmation does not match this action request."
 
       # The mismatch consumed the entry: the genuine answer can no longer release it.
-      send(socket.channel_pid, {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)})
-      refute_push "actions:confirmation", _payload, 300
+      send(
+        socket.channel_pid,
+        {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)}
+      )
+
+      refute_push("actions:confirmation", _payload, 300)
       refute_received {:invocation_requested, _attrs, _opts}
     end
 
     test "rejects a confirmation answered after it expired" do
-      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      {socket, user} =
+        join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+
       request = request_confirmation!(socket)
 
       # Monotonic time can be negative, so "in the past" is relative to now.
       expired_at = System.monotonic_time(:millisecond) - 1
 
       :sys.replace_state(socket.channel_pid, fn channel_socket ->
-        update_in(channel_socket.assigns.action_confirmations[request.id], &Map.put(&1, :expires_at_ms, expired_at))
+        update_in(
+          channel_socket.assigns.action_confirmations[request.id],
+          &Map.put(&1, :expires_at_ms, expired_at)
+        )
       end)
 
-      send(socket.channel_pid, {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)})
+      send(
+        socket.channel_pid,
+        {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)}
+      )
 
-      assert_push "actions:confirmation", %{"state" => "rejected", "reason" => reason}
+      assert_push("actions:confirmation", %{"state" => "rejected", "reason" => reason})
       assert reason == "The confirmation expired before it was answered."
       assert_receive {:dashboard_action_confirmation_closed, closed_id}
       assert closed_id == request.id
@@ -263,27 +396,38 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
     end
 
     test "expires an unanswered confirmation, closes the host dialog and refuses a late answer" do
-      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      {socket, user} =
+        join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+
       request = request_confirmation!(socket)
 
       send(socket.channel_pid, {:dashboard_action_confirmation_expired, request.id})
 
-      assert_push "actions:confirmation", %{"state" => "expired"}
+      assert_push("actions:confirmation", %{"state" => "expired"})
       assert_receive {:dashboard_action_confirmation_closed, closed_id}
       assert closed_id == request.id
 
-      send(socket.channel_pid, {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)})
-      refute_push "actions:confirmation", _payload, 300
+      send(
+        socket.channel_pid,
+        {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)}
+      )
+
+      refute_push("actions:confirmation", _payload, 300)
       refute_received {:invocation_requested, _attrs, _opts}
     end
 
     test "a declined confirmation dispatches nothing" do
-      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      {socket, user} =
+        join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+
       request = request_confirmation!(socket)
 
-      send(socket.channel_pid, {:dashboard_action_confirmation_reply, request.id, :declined, host_reply(user, request)})
+      send(
+        socket.channel_pid,
+        {:dashboard_action_confirmation_reply, request.id, :declined, host_reply(user, request)}
+      )
 
-      assert_push "actions:confirmation", %{"state" => "declined"}
+      assert_push("actions:confirmation", %{"state" => "declined"})
       refute_receive {:invocation_requested, _attrs, _opts}, 300
     end
 
@@ -292,7 +436,10 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
       ref = push(socket, "actions:invoke", confirm_payload())
 
-      assert_reply ref, :error, %{"reason" => "This action requires confirmation in the ServiceRadar host."}
+      assert_reply(ref, :error, %{
+        "reason" => "This action requires confirmation in the ServiceRadar host."
+      })
+
       refute_receive {:invocation_requested, _attrs, _opts}, 300
     end
 
@@ -301,7 +448,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
       ref = push(socket, "actions:invoke", invoke_payload())
 
-      assert_reply ref, :ok, %{"invocation_id" => _id, "state" => "dispatching"}, 8_000
+      assert_reply(ref, :ok, %{"invocation_id" => _id, "state" => "dispatching"}, 8_000)
       assert_received {:invocation_requested, _attrs, _opts}
       refute_received {:dashboard_action_confirmation_request, _request}
     end
@@ -313,7 +460,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
       ref = push(socket, "events:subscribe", %{"id" => "s1", "filter" => %{}})
 
-      assert_reply ref, :error, %{"reason" => "dashboard capability is not approved: events.subscribe"}
+      assert_reply(ref, :error, %{
+        "reason" => "dashboard capability is not approved: events.subscribe"
+      })
     end
 
     test "pushes matching persisted events and withholds non-matching ones" do
@@ -323,11 +472,15 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       matching = persisted_event!("plugin:showcase-ot")
       :ok = EventsPubSub.broadcast_event_rows([matching, persisted_event!("plugin:other")])
 
-      assert_push "events:batch", %{"subscription_id" => "s1", "events" => [%{"id" => matching_id}]}
+      assert_push("events:batch", %{
+        "subscription_id" => "s1",
+        "events" => [%{"id" => matching_id}]
+      })
+
       assert matching_id == Ecto.UUID.load!(matching.id)
 
       :ok = EventsPubSub.broadcast_event_rows([persisted_event!("plugin:other")])
-      refute_push "events:batch", _payload, 300
+      refute_push("events:batch", _payload, 300)
     end
 
     test "withholds events the viewer's own read of ocsf_events does not return" do
@@ -338,14 +491,15 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
       :ok = EventsPubSub.broadcast_event_rows([persisted_event!("plugin:showcase-ot")])
 
-      refute_push "events:batch", _payload, 500
+      refute_push("events:batch", _payload, 500)
     end
 
     test "drops subscriptions once the viewer is deactivated" do
       {socket, user} = join_with_user!(:viewer, ["srql.execute", "events.subscribe"])
       subscribe!(socket, %{"log_provider" => "plugin:showcase-ot"})
 
-      {:ok, _user} = Users.deactivate(user, actor: AshTestHelpers.system_actor(), authorize?: false)
+      {:ok, _user} =
+        Users.deactivate(user, actor: AshTestHelpers.system_actor(), authorize?: false)
 
       # Delivery refreshes the viewer at most every 30 s; expire the last check
       # instead of sleeping through the interval.
@@ -355,11 +509,483 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
       :ok = EventsPubSub.broadcast_event_rows([persisted_event!("plugin:showcase-ot")])
 
-      assert_push "events:error", %{"reason" => "You are not authorized to read events."}
-      refute_push "events:batch", _payload, 300
+      assert_push("events:error", %{"reason" => "You are not authorized to read events."})
+      refute_push("events:batch", _payload, 300)
 
       :ok = EventsPubSub.broadcast_event_rows([persisted_event!("plugin:showcase-ot")])
-      refute_push "events:error", _payload, 300
+      refute_push("events:error", _payload, 300)
+    end
+  end
+
+  describe "frame streaming and cursor paging" do
+    test "joins with a signed stream token and pushes JSON row frames", %{
+      user: user,
+      scope: scope
+    } do
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1}
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+
+      assert {:ok, %{"refresh_interval_ms" => 15_000}, _socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{
+            "id" => "rows",
+            "status" => "ok",
+            "encoding" => "json_rows",
+            "results" => [%{"id" => "row-1", "value" => 7}]
+          }
+        ],
+        "pending_binary_frame_ids" => []
+      })
+
+      refute_push("frame:binary", _payload, 100)
+    end
+
+    test "pages one frame through the existing SRQL cursor without replacing the query", %{
+      user: user,
+      scope: scope
+    } do
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{
+          "id" => "rows",
+          "query" => "in:test_paged_rows",
+          "encoding" => "json_rows",
+          "limit" => 1
+        }
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+
+      assert {:ok, _reply, socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{
+        "frames" => [%{"id" => "rows", "results" => [%{"id" => "row-1"}]}]
+      })
+
+      ref = push(socket, "frames:page", %{"frame_id" => "rows", "cursor" => "page-two"})
+      assert_reply(ref, :ok, %{})
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{
+            "id" => "rows",
+            "query" => "in:test_paged_rows",
+            "results" => [%{"id" => "row-2"}]
+          }
+        ]
+      })
+    end
+
+    test "streams Arrow IPC frame payloads as channel binary frames", %{user: user, scope: scope} do
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "arrow", "query" => "in:test_arrow", "encoding" => "arrow_ipc", "limit" => 1}
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+
+      assert {:ok, _reply, _socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{
+            "id" => "arrow",
+            "status" => "ok",
+            "encoding" => "arrow_ipc",
+            "payload_transport" => "channel_binary"
+          }
+        ],
+        "pending_binary_frame_ids" => ["arrow"]
+      })
+
+      assert_push("frame:binary", {:binary, frame})
+
+      assert <<"DFB1", id_size::unsigned-integer-size(16), metadata_size::unsigned-integer-size(32), rest::binary>> =
+               frame
+
+      assert <<id::binary-size(id_size), metadata::binary-size(metadata_size), payload::binary>> =
+               rest
+
+      assert id == "arrow"
+      assert Jason.decode!(metadata)["byte_length"] == byte_size("arrow bytes")
+      assert payload == "arrow bytes"
+    end
+
+    test "recovers from refresh failure and resumes streaming on subsequent ticks", %{
+      user: user,
+      scope: scope
+    } do
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{
+          "id" => "flaky",
+          "query" => "in:test_flaky_rows",
+          "encoding" => "json_rows",
+          "limit" => 1
+        }
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+
+      assert {:ok, _reply, socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{
+            "id" => "flaky",
+            "status" => "ok",
+            "results" => [%{"id" => "row-good", "value" => 13}]
+          }
+        ]
+      })
+
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_flaky_mode, :error)
+
+      ref = push(socket, "frames:refresh", %{})
+      assert_reply(ref, :ok, %{}, 100)
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{
+            "id" => "flaky",
+            "status" => "error",
+            "error" => ":flaky_error",
+            "stale" => true,
+            "stale_reason" => ":flaky_error",
+            "results" => [%{"id" => "row-good", "value" => 13}]
+          }
+        ]
+      })
+
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_flaky_mode, :ok)
+
+      ref = push(socket, "frames:refresh", %{})
+      assert_reply(ref, :ok, %{}, 100)
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{
+            "id" => "flaky",
+            "status" => "ok",
+            "encoding" => "json_rows",
+            "results" => [%{"id" => "row-good", "value" => 13}]
+          }
+        ]
+      })
+    end
+
+    test "pushes deferred frames after the initial frames are acknowledged", %{
+      user: user,
+      scope: scope
+    } do
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "initial", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1},
+        %{
+          "id" => "deferred",
+          "query" => "in:test_optional_rows",
+          "encoding" => "json_rows",
+          "limit" => 1,
+          "required" => false
+        }
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, ["deferred"])
+
+      assert {:ok, _reply, _socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{"frames" => [%{"id" => "initial", "status" => "ok"}]})
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{"id" => "initial", "status" => "ok"},
+          %{"id" => "deferred", "status" => "ok"}
+        ]
+      })
+    end
+
+    test "frame queries run outside the channel process", %{user: user, scope: scope} do
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "slow", "query" => "in:test_slow_rows", "encoding" => "json_rows", "limit" => 1}
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+
+      assert {:ok, _reply, socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_receive {:srql_query_started, "in:test_slow_rows", query_pid}
+      assert query_pid != socket.channel_pid
+
+      send(query_pid, :release_dashboard_frame_query)
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{"id" => "slow", "status" => "ok", "results" => [%{"id" => "row-slow", "value" => 11}]}
+        ]
+      })
+    end
+
+    test "a tick over unchanged data pushes no frame replacement", %{user: user, scope: scope} do
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1}
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, [])
+
+      assert {:ok, _reply, socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{"frames" => [%{"id" => "required", "status" => "ok"}]})
+      assert_receive {:srql_query, "in:test_rows"}
+
+      # Reset the refreshed-at timestamp so the next tick treats the frame as due.
+      :sys.replace_state(socket.channel_pid, fn state ->
+        %{state | assigns: Map.put(state.assigns, :frame_refreshed_at, %{})}
+      end)
+
+      # Tick again over identical data.
+      send(socket.channel_pid, :dashboard_frame_tick)
+      assert_receive {:srql_query, "in:test_rows"}
+
+      # The data did not change, so no frame may be sent...
+      refute_push("frames:replace", %{}, 200)
+      refute_push("frame:binary", %{}, 50)
+
+      # ...but the client is still told we looked, so it can render data age.
+      assert_push("frames:heartbeat", %{"checked_at" => checked_at})
+      assert is_binary(checked_at)
+    end
+
+    test "forcing a refresh does not discard the paging position", %{user: user, scope: scope} do
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1}
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, [])
+
+      assert {:ok, _reply, socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{"frames" => [%{"id" => "required"}]})
+      assert_receive {:srql_query, "in:test_rows"}
+
+      ref = push(socket, "frames:page", %{"frame_id" => "required", "cursor" => "cursor-1"})
+      assert_reply(ref, :ok, %{})
+      assert_receive {:srql_query, "in:test_rows"}
+      wait_until_settled(socket.channel_pid)
+
+      assert :sys.get_state(socket.channel_pid).assigns.frame_cursors == %{
+               "required" => "cursor-1"
+             }
+
+      ref = push(socket, "frames:refresh", %{})
+      assert_reply(ref, :ok, %{})
+
+      assert :sys.get_state(socket.channel_pid).assigns.frame_cursors == %{
+               "required" => "cursor-1"
+             },
+             "a forced refresh must not move the user's page"
+    end
+
+    test "paging while a refresh is in flight is refused rather than silently dropped",
+         %{user: user, scope: scope} do
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1}
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, [])
+
+      assert {:ok, _reply, socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{"frames" => [%{"id" => "required"}]})
+      assert_receive {:srql_query, "in:test_rows"}
+
+      # Pin a refresh task open, then page against it.
+      :sys.replace_state(socket.channel_pid, fn state ->
+        %{state | assigns: Map.put(state.assigns, :refresh_task_ref, make_ref())}
+      end)
+
+      ref = push(socket, "frames:page", %{"frame_id" => "required", "cursor" => "cursor-1"})
+      assert_reply(ref, :error, %{reason: "refresh_in_progress"})
+
+      ref = push(socket, "frames:refresh", %{})
+      assert_reply(ref, :error, %{reason: "refresh_in_progress"})
+    end
+  end
+
+  describe "stream token verification and access control" do
+    test "rejects an invalid stream token on join", %{user: user, scope: scope} do
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+      data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+
+      assert {:error, %{reason: "invalid"}} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => "bad-token"
+               })
+    end
+
+    test "rejects join when token route slug does not match topic", %{user: user, scope: scope} do
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+      data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
+      token = DashboardFrameChannel.stream_token("other-route", data_frames, user.id)
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+
+      assert {:error, %{reason: "invalid_stream"}} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+    end
+
+    test "rejects join when missing token", %{user: user, scope: scope} do
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+      data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+
+      assert {:error, %{reason: "missing_stream_token"}} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{})
+    end
+
+    test "rejects a stream token minted for another user", %{user: user, scope: scope} do
+      other = AccountsFixtures.user_fixture()
+      other_scope = Scope.for_user(other, permissions: RBAC.permissions_for_user(other))
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+      data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+
+      assert {:error, %{reason: "unauthorized"}} =
+               UserSocket
+               |> socket("other-user", %{current_user: other, current_scope: other_scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+    end
+
+    test "rejects a still-valid token after the view grant is revoked", %{scope: owner_scope} do
+      viewer = AccountsFixtures.user_fixture(%{role: :viewer})
+      viewer_scope = Scope.for_user(viewer, permissions: RBAC.permissions_for_user(viewer))
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+      data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
+
+      instance =
+        create_stream_dashboard_instance!(route_slug, data_frames, owner_scope, %{
+          visibility: :shared,
+          owner_id: owner_scope.user.id
+        })
+
+      {:ok, grant} =
+        DashboardInstanceAccessGrant
+        |> Ash.Changeset.for_create(:create, %{
+          dashboard_instance_id: instance.id,
+          subject_user_id: viewer.id,
+          access: :view,
+          granted_by_id: owner_scope.user.id
+        })
+        |> Ash.create(actor: SystemActor.system(:test))
+
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, viewer.id)
+
+      assert {:ok, _reply, _socket} =
+               UserSocket
+               |> socket("viewer-id", %{current_user: viewer, current_scope: viewer_scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      :ok = Ash.destroy(grant, actor: SystemActor.system(:test))
+
+      assert {:error, %{reason: "dashboard_unavailable"}} =
+               UserSocket
+               |> socket("viewer-id", %{current_user: viewer, current_scope: viewer_scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
     end
   end
 
@@ -374,7 +1000,15 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
     route_slug = "live-dashboard-#{System.unique_integer([:positive])}"
     create_dashboard_instance!(route_slug, capabilities)
 
-    token = DashboardFrameChannel.stream_token(route_slug, @data_frames, user.id, [], capabilities, opts)
+    token =
+      DashboardFrameChannel.stream_token(
+        route_slug,
+        @data_frames,
+        user.id,
+        [],
+        capabilities,
+        opts
+      )
 
     {:ok, _reply, socket} =
       UserSocket
@@ -386,12 +1020,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
   defp subscribe!(socket, filter) do
     ref = push(socket, "events:subscribe", %{"id" => "s1", "filter" => filter})
-    assert_reply ref, :ok, %{"subscription_id" => "s1"}
+    assert_reply(ref, :ok, %{"subscription_id" => "s1"})
   end
 
   defp request_confirmation!(socket) do
     ref = push(socket, "actions:invoke", confirm_payload())
-    assert_reply ref, :ok, %{"state" => "confirmation_required", "confirmation_id" => id}
+    assert_reply(ref, :ok, %{"state" => "confirmation_required", "confirmation_id" => id})
     assert_receive {:dashboard_action_confirmation_request, %{id: ^id} = request}
     request
   end
@@ -409,7 +1043,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
   end
 
   defp invoke_payload do
-    %{"action_id" => @action_id, "scope" => "device", "targets" => [%{"device_uid" => "sr:device:plc-07"}]}
+    %{
+      "action_id" => @action_id,
+      "scope" => "device",
+      "targets" => [%{"device_uid" => "sr:device:plc-07"}]
+    }
   end
 
   # Writes the row the way EventWriter does (raw uuid, jsonb maps) so delivery
@@ -479,5 +1117,69 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       metadata: %{}
     })
     |> Ash.create!(actor: system)
+  end
+
+  defp create_stream_dashboard_instance!(route_slug, data_frames, scope, extra \\ %{}) do
+    package =
+      DashboardPackage
+      |> Ash.Changeset.for_create(:create, package_attrs(data_frames))
+      |> Ash.create!(scope: scope)
+
+    DashboardInstance
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(
+        %{
+          dashboard_package_id: package.id,
+          name: "Test Dashboard",
+          route_slug: route_slug,
+          placement: :custom,
+          enabled: true,
+          settings: %{},
+          metadata: %{}
+        },
+        extra
+      )
+    )
+    |> Ash.create!(scope: scope)
+  end
+
+  defp package_attrs(data_frames) do
+    manifest = %{
+      "id" => "com.test.dashboard.#{System.unique_integer([:positive])}",
+      "name" => "Test Dashboard",
+      "version" => "0.1.0",
+      "renderer" => %{
+        "kind" => "browser_wasm",
+        "interface_version" => "dashboard-wasm-v1",
+        "artifact" => "dashboard.wasm",
+        "sha256" => String.duplicate("a", 64)
+      },
+      "data_frames" => data_frames,
+      "capabilities" => ["srql.execute"],
+      "settings_schema" => %{}
+    }
+
+    %{
+      dashboard_id: manifest["id"],
+      name: manifest["name"],
+      version: manifest["version"],
+      manifest: manifest,
+      renderer: manifest["renderer"],
+      data_frames: data_frames,
+      capabilities: manifest["capabilities"],
+      settings_schema: manifest["settings_schema"],
+      wasm_object_key: "dashboards/test/dashboard.wasm",
+      content_hash: String.duplicate("a", 64),
+      verification_status: "verified"
+    }
+  end
+
+  defp wait_until_settled(channel_pid, attempts \\ 20) do
+    if :sys.get_state(channel_pid).assigns[:refresh_task_ref] != nil do
+      if attempts <= 0, do: raise("channel task did not settle")
+      Process.sleep(5)
+      wait_until_settled(channel_pid, attempts - 1)
+    end
   end
 end

@@ -98,8 +98,8 @@ never stays live without an address.
 - **AND** an `ip_conflict` identity decision SHALL be recorded
 
 ### Requirement: Reconciliation Run Record
-The system SHALL persist one durable record per scheduled reconciliation run. The record SHALL contain the run identifier, start and completion timestamps, duration, status, the count of duplicate identifier candidates, the duplicate, mergeable, and blocked component counts, the number of devices covered by blocked components, the size of the largest blocked component, the blocked components skipped because their evidence was unchanged, the merges performed, the source succession merges performed, the succession candidates sent to review, the error count, the configured per-run merge cap, whether that cap was reached, the device membership of each blocked component, and the trigger that started the run.
-A merge the run blocks SHALL be counted as blocked and SHALL NOT be counted as an error.
+The system SHALL persist one durable record per scheduled reconciliation run. The record SHALL contain the run identifier, start and completion timestamps, duration, status, the count of duplicate identifier candidates, the duplicate, mergeable, and blocked component counts, the number of devices covered by blocked components, the size of the largest blocked component, the merges performed, the merges a merge guard refused, the blocked components and pairs skipped because their evidence was unchanged, the error count, the configured per-run merge cap, whether that cap was reached, the source succession merges performed, the succession candidates sent to review, skipped, and left for a later run, the configured per-run succession cap, the device membership of each blocked component, and the trigger that started the run.
+A merge a merge guard refuses SHALL be counted as a blocked merge and SHALL NOT be counted as an error.
 
 #### Scenario: Completed run is recorded
 - **WHEN** a reconciliation run completes without raising
@@ -121,8 +121,14 @@ A merge the run blocks SHALL be counted as blocked and SHALL NOT be counted as a
 #### Scenario: A blocked merge is not an error
 - **GIVEN** a run whose only failed merges were refused by the source-authority guard
 - **WHEN** the run completes
-- **THEN** the run record SHALL count those components as blocked
+- **THEN** the run record SHALL count those merges as blocked merges
 - **AND** its error count SHALL be zero
+
+#### Scenario: Succession counts are recorded
+- **GIVEN** a run whose succession pass merges a corroborated pair
+- **WHEN** the run completes
+- **THEN** the run record SHALL count the succession merge apart from the duplicate merges
+- **AND** the run record SHALL carry the configured per-run succession cap
 
 ## ADDED Requirements
 
@@ -398,16 +404,33 @@ older than any record that has one.
 - **THEN** device Y SHALL take the address
 
 ### Requirement: Blocked Components Are Not Retried Unchanged
-The scheduled reconciliation SHALL record an evidence fingerprint for every component it blocks -- covering the device set, each device's live and archived identifiers, the distinct assertions covering the set, and the version of the reconciliation rules -- and SHALL skip, without re-attempting or re-recording it, a blocked component whose fingerprint is unchanged since it was last blocked.
-A change to any input of the fingerprint SHALL cause the component to be evaluated again on the
-next run. A skipped component SHALL be counted in the run record as blocked and unchanged.
+The scheduled reconciliation SHALL record an evidence fingerprint for every component it blocks and for every pair a merge guard refuses on evidence -- covering the device set and the evidence that joined it, each device's live and archived identifiers, whether each device is deleted, its agent, identity state and identity source, the MACs of its interfaces, the distinct assertions covering the set, the surviving device where the guard's outcome depends on the direction of the merge, and the version of the reconciliation rules -- and SHALL skip, without re-attempting or re-recording it, a blocked component or pair whose fingerprint is unchanged since it was last blocked.
+A change to any input of the fingerprint SHALL cause the component or pair to be evaluated again
+on the next run. A blocked component or pair SHALL also be evaluated again once a bounded recheck
+window, one day by default, has passed since it was last evaluated. A merge refused by the merge
+cooldown SHALL NOT be skipped, because the cooldown depends on time rather than on evidence. A
+skipped component SHALL be counted in the run record as blocked and unchanged, and a skipped pair
+as a blocked merge that is blocked and unchanged.
 
-#### Scenario: An unchanged blocked component is skipped
+#### Scenario: An unchanged blocked pair is skipped
 - **GIVEN** a run blocked devices X and Y on a source-authority conflict
 - **WHEN** the next run finds the same devices with the same identifiers
 - **THEN** the merge SHALL NOT be attempted again
 - **AND** the identity decision's occurrence count SHALL NOT increase
+- **AND** the run record SHALL count the pair as a blocked merge that is blocked and unchanged
+- **AND** its error count SHALL be zero
+
+#### Scenario: An unchanged blocked component is skipped
+- **GIVEN** a run blocked an ambiguous component of devices X, Y and Z
+- **WHEN** the next run finds the same component with the same evidence
+- **THEN** the component's identity decision SHALL NOT be recorded again
 - **AND** the run record SHALL count the component as blocked and unchanged
+
+#### Scenario: A blocked pair is re-checked after the recheck window
+- **GIVEN** a run blocked devices X and Y on a source-authority conflict
+- **WHEN** a run starts after the recheck window has passed with the same evidence
+- **THEN** the merge SHALL be attempted again
+- **AND** the identity decision's occurrence count SHALL increase by one
 
 #### Scenario: A retirement re-opens a blocked component
 - **GIVEN** a run blocked devices X and Y because X held Armis device id 1001

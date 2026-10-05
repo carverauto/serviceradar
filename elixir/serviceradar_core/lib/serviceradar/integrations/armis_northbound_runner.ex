@@ -14,6 +14,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Integrations.ArmisNorthboundLedger
@@ -49,7 +50,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           metadata: map()
         }
 
-  @spec northbound_ready?(struct() | map(), keyword()) :: :ok | {:error, atom()}
+  @spec northbound_ready?(struct() | map(), keyword()) ::
+          :ok | {:error, atom() | {atom(), term()}}
   def northbound_ready?(source, opts \\ []) do
     cond do
       not Keyword.get(opts, :manual?, false) and not Map.get(source, :northbound_enabled, false) ->
@@ -61,8 +63,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       blank?(Map.get(source, :endpoint)) ->
         {:error, :missing_endpoint}
 
-      credentials(source) == %{} ->
-        {:error, :missing_credentials}
+      credentials(source) == %{} and blank?(Map.get(source, :credential_secret_id)) ->
+        {:error, {:missing_credentials, missing_credentials_detail(source)}}
 
       true ->
         :ok
@@ -154,6 +156,107 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       value when is_map(value) -> value
       _ -> %{}
     end
+  end
+
+  @doc """
+  Resolves the credentials a northbound run authenticates with.
+
+  A source bound to a reusable network credential secret
+  (`credential_secret_id`, the unified CNPG credential model) resolves through
+  the credential broker with the run's consumer identity, exactly like the
+  inbound `SyncConfigGenerator`. Only a source with no broker binding falls
+  back to its legacy encrypted credentials map, so an existing bound
+  credential keeps working without anyone re-entering the secret.
+  """
+  @spec resolve_run_credentials(IntegrationSource.t() | map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def resolve_run_credentials(source, opts \\ []) do
+    resolver = Keyword.get(opts, :credential_resolver, &default_credential_resolver/2)
+    resolver.(source, opts)
+  end
+
+  defp default_credential_resolver(source, opts) do
+    case Map.get(source, :credential_secret_id) do
+      secret_id when is_binary(secret_id) and secret_id != "" ->
+        resolve_broker_credentials(source, secret_id, opts)
+
+      _ ->
+        {:ok, credentials(source)}
+    end
+  end
+
+  # Control-plane resolution of the source's bound secret, audited under the
+  # northbound consumer identity. The broker owns decryption and external
+  # reference dispatch; this path only names who is consuming and why.
+  defp resolve_broker_credentials(source, secret_id, opts) do
+    actor =
+      Keyword.get(opts, :actor, SystemActor.system(:armis_northbound_runner))
+
+    broker_opts =
+      maybe_merge_audit_sink(
+        [
+          actor: actor,
+          audit?: true,
+          consumer_kind: :integration,
+          consumer_id: "armis-northbound:#{source_id_for_log(source)}",
+          purpose: "integration_source_credentials",
+          target_kind: "integration_source",
+          target_id: source_id_for_log(source),
+          resolution_location: :control_plane
+        ],
+        opts
+      )
+
+    with {:ok, %{value: payload}} <-
+           SecretBroker.resolve_network_credential_secret(secret_id, broker_opts),
+         {:ok, credentials} <- decode_broker_credentials(payload) do
+      {:ok, credentials}
+    else
+      {:error, reason} ->
+        Logger.warning("Armis northbound: failed to resolve broker credential",
+          integration_source_id: source_id_for_log(source),
+          credential_secret_id: secret_id,
+          reason: inspect(reason)
+        )
+
+        {:error, {:credential_resolution_failed, secret_id, reason}}
+    end
+  end
+
+  # Same payload contract as the inbound path (SyncConfigGenerator): the
+  # secret's value is a JSON map of provider credential fields.
+  defp decode_broker_credentials(payload) when is_binary(payload) do
+    case Jason.decode(String.trim(payload)) do
+      {:ok, credentials} when is_map(credentials) and map_size(credentials) > 0 ->
+        {:ok, credentials}
+
+      _ ->
+        {:error, :invalid_broker_credential_payload}
+    end
+  end
+
+  defp decode_broker_credentials(_payload), do: {:error, :invalid_broker_credential_payload}
+
+  defp maybe_merge_audit_sink(broker_opts, opts) do
+    case Keyword.get(opts, :audit_sink) do
+      sink when is_function(sink, 1) -> Keyword.put(broker_opts, :audit_sink, sink)
+      _ -> broker_opts
+    end
+  end
+
+  defp source_id_for_log(source) do
+    case Map.get(source, :id) do
+      nil -> "unknown"
+      id -> to_string(id)
+    end
+  end
+
+  # Names both credential bindings a northbound run accepts, so a bare
+  # :missing_credentials never leaves an operator guessing which one to fix.
+  defp missing_credentials_detail(source) do
+    "Armis northbound for source #{source_id_for_log(source)} has no credential: " <>
+      "bind a network credential secret to the source (credential_secret_id) " <>
+      "or store credentials on the source"
   end
 
   @spec batch_size(struct() | map(), pos_integer()) :: pos_integer()
@@ -1808,19 +1911,38 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp fetch_access_token(source, opts) do
-    fetcher = Keyword.get(opts, :token_fetcher, &default_token_fetcher/1)
-    fetcher.(source)
+    fetcher = Keyword.get(opts, :token_fetcher, &default_token_fetcher/2)
+
+    if is_function(fetcher, 2) do
+      fetcher.(source, opts)
+    else
+      fetcher.(source)
+    end
   end
 
-  defp default_token_fetcher(source) do
-    credentials = credentials(source)
+  defp default_token_fetcher(source, opts \\ []) do
+    with {:ok, credentials} <- resolve_run_credentials(source, opts),
+         secret_key when is_binary(secret_key) and secret_key != "" <-
+           armis_secret_key(credentials) do
+      fetch_access_token_with_secret(source, secret_key)
+    else
+      {:error, reason} ->
+        {:error, reason}
 
-    case armis_secret_key(credentials) do
-      secret_key when is_binary(secret_key) and secret_key != "" ->
-        fetch_access_token_with_secret(source, secret_key)
+      _no_secret_key ->
+        {:error, {:missing_secret_key, credential_origin(source)}}
+    end
+  end
+
+  # Which binding the run pulled credentials from, so a credential that
+  # resolves but lacks a secret_key names where to look.
+  defp credential_origin(source) do
+    case Map.get(source, :credential_secret_id) do
+      secret_id when is_binary(secret_id) and secret_id != "" ->
+        "network credential secret #{secret_id} (credential_secret_id)"
 
       _ ->
-        {:error, :missing_secret_key}
+        "the source's stored credentials"
     end
   end
 

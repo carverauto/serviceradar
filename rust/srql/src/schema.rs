@@ -881,6 +881,13 @@ diesel::table! {
         blocked_component_devices -> Jsonb,
         trigger -> Text,
         job_schedule_id -> Nullable<Int8>,
+        blocked_merges -> Int4,
+        blocked_unchanged -> Int4,
+        succession_merges -> Int4,
+        succession_reviews -> Int4,
+        successions_skipped -> Int4,
+        successions_deferred -> Int4,
+        max_successions_configured -> Nullable<Int4>,
     }
 }
 

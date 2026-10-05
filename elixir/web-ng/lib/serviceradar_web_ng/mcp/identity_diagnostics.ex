@@ -167,12 +167,27 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
   defp time_token(_), do: "time:last_24h"
 
   defp summarise_run(run) do
-    Map.put(
-      run,
+    run
+    |> Map.put(
       "cap_explanation",
       cap_explanation(run["merge_cap_reached"], run["merges"], run["max_merges_configured"])
     )
+    |> put_blocked_explanation(run["blocked_merges"], run["blocked_unchanged"])
   end
+
+  # A merge a guard refused is the guard working, so a run counts it apart from its errors, and
+  # skips a block whose evidence has not changed rather than retrying it every run.
+  defp put_blocked_explanation(run, blocked, unchanged) when is_integer(blocked) and is_integer(unchanged) do
+    Map.put(
+      run,
+      "blocked_explanation",
+      "#{blocked} merge(s) refused by a merge guard, not counted as errors; " <>
+        "#{unchanged} blocked component(s) or pair(s) skipped because their evidence was " <>
+        "unchanged since they were last blocked"
+    )
+  end
+
+  defp put_blocked_explanation(run, _blocked, _unchanged), do: run
 
   defp cap_explanation(true, merges, cap) do
     "stopped at its configured cap of #{cap} merges after #{merges}; " <>

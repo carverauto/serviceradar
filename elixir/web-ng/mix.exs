@@ -116,7 +116,9 @@ defmodule ServiceRadarWebNG.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      # {:usage_rules, "~> 1.0", only: [:dev]},  # Commented out for Docker build
+      # Dev-only: syncs dependency usage rules into agent skills (`mix usage_rules.sync`).
+      # Not fetched by the prod Docker build (`MIX_ENV=prod mix deps.get --only prod`).
+      {:usage_rules, "~> 1.2.8", only: [:dev], runtime: false},
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
       {:gnat, "~> 1.15"},

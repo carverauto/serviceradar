@@ -43,6 +43,36 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerPartialAu
   end
 end
 
+defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerMissingSecretKeyTuple do
+  @moduledoc false
+  def run_for_source(_source, _opts) do
+    {:error,
+     %{
+       result: %{
+         updated_count: 0,
+         error_count: 1,
+         errors: [%{reason: {:missing_secret_key, "the source's stored credentials"}}],
+         error_message: "missing secret key"
+       }
+     }}
+  end
+end
+
+defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerCredentialResolutionFailed do
+  @moduledoc false
+  def run_for_source(_source, _opts) do
+    {:error,
+     %{
+       result: %{
+         updated_count: 0,
+         error_count: 1,
+         errors: [%{reason: {:credential_resolution_failed, "secret-id", :denied}}],
+         error_message: "credential resolution failed"
+       }
+     }}
+  end
+end
+
 defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SourceLookup do
   @moduledoc false
   def get_by_id(id, actor: _actor), do: {:ok, %{id: id}}
@@ -204,6 +234,36 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
         job = %Oban.Job{id: 11, args: %{"integration_source_id" => source_id}}
 
         assert {:error, {:armis_northbound_auth_failed, "Invalid access token."}} =
+                 ArmisNorthboundRunWorker.perform(job)
+      end
+    )
+  end
+
+  test "perform surfaces a resolved-but-keyless credential tuple as an auth failure" do
+    source_id = Ecto.UUID.generate()
+
+    with_env(
+      ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerMissingSecretKeyTuple,
+      SourceLookup,
+      fn ->
+        job = %Oban.Job{id: 13, args: %{"integration_source_id" => source_id}}
+
+        assert {:error, {:armis_northbound_auth_failed, _}} =
+                 ArmisNorthboundRunWorker.perform(job)
+      end
+    )
+  end
+
+  test "perform surfaces a broker credential resolution failure as an auth failure" do
+    source_id = Ecto.UUID.generate()
+
+    with_env(
+      ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerCredentialResolutionFailed,
+      SourceLookup,
+      fn ->
+        job = %Oban.Job{id: 14, args: %{"integration_source_id" => source_id}}
+
+        assert {:error, {:armis_northbound_auth_failed, _}} =
                  ArmisNorthboundRunWorker.perform(job)
       end
     )
