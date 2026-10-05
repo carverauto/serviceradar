@@ -43,7 +43,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AvailabilityEvents
   alias ServiceRadar.SweepJobs.MapperPromotion
@@ -63,6 +65,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
   @merged_restore_skipped_event [:serviceradar, :sweep, :restore, :merged_skipped]
   @retained_restore_skipped_event [:serviceradar, :sweep, :restore, :retained_skipped]
+  # How many uids of a seed's chain are tried before the host is left unseeded.
+  @max_seed_uid_attempts 8
   @banner_grab_counter_dropped_event [
     :serviceradar,
     :sweep,
@@ -813,7 +817,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       hosts_to_create
       |> Map.values()
-      |> Enum.each(&create_available_unknown_device(&1, partition, actor))
+      |> seed_uids(partition, actor)
+      |> Enum.each(fn {result, uid} ->
+        create_available_unknown_device(result, uid, partition, actor)
+      end)
 
       DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
         actor: actor,
@@ -824,21 +831,89 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp create_available_unknown_device(result, partition, actor) do
-    ip = extract_ip(result)
-    hostname = normalize_hostname(result["hostname"])
+  # A seed is named by its address, so a sweep of the address of a seed that was merged away and
+  # then purged derives the merged-away uid again. Creating it would take the uid out of the
+  # redirect to its survivor (Resolver), and a source still carrying it would land on the new
+  # seed. A uid that a merge names is resolved first, and one that redirects gives way to the
+  # next uid of the chain Ids.reseeded_device_id/1 derives (add-source-id-succession task 9.7).
+  defp seed_uids([], _partition, _actor), do: []
 
-    ids = %{
+  defp seed_uids(results, partition, actor) do
+    seeds = Enum.map(results, &{&1, address_seed_uid(&1, partition)})
+
+    case merged_away_uids(Enum.map(seeds, &elem(&1, 1)), actor) do
+      {:ok, merged_away} ->
+        Enum.flat_map(seeds, fn {result, uid} = seed ->
+          if MapSet.member?(merged_away, uid), do: free_seed_uid(result, uid, actor), else: [seed]
+        end)
+
+      {:error, reason} ->
+        Logger.warning(
+          "SweepResultsIngestor: Could not read the merge rows of #{length(seeds)} new sweep " <>
+            "seeds; seeding none: #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp address_seed_uid(result, partition) do
+    IdentityReconciler.generate_deterministic_device_id(%{
       agent_id: nil,
       armis_id: nil,
       integration_id: nil,
       netbox_id: nil,
       mac: nil,
-      ip: ip,
+      ip: extract_ip(result),
       partition: partition
-    }
+    })
+  end
 
-    uid = IdentityReconciler.generate_deterministic_device_id(ids)
+  # The uids a merge, not an unmerge, names as merged away.
+  defp merged_away_uids(uids, actor) do
+    MergeAudit
+    |> Ash.Query.filter(from_device_id in ^uids and (is_nil(reason) or reason != "unmerge"))
+    |> Ash.Query.select([:from_device_id])
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, rows} -> {:ok, MapSet.new(rows, & &1.from_device_id)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # The first uid of the seed's chain that resolves to itself: one an unmerge gave back, or one
+  # no merge names. A host whose chain has none within the bound, or whose uid cannot be
+  # resolved, is not seeded.
+  defp free_seed_uid(result, uid, actor, attempts \\ @max_seed_uid_attempts) do
+    case IdentityReconciler.resolve_canonical_device_id(uid, actor) do
+      {:ok, ^uid} ->
+        [{result, uid}]
+
+      {:ok, _survivor} when attempts > 1 ->
+        free_seed_uid(result, Ids.reseeded_device_id(uid), actor, attempts - 1)
+
+      {:ok, survivor} ->
+        Logger.warning(
+          "SweepResultsIngestor: No free seed uid for #{extract_ip(result)} within " <>
+            "#{@max_seed_uid_attempts} uids, the last #{uid} redirecting to #{survivor}; " <>
+            "not seeding it"
+        )
+
+        []
+
+      {:error, reason} ->
+        Logger.warning(
+          "SweepResultsIngestor: Could not resolve seed uid #{uid} for #{extract_ip(result)}; " <>
+            "not seeding it: #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp create_available_unknown_device(result, uid, partition, actor) do
+    ip = extract_ip(result)
+    hostname = normalize_hostname(result["hostname"])
 
     attrs = %{
       uid: uid,

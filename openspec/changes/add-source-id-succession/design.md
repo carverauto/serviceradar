@@ -840,7 +840,7 @@ than the code and could not see this. D10's lifecycle tasks give records a sweep
 flag and model the code's rule.
 
 **A sweep re-creates a purged merged-away seed (task 9.7).** A sweep names a seed by its address
-(`create_available_unknown_device/3`). Once a merged-away seed's tombstone is purged, the next
+(`create_available_unknown_device/4`). Once a merged-away seed's tombstone is purged, the next
 sweep of that address finds no row there and derives the seed's uid again, so it writes the
 merged-away uid live, outside the redirect #4620 follows: a source still carrying the uid lands
 on the new seed instead of the survivor. The lifecycle trace `purged_seed_sweep` records it on

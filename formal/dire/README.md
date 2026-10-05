@@ -87,9 +87,8 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
     tombstone (`SweepRestore`) by `restore_eligible?/1`'s rule, and otherwise writes the
     sighting (`SweepRefresh`) or, for a tombstone once D12 lands, leaves it alone (`SweepSkip`).
     `SweepCreate` seeds a row that never existed at an address no row holds, and marks it
-    sweep-only (`sweepOnly`); under `sweep_recreates_purged_seed` it may write a purged
-    merged-away record live instead. Three things clear that flag: a write from any other
-    source, an agent check-in, and merging in a record another source found.
+    sweep-only (`sweepOnly`). Three things clear that flag: a write from any other source, an
+    agent check-in, and merging in a record another source found.
   - `ExpiryEnabled` and `RetirementEnabled` turn expiry and retirement on and off, as
     `DeviceCleanupSettings` does.
 
@@ -168,7 +167,6 @@ listed there as an open question until one is made; a new defect gets a row here
 | Switch | Model | Code path | Fix | Witness property |
 |---|---|---|---|---|
 | `sweep_refreshes_expired_tombstone` | lifecycle | `SweepResultsIngestor.restore_eligible?/1` restores a tombstone only for a discovery source other than the sweep, so an expired sweep-only device never returns; `update_device_statuses_available/3` has no `deleted_at` filter, so the sweep writes to a tombstone it did not restore. | D12 | `ExpiredDeviceReturns` |
-| `sweep_recreates_purged_seed` | lifecycle | `SweepResultsIngestor.create_available_unknown_device/3` names a seed by its address (`Ids.generate_deterministic_device_id/1`) and leaves it to the insert to find a row under that uid. Once a merged-away seed is purged, the next sweep of its address finds no row and writes the merged-away uid live, so a source still carrying it lands on the new seed, not on the survivor #4620 redirects it to. | D12 (task 9.7) | `NoPurgedResurrection` |
 
 Each witness configuration is `<model>_witness_<switch>`. Code paths are relative to
 `elixir/serviceradar_core/lib/serviceradar/`.
@@ -185,7 +183,7 @@ Each witness configuration is `<model>_witness_<switch>`. Code paths are relativ
 | `stale_holder_keeps_address` | #4639 (`DeviceWrites.claim_address_from_holder/4`: a strong-identified write observed at the address (`SourcePolicy.observed_address_source?/1`) more recently than the holder's `last_seen_time` takes it, the stale holder releases it in the same transaction, and an `active_ip_conflict` row records it), then #5085 (D7: `claim_address_from_holder/5` compares `identity_observed_at`, which only an identity-bearing observation writes, where it compared a `last_seen_time` a sweep or a census refreshes; a holder with none is older, and a holder whose source ids have all retired yields to a write carrying a current one) | `ObservedAddressHeld`, `NoSilentDecision` in every `resolution_goal_*`; traces `armis_dhcp` step 8, `agent_stale_armis_holder`, `mapper_stale_address` |
 | `follow_stale_audit` | #4616 (`Resolver.do_follow_canonical/3` follows only a `deleted_reason = "merged"` tombstone) | `NoStaleRedirect`, `MergeGraphAcyclic` in `lifecycle_current`; the `merge_cycle` witness needed this switch and went with it |
 | `unmerge_restores_matches` | #4619 (every merge records the source's own identifiers in `merge_audit.details.source_identifiers`; `MergeEngine.reassign_original_identifiers/4` restores exactly those the survivor still holds) | `UnmergeRestoresExactly` in `lifecycle_current` |
-| `purge_forgets_redirect` | #4620 (`Resolver.do_follow_canonical/3` and `BatchResolver` follow a purged merged-away uid through its newest merge row unless an unmerge reversed it) | `NoPurgedResurrection` in `lifecycle_current` (with #4618, which removed the `purge_zombie` witness), out of it while `sweep_recreates_purged_seed` is open; trace `purge_recreate` |
+| `purge_forgets_redirect` | #4620 (`Resolver.do_follow_canonical/3` and `BatchResolver` follow a purged merged-away uid through its newest merge row unless an unmerge reversed it) | `NoPurgedResurrection` in `lifecycle_current` (with #4618, which removed the `purge_zombie` witness) |
 | `silent_blocks` | #4613 (`Identity.DecisionLog` writes `platform.identity_decisions` for every blocked, declined or overridden merge) | `NoSilentDecision` in every `resolution_goal_*`; each trace's `recorded` set is read from those rows |
 | `src_attach_via_mac` | #4611 (`SourceAuthorityGuard.source_mismatch?/3` in `BatchResolver` and `Resolver`; the override is a `source_override` identity decision plus a `source_authoritative_override` conflict row) | `DistinctSourceIdsNeverMerge`, `NoSilentDecision` in every `resolution_goal_*`; trace `src_attach_shared_mac` |
 | `fence_observe_only` | #4618 (`Identity.Fence.fenced_write/3`: `SyncIngestor` and `AgentGatewaySync` lock the pinned device rows, withhold a stale write, re-resolve and retry once, then abandon with telemetry; `MergeEngine` locks both device rows first) | `NoStaleCommit` in `lifecycle_current`; proven on the real code by `fence_enforcement_test.exs`, since a black-box trace cannot schedule a transition inside the write |
@@ -196,6 +194,7 @@ Each witness configuration is `<model>_witness_<switch>`. Code paths are relativ
 | `released_seed_stays_live` | #5085 (D8: `DeviceWrites.lock_and_clear_for_upsert/3` soft-deletes a seed that released its address to an identified device, in the same transaction, as `seed_released`, when only sweeps discovered it and it holds no identifier, no archived one and no alias of another address; the sync, agent and mapper paths all release through it) | `NoAddresslessShell` in every `resolution_goal_*`; trace `armis_moves_onto_sweep_seed` |
 | `armis_alias_pass_blind` | #5135 (D16: `Sync.Aliases` looks an address's aliases up under the partition `AliasEvents` records them under, the device's (`AliasEvents.alias_partition/2`), where it looked under the partition the update's identifiers are filed in, which for a sync naming its integration source is the source's own (`Ids.identifier_partition/2`), and never found one) | `AliasFollowsSyncedDevice` in every `resolution_goal_*`; trace `armis_dhcp` |
 | `foreign_sighting_confirms_alias` | #5135 (D16: `AliasEvents.process_alias/5` records a sighting on the sighted device's own row (`DeviceAliasState.lookup_for_device/4`), where it took the first row of the address, whichever device it named. With a row per device, `Sync.Aliases` and `AliasGuard` handle every confirmed holder of the address but the device itself, every reader that picks one holder takes them in `DeviceAliasState.holder_sort/0`'s order, and a merge folds a row both records hold instead of rolling back on the unique key) | `AliasFollowsSyncedDevice` in every `resolution_goal_*`; traces `src_rekey_succession`, `armis_dhcp_two_holders`, `mapper_prior_alias_holder` |
+| `sweep_recreates_purged_seed` | #PR7NUM (task 9.7: `SweepResultsIngestor.seed_uids/3` reads the merge rows naming the uids a batch's new seeds derive from their addresses; a uid that redirects to a merge survivor gives way to the next uid of the chain `Ids.reseeded_device_id/1` derives that does not, within a bound, and a host whose chain has none, or whose uid cannot be resolved, is not seeded and is logged) | `NoPurgedResurrection` in `lifecycle_current` (with #4620); trace `purged_seed_sweep` |
 | `retired_source_id_vetoes` | #5075 (`Identity.SourceRetirement.run/2`, which `SourceRetirementWorker` runs after an exact Armis collection activates, moves an Armis device id absent from N consecutive exact collections and unreported for T into `device_identifier_archive`, with the `integration_id` derived from it, and records a `source_id_retired` decision naming the proving collections; `SourceAuthorityGuard` reads the archive, so the retired id still vetoes another id and blocks automatic merges) | `OneSourceRecordPerDevice` in every `resolution_goal_*`; traces `src_attach_shared_mac`, `src_rekey_succession` (their `Retire` step) |
 
 `stale_holder_keeps_address` was fixed twice. #4639 fixed a holder that never released the
@@ -318,7 +317,6 @@ property fails on the real code. No trace recorded today has one.
 |---|---|
 | `expired_sweep_only_returns` (lifecycle) | `sweep_refreshes_expired_tombstone` |
 | `sweep_restores_merged` (lifecycle) | `sweep_refreshes_expired_tombstone` |
-| `purged_seed_sweep` (lifecycle) | `sweep_recreates_purged_seed` |
 
 Every other trace is a regression trace of a fixed defect, and these are regression traces too
 for the fixed paths they take.
@@ -391,6 +389,11 @@ The lifecycle regression traces:
   trace without the switch, where the model leaves the tombstone alone (`SweepSkip`).
 - `purge_recreate` (#4620) records a source carrying a purged merged-away uid landing on the
   survivor.
+- `purged_seed_sweep` (`sweep_recreates_purged_seed`, task 9.7) records a sweep seeding a host,
+  a merge of the seed into a census device found at another address, and the purge of the
+  merged-away seed. The next sweep of the seed's address seeds a new record, since the uid the
+  address derives redirects to the survivor, and a source still carrying the purged uid lands
+  on the survivor.
 - `source_retired_returns` (D5, D6) records the end and the return of a record the source stops
   reporting. Exact collections without its id retire it; the record, left holding only its
   MAC, is marked `source_retired` with a bump. A sweep answering at its address leaves the mark,
@@ -398,18 +401,12 @@ The lifecycle regression traces:
   record. When the source reports the retired id again at another address, the write
   reactivates the tombstone with a bump.
 
-The lifecycle traces of open defects:
+The lifecycle trace of an open defect:
 
 - `expired_sweep_only_returns` (`sweep_refreshes_expired_tombstone`, D12) records a host only a
   sweep knows: the sweep seeds it, it expires, and the next sweep finds its tombstone, does not
   restore it and writes the sighting to it, so it stays deleted. Its knockout requires TLC to
   reject the trace without the switch, where the model restores the device.
-- `purged_seed_sweep` (`sweep_recreates_purged_seed`, task 9.7) records a sweep seeding a host,
-  a merge of the seed into a census device found at another address, and the purge of the
-  merged-away seed. The next sweep of the seed's address writes the merged-away uid live again,
-  and a source still carrying that uid lands on it, not on the survivor. Its knockout requires
-  TLC to reject the trace without the switch, where the model seeds only a record that never
-  existed.
 
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with
@@ -513,10 +510,11 @@ still describes the code. The switches today's code has are listed once, in `Cur
   exists, so a later sweep of the address may seed it again at once. The code keeps the
   tombstone, and a seed's uid comes from its address, so until the purge removes the tombstone a
   sweep there seeds nothing: the model allows more than the code does.
-- A seed's address. The model does not relate a uid to the address that names it, so under
-  `sweep_recreates_purged_seed` a sweep of any address may write any purged merged-away record
-  live, where the code writes only the seed that address names: the switch allows more than the
-  code does.
+- A seed's uid. The code names a seed by its address, and the model by a record that never
+  existed. The code re-creates under its own uid a purged record nothing redirects (one never
+  merged away, or whose merge an unmerge reversed), and gives a seed whose uid redirects the next
+  uid `Ids.reseeded_device_id/1` derives (task 9.7); the model seeds a record that never existed
+  in both cases.
 - Retirement conditions and elapsed time in the lifecycle model. Any source or agent id a live
   record holds may retire, and any marked record may be grace-deleted. The absence rules, the mass
   guard, the mark's conditions and the open-review hold only ever withhold a step, so the model
