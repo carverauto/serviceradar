@@ -12,22 +12,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryLastSeenTest do
     success_time = "1999-04-01T09:00:00Z"
 
     cases = [
-      {%{"sweep_last_available_at" => success_time, "sweep_consecutive_failures" => "4"}, success_time},
-      {%{"sweep_last_available_at" => success_time, "sweep_consecutive_failures" => 0}, success_time},
-      {%{"sweep_last_available_at" => success_time}, success_time},
-      {%{"sweep_consecutive_failures" => "4"}, nil},
-      {%{"sweep_last_available_at" => "not-a-timestamp", "sweep_consecutive_failures" => "4"}, nil},
-      {%{}, inventory_time},
-      {nil, inventory_time}
+      {%{"sweep_last_available_at" => success_time, "sweep_consecutive_failures" => "4"}, false, success_time},
+      {%{"sweep_last_available_at" => success_time, "sweep_consecutive_failures" => 0}, false, success_time},
+      {%{"sweep_last_available_at" => success_time}, false, success_time},
+      {%{"sweep_consecutive_failures" => "4"}, false, nil},
+      {%{"sweep_last_available_at" => "not-a-timestamp", "sweep_consecutive_failures" => "4"}, false, nil},
+      {%{}, false, inventory_time},
+      {nil, false, inventory_time},
+      {%{"sweep_last_available_at" => success_time, "sweep_consecutive_failures" => "4"}, true, inventory_time}
     ]
 
-    for {metadata, expected} <- cases do
+    for {metadata, agent?, expected} <- cases do
       html = render_component(&DeviceSummaryComponents.device_summary_section/1,
         device_row: %{
           "uid" => "last-seen-example",
           "hostname" => "host01.example.com",
           "ip" => "192.0.2.41",
           "last_seen_time" => inventory_time,
+          "agent_device" => agent?,
           "metadata" => metadata
         }
       )

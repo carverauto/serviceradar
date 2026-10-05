@@ -422,11 +422,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
     # Inventory refreshes can advance last_seen_time without reaching the
     # device. Once sweeps have observed it, use their successful observation;
     # failed attempts without a success leave reachability history unknown.
-    if Map.has_key?(metadata, "sweep_consecutive_failures") or
-         present?(metadata["sweep_last_available_at"]) do
-      metadata["sweep_last_available_at"]
-    else
-      Map.get(row, "last_seen") || Map.get(row, "last_seen_time")
+    cond do
+      agent_device?(row) ->
+        Map.get(row, "last_seen") || Map.get(row, "last_seen_time")
+
+      Map.has_key?(metadata, "sweep_consecutive_failures") or
+          present?(metadata["sweep_last_available_at"]) ->
+        metadata["sweep_last_available_at"]
+
+      true ->
+        Map.get(row, "last_seen") || Map.get(row, "last_seen_time")
     end
   end
 
