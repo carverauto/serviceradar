@@ -8,7 +8,10 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   alias ServiceRadarAgentGateway.CertIssuer
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ControlStreamSession
+  alias ServiceRadarAgentGateway.RuntimeMetrics
+  alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
+  alias ServiceRadarAgentGateway.StatusProcessor
 
   @retained_plugin_capability "plugin-result-retained:v1"
 
@@ -74,6 +77,11 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
     end
 
     on_exit(fn -> StatusHandlerTestHelpers.restore(ServiceRadar.StatusHandler, existing) end)
+
+    if !Process.whereis(StatusBuffer) do
+      start_supervised!(StatusBuffer)
+    end
+
     :ok
   end
 
@@ -456,8 +464,125 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
              )
 
     assert directives == []
-    assert_receive {:forwarded, "first"}
-    assert_receive {:forwarded, "second"}
+    assert_receive {:forwarded, "first"}, 1_000
+    assert_receive {:forwarded, "second"}, 1_000
+  end
+
+  test "best-effort PushStatus returns before core accepts and forwards once core recovers" do
+    parent = self()
+    install_runtime_metric_publisher!(parent)
+
+    started_ms = System.monotonic_time(:millisecond)
+
+    assert %Monitoring.GatewayStatusResponse{received: true, directives: []} =
+             AgentGatewayServer.process_status_services([best_effort_service("later")], metadata())
+
+    assert System.monotonic_time(:millisecond) - started_ms < 2_000
+    assert StatusBuffer.size() >= 1
+
+    _handler = start_recording_status_handler(parent)
+    StatusBuffer.request_flush()
+
+    assert_receive {:forwarded, "later"}, 1_000
+    refute_receive {:forwarded, "later"}, 100
+
+    depth = await_runtime_metric("agent_gateway_status_buffer_depth", fn row -> row.value >= 1 end)
+    assert depth.value >= 1
+  end
+
+  test "retained PushStatus does not acknowledge a core call that misses the acceptance budget" do
+    parent = self()
+    install_runtime_metric_publisher!(parent)
+    previous_timeout = Application.get_env(:serviceradar_agent_gateway, :flow_attribution_core_call_timeout_ms)
+    Application.put_env(:serviceradar_agent_gateway, :flow_attribution_core_call_timeout_ms, 200)
+
+    on_exit(fn ->
+      restore_env(:flow_attribution_core_call_timeout_ms, previous_timeout)
+    end)
+
+    slow = start_silent_status_handler(parent)
+    started_ms = System.monotonic_time(:millisecond)
+
+    assert %Monitoring.GatewayStatusResponse{received: false, directives: []} =
+             AgentGatewayServer.process_status_services([flow_service()], metadata())
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started_ms
+    assert elapsed_ms < 2_000
+    assert_receive :core_call_started, 1_000
+    assert StatusBuffer.size() == 0
+
+    StatusHandlerTestHelpers.kill_and_await(slow)
+    _handler = start_status_handler([:ok])
+
+    assert %Monitoring.GatewayStatusResponse{received: true, directives: []} =
+             AgentGatewayServer.process_status_services([flow_service()], metadata())
+
+    duration =
+      await_runtime_metric("agent_gateway_core_call_duration_ms", fn row ->
+        row.tags["result"] == "failed"
+      end)
+
+    assert duration.value > 0
+    assert duration.value < 2_000
+    assert duration.tags["result"] == "failed"
+    assert duration.tags["source"] == "flow-attribution"
+  end
+
+  test "endpoint inventory PushStatus keeps the upload until core accepts it" do
+    previous_timeout = Application.get_env(:serviceradar_agent_gateway, :core_call_timeout_ms)
+    Application.put_env(:serviceradar_agent_gateway, :core_call_timeout_ms, 200)
+
+    on_exit(fn ->
+      restore_env(:core_call_timeout_ms, previous_timeout)
+    end)
+
+    parent = self()
+    slow = start_silent_status_handler(parent)
+    started_ms = System.monotonic_time(:millisecond)
+
+    assert %Monitoring.GatewayStatusResponse{received: false, directives: []} =
+             AgentGatewayServer.process_status_services([endpoint_inventory_service()], metadata())
+
+    assert System.monotonic_time(:millisecond) - started_ms < 2_000
+    assert_receive :core_call_started, 1_000
+
+    StatusHandlerTestHelpers.kill_and_await(slow)
+
+    handler =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:status_update, _status}} ->
+            GenServer.reply(
+              from,
+              {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}}
+            )
+        end
+      end)
+
+    Process.register(handler, ServiceRadar.StatusHandler)
+    on_exit(fn -> StatusHandlerTestHelpers.kill_and_await(handler) end)
+
+    assert %Monitoring.GatewayStatusResponse{received: true, directives: [directive]} =
+             AgentGatewayServer.process_status_services([endpoint_inventory_service()], metadata())
+
+    assert directive.directive_type == "endpoint_inventory.reconcile_floor"
+  end
+
+  test "core acceptance budget stays inside the agent push deadline" do
+    previous_flow = Application.get_env(:serviceradar_agent_gateway, :flow_attribution_core_call_timeout_ms)
+    previous_core = Application.get_env(:serviceradar_agent_gateway, :core_call_timeout_ms)
+    Application.delete_env(:serviceradar_agent_gateway, :flow_attribution_core_call_timeout_ms)
+    Application.delete_env(:serviceradar_agent_gateway, :core_call_timeout_ms)
+
+    on_exit(fn ->
+      restore_env(:flow_attribution_core_call_timeout_ms, previous_flow)
+      restore_env(:core_call_timeout_ms, previous_core)
+    end)
+
+    assert StatusProcessor.acceptance_budget_ms(%{source: "flow-attribution"}) <= 20_000
+
+    assert StatusProcessor.acceptance_budget_ms(%{source: "results", service_type: "endpoint_inventory"}) <=
+             20_000
   end
 
   test "stream RPC rejects a chunk after final before forwarding", context do
@@ -484,6 +609,66 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
 
     refute_receive :unexpected_forward
   end
+
+  defp install_runtime_metric_publisher!(parent) do
+    previous = Application.get_env(:serviceradar_agent_gateway, :runtime_metrics_publish)
+
+    Application.put_env(:serviceradar_agent_gateway, :runtime_metrics_publish, fn subject, body ->
+      send(parent, {:jetstream, subject, body})
+      :ok
+    end)
+
+    on_exit(fn -> restore_env(:runtime_metrics_publish, previous) end)
+
+    if Process.whereis(RuntimeMetrics) do
+      RuntimeMetrics
+    else
+      start_supervised!(RuntimeMetrics)
+    end
+  end
+
+  defp await_runtime_metric(metric_name, predicate, attempts \\ 20) do
+    assert_receive {:jetstream, subject, body}, 500
+    assert subject == RuntimeMetrics.subject()
+    assert {:ok, rows} = ServiceRadar.Observability.MetricEnvelope.decode_rows(body)
+
+    case Enum.find(rows, fn row -> row.metric_name == metric_name and predicate.(row) end) do
+      nil when attempts > 1 -> await_runtime_metric(metric_name, predicate, attempts - 1)
+      nil -> flunk("metric #{metric_name} was not published")
+      row -> row
+    end
+  end
+
+  defp start_silent_status_handler(parent) do
+    pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", _from, {:status_update, _status}} ->
+            send(parent, :core_call_started)
+
+            receive do
+              :stop -> :ok
+            end
+        end
+      end)
+
+    Process.register(pid, ServiceRadar.StatusHandler)
+    on_exit(fn -> StatusHandlerTestHelpers.kill_and_await(pid) end)
+    pid
+  end
+
+  defp endpoint_inventory_service do
+    %Monitoring.GatewayServiceStatus{
+      service_name: "endpoint_inventory",
+      service_type: "endpoint_inventory",
+      source: "results",
+      available: true,
+      message: Jason.encode!(%{"scan_id" => "scan-1", "state" => "unchanged"})
+    }
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
 
   defp start_status_handler(replies) do
     pid = spawn(fn -> status_handler_loop(replies) end)
