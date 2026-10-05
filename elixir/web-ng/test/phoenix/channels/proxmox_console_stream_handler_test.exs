@@ -134,6 +134,8 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
   end
 
   defmodule FailedBrokerStub do
+    @moduledoc false
+
     def start_link(session, _owner, _opts) do
       send(session.metadata["test_pid"], :broker_start_attempted)
       {:error, :console_assignment_policy_binding_mismatch}
@@ -141,6 +143,8 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
   end
 
   defmodule SensitiveFailedBrokerStub do
+    @moduledoc false
+
     def start_link(_session, _owner, _opts) do
       {:error, {:unexpected, "invented-secret-for-negative-control"}}
     end

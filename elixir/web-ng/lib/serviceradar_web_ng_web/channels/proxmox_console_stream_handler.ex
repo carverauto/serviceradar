@@ -240,13 +240,14 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
     )
 
     {:stop, :normal, 1011,
-     [{:text,
-       encode(%{
-         type: "error",
-         code: "console_start_failed",
-         message: "Proxmox console could not start. Check edge-agent connectivity and console assignment."
-       })}],
-     %{state | closing_action: :failed}}
+     [
+       {:text,
+        encode(%{
+          type: "error",
+          code: "console_start_failed",
+          message: "Proxmox console could not start. Check edge-agent connectivity and console assignment."
+        })}
+     ], %{state | closing_action: :failed}}
   end
 
   defp stop_for_broker_error(reason, state) do
