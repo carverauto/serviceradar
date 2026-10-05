@@ -144,7 +144,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
       if is_nil(target.facts) do
         {:cont, :ok}
       else
-        with {:ok, device} <- Device.get_by_uid(target.device_uid, actor: actor),
+        with {:ok, device} <- Device.get_by_uid(target.device_uid, false, actor: actor),
              {:ok, _device} <-
                device
                |> Ash.Changeset.for_update(:write_facts, %{facts: target.facts}, write_opts)

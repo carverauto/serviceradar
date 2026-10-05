@@ -454,7 +454,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
       )
 
     dispatcher = fn agent_id, targets, opts ->
-      {:ok, written} = Device.get_by_uid(device.uid, actor: actor())
+      {:ok, written} = Device.get_by_uid(device.uid, false, actor: actor())
       assert written.metadata["acl_enforced"] == true
       assert written.metadata["__fact_provenance"]["acl_enforced"]["updated_at"]
 
@@ -613,8 +613,8 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
       ]
     }, actor: actor(), enqueue?: false)
 
-    {:ok, unchanged} = Device.get_by_uid(device.uid, actor: actor())
-    {:ok, unchanged_second} = Device.get_by_uid(second.uid, actor: actor())
+    {:ok, unchanged} = Device.get_by_uid(device.uid, false, actor: actor())
+    {:ok, unchanged_second} = Device.get_by_uid(second.uid, false, actor: actor())
     refute Map.has_key?(unchanged.metadata || %{}, "acl_enforced")
     refute Map.has_key?(unchanged_second.metadata || %{}, "acl_enforced")
     {:ok, after_runs} = ValidationRun.list_recent(actor: actor())

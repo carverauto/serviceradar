@@ -215,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
       |> json_response(202)
 
     assert response["status"] == "pending"
-    {:ok, written} = Device.get_by_uid(device.uid, actor: SystemActor.system(:validation_run_api_test))
+    {:ok, written} = Device.get_by_uid(device.uid, false, actor: SystemActor.system(:validation_run_api_test))
     assert written.metadata["acl_enforced"] == true
   end
 
@@ -224,7 +224,7 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunControllerTest do
     conn = build_conn() |> assign(:current_scope, scope)
     response = ValidationRunController.create(conn, %{"check" => check.slug, "ip" => ip, "facts" => %{"acl_enforced" => true}})
     assert json_response(response, 403)["error"] == "forbidden"
-    {:ok, unchanged} = Device.get_by_uid(device.uid, actor: SystemActor.system(:validation_run_api_test))
+    {:ok, unchanged} = Device.get_by_uid(device.uid, false, actor: SystemActor.system(:validation_run_api_test))
     refute Map.has_key?(unchanged.metadata || %{}, "acl_enforced")
   end
 
