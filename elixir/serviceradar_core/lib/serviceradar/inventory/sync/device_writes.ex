@@ -21,6 +21,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
+  alias ServiceRadar.Inventory.Sync.ParameterChunking
   alias ServiceRadar.Inventory.Sync.SourcePolicy
   alias ServiceRadar.Repo
 
@@ -392,12 +393,27 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     with_inventory_rollup_bypassed(fn -> insert_devices(records, update_query, false) end)
   end
 
+  # One statement per chunk, all inside one transaction so a batch still lands
+  # whole or not at all. Callers that already opened a transaction (the
+  # identity fence, the release paths, the rollup bypass) run this as a
+  # savepoint; an unfenced caller (mapper discovery) gets the atomicity the
+  # former single statement provided.
   defp insert_devices(records, update_query, false) do
-    Repo.insert_all(
-      Device,
-      jsonb_safe(records),
-      on_conflict: update_query,
-      conflict_target: [:uid]
+    Repo.transaction(
+      fn ->
+        records
+        |> jsonb_safe()
+        |> ParameterChunking.insert_all_chunks()
+        |> Enum.each(fn chunk ->
+          Repo.insert_all(
+            Device,
+            chunk,
+            on_conflict: update_query,
+            conflict_target: [:uid]
+          )
+        end)
+      end,
+      timeout: :infinity
     )
   end
 

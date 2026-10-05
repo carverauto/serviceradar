@@ -5,6 +5,7 @@ defmodule ServiceRadar.Integrations.IntegrationSourceSyncStatusTest do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -82,6 +83,38 @@ defmodule ServiceRadar.Integrations.IntegrationSourceSyncStatusTest do
 
     assert rerunning.sync_status == :running
     assert rerunning.last_error_message == nil
+  end
+
+  test "sync_start recovers a source stranded outside the state machine's states", %{actor: actor} do
+    # A legacy writer left this source's sync_status at a value the machine
+    # does not know (`pending`). Before sync_start accepted any state, every
+    # status recording for such a source failed forever: ingestion succeeded
+    # but the recorded state and last error could never move again.
+    source = create_source!(actor, name: unique_name("sync-start-stranded"))
+
+    Repo.query!(
+      "UPDATE platform.integration_sources SET sync_status = 'pending', last_error_message = 'legacy run failure' WHERE id = $1",
+      [Ecto.UUID.dump!(source.id)]
+    )
+
+    {:ok, stranded} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert stranded.sync_status == :pending
+
+    assert {:ok, running} = update_with_action(stranded, :sync_start, %{device_count: 5}, actor)
+    assert running.sync_status == :running
+    assert running.last_error_message == nil
+
+    assert {:ok, success} =
+             update_with_action(
+               running,
+               :sync_success,
+               %{result: :success, device_count: 5},
+               actor
+             )
+
+    assert success.sync_status == :success
+    assert success.last_error_message == nil
+    assert success.consecutive_failures == 0
   end
 
   defp create_source!(actor, attrs) do
