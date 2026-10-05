@@ -60,6 +60,28 @@ itself, with no timeout and no keepalive.
   predicates, and connect failures count as transient. Nothing matches on
   message text.
 
+- **Canonical rebuild is chunked, Elixir-driven and resumable.** It used to
+  issue one RPC per edge under one 300 s deadline, so on a large graph it
+  timed out every run after the upserts and before the stale deletes.
+  `ServiceRadar.Dgraph.CanonicalRebuild` now orders the desired edges by a
+  deterministic term encoding and drives two phases. **upsert** writes chunks
+  of up to 200 edges per Dgraph transaction through
+  `upsert_canonical_edges/3` (per-chunk item deadline, retried as an
+  idempotent write). **delete** runs one whole-graph `stale_canonical_keys/3`
+  read, then `delete_canonical_edges/3` in chunks of up to 200. There is no
+  deadline over the whole rebuild.
+- **The rebuild cursor lives in CNPG.** `platform.dgraph_canonical_rebuild_cursors`
+  holds one row per rebuild name: the desired-set fingerprint (SHA-256 of the
+  ordered set), the phase, and the next upsert chunk. It is written after
+  every upsert chunk and on entering the delete phase. A run whose fingerprint
+  differs ignores the row and starts at chunk 0, because chunk boundaries over
+  a different set mean nothing. The delete phase records no position: it
+  recomputes the stale keys from Dgraph, and deletes are idempotent. A fully
+  successful run deletes the row, then reconciliation is enqueued. Rejected
+  alternatives: progress in process memory (lost on restart) or in Dgraph (the
+  store being rebuilt); scaling the 300 s deadline with edge count (keeps one
+  RPC per edge and still fails late).
+
 ## Risks / Trade-offs
 
 - An idempotent upsert that keeps timing out can occupy its caller for up to

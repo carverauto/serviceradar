@@ -14,19 +14,22 @@ defmodule ServiceRadar.Dgraph do
   Calls are asynchronous NIFs (see `ServiceRadar.Dgraph.Call`): a stalled
   Dgraph holds no scheduler, and every call ends by its deadline with
   `{:error, reason}`. Single-item reads and writes get `:item_deadline_ms`
-  (default 30 s). Whole-graph reads, pruning and the canonical rebuild get
-  `:bulk_deadline_ms` (default 300 s). Calls beyond the native in-flight limit
-  wait for a slot, and that wait counts against the deadline.
+  (default 30 s). Whole-graph reads and pruning get `:bulk_deadline_ms`
+  (default 300 s). The canonical rebuild is a sequence of chunk calls, each
+  with the item deadline, and has no deadline as a whole. Calls beyond the
+  native in-flight limit wait for a slot (per-item and bulk calls have
+  separate pools), and that wait counts against the deadline.
 
-  Idempotent upserts are retried on a timeout or transient failure, up to
-  `:max_attempts` (default 3) with jittered exponential backoff
-  (`:retry_base_ms`, `:retry_max_ms`). Pruning, hosted-edge replacement and
-  retirement, the canonical rebuild and reads are not retried: their result or
-  their guard depends on state a repeat could observe differently. All of
-  these are read from `config :serviceradar_core, ServiceRadar.Dgraph, ...`.
+  Idempotent upserts, including canonical rebuild chunks, are retried on a
+  timeout or transient failure, up to `:max_attempts` (default 3) with
+  jittered exponential backoff (`:retry_base_ms`, `:retry_max_ms`). Pruning,
+  hosted-edge replacement and retirement, and reads are not retried: their
+  result or their guard depends on state a repeat could observe differently.
+  All of these are read from `config :serviceradar_core, ServiceRadar.Dgraph, ...`.
   """
 
   alias ServiceRadar.Dgraph.Call
+  alias ServiceRadar.Dgraph.CanonicalRebuild
   alias ServiceRadar.Dgraph.Native
 
   @defaults [
@@ -184,22 +187,36 @@ defmodule ServiceRadar.Dgraph do
     end
   end
 
+  @doc """
+  Make Dgraph's canonical edges equal to `edges`, as a chunked, resumable
+  rebuild (see `ServiceRadar.Dgraph.CanonicalRebuild`). Reconciliation is
+  enqueued only when every phase succeeded.
+  """
   @spec rebuild_canonical([map()]) :: write_result()
   def rebuild_canonical(edges) when is_list(edges) do
     edge_maps = Enum.map(edges, &edge_map/1)
 
-    with {:ok, url} <- url() do
-      case call(:rebuild_canonical, :bulk, false, fn deadline_ms ->
-             Native.rebuild_canonical(url, edge_maps, deadline_ms)
-           end) do
-        :ok ->
-          _ = ServiceRadar.NetworkDiscovery.WorldWorker.enqueue_reconcile()
-          :ok
-
-        error ->
-          error
-      end
+    with {:ok, url} <- url(),
+         :ok <- CanonicalRebuild.run(edge_maps, rebuild_ops(url)) do
+      _ = ServiceRadar.NetworkDiscovery.WorldWorker.enqueue_reconcile()
+      :ok
     end
+  end
+
+  # Each chunk is its own call with the item deadline; upsert and delete
+  # chunks are idempotent and retried. The stale-key read is whole-graph.
+  defp rebuild_ops(url) do
+    %{
+      upsert: fn chunk ->
+        call(:upsert_canonical_edges, :item, true, &Native.upsert_canonical_edges(url, chunk, &1))
+      end,
+      stale_keys: fn desired ->
+        call(:stale_canonical_keys, :bulk, false, &Native.stale_canonical_keys(url, desired, &1))
+      end,
+      delete: fn keys ->
+        call(:delete_canonical_edges, :item, true, &Native.delete_canonical_edges(url, keys, &1))
+      end
+    }
   end
 
   @spec query_canonical_edges() :: edges_result()

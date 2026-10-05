@@ -263,55 +263,10 @@ impl TopologyClient {
     ///
     /// [`TopologyError::ConditionSkipped`] when source or target is missing.
     pub async fn upsert_edge(&self, edge: &EdgeWrite) -> Result<(), TopologyError> {
-        let source = dql_string(edge.source())?;
-        let target = dql_string(edge.target())?;
-        let key = dql_string(&edge.link_key())?;
-        let query = format!(
-            "{{
-  var(func: eq(device.id, {source})) {{ sd as uid }}
-  var(func: eq(hop.ip, {source})) {{ sh as uid }}
-  var(func: eq(device.id, {target})) {{ dd as uid }}
-  var(func: eq(hop.ip, {target})) {{ dh as uid }}
-  src(func: uid(sd, sh)) {{ s as uid }}
-  dst(func: uid(dd, dh)) {{ d as uid }}
-  edge(func: eq(topo.link_key, {key})) {{ e as uid }}
-}}"
-        );
-        let mut node = json!({
-            "uid": "uid(e)",
-            "dgraph.type": "TopologyEdge",
-            "topo.link_key": edge.link_key(),
-            "topo.src": [{"uid": "uid(s)"}],
-            "topo.dst": [{"uid": "uid(d)"}],
-            "topo.kind": edge.kind().as_str(),
-            "topo.protocol": edge.protocol(),
-            "topo.evidence_class": edge.evidence_class(),
-            "topo.ingestor": edge.ingestor(),
-            "topo.confidence_tier": edge.confidence_tier(),
-            "topo.flow_pps_ab": edge.flow_pps_ab(),
-            "topo.flow_pps_ba": edge.flow_pps_ba(),
-            "topo.flow_bps_ab": edge.flow_bps_ab(),
-            "topo.flow_bps_ba": edge.flow_bps_ba(),
-            "topo.capacity_bps": edge.capacity_bps(),
-            "topo.telemetry_eligible": edge.telemetry_eligible(),
-            "topo.if_index_ab": edge.if_index_ab(),
-            "topo.if_index_ba": edge.if_index_ba(),
-            "topo.if_name_ab": edge.if_name_ab(),
-            "topo.if_name_ba": edge.if_name_ba(),
-            "topo.pair_support_rank": edge.pair_support_rank(),
-            "topo.stale": false,
-        });
-        if !edge.last_seen().is_empty() {
-            node["topo.last_seen"] = json!(edge.last_seen());
-        }
-        if !edge.mutation_id().is_empty() {
-            node["topo.mutation_id"] = json!(edge.mutation_id());
-        }
-        if let Some(agent_id) = edge.agent_id() {
-            node["topo.agent_id"] = json!(agent_id);
-        }
+        let query = format!("{{\n{}}}", edge_query_blocks(edge, "")?);
+        let node = edge_node(edge, "");
         let blocks: NamedUidBlocks = self
-            .upsert(&query, "@if(eq(len(s), 1) AND eq(len(d), 1))", &node, None)
+            .upsert(&query, &edge_condition(""), &node, None)
             .await?;
         require_block(&blocks.src, "src", edge.source())?;
         require_block(&blocks.dst, "dst", edge.target())?;
@@ -403,6 +358,99 @@ impl TopologyClient {
     /// As [`Self::upsert_edge`].
     pub async fn upsert_canonical_edge(&self, edge: &EdgeWrite) -> Result<(), TopologyError> {
         self.upsert_edge(edge).await
+    }
+
+    /// Upsert a batch of canonical edges in one Dgraph transaction: one query
+    /// and one conditional mutation per edge, instead of one round trip per
+    /// edge. Idempotent; each edge is written exactly as [`Self::upsert_edge`]
+    /// would write it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::upsert_edge`]: [`TopologyError::ConditionSkipped`] names the
+    /// first edge whose source or target is missing.
+    pub async fn upsert_canonical_edges(&self, edges: &[EdgeWrite]) -> Result<(), TopologyError> {
+        if edges.is_empty() {
+            return Ok(());
+        }
+        let mut query = String::from("{\n");
+        let mut mutations = Vec::with_capacity(edges.len());
+        for (index, edge) in edges.iter().enumerate() {
+            let suffix = index.to_string();
+            query.push_str(&edge_query_blocks(edge, &suffix)?);
+            mutations.push(mutation(
+                &edge_condition(&suffix),
+                &edge_node(edge, &suffix),
+                None,
+            )?);
+        }
+        query.push('}');
+        let blocks: std::collections::HashMap<String, Vec<UidRow>> =
+            self.upsert_mutations(&query, mutations).await?;
+        for (index, edge) in edges.iter().enumerate() {
+            let src = blocks
+                .get(&format!("src{index}"))
+                .map_or(&[][..], Vec::as_slice);
+            let dst = blocks
+                .get(&format!("dst{index}"))
+                .map_or(&[][..], Vec::as_slice);
+            require_block(src, "src", edge.source())?;
+            require_block(dst, "dst", edge.target())?;
+        }
+        Ok(())
+    }
+
+    /// Link keys of canonical edges currently stored that are not among
+    /// `desired`: the deletions a canonical rebuild still owes.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_canonical_edges`].
+    pub async fn stale_canonical_keys(
+        &self,
+        desired: &[EdgeWrite],
+    ) -> Result<Vec<String>, TopologyError> {
+        let keep: std::collections::BTreeSet<String> =
+            desired.iter().map(EdgeWrite::link_key).collect();
+        let mut stale: Vec<String> = self
+            .query_canonical_edges()
+            .await?
+            .iter()
+            .map(|edge| edge.link_key().to_string())
+            .filter(|key| !keep.contains(key))
+            .collect();
+        stale.sort();
+        stale.dedup();
+        Ok(stale)
+    }
+
+    /// Delete canonical edges by link key in one Dgraph transaction. Missing
+    /// keys are skipped, so a repeat is harmless.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TopologyError`] if the transaction fails or a key cannot be
+    /// placed in DQL.
+    pub async fn delete_canonical_edges(&self, link_keys: &[String]) -> Result<(), TopologyError> {
+        if link_keys.is_empty() {
+            return Ok(());
+        }
+        let mut query = String::from("{\n");
+        let mut mutations = Vec::with_capacity(link_keys.len());
+        for (index, key) in link_keys.iter().enumerate() {
+            let key_q = dql_string(key)?;
+            query.push_str(&format!(
+                "  edge{index}(func: eq(topo.link_key, {key_q})) {{ e{index} as uid }}\n"
+            ));
+            mutations.push(mutation(
+                &format!("@if(eq(len(e{index}), 1))"),
+                &json!({}),
+                Some(&json!({ "uid": format!("uid(e{index})") })),
+            )?);
+        }
+        query.push('}');
+        let _: Value = self.upsert_mutations(&query, mutations).await?;
+        Ok(())
     }
 
     /// Refresh only telemetry on an existing canonical edge. This must not
@@ -717,17 +765,21 @@ impl TopologyClient {
     where
         T: for<'de> Deserialize<'de>,
     {
-        let payload =
-            serde_json::to_vec(set).map_err(|err| TopologyError::Serde(err.to_string()))?;
-        let mut mutation = Mutation::new().set_json(payload).cond(condition);
-        if let Some(delete) = delete {
-            mutation = mutation.delete_json(
-                serde_json::to_vec(delete).map_err(|err| TopologyError::Serde(err.to_string()))?,
-            );
-        }
+        self.upsert_mutations(query, vec![mutation(condition, set, delete)?])
+            .await
+    }
+
+    async fn upsert_mutations<T>(
+        &self,
+        query: &str,
+        mutations: Vec<Mutation>,
+    ) -> Result<T, TopologyError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
         let mut txn = self.client.new_txn();
         let response = txn
-            .upsert(query, vec![mutation], true)
+            .upsert(query, mutations, true)
             .await
             .map_err(|err| TopologyError::from_dgraph(&err))?;
         serde_json::from_slice(response.json()).map_err(|err| TopologyError::Serde(err.to_string()))
@@ -952,6 +1004,81 @@ impl PrefixExpandQuery {
 struct CanonicalQuery {
     #[serde(default)]
     edges: Vec<CanonicalEdgeRow>,
+}
+
+/// Query blocks resolving one edge's endpoints and existing node. `suffix`
+/// keeps variable and block names distinct when several edges share one
+/// upsert request (empty for a single edge).
+fn edge_query_blocks(edge: &EdgeWrite, suffix: &str) -> Result<String, TopologyError> {
+    let source = dql_string(edge.source())?;
+    let target = dql_string(edge.target())?;
+    let key = dql_string(&edge.link_key())?;
+    Ok(format!(
+        "  var(func: eq(device.id, {source})) {{ sd{suffix} as uid }}
+  var(func: eq(hop.ip, {source})) {{ sh{suffix} as uid }}
+  var(func: eq(device.id, {target})) {{ dd{suffix} as uid }}
+  var(func: eq(hop.ip, {target})) {{ dh{suffix} as uid }}
+  src{suffix}(func: uid(sd{suffix}, sh{suffix})) {{ s{suffix} as uid }}
+  dst{suffix}(func: uid(dd{suffix}, dh{suffix})) {{ d{suffix} as uid }}
+  edge{suffix}(func: eq(topo.link_key, {key})) {{ e{suffix} as uid }}
+"
+    ))
+}
+
+fn edge_condition(suffix: &str) -> String {
+    format!("@if(eq(len(s{suffix}), 1) AND eq(len(d{suffix}), 1))")
+}
+
+fn edge_node(edge: &EdgeWrite, suffix: &str) -> Value {
+    let mut node = json!({
+        "uid": format!("uid(e{suffix})"),
+        "dgraph.type": "TopologyEdge",
+        "topo.link_key": edge.link_key(),
+        "topo.src": [{"uid": format!("uid(s{suffix})")}],
+        "topo.dst": [{"uid": format!("uid(d{suffix})")}],
+        "topo.kind": edge.kind().as_str(),
+        "topo.protocol": edge.protocol(),
+        "topo.evidence_class": edge.evidence_class(),
+        "topo.ingestor": edge.ingestor(),
+        "topo.confidence_tier": edge.confidence_tier(),
+        "topo.flow_pps_ab": edge.flow_pps_ab(),
+        "topo.flow_pps_ba": edge.flow_pps_ba(),
+        "topo.flow_bps_ab": edge.flow_bps_ab(),
+        "topo.flow_bps_ba": edge.flow_bps_ba(),
+        "topo.capacity_bps": edge.capacity_bps(),
+        "topo.telemetry_eligible": edge.telemetry_eligible(),
+        "topo.if_index_ab": edge.if_index_ab(),
+        "topo.if_index_ba": edge.if_index_ba(),
+        "topo.if_name_ab": edge.if_name_ab(),
+        "topo.if_name_ba": edge.if_name_ba(),
+        "topo.pair_support_rank": edge.pair_support_rank(),
+        "topo.stale": false,
+    });
+    if !edge.last_seen().is_empty() {
+        node["topo.last_seen"] = json!(edge.last_seen());
+    }
+    if !edge.mutation_id().is_empty() {
+        node["topo.mutation_id"] = json!(edge.mutation_id());
+    }
+    if let Some(agent_id) = edge.agent_id() {
+        node["topo.agent_id"] = json!(agent_id);
+    }
+    node
+}
+
+fn mutation(
+    condition: &str,
+    set: &Value,
+    delete: Option<&Value>,
+) -> Result<Mutation, TopologyError> {
+    let payload = serde_json::to_vec(set).map_err(|err| TopologyError::Serde(err.to_string()))?;
+    let mut mutation = Mutation::new().set_json(payload).cond(condition);
+    if let Some(delete) = delete {
+        mutation = mutation.delete_json(
+            serde_json::to_vec(delete).map_err(|err| TopologyError::Serde(err.to_string()))?,
+        );
+    }
+    Ok(mutation)
 }
 
 fn require_block(rows: &[UidRow], block: &str, key: &str) -> Result<(), TopologyError> {
