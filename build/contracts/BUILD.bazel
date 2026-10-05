@@ -185,9 +185,7 @@ py_test(
         "//:.github/workflows/image-security.yml",
         "//:.github/workflows/release.yml",
         "@jq_linux_amd64//file",
+        "@jq_linux_arm64//file",
     ],
-    deps = [
-        "@pyyaml//:yaml",
-        "@rules_python//python/runfiles",
-    ],
+    deps = ["@pyyaml//:yaml"],
 )

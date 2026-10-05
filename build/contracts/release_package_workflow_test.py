@@ -2,6 +2,7 @@
 
 import os
 import json
+import platform
 from pathlib import Path
 import subprocess
 import tempfile
@@ -9,7 +10,6 @@ import textwrap
 import unittest
 
 import yaml
-from python.runfiles import runfiles
 
 
 ROOT = (
@@ -135,6 +135,31 @@ class ReleasePackageWorkflowTest(unittest.TestCase):
         self.assertTrue(self.record.exists())
 
 
+def _pinned_jq_binary():
+    """Locate the pinned jq for this host inside the test runfiles.
+
+    Mirrors scripts/test-external-wasm-plugin-release-workflow.sh: match the
+    arch-specific repository by substring because Bzlmod runfiles use the
+    canonical repository name (+http_file+jq_linux_<arch>), not the apparent
+    one. Fail explicitly when the declared tool is unavailable: no host
+    fallback, no skips.
+    """
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        repository = "jq_linux_amd64"
+    elif machine in ("aarch64", "arm64"):
+        repository = "jq_linux_arm64"
+    else:
+        raise FileNotFoundError(f"no pinned jq for machine {machine!r}")
+    srcdir = Path(os.environ["TEST_SRCDIR"])
+    for dirpath, _dirnames, filenames in os.walk(srcdir, followlinks=True):
+        if repository in dirpath and "downloaded" in filenames:
+            candidate = Path(dirpath) / "downloaded"
+            if os.access(candidate, os.X_OK):
+                return candidate
+    raise FileNotFoundError("declared jq runfile is unavailable")
+
+
 class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -157,10 +182,7 @@ class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             record = root / "requests.jsonl"
-            jq = runfiles.Create().Rlocation("jq_linux_amd64/file/downloaded")
-            if not jq or not Path(jq).is_file():
-                raise FileNotFoundError("declared jq runfile is unavailable")
-            (root / "jq").symlink_to(Path(jq).resolve())
+            (root / "jq").symlink_to(_pinned_jq_binary())
             fake_gh = root / "gh"
             fake_gh.write_text(
                 "#!/usr/bin/env python3\n"
