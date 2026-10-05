@@ -9023,7 +9023,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     switch_uid = "sr:cluster-known-infra-switch-#{suffix}"
     ap_uid = "sr:cluster-known-infra-ap-#{suffix}"
     switch_ip = "192.0.2.142"
-    ap_ip = "192.0.2.291"
+    ap_ip = "192.0.2.143"
 
     create_topology_device(actor, switch_uid, "cluster-known-infra-switch-#{suffix}", %{
       ip: switch_ip,

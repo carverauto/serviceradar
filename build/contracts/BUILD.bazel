@@ -119,7 +119,10 @@ py_test(
 py_test(
     name = "web_ng_test_lane_routing_contract_test",
     size = "small",
-    srcs = ["web_ng_test_lane_routing_contract_test.py"],
+    srcs = [
+        "web_ng_db_runner_contract_test.py",
+        "web_ng_test_lane_routing_contract_test.py",
+    ],
     data = [
         ":web_ng_lane_target_query",
         "//elixir/web-ng:srcs",

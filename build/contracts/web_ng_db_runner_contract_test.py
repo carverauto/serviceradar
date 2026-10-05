@@ -77,6 +77,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/api/device_controller_test.exs",
     "test/phoenix/controllers/api/device_batch_facts_controller_test.exs",
     "test/phoenix/controllers/api/device_facts_controller_test.exs",
+    "test/phoenix/controllers/api/device_remove_facts_controller_test.exs",
     "test/phoenix/controllers/api/edge_controller_test.exs",
     "test/phoenix/controllers/api/field_survey_stream_controller_test.exs",
     "test/phoenix/controllers/api/identity_controller_test.exs",

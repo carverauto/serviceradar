@@ -27,12 +27,19 @@ test source. It checks the two routing facts a formatter cannot see:
 Lane membership is the ``srcs`` attribute of ``web_ng_lane_target_query``, not
 the BUILD text. The two database lanes above must be present in that query;
 every other ``ex_unit_test`` rule in it counts as well.
+
+Selection is stricter than loading: the database-free lane excludes every
+non-:db_free test at runtime, so a file carrying a database lane tag is
+routed only when a database lane lists it in ``srcs`` (see db_selected).
+Unit-glob loading alone leaves such a file unexecuted.
 """
 
 import os
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+from web_ng_db_runner_contract_test import SHARED_FIXTURE_SOURCES
 
 
 def _runfiles_root():
@@ -54,6 +61,8 @@ LANE_QUERY = Path(
 NETWORKS_TARGET = "//elixir/web-ng:networks_live_db_test"
 TOPOLOGY_TARGET = "//elixir/web-ng:topology_atlas_db_test"
 WEB_NG_LABEL = "//elixir/web-ng:"
+
+DB_SELECTING_TARGETS = (NETWORKS_TARGET, TOPOLOGY_TARGET)
 
 # Files under test/ that NO lane loads: excluded from the unit_tests glob and
 # absent from every DB lane's srcs. Every entry needs a reason. A file leaves
@@ -123,10 +132,19 @@ def _routed(source, lane_srcs):
     return not source.startswith(GLOB_EXCLUDED_DIRS)
 
 
+def db_selected(source, lane_srcs_by_target):
+    """A database-tagged file is selected only when a database lane owns it."""
+    return any(
+        source in lane_srcs_by_target.get(target, set())
+        for target in DB_SELECTING_TARGETS
+    )
+
+
 class WebNgTestLaneRoutingContractTest(unittest.TestCase):
     def setUp(self):
         self.files = test_files()
-        self.lane_srcs = lane_src_union(evaluated_lane_srcs(LANE_QUERY))
+        self.lane_srcs_by_target = evaluated_lane_srcs(LANE_QUERY)
+        self.lane_srcs = lane_src_union(self.lane_srcs_by_target)
 
     def test_evaluated_query_srcs_are_label_sets(self):
         import tempfile
@@ -168,6 +186,37 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
                 "test/phoenix/topology/world_health_source_db_test.exs",
                 "test/integration/starrocks/mtr_reader_parity_test.exs",
             },
+        )
+
+    def test_shared_fixture_inventory_is_db_selected(self):
+        unselected = [
+            source
+            for source in sorted(SHARED_FIXTURE_SOURCES)
+            if source not in self.lane_srcs_by_target.get(NETWORKS_TARGET, set())
+        ]
+        self.assertEqual(
+            unselected,
+            [],
+            "shared-fixture files no database lane selects (unit-glob "
+            "loading does not execute them): %s. Add each file to the "
+            "owning DB target's srcs." % unselected,
+        )
+
+    def test_db_selection_model_rejects_unit_loaded_file_without_db_owner(self):
+        by_target = {
+            NETWORKS_TARGET: {"test/a_test.exs"},
+            TOPOLOGY_TARGET: set(),
+            "//elixir/web-ng:unit_tests": {
+                "test/a_test.exs",
+                "test/phoenix/controllers/api/device_remove_facts_controller_test.exs",
+            },
+        }
+        self.assertTrue(db_selected("test/a_test.exs", by_target))
+        self.assertFalse(
+            db_selected(
+                "test/phoenix/controllers/api/device_remove_facts_controller_test.exs",
+                by_target,
+            )
         )
 
     def test_every_file_is_routed_or_declared_unrouted(self):
