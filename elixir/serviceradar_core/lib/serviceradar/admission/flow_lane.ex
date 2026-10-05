@@ -8,8 +8,8 @@ defmodule ServiceRadar.Admission.FlowLane do
     max_bytes: 64 * 1_024 * 1_024,
     max_items_per_agent: 4,
     queue_wait_ms: 2_000,
-    worker_timeout_ms: 20_000,
-    gateway_call_timeout_ms: 25_000
+    worker_timeout_ms: 10_000,
+    gateway_call_timeout_ms: 15_000
   ]
   @fixed_option_keys [
     :config,
@@ -22,9 +22,11 @@ defmodule ServiceRadar.Admission.FlowLane do
     :gateway_max_ms
   ]
 
+  def limits, do: Keyword.merge(@default_config, configured_limits())
+
   def start_link(opts \\ []) do
     config =
-      @default_config |> Keyword.merge(configured_limits()) |> Keyword.merge(opts[:config] || [])
+      limits() |> Keyword.merge(opts[:config] || [])
 
     lease_supervisor =
       Keyword.get_lazy(opts, :lease_supervisor, fn ->
@@ -46,7 +48,7 @@ defmodule ServiceRadar.Admission.FlowLane do
           processor: {ServiceRadar.StatusHandler, :process_flow_attribution, []},
           on_accepted_result: {ServiceRadar.StatusHandler, :emit_flow_attribution_committed, []},
           source_max_bytes: 6 * 1_024 * 1_024,
-          gateway_max_ms: 25_000,
+          gateway_max_ms: 15_000,
           config: config
         ],
         Keyword.drop(opts, @fixed_option_keys)
@@ -59,6 +61,8 @@ defmodule ServiceRadar.Admission.FlowLane do
 
   def admit(status, reply_to), do: Lane.admit(server(), status, reply_to)
   def admit_cast(status), do: Lane.admit_cast(server(), status, :flow_attribution)
+
+  def reserve(descriptor, owner, timeout), do: Lane.reserve(server(), descriptor, owner, timeout)
 
   defp server do
     :serviceradar_core
