@@ -1053,7 +1053,7 @@
     "occurrence": 4,
     "fingerprint": "846d08720b8de657346eb6004e983691da8d6552c6caac90decddcc668034e7f",
     "classification": "canonical_machine",
-    "reason": "availability bucket identity encoded as canonical UTC"
+    "reason": "plugin-reported availability sample timestamp, parsed back into a bucket and never displayed"
   },
   {
     "path": "lib/serviceradar_web_ng_web/live/device_live/endpoint_inventory_components.ex",
