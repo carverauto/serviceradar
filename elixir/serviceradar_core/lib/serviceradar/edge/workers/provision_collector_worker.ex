@@ -28,6 +28,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.NATS.AccountClient
   alias ServiceRadar.Oban.Router
+  alias ServiceRadar.Repo
 
   require Ash.Expr
   require Ash.Query
@@ -69,8 +70,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
          {:ok, package} <- mark_provisioning(package),
          {:ok, nats_config} <- get_nats_config(),
          {:ok, user_creds} <- generate_user_credentials(nats_config, package),
-         {:ok, credential} <- create_credential_record(package, user_creds),
-         {:ok, _package} <- mark_ready(package, credential.id, user_creds.creds_file_content) do
+         {:ok, _package} <- persist_credentials(package, user_creds) do
       Logger.info("Successfully provisioned credentials for collector package #{package_id}")
       :ok
     else
@@ -234,6 +234,27 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
           publish_allow: ["events.>"],
           subscribe_allow: []
         }
+    end
+  end
+
+  defp persist_credentials(package, user_creds) do
+    Repo.transaction(fn ->
+      with :ok <- require_provisioning(package.id),
+           {:ok, credential} <- create_credential_record(package, user_creds),
+           {:ok, ready} <-
+             mark_ready(package, credential.id, user_creds.creds_file_content) do
+        ready
+      else
+        {:error, error} -> Repo.rollback(error)
+      end
+    end)
+  end
+
+  defp require_provisioning(package_id) do
+    case get_package(package_id) do
+      {:ok, %{status: :provisioning}} -> :ok
+      {:ok, _package} -> {:error, :package_not_pending}
+      {:error, error} -> {:error, error}
     end
   end
 
