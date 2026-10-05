@@ -241,6 +241,99 @@ func TestSFTPAdapterDeniesBeforeOpeningFile(t *testing.T) {
 	}
 }
 
+func TestSFTPAdapterDeniesRenameOutsideAllowedRoot(t *testing.T) {
+	t.Parallel()
+
+	client := newFakeSFTPClient()
+	client.files["/srv/data/report.txt"] = []byte("synthetic report")
+	adapter := testSFTPAdapter(client, FileTransferOperationRename)
+
+	_, err := adapter.Execute(
+		t.Context(),
+		SSHConfig{},
+		renameSFTPRequest("/srv/data/report.txt", "/tmp/report.txt"),
+		nil,
+		nil,
+	)
+	if !errors.Is(err, ErrFileTransferPolicyDenied) {
+		t.Fatalf("Execute error = %v, want %v", err, ErrFileTransferPolicyDenied)
+	}
+	if slices.Contains(client.ops, "rename:/srv/data/report.txt:/tmp/report.txt") {
+		t.Fatalf("renamed to denied destination, ops = %#v", client.ops)
+	}
+}
+
+func TestSFTPAdapterDeniesRenameThroughSymlinkParent(t *testing.T) {
+	t.Parallel()
+
+	client := newFakeSFTPClient()
+	client.files["/srv/data/report.txt"] = []byte("synthetic report")
+	client.realpaths["/srv/data/link/report.txt"] = "/tmp/report.txt"
+	adapter := testSFTPAdapter(client, FileTransferOperationRename)
+	adapter.Policy.SymlinkMode = FileTransferSymlinkFollowInsideRoot
+
+	_, err := adapter.Execute(
+		t.Context(),
+		SSHConfig{},
+		renameSFTPRequest("/srv/data/report.txt", "/srv/data/link/report.txt"),
+		nil,
+		nil,
+	)
+	if !errors.Is(err, ErrFileTransferPolicyDenied) {
+		t.Fatalf("Execute error = %v, want %v", err, ErrFileTransferPolicyDenied)
+	}
+	if slices.Contains(client.ops, "rename:/srv/data/report.txt:/srv/data/link/report.txt") {
+		t.Fatalf("renamed through symlink parent, ops = %#v", client.ops)
+	}
+}
+
+func TestSFTPAdapterDeniesRenameOntoSymlinkByDefault(t *testing.T) {
+	t.Parallel()
+
+	client := newFakeSFTPClient()
+	client.files["/srv/data/report.txt"] = []byte("synthetic report")
+	client.symlinks["/srv/data/alias.txt"] = true
+	client.realpaths["/srv/data/alias.txt"] = "/srv/data/real.txt"
+	adapter := testSFTPAdapter(client, FileTransferOperationRename)
+
+	_, err := adapter.Execute(
+		t.Context(),
+		SSHConfig{},
+		renameSFTPRequest("/srv/data/report.txt", "/srv/data/alias.txt"),
+		nil,
+		nil,
+	)
+	if !errors.Is(err, ErrFileTransferPolicyDenied) {
+		t.Fatalf("Execute error = %v, want %v", err, ErrFileTransferPolicyDenied)
+	}
+	if slices.Contains(client.ops, "rename:/srv/data/report.txt:/srv/data/alias.txt") {
+		t.Fatalf("renamed onto symlink, ops = %#v", client.ops)
+	}
+}
+
+func TestSFTPAdapterAllowsRenameThroughSymlinkInsideRoot(t *testing.T) {
+	t.Parallel()
+
+	client := newFakeSFTPClient()
+	client.files["/srv/data/report.txt"] = []byte("synthetic report")
+	client.realpaths["/srv/data/alias/report.txt"] = "/srv/data/real/report.txt"
+	adapter := testSFTPAdapter(client, FileTransferOperationRename)
+	adapter.Policy.SymlinkMode = FileTransferSymlinkFollowInsideRoot
+
+	if _, err := adapter.Execute(
+		t.Context(),
+		SSHConfig{},
+		renameSFTPRequest("/srv/data/report.txt", "/srv/data/alias/report.txt"),
+		nil,
+		nil,
+	); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !slices.Contains(client.ops, "rename:/srv/data/report.txt:/srv/data/alias/report.txt") {
+		t.Fatalf("ops = %#v, want rename", client.ops)
+	}
+}
+
 func TestSFTPAdapterDeniesSymlinkWhenRealPathFails(t *testing.T) {
 	t.Parallel()
 
@@ -304,6 +397,7 @@ type fakeSFTPClient struct {
 	files       map[string][]byte
 	dirs        map[string][]os.FileInfo
 	symlinks    map[string]bool
+	realpaths   map[string]string
 	realPathErr error
 	ops         []string
 	closed      bool
@@ -311,9 +405,10 @@ type fakeSFTPClient struct {
 
 func newFakeSFTPClient() *fakeSFTPClient {
 	return &fakeSFTPClient{
-		files:    make(map[string][]byte),
-		dirs:     make(map[string][]os.FileInfo),
-		symlinks: make(map[string]bool),
+		files:     make(map[string][]byte),
+		dirs:      make(map[string][]os.FileInfo),
+		symlinks:  make(map[string]bool),
+		realpaths: make(map[string]string),
 	}
 }
 
@@ -375,6 +470,9 @@ func (c *fakeSFTPClient) RealPath(path string) (string, error) {
 	c.ops = append(c.ops, "realpath:"+path)
 	if c.realPathErr != nil {
 		return "", c.realPathErr
+	}
+	if resolved, ok := c.realpaths[path]; ok {
+		return resolved, nil
 	}
 
 	return path, nil
