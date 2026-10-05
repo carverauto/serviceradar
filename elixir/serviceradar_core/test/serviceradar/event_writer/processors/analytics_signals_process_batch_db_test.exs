@@ -1,6 +1,7 @@
 defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
@@ -83,6 +84,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Application.put_env(:serviceradar_core, :anomaly_episodes_enabled, true)
     Application.put_env(:serviceradar_core, :anomaly_episode_stale_after_minutes, 30)
+
+    if !Process.whereis(AnomalyEpisodeGuardTables),
+      do: start_supervised!(AnomalyEpisodeGuardTables)
+
     AnomalyEpisodeRegistry.reset_rate_guard!()
     AnomalyEpisodeRegistry.reset_tripwire!()
 
