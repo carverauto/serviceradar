@@ -5,11 +5,11 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.DiscoveryIngestor
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.CausalPredictionSubject
+  alias ServiceRadar.Ingestion.ResultIngestor
 
   require Logger
 
@@ -721,4 +721,5 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
 
   defp byte_size_or_nil(value) when is_binary(value), do: byte_size(value)
   defp byte_size_or_nil(_), do: nil
+
 end

@@ -22,17 +22,11 @@ defmodule ServiceRadar.Admission.FlowLane do
     :gateway_max_ms
   ]
 
-  def limits do
-    @default_config
-    |> Keyword.merge(configured_limits())
-    |> Lane.with_per_agent_bytes(6 * 1_024 * 1_024)
-  end
+  def limits, do: Keyword.merge(@default_config, configured_limits())
 
   def start_link(opts \\ []) do
     config =
-      limits()
-      |> Keyword.merge(opts[:config] || [])
-      |> Lane.with_per_agent_bytes(6 * 1_024 * 1_024)
+      limits() |> Keyword.merge(opts[:config] || [])
 
     lease_supervisor =
       Keyword.get_lazy(opts, :lease_supervisor, fn ->

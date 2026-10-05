@@ -15,11 +15,9 @@ defmodule ServiceRadar.Inventory.SyncIngestRun do
 
   actions do
     defaults [:read]
-
     create :create do
       accept [:sync_service_id, :sync_run_id, :received_chunks, :total_chunks, :incomplete]
     end
-
     update :record do
       accept [:received_chunks, :total_chunks, :incomplete]
     end
@@ -27,7 +25,6 @@ defmodule ServiceRadar.Inventory.SyncIngestRun do
 
   policies do
     import ServiceRadar.Policies
-
     system_bypass()
   end
 

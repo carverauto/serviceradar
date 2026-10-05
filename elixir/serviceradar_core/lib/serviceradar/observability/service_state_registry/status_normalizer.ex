@@ -14,12 +14,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
   @doc false
   @doc "Pure identity and observation time for coalescing already-completed service state."
   def pending_observation(status) do
-    identity =
-      for key <- [:agent_id, :gateway_id, :partition, :service_type, :service_name],
-          do: normalize_string(fetch(status, key), "")
-
-    if Enum.all?(identity, &(&1 != "")),
-      do: {List.to_tuple(identity), resolve_observed_at(status)}
+    identity = for key <- [:agent_id, :gateway_id, :partition, :service_type, :service_name],
+      do: normalize_string(fetch(status, key), "")
+    if Enum.all?(identity, &(&1 != "")), do: {List.to_tuple(identity), resolve_observed_at(status)}, else: nil
   end
 
   def attrs_from_status(status, actor, opts \\ []) do

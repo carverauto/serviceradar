@@ -85,9 +85,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
     ServiceRadar.TestSupport.start_ingestion_topology!()
     routed_status = Map.put(routed_status, :delivery_capabilities, ["plugin-result-retained:v1"])
     assert [] = history_rows(status)
-
-    assert :ok =
-             GenServer.call(ServiceRadar.StatusHandler, {:status_update, routed_status}, 5_000)
+    assert :ok = GenServer.call(ServiceRadar.StatusHandler, {:status_update, routed_status}, 5_000)
 
     assert [[reported_at, true, "edge plugin completed", _] = reported_row] =
              history_rows(status)

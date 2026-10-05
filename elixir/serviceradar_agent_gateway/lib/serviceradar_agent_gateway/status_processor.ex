@@ -18,8 +18,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   - Distributed routing for partition-aware processing
   """
 
-  alias ServiceRadar.Admission.Lane
-  alias ServiceRadar.Ingestion.Admission
   alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.IcmpMetricsPublisher
   alias ServiceRadarAgentGateway.K8sPublicEndpointsPublisher
@@ -393,52 +391,41 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   # unreserved payload could grow a saturated core's mailbox. Legacy forwarding
   # is an explicit rollout setting, not an overload escape hatch.
   defp forward_handler(target, status) do
-    status = Admission.prepare(status)
+    status = ServiceRadar.Ingestion.Admission.prepare(status)
     deadline = System.monotonic_time(:millisecond) + core_call_timeout_ms(status)
 
     if Application.get_env(:serviceradar_agent_gateway, :reserved_core_admission, true) do
-      submit_reserved(target, status, deadline)
+      remaining = min(remaining_ms(deadline), ServiceRadar.Ingestion.Admission.budget_ms())
+      descriptor = ServiceRadar.Admission.Lane.descriptor(status, remaining)
+
+      with true <- reserved_admission?(target),
+           {:ok, {lane, id}} <- GenServer.call(target, {:reserve_status, descriptor},
+                                             min(remaining_ms(deadline), 1_100)) do
+        mode = if ack_result_status?(status), do: :wait, else: :best_effort
+        GenServer.call(lane, {:submit, id, status, mode}, remaining_ms(deadline))
+      else
+        false -> {:error, :core_admission_protocol_unavailable}
+        {:error, _} = error -> error
+      end
     else
-      submit_legacy(target, status, deadline)
-    end
-  end
-
-  defp submit_reserved(target, status, deadline) do
-    remaining = min(remaining_ms(deadline), Admission.budget_ms())
-    descriptor = Lane.descriptor(status, remaining)
-
-    with true <- reserved_admission?(target),
-         {:ok, {lane, id}} <-
-           GenServer.call(target, {:reserve_status, descriptor}, min(remaining_ms(deadline), 1_100)) do
-      mode = if ack_result_status?(status), do: :wait, else: :best_effort
-      GenServer.call(lane, {:submit, id, status, mode}, remaining_ms(deadline))
-    else
-      false -> {:error, :core_admission_protocol_unavailable}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp submit_legacy(target, status, deadline) do
-    message = handler_message(status)
-
-    if ack_result_status?(status) do
-      GenServer.call(target, message, remaining_ms(deadline))
-    else
-      GenServer.cast(target, message)
-      :ok
+      message = handler_message(status)
+      if ack_result_status?(status) do
+        GenServer.call(target, message, remaining_ms(deadline))
+      else
+        GenServer.cast(target, message)
+        :ok
+      end
     end
   end
 
   defp reserved_admission?(target) do
     # Probe the deployed module, not an older GenServer's unknown callback.
     # An unsupported core pair fails closed without crashing its dispatcher.
-    target_node =
-      case target do
-        pid when is_pid(pid) -> node(pid)
-        {_name, target_node} -> target_node
-        _name -> node()
-      end
-
+    target_node = case target do
+      pid when is_pid(pid) -> node(pid)
+      {_name, target_node} -> target_node
+      _name -> node()
+    end
     :erpc.call(target_node, ServiceRadar.StatusHandler, :admission_protocol, [], 50) == :reserved_v1
   catch
     _, _ -> false

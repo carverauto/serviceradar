@@ -9,12 +9,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Ingestion.RuntimeMetrics
-  alias ServiceRadar.Ingestion.WorkerBudget
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.SyncIngestor
-  alias ServiceRadar.Inventory.SyncRunLedger
   alias ServiceRadar.Repo
 
   require Logger
@@ -31,31 +28,26 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  def child_spec(opts),
-    do: %{id: Keyword.get(opts, :name, __MODULE__), start: {__MODULE__, :start_link, [opts]}}
+  def child_spec(opts), do: %{id: Keyword.get(opts, :name, __MODULE__),
+                              start: {__MODULE__, :start_link, [opts]}}
 
   # The producer extracts the small ordering identity. It is already a bounded
   # ingestion worker; no JSON decode or database call occurs in queue callbacks.
   def enqueue(message) do
     bytes = if is_binary(message), do: byte_size(message), else: 0
-
     if bytes > @max_bytes do
-      RuntimeMetrics.record(:sync, :rejected, %{reason: :wire_payload_too_large})
+      ServiceRadar.Ingestion.RuntimeMetrics.record(:sync, :rejected, %{reason: :wire_payload_too_large})
       {:error, :sync_ingest_queue_full}
     else
-      headers =
-        case decode_results(message) do
-          {:ok, updates} -> extract_sync_meta(updates)
-          _ -> %{}
-        end
-
+      headers = case decode_results(message) do
+        {:ok, updates} -> extract_sync_meta(updates)
+        _ -> %{}
+      end
       descriptor = %{bytes: bytes, key: run_key(headers)}
       result = reserve_and_submit(queue_server(), descriptor, message)
-
       if match?({:error, _}, result) do
-        SyncRunLedger.reject(headers)
+        ServiceRadar.Inventory.SyncRunLedger.reject(headers)
       end
-
       result
     end
   end
@@ -75,54 +67,32 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     opts = Keyword.merge(Application.get_env(:serviceradar_core, __MODULE__, []), opts)
     max_items = Keyword.get(opts, :max_items, @max_items)
     max_bytes = Keyword.get(opts, :max_bytes, @max_bytes)
-
-    if !(is_integer(max_items) and max_items > 0 and is_integer(max_bytes) and
-           max_bytes > 0 and max_bytes <= @max_bytes and
-           is_integer(coalesce_window_ms()) and coalesce_window_ms() >= 0 and
-           is_integer(queue_max_chunks()) and queue_max_chunks() > 0) do
+    unless is_integer(max_items) and max_items > 0 and is_integer(max_bytes) and
+             max_bytes > 0 and max_bytes <= @max_bytes and
+             is_integer(coalesce_window_ms()) and coalesce_window_ms() >= 0 and
+             is_integer(queue_max_chunks()) and queue_max_chunks() > 0 do
       raise ArgumentError, "invalid sync ingestion queue limits"
     end
-
-    {:ok,
-     %{
-       jobs: %{},
-       pending: :queue.new(),
-       bytes: 0,
-       timer: nil,
-       active: nil,
-       task_supervisor: Keyword.get(opts, :task_supervisor, task_supervisor()),
-       max_items: max_items,
-       max_bytes: max_bytes
-     }}
+    {:ok, %{jobs: %{}, pending: :queue.new(), bytes: 0, timer: nil, active: nil,
+            task_supervisor: Keyword.get(opts, :task_supervisor, task_supervisor()),
+            max_items: max_items, max_bytes: max_bytes}}
   end
 
   @impl true
   def handle_call({:reserve, %{bytes: bytes, key: key}}, {owner, _}, state)
       when is_integer(bytes) and bytes > 0 and bytes <= @max_bytes do
     per_run = Enum.count(state.jobs, fn {_id, job} -> job.key == key end)
-
-    if :erlang.external_size(key) > 4_096 or map_size(state.jobs) >= state.max_items or
-         state.bytes + bytes > state.max_bytes or
+    if :erlang.external_size(key) > 4_096 or map_size(state.jobs) >= state.max_items or state.bytes + bytes > state.max_bytes or
          per_run >= @max_per_run do
-      RuntimeMetrics.record(:sync, :rejected, %{reason: :sync_ingest_queue_full})
+      ServiceRadar.Ingestion.RuntimeMetrics.record(:sync, :rejected, %{reason: :sync_ingest_queue_full})
       {:reply, {:error, :sync_ingest_queue_full}, state}
     else
       id = make_ref()
       timer = Process.send_after(self(), {:reservation_expired, id}, 2_000)
-
-      job = %{
-        bytes: bytes,
-        key: key,
-        phase: :reserved,
-        message: nil,
-        monitor: Process.monitor(owner),
-        timer: timer
-      }
-
-      RuntimeMetrics.record(:sync, :admitted, %{})
-
-      {:reply, {:ok, id},
-       record_state(%{state | jobs: Map.put(state.jobs, id, job), bytes: state.bytes + bytes})}
+      job = %{bytes: bytes, key: key, phase: :reserved, message: nil,
+              monitor: Process.monitor(owner), timer: timer}
+      ServiceRadar.Ingestion.RuntimeMetrics.record(:sync, :admitted, %{})
+      {:reply, {:ok, id}, record_state(%{state | jobs: Map.put(state.jobs, id, job), bytes: state.bytes + bytes})}
     end
   end
 
@@ -132,30 +102,20 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   def handle_call({:submit, id, message}, _from, state) do
     bytes = if is_binary(message), do: byte_size(message), else: 0
-
     case state.jobs[id] do
       %{phase: :reserved, bytes: ^bytes} = job ->
         Process.cancel_timer(job.timer)
         Process.demonitor(job.monitor, [:flush])
         job = %{job | phase: :pending, message: message, timer: nil, monitor: nil}
-
-        state = %{
-          state
-          | jobs: Map.put(state.jobs, id, job),
-            pending: :queue.in(id, state.pending)
-        }
-
+        state = %{state | jobs: Map.put(state.jobs, id, job), pending: :queue.in(id, state.pending)}
         {:reply, :ok, maybe_flush(state)}
-
-      _ ->
-        {:reply, {:error, :sync_ingest_queue_full}, state}
+      _ -> {:reply, {:error, :sync_ingest_queue_full}, state}
     end
   end
 
   @impl true
   def handle_info({:flush, token}, %{timer: {_ref, token}} = state),
     do: {:noreply, start_ingestion(%{state | timer: nil})}
-
   def handle_info({:flush, _stale}, state), do: {:noreply, state}
 
   def handle_info({:reservation_expired, id}, state) do
@@ -169,34 +129,25 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     do: {:noreply, %{state | active: Map.put(active, :result, result)}}
 
   def handle_info({:worker_timeout, pid}, %{active: %{pid: pid}} = state) do
-    RuntimeMetrics.record(:sync, :worker_timeout, %{count: 1})
+    ServiceRadar.Ingestion.RuntimeMetrics.record(:sync, :worker_timeout, %{count: 1})
     Process.exit(pid, :kill)
     {:noreply, state}
   end
-
   def handle_info({:worker_timeout, _}, state), do: {:noreply, state}
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{active: %{ref: ref} = active} = state) do
     Process.cancel_timer(active.timer)
     state = %{state | active: nil}
-
     if reason == :normal and active.result != nil do
       accepted = Enum.all?(active.result, &(&1 == :ok or match?({:ok, _}, &1)))
-
-      RuntimeMetrics.record(:sync, :completion, %{
-        count: length(active.ids),
+      ServiceRadar.Ingestion.RuntimeMetrics.record(:sync, :completion, %{count: length(active.ids),
         outcome: if(accepted, do: :accepted, else: :not_accepted),
-        execution_ms: System.monotonic_time(:millisecond) - active.started_at
-      })
-
+        execution_ms: System.monotonic_time(:millisecond) - active.started_at})
       {:noreply, state |> release(active.ids) |> maybe_flush()}
     else
-      RuntimeMetrics.record(:sync, :worker_crash, %{count: 1})
-
+      ServiceRadar.Ingestion.RuntimeMetrics.record(:sync, :worker_crash, %{count: 1})
       Logger.warning("Sync ingestion worker exited; retrying retained bounded batch",
-        reason: inspect(reason)
-      )
-
+                     reason: inspect(reason))
       pending = :queue.join(:queue.from_list(active.ids), state.pending)
       {:noreply, arm(%{state | pending: pending})}
     end
@@ -206,17 +157,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     ids = for {id, %{monitor: monitor}} <- state.jobs, monitor == ref, do: id
     {:noreply, release(state, ids)}
   end
-
   def handle_info(_message, state), do: {:noreply, state}
 
   defp maybe_flush(state) do
     if :queue.len(state.pending) >= queue_max_chunks(),
-      do: start_ingestion(invalidate_timer(state)),
-      else: arm(state)
+      do: start_ingestion(invalidate_timer(state)), else: arm(state)
   end
 
   defp start_ingestion(%{active: active} = state) when not is_nil(active), do: arm(state)
-
   defp start_ingestion(state) do
     if :queue.is_empty(state.pending) do
       state
@@ -224,55 +172,31 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       ids = :queue.to_list(state.pending)
       messages = Enum.map(ids, &state.jobs[&1].message)
       owner = self()
-
       fun = fn ->
         decoded = Enum.map(messages, &decode_results/1)
-
-        batches =
-          Enum.flat_map(decoded, fn decoded ->
-            case decoded do
-              {:ok, updates} ->
-                [updates]
-
-              {:error, reason} ->
-                Logger.warning("Sync result decode rejected: #{inspect(reason)}")
-                RuntimeMetrics.record(:sync, :rejected, %{reason: :malformed_payload})
-                []
-            end
+        batches = Enum.flat_map(decoded, fn decoded ->
+          case decoded do
+            {:ok, updates} -> [updates]
+            {:error, reason} ->
+              Logger.warning("Sync result decode rejected: #{inspect(reason)}")
+              ServiceRadar.Ingestion.RuntimeMetrics.record(:sync, :rejected, %{reason: :malformed_payload})
+              []
+          end
+        end)
+        result = ServiceRadar.Ingestion.WorkerBudget.run(
+          ServiceRadar.Ingestion.WorkerBudget, :sync, fn ->
+            results = batches |> group_batches_for_ingestion() |> Enum.map(&ingest_updates/1)
+            results ++ for {:error, reason} <- decoded, do: {:error, {:sync_decode, reason}}
           end)
-
-        result =
-          WorkerBudget.run(
-            WorkerBudget,
-            :sync,
-            fn ->
-              results = batches |> group_batches_for_ingestion() |> Enum.map(&ingest_updates/1)
-              results ++ for {:error, reason} <- decoded, do: {:error, {:sync_decode, reason}}
-            end
-          )
-
         send(owner, {:worker_result, self(), result})
       end
-
       case Task.Supervisor.start_child(state.task_supervisor, fun) do
         {:ok, pid} ->
           timer = Process.send_after(self(), {:worker_timeout, pid}, @worker_timeout_ms)
-
-          record_state(%{
-            state
-            | pending: :queue.new(),
-              active: %{
-                ids: ids,
-                pid: pid,
-                ref: Process.monitor(pid),
-                timer: timer,
-                result: nil,
-                started_at: System.monotonic_time(:millisecond)
-              }
-          })
-
-        {:error, _} ->
-          arm(state)
+          record_state(%{state | pending: :queue.new(), active: %{ids: ids, pid: pid,
+                    ref: Process.monitor(pid), timer: timer, result: nil,
+                    started_at: System.monotonic_time(:millisecond)}})
+        {:error, _} -> arm(state)
       end
     end
   catch
@@ -280,7 +204,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   end
 
   defp arm(%{timer: timer} = state) when not is_nil(timer), do: state
-
   defp arm(state) do
     if :queue.is_empty(state.pending) do
       state
@@ -295,16 +218,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Process.cancel_timer(ref)
     %{state | timer: nil}
   end
-
   defp invalidate_timer(state), do: state
 
   defp release(state, ids) do
-    ids
-    |> Enum.reduce(state, fn id, acc ->
+    Enum.reduce(ids, state, fn id, acc ->
       case Map.pop(acc.jobs, id) do
-        {nil, _} ->
-          acc
-
+        {nil, _} -> acc
         {job, jobs} ->
           if is_reference(job.monitor), do: Process.demonitor(job.monitor, [:flush])
           if is_reference(job.timer), do: Process.cancel_timer(job.timer)
@@ -316,17 +235,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp record_state(state) do
     active_ids = if state.active, do: state.active.ids, else: []
-
-    active_bytes =
-      Enum.reduce(active_ids, 0, fn id, acc -> acc + (state.jobs[id] || %{bytes: 0}).bytes end)
-
-    RuntimeMetrics.record(:sync, :state, %{
+    active_bytes = Enum.reduce(active_ids, 0, fn id, acc -> acc + (state.jobs[id] || %{bytes: 0}).bytes end)
+    ServiceRadar.Ingestion.RuntimeMetrics.record(:sync, :state, %{
       pending_count: map_size(state.jobs) - length(active_ids),
       pending_bytes: state.bytes - active_bytes,
-      in_flight_count: length(active_ids),
-      in_flight_bytes: active_bytes
-    })
-
+      in_flight_count: length(active_ids), in_flight_bytes: active_bytes})
     state
   end
 
@@ -382,15 +295,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     record_sync_start(updates, actor, sync_meta)
     result = ingest_device_updates(device_updates, actor)
     metas = updates |> Enum.map(fn update -> extract_sync_meta([update]) end) |> Enum.uniq()
-
-    result =
-      if result == :ok do
-        SyncRunLedger.committed(metas)
-      else
-        Enum.each(metas, &SyncRunLedger.reject/1)
-        result
-      end
-
+    result = if result == :ok do
+      ServiceRadar.Inventory.SyncRunLedger.committed(metas)
+    else
+      Enum.each(metas, &ServiceRadar.Inventory.SyncRunLedger.reject/1)
+      result
+    end
     result = maybe_activate_source_snapshot(result, updates, sync_meta, actor)
     Logger.info("SyncIngestor result: #{inspect(result)}")
 
@@ -560,8 +470,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       chunk_index =
         select_min(acc[:chunk_index], get_integer(meta, ["chunk_index", :chunk_index]))
 
-      total_chunks =
-        select_max(acc[:total_chunks], get_integer(meta, ["total_chunks", :total_chunks]))
+      total_chunks = select_max(acc[:total_chunks], get_integer(meta, ["total_chunks", :total_chunks]))
 
       is_final = acc[:is_final] || get_bool(meta, ["is_final", :is_final])
 

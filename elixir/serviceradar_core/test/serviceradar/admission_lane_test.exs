@@ -13,35 +13,29 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Cluster.CoordinatorChildren
-  alias ServiceRadar.Ingestion.LaneSupervisor
-  alias ServiceRadar.Ingestion.LeaseSupervisor
-  alias ServiceRadar.Ingestion.RuntimeMetrics
-  alias ServiceRadar.Ingestion.WorkerBudget
 
   test "JetStream metrics retry an identical frame and cannot hold up ingestion" do
     parent = self()
-
     request = fn subject, body, opts ->
       send(parent, {:metric_publish, self(), subject, body, opts})
-
       receive do
         {:puback, response} -> response
       after
         2_000 -> {:error, :timeout}
       end
     end
-
-    start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
-    RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
-
-    assert_receive {:metric_publish, publisher, "metrics.core.result_ingestion", body, opts},
-                   1_000
+    start_supervised!({ServiceRadar.Ingestion.RuntimeMetrics,
+      interval_ms: 20, publish_opts: [request: request]})
+    ServiceRadar.Ingestion.RuntimeMetrics.record(:sweep, :state,
+      %{pending_count: 2, pending_bytes: 512})
+    assert_receive {:metric_publish, publisher, "metrics.core.result_ingestion", body, opts}, 1_000
 
     for _ <- 1..1_000 do
-      RuntimeMetrics.record(:sweep, :state, %{pending_count: 0, pending_bytes: 0})
-      RuntimeMetrics.record("invented-unbounded-label", :state, %{pending_count: 1})
+      ServiceRadar.Ingestion.RuntimeMetrics.record(:sweep, :state,
+        %{pending_count: 0, pending_bytes: 0})
+      ServiceRadar.Ingestion.RuntimeMetrics.record("invented-unbounded-label", :state,
+        %{pending_count: 1})
     end
-
     lane = start_lane(fn _ -> :ok end)
     ref = admit(lane, status("agent01.example.com", "independent"))
     assert_receive {^ref, :ok}, 250
@@ -49,25 +43,15 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     # A plain NATS success without a storage PubAck is insufficient.
     send(publisher, {:puback, {:ok, %{body: "{}"}}})
-
-    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", retry,
-                    retry_opts},
-                   1_000
-
+    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", retry, retry_opts}, 1_000
     assert retry == body
     assert retry_opts[:headers] == opts[:headers]
     assert Enum.any?(opts[:headers], fn {key, id} -> key == "Nats-Msg-Id" and is_binary(id) end)
     send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
 
-    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", drained, _opts},
-                   1_000
-
-    rows =
-      ServiceRadar.EventWriter.Processors.Metrics.parse_message(%{
-        data: drained,
-        metadata: %{subject: "metrics.core.result_ingestion"}
-      })
-
+    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", drained, _opts}, 1_000
+    rows = ServiceRadar.EventWriter.Processors.Metrics.parse_message(%{
+      data: drained, metadata: %{subject: "metrics.core.result_ingestion"}})
     depth = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_count"))
     bytes = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_bytes"))
     failure = Enum.find(rows, &(&1.metric_name == "result_ingestion_events_publish_failure"))
@@ -84,29 +68,23 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   test "legacy plugins cannot occupy the retained database reservation" do
-    budget = start_supervised!({WorkerBudget, pool_size: 7})
+    budget = start_supervised!({ServiceRadar.Ingestion.WorkerBudget, pool_size: 7})
     tasks = start_supervised!({Task.Supervisor, []})
     parent = self()
-
-    {:ok, legacy} =
-      Task.Supervisor.start_child(tasks, fn ->
-        WorkerBudget.run(budget, :legacy_plugin, fn ->
-          send(parent, {:legacy_started, self()})
-
-          receive do
-            :release -> :ok
-          end
-        end)
+    {:ok, legacy} = Task.Supervisor.start_child(tasks, fn ->
+      ServiceRadar.Ingestion.WorkerBudget.run(budget, :legacy_plugin, fn ->
+        send(parent, {:legacy_started, self()})
+        receive do
+          :release -> :ok
+        end
       end)
-
+    end)
     assert_receive {:legacy_started, ^legacy}, 1_000
-
-    {:ok, retained} =
-      Task.Supervisor.start_child(tasks, fn ->
-        result = WorkerBudget.run(budget, :retained_plugin_result, fn -> :committed end)
-        send(parent, {:retained_result, self(), result})
-      end)
-
+    {:ok, retained} = Task.Supervisor.start_child(tasks, fn ->
+      result = ServiceRadar.Ingestion.WorkerBudget.run(budget, :retained_plugin_result,
+        fn -> :committed end)
+      send(parent, {:retained_result, self(), result})
+    end)
     assert_receive {:retained_result, ^retained, :committed}, 250
     send(legacy, :release)
   end
@@ -114,18 +92,15 @@ defmodule ServiceRadar.AdmissionLaneTest do
   test "boot rejects queues that exceed memory or reserved Repo capacity" do
     key = ServiceRadar.Ingestion.Supervisor
     previous = Application.get_env(:serviceradar_core, key)
-
     on_exit(fn ->
-      if previous == nil,
-        do: Application.delete_env(:serviceradar_core, key),
+      if previous == nil, do: Application.delete_env(:serviceradar_core, key),
         else: Application.put_env(:serviceradar_core, key, previous)
     end)
-
     Application.put_env(:serviceradar_core, key, memory_budget_bytes: 1_024)
     assert {:error, _} = start_supervised(ServiceRadar.Ingestion.Supervisor)
     assert Process.whereis(ServiceRadar.Ingestion.Supervisor) == nil
-    assert {:error, _} = start_supervised({WorkerBudget, pool_size: 6})
-    assert Process.whereis(WorkerBudget) == nil
+    assert {:error, _} = start_supervised({ServiceRadar.Ingestion.WorkerBudget, pool_size: 6})
+    assert Process.whereis(ServiceRadar.Ingestion.WorkerBudget) == nil
   end
 
   test "count, byte, per-agent, and source limits return distinct reasons" do
@@ -176,133 +151,6 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     assert {:error, :wire_payload_too_large} =
              Lane.admit(source_lane, status("agent-a", "12345"), {self(), make_ref()})
-  end
-
-  test "default sweep byte credit stops one agent filling the lane" do
-    parent = self()
-
-    lane =
-      start_lane_with(
-        held_processor(parent),
-        LaneSupervisor.limits(:sweep),
-        16 * 1_024 * 1_024
-      )
-
-    first = admit(lane, status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)))
-    assert_receive {:started, _, first_release}
-
-    assert {:error, :per_agent_byte_full} =
-             Lane.admit(
-               lane,
-               status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
-               {self(), make_ref()}
-             )
-
-    second = admit(lane, status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024)))
-    send(first_release, :release)
-    assert_receive {^first, :ok}
-    assert_receive {:started, _, second_release}
-    send(second_release, :release)
-    assert_receive {^second, :ok}
-    assert_empty(lane)
-  end
-
-  test "default sweep reservations stop one agent filling the lane" do
-    parent = self()
-
-    lane =
-      start_lane_with(
-        held_processor(parent),
-        LaneSupervisor.limits(:sweep),
-        16 * 1_024 * 1_024
-      )
-
-    first_status = status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024))
-    first_ref = make_ref()
-
-    assert {:ok, {^lane, first_id}} =
-             Lane.reserve(lane, Lane.descriptor(first_status, 10_000), self(), 1_000)
-
-    assert :ok = Lane.submit(lane, first_id, first_status, {self(), first_ref})
-    assert_receive {:started, _, first_release}
-
-    assert {:error, :per_agent_byte_full} =
-             Lane.reserve(
-               lane,
-               Lane.descriptor(
-                 status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
-                 10_000
-               ),
-               self(),
-               1_000
-             )
-
-    second_status = status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024))
-    second_ref = make_ref()
-
-    assert {:ok, {^lane, second_id}} =
-             Lane.reserve(lane, Lane.descriptor(second_status, 10_000), self(), 1_000)
-
-    assert :ok = Lane.submit(lane, second_id, second_status, {self(), second_ref})
-    send(first_release, :release)
-    assert_receive {^first_ref, :ok}
-    assert_receive {:started, _, second_release}
-    send(second_release, :release)
-    assert_receive {^second_ref, :ok}
-    assert_empty(lane)
-  end
-
-  test "default flow byte credit stops one agent filling the lane" do
-    parent = self()
-    lane = start_lane_with(held_processor(parent), FlowLane.limits(), 6 * 1_024 * 1_024)
-    payload = fn agent -> status(agent, String.duplicate("f", 5_900_000)) end
-
-    first = admit(lane, payload.("agent-a"))
-    assert_receive {:started, _, first_release}
-    queued = admit(lane, payload.("agent-a"))
-
-    assert {:error, :per_agent_byte_full} =
-             Lane.admit(lane, payload.("agent-a"), {self(), make_ref()})
-
-    other = admit(lane, payload.("agent-b"))
-    send(first_release, :release)
-    assert_receive {^first, :ok}
-    assert_receive {:started, _, queued_release}
-    send(queued_release, :release)
-    assert_receive {^queued, :ok}
-    assert_receive {:started, _, other_release}
-    send(other_release, :release)
-    assert_receive {^other, :ok}
-    assert_empty(lane)
-  end
-
-  test "default retained byte credit stops one agent filling the lane" do
-    parent = self()
-
-    lane =
-      start_lane_with(
-        held_processor(parent),
-        RetainedPluginLane.limits(),
-        16 * 1_024 * 1_024
-      )
-
-    first = admit(lane, status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)))
-    assert_receive {:started, _, first_release}
-
-    assert {:error, :per_agent_byte_full} =
-             Lane.admit(
-               lane,
-               status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
-               {self(), make_ref()}
-             )
-
-    second = admit(lane, status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024)))
-    send(first_release, :release)
-    assert_receive {^first, :ok}
-    assert_receive {:started, _, second_release}
-    send(second_release, :release)
-    assert_receive {^second, :ok}
-    assert_empty(lane)
   end
 
   test "saturation accounting is independent between runtime lanes" do
@@ -701,12 +549,10 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     ids = Enum.map(specs, & &1.id)
 
-    assert ServiceRadar.Ingestion.Supervisor in ids
-    assert LeaseSupervisor in ids
     assert FlowLeaseSupervisor in ids
     assert RetainedPluginLeaseSupervisor in ids
-    refute FlowSupervisor in ids
-    refute RetainedPluginSupervisor in ids
+    assert FlowSupervisor in ids
+    assert RetainedPluginSupervisor in ids
     refute FlowTaskSupervisor in ids
     refute RetainedPluginTaskSupervisor in ids
     refute FlowLane in ids
@@ -820,7 +666,6 @@ defmodule ServiceRadar.AdmissionLaneTest do
     for config <- [flow_config, plugin_config] do
       assert :ok = Lane.validate_config(config, 15_000)
       assert config[:gateway_call_timeout_ms] < 20_000
-
       assert config[:queue_wait_ms] + config[:worker_timeout_ms] + 3_000 <=
                config[:gateway_call_timeout_ms]
     end
@@ -832,27 +677,6 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     opts = lane_opts(task_supervisor, processor, overrides)
     start_supervised!(Supervisor.child_spec({Lane, opts}, id: make_ref()))
-  end
-
-  defp start_lane_with(processor, config, source_max_bytes) do
-    task_supervisor =
-      start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
-
-    start_supervised!(
-      Supervisor.child_spec(
-        {Lane,
-         [
-           lane: :test,
-           concurrency: 1,
-           task_supervisor: task_supervisor,
-           processor: processor,
-           source_max_bytes: source_max_bytes,
-           gateway_max_ms: 15_000,
-           config: config
-         ]},
-        id: make_ref()
-      )
-    )
   end
 
   defp lane_opts(task_supervisor, processor, overrides) do
@@ -980,7 +804,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     admission_ids = [
       ServiceRadar.Ingestion.Supervisor,
-      LeaseSupervisor,
+      ServiceRadar.Ingestion.LeaseSupervisor,
       FlowTaskSupervisor,
       RetainedPluginTaskSupervisor,
       FlowLeaseSupervisor,

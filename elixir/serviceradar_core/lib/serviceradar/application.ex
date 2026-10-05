@@ -124,9 +124,9 @@ defmodule ServiceRadar.Application do
 
         # Sync ingestion queue/coalescer
 
-        # Holds partial discovery snapshots and the per-producer per-scope
-        # supersession watermarks. Bounded three ways (TTL, set count, part
-        # count); a producer cannot grow it.
+        # Holds partial discovery snapshots and the per-scope supersession
+        # watermarks. Bounded three ways (TTL, set count, part count); a
+        # producer cannot grow it.
         ServiceRadar.Inventory.Discovery.Buffer,
 
         # Bounded endpoint inventory ingestion admission queue
@@ -305,6 +305,7 @@ defmodule ServiceRadar.Application do
       []
     end
   end
+
 
   defp dependency_dispatcher_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor}

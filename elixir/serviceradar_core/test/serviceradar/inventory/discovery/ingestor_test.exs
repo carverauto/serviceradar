@@ -13,7 +13,6 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
   alias Serviceradar.Agent.Discovery.V1.DiscoveryEnvelope
   alias Serviceradar.Agent.Netprobe.V1.DeviceCensusObservation
   alias Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot
-  alias ServiceRadar.Ingestion.WorkerBudget
   alias ServiceRadar.Inventory.Discovery.Buffer
   alias ServiceRadar.Inventory.DiscoveryIngestor
   alias ServiceRadar.Inventory.SyncIngestorQueue
@@ -22,13 +21,9 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
   @last_seen 1_700_000_060_000_000_000
 
   defmodule CapturingIngestor do
-    @moduledoc false
     def ingest_updates(updates, _opts) do
-      send(
-        Application.fetch_env!(:serviceradar_core, :discovery_ingestor_test_pid),
-        {:enqueued, Jason.encode!(updates)}
-      )
-
+      send(Application.fetch_env!(:serviceradar_core, :discovery_ingestor_test_pid),
+           {:enqueued, Jason.encode!(updates)})
       :ok
     end
   end
@@ -48,7 +43,7 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
     # every test in this file did locally.
     #
     # Starting one under a test-local name would fix neither world:
-    # DiscoveryIngestor calls Buffer.offer/2 with the DEFAULT name, so the test's
+    # DiscoveryIngestor calls Buffer.offer/1 with the DEFAULT name, so the test's
     # instance would never be consulted.
     case Process.whereis(Buffer) do
       nil -> start_supervised!(Buffer)
@@ -61,45 +56,37 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
 
     Application.put_env(:serviceradar_core, :sync_ingestor, CapturingIngestor)
     Application.put_env(:serviceradar_core, :discovery_ingestor_test_pid, self())
-
-    if !Process.whereis(WorkerBudget) do
-      start_supervised!({WorkerBudget, pool_size: 10})
+    if !Process.whereis(ServiceRadar.Ingestion.WorkerBudget) do
+      start_supervised!({ServiceRadar.Ingestion.WorkerBudget, pool_size: 10})
     end
-
     tasks = start_supervised!({Task.Supervisor, []})
     queue = start_supervised!({SyncIngestorQueue, name: nil, task_supervisor: tasks})
     Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, queue)
 
     on_exit(fn ->
-      Enum.each(
-        [
-          {:sync_ingestor, previous_ingestor},
-          {:discovery_ingestor_test_pid, previous_pid},
-          {:sync_ingestor_queue_server, previous_server}
-        ],
-        fn {key, previous} ->
-          case previous do
-            {:ok, value} -> Application.put_env(:serviceradar_core, key, value)
-            :error -> Application.delete_env(:serviceradar_core, key)
-          end
+      Enum.each([
+        {:sync_ingestor, previous_ingestor},
+        {:discovery_ingestor_test_pid, previous_pid},
+        {:sync_ingestor_queue_server, previous_server}
+      ], fn {key, previous} ->
+        case previous do
+          {:ok, value} -> Application.put_env(:serviceradar_core, key, value)
+          :error -> Application.delete_env(:serviceradar_core, key)
         end
-      )
+      end)
     end)
 
     :ok
   end
 
-  defp attested(overrides \\ []) do
-    Map.merge(
-      %{
-        producer_type: "native-addon",
-        producer_id: "netprobe",
-        agent_id: "attested-agent",
-        gateway_id: "attested-gateway",
-        partition_id: "attested-partition"
-      },
-      Map.new(overrides)
-    )
+  defp attested do
+    %{
+      producer_type: "native-addon",
+      producer_id: "netprobe",
+      agent_id: "attested-agent",
+      gateway_id: "attested-gateway",
+      partition_id: "attested-partition"
+    }
   end
 
   defp census_payload(observations) do
@@ -258,24 +245,6 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
 
       assert [_] = enqueued!()
     end
-
-    test "one agent's watermark does not supersede another agent's snapshot" do
-      assert :ok =
-               DiscoveryIngestor.ingest(
-                 envelope(generated_at_unix_nano: 200),
-                 attested(agent_id: "synthetic-agent-a")
-               )
-
-      assert [_] = enqueued!()
-
-      assert :ok =
-               DiscoveryIngestor.ingest(
-                 envelope(generated_at_unix_nano: 100),
-                 attested(agent_id: "synthetic-agent-b")
-               )
-
-      assert [_] = enqueued!()
-    end
   end
 
   describe "multi-part snapshots" do
@@ -315,38 +284,6 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
       assert :ok = DiscoveryIngestor.ingest(first, attested())
 
       refute_receive {:enqueued, _}, 200
-    end
-
-    test "parts from different agents cannot complete each other's snapshot" do
-      first =
-        envelope(
-          part_index: 0,
-          part_count: 2,
-          complete: false,
-          payload: census_payload([observation(mac: "a8:bb:cc:00:00:01")])
-        )
-
-      second =
-        envelope(
-          part_index: 1,
-          part_count: 2,
-          complete: true,
-          payload: census_payload([observation(mac: "a8:bb:cc:00:00:02")])
-        )
-
-      assert :ok =
-               DiscoveryIngestor.ingest(first, attested(agent_id: "synthetic-agent-a"))
-
-      assert :ok =
-               DiscoveryIngestor.ingest(second, attested(agent_id: "synthetic-agent-b"))
-
-      refute_receive {:enqueued, _}, 200
-
-      assert :ok =
-               DiscoveryIngestor.ingest(second, attested(agent_id: "synthetic-agent-a"))
-
-      updates = enqueued!()
-      assert Enum.map(updates, & &1["mac"]) == ["a8:bb:cc:00:00:01", "a8:bb:cc:00:00:02"]
     end
   end
 end

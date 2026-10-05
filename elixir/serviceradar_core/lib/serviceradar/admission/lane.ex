@@ -14,16 +14,8 @@ defmodule ServiceRadar.Admission.Lane do
   # arbitrarily large capability/metadata maps to escape the byte bound.
   def descriptor(status, remaining_ms) do
     %{
-      headers:
-        Map.take(status, [
-          :source,
-          :service_type,
-          :service_name,
-          :agent_id,
-          :partition,
-          :delivery_capabilities,
-          :sweep_group_id
-        ]),
+      headers: Map.take(status, [:source, :service_type, :service_name, :agent_id,
+                               :partition, :delivery_capabilities, :sweep_group_id]),
       payload_bytes: payload_bytes(status),
       retained_bytes: :erlang.external_size(status) + @envelope_overhead_bytes,
       remaining_ms: remaining_ms
@@ -31,9 +23,8 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   def reserve(server, descriptor, owner, timeout) do
-    with :ok <- validate_descriptor(descriptor),
-         {:ok, target} <- reservation_target(server) do
-      GenServer.call(target, {:reserve, descriptor, owner}, timeout)
+    with :ok <- validate_descriptor(descriptor) do
+      GenServer.call(server, {:reserve, descriptor, owner}, timeout)
     end
   catch
     :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
@@ -75,47 +66,12 @@ defmodule ServiceRadar.Admission.Lane do
     keys = [:max_items, :max_bytes, :max_items_per_agent, :queue_wait_ms, :worker_timeout_ms]
 
     with :ok <- validate_positive(config, keys ++ [:gateway_call_timeout_ms]),
-         :ok <- validate_optional_positive(config, :max_bytes_per_agent),
          :ok <- at_most(config, :queue_wait_ms, @max_queue_wait_ms),
          :ok <- at_most(config, :worker_timeout_ms, @max_worker_timeout_ms),
          :ok <- at_most(config, :gateway_call_timeout_ms, gateway_max_ms) do
       validate_deadline(config)
     end
   end
-
-  def with_per_agent_bytes(config, source_max_bytes) do
-    max_bytes = Keyword.fetch!(config, :max_bytes)
-    floor = source_max_bytes + 4_096
-
-    derived =
-      if max_bytes <= floor do
-        max_bytes
-      else
-        max_bytes |> div(4) |> max(floor) |> min(max_bytes)
-      end
-
-    case Keyword.fetch(config, :max_bytes_per_agent) do
-      {:ok, explicit} when is_integer(explicit) ->
-        Keyword.put(config, :max_bytes_per_agent, min(explicit, max_bytes))
-
-      {:ok, _invalid} ->
-        config
-
-      :error ->
-        Keyword.put(config, :max_bytes_per_agent, derived)
-    end
-  end
-
-  defp reservation_target({:via, Registry, {registry, key}}) do
-    case Registry.lookup(registry, key) do
-      [{pid, _value}] -> {:ok, pid}
-      [] -> {:error, {:admission_lane_unavailable, :noproc}}
-    end
-  rescue
-    ArgumentError -> {:error, {:admission_lane_unavailable, :noproc}}
-  end
-
-  defp reservation_target(server), do: {:ok, server}
 
   @impl true
   def init(opts) do
@@ -161,13 +117,12 @@ defmodule ServiceRadar.Admission.Lane do
 
   def handle_call({:submit, id, status, mode}, from, state)
       when mode in [:wait, :best_effort] or
-             (is_tuple(mode) and tuple_size(mode) == 2 and elem(mode, 0) == :reply_to) do
-    reply_to =
-      case mode do
-        :wait -> from
-        :best_effort -> nil
-        {:reply_to, target} -> target
-      end
+           (is_tuple(mode) and tuple_size(mode) == 2 and elem(mode, 0) == :reply_to) do
+    reply_to = case mode do
+      :wait -> from
+      :best_effort -> nil
+      {:reply_to, target} -> target
+    end
 
     case attach_payload(state, id, status, reply_to) do
       {:ok, next_state} when mode == :wait -> {:noreply, dispatch(next_state)}
@@ -464,12 +419,8 @@ defmodule ServiceRadar.Admission.Lane do
 
   defp do_reserve(descriptor, owner, state) do
     with :ok <- validate_descriptor(descriptor),
-         %{
-           headers: headers,
-           payload_bytes: bytes,
-           retained_bytes: retained,
-           remaining_ms: remaining
-         } <- descriptor,
+         %{headers: headers, payload_bytes: bytes, retained_bytes: retained,
+           remaining_ms: remaining} <- descriptor,
          :ok <- validate_source_size(bytes, state.source_max_bytes),
          :ok <- validate_capacity(state, retained, agent_id(headers)),
          true <- remaining > @deadline_reserve_ms do
@@ -477,34 +428,20 @@ defmodule ServiceRadar.Admission.Lane do
       admitted_at = now_ms()
       caller_ref = if is_pid(owner), do: Process.monitor(owner)
       queue_ms = min(state.config[:queue_wait_ms], remaining - @deadline_reserve_ms)
-
       job = %{
-        id: id,
-        phase: :reserved,
-        status: nil,
-        headers: headers,
-        reply_to: nil,
-        lease: nil,
-        lease_ref: nil,
-        caller_ref: caller_ref,
-        agent_id: agent_id(headers),
-        ordering_key: ordering_key(headers),
-        payload_bytes: bytes,
-        retained_bytes: retained,
+        id: id, phase: :reserved, status: nil, headers: headers,
+        reply_to: nil, lease: nil, lease_ref: nil, caller_ref: caller_ref,
+        agent_id: agent_id(headers), ordering_key: ordering_key(headers), payload_bytes: bytes, retained_bytes: retained,
         admitted_at: admitted_at,
         deadline: admitted_at + min(remaining, state.config[:gateway_call_timeout_ms]),
         queue_timer: Process.send_after(self(), {:queue_timeout, id}, queue_ms)
       }
-
       next_state = %{
-        state
-        | queue: :queue.in(id, state.queue),
-          jobs: Map.put(state.jobs, id, job),
-          monitors: maybe_put_monitor(state.monitors, caller_ref, {:caller, id}),
-          admitted_bytes: state.admitted_bytes + retained,
-          admitted_per_agent: Map.update(state.admitted_per_agent, job.agent_id, 1, &(&1 + 1))
+        state | queue: :queue.in(id, state.queue), jobs: Map.put(state.jobs, id, job),
+        monitors: maybe_put_monitor(state.monitors, caller_ref, {:caller, id}),
+        admitted_bytes: state.admitted_bytes + retained,
+        admitted_per_agent: Map.update(state.admitted_per_agent, job.agent_id, 1, &(&1 + 1))
       }
-
       emit(state.lane, :admitted, %{count: 1}, %{})
       emit_state(next_state)
       {:ok, id, next_state}
@@ -512,7 +449,6 @@ defmodule ServiceRadar.Admission.Lane do
       false ->
         emit(state.lane, :rejected, %{count: 1}, %{reason: :admission_timeout})
         {:error, :admission_timeout}
-
       {:error, reason} = error ->
         emit(state.lane, :rejected, %{count: 1}, %{reason: reason})
         error
@@ -521,16 +457,14 @@ defmodule ServiceRadar.Admission.Lane do
 
   defp validate_descriptor(descriptor) when is_map(descriptor) do
     case descriptor do
-      %{headers: headers, payload_bytes: bytes, retained_bytes: retained, remaining_ms: remaining}
+      %{headers: headers, payload_bytes: bytes, retained_bytes: retained,
+        remaining_ms: remaining}
       when is_map(headers) and is_integer(bytes) and bytes >= 0 and
-             is_integer(retained) and retained >= bytes + @envelope_overhead_bytes and
-             is_integer(remaining) and remaining > 0 ->
+           is_integer(retained) and retained >= bytes + @envelope_overhead_bytes and
+           is_integer(remaining) and remaining > 0 ->
         if :erlang.external_size(descriptor) <= @max_descriptor_bytes,
-          do: :ok,
-          else: {:error, :invalid_admission_descriptor}
-
-      _ ->
-        {:error, :invalid_admission_descriptor}
+          do: :ok, else: {:error, :invalid_admission_descriptor}
+      _ -> {:error, :invalid_admission_descriptor}
     end
   end
 
@@ -540,50 +474,28 @@ defmodule ServiceRadar.Admission.Lane do
     case Map.get(state.jobs, id) do
       %{phase: :reserved} = job ->
         actual = descriptor(status, 1)
-
         cond do
           now_ms() >= job.deadline - @deadline_reserve_ms ->
             {:error, :admission_timeout, remove_job(state, job)}
-
           actual.headers != job.headers or actual.retained_bytes != job.retained_bytes ->
             {:error, :reservation_payload_mismatch, remove_job(state, job)}
-
           true ->
             case start_lease(state, reply_to) do
               {:ok, lease} ->
                 lease_ref = Process.monitor(lease)
                 if is_reference(job.caller_ref), do: Process.demonitor(job.caller_ref, [:flush])
                 caller_ref = monitor_caller(reply_to)
-
-                attached = %{
-                  job
-                  | status: Map.put(status, :ingestion_best_effort, is_nil(reply_to)),
-                    phase: :queued,
-                    reply_to: reply_to,
-                    lease: lease,
-                    lease_ref: lease_ref,
-                    caller_ref: caller_ref
-                }
-
+                attached = %{job | status: Map.put(status, :ingestion_best_effort, is_nil(reply_to)), phase: :queued, reply_to: reply_to,
+                                   lease: lease, lease_ref: lease_ref, caller_ref: caller_ref}
                 send(lease, {:lease_id, id})
                 next_state = state |> drop_monitor(job.caller_ref) |> put_job(attached)
-
-                {:ok,
-                 %{
-                   next_state
-                   | monitors:
-                       next_state.monitors
-                       |> Map.put(lease_ref, {:lease, id})
-                       |> maybe_put_monitor(caller_ref, {:caller, id})
-                 }}
-
-              {:error, reason} ->
-                {:error, reason, remove_job(state, job)}
+                {:ok, %{next_state | monitors: next_state.monitors
+                  |> Map.put(lease_ref, {:lease, id})
+                  |> maybe_put_monitor(caller_ref, {:caller, id})}}
+              {:error, reason} -> {:error, reason, remove_job(state, job)}
             end
         end
-
-      _ ->
-        {:error, :reservation_expired, state}
+      _ -> {:error, :reservation_expired, state}
     end
   end
 
@@ -748,13 +660,8 @@ defmodule ServiceRadar.Admission.Lane do
           )
         else
           Process.cancel_timer(job.queue_timer)
-
-          worker_budget_ms =
-            min(
-              state.config[:worker_timeout_ms],
-              job.deadline - now_ms() - @deadline_reserve_ms
-            )
-
+          worker_budget_ms = min(state.config[:worker_timeout_ms],
+                                 job.deadline - now_ms() - @deadline_reserve_ms)
           job = Map.put(job, :worker_budget_ms, max(worker_budget_ms, 1))
 
           case start_worker(next_state, job) do
@@ -823,15 +730,12 @@ defmodule ServiceRadar.Admission.Lane do
     case Task.Supervisor.start_child(state.task_supervisor, fn ->
            receive do
              {:start, id} when id == job.id ->
-               result =
-                 if execution_gate do
-                   ServiceRadar.Ingestion.WorkerBudget.run(execution_gate, lane, fn ->
-                     invoke(processor, job.status)
-                   end)
-                 else
-                   invoke(processor, job.status)
-                 end
-
+               result = if execution_gate do
+                 ServiceRadar.Ingestion.WorkerBudget.run(execution_gate, lane,
+                   fn -> invoke(processor, job.status) end)
+               else
+                 invoke(processor, job.status)
+               end
                send(coordinator, {:worker_result, job.id, self(), result})
            end
          end) do
@@ -854,20 +758,16 @@ defmodule ServiceRadar.Admission.Lane do
 
         case Map.get(state.jobs, id) do
           %{phase: phase} = job when phase in [:queued, :reserved] ->
-            busy? =
-              Enum.any?(state.running, fn {running_id, _} ->
-                state.jobs[running_id].ordering_key == job.ordering_key
-              end)
-
+            busy? = Enum.any?(state.running, fn {running_id, _} ->
+              state.jobs[running_id].ordering_key == job.ordering_key
+            end)
             if phase == :reserved or busy? or MapSet.member?(blocked, job.ordering_key) do
               rotated = %{next_state | queue: :queue.in(id, queue)}
               pop_next_job(rotated, remaining - 1, MapSet.put(blocked, job.ordering_key))
             else
               {:ok, job, next_state}
             end
-
-          _ ->
-            pop_next_job(next_state, remaining - 1, blocked)
+          _ -> pop_next_job(next_state, remaining - 1, blocked)
         end
     end
   end
@@ -898,12 +798,7 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   defp validate_capacity(state, retained_bytes, agent_id) do
-    per_agent = state.config[:max_bytes_per_agent] || state.config[:max_bytes]
-    effective_per_agent = min(state.config[:max_bytes], per_agent)
-
-    key_bytes =
-      state.jobs
-      |> Map.values()
+    key_bytes = state.jobs |> Map.values()
       |> Enum.filter(&(&1.agent_id == agent_id))
       |> Enum.reduce(0, &(&1.retained_bytes + &2))
 
@@ -914,7 +809,7 @@ defmodule ServiceRadar.Admission.Lane do
       state.admitted_bytes + retained_bytes > state.config[:max_bytes] ->
         {:error, :configured_byte_full}
 
-      key_bytes + retained_bytes > effective_per_agent ->
+      key_bytes + retained_bytes > (state.config[:max_bytes_per_agent] || state.config[:max_bytes]) ->
         {:error, :per_agent_byte_full}
 
       Map.get(state.admitted_per_agent, agent_id, 0) >= state.config[:max_items_per_agent] ->
@@ -940,14 +835,6 @@ defmodule ServiceRadar.Admission.Lane do
     end
   end
 
-  defp validate_optional_positive(config, key) do
-    case Keyword.get(config, key) do
-      nil -> :ok
-      value when is_integer(value) and value > 0 -> :ok
-      _ -> {:error, {:non_positive, key}}
-    end
-  end
-
   defp at_most(config, key, maximum) do
     if config[key] <= maximum, do: :ok, else: {:error, {:above_maximum, key, maximum}}
   end
@@ -967,9 +854,8 @@ defmodule ServiceRadar.Admission.Lane do
   defp agent_id(status), do: status[:agent_id] || status["agent_id"] || "unknown"
 
   defp ordering_key(%{source: source, service_type: type, sweep_group_id: group} = status)
-       when source in ["results", :results] and type in ["sweep", :sweep],
-       do: {agent_id(status), group}
-
+      when source in ["results", :results] and type in ["sweep", :sweep],
+      do: {agent_id(status), group}
   defp ordering_key(status), do: agent_id(status)
 
   defp monitor_caller({pid, _tag}) when is_pid(pid), do: Process.monitor(pid)
@@ -1034,26 +920,17 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   defp emit(lane, suffix, measurements, metadata) do
-    runtime_measurements =
-      case measurements do
-        %{wait_ms: wait} -> Map.put(measurements, :queue_wait_ms, wait)
-        measurements -> measurements
-      end
-
-    runtime_measurements =
-      if suffix == :completion do
-        accepted = metadata[:result] == :ok or match?({:ok, _}, metadata[:result])
-        Map.put(runtime_measurements, :outcome, if(accepted, do: :accepted, else: :not_accepted))
-      else
-        runtime_measurements
-      end
-
-    ServiceRadar.Ingestion.RuntimeMetrics.record(
-      lane,
-      suffix,
-      Map.put(runtime_measurements, :reason, metadata[:reason])
-    )
-
+    runtime_measurements = case measurements do
+      %{wait_ms: wait} -> Map.put(measurements, :queue_wait_ms, wait)
+      measurements -> measurements
+    end
+    runtime_measurements = if suffix == :completion do
+      accepted = metadata[:result] == :ok or match?({:ok, _}, metadata[:result])
+      Map.put(runtime_measurements, :outcome, if(accepted, do: :accepted, else: :not_accepted))
+    else
+      runtime_measurements
+    end
+    ServiceRadar.Ingestion.RuntimeMetrics.record(lane, suffix, Map.put(runtime_measurements, :reason, metadata[:reason]))
     :telemetry.execute(
       [:serviceradar, :admission_lane, suffix],
       measurements,

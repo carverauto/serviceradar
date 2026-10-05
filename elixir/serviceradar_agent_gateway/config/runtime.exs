@@ -7,12 +7,12 @@ alias Cluster.Strategy.DNSPoll
 alias ServiceRadar.NATS.Connection
 
 # A new gateway never silently falls back when metadata admission is unavailable.
-reserved_core_admission =
-  case System.get_env("SERVICERADAR_RESERVED_CORE_ADMISSION", "true") do
-    "true" -> true
-    "false" -> false
-    _ -> raise ArgumentError, "invalid reserved core admission flag"
-  end
+reserved_core_admission = case System.get_env("SERVICERADAR_RESERVED_CORE_ADMISSION", "true") do
+  "true" -> true
+  "false" -> false
+  _ -> raise ArgumentError, "invalid reserved core admission flag"
+end
+config :serviceradar_agent_gateway, :reserved_core_admission, reserved_core_admission
 
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
@@ -50,8 +50,6 @@ end
 edge_crypto_secret =
   read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE") ||
     read_secret_env.("EDGE_ONBOARDING_ENCRYPTION_KEY", "EDGE_ONBOARDING_ENCRYPTION_KEY_FILE")
-
-config :serviceradar_agent_gateway, :reserved_core_admission, reserved_core_admission
 
 if is_binary(edge_crypto_secret) and String.trim(edge_crypto_secret) != "" do
   config :serviceradar_core, :crypto_secret, String.trim(edge_crypto_secret)

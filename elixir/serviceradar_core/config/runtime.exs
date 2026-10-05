@@ -32,9 +32,7 @@ alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
 # Fail closed on invalid ingestion bounds; do not silently enable a larger queue.
 ingestion_positive_env = fn name, default ->
   case System.get_env(name) do
-    value when value in [nil, ""] ->
-      default
-
+    value when value in [nil, ""] -> default
     value ->
       case Integer.parse(value) do
         {number, ""} when number > 0 -> number
@@ -43,30 +41,31 @@ ingestion_positive_env = fn name, default ->
   end
 end
 
-ingestion_lane_bytes =
-  ingestion_positive_env.("SERVICERADAR_INGESTION_LANE_MAX_BYTES", 32 * 1_024 * 1_024)
-
+ingestion_lane_bytes = ingestion_positive_env.("SERVICERADAR_INGESTION_LANE_MAX_BYTES", 32 * 1_024 * 1_024)
 ingestion_config = Application.get_env(:serviceradar_core, ServiceRadar.Ingestion.Supervisor, [])
-
-ingestion_config =
-  Enum.reduce(
-    [:sweep, :mapper, :bumblebee, :legacy_plugin, :endpoint, :other_results, :status],
-    ingestion_config,
-    fn lane, config ->
-      Keyword.put(
-        config,
-        lane,
-        Keyword.put(Keyword.get(config, lane, []), :max_bytes, ingestion_lane_bytes)
-      )
-    end
-  )
-
-retained_admission =
-  case System.get_env("SERVICERADAR_RETAINED_PLUGIN_ADMISSION_ENABLED", "true") do
-    "true" -> true
-    "false" -> false
-    _ -> raise ArgumentError, "invalid retained plugin admission flag"
-  end
+ingestion_config = Enum.reduce([:sweep, :mapper, :bumblebee, :legacy_plugin, :endpoint, :other_results, :status],
+  ingestion_config, fn lane, config ->
+    Keyword.put(config, lane, Keyword.put(Keyword.get(config, lane, []), :max_bytes, ingestion_lane_bytes))
+  end)
+config :serviceradar_core, ServiceRadar.Ingestion.Supervisor,
+  Keyword.put(ingestion_config, :memory_budget_bytes,
+    ingestion_positive_env.("SERVICERADAR_INGESTION_MEMORY_BUDGET_BYTES", 4 * 1_024 * 1_024 * 1_024))
+config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
+  max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
+config :serviceradar_core, :results_router_max_bytes,
+  ingestion_positive_env.("SERVICERADAR_SERVICE_STATE_MAX_BYTES", 32 * 1_024 * 1_024)
+config :serviceradar_core, ServiceRadar.Admission.FlowLane,
+  max_bytes: ingestion_positive_env.("SERVICERADAR_FLOW_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
+config :serviceradar_core, ServiceRadar.Admission.RetainedPluginLane,
+  max_bytes: ingestion_positive_env.("SERVICERADAR_PLUGIN_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
+retained_admission = case System.get_env("SERVICERADAR_RETAINED_PLUGIN_ADMISSION_ENABLED", "true") do
+  "true" -> true
+  "false" -> false
+  _ -> raise ArgumentError, "invalid retained plugin admission flag"
+end
+config :serviceradar_core, ServiceRadar.StatusHandler,
+  Keyword.put(Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler, []),
+    :retained_plugin_admission_enabled, retained_admission)
 
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
@@ -76,39 +75,6 @@ callback_deployment =
     injector_digest: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST"),
     response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
   })
-
-config :serviceradar_core, ServiceRadar.Admission.FlowLane,
-  max_bytes: ingestion_positive_env.("SERVICERADAR_FLOW_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
-config :serviceradar_core, ServiceRadar.Admission.RetainedPluginLane,
-  max_bytes:
-    ingestion_positive_env.("SERVICERADAR_PLUGIN_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
-config :serviceradar_core,
-       ServiceRadar.Ingestion.Supervisor,
-       Keyword.put(
-         ingestion_config,
-         :memory_budget_bytes,
-         ingestion_positive_env.(
-           "SERVICERADAR_INGESTION_MEMORY_BUDGET_BYTES",
-           4 * 1_024 * 1_024 * 1_024
-         )
-       )
-
-config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
-  max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
-config :serviceradar_core,
-       ServiceRadar.StatusHandler,
-       Keyword.put(
-         Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler, []),
-         :retained_plugin_admission_enabled,
-         retained_admission
-       )
-
-config :serviceradar_core,
-       :results_router_max_bytes,
-       ingestion_positive_env.("SERVICERADAR_SERVICE_STATE_MAX_BYTES", 32 * 1_024 * 1_024)
 
 if is_map(callback_deployment) do
   # Automation callback bearer verification is file-only: never accept HMAC

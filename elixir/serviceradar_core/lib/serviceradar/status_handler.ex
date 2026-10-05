@@ -35,7 +35,6 @@ defmodule ServiceRadar.StatusHandler do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Status admission rejected: #{inspect(reason)}")
     end
-
     {:noreply, state}
   end
 end

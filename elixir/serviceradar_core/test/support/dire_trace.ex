@@ -409,16 +409,11 @@ defmodule ServiceRadar.DireTrace do
       end)
 
     step(trace, "Collect", nil, nil, [], fn ->
-      updates =
-        case Enum.reverse(updates) do
-          [] -> [%{"_sync_control" => "collection_final", "sync_meta" => sync_meta}]
-          updates -> updates
-        end
-
-      assert :ok =
-               ServiceRadar.Inventory.SyncIngestorQueue.ingest_sync_results(
-                 Jason.encode!(updates)
-               )
+      updates = case Enum.reverse(updates) do
+        [] -> [%{"_sync_control" => "collection_final", "sync_meta" => sync_meta}]
+        updates -> updates
+      end
+      assert :ok = ServiceRadar.Inventory.SyncIngestorQueue.ingest_sync_results(Jason.encode!(updates))
     end)
   end
 

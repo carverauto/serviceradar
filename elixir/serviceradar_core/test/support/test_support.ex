@@ -37,30 +37,18 @@ defmodule ServiceRadar.TestSupport do
   def start_ingestion_topology! do
     previous = Application.get_env(:serviceradar_core, :status_handler_enabled)
     Application.put_env(:serviceradar_core, :status_handler_enabled, true)
-
     ExUnit.Callbacks.on_exit(fn ->
-      if is_nil(previous),
-        do: Application.delete_env(:serviceradar_core, :status_handler_enabled),
+      if is_nil(previous), do: Application.delete_env(:serviceradar_core, :status_handler_enabled),
         else: Application.put_env(:serviceradar_core, :status_handler_enabled, previous)
     end)
-
-    ids = [
-      ServiceRadar.Ingestion.Supervisor,
-      ServiceRadar.Ingestion.LeaseSupervisor,
-      ServiceRadar.Admission.FlowLeaseSupervisor,
-      ServiceRadar.Admission.RetainedPluginLeaseSupervisor,
-      ServiceRadar.StatusHandler
-    ]
-
-    children =
-      ServiceRadar.Cluster.CoordinatorChildren.children()
+    ids = [ServiceRadar.Ingestion.Supervisor, ServiceRadar.Ingestion.LeaseSupervisor,
+           ServiceRadar.Admission.FlowLeaseSupervisor,
+           ServiceRadar.Admission.RetainedPluginLeaseSupervisor, ServiceRadar.StatusHandler]
+    children = ServiceRadar.Cluster.CoordinatorChildren.children()
       |> Enum.map(&Supervisor.child_spec(&1, []))
       |> Enum.filter(&(&1.id in ids))
-
-    ExUnit.Callbacks.start_supervised!(%{
-      id: :ingestion_topology,
-      start: {Supervisor, :start_link, [children, [strategy: :one_for_one]]}
-    })
+    ExUnit.Callbacks.start_supervised!(%{id: :ingestion_topology,
+      start: {Supervisor, :start_link, [children, [strategy: :one_for_one]]}})
   end
 
   @doc "Starts core without implicitly taking database ownership."
