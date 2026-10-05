@@ -90,10 +90,11 @@ defmodule ServiceRadar.AgentCommands.PersistenceWorker do
     }
 
     {:ok,
-     %{state |
-       ack_consumer: ordered_consumer(state.ack_consumer, 2, :ack),
-       progress_consumers: ordered_consumers(state.progress_consumers, :progress),
-       result_consumers: ordered_consumers(state.result_consumers, :result)
+     %{
+       state
+       | ack_consumer: ordered_consumer(state.ack_consumer, 2, :ack),
+         progress_consumers: ordered_consumers(state.progress_consumers, :progress),
+         result_consumers: ordered_consumers(state.result_consumers, :result)
      }}
   end
 

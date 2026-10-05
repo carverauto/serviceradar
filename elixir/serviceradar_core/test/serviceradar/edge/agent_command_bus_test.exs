@@ -1192,7 +1192,9 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       # Command persistence and the MTR consumer have separate owners. Observe
       # the consumer's durable rows before releasing the sandbox transaction.
-      completed_rows = for [target, _status, payload] <- expected_rows, do: [target, "completed", payload]
+      completed_rows =
+        for [target, _status, payload] <- expected_rows, do: [target, "completed", payload]
+
       assert wait_for_rows(target_sql, [command_id], completed_rows) == completed_rows
     end
 

@@ -64,7 +64,9 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   # Route textual and binary UUIDs to the same owner, as persistence does.
   defp command_key(command_id) do
     case Ecto.UUID.cast(command_id) do
-      {:ok, uuid} -> uuid
+      {:ok, uuid} ->
+        uuid
+
       :error ->
         case Ecto.UUID.load(command_id) do
           {:ok, uuid} -> uuid
