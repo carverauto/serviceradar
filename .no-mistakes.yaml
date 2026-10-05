@@ -24,6 +24,16 @@ commands:
 # `mix format` failed in a run worktree with no deps/.
 document:
   instructions: |
+    REMOTE-ONLY RULE (this machine is a shared, overloaded laptop): every
+    Bazel build, test and quality command uses `--config=remote`, so execution
+    stays on BuildBuddy RBE. Local work is limited to source edits, Git
+    operations and lightweight inspection (reading files, ripwire, grep, git
+    diff/log). Never compile, fetch dependencies or run tests locally: no
+    `mix compile`, `mix test`, `mix deps.get`, `mix format`, `mix credo`,
+    `cargo build/check/test/clippy`, `go build/test/vet`, `npm`/`bun` builds,
+    or `bazel` without `--config=remote`. If a check cannot run remotely, report
+    it as untested instead of running it here.
+
     Never fetch dependencies or compile anything on this machine: no
     `mix deps.get`, `mix compile`, `mix format`, `mix credo`, `cargo build`,
     `cargo check` or `go build` in the run worktree. Run worktrees have no
@@ -36,6 +46,16 @@ document:
     say so instead of building.
 test:
   instructions: |
+    REMOTE-ONLY RULE (this machine is a shared, overloaded laptop): every
+    Bazel build, test and quality command uses `--config=remote`, so execution
+    stays on BuildBuddy RBE. Local work is limited to source edits, Git
+    operations and lightweight inspection (reading files, ripwire, grep, git
+    diff/log). Never compile, fetch dependencies or run tests locally: no
+    `mix compile`, `mix test`, `mix deps.get`, `mix format`, `mix credo`,
+    `cargo build/check/test/clippy`, `go build/test/vet`, `npm`/`bun` builds,
+    or `bazel` without `--config=remote`. If a check cannot run remotely, report
+    it as untested instead of running it here.
+
     Bazel must run on the remote executors, never on this machine. Before any
     `bazel` command, make sure `.bazelrc.remote` exists in the run worktree; if
     it does not, link the gitignored rc files from the primary clone:
@@ -44,6 +64,43 @@ test:
     Pass `--config=remote` to every `bazel build`, `bazel test` and `bazel run`.
     If `.bazelrc.remote` cannot be linked, do not run Bazel locally; report the
     Bazel checks as untested instead.
+# Review, lint and CI fix rounds edit code too, and their agents have
+# compiled locally to "verify" a fix, saturating the operator's machine.
+review:
+  instructions: |
+    REMOTE-ONLY RULE (this machine is a shared, overloaded laptop): every
+    Bazel build, test and quality command uses `--config=remote`, so execution
+    stays on BuildBuddy RBE. Local work is limited to source edits, Git
+    operations and lightweight inspection (reading files, ripwire, grep, git
+    diff/log). Never compile, fetch dependencies or run tests locally: no
+    `mix compile`, `mix test`, `mix deps.get`, `mix format`, `mix credo`,
+    `cargo build/check/test/clippy`, `go build/test/vet`, `npm`/`bun` builds,
+    or `bazel` without `--config=remote`. If a check cannot run remotely, report
+    it as untested instead of running it here.
+lint:
+  instructions: |
+    REMOTE-ONLY RULE (this machine is a shared, overloaded laptop): every
+    Bazel build, test and quality command uses `--config=remote`, so execution
+    stays on BuildBuddy RBE. Local work is limited to source edits, Git
+    operations and lightweight inspection (reading files, ripwire, grep, git
+    diff/log). Never compile, fetch dependencies or run tests locally: no
+    `mix compile`, `mix test`, `mix deps.get`, `mix format`, `mix credo`,
+    `cargo build/check/test/clippy`, `go build/test/vet`, `npm`/`bun` builds,
+    or `bazel` without `--config=remote`. If a check cannot run remotely, report
+    it as untested instead of running it here.
+ci:
+  instructions: |
+    REMOTE-ONLY RULE (this machine is a shared, overloaded laptop): every
+    Bazel build, test and quality command uses `--config=remote`, so execution
+    stays on BuildBuddy RBE. Local work is limited to source edits, Git
+    operations and lightweight inspection (reading files, ripwire, grep, git
+    diff/log). Never compile, fetch dependencies or run tests locally: no
+    `mix compile`, `mix test`, `mix deps.get`, `mix format`, `mix credo`,
+    `cargo build/check/test/clippy`, `go build/test/vet`, `npm`/`bun` builds,
+    or `bazel` without `--config=remote`. If a check cannot run remotely, report
+    it as untested instead of running it here.
+    For a CI failure, read the BuildBuddy log (`bb view <invocation>`) and fix
+    from the evidence; the PR's BazelCI rerun is the proof.
 gates:
   # Test-routing contracts that otherwise fail only in BazelCI: every new
   # serviceradar_core test file needs a row in INTEGRATION_SOURCE_DISPOSITIONS.tsv,
