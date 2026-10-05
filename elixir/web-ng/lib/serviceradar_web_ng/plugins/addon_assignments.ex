@@ -165,8 +165,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
       |> Map.drop(Map.keys(policy_attrs))
       |> Map.put(:enabled, true)
 
-    with {:ok, updated_assignment} <- update(assignment.id, policy_attrs, opts),
-         {:ok, %AddonPackage{} = candidate} <- read_package(package_id, scope),
+    with {:ok, %AddonPackage{} = candidate} <- read_package(package_id, scope),
+         :ok <- validate_settings(assignment, settings_attrs),
+         {:ok, updated_assignment} <- update(assignment.id, policy_attrs, opts),
          {:ok, _rollout} <-
            AddonRolloutCoordinator.start(updated_assignment, candidate,
              actor: actor,
@@ -176,11 +177,27 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     end
   end
 
+  defp validate_settings(assignment, attrs) do
+    prepared =
+      attrs
+      |> drop_nil_values([:edge_site_id, "edge_site_id"])
+      |> drop_update_only_values()
+
+    changeset = Ash.Changeset.for_update(assignment, :update, prepared)
+
+    if changeset.valid? do
+      :ok
+    else
+      {:error, changeset.errors}
+    end
+  end
+
   defp read_package(id, nil) do
     AddonPackage
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one()
+    |> require_package()
   end
 
   defp read_package(id, scope) do
@@ -188,7 +205,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one(ash_opts(scope, nil))
+    |> require_package()
   end
+
+  defp require_package({:ok, %AddonPackage{} = package}), do: {:ok, package}
+  defp require_package({:ok, nil}), do: {:error, :not_found}
+  defp require_package({:error, _} = error), do: error
 
   @spec delete(String.t(), keyword()) :: {:ok, AddonAssignment.t()} | :ok | {:error, term()}
   def delete(id, opts \\ [])

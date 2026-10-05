@@ -88,6 +88,71 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
     assert_upgrade_rolling_out(updated, old_package, new_package)
   end
 
+  test "upsert with an unknown package id leaves the assignment untouched" do
+    addon_id = unique_addon_id("unknown-package")
+    agent_uid = "agent-addon-unknown-package-#{System.unique_integer([:positive])}"
+    scope = Scope.for_user(%{id: "admin-addon-unknown-package", email: "admin@example.test", role: :admin})
+    connected_agent!(agent_uid)
+    old_package = addon_id |> create_addon_package!("1.0.0") |> approve_package!()
+
+    assignment =
+      create_assignment!(agent_uid, old_package.id,
+        args: ["--old"],
+        params: %{"capture" => false},
+        enabled: false
+      )
+
+    assert {:error, _} =
+             AddonAssignments.upsert(
+               addon_id,
+               %{
+                 agent_uid: agent_uid,
+                 addon_id: addon_id,
+                 addon_package_id: Ecto.UUID.generate(),
+                 update_policy: :manual_pin,
+                 args: ["--new"],
+                 params: %{"capture" => true}
+               },
+               scope: scope
+             )
+
+    assert_assignment_untouched(assignment, old_package)
+  end
+
+  test "upsert with invalid settings leaves the assignment untouched and starts no rollout" do
+    addon_id = unique_addon_id("invalid-settings")
+    agent_uid = "agent-addon-invalid-settings-#{System.unique_integer([:positive])}"
+    scope = Scope.for_user(%{id: "admin-addon-invalid-settings", email: "admin@example.test", role: :admin})
+    connected_agent!(agent_uid)
+    old_package = addon_id |> create_addon_package!("1.0.0") |> approve_package!()
+
+    assignment =
+      create_assignment!(agent_uid, old_package.id,
+        args: ["--old"],
+        params: %{"capture" => false},
+        enabled: false
+      )
+
+    new_package =
+      addon_id |> create_addon_package!("1.0.1", platform_artifact()) |> approve_package!()
+
+    assert {:error, _} =
+             AddonAssignments.upsert(
+               addon_id,
+               %{
+                 agent_uid: agent_uid,
+                 addon_id: addon_id,
+                 addon_package_id: new_package.id,
+                 update_policy: :manual_pin,
+                 args: "not-a-list",
+                 params: %{"capture" => true}
+               },
+               scope: scope
+             )
+
+    assert_assignment_untouched(assignment, old_package)
+  end
+
   test "upsert and profiles reject blob-missing approved packages" do
     addon_id = unique_addon_id("blob-missing")
     agent_uid = "agent-addon-blob-missing-#{System.unique_integer([:positive])}"
@@ -191,6 +256,26 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
 
     assert rollout.candidate_package_id == new_package.id
     assert rollout.previous_package_id == old_package.id
+  end
+
+  defp assert_assignment_untouched(assignment, old_package) do
+    [reloaded] =
+             AddonAssignment
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(id == ^assignment.id)
+             |> Ash.read!(actor: system_actor())
+
+    assert reloaded.addon_package_id == old_package.id
+    assert reloaded.update_policy == assignment.update_policy
+    assert reloaded.args == assignment.args
+    assert reloaded.params == assignment.params
+    assert reloaded.enabled == assignment.enabled
+
+    assert [] =
+             AddonRollout
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(source_id == ^assignment.id)
+             |> Ash.read!(actor: system_actor())
   end
 
   # Rollouts only target an agent that is connected, recently seen, and has a
