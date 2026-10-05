@@ -25,6 +25,7 @@ defmodule ServiceRadar.StatusHandler do
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.CausalPredictionSubject
+  alias ServiceRadar.ResultIngestion
   alias ServiceRadar.ResultsRouter
 
   require Logger
@@ -116,15 +117,52 @@ defmodule ServiceRadar.StatusHandler do
         admission_reply(RetainedPluginLane.admit(status, from), state)
 
       endpoint_inventory_result_status?(status) ->
-        # Endpoint inventory has its own bounded admission queue. Admitting through
-        # the singleton ResultsRouter first couples scan acknowledgements to every
-        # unrelated result handler and lets slow plugin ingestion block the fleet.
-        admission_reply(ResultsRouter.admit_endpoint_inventory(status, from), state)
+        # Endpoint inventory has its own bounded admission queue. Its decode and
+        # admission run in a task, not here, so a large report cannot hold up the
+        # statuses behind it; the endpoint queue replies to the gateway.
+        admit_endpoint_inventory(status, from, state)
 
       true ->
-        {:reply, process_status_update(status, sync_results?: true), state}
+        forward_call(status, from, state)
     end
   end
+
+  defp admit_endpoint_inventory(status, from, state) do
+    job = fn ->
+      case ResultsRouter.admit_endpoint_inventory(status, from) do
+        :ok -> :ok
+        other -> GenServer.reply(from, other)
+      end
+    end
+
+    case ResultIngestion.admit(
+           :endpoint_inventory_admission,
+           agent_key(status),
+           payload_bytes(status),
+           job
+         ) do
+      :ok -> {:noreply, state}
+      :inline -> admission_reply(ResultsRouter.admit_endpoint_inventory(status, from), state)
+      {:error, _reason} = error -> {:reply, error, state}
+    end
+  end
+
+  # Results reaching here by call are handed to the router together with the
+  # caller, and answered from there; this process never waits on an ingest.
+  defp forward_call(%{source: source} = status, from, state)
+       when source in ["results", :results, "plugin-result", :plugin_result] do
+    case Process.whereis(ResultsRouter) do
+      pid when is_pid(pid) ->
+        GenServer.cast(pid, {:results_update, status, from})
+        {:noreply, state}
+
+      _ ->
+        {:reply, process_legacy_results(status), state}
+    end
+  end
+
+  defp forward_call(status, _from, state),
+    do: {:reply, process_status_update(status, sync_results?: true), state}
 
   defp process_cast_status_update(status) do
     cond do
@@ -171,7 +209,9 @@ defmodule ServiceRadar.StatusHandler do
 
   defp process(%{source: source} = status, _opts)
        when source in [@workload_identity_source, :workload_identity] do
-    ServiceRadar.WorkloadIdentity.persist_snapshot(status)
+    off_singleton(:workload_identity, status, fn ->
+      ServiceRadar.WorkloadIdentity.persist_snapshot(status)
+    end)
   end
 
   defp process(%{source: @addon_source_prefix <> addon_id} = status, _opts) do
@@ -187,10 +227,27 @@ defmodule ServiceRadar.StatusHandler do
     # The agent capability status carries per-add-on state in its payload; record it
     # in the add-on status read model (issue 3425, task 7.2). No-op when there are no
     # add-ons in the payload.
-    ServiceRadar.Plugins.AddonStatusIngestor.ingest(status)
+    off_singleton(:addon_status, status, fn ->
+      ServiceRadar.Plugins.AddonStatusIngestor.ingest(status)
+    end)
   end
 
   defp process(_status, _opts), do: :ok
+
+  # Database writes for periodic agent reports run in their coalescing queue: a
+  # newer report for an agent replaces one that has not started. Done inline only
+  # when the queue is not running.
+  defp off_singleton(class, status, write) do
+    case ResultIngestion.admit(class, agent_key(status), payload_bytes(status), write) do
+      :inline -> write.()
+      result -> result
+    end
+  end
+
+  defp agent_key(status), do: status[:agent_id] || status["agent_id"] || :unknown_agent
+
+  defp payload_bytes(%{message: message}) when is_binary(message), do: byte_size(message)
+  defp payload_bytes(_status), do: 0
 
   defp call_results_router(pid, status) do
     GenServer.call(pid, {:results_update, status}, results_router_timeout_ms())

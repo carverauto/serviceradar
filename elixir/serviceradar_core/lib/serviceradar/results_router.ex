@@ -90,9 +90,9 @@ defmodule ServiceRadar.ResultsRouter do
   @impl true
   def init(_state) do
     Logger.info("ResultsRouter started on node #{Node.self()}")
-    state = %{buffer: [], buffer_size: 0, timer: nil}
-    state = if batching_enabled?(), do: schedule_flush(state), else: state
-    {:ok, state}
+    # The flush timer is armed when the first status is buffered, not here, so an
+    # idle router does not wake up.
+    {:ok, %{buffer: [], buffer_size: 0, timer: nil, timer_token: nil}}
   end
 
   @impl true
@@ -110,6 +110,24 @@ defmodule ServiceRadar.ResultsRouter do
         _ = admit_queued(class, status, nil)
         {:noreply, state}
     end
+  end
+
+  # A status whose caller is waiting (forwarded by StatusHandler with the
+  # caller's reference); answered from the class queue, or here for classes that
+  # are not queued.
+  def handle_cast({:results_update, status, reply_to}, state) do
+    case queue_class(status) do
+      nil ->
+        GenServer.reply(reply_to, process_and_publish(status))
+
+      class ->
+        case admit_queued(class, status, reply_to) do
+          :ok -> :ok
+          {:error, _reason} = error -> GenServer.reply(reply_to, error)
+        end
+    end
+
+    {:noreply, state}
   end
 
   # A queued cast ingested successfully; publish its service state with the batch.
@@ -142,11 +160,17 @@ defmodule ServiceRadar.ResultsRouter do
     {:reply, process_and_publish(status, endpoint_inventory_reply_to: reply_to), state}
   end
 
+  # Each tick carries the token of the timer that sent it. A tick whose timer was
+  # replaced -- it fired just before a size-triggered flush cancelled it -- is
+  # stale and ignored, so it cannot start a second timer chain.
   @impl true
-  def handle_info(:flush_results, state) do
-    state = state |> flush_buffer() |> schedule_flush()
-    {:noreply, state}
+  def handle_info({:flush_results, token}, %{timer_token: token} = state)
+      when is_reference(token) do
+    {:noreply, state |> Map.merge(%{timer: nil, timer_token: nil}) |> flush_buffer()}
   end
+
+  def handle_info({:flush_results, _stale_token}, state), do: {:noreply, state}
+  def handle_info(_message, state), do: {:noreply, state}
 
   # ============================================================================
   # Async buffer + flush (cast path only)
@@ -156,9 +180,9 @@ defmodule ServiceRadar.ResultsRouter do
     state = %{state | buffer: [entry | state.buffer], buffer_size: state.buffer_size + 1}
 
     if state.buffer_size >= max_buffer() do
-      state |> flush_buffer() |> reschedule_flush()
+      state |> cancel_flush() |> flush_buffer()
     else
-      state
+      ensure_flush_scheduled(state)
     end
   end
 
@@ -247,7 +271,9 @@ defmodule ServiceRadar.ResultsRouter do
            ResultIngestion.queue(class),
            queue_key(status),
            payload_bytes(status),
-           job, reply_to: reply_to) do
+           job,
+           reply_to: reply_to
+         ) do
       :ok ->
         :ok
 
@@ -276,10 +302,27 @@ defmodule ServiceRadar.ResultsRouter do
     statuses = Enum.reject(statuses, &plugin_result_status?/1)
 
     if statuses != [] do
-      ServiceStateRegistry.bulk_upsert_from_statuses(statuses)
-      ServiceStatusPubSub.broadcast_batch(statuses)
+      # The upsert runs in the service-state queue's task, one batch at a time.
+      case ResultIngestion.admit(:service_state, :service_state, 0, fn ->
+             write_status_batch(statuses)
+           end) do
+        :inline ->
+          write_status_batch(statuses)
+
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Service status batch not admitted: #{inspect(reason)}")
+      end
     end
 
+    :ok
+  end
+
+  defp write_status_batch(statuses) do
+    ServiceStateRegistry.bulk_upsert_from_statuses(statuses)
+    ServiceStatusPubSub.broadcast_batch(statuses)
     :ok
   rescue
     error ->
@@ -289,13 +332,17 @@ defmodule ServiceRadar.ResultsRouter do
       Logger.warning("Service status batch publish failed", reason: inspect(reason))
   end
 
-  defp schedule_flush(state) do
-    %{state | timer: Process.send_after(self(), :flush_results, flush_interval_ms())}
+  defp ensure_flush_scheduled(%{timer_token: token} = state) when is_reference(token), do: state
+
+  defp ensure_flush_scheduled(state) do
+    token = make_ref()
+    timer = Process.send_after(self(), {:flush_results, token}, flush_interval_ms())
+    Map.merge(state, %{timer: timer, timer_token: token})
   end
 
-  defp reschedule_flush(state) do
-    if is_reference(state.timer), do: Process.cancel_timer(state.timer)
-    schedule_flush(state)
+  defp cancel_flush(state) do
+    if is_reference(Map.get(state, :timer)), do: Process.cancel_timer(state.timer)
+    Map.merge(state, %{timer: nil, timer_token: nil})
   end
 
   defp batching_enabled? do

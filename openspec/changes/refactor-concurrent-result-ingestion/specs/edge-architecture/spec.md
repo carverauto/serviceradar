@@ -70,7 +70,7 @@ Core SHALL coalesce service-state upserts for asynchronous results into batches 
 - **GIVEN** the item-count threshold forces a flush and re-arms the timer while the previous tick is already queued
 - **WHEN** the stale tick is processed
 - **THEN** it SHALL NOT start another timer
-- **AND** exactly one flush timer SHALL remain armed
+- **AND** at most one flush timer SHALL remain armed
 
 #### Scenario: An idle router does not wake
 - **GIVEN** no service-state updates are pending

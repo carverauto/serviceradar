@@ -91,7 +91,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
     assert buffered_state.buffer_size == 1
     assert [] = history_rows(status)
 
-    assert {:noreply, flushed_state} = ResultsRouter.handle_info(:flush_results, buffered_state)
+    assert {:noreply, flushed_state} =
+             ResultsRouter.handle_info(
+               {:flush_results, buffered_state.timer_token},
+               buffered_state
+             )
+
     if is_reference(flushed_state.timer), do: Process.cancel_timer(flushed_state.timer)
 
     assert [[reported_at, true, "edge plugin completed", _] = reported_row] =

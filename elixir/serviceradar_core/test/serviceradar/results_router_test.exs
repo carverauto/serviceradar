@@ -755,7 +755,9 @@ defmodule ServiceRadar.ResultsRouterTest do
       refute_receive {:ingest, _updates, _opts}, 50
 
       # Timer-driven flush routes every buffered status individually.
-      assert {:noreply, flushed} = ResultsRouter.handle_info(:flush_results, state2)
+      assert {:noreply, flushed} =
+               ResultsRouter.handle_info({:flush_results, state2.timer_token}, state2)
+
       assert flushed.buffer_size == 0
       assert flushed.buffer == []
 

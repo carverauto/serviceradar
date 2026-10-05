@@ -14,7 +14,7 @@
 - [ ] 1.3 Validate global worker/memory/Repo budgets and reserve capacity for acknowledged lanes and other core services.
 - [ ] 1.4 Load test-audit, then add behavioral tests for bounds, ordering, cross-key execution, worker exit, cancellation, coalescing eligibility, and safe restart/replay; register any new core test file in INTEGRATION_SOURCE_DISPOSITIONS.tsv.
 - [x] 2.1 Route sweep, mapper interfaces, mapper topology, bumblebee, and non-retained plugin results to per-class queues, each behind a per-class flag that defaults on.
-- [ ] 2.2 Move service-state upserts into a batcher whose flush runs in a task; arm the timer only while items are pending and ignore ticks whose token does not match the armed timer (#5210 item 2).
+- [x] 2.2 Move service-state upserts into a batcher whose flush runs in a task; arm the timer only while items are pending and ignore ticks whose token does not match the armed timer (#5210 item 2).
 - [x] 2.3 Remove database work from `handle_call({:results_update, _})`: any status still arriving by call is admitted to its class queue with the caller's reply reference.
 - [ ] 2.4 Tests: a deliberately slow sweep ingestor does not delay another class's ingestion or an acknowledged result; the stale-tick race leaves one timer; no Repo query telemetry is attributed to the router process.
 
@@ -24,6 +24,9 @@
 - [ ] 2.2 Make ResultsRouter call/cast/info callbacks perform classification/admission only, including transitive helpers, and use split-phase replies for acknowledged work.
 - [ ] 2.3 Move workload identity, add-on status, and endpoint inventory preprocessing/persistence off StatusHandler callbacks; preserve ownership checks and coalesce only safe full snapshots.
 - [ ] 2.4 Prove with deliberately blocked ingestors that other result classes can complete their acknowledgements; trace actual Repo query ownership and audit transitive Ash calls.
+- [x] 3.1 Move workload identity snapshot persistence and add-on status ingestion to coalescing per-agent queues.
+- [x] 3.2 Move endpoint inventory decode and service-state upsert out of the StatusHandler process into the endpoint inventory queue's task.
+- [x] 3.3 Tests: a held workload identity write does not delay flow, endpoint inventory, or retained plugin admission; no Repo query telemetry is attributed to the StatusHandler process.
 
 ## 3. Retained contract and deadline
 
