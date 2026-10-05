@@ -54,6 +54,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
     :observed_at,
     :snapshot_at,
     :deleted_at,
+    :deleted_by,
     :updated_at
   ]
 
@@ -287,6 +288,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
       observed_at: observed_at,
       snapshot_at: snapshot_at,
       deleted_at: nil,
+      deleted_by: nil,
       inserted_at: snapshot_at,
       updated_at: snapshot_at
     }

@@ -118,6 +118,100 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsBindingTest do
     assert %{rows: [[1]]} = endpoint_count(sibling)
   end
 
+  test "destroying a binding stamps which actor retired its rows", context do
+    assert {:ok, 1} = process(context.cluster, context.agent_a, 1)
+
+    actor = %{role: :admin, email: "operator@example.test"}
+
+    binding = Ash.get!(K8sInventoryClusterBinding, context.cluster, actor: actor)
+    assert :ok = Ash.destroy(binding, actor: actor)
+
+    assert %{rows: [["operator@example.test"]]} =
+             Repo.query!(
+               "SELECT deleted_by FROM platform.public_endpoints_current WHERE cluster_id = $1",
+               [context.cluster]
+             )
+
+    Repo.query!(
+      """
+      INSERT INTO platform.k8s_inventory_cluster_bindings
+        (cluster_id, agent_id, partition_id, changed_by, inserted_at, updated_at)
+      VALUES ($1, $2, 'SITE01', 'test-operator', now(), now())
+      """,
+      [context.cluster, context.agent_a]
+    )
+
+    assert {:ok, 1} = process(context.cluster, context.agent_a, 2)
+    assert %{rows: [[1]]} = endpoint_count(context.cluster)
+
+    assert %{rows: [[nil]]} =
+             Repo.query!(
+               "SELECT deleted_by FROM platform.public_endpoints_current WHERE cluster_id = $1 AND deleted_at IS NULL",
+               [context.cluster]
+             )
+  end
+
+  @tag sandbox: :unboxed
+  test "a snapshot racing binding deletion cannot orphan rows", context do
+    cluster = context.cluster
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.public_endpoints_current WHERE cluster_id = $1", [
+        cluster
+      ])
+
+      Repo.query!("DELETE FROM platform.k8s_public_endpoint_snapshots WHERE cluster_id = $1", [
+        cluster
+      ])
+
+      Repo.query!("DELETE FROM platform.k8s_inventory_cluster_bindings WHERE cluster_id = $1", [
+        cluster
+      ])
+
+      Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [context.agent_a])
+      Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [context.agent_b])
+    end)
+
+    assert {:ok, 1} = process(cluster, context.agent_a, 1)
+
+    parent = self()
+
+    holder =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          Repo.query!(
+            "SELECT agent_id FROM platform.k8s_inventory_cluster_bindings WHERE cluster_id = $1 FOR SHARE",
+            [cluster]
+          )
+
+          send(parent, :snapshot_authorizing)
+
+          receive do
+            :release -> :ok
+          after
+            10_000 -> :timeout
+          end
+        end)
+      end)
+
+    assert_receive :snapshot_authorizing, 5_000
+
+    destroyer =
+      Task.async(fn ->
+        cluster
+        |> Ash.get!(K8sInventoryClusterBinding, actor: %{role: :system})
+        |> Ash.destroy(actor: %{role: :system})
+      end)
+
+    assert Task.yield(destroyer, 1_000) == nil
+    assert {:ok, 1} = process_direct(cluster, 2)
+    send(holder, :release)
+
+    assert {:ok, :ok} = Task.await(holder, 10_000)
+    assert :ok = Task.await(destroyer, 10_000)
+    assert %{rows: [[0]]} = endpoint_count(cluster)
+  end
+
   test "ownership transfer revokes the previous agent atomically", context do
     assert {:ok, 1} = process(context.cluster, context.agent_a, 1)
 
@@ -130,6 +224,19 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsBindingTest do
              process(context.cluster, context.agent_a, 2)
 
     assert {:ok, 1} = process(context.cluster, context.agent_b, 3)
+  end
+
+  defp process_direct(cluster, offset, endpoints \\ [endpoint("service-example")]) do
+    K8sPublicEndpoints.process_batch([
+      %{
+        data: %{
+          "cluster_id" => cluster,
+          "generated_at" => DateTime.add(~U[2026-10-04 12:00:00Z], offset, :second),
+          "endpoints" => endpoints
+        },
+        metadata: %{}
+      }
+    ])
   end
 
   defp process(cluster, agent_id, offset, endpoints \\ [endpoint("service-example")]) do
