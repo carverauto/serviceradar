@@ -14,8 +14,11 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadar.Identity.CliAuthorizationCode
+  alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.AccountsFixtures
@@ -195,18 +198,95 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
     end
   end
 
+  describe "POST /api/v1/cli/auth/token authorization_code" do
+    setup do
+      user = AccountsFixtures.user_fixture()
+      %{user: user}
+    end
+
+    test "exchanges a matching verifier for a bearer token and a CLI session",
+         %{conn: conn, user: user} do
+      {verifier, code} = mint_pkce_code(user)
+
+      conn = exchange_code(conn, code, verifier)
+      body = json_response(conn, 200)
+
+      assert body["token_type"] == "Bearer"
+      assert is_binary(body["access_token"])
+      assert body["scope"] == "dashboard.publish"
+      assert body["user"]["id"] == user.id
+      assert body["user"]["email"] == to_string(user.email)
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+
+      actor = SystemActor.system(:test)
+      {:ok, sessions} = CliSession.list_active_by_user(user.id, actor: actor)
+      assert [%{device_authorization_id: nil, client_id: @client_id}] = sessions
+    end
+
+    test "a second exchange of the same code is invalid_grant", %{conn: conn, user: user} do
+      {verifier, code} = mint_pkce_code(user)
+
+      assert json_response(exchange_code(conn, code, verifier), 200)
+      assert json_response(exchange_code(conn, code, verifier), 400)["error"] == "invalid_grant"
+    end
+
+    test "a wrong verifier is invalid_grant and leaves the code usable", %{conn: conn, user: user} do
+      {verifier, code} = mint_pkce_code(user)
+      {other, _other_code} = mint_pkce_code(user)
+
+      assert json_response(exchange_code(conn, code, other), 400)["error"] == "invalid_grant"
+
+      body = json_response(exchange_code(conn, code, verifier), 200)
+      assert body["token_type"] == "Bearer"
+    end
+
+    test "a different loopback redirect is invalid_grant and leaves the code usable",
+         %{conn: conn, user: user} do
+      {verifier, code} = mint_pkce_code(user)
+
+      mismatch =
+        exchange_code(conn, code, verifier, %{
+          "redirect_uri" => "http://127.0.0.1:4318/cli/auth/callback"
+        })
+
+      assert json_response(mismatch, 400)["error"] == "invalid_grant"
+
+      body = json_response(exchange_code(conn, code, verifier), 200)
+      assert is_binary(body["access_token"])
+    end
+
+    test "an unknown client_id is invalid_client and leaves the code usable",
+         %{conn: conn, user: user} do
+      {verifier, code} = mint_pkce_code(user)
+
+      rejected =
+        exchange_code(conn, code, verifier, %{"client_id" => "other-client"})
+
+      assert json_response(rejected, 400)["error"] == "invalid_client"
+
+      body = json_response(exchange_code(conn, code, verifier), 200)
+      assert is_binary(body["access_token"])
+    end
+
+    test "an expired code is invalid_grant", %{conn: conn, user: user} do
+      {verifier, code} = mint_pkce_code(user)
+      expire_pkce_code!(code)
+
+      assert json_response(exchange_code(conn, code, verifier), 400)["error"] == "invalid_grant"
+    end
+  end
+
   describe "AuthorizationSettings.cli_auth_enabled = false" do
     test "blocks the token endpoint too", %{conn: conn} do
       {device_code, _user_code} = mint_pending(conn)
 
       with_cli_auth_disabled(fn ->
         conn = poll_token(conn, device_code)
+        ## Helpers
         assert json_response(conn, 503)["error"] == "cli_auth_disabled"
       end)
     end
   end
-
-  ## Helpers
 
   defp post_with_ip(conn, path, params) do
     conn
@@ -219,6 +299,60 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
       "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
       "device_code" => device_code
     })
+  end
+
+  @pkce_redirect "http://127.0.0.1:4317/cli/auth/callback"
+
+  defp exchange_code(conn, code, verifier, overrides \\ %{}) do
+    params =
+      Map.merge(
+        %{
+          "grant_type" => "authorization_code",
+          "client_id" => @client_id,
+          "code" => code,
+          "redirect_uri" => @pkce_redirect,
+          "code_verifier" => verifier
+        },
+        overrides
+      )
+
+    post_with_ip(conn, ~p"/api/v1/cli/auth/token", params)
+  end
+
+  defp mint_pkce_code(user) do
+    verifier = 32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+    challenge = :sha256 |> :crypto.hash(verifier) |> Base.url_encode64(padding: false)
+    plaintext = 32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+    actor = SystemActor.system(:cli_auth)
+
+    {:ok, _row} =
+      CliAuthorizationCode.create(
+        %{
+          user_id: user.id,
+          client_id: @client_id,
+          code_hash: :sha256 |> :crypto.hash(plaintext) |> Base.encode16(case: :lower),
+          redirect_uri: @pkce_redirect,
+          code_challenge: challenge,
+          scope: "dashboard.publish",
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: 10)
+        },
+        actor: actor
+      )
+
+    {verifier, plaintext}
+  end
+
+  defp expire_pkce_code!(plaintext) do
+    hash = :sha256 |> :crypto.hash(plaintext) |> Base.encode16(case: :lower)
+    actor = SystemActor.system(:test)
+    {:ok, row} = CliAuthorizationCode.get_by_code_hash(hash, actor: actor)
+    past = DateTime.shift(DateTime.utc_now(), hour: -1)
+
+    SQL.query!(
+      ServiceRadar.Repo,
+      "UPDATE platform.cli_authorization_codes SET expires_at = $1 WHERE id = $2",
+      [past, Ecto.UUID.dump!(row.id)]
+    )
   end
 
   defp mint_pending(conn) do
@@ -242,7 +376,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthControllerTest do
     # that lock the changeset after the action callback runs.
     past = DateTime.shift(DateTime.utc_now(), hour: -1)
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       ServiceRadar.Repo,
       "UPDATE platform.device_authorizations SET expires_at = $1 WHERE id = $2",
       [past, Ecto.UUID.dump!(row.id)]

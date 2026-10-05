@@ -87,4 +87,4 @@ change's shared contract.
   adds no central account seed or platform credential to agent bundles. Leaf
   creds come only from the leaf-scoped AccountClient mint, and only when the
   operator has configured an account.
-- Deferred: PKCE `/api/v1/cli/auth/authorize` (see tasks).
+- PKCE `/api/v1/cli/auth/authorize` and the `authorization_code` grant are implemented for `serviceradar-cli auth login --web`.

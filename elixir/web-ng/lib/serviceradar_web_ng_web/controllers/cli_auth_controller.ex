@@ -5,7 +5,8 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   ## Endpoints
 
       POST /api/v1/cli/auth/device   # mint a device authorization
-      POST /api/v1/cli/auth/token    # poll for the issued JWT
+      POST /api/v1/cli/auth/token    # poll for the issued JWT, or exchange a PKCE code
+      GET  /api/v1/cli/auth/authorize # browser consent for auth login --web
 
   The flow is:
 
@@ -35,11 +36,13 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadar.Identity.CliAuthorizationCode
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.DeviceAuthorization
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNGWeb.CliPkce
 
   require Logger
 
@@ -96,10 +99,9 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   @doc """
   POST /api/v1/cli/auth/token — poll for the issued JWT.
 
-  Only `grant_type=urn:ietf:params:oauth:grant-type:device_code` is
-  supported. The PKCE branch (`grant_type=authorization_code`) is a
-  follow-up; the CLI's `--web` flow falls back to manual-token paste on
-  the resulting 400 until then.
+  `grant_type=urn:ietf:params:oauth:grant-type:device_code` polls a device
+  authorization. `grant_type=authorization_code` exchanges a one-time PKCE
+  code minted by `CliPkceAuthorizeLive`.
   """
   def token(conn, %{"grant_type" => "urn:ietf:params:oauth:grant-type:device_code"} = params) do
     settings = load_settings()
@@ -121,6 +123,34 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
           _ ->
             error_response(conn, 400, "invalid_request", "Missing device_code")
         end
+    end
+  end
+
+  def token(conn, %{"grant_type" => "authorization_code"} = params) do
+    settings = load_settings()
+
+    with :ok <- enforce_cli_auth_enabled(settings),
+         {:ok, client_id} <- validate_client(params["client_id"]),
+         :ok <- CliPkce.redirect_uri(params["redirect_uri"]),
+         :ok <- present_code(params["code"]),
+         :ok <- present_verifier(params["code_verifier"]) do
+      exchange_authorization_code(
+        conn,
+        params["code"],
+        client_id,
+        params["redirect_uri"],
+        params["code_verifier"],
+        settings
+      )
+    else
+      {:error, :cli_auth_disabled} ->
+        error_response(conn, 503, "cli_auth_disabled", "CLI authentication is disabled on this instance")
+
+      {:error, :invalid_client} ->
+        error_response(conn, 400, "invalid_client", "Unsupported client_id")
+
+      {:error, :invalid_request} ->
+        error_response(conn, 400, "invalid_request", "Missing or invalid PKCE token parameters")
     end
   end
 
@@ -334,18 +364,53 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
       unix_to_dt(claims["exp"]) ||
         DateTime.shift(DateTime.utc_now(), day: @fallback_session_ttl_days)
 
-    attrs = %{
-      jti: claims["jti"],
-      device_authorization_id: row.id,
-      user_id: user.id,
-      client_id: row.client_id,
-      scope: row.scope,
-      issued_at: issued_at,
-      expires_at: expires_at
-    }
+    attrs =
+      maybe_put_device_authorization(
+        %{
+          jti: claims["jti"],
+          user_id: user.id,
+          client_id: row.client_id,
+          scope: row.scope,
+          issued_at: issued_at,
+          expires_at: expires_at
+        },
+        row
+      )
 
     CliSession.create(attrs, actor: actor)
   end
+
+  defp maybe_put_device_authorization(attrs, %DeviceAuthorization{id: id}) do
+    Map.put(attrs, :device_authorization_id, id)
+  end
+
+  defp maybe_put_device_authorization(attrs, _row), do: attrs
+
+  defp exchange_authorization_code(conn, code, client_id, redirect_uri, verifier, settings) do
+    actor = SystemActor.system(:cli_auth)
+
+    with {:ok, %CliAuthorizationCode{} = row} <-
+           CliAuthorizationCode.get_by_code_hash(sha256_hex(code), actor: actor),
+         :ok <- grant_check(is_nil(row.consumed_at)),
+         :ok <- grant_check(DateTime.after?(row.expires_at, DateTime.utc_now())),
+         :ok <- grant_check(row.client_id == client_id and row.redirect_uri == redirect_uri),
+         :ok <- grant_check(CliPkce.challenge_matches?(row.code_challenge, verifier)),
+         {:ok, _consumed} <- CliAuthorizationCode.consume(row, actor: actor) do
+      issue_token(conn, row, settings, actor)
+    else
+      _ ->
+        error_response(conn, 400, "invalid_grant", "Invalid or expired authorization code")
+    end
+  end
+
+  defp grant_check(true), do: :ok
+  defp grant_check(false), do: {:error, :invalid_grant}
+
+  defp present_code(code) when is_binary(code) and code != "", do: :ok
+  defp present_code(_), do: {:error, :invalid_request}
+
+  defp present_verifier(verifier) when is_binary(verifier) and verifier != "", do: :ok
+  defp present_verifier(_), do: {:error, :invalid_request}
 
   ## Validation helpers
 
