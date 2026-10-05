@@ -201,6 +201,84 @@ async fn canonical_graph_pages_devices_and_edges_in_one_backend_snapshot() {
     .await;
 }
 
+#[tokio::test]
+async fn canonical_edges_are_rebuilt_in_batched_transactions() {
+    with_scratch(Duration::from_secs(300), |client, _target| async move {
+        run_with_client(&client, schema_spec(), Mode::Migrate)
+            .await
+            .expect("apply topology schema");
+        let topology = TopologyClient::new(client);
+        for index in 1..=451 {
+            topology
+                .upsert_device(&DeviceWrite::new(format!("sr:batch{index:04}.example.com")))
+                .await
+                .expect("write invented vertex");
+        }
+        let edges: Vec<EdgeWrite> = (1..=450)
+            .map(|index| {
+                EdgeWrite::canonical(
+                    format!("sr:batch{index:04}.example.com"),
+                    format!("sr:batch{:04}.example.com", index + 1),
+                    "lldp",
+                    "direct-physical",
+                )
+            })
+            .collect();
+
+        for chunk in edges.chunks(200) {
+            topology
+                .upsert_canonical_edges(chunk)
+                .await
+                .expect("upsert one batched chunk");
+        }
+        // A repeat of a chunk is harmless.
+        topology
+            .upsert_canonical_edges(&edges[..200])
+            .await
+            .expect("repeat a batched chunk");
+        assert_eq!(
+            topology.query_canonical_edges().await.expect("read").len(),
+            450
+        );
+
+        let desired = &edges[..300];
+        let stale = topology
+            .stale_canonical_keys(desired)
+            .await
+            .expect("compute stale keys");
+        assert_eq!(stale.len(), 150);
+        for chunk in stale.chunks(64) {
+            topology
+                .delete_canonical_edges(chunk)
+                .await
+                .expect("delete one batched chunk");
+        }
+        // Deleting keys that are already gone is a no-op.
+        topology
+            .delete_canonical_edges(&stale[..10])
+            .await
+            .expect("repeat a delete chunk");
+
+        let remaining: BTreeSet<String> = topology
+            .query_canonical_edges()
+            .await
+            .expect("read")
+            .iter()
+            .map(|edge| edge.link_key().to_owned())
+            .collect();
+        let wanted: BTreeSet<String> = desired.iter().map(EdgeWrite::link_key).collect();
+        assert_eq!(remaining, wanted);
+        assert!(
+            topology
+                .stale_canonical_keys(desired)
+                .await
+                .expect("recompute stale keys")
+                .is_empty()
+        );
+    })
+    .await;
+}
+
 #[derive(Debug, Deserialize)]
 struct PredicateRow {
     predicate: String,

@@ -27,9 +27,9 @@ use rustler::{Encoder, Env, Term};
 
 use crate::abi::{
     refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
-    JsonResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph, NifChangeWrite,
-    NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite, NifInterfaceWrite,
-    NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
+    JsonResult, KeysResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph,
+    NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite,
+    NifInterfaceWrite, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
 };
 use crate::runtime::{client_for, require_url, Failure, Pool, CONNECT_DEADLINE};
 
@@ -259,21 +259,56 @@ fn prune_stale(
     )
 }
 
+/// One chunk of a canonical rebuild: up to a few hundred edges upserted in
+/// one Dgraph transaction. Idempotent, so the Elixir driver may retry it.
 #[rustler::nif]
-fn rebuild_canonical(
+fn upsert_canonical_edges(
     env: Env<'_>,
     url: String,
     edges: Vec<NifEdgeWrite>,
     deadline_ms: u64,
 ) -> Term<'_> {
     let writes: Vec<_> = edges.into_iter().map(NifEdgeWrite::into_write).collect();
-    write_call_in(
+    write_call(env, url, deadline_ms, move |client| async move {
+        client.upsert_canonical_edges(&writes).await
+    })
+}
+
+/// Link keys of stored canonical edges outside the desired set (a whole-graph
+/// read, so it uses the bulk pool).
+#[rustler::nif]
+fn stale_canonical_keys(
+    env: Env<'_>,
+    url: String,
+    edges: Vec<NifEdgeWrite>,
+    deadline_ms: u64,
+) -> Term<'_> {
+    let writes: Vec<_> = edges.into_iter().map(NifEdgeWrite::into_write).collect();
+    dgraph_call(
         env,
         url,
         Pool::Bulk,
         deadline_ms,
-        move |client| async move { client.rebuild_canonical(&writes).await },
+        move |client| async move { client.stale_canonical_keys(&writes).await },
+        |result| match result {
+            Ok(keys) => KeysResult::Ok(keys),
+            Err(reason) => KeysResult::Error(reason),
+        },
     )
+}
+
+/// One chunk of a canonical rebuild's stale deletes, in one transaction.
+/// Missing keys are skipped, so a repeat is harmless.
+#[rustler::nif]
+fn delete_canonical_edges(
+    env: Env<'_>,
+    url: String,
+    link_keys: Vec<String>,
+    deadline_ms: u64,
+) -> Term<'_> {
+    write_call(env, url, deadline_ms, move |client| async move {
+        client.delete_canonical_edges(&link_keys).await
+    })
 }
 
 #[rustler::nif]
