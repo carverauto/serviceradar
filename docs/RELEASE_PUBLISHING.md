@@ -104,13 +104,14 @@ gh run list --repo carverauto/serviceradar --branch v1.4.10
 gh release view v1.4.10 --repo carverauto/serviceradar
 ```
 
-The tag starts five release workflows:
+The tag starts four release workflows:
 
 - `Publish Release Artifacts`
 - `Publish Native Add-ons`
 - `Publish Wasm Plugins`
 - `Source Security Scan`
-- `Image Security Scan`
+
+Publication dispatches `Image Security Scan` for the same tag once the images and draft release exist.
 
 The main release must remain draft if a catalog or security workflow fails, or
 if one of its required assets does not arrive before the bounded finalization
