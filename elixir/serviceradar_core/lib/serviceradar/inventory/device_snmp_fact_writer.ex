@@ -196,20 +196,20 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
   defp upsert_chunk(facts, actor) do
     now = DateTime.utc_now()
 
-    rows =
-      Enum.flat_map(facts, fn attrs ->
+    {rows, valid_attrs} =
+      Enum.reduce(facts, {[], []}, fn attrs, {rows_acc, valid_acc} ->
         case validated_row(attrs, actor, now) do
           {:ok, row} ->
-            [row]
+            {[row | rows_acc], [attrs | valid_acc]}
 
           {:error, error} ->
             log_rejected(attrs, error)
-            []
+            {rows_acc, valid_acc}
         end
       end)
 
     if rows != [] do
-      Repo.insert_all(DeviceSNMPFact, rows,
+      Repo.insert_all(DeviceSNMPFact, Enum.reverse(rows),
         on_conflict: {:replace, @replace_fields},
         conflict_target: @conflict_target,
         returning: false
@@ -224,7 +224,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
         error: inspect(error)
       )
 
-      Enum.each(facts, &upsert(&1, actor))
+      Enum.each(valid_attrs, &upsert(&1, actor))
   end
 
   # The row the action would insert, after its casts, constraints and
