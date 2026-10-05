@@ -513,30 +513,44 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp restore_env(name, value), do: System.put_env(name, value)
 
   defp start_starrocks!(env) do
-    {:ok, conn} =
+    # `MySQL.query/2` resolves its connection with `Process.whereis/1`,
+    # which only accepts the registered pool atom the product uses -- an
+    # anonymous MyXQL pid never resolves. Register this disposable test
+    # connection under a fixed test-only name and return the name so every
+    # existing `conn:` seam keeps working with no product client change.
+    name = MtrReaderParityStarRocks
+    if pid = Process.whereis(name), do: GenServer.stop(pid)
+
+    {:ok, _conn} =
       MyXQL.start_link(
-        hostname: env.host,
-        port: env.port,
-        username: env.user,
-        password: env.password,
-        database: env.database,
-        ssl: false,
-        prepare: :unnamed,
-        cache_size: 0,
-        pool_size: 1,
-        timeout: 60_000,
-        connect_timeout: 10_000
+        [hostname: env.host,
+         port: env.port,
+         username: env.user,
+         password: env.password,
+         database: env.database,
+         ssl: false,
+         prepare: :unnamed,
+         cache_size: 0,
+         pool_size: 1,
+         timeout: 60_000,
+         connect_timeout: 10_000] ++ [name: name]
       )
 
-    conn
+    name
   end
 
   defp start_postgrex!(env, database) do
     ssl =
       if env.ca_pem do
+        # OTP `ssl` needs certificate DER binaries in `cacerts`; the raw
+        # `:public_key.pem_decode/1` tuples must be unwrapped first. Keep
+        # `verify_peer` with hostname verification (SNI).
+        cacerts =
+          for {:Certificate, der, _} <- :public_key.pem_decode(env.ca_pem), do: der
+
         [
           verify: :verify_peer,
-          cacerts: [:public_key.pem_decode(env.ca_pem)],
+          cacerts: cacerts,
           depth: 3,
           server_name_indication: env.server_name && String.to_charlist(env.server_name)
         ]
