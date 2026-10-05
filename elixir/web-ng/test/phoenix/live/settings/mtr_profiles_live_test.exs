@@ -172,8 +172,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
 
     # completed_at is a second-precision column while inserted_at keeps microseconds;
     # start on a whole second so the stored duration is exactly 30s.
-    inserted_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.add(-60, :second)
-    completed_at = DateTime.add(inserted_at, 30, :second)
+    inserted_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.shift(minute: -1)
+    completed_at = DateTime.shift(inserted_at, second: 30)
 
     {:ok, command} =
       AgentCommand.create_command(

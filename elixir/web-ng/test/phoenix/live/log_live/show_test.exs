@@ -862,7 +862,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
             "flags" => ["token=SENSITIVE_LIST_TOKEN", "plain-flag"]
           }),
         resource_attributes:
-          "service.name=serviceradar-web-ng,details={\"note\":[116,111,107,101,110,61,69,88,65,77,80,76,69,95,67,82,69,68],\"counts\":[1,2,3],\"initials\":[65,66],\"level\":9}",
+          ~s(service.name=serviceradar-web-ng,details={"note":[116,111,107,101,110,61,69,88,65,77,80,76,69,95,67,82,69,68],"counts":[1,2,3],"initials":[65,66],"level":9}),
         created_at: now,
         ingest_identity: "spiffe://sr/agent/edge-9",
         ingest_agent_id: "agent-edge-9",

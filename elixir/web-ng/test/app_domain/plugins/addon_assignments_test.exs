@@ -232,10 +232,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
              )
 
     [reloaded] =
-             AddonAssignment
-             |> Ash.Query.for_read(:read)
-             |> Ash.Query.filter(id == ^assignment.id)
-             |> Ash.read!(actor: system_actor())
+      AddonAssignment
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^assignment.id)
+      |> Ash.read!(actor: system_actor())
 
     assert reloaded.addon_package_id == old_package.id
     assert reloaded.update_policy == upgraded.update_policy
@@ -359,10 +359,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
 
   defp assert_assignment_untouched(assignment, old_package) do
     [reloaded] =
-             AddonAssignment
-             |> Ash.Query.for_read(:read)
-             |> Ash.Query.filter(id == ^assignment.id)
-             |> Ash.read!(actor: system_actor())
+      AddonAssignment
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^assignment.id)
+      |> Ash.read!(actor: system_actor())
 
     assert reloaded.addon_package_id == old_package.id
     assert reloaded.update_policy == assignment.update_policy

@@ -4635,7 +4635,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           severity_id: 4,
           peak_severity_id: 4,
           peak_score: nil,
-          opened_at: DateTime.add(now, -300, :second),
+          opened_at: DateTime.shift(now, minute: -5),
           last_seen_at: now,
           occurrence_count: 1,
           reopen_count: 0

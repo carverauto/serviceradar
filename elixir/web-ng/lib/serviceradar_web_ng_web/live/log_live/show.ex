@@ -1926,6 +1926,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       Enum.map(value, &redact_secret_value/1)
     end
   end
+
   defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
   defp redact_secret_value(value), do: value
 

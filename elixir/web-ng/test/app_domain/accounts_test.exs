@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
     test "returns false for a stale sudo timestamp" do
       refute Accounts.sudo_mode?(
                %{id: "some-user-id"},
-               DateTime.add(DateTime.utc_now(), -30, :minute)
+               DateTime.shift(DateTime.utc_now(), minute: -30)
              )
     end
 

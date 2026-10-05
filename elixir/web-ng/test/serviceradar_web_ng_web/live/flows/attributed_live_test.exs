@@ -136,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
   # CNPG flow rows the page must never show: one attributed, one unmatched, one
   # with workload identity. They live in the test's sandbox transaction.
   defp seed_cnpg_flow_rows! do
-    now = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.truncate(:second)
+    now = DateTime.utc_now() |> DateTime.shift(minute: -1) |> DateTime.truncate(:second)
 
     insert_flow!(now, %{
       src_ip: "192.0.2.41",
