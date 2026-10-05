@@ -25,6 +25,7 @@ impl Display for TopologyError {
                 write!(f, "connect to {target}: {reason}")
             }
             TopologyErrorEnum::Dgraph(reason) => write!(f, "dgraph: {reason}"),
+            TopologyErrorEnum::Transient(reason) => write!(f, "dgraph (transient): {reason}"),
             TopologyErrorEnum::Serde(reason) => write!(f, "decode dgraph response: {reason}"),
             TopologyErrorEnum::InvalidValue(value) => {
                 write!(f, "value cannot be placed in DQL: {value}")

@@ -21,11 +21,22 @@ pub(crate) struct Gate {
 struct Busy;
 
 impl Gate {
-    const fn new(limit: usize) -> Self {
+    pub(crate) const fn new(limit: usize) -> Self {
         Self {
             active: AtomicUsize::new(0),
             limit,
         }
+    }
+
+    /// Admit work that outlives the calling NIF (an async task): the permit
+    /// moves into the task.
+    pub(crate) fn try_acquire(&'static self) -> Option<Permit<'static>> {
+        self.active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < self.limit).then_some(active + 1)
+            })
+            .ok()
+            .map(|_| Permit(self))
     }
 
     fn run<T>(&self, work: impl FnOnce() -> T) -> Result<T, Busy> {
@@ -39,7 +50,9 @@ impl Gate {
     }
 }
 
-struct Permit<'a>(&'a Gate);
+/// Held for as long as admitted work runs; released on drop, including during
+/// unwind and when an aborted async task is dropped.
+pub(crate) struct Permit<'a>(&'a Gate);
 
 impl Drop for Permit<'_> {
     fn drop(&mut self) {

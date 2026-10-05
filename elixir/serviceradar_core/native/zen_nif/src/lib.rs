@@ -1,3 +1,6 @@
+#[cfg(panic = "abort")]
+compile_error!("zen_nif requires panic=unwind to contain native panics");
+
 use rustler::{Encoder, Env, Term};
 use serde_json::Value;
 use std::collections::HashMap;

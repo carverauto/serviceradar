@@ -1178,3 +1178,34 @@ fn bundle_observation_time_is_shared_across_members() {
         None
     );
 }
+
+#[test]
+fn black_holed_graph_read_times_out_within_its_deadline() {
+    // Completes the TCP handshake from its backlog, never answers.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!(
+        "dgraph://127.0.0.1:{}",
+        listener.local_addr().unwrap().port()
+    );
+    let started = std::time::Instant::now();
+    let (result, kind) = crate::runtime()
+        .unwrap()
+        .block_on(crate::async_read::read_topology_view(
+            &url,
+            "2026-01-01T00:00:00Z",
+            std::time::Duration::from_millis(300),
+        ));
+    assert_eq!(kind, crate::async_read::Kind::Timeout);
+    assert!(matches!(result, Err(reason) if reason.contains("timed out")));
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    drop(listener);
+}
+
+#[test]
+fn an_async_read_permit_is_released_when_dropped() {
+    static GATE: crate::admission::Gate = crate::admission::Gate::new(1);
+    let permit = GATE.try_acquire().expect("first permit");
+    assert!(GATE.try_acquire().is_none(), "the gate must be full");
+    drop(permit);
+    assert!(GATE.try_acquire().is_some());
+}

@@ -6,6 +6,9 @@
 //! Thin Rustler ABI over `network-config-downparser`. Typed `NifMap` facts,
 //! DirtyCpu, `catch_unwind` per call.
 
+#[cfg(panic = "abort")]
+compile_error!("network_config_nif requires panic=unwind to contain native panics");
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use network_config_downparser::{parse, InterfaceFact};

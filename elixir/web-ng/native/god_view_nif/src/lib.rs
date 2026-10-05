@@ -1,3 +1,6 @@
+#[cfg(panic = "abort")]
+compile_error!("god_view_nif requires panic=unwind to contain native panics");
+
 pub mod core;
 pub mod errors;
 pub mod traits;
