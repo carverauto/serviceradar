@@ -898,7 +898,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
       create_stream_dashboard_instance!(route_slug, data_frames, scope)
 
-      assert {:error, %{reason: "invalid_token"}} =
+      assert {:error, %{reason: "invalid"}} =
                UserSocket
                |> socket("user-id", %{current_user: user, current_scope: scope})
                |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
