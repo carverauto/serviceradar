@@ -23,17 +23,34 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
 
   def run(bytes, fun) do
     task =
-      Task.Supervisor.async(ServiceRadar.Analytics.StarRocks.LoadTasks, fn ->
-        try do
-          {:result, run_admitted(bytes, fun)}
-        catch
-          kind, reason -> {:raised, kind, reason, __STACKTRACE__}
-        end
-      end)
+      try do
+        Task.Supervisor.async(ServiceRadar.Analytics.StarRocks.LoadTasks, fn ->
+          try do
+            {:result, run_admitted(bytes, fun)}
+          catch
+            kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+          end
+        end)
+      catch
+        :exit, _ -> nil
+      end
 
-    case Task.await(task, :infinity) do
-      {:result, result} -> result
-      {:raised, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+    case task do
+      nil ->
+        {:error, :load_admission_unavailable}
+
+      task ->
+        awaited =
+          try do
+            Task.await(task, :infinity)
+          catch
+            :exit, _ -> {:result, {:error, :load_admission_unavailable}}
+          end
+
+        case awaited do
+          {:result, result} -> result
+          {:raised, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+        end
     end
   end
 
@@ -41,7 +58,14 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
     server = Process.whereis(__MODULE__)
 
     if is_pid(server) do
-      case GenServer.call(server, {:acquire, bytes}, :infinity) do
+      acquired =
+        try do
+          GenServer.call(server, {:acquire, bytes}, :infinity)
+        catch
+          :exit, _ -> {:error, :load_admission_unavailable}
+        end
+
+      case acquired do
         {:ok, token} ->
           try do
             fun.()

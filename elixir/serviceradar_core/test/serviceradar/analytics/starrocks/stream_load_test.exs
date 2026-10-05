@@ -249,6 +249,39 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
   end
 
+  test "admission restart window stays on the retry path" do
+    Process.exit(Process.whereis(LoadAdmission), :kill)
+
+    results =
+      for _ <- 1..20 do
+        try do
+          LoadAdmission.run(1, fn -> {:ok, :admitted} end)
+        catch
+          :exit, _ -> :exited
+        end
+      end
+
+    assert Enum.all?(results, fn
+             {:ok, :admitted} -> true
+             {:error, :load_admission_unavailable} -> true
+             _ -> false
+           end)
+
+    assert is_pid(Process.whereis(LoadAdmission))
+  end
+
+  test "missing load coordination returns retryable unavailable" do
+    :ok = stop_supervised!(LoadSupervisor)
+
+    assert {:error, :load_admission_unavailable} =
+             LoadAdmission.run(1, fn -> flunk("work must not start without coordination") end)
+
+    assert {:error, :load_admission_unavailable} =
+             StreamLoad.persist("logs", @rows,
+               http: fn _ -> flunk("transport must not start without coordination") end
+             )
+  end
+
   test "stable identities produce the same load label across retry regrouping" do
     shuffled = Enum.reverse(@rows)
 
