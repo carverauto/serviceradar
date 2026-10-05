@@ -64,6 +64,40 @@ fn stats_aliases_are_bound_as_json_keys() {
 }
 
 #[test]
+fn otel_stats_aliases_are_bound_as_json_keys() {
+    for (entity, group, filter) in [
+        ("otel_metrics", "service_name", "is_slow:true"),
+        ("otel_metric_points", "metric_name", "metric_type:gauge"),
+    ] {
+        for grouped in [false, true] {
+            let by = if grouped {
+                format!(" by {group}")
+            } else {
+                String::new()
+            };
+            let query = format!(
+                "in:{entity} time:last_1h {filter} stats:\"count() as synthetic_count{by}\""
+            );
+            let response =
+                translate_request(&test_config(), request_for(&query)).expect("translate alias");
+
+            assert!(
+                !response.sql.contains("synthetic_count"),
+                "alias became SQL: {}",
+                response.sql
+            );
+            assert!(
+                matches!(&response.params[0], BindParam::Text(value) if value == "synthetic_count"),
+                "alias must be first bound JSON key: {:?}",
+                response.params
+            );
+            assert!(response.sql.contains("$1::text"));
+            assert_eq!(max_dollar_placeholder(&response.sql), response.params.len());
+        }
+    }
+}
+
+#[test]
 fn multiple_stats_aliases_remain_data_in_rollup_branches() {
     let aliases = ["x'||(SELECT/**/'synthetic_probe')||'x", "bytes?"];
     for entity in ["flows", "attributed_flows"] {

@@ -466,16 +466,13 @@ fn build_stats_query(plan: &QueryPlan) -> Result<Option<PointsStatsSql>> {
     if let Some(group_field) = group_field {
         let column = group_field.column();
         sql.push_str(&format!(
-            "jsonb_build_object('{}', {column}, '{}', COUNT(*)) AS payload",
-            group_field.response_key(),
-            stats.alias
+            "jsonb_build_object('{}', {column}, ?::text, COUNT(*)) AS payload",
+            group_field.response_key()
         ));
     } else {
-        sql.push_str(&format!(
-            "jsonb_build_object('{}', COUNT(*)) AS payload",
-            stats.alias
-        ));
+        sql.push_str("jsonb_build_object(?::text, COUNT(*)) AS payload");
     }
+    binds.insert(0, SqlBindValue::Text(stats.alias.clone()));
     sql.push_str("\nFROM otel_metric_points");
     if !clauses.is_empty() {
         sql.push_str("\nWHERE ");
@@ -937,13 +934,17 @@ mod tests {
         let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
 
         assert!(
-            sql.contains("jsonb_build_object('metric_name', metric_name, 'points', COUNT(*))"),
+            sql.contains("jsonb_build_object('metric_name', metric_name, $1::text, COUNT(*))"),
             "{sql}"
         );
         assert!(sql.contains("FROM otel_metric_points"), "{sql}");
         assert!(sql.contains("GROUP BY metric_name"), "{sql}");
         assert!(sql.contains("ORDER BY COUNT(*) DESC"), "{sql}");
-        assert_eq!(params.len(), 2, "params: {params:?}");
+        assert!(
+            matches!(&params[0], BindParam::Text(value) if value == "points"),
+            "params: {params:?}"
+        );
+        assert_eq!(params.len(), 3, "params: {params:?}");
     }
 
     #[test]
