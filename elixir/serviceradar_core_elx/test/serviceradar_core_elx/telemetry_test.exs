@@ -67,7 +67,7 @@ defmodule ServiceRadarCoreElx.TelemetryTest do
         blocked_unchanged: 3,
         succession_merges: 1,
         succession_reviews: 0,
-        successions_skipped: 0,
+        successions_skipped: 5,
         successions_deferred: 0
       },
       %{status: :completed, trigger: :scheduled}
@@ -106,6 +106,7 @@ defmodule ServiceRadarCoreElx.TelemetryTest do
           "serviceradar_identity_reconciler_run_succession_merges 1",
           "serviceradar_identity_reconciler_run_blocked_merges 4",
           "serviceradar_identity_reconciler_run_blocked_unchanged 3",
+          "serviceradar_identity_reconciler_run_successions_skipped 5",
           ~s(serviceradar_identity_reconciler_merge_guard_blocked_count{guard="merge_cooldown"} 1),
           "serviceradar_inventory_source_population_live_records{#{labels}} 2",
           "serviceradar_inventory_source_population_current_ids{#{labels}} 1",

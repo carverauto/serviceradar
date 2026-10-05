@@ -571,6 +571,11 @@ defmodule ServiceRadar.Telemetry do
         measurement: :succession_reviews,
         description: "Succession candidates the latest run sent to review"
       ),
+      last_value("serviceradar.identity_reconciler.run.successions_skipped",
+        event_name: reconciler_run,
+        measurement: :successions_skipped,
+        description: "Succession merges the latest run did not make: refused, stale or failed"
+      ),
       last_value("serviceradar.identity_reconciler.run.successions_deferred",
         event_name: reconciler_run,
         measurement: :successions_deferred,

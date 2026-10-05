@@ -6,7 +6,8 @@ defmodule ServiceRadar.TestSupport.MetricContract do
   A Prometheus reporter drops an event that lacks a tag its metric declares, and leaves a
   gauge stale when the measurement is missing, so an event that drifts from its metric goes
   quiet without failing anything. A test that captured the event the code really emits can
-  prove the metric still records it.
+  prove the metric still records it. It also ensures every numeric measurement the event
+  carries is read by at least one defined metric.
   """
 
   import ExUnit.Assertions
@@ -16,7 +17,8 @@ defmodule ServiceRadar.TestSupport.MetricContract do
   @doc """
   Asserts at least one metric is defined for `event` and that every metric it keeps finds
   each of its tags, as a scalar, and a numeric measurement. A counter counts the event and
-  reads no measurement.
+  reads no measurement. Also asserts that every numeric measurement in `measurements` is
+  the measurement of at least one non-counter metric for `event`.
   """
   @spec assert_exported([atom()], map(), map()) :: :ok
   def assert_exported(event, measurements, metadata) do
@@ -40,6 +42,13 @@ defmodule ServiceRadar.TestSupport.MetricContract do
         assert is_number(measure(metric.measurement, measurements, metadata)),
                "#{inspect(metric.name)} finds no number in #{inspect(measurements)}"
       end
+    end
+
+    for {key, value} <- measurements, is_atom(key), is_number(value) do
+      assert Enum.any?(metrics, fn metric ->
+               not match?(%Counter{}, metric) and metric.measurement == key
+             end),
+             "#{inspect(key)} in #{inspect(event)} has no metric definition"
     end
 
     :ok
