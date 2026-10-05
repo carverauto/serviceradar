@@ -299,4 +299,45 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
              "n_sigma"
            ] == 3.0
   end
+
+  test "refresh with a dead task supervisor replies error and keeps the server alive" do
+    name = :"#{__MODULE__}.DeadSupervisorRuntime"
+
+    start_supervised!(
+      {AnomalyConfigRuntime,
+       name: name,
+       refresh_interval_ms: 60_000,
+       task_supervisor: :anomaly_runtime_dead_supervisor_xyz,
+       anomaly_fetcher: fn _actor -> {:ok, nil} end,
+       forecast_fetcher: fn _actor -> {:ok, nil} end}
+    )
+
+    assert {:error, _reason} = AnomalyConfigRuntime.refresh(name)
+    assert Process.alive?(Process.whereis(name))
+    assert {:error, _reason} = AnomalyConfigRuntime.refresh(name)
+    assert Process.alive?(Process.whereis(name))
+  end
+
+  test "init with an exiting or throwing fetcher still boots with empty defaults" do
+    for {suffix, fetcher} <- [
+          {"Exit", fn _actor -> exit(:db_connection_lost) end},
+          {"Throw", fn _actor -> throw(:fetcher_threw) end}
+        ] do
+      name = :"#{__MODULE__}.InitHardeningRuntime#{suffix}"
+
+      start_supervised!(
+        {AnomalyConfigRuntime,
+         name: name,
+         refresh_interval_ms: 60_000,
+         anomaly_fetcher: fetcher,
+         forecast_fetcher: fn _actor -> {:ok, nil} end},
+        id: name
+      )
+
+      assert Process.alive?(Process.whereis(name)),
+             "server failed to boot when fetcher #{suffix}"
+
+      assert AnomalyConfigRuntime.anomaly_series_config() == %{}
+    end
+  end
 end
