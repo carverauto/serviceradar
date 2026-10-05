@@ -68,7 +68,10 @@ async fn busy_fixture_survives_refused_run() -> Result<()> {
             "SELECT COUNT(*) FROM information_schema.tables WHERE TABLE_SCHEMA = '{database}'"
         ))
         .await?;
-    ensure!(count == Some(0), "fixture is occupied; refusing canary DDL");
+    ensure!(
+        count == Some(0),
+        "fixture is occupied; refusing canary DDL (metadata count: {count:?})"
+    );
     let table = format!("{database}.fixture_busy_canary");
     conn.query_drop(format!(
         "CREATE TABLE {table} (marker INT) DUPLICATE KEY(marker) \
