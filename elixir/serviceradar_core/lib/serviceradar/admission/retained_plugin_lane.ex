@@ -22,10 +22,15 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     :gateway_max_ms
   ]
 
-  def limits, do: Keyword.merge(@default_config, configured_limits())
+  def limits do
+    @default_config
+    |> Keyword.merge(configured_limits())
+    |> Lane.with_per_agent_bytes(16 * 1_024 * 1_024)
+  end
 
   def start_link(opts \\ []) do
-    config = Keyword.merge(limits(), opts[:config] || [])
+    config =
+      limits() |> Keyword.merge(opts[:config] || []) |> Lane.with_per_agent_bytes(16 * 1_024 * 1_024)
 
     lease_supervisor =
       Keyword.get_lazy(opts, :lease_supervisor, fn ->
