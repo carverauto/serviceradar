@@ -12,7 +12,11 @@ defmodule ServiceRadar.Observability.Changes.InvalidateAlertEngineRouting do
   @impl true
   def change(changeset, _opts, _context) do
     Ash.Changeset.after_transaction(changeset, fn _changeset, result ->
-      ShardRouting.invalidate()
+      case result do
+        {:ok, _} -> ShardRouting.invalidate()
+        _ -> :ok
+      end
+
       result
     end)
   end
