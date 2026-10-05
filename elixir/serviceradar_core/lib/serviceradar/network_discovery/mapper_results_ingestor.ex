@@ -2302,13 +2302,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       {:error, e}
   end
 
-  defp resolve_alias_device_uid(ip, partition, alias_rows, actor) do
+  @doc false
+  def resolve_alias_device_uid(ip, partition, alias_rows, actor) do
     cond do
       not AliasPolicy.valid_alias_ip?(ip) ->
         {:ok, nil}
 
       match?({:error, _}, alias_rows) ->
-        alias_rows
+        find_device_uid_by_alias(ip, partition, actor)
 
       true ->
         {:ok, %{by_ip: by_ip, live: live}} = alias_rows

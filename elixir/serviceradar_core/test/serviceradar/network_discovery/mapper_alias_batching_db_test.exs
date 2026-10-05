@@ -106,6 +106,23 @@ defmodule ServiceRadar.NetworkDiscovery.MapperAliasBatchingDbTest do
     assert [_seeded] = devices_at([ip])
   end
 
+  test "a failing batched alias read falls back to per-IP lookup and suppresses creation", ctx do
+    ip = ip(ctx, 170)
+    owner = device!(ctx, 97, %{})
+    alias!(ctx, owner.uid, ip, "default")
+
+    assert {:ok, uid} =
+             MapperResultsIngestor.resolve_alias_device_uid(
+               ip,
+               "default",
+               {:error, :simulated_batch_failure},
+               ctx.actor
+             )
+
+    assert uid == owner.uid
+    assert devices_at([ip]) == []
+  end
+
   defp role_metadata(role) do
     %{
       "device_role" => role.role,
