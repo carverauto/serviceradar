@@ -1,0 +1,15 @@
+suite: Trivy sidecar NATS permissions
+templates:
+  - templates/nats.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: limits the Trivy identity to its report stream and reply inboxes
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-trivy-sidecar,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \["trivy\.report\.>", "\\\$JS\.API\.STREAM\.INFO\.trivy_reports", "\\\$JS\.API\.STREAM\.CREATE\.trivy_reports", "\\\$JS\.API\.STREAM\.UPDATE\.trivy_reports"\]\s+\}\s+subscribe: \{\s+allow: \["_INBOX\.>"\]'
