@@ -8,6 +8,16 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
   setup do
     AnomalyConfigRuntime.clear_cache_for_test()
 
+    task_sup = ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
+
+    case Process.whereis(task_sup) do
+      nil ->
+        start_supervised!({Task.Supervisor, name: task_sup})
+
+      _pid ->
+        :ok
+    end
+
     on_exit(fn ->
       AnomalyConfigRuntime.clear_cache_for_test()
     end)
@@ -240,5 +250,94 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
     assert AnomalyConfigRuntime.anomaly_series_config().metric_class_defaults["default"][
              "n_sigma"
            ] == 7.5
+  end
+
+  test "when reload raises, server stays up, readers keep previous snapshot, and callers get error reply" do
+    test_pid = self()
+
+    initial_settings = %AnomalyDetectionConfig{
+      n_sigma: 3.0,
+      window_size: 300,
+      confirm_slots: 5,
+      min_samples: 30,
+      metric_class_overrides: %{}
+    }
+
+    exploding_anomaly_fetcher = fn _actor ->
+      send(test_pid, :fetch_called)
+      raise RuntimeError, "reload exploded"
+    end
+
+    name = :"#{__MODULE__}.CrashRecoveryRuntime"
+
+    start_supervised!(
+      {AnomalyConfigRuntime,
+       name: name,
+       refresh_interval_ms: 60_000,
+       anomaly_fetcher: fn _actor -> {:ok, initial_settings} end,
+       forecast_fetcher: fn _actor -> {:ok, nil} end}
+    )
+
+    assert AnomalyConfigRuntime.anomaly_series_config().metric_class_defaults["default"][
+             "n_sigma"
+           ] == 3.0
+
+    :sys.replace_state(Process.whereis(name), fn state ->
+      %{state | anomaly_fetcher: exploding_anomaly_fetcher}
+    end)
+
+    refresh_task = Task.async(fn -> AnomalyConfigRuntime.refresh(name) end)
+
+    assert_receive :fetch_called, 1_000
+
+    assert {:error, reason} = Task.await(refresh_task, 2_000)
+    assert inspect(reason) =~ "reload exploded"
+
+    assert Process.alive?(Process.whereis(name))
+
+    assert AnomalyConfigRuntime.anomaly_series_config().metric_class_defaults["default"][
+             "n_sigma"
+           ] == 3.0
+  end
+
+  test "refresh with a dead task supervisor replies error and keeps the server alive" do
+    name = :"#{__MODULE__}.DeadSupervisorRuntime"
+
+    start_supervised!(
+      {AnomalyConfigRuntime,
+       name: name,
+       refresh_interval_ms: 60_000,
+       task_supervisor: :anomaly_runtime_dead_supervisor_xyz,
+       anomaly_fetcher: fn _actor -> {:ok, nil} end,
+       forecast_fetcher: fn _actor -> {:ok, nil} end}
+    )
+
+    assert {:error, _reason} = AnomalyConfigRuntime.refresh(name)
+    assert Process.alive?(Process.whereis(name))
+    assert {:error, _reason} = AnomalyConfigRuntime.refresh(name)
+    assert Process.alive?(Process.whereis(name))
+  end
+
+  test "init with an exiting or throwing fetcher still boots with empty defaults" do
+    for {suffix, fetcher} <- [
+          {"Exit", fn _actor -> exit(:db_connection_lost) end},
+          {"Throw", fn _actor -> throw(:fetcher_threw) end}
+        ] do
+      name = :"#{__MODULE__}.InitHardeningRuntime#{suffix}"
+
+      start_supervised!(
+        {AnomalyConfigRuntime,
+         name: name,
+         refresh_interval_ms: 60_000,
+         anomaly_fetcher: fetcher,
+         forecast_fetcher: fn _actor -> {:ok, nil} end},
+        id: name
+      )
+
+      assert Process.alive?(Process.whereis(name)),
+             "server failed to boot when fetcher #{suffix}"
+
+      assert AnomalyConfigRuntime.anomaly_series_config() == %{}
+    end
   end
 end
