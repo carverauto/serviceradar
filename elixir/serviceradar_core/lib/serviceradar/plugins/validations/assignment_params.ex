@@ -16,7 +16,10 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   @credential_manage_permission "settings.credentials.manage"
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(_changeset, _opts, _context),
+    do:
+      {:not_atomic,
+       "plugin credential reference checks require actor and persisted state"}
 
   @impl true
   def validate(changeset, _opts, context) do

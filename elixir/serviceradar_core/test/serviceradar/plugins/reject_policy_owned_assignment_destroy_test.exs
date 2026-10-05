@@ -2,15 +2,15 @@ defmodule ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroyTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroy
   alias ServiceRadar.Plugins.PluginAssignment
 
   @moduletag :unit
 
   defp destroy_changeset(source, actor) do
+    # for_destroy runs the destroy action's changes at build time with the
+    # given actor, which is the same path Ash.destroy takes.
     %PluginAssignment{source: source}
-    |> Ash.Changeset.for_destroy(:destroy)
-    |> RejectPolicyOwnedAssignmentDestroy.change(%{}, %{actor: actor})
+    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
   end
 
   defp plugin_manager do

@@ -81,7 +81,6 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     end
 
     create :create do
-      require_atomic? false
       accept @create_fields
 
       change BindAssignmentPartition
