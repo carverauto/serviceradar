@@ -29,9 +29,10 @@ itself, with no timeout and no keepalive.
 - **Semaphore inside the deadline.** A permit is acquired inside the timed
   future, so queue wait counts against the deadline and a call queued past it
   fails as `timeout ... waiting for an in-flight slot`. Per-item calls
-  share 8 slots; whole-graph reads, pruning and the canonical rebuild draw
-  from a separate pool of 2, so long bulk calls cannot take the slots
-  per-item writes need, and a burst of item writes cannot starve bulk work.
+  share 8 slots; whole-graph reads and pruning draw from a separate pool of
+  2 (the `stale_canonical_keys` read in a canonical rebuild too), so long
+  bulk calls cannot take the slots per-item writes need, and a burst of
+  item writes cannot starve bulk work.
   The limits are sized for Dgraph and not tied to any scheduler count.
 - **Caller exit cancels.** The call handle is a monitored resource: the NIF
   monitors the calling process at submit and the resource's `down` callback
@@ -53,8 +54,9 @@ itself, with no timeout and no keepalive.
   canonical telemetry, MTR path) are idempotent. These are not retried:
   `prune_stale`, whose count changes on a repeat; `replace_hosted_edge` and
   `retire_hosted_edge`, which are guarded by the observation timestamp a
-  concurrent refresh can move; `rebuild_canonical`, a multi-RPC sweep with a
-  300 s bound; and reads.
+  concurrent refresh can move; and reads. Canonical rebuild chunks
+  (`upsert_canonical_edges`, `delete_canonical_edges`) are idempotent and are
+  retried.
 - **Typed transient classification.** `TopologyError::Transient` is set from
   the client's own `is_transport` / `is_aborted` / `is_cluster_not_ready`
   predicates, and connect failures count as transient. Nothing matches on
