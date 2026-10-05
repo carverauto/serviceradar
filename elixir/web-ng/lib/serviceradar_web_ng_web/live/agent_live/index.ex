@@ -75,14 +75,24 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
       )
 
     query = get_in(socket.assigns, [:srql, :query]) || base_agents_query(socket.assigns.limit)
+    connected? = connected?(socket)
 
+    # The summary query and config-health read are skipped on the static
+    # render, which is discarded on connect.
     summary_agents =
-      load_summary_agents(socket.assigns.current_scope, query, socket.assigns.agents)
+      if connected?,
+        do: load_summary_agents(socket.assigns.current_scope, query, socket.assigns.agents),
+        else: []
 
     release_filters = release_filters_from_query(query)
 
     selected_agent_ids =
       selected_agent_ids_for_visible(socket.assigns.selected_agent_ids, socket.assigns.agents)
+
+    config_unhealthy_uids =
+      if connected?,
+        do: load_config_unhealthy_uids(socket.assigns.current_scope),
+        else: MapSet.new()
 
     {:noreply,
      socket
@@ -91,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
      |> assign(:release_filter_form, release_filter_form(release_filters))
      |> assign(:version_distribution, summarize_versions(summary_agents))
      |> assign(:rollout_distribution, summarize_rollout_states(summary_agents))
-     |> assign(:config_unhealthy_uids, load_config_unhealthy_uids(socket.assigns.current_scope))}
+     |> assign(:config_unhealthy_uids, config_unhealthy_uids)}
   end
 
   @impl true

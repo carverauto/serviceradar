@@ -154,6 +154,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
   end
 
   defp assign_managed_device_limit_advisory(socket) do
+    if Phoenix.LiveView.connected?(socket) do
+      assign_managed_device_limit_from_usage(socket)
+    else
+      socket
+      |> assign(:managed_device_limit, nil)
+      |> assign(:managed_device_count, nil)
+      |> assign(:managed_device_limit_exceeded, false)
+    end
+  end
+
+  defp assign_managed_device_limit_from_usage(socket) do
     case RuntimeLimits.managed_device_limit() do
       limit when is_integer(limit) ->
         managed_device_count = TenantUsage.managed_device_count()

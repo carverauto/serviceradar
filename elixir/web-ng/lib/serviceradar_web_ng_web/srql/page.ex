@@ -67,11 +67,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     {builder_supported, builder_sync, builder_state} =
       parse_builder_state(builder_available, query, builder)
 
-    srql_module = srql_module()
-    scope = get_scope(socket)
+    # The disconnected (static) render only paints the page shell: it is
+    # thrown away as soon as the socket connects, which runs handle_params
+    # again. Querying here ran every list page's SRQL query twice per load.
+    connected? = Phoenix.LiveView.connected?(socket)
 
     {results, error, viz_meta, pagination} =
-      srql_results(srql_module, query, cursor, limit, scope)
+      if connected? do
+        srql_results(srql_module(), query, cursor, limit, get_scope(socket))
+      else
+        {[], nil, nil, %{}}
+      end
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
 
@@ -86,7 +92,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         draft: query,
         error: error,
         viz: viz_meta,
-        loading: false,
+        loading: not connected?,
         builder_available: builder_available,
         builder_supported: builder_supported,
         builder_sync: builder_sync,

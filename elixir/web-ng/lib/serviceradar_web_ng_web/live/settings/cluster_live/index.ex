@@ -42,28 +42,25 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           scope -> Scope.admin?(scope)
         end
 
-      gateways_cache = load_initial_gateways_cache()
-      agents_cache = load_initial_agents_cache()
+      # Node RPCs, the tracker snapshot and the Oban GROUP BY run on the
+      # connected render only; the static render is discarded on connect.
+      connected? = connected?(socket)
+      gateways_cache = if connected?, do: load_initial_gateways_cache(), else: %{}
+      agents_cache = if connected?, do: load_initial_agents_cache(), else: %{}
       gateways = compute_gateways(gateways_cache)
-      agents = compute_connected_agents(agents_cache)
-
-      cluster_status = load_cluster_status()
-      cluster_health = build_cluster_health(gateways, agents)
-      job_counts = load_job_counts(scope)
 
       socket =
         socket
         |> assign(:page_title, "Cluster Status")
         |> assign(:current_path, "/settings/cluster")
-        |> assign(:cluster_status, cluster_status)
-        |> assign(:cluster_health, cluster_health)
+        |> assign(:cluster_status, if(connected?, do: load_cluster_status(), else: standalone_status()))
         |> assign(:gateways_cache, gateways_cache)
-        |> assign(:agents_cache, agents_cache)
         |> assign(:gateways, gateways)
-        |> assign(:agents, agents)
+        |> stream_configure(:agents, dom_id: &agent_dom_id/1)
+        |> assign_agents(agents_cache)
         |> assign(:is_admin, is_admin)
-        |> assign(:job_counts, job_counts)
-        |> assign(:oban_stats, load_oban_stats())
+        |> assign(:job_counts, if(connected?, do: load_job_counts(scope), else: %{total: 0}))
+        |> assign(:oban_stats, if(connected?, do: load_oban_stats(), else: %{queues: %{}, total_executing: 0}))
         |> assign(:events, [])
 
       {:ok, socket}
@@ -93,18 +90,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     refreshed_agents_cache = reconcile_agents_cache(pruned_agents_cache)
 
     gateways = compute_gateways(refreshed_gateways_cache)
-    agents = compute_connected_agents(refreshed_agents_cache)
-    cluster_health = build_cluster_health(gateways, agents)
     job_counts = load_job_counts(socket.assigns.current_scope)
 
     {:noreply,
      socket
      |> assign(:cluster_status, cluster_status)
-     |> assign(:cluster_health, cluster_health)
      |> assign(:gateways_cache, refreshed_gateways_cache)
-     |> assign(:agents_cache, refreshed_agents_cache)
      |> assign(:gateways, gateways)
-     |> assign(:agents, agents)
+     |> assign_agents(refreshed_agents_cache)
      |> assign(:job_counts, job_counts)
      |> assign(:oban_stats, load_oban_stats())}
   end
@@ -117,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:cluster_status, load_cluster_status())
      |> assign(
        :cluster_health,
-       build_cluster_health(socket.assigns.gateways, socket.assigns.agents)
+       build_cluster_health(socket.assigns.gateways, socket.assigns.agent_count)
      )
      |> update(:events, fn events -> [event | Enum.take(events, 49)] end)
      |> put_flash(:info, "Node joined: #{node}")}
@@ -133,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:cluster_status, load_cluster_status())
      |> assign(:gateways_cache, gateways_cache)
      |> assign(:gateways, gateways)
-     |> assign(:cluster_health, build_cluster_health(gateways, socket.assigns.agents))
+     |> assign(:cluster_health, build_cluster_health(gateways, socket.assigns.agent_count))
      |> update(:events, fn events -> [event | Enum.take(events, 49)] end)
      |> put_flash(:error, "Node disconnected: #{node}")}
   end
@@ -141,23 +134,17 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   def handle_info({:agent_registered, metadata}, socket) do
     event = %{type: :agent_registered, agent_id: metadata.agent_id, timestamp: DateTime.utc_now()}
     updated_cache = reconcile_agents_cache(socket.assigns.agents_cache)
-    agents = compute_connected_agents(updated_cache)
 
     {:noreply,
      socket
-     |> assign(:agents_cache, updated_cache)
-     |> assign(:agents, agents)
-     |> assign(:cluster_health, build_cluster_health(socket.assigns.gateways, agents))
+     |> assign_agents(updated_cache)
      |> update(:events, fn events -> [event | Enum.take(events, 49)] end)}
   end
 
   def handle_info({:agent_disconnected, agent_id}, socket) do
     event = %{type: :agent_disconnected, agent_id: agent_id, timestamp: DateTime.utc_now()}
 
-    {:noreply,
-     socket
-     |> assign(:agents, socket.assigns.agents)
-     |> update(:events, fn events -> [event | Enum.take(events, 49)] end)}
+    {:noreply, update(socket, :events, fn events -> [event | Enum.take(events, 49)] end)}
   end
 
   def handle_info({:gateway_registered, gateway_info}, socket) do
@@ -173,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         Map.put(socket.assigns.gateways_cache, instance_key, gateway)
 
       gateways = compute_gateways(updated_cache)
-      cluster_health = build_cluster_health(gateways, socket.assigns.agents)
+      cluster_health = build_cluster_health(gateways, socket.assigns.agent_count)
 
       {:noreply,
        socket
@@ -186,7 +173,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   def handle_info({:gateway_unregistered, gateway_id, node}, socket) do
     updated_cache = Map.delete(socket.assigns.gateways_cache, gateway_instance_key(gateway_id, node))
     gateways = compute_gateways(updated_cache)
-    cluster_health = build_cluster_health(gateways, socket.assigns.agents)
+    cluster_health = build_cluster_health(gateways, socket.assigns.agent_count)
 
     {:noreply,
      socket
@@ -202,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       |> Map.new()
 
     gateways = compute_gateways(updated_cache)
-    cluster_health = build_cluster_health(gateways, socket.assigns.agents)
+    cluster_health = build_cluster_health(gateways, socket.assigns.agent_count)
 
     {:noreply,
      socket
@@ -216,16 +203,27 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       nil ->
         {:noreply, socket}
 
-      _agent_id ->
+      agent_id ->
+        # Every agent push lands here, in every open tab: update only the
+        # pushing agent's row instead of rebuilding and re-rendering the list.
         updated_cache = upsert_agent_cache_entry(socket.assigns.agents_cache, agent_info)
-        agents = compute_connected_agents(updated_cache)
-        cluster_health = build_cluster_health(socket.assigns.gateways, agents)
+        agent = connected_agent(Map.fetch!(updated_cache, agent_id), System.system_time(:millisecond))
 
-        {:noreply,
-         socket
-         |> assign(:agents_cache, updated_cache)
-         |> assign(:agents, agents)
-         |> assign(:cluster_health, cluster_health)}
+        socket =
+          socket
+          |> assign(:agents_cache, updated_cache)
+          |> stream_insert(:agents, agent)
+
+        socket =
+          if map_size(updated_cache) == socket.assigns.agent_count do
+            socket
+          else
+            socket
+            |> assign(:agent_count, map_size(updated_cache))
+            |> assign(:cluster_health, build_cluster_health(socket.assigns.gateways, map_size(updated_cache)))
+          end
+
+        {:noreply, socket}
     end
   end
 
@@ -239,18 +237,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     refreshed_agents_cache = reconcile_agents_cache(socket.assigns.agents_cache)
 
     gateways = compute_gateways(refreshed_gateways_cache)
-    agents = compute_connected_agents(refreshed_agents_cache)
-    cluster_health = build_cluster_health(gateways, agents)
     job_counts = load_job_counts(socket.assigns.current_scope)
 
     {:noreply,
      socket
      |> assign(:cluster_status, cluster_status)
-     |> assign(:cluster_health, cluster_health)
      |> assign(:gateways_cache, refreshed_gateways_cache)
-     |> assign(:agents_cache, refreshed_agents_cache)
      |> assign(:gateways, gateways)
-     |> assign(:agents, agents)
+     |> assign_agents(refreshed_agents_cache)
      |> assign(:job_counts, job_counts)
      |> assign(:oban_stats, load_oban_stats())}
   end
@@ -305,7 +299,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           />
           <.health_card
             title="Agents"
-            value={length(@agents)}
+            value={@agent_count}
             variant="info"
             icon="hero-cube"
           />
@@ -395,13 +389,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               <div>
                 <div class="text-sm font-semibold">Connected Agents</div>
                 <p class="text-xs text-sr-muted">
-                  {length(@agents)} agent(s) reporting
+                  {@agent_count} agent(s) reporting
                 </p>
               </div>
             </:header>
 
             <.agents_table
-              agents={@agents}
+              agents={@streams.agents}
               expanded={true}
               timezone={@current_scope.user.timezone || "Etc/UTC"}
             />
@@ -611,7 +605,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     """
   end
 
-  attr(:agents, :list, required: true)
+  attr(:agents, :any, required: true, doc: "the `:agents` stream")
   attr(:expanded, :boolean, default: false)
   attr(:timezone, :string, required: true)
 
@@ -629,14 +623,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             <th :if={@expanded}>Services</th>
           </tr>
         </thead>
-        <tbody>
-          <tr :if={@agents == []}>
+        <tbody id="cluster-agents" phx-update="stream">
+          <tr id="cluster-agents-empty" class="hidden only:table-row">
             <td colspan={if @expanded, do: 6, else: 2} class="text-center text-sr-muted py-6">
               No agents have pushed status yet
             </td>
           </tr>
-          <%= for agent <- @agents do %>
-            <tr class="hover:bg-sr-subtle/40 cursor-pointer align-top">
+          <%= for {dom_id, agent} <- @agents do %>
+            <tr id={dom_id} class="hover:bg-sr-subtle/40 cursor-pointer align-top">
               <td>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
                   <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}></span>
@@ -731,14 +725,32 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       topologies: status.topologies
     }
   rescue
-    _ -> %{enabled: false, self: Node.self(), connected_nodes: [], node_count: 1, topologies: []}
+    _ -> standalone_status()
   end
 
-  defp build_cluster_health(gateways, agents) do
+  defp build_cluster_health(gateways, agent_count) when is_integer(agent_count) do
     %{
       gateway_count: length(gateways),
-      agent_count: length(agents)
+      agent_count: agent_count
     }
+  end
+
+  # Replaces the whole agent stream from the cache: mount, refresh, and
+  # registration events. Per-agent heartbeats use stream_insert instead.
+  defp assign_agents(socket, agents_cache) do
+    agent_count = map_size(agents_cache)
+
+    socket
+    |> assign(:agents_cache, agents_cache)
+    |> assign(:agent_count, agent_count)
+    |> assign(:cluster_health, build_cluster_health(socket.assigns.gateways, agent_count))
+    |> stream(:agents, compute_connected_agents(agents_cache), reset: true)
+  end
+
+  defp agent_dom_id(agent), do: "cluster-agent-#{dom_id_segment(agent.agent_id)}"
+
+  defp standalone_status do
+    %{enabled: false, self: Node.self(), connected_nodes: [], node_count: 1, topologies: []}
   end
 
   defp logical_gateway_count(gateways) do
@@ -1050,9 +1062,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     agents_cache
     |> Map.values()
-    |> Enum.map(&Map.put(&1, :active, agent_active?(&1, now_ms)))
+    |> Enum.map(&connected_agent(&1, now_ms))
     |> Enum.sort_by(& &1.agent_id)
   end
+
+  defp connected_agent(agent, now_ms), do: Map.put(agent, :active, agent_active?(agent, now_ms))
 
   defp agent_active?(agent, now_ms) do
     last_seen_ms = agent_last_seen_ms(agent)
