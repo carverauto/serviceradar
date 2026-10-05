@@ -504,17 +504,19 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
             "id" => "arrow",
             "status" => "ok",
             "encoding" => "arrow_ipc",
-            "results" => [],
-            "schema" => %{"columns" => ["id"]}
+            "payload_transport" => "channel_binary"
           }
         ],
         "pending_binary_frame_ids" => ["arrow"]
       }
 
-      assert_push "frame:binary", %{
-        frame_id: "arrow",
-        payload: <<_magic::binary-size(4), _header_length::unsigned-big-integer-size(32), _rest::binary>>
-      }
+      assert_push "frame:binary", {:binary, frame}
+      assert <<"DFB1", id_size::unsigned-integer-size(16), metadata_size::unsigned-integer-size(32),
+               rest::binary>> = frame
+      assert <<id::binary-size(id_size), metadata::binary-size(metadata_size), payload::binary>> = rest
+      assert id == "arrow"
+      assert Jason.decode!(metadata)["byte_length"] == byte_size("arrow bytes")
+      assert payload == "arrow bytes"
     end
 
     test "recovers from refresh failure and resumes streaming on subsequent ticks", %{user: user, scope: scope} do
@@ -523,17 +525,39 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       create_stream_dashboard_instance!(route_slug, data_frames, scope)
       token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
-      Application.put_env(:serviceradar_web_ng, :dashboard_frame_flaky_mode, :error)
-
       assert {:ok, _reply, socket} =
                UserSocket
                |> socket("user-id", %{current_user: user, current_scope: scope})
                |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
 
-      assert_push "frames:error", %{"reason" => "frame_stream_unavailable"}
+      assert_push "frames:replace", %{
+        "frames" => [
+          %{"id" => "flaky", "status" => "ok", "results" => [%{"id" => "row-good", "value" => 13}]}
+        ]
+      }
+
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_flaky_mode, :error)
+
+      ref = push(socket, "frames:refresh", %{})
+      assert_reply ref, :ok, %{}, 100
+
+      assert_push "frames:replace", %{
+        "frames" => [
+          %{
+            "id" => "flaky",
+            "status" => "error",
+            "error" => ":flaky_error",
+            "stale" => true,
+            "stale_reason" => ":flaky_error",
+            "results" => [%{"id" => "row-good", "value" => 13}]
+          }
+        ]
+      }
 
       Application.put_env(:serviceradar_web_ng, :dashboard_frame_flaky_mode, :ok)
-      send(socket.channel_pid, :dashboard_frame_tick)
+
+      ref = push(socket, "frames:refresh", %{})
+      assert_reply ref, :ok, %{}, 100
 
       assert_push "frames:replace", %{
         "frames" => [
@@ -551,48 +575,39 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
 
       data_frames = [
-        %{"id" => "initial", "query" => "in:test_rows", "encoding" => "json_rows", "defer" => false},
-        %{"id" => "deferred", "query" => "in:test_optional_rows", "encoding" => "json_rows", "defer" => true}
+        %{"id" => "initial", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1},
+        %{
+          "id" => "deferred",
+          "query" => "in:test_optional_rows",
+          "encoding" => "json_rows",
+          "limit" => 1,
+          "required" => false
+        }
       ]
 
       create_stream_dashboard_instance!(route_slug, data_frames, scope)
-      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, ["deferred"])
 
       assert {:ok, _reply, _socket} =
                UserSocket
                |> socket("user-id", %{current_user: user, current_scope: scope})
                |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
 
-      assert_push "frames:replace", %{"frames" => [%{"id" => "initial"}]}
-      refute_push "frames:replace", %{"frames" => [%{"id" => "deferred"}]}, 100
+      assert_push "frames:replace", %{"frames" => [%{"id" => "initial", "status" => "ok"}]}
 
-      assert_push "frames:replace", %{"frames" => [%{"id" => "deferred"}]}, 1_000
+      assert_push "frames:replace", %{
+        "frames" => [
+          %{"id" => "initial", "status" => "ok"},
+          %{"id" => "deferred", "status" => "ok"}
+        ]
+      }
     end
 
-    test "cached frames return immediately on join", %{user: user, scope: scope} do
-      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
-      data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
-      create_stream_dashboard_instance!(route_slug, data_frames, scope)
-
-      DashboardFrameChannel.put_cached_frames(route_slug, [
-        %{"id" => "rows", "results" => [%{"id" => "cached-1"}], "status" => "ok"}
-      ])
-
-      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
-
-      assert {:ok, %{"refresh_interval_ms" => 15_000}, _socket} =
-               UserSocket
-               |> socket("user-id", %{current_user: user, current_scope: scope})
-               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
-
-      assert_push "frames:replace", %{"frames" => [%{"id" => "rows", "results" => [%{"id" => "cached-1"}]}]}
-    end
-
-    test "executes query outside the channel process and handles timeouts", %{user: user, scope: scope} do
+    test "frame queries run outside the channel process", %{user: user, scope: scope} do
       Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
 
       route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
-      data_frames = [%{"id" => "slow", "query" => "in:test_slow_rows", "encoding" => "json_rows", "timeout_ms" => 50}]
+      data_frames = [%{"id" => "slow", "query" => "in:test_slow_rows", "encoding" => "json_rows", "limit" => 1}]
       create_stream_dashboard_instance!(route_slug, data_frames, scope)
       token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
@@ -601,17 +616,14 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
                |> socket("user-id", %{current_user: user, current_scope: scope})
                |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
 
-      assert_receive {:srql_query_started, "in:test_slow_rows", query_runner_pid}
-      assert query_runner_pid != socket.channel_pid
+      assert_receive {:srql_query_started, "in:test_slow_rows", query_pid}
+      assert query_pid != socket.channel_pid
+
+      send(query_pid, :release_dashboard_frame_query)
 
       assert_push "frames:replace", %{
         "frames" => [
-          %{
-            "id" => "slow",
-            "status" => "error",
-            "error" => "query_timeout",
-            "results" => []
-          }
+          %{"id" => "slow", "status" => "ok", "results" => [%{"id" => "row-slow", "value" => 11}]}
         ]
       }
     end
