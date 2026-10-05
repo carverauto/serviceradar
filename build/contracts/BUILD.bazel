@@ -181,5 +181,9 @@ py_test(
     name = "release_package_workflow_test",
     size = "small",
     srcs = ["release_package_workflow_test.py"],
-    data = ["//:.github/workflows/release.yml"],
+    data = [
+        "//:.github/workflows/image-security.yml",
+        "//:.github/workflows/release.yml",
+    ],
+    deps = ["@pyyaml//:yaml"],
 )

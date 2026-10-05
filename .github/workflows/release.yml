@@ -1067,11 +1067,50 @@ jobs:
           echo "Verified Linux amd64/arm64 packages and runtimes, macOS ARM64 installer, and signed agent manifest."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
+  image-security-dispatch:
+    needs: publish
+    if: ${{ needs.publish.outputs.dry_run != 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch missing image security scan
+        env:
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_ID: ${{ needs.publish.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_ID}" =~ ^[0-9]+$ || ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid published release identity; refusing image scan dispatch" >&2
+            exit 1
+          fi
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
+          if ! jq -e --arg tag "${RELEASE_TAG}" --argjson id "${RELEASE_ID}" \
+            '.id == $id and .tag_name == $tag and .draft == true' <<<"${release}" >/dev/null; then
+            echo "Expected matching draft release before image scan dispatch" >&2
+            exit 1
+          fi
+          bundle="serviceradar-image-security-${RELEASE_TAG}.tar.gz"
+          count="$(jq --arg name "${bundle}" '[.assets[]? | select(.name == $name and (.size // 0) > 0)] | length' <<<"${release}")"
+          if [[ "${count}" == "1" ]]; then
+            echo "Image security bundle already present for ${RELEASE_TAG}; preserving it."
+            exit 0
+          elif [[ "${count}" != "0" ]]; then
+            echo "Duplicate image security bundles; refusing release dispatch" >&2
+            exit 1
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/image-security.yml/dispatches" \
+            -f "ref=${RELEASE_TAG}" -f "inputs[tag]=${RELEASE_TAG}"
+          echo "Dispatched image security scan for published images at ${RELEASE_TAG}."
+
   # Keep release finalization off the privileged signing pool. Catalog and security
   # workflows attach assets in parallel; this job waits until every required upload
   # is visible before making the draft immutable.
   finalize:
-    needs: publish
+    needs: [publish, image-security-dispatch]
     if: ${{ needs.publish.outputs.dry_run != 'true' && needs.publish.outputs.draft != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
@@ -1166,6 +1205,7 @@ jobs:
 
           echo "Timed out waiting for required parallel assets on ${RELEASE_TAG}: ${last_state}" >&2
           echo "Release ${RELEASE_TAG} remains a draft; refusing finalization and demo branch advancement." >&2
+          echo "Recovery: rerun Image Security Scan for ${RELEASE_TAG}, then rerun failed release jobs. Never re-tag the release." >&2
           exit 1
 
       - name: Finalize GitHub release
