@@ -1476,7 +1476,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             'OSFamily: "linux"',
             'Arch: "amd64"',
             'dockerNetwork: "bridge"',
-            'memory: "36GB"',
+            'memory: "40GB"',
             'disk: "40GB"',
         ):
             self.assertIn(required, action)

@@ -250,7 +250,7 @@ confused:
 | `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/mnt/buildbuddy/cache` | build actions |
 | `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 72Gi | `/mnt/buildbuddy/cache-workflows` | the CI runner |
 
-The fleet is sized for two concurrent runs of BazelCI (36GB each,
+The fleet is sized for two concurrent runs of BazelCI (40GB each,
 measured — see `values-workflows.yaml`); an unmeasured benchmark action still requests 50GB
 and fits alone. Putting this on the build fleet means either it cannot be placed (16Gi
 advertised) or, if you size the build fleet up, one runner reserves 72Gi on all three pods and
@@ -429,7 +429,7 @@ kubectl logs -n buildbuddy <pod> | grep "Initialized task scheduler"
 | fleet | `limits.memory` | advertised | largest task |
 |---|---|---|---|
 | build | 32Gi = 34,359,738,368 | 24,359,738,368 (22.7 GiB, limits − 10e9) | 22 GiB |
-| workflows | 80Gi = 85,899,345,920 | 85,899,345,920 (80 GiB, full limit — no reduction, measured 2026-09-27) | 36 GiB |
+| workflows | 80Gi = 85,899,345,920 | 85,899,345,920 (80 GiB, full limit — no reduction, measured 2026-09-27) | 40 GiB |
 
 The build fleet still advertises `limits` minus a flat 10 GB; the workflows fleet does not
 reduce at all as of the 2026-09-27 resize (farm01's 56Gi workflow fleet likewise advertises its
@@ -445,7 +445,7 @@ suffix — `"14GB"` produced a VM BuildBuddy described as "15.03GB total", which
 decimal. And raising `requests` alone never helps task placement; raise `limits`, then re-read
 the log line.
 
-The runner genuinely needs ~36GB, so the fix was the second-deployment alternative rather than
+The runner genuinely needs ~40GB, so the fix was the second-deployment alternative rather than
 a pool rename: `pool: "workflows"` in `buildbuddy.yaml` against the dedicated fleet in
 `values-workflows.yaml`. See "Two fleets" above. `build/rbe/BUILD` is deliberately **not**
 touched — it sets no `Pool`, so build actions keep going to the default pool.
@@ -498,7 +498,7 @@ live there and are shared by every Bazel server on the pod; the third deliberate
 | `--disk_cache` | `/home/buildbuddy/bazel-disk-cache` on each runner's rootfs | no -- one overlay per container | no -- outside the workspace bind |
 
 The disk cache cannot be shared because one executor pod hosts several Bazel servers at
-once. Two concurrent 36GB runs fit its memory limits (the whole point of the 80Gi sizing),
+once. Two concurrent 40GB runs exactly fill its 80GiB advertisement (the whole point of the 80Gi sizing),
 and every parked recycled runner keeps a resident Bazel server (`startup --max_idle_secs=0`),
 idle but alive until its next task or eviction. With `--experimental_disk_cache_gc_max_size`
 set, **each** of those servers runs its own disk-cache GC as an idle task after
@@ -545,7 +545,7 @@ extra directory is harmless -- the init container chowns the `/bazel-caches` par
 pre-fix checkout that still asks for `/bazel-cache/disk` can create it.
 
 **farm01 is unaffected.** Its three workflow replicas (56Gi limits, ~46Gi assignable) each
-fit only one 36GB run, so the two-active-runs case never occurs there -- but they park
+fit only one 40GB run, so the two-active-runs case never occurs there -- but they park
 recycled runners exactly the same way, so the idle-GC race was latent on farm01 too and the
 same per-runner cache closes it. No farm01 values change is needed.
 
