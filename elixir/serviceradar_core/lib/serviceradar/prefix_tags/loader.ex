@@ -25,6 +25,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   # Re-emit snapshot age/freshness even when reloads fail so last-value gauges
   # age and sources without a durable timestamp remain observable.
   @snapshot_age_tick_ms 60_000
+  @default_task_supervisor ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
 
   @load_active_sql """
   SELECT DISTINCT source FROM platform.prefix_tag_snapshots WHERE is_active = TRUE ORDER BY source
@@ -149,9 +150,18 @@ defmodule ServiceRadar.PrefixTags.Loader do
     name = Keyword.get(opts, :name, __MODULE__)
     reload_runner = Keyword.get(opts, :reload_runner, &execute_reload/2)
 
+    task_supervisor =
+      Keyword.get(opts, :task_supervisor) ||
+        Application.get_env(
+          :serviceradar_core,
+          :prefix_tags_loader_task_supervisor,
+          @default_task_supervisor
+        )
+
     state = %{
       name: name,
       reload_runner: reload_runner,
+      task_supervisor: task_supervisor,
       loaded_at: nil,
       sources: %{},
       last_error: nil,
@@ -307,20 +317,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
     task_input_state = Map.drop(state, [:reload_task, :reload_target, :waiters])
 
     task =
-      Task.async(fn ->
-        try do
-          runner.(task_input_state, target)
-        rescue
-          e ->
-            msg = Exception.message(e)
-            Logger.warning("PrefixTags.Loader reload failed: #{msg}", source: inspect(target))
-            {Map.put(task_input_state, :last_error, msg), {:error, msg}}
-        catch
-          :exit, reason ->
-            msg = inspect(reason)
-            Logger.warning("PrefixTags.Loader reload exited: #{msg}", source: inspect(target))
-            {Map.put(task_input_state, :last_error, msg), {:error, reason}}
-        end
+      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+        runner.(task_input_state, target)
       end)
 
     waiters = if from, do: [{from, target} | state.waiters], else: state.waiters

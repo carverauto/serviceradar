@@ -18,11 +18,13 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   @anomaly_runtime_override_keys ~w(n_sigma window_size confirm_slots min_samples)
   @cache_key {__MODULE__, :settings}
   @default_refresh_ms 30_000
+  @default_task_supervisor ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
   defstruct [
     :anomaly_fetcher,
     :forecast_fetcher,
     :refresh_interval_ms,
     :refresh_task,
+    :task_supervisor,
     waiters: []
   ]
 
@@ -141,6 +143,14 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
 
   @impl true
   def init(opts) do
+    task_supervisor =
+      Keyword.get(opts, :task_supervisor) ||
+        Application.get_env(
+          :serviceradar_core,
+          :anomaly_config_runtime_task_supervisor,
+          @default_task_supervisor
+        )
+
     state = %__MODULE__{
       anomaly_fetcher: Keyword.get(opts, :anomaly_fetcher, &fetch_anomaly_settings/1),
       forecast_fetcher: Keyword.get(opts, :forecast_fetcher, &fetch_forecast_settings/1),
@@ -152,10 +162,22 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
             @default_refresh_ms
           ),
       refresh_task: nil,
+      task_supervisor: task_supervisor,
       waiters: []
     }
 
-    cache = compute_cache(state.anomaly_fetcher, state.forecast_fetcher)
+    cache =
+      try do
+        compute_cache(state.anomaly_fetcher, state.forecast_fetcher)
+      rescue
+        error ->
+          Logger.warning("Failed to refresh anomaly config runtime cache on init",
+            reason: Exception.message(error)
+          )
+
+          normalize_cache(%{})
+      end
+
     :persistent_term.put(@cache_key, cache)
     schedule_refresh(state)
 
@@ -191,10 +213,9 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{refresh_task: %Task{ref: ref}} = state) do
     Logger.warning("AnomalyConfigRuntime refresh task died", reason: inspect(reason))
-    current_cache = cache()
 
     for waiter <- Enum.reverse(state.waiters) do
-      GenServer.reply(waiter, {:ok, current_cache})
+      GenServer.reply(waiter, {:error, reason})
     end
 
     schedule_refresh(state)
@@ -207,7 +228,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
     fetchers = {state.anomaly_fetcher, state.forecast_fetcher}
 
     task =
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
         compute_cache(elem(fetchers, 0), elem(fetchers, 1))
       end)
 
@@ -274,13 +295,6 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
       seasonal_disposition_opts: seasonal_disposition_opts,
       refreshed_at_ms: System.monotonic_time(:millisecond)
     })
-  rescue
-    error ->
-      Logger.warning("Failed to refresh anomaly config runtime cache",
-        reason: Exception.message(error)
-      )
-
-      cache()
   end
 
   defp fetch_anomaly_settings(actor) do

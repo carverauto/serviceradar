@@ -31,6 +31,16 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
         :ok
     end
 
+    task_sup = ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
+
+    case Process.whereis(task_sup) do
+      nil ->
+        start_supervised!({Task.Supervisor, name: task_sup})
+
+      _pid ->
+        :ok
+    end
+
     on_exit(fn ->
       Store.clear()
       Loader.clear_status_for_test()
@@ -318,5 +328,44 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
 
     # Reload completes successfully
     assert :ok = Task.await(reload_task, 2_000)
+  end
+
+  test "when reload raises, server stays up, readers keep previous snapshot, and callers get error reply" do
+    test_pid = self()
+
+    exploding_runner = fn _state, _target ->
+      send(test_pid, :runner_called)
+      raise RuntimeError, "prefix tags reload exploded"
+    end
+
+    loader_name = :prefix_tags_crash_recovery_test
+
+    pid =
+      start_supervised!(
+        {Loader, load_on_init: false, name: loader_name, reload_runner: exploding_runner},
+        id: loader_name
+      )
+
+    :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+    Loader.put_status_for_test(:sys.get_state(pid))
+    Store.put_rows("manual", [%{prefix: "192.0.2.0/24", tags: ["role:stable"], source: "manual"}])
+
+    assert {:ok, [%{tags: ["role:stable"]}]} = Preview.local_lookup("192.0.2.1")
+
+    reload_task = Task.async(fn -> GenServer.call(pid, {:reload, "manual"}) end)
+
+    assert_receive :runner_called, 1_000
+
+    assert {:error, reason} = Task.await(reload_task, 2_000)
+    assert inspect(reason) =~ "prefix tags reload exploded"
+
+    assert Process.alive?(pid)
+
+    assert {:ok, [%{tags: ["role:stable"]}]} = Preview.local_lookup("192.0.2.1")
+    assert [%{tags: ["role:stable"]}] = Store.lookup("192.0.2.1", "manual")
+
+    status = Loader.status(pid)
+    assert status.initial_boot_complete? == true
+    assert status.last_error =~ "prefix tags reload exploded"
   end
 end
