@@ -23,14 +23,16 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                credentials: %{secret_key: "secret"}
              })
 
-    assert {:error, :missing_credentials} =
+    assert {:error, {:missing_credentials, detail}} =
              ArmisNorthboundRunner.northbound_ready?(%{
                northbound_enabled: true,
                endpoint: "https://armis.example",
                custom_fields: ["availability"]
              })
 
-    assert {:error, :missing_credentials} =
+    assert detail =~ "credential_secret_id"
+
+    assert {:error, {:missing_credentials, _detail}} =
              ArmisNorthboundRunner.northbound_ready?(%{
                northbound_enabled: true,
                endpoint: "https://armis.example",
@@ -45,6 +47,57 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                custom_fields: ["availability"],
                credentials: %{secret_key: "secret"}
              })
+  end
+
+  test "northbound_ready? accepts a source bound to a network credential secret" do
+    # The unified credential model stores the Armis secret off the source row;
+    # a bound secret is a present credential even though the legacy
+    # credentials map is empty.
+    assert :ok =
+             ArmisNorthboundRunner.northbound_ready?(%{
+               id: "7b1e9a2c-0000-4000-8000-000000000001",
+               northbound_enabled: true,
+               endpoint: "https://armis.example",
+               custom_fields: ["availability"],
+               credential_secret_id: "7b1e9a2c-0000-4000-8000-000000000002",
+               credentials: %{}
+             })
+  end
+
+  test "resolve_run_credentials/2 falls back to the source's legacy credentials" do
+    source = %{credentials: %{secret_key: "legacy-secret"}}
+
+    assert {:ok, %{secret_key: "legacy-secret"}} =
+             ArmisNorthboundRunner.resolve_run_credentials(source)
+  end
+
+  test "resolve_run_credentials/2 resolves a bound secret through the injected resolver" do
+    source = %{credential_secret_id: "7b1e9a2c-0000-4000-8000-000000000003", credentials: %{}}
+
+    resolver = fn bound, _opts ->
+      assert bound == source
+      {:ok, %{"secret_key" => "broker-resolved-secret"}}
+    end
+
+    assert {:ok, %{"secret_key" => "broker-resolved-secret"}} =
+             ArmisNorthboundRunner.resolve_run_credentials(source,
+               credential_resolver: resolver
+             )
+  end
+
+  test "the missing-credential error names the source and both bindings" do
+    assert {:error, {:missing_credentials, detail}} =
+             ArmisNorthboundRunner.northbound_ready?(%{
+               id: "7b1e9a2c-0000-4000-8000-000000000004",
+               northbound_enabled: true,
+               endpoint: "https://armis.example",
+               custom_fields: ["availability"],
+               credentials: %{}
+             })
+
+    assert detail =~ "7b1e9a2c-0000-4000-8000-000000000004"
+    assert detail =~ "credential_secret_id"
+    assert detail =~ "store credentials"
   end
 
   describe "composite_export/1" do
@@ -575,7 +628,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     ]
 
     assert {:error, result} = ArmisNorthboundRunner.execute_batches(source, candidates)
-    assert result.errors == [%{reason: :missing_secret_key}]
+
+    # The reason names where the credentials came from, so an operator knows
+    # which binding to fix.
+    assert [%{reason: {:missing_secret_key, "the source's stored credentials"}}] = result.errors
   end
 
   test "execute_batches posts inverted sample availability data to a fake Armis bulk endpoint" do
