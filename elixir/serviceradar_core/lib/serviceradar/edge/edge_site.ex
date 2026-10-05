@@ -64,7 +64,15 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
+
+    destroy :destroy do
+      description "Delete the site and its NATS leaf server"
+      primary? true
+      # The nats_leaf_servers FK has no ON DELETE; remove the leaf server first.
+      require_atomic? false
+      change cascade_destroy(:nats_leaf_server, after_action?: false)
+    end
 
     read :by_slug do
       description "Find edge site by slug"
@@ -126,16 +134,19 @@ defmodule ServiceRadar.Edge.EdgeSite do
     update :activate do
       description "Mark site as active (leaf connected)"
       accept []
+      change transition_state(:active)
     end
 
     update :go_offline do
       description "Mark site as offline (leaf disconnected)"
       accept []
+      change transition_state(:offline)
     end
 
     update :come_online do
       description "Mark site as back online"
       accept []
+      change transition_state(:active)
     end
 
     update :touch do

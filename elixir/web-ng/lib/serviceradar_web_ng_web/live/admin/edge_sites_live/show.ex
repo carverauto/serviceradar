@@ -4,12 +4,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
-  alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadarWebNG.Capabilities
-  alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator
+  alias ServiceRadarWebNG.Edge.EdgeSiteBundles
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -51,16 +49,17 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     site = socket.assigns.site
     leaf_server = socket.assigns.leaf_server
 
-    case generate_bundle(site, leaf_server) do
-      {:ok, tarball} ->
-        filename = EdgeSiteBundleGenerator.bundle_filename(site)
-
+    case EdgeSiteBundles.build(site, leaf_server) do
+      {:ok, tarball, filename} ->
         {:noreply,
          push_event(socket, "download", %{
            filename: filename,
            content: Base.encode64(tarball),
            content_type: "application/gzip"
          })}
+
+      {:error, :leaf_not_ready} ->
+        {:noreply, put_flash(socket, :error, "The NATS leaf server is not provisioned yet")}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to generate bundle: #{inspect(reason)}")}
@@ -544,107 +543,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     leaf_server
     |> Ash.Changeset.for_update(:reprovision, %{})
     |> Ash.update(scope: scope)
-  end
-
-  defp generate_bundle(site, leaf_server) do
-    with {:ok, direct_leaf_identities} <- get_direct_leaf_identities(site.id),
-         {:ok, nats_creds} <- get_nats_creds(),
-         {:ok, leaf_key_pem} <- decrypt_leaf_key(leaf_server),
-         {:ok, server_key_pem} <- decrypt_server_key(leaf_server) do
-      EdgeSiteBundleGenerator.create_tarball(
-        site,
-        leaf_server,
-        nats_creds,
-        leaf_key_pem: leaf_key_pem,
-        server_key_pem: server_key_pem,
-        direct_leaf_identities: direct_leaf_identities
-      )
-    end
-  end
-
-  defp get_direct_leaf_identities(site_id) do
-    actor = SystemActor.system(:edge_site_bundle_generator)
-
-    query =
-      AddonAssignment
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(edge_site_id == ^site_id and enabled == true)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, assignments} ->
-        {:ok,
-         assignments
-         |> Enum.filter(&direct_leaf_assignment?/1)
-         |> Enum.map(&direct_leaf_identity/1)
-         |> Enum.reject(&is_nil/1)}
-
-      {:error, reason} ->
-        {:error, {:direct_leaf_identity_read_failed, reason}}
-    end
-  end
-
-  defp direct_leaf_assignment?(assignment) do
-    direct_backend?(assignment.params) and
-      assignment.direct_access_status in [:pending, :ready] and
-      is_binary(assignment.direct_identity_component_id) and
-      is_binary(assignment.direct_identity_partition_id) and
-      is_map(assignment.direct_subject_scope)
-  end
-
-  defp direct_backend?(params) when is_map(params) do
-    output = Map.get(params, :output) || Map.get(params, "output") || %{}
-    backend = Map.get(output, :backend) || Map.get(output, "backend")
-    backend in [:jetstream, "jetstream"]
-  end
-
-  defp direct_backend?(_params), do: false
-
-  defp direct_leaf_identity(assignment) do
-    %{
-      component_id: assignment.direct_identity_component_id,
-      partition_id: assignment.direct_identity_partition_id,
-      scope: assignment.direct_subject_scope
-    }
-  end
-
-  defp get_nats_creds do
-    # In single-deployment mode, NATS credentials come from environment configuration
-    # In production, these would be provisioned by the control plane
-    nats_jwt = Application.get_env(:serviceradar, :nats_account_jwt)
-
-    creds_content = """
-    -----BEGIN NATS USER JWT-----
-    #{nats_jwt || "PLACEHOLDER_JWT"}
-    ------END NATS USER JWT------
-
-    ************************* IMPORTANT *************************
-    NKEY Seed printed below can be used to sign and prove identity.
-    NKEYs are sensitive and should be treated as secrets.
-
-    -----BEGIN USER NKEY SEED-----
-    PLACEHOLDER_SEED
-    ------END USER NKEY SEED------
-    """
-
-    {:ok, creds_content}
-  end
-
-  defp decrypt_leaf_key(nil), do: {:error, :no_leaf_server}
-
-  defp decrypt_leaf_key(leaf_server) do
-    case leaf_server.leaf_key_pem_ciphertext do
-      nil -> {:error, :no_leaf_key}
-      ciphertext -> ServiceRadar.Vault.decrypt(ciphertext)
-    end
-  end
-
-  defp decrypt_server_key(nil), do: {:error, :no_leaf_server}
-
-  defp decrypt_server_key(leaf_server) do
-    case leaf_server.server_key_pem_ciphertext do
-      nil -> {:error, :no_server_key}
-      ciphertext -> ServiceRadar.Vault.decrypt(ciphertext)
-    end
   end
 
   defp format_relative_time(nil), do: "Never"

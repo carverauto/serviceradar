@@ -133,8 +133,10 @@ web-ng SHALL also expose `GET /api/admin/agents`, which returns
 - the NATS account and credentials routes
 - the edge site routes
 - `GET /api/admin/agents`
+- `GET /api/admin/version`
 
-The CLI device-code flow SHALL be able to request it by default.
+The CLI device-code flow SHALL be able to request it by default, and existing
+`cli_allowed_scopes` rows SHALL gain it through a migration.
 
 #### Scenario: Narrow token reaches edge sites
 - **WHEN** a token scoped only to `edge.manage` calls `GET /api/admin/edge-sites`
@@ -143,3 +145,26 @@ The CLI device-code flow SHALL be able to request it by default.
 #### Scenario: Narrow token cannot reach unrelated routes
 - **WHEN** a token scoped only to `edge.manage` calls `POST /api/admin/plugin-packages`
 - **THEN** the response is 403 `insufficient_scope`
+
+### Requirement: CLI-usable edge package and collector create responses
+`POST /api/admin/edge-packages` SHALL return the signed `edgepkg-v3` token as
+`onboarding_token`. For an agent package with `security_mode` `mtls`, it SHALL
+issue the certificate bundle through an online agent-gateway. If no gateway is
+online, it SHALL answer 503 `gateway_unavailable`. `POST /api/admin/collectors`
+SHALL store the enrollment secret hash and return the signed `collectorpkg-v2`
+token as `enrollment_token`, so the collector bundle can be downloaded.
+
+#### Scenario: Edge package token
+- **WHEN** an authorized caller creates an agent edge package through the API
+- **THEN** the response carries an `edgepkg-v3` `onboarding_token` whose payload names the package and its download token
+
+#### Scenario: Collector enrollment token
+- **WHEN** an authorized caller creates a collector package through the API
+- **THEN** the response carries a `collectorpkg-v2` `enrollment_token` whose secret verifies against the stored hash
+
+### Requirement: Product version endpoint
+web-ng SHALL expose `GET /api/admin/version`, which returns `{"version": <release without a leading v>}` to any authenticated caller.
+
+#### Scenario: Release version
+- **WHEN** `SERVICERADAR_RELEASE_VERSION` is `v1.4.82`
+- **THEN** `GET /api/admin/version` returns `{"version":"1.4.82"}`

@@ -172,6 +172,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :provision do
       description "Mark package as provisioning"
       accept []
+
+      change transition_state(:provisioning)
     end
 
     update :ready do
@@ -182,9 +184,13 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       argument :nats_credential_id, :uuid, allow_nil?: false
       argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
-      argument :tls_cert_pem, :string, allow_nil?: false, sensitive?: true
-      argument :tls_key_pem, :string, allow_nil?: false, sensitive?: true
-      argument :ca_chain_pem, :string, allow_nil?: false, sensitive?: true
+      # TLS material is optional. The collector worker records NATS creds only;
+      # bundle downloads that need a key supply these arguments themselves.
+      argument :tls_cert_pem, :string, sensitive?: true
+      argument :tls_key_pem, :string, sensitive?: true
+      argument :ca_chain_pem, :string, sensitive?: true
+
+      change transition_state(:ready)
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
@@ -196,18 +202,16 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           :nats_credential_id,
           Ash.Changeset.get_argument(changeset, :nats_credential_id)
         )
-        # Store TLS certificate (public - not encrypted)
-        |> Ash.Changeset.change_attribute(
+        |> put_present_attribute(
           :tls_cert_pem,
           Ash.Changeset.get_argument(changeset, :tls_cert_pem)
         )
-        |> Ash.Changeset.change_attribute(
+        |> put_present_attribute(
           :ca_chain_pem,
           Ash.Changeset.get_argument(changeset, :ca_chain_pem)
         )
-        # Encrypt NATS credentials and TLS private key using AshCloak
         |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
-        |> AshCloak.encrypt_and_set(:tls_key_pem_ciphertext, tls_key_pem)
+        |> encrypt_present(:tls_key_pem_ciphertext, tls_key_pem)
         |> AfterAction.after_action(fn package ->
           __MODULE__.broadcast_status_changed(package, old_status, :ready)
         end)
@@ -221,6 +225,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       accept []
 
       argument :error_message, :string
+
+      change transition_state(:failed)
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
@@ -244,6 +250,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       argument :downloaded_by_ip, :string
 
+      change transition_state(:downloaded)
+
       change fn changeset, _context ->
         changeset
         |> Ash.Changeset.change_attribute(:downloaded_at, DateTime.utc_now())
@@ -258,6 +266,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       description "Mark package as installed"
       accept []
 
+      change transition_state(:installed)
       change set_attribute(:installed_at, &DateTime.utc_now/0)
     end
 
@@ -268,6 +277,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       accept []
 
       argument :reason, :string
+
+      change transition_state(:revoked)
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
@@ -476,6 +487,18 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   @doc false
   def broadcast_status_changed(package, old_status, new_status) do
     PubSub.broadcast_package_status_changed(package, old_status, new_status)
+  end
+
+  defp put_present_attribute(changeset, _attribute, nil), do: changeset
+
+  defp put_present_attribute(changeset, attribute, value) do
+    Ash.Changeset.change_attribute(changeset, attribute, value)
+  end
+
+  defp encrypt_present(changeset, _attribute, nil), do: changeset
+
+  defp encrypt_present(changeset, attribute, value) do
+    AshCloak.encrypt_and_set(changeset, attribute, value)
   end
 
   defp revoke_associated_nats_credential(%{nats_credential_id: nil}), do: :ok

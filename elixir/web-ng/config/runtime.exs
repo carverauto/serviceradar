@@ -1638,6 +1638,16 @@ if config_env() == :prod do
       session_config
     end
 
+  # Effective upstream URL new edge-site NATS leaf servers dial. The chart
+  # renders it from hostedRuntime.publicEndpoints.natsLeafHost/natsLeafPort.
+  case System.get_env("SERVICERADAR_NATS_LEAF_UPSTREAM_URL") do
+    url when is_binary(url) and url != "" ->
+      config :serviceradar, :nats_leaf_upstream_url, String.trim(url)
+
+    _ ->
+      :ok
+  end
+
   gateway_addr = System.get_env("SERVICERADAR_GATEWAY_ADDR")
   gateway_server_name = System.get_env("SERVICERADAR_GATEWAY_SERVER_NAME")
   agent_release_public_key = System.get_env("SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY")

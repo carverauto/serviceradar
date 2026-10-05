@@ -5,10 +5,73 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Edge.EnrollmentToken
+
+  setup do
+    seed = :crypto.strong_rand_bytes(32)
+    {public_key, _} = :crypto.generate_key(:eddsa, :ed25519, seed)
+    prior_private = Application.get_env(:serviceradar_web_ng, :onboarding_token_private_key)
+    prior_public = Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key)
+
+    Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, Base.encode64(seed))
+    Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, Base.encode64(public_key))
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, prior_private)
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, prior_public)
+    end)
+
+    :ok
+  end
 
   defmodule BrokenCollectorBundleGenerator do
     @moduledoc false
     def create_tarball(_package, _creds, _tls_key, _opts), do: {:error, %{secret: "collector-bundle-secret"}}
+  end
+
+  describe "POST /api/admin/collectors" do
+    setup %{conn: conn} do
+      seed = :crypto.strong_rand_bytes(32)
+      {public_key, _} = :crypto.generate_key(:eddsa, :ed25519, seed)
+      prior_private = Application.get_env(:serviceradar_web_ng, :onboarding_token_private_key)
+      prior_public = Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key)
+      prior_caps = Application.get_env(:serviceradar_web_ng, :runtime_capabilities)
+
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, Base.encode64(seed))
+      Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, Base.encode64(public_key))
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, prior_private)
+        Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, prior_public)
+
+        if prior_caps,
+          do: Application.put_env(:serviceradar_web_ng, :runtime_capabilities, prior_caps),
+          else: Application.delete_env(:serviceradar_web_ng, :runtime_capabilities)
+      end)
+
+      {:ok, token, _claims} =
+        ServiceRadarWebNG.Auth.Guardian.create_access_token(ServiceRadarWebNG.AshTestHelpers.admin_user_fixture())
+
+      %{conn: Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")}
+    end
+
+    test "returns a collectorpkg enrollment token that verifies against the stored hash", %{conn: conn} do
+      if not ServiceRadarWebNG.Capabilities.collectors_enabled?() do
+        Application.put_env(:serviceradar_web_ng, :runtime_capabilities, %{
+          enabled: [:collectors_enabled],
+          configured?: true
+        })
+      end
+
+      body = conn |> post(~p"/api/admin/collectors", %{"collector_type" => "flowgger"}) |> json_response(201)
+
+      assert "collectorpkg-v2:" <> _ = body["enrollment_token"]
+      assert {:ok, decoded} = EnrollmentToken.decode(body["enrollment_token"])
+      assert decoded.package_id == body["id"]
+
+      package = Ash.get!(CollectorPackage, body["id"], actor: system_actor())
+      assert EnrollmentToken.verify_secret(decoded.secret, package.download_token_hash)
+    end
   end
 
   describe "POST /api/admin/collectors/:id/download" do
@@ -17,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
       conn = post(build_conn(), ~p"/api/admin/collectors/#{package.id}/download", %{"download_token" => token})
 
-      assert %{"package" => %{"status" => "delivered"}} = json_response(conn, 200)
+      assert %{"package" => %{"status" => "downloaded"}} = json_response(conn, 200)
     end
 
     test "rejects query-string token fallback", %{conn: _conn} do
@@ -127,7 +190,11 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       Application.put_env(:serviceradar_web_ng, :collector_bundle_generator, BrokenCollectorBundleGenerator)
 
       on_exit(fn ->
-        Application.put_env(:serviceradar_web_ng, :collector_bundle_generator, previous)
+        if is_nil(previous) do
+          Application.delete_env(:serviceradar_web_ng, :collector_bundle_generator)
+        else
+          Application.put_env(:serviceradar_web_ng, :collector_bundle_generator, previous)
+        end
       end)
 
       {package, token} = create_ready_collector_package(:flowgger)
@@ -164,8 +231,6 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
 
   defp create_ready_collector_package(collector_type, overrides \\ %{}) do
     unique = System.unique_integer([:positive])
-    token = "collector-bundle-token-#{unique}"
-    token_hash = :sha256 |> :crypto.hash(token) |> Base.encode16(case: :lower)
 
     attrs =
       %{
@@ -178,20 +243,25 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
     package =
       CollectorPackage
       |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
-      |> Ash.Changeset.set_argument(:token_hash, token_hash)
-      |> Ash.Changeset.set_argument(
-        :token_expires_at,
-        DateTime.add(DateTime.utc_now(), 86_400, :second)
-      )
       |> Ash.create!(actor: system_actor())
+
+    {:ok, {token, token_hash, _secret}} = EnrollmentToken.generate(to_string(package.id))
 
     provisioning_package =
       package
       |> Ash.Changeset.for_update(:provision, %{}, actor: system_actor())
+      |> Ash.Changeset.force_change_attribute(:download_token_hash, token_hash)
+      |> Ash.Changeset.force_change_attribute(
+        :download_token_expires_at,
+        DateTime.add(DateTime.utc_now(), 86_400, :second)
+      )
       |> Ash.update!(actor: system_actor())
 
     credential =
       NatsCredential
+      |> Ash.Changeset.new()
+      |> Ash.Changeset.set_argument(:user_public_key, sample_user_public_key(unique))
+      |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
       |> Ash.Changeset.for_create(
         :create,
         %{
@@ -202,18 +272,17 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
         },
         actor: system_actor()
       )
-      |> Ash.Changeset.set_argument(:user_public_key, sample_user_public_key(unique))
-      |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
       |> Ash.create!(actor: system_actor())
 
     ready_package =
       provisioning_package
-      |> Ash.Changeset.for_update(:ready, %{}, actor: system_actor())
+      |> Ash.Changeset.new()
       |> Ash.Changeset.set_argument(:nats_credential_id, credential.id)
       |> Ash.Changeset.set_argument(:nats_creds_content, sample_nats_creds())
       |> Ash.Changeset.set_argument(:tls_cert_pem, sample_tls_cert())
       |> Ash.Changeset.set_argument(:tls_key_pem, sample_tls_key())
       |> Ash.Changeset.set_argument(:ca_chain_pem, sample_ca_chain())
+      |> Ash.Changeset.for_update(:ready, %{}, actor: system_actor())
       |> Ash.update!(actor: system_actor())
 
     {ready_package, token}

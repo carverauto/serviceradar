@@ -839,6 +839,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     # NATS account & credentials
     get("/nats/account", CollectorController, :account_status)
     get("/nats/credentials", CollectorController, :credentials)
+
+    # Edge sites (NATS leaf servers)
+    get("/edge-sites", EdgeSiteController, :index)
+    post("/edge-sites", EdgeSiteController, :create)
+    get("/edge-sites/:id", EdgeSiteController, :show)
+    delete("/edge-sites/:id", EdgeSiteController, :delete)
+    post("/edge-sites/:id/bundle", EdgeSiteController, :bundle)
+
+    # Read-only edge views for the CLI
+    get("/agents", AdminAgentController, :index)
+    get("/version", ProductVersionController, :show)
   end
 
   ## CLI plugin publish (stage + bundle upload token).
