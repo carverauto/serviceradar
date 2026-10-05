@@ -163,6 +163,9 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
         # The rollup gate probes through the same :query seam every other
         # statement uses, so the stub answers both high-water marks: the view
         # has kept up with the table it aggregates.
+        String.contains?(sql, "information_schema.materialized_views") ->
+          {:ok, %{rows: [["true", "SUCCESS", 15]]}}
+
         sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
           {:ok, %{rows: [["1999-06-15 23:00:00"]], num_rows: 1}}
 
@@ -232,6 +235,9 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
     probe = fn mv_max ->
       fn sql ->
         cond do
+          String.contains?(sql, "information_schema.materialized_views") ->
+            {:ok, %{rows: [["true", "SUCCESS", 15]]}}
+
           sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
             {:ok, %{rows: [[mv_max]], num_rows: 1}}
 
@@ -282,6 +288,9 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
     # staleness; the same gap against the wall clock on an idle dataset is not.
     query = fn sql ->
       cond do
+        String.contains?(sql, "information_schema.materialized_views") ->
+          {:ok, %{rows: [["true", "SUCCESS", 15]]}}
+
         sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
           {:ok, %{rows: [[~N[1999-06-14 00:00:00]]], num_rows: 1}}
 
@@ -313,6 +322,9 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
   test "an idle events dataset keeps reading its rollup" do
     query = fn sql ->
       cond do
+        String.contains?(sql, "information_schema.materialized_views") ->
+          {:ok, %{rows: [["true", "SUCCESS", 15]]}}
+
         sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
           {:ok, %{rows: [[~N[1999-06-15 03:00:00]]], num_rows: 1}}
 

@@ -1,10 +1,24 @@
 defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Analytics.StarRocks.Attribution
+  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.LoadAdmission
+  alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
+  alias ServiceRadar.Analytics.StarRocks.LoadTasks
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
 
   @moduletag :db_free
+
+  setup context do
+    start_supervised!(
+      {LoadSupervisor,
+       max_in_flight: context[:max_in_flight] || 2,
+       wait_timeout_ms: context[:wait_timeout_ms] || 5_000}
+    )
+
+    :ok
+  end
 
   @rows [
     %{"id" => "flow-alpha", "bytes_in" => 1200, "bytes_out" => 80},
@@ -81,6 +95,440 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert_received :put
     refute_received :put
     assert :counters.get(states, 1) == 2
+  end
+
+  # Bounded poll for an expected eventual condition (supervisor restart).
+  # Returns true when fun yields a pid within timeout_ms, false otherwise.
+  defp eventually(fun, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    poll_until(fun, deadline)
+  end
+
+  defp poll_until(fun, deadline) do
+    case fun.() do
+      pid when is_pid(pid) ->
+        true
+
+      _ ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(10)
+          poll_until(fun, deadline)
+        else
+          false
+        end
+    end
+  end
+
+  test "single and split loads from different datasets share admission through redirects" do
+    parent = self()
+
+    http = fn request ->
+      send(parent, {:request, self(), request})
+
+      receive do
+        :redirect ->
+          {:ok, %{status: 307, headers: [{"location", "http://cn.example.com/load"}]}}
+
+        :success ->
+          {:ok,
+           %{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "Status" => "Success",
+                 "NumberLoadedRows" => length(Jason.decode!(request.body)),
+                 "NumberFilteredRows" => 0
+               })
+           }}
+      after
+        5_000 -> flunk("synthetic HTTP adapter was not released")
+      end
+    end
+
+    load = fn dataset, rows, options ->
+      Task.async(fn ->
+        Destination.persist_warehouse(
+          dataset,
+          rows,
+          Keyword.merge([http: http], options)
+        )
+      end)
+    end
+
+    logs =
+      load.(:logs, [%{id: "log-first", timestamp: ~U[2000-01-01 00:00:00Z], body: "first"}], [])
+
+    metrics =
+      load.(:metrics, [%{timestamp: ~U[2000-01-01 00:00:00Z], metric_name: "cpu", value: 1}], [])
+
+    assert_receive {:request, first, _}, 1_000
+    assert_receive {:request, second, _}, 1_000
+
+    split =
+      load.(
+        :logs,
+        [
+          %{id: "log-second", timestamp: ~U[2000-01-01 00:00:00Z], body: "second"},
+          %{id: "log-third", timestamp: ~U[2000-01-01 00:00:00Z], body: "third"}
+        ],
+        stream_load: [max_rows: 1]
+      )
+
+    refute_receive {:request, _, _}, 100
+    send(first, :redirect)
+    assert_receive {:request, ^first, %{url: "http://cn.example.com/load"}}, 1_000
+    refute_receive {:request, _, _}, 100
+    send(first, :success)
+    assert_receive {:request, third, _}, 1_000
+    refute_receive {:request, _, _}, 100
+    send(second, :success)
+    assert_receive {:request, fourth, _}, 1_000
+    send(third, :success)
+    send(fourth, :success)
+    assert {:ok, %{loaded: 1}} = Task.await(logs)
+    assert {:ok, %{loaded: 1}} = Task.await(metrics)
+    assert {:ok, %{loaded: 2, loads: 2}} = Task.await(split)
+  end
+
+  @tag wait_timeout_ms: 100
+  test "waiting work times out without leaking a late admission, and caller death releases capacity" do
+    parent = self()
+
+    http = fn _request ->
+      send(parent, {:blocked, self()})
+
+      receive do
+        :fail -> {:error, :timeout}
+      after
+        5_000 -> flunk("synthetic HTTP adapter was not released")
+      end
+    end
+
+    # Use unlinked callers: killing one simulates cancellation of an in-flight load.
+    first = spawn(fn -> StreamLoad.persist("logs", @rows, http: http) end)
+    second = spawn(fn -> StreamLoad.persist("otel_metrics", @rows, http: http) end)
+    assert_receive {:blocked, _first_worker}
+    assert_receive {:blocked, _second_worker}
+    max_bytes = Destination.stream_load_limits()[:max_bytes]
+
+    assert {:error, :load_admission_full} =
+             LoadAdmission.run(max_bytes * 2 + 1, fn ->
+               flunk("over-budget waiter must never start transport work")
+             end)
+
+    assert {:error, :load_admission_timeout} =
+             StreamLoad.persist("otel_traces", @rows, http: http)
+
+    Process.exit(first, :kill)
+    Process.exit(second, :kill)
+
+    successful = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: successful)
+    refute_receive {:blocked, _}, 150
+  end
+
+  test "exceptions and transport errors release shared capacity" do
+    for _ <- 1..3 do
+      assert_raise RuntimeError, "synthetic exception", fn ->
+        StreamLoad.persist("logs", @rows, http: fn _ -> raise "synthetic exception" end)
+      end
+
+      assert {:error, {:disconnected, _}} =
+               StreamLoad.persist("logs", @rows, http: fn _ -> {:error, :disconnected} end)
+    end
+  end
+
+  test "an admission restart stops outstanding HTTP workers before admitting new loads" do
+    parent = self()
+
+    http = fn _ ->
+      send(parent, {:active_load, self()})
+
+      receive do
+        :unexpected -> flunk("old HTTP worker must be stopped on restart")
+      after
+        5_000 -> flunk("old HTTP worker survived the admission restart")
+      end
+    end
+
+    for _ <- 1..2, do: spawn(fn -> StreamLoad.persist("logs", @rows, http: http) end)
+    assert_receive {:active_load, first}, 1_000
+    assert_receive {:active_load, second}, 1_000
+    first_ref = Process.monitor(first)
+    second_ref = Process.monitor(second)
+    Process.exit(Process.whereis(LoadAdmission), :kill)
+    assert_receive {:DOWN, ^first_ref, :process, ^first, _}, 1_000
+    assert_receive {:DOWN, ^second_ref, :process, ^second, _}, 1_000
+    # A supervisor call completes after its current restart callback finishes.
+    assert length(Supervisor.which_children(LoadSupervisor)) == 2
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
+  test "restart during HTTP cancels the load and returns a retryable error" do
+    parent = self()
+
+    # Models the default HTTP adapter: traps the supervisor shutdown, cancels
+    # the physical request, then exits with the shutdown reason.
+    cancelling_http = fn _ ->
+      send(parent, {:in_flight_cancelling, self()})
+      previous = Process.flag(:trap_exit, true)
+
+      try do
+        receive do
+          {:EXIT, _pid, reason} ->
+            send(parent, :http_cancelled)
+            exit(reason)
+        after
+          5_000 -> flunk("cancelled HTTP worker was not stopped")
+        end
+      after
+        Process.flag(:trap_exit, previous)
+      end
+    end
+
+    # A worker that cannot trap the shutdown dies with it. Its caller must
+    # still observe the retryable error: the admitted worker is unlinked, so
+    # the shutdown never propagates through a link to the caller.
+    blocking_http = fn _ ->
+      send(parent, {:in_flight_blocking, self()})
+
+      receive do
+        :unexpected -> flunk("old HTTP worker must be stopped on restart")
+      after
+        5_000 -> flunk("old HTTP worker survived the admission restart")
+      end
+    end
+
+    # Normal callers: trap_exit stays false, so a linked supervisor shutdown
+    # would kill them instead of returning the retryable error below.
+    cancelling_caller =
+      spawn(fn ->
+        send(
+          parent,
+          {:caller_result, StreamLoad.persist("logs", @rows, http: cancelling_http)}
+        )
+      end)
+
+    blocking_caller =
+      spawn(fn ->
+        send(
+          parent,
+          {:blocking_result, StreamLoad.persist("logs", @rows, http: blocking_http)}
+        )
+      end)
+
+    cancelling_ref = Process.monitor(cancelling_caller)
+    blocking_ref = Process.monitor(blocking_caller)
+    assert_receive {:in_flight_cancelling, _cancelling_worker}, 1_000
+    assert_receive {:in_flight_blocking, blocking_worker}, 1_000
+    blocking_worker_ref = Process.monitor(blocking_worker)
+    Process.exit(Process.whereis(LoadAdmission), :kill)
+    assert_receive {:DOWN, ^blocking_worker_ref, :process, ^blocking_worker, _}, 1_000
+    # Physical HTTP cancellation runs before the retryable result is reported.
+    assert_receive :http_cancelled, 1_000
+    assert_receive {:caller_result, {:error, :load_admission_unavailable}}, 5_000
+    assert_receive {:blocking_result, {:error, :load_admission_unavailable}}, 5_000
+    # Both normal callers survived the supervisor restart instead of exiting.
+    assert_receive {:DOWN, ^cancelling_ref, :process, ^cancelling_caller, :normal}, 1_000
+    assert_receive {:DOWN, ^blocking_ref, :process, ^blocking_caller, :normal}, 1_000
+    assert length(Supervisor.which_children(LoadSupervisor)) == 2
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
+  test "a cancelled load reports retryable unavailable instead of raising" do
+    assert {:error, :load_admission_unavailable} =
+             StreamLoad.persist("logs", @rows, http: fn _ -> exit(:shutdown) end)
+  end
+
+  test "unrelated callback exits are re-raised instead of retried" do
+    assert catch_exit(StreamLoad.persist("logs", @rows, http: fn _ -> exit(:my_bug) end)) ==
+             :my_bug
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
+  test "immediate caller death never leaks workers or permits" do
+    parent = self()
+
+    for i <- 1..25 do
+      tag = {:leak_probe, i}
+
+      http = fn _ ->
+        send(parent, {tag, self()})
+
+        receive do
+          :unexpected -> flunk("worker survived caller death")
+        after
+          5_000 -> flunk("worker survived caller death")
+        end
+      end
+
+      caller = spawn(fn -> StreamLoad.persist("logs", @rows, http: http) end)
+      Process.exit(caller, :kill)
+
+      receive do
+        {^tag, worker} ->
+          ref = Process.monitor(worker)
+          assert_receive {:DOWN, ^ref, :process, ^worker, _}, 2_000
+      after
+        0 -> :no_worker_started
+      end
+    end
+
+    drain_leak_probes()
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
+  @tag max_in_flight: 1
+  test "caller death escalates when the worker ignores shutdown" do
+    parent = self()
+
+    ignoring_http = fn _request ->
+      send(parent, {:ignoring_worker, self()})
+      Process.flag(:trap_exit, true)
+      send(parent, :ignoring_trapping)
+
+      receive do
+        {:EXIT, _pid, :shutdown} -> send(parent, :shutdown_ignored)
+      after
+        2_000 -> flunk("watcher never attempted catchable shutdown")
+      end
+
+      receive do
+        :release -> flunk("escalated worker must not resume")
+      after
+        30_000 -> flunk("escalation never killed the worker")
+      end
+    end
+
+    caller = spawn(fn -> StreamLoad.persist("logs", @rows, http: ignoring_http) end)
+    assert_receive {:ignoring_worker, worker}, 1_000
+    assert_receive :ignoring_trapping, 1_000
+    ref = Process.monitor(worker)
+    Process.exit(caller, :kill)
+    assert_receive :shutdown_ignored, 2_000
+    assert_receive {:DOWN, ^ref, :process, ^worker, _}, 8_000
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
+  test "killing the caller closes the real HTTP request and frees the permit" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!({Task, fn -> serve_cancellable_loads(listener, parent) end})
+
+    config = %{fe_http: "http://127.0.0.1:#{port}"}
+    caller = spawn(fn -> StreamLoad.persist("logs", @rows, config: config) end)
+    assert_receive {:wire_request, @rows}, 5_000
+    assert [worker] = Task.Supervisor.children(LoadTasks)
+    worker_ref = Process.monitor(worker)
+    Process.exit(caller, :kill)
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}, 3_000
+    assert_receive {:peer_result, {:error, :closed}}, 3_000
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, config: config)
+    assert_received {:wire_request, @rows}
+  end
+
+  test "admission restart closes the real HTTP request and keeps the caller retryable" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!({Task, fn -> serve_cancellable_loads(listener, parent) end})
+
+    config = %{fe_http: "http://127.0.0.1:#{port}"}
+
+    spawn(fn ->
+      send(parent, {:caller_result, StreamLoad.persist("logs", @rows, config: config)})
+    end)
+
+    assert_receive {:wire_request, @rows}, 5_000
+    assert [worker] = Task.Supervisor.children(LoadTasks)
+    worker_ref = Process.monitor(worker)
+    Process.exit(Process.whereis(LoadAdmission), :kill)
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}, 3_000
+    assert_receive {:peer_result, {:error, :closed}}, 3_000
+    assert_receive {:caller_result, {:error, :load_admission_unavailable}}, 5_000
+    assert length(Supervisor.which_children(LoadSupervisor)) == 2
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, config: config)
+    assert_received {:wire_request, @rows}
+  end
+
+  test "admission restart window stays on the retry path" do
+    Process.exit(Process.whereis(LoadAdmission), :kill)
+
+    results =
+      for _ <- 1..20 do
+        try do
+          LoadAdmission.run(1, fn -> {:ok, :admitted} end)
+        catch
+          :exit, _ -> :exited
+        end
+      end
+
+    assert Enum.all?(results, fn
+             {:ok, :admitted} -> true
+             {:error, :load_admission_unavailable} -> true
+             _ -> false
+           end)
+
+    # Supervisor restart is asynchronous; poll briefly rather than asserting
+    # it completed within microseconds of the kill.
+    assert eventually(fn -> Process.whereis(LoadAdmission) end, 2_000)
+  end
+
+  test "missing load coordination returns retryable unavailable" do
+    :ok = stop_supervised!(LoadSupervisor)
+
+    assert {:error, :load_admission_unavailable} =
+             LoadAdmission.run(1, fn -> flunk("work must not start without coordination") end)
+
+    assert {:error, :load_admission_unavailable} =
+             StreamLoad.persist("logs", @rows,
+               http: fn _ -> flunk("transport must not start without coordination") end
+             )
   end
 
   test "stable identities produce the same load label across retry regrouping" do
@@ -353,6 +801,78 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     end
 
     refute_received {:wire_request, _, _}
+  end
+
+  defp drain_leak_probes do
+    receive do
+      {{:leak_probe, _}, worker} ->
+        ref = Process.monitor(worker)
+        assert_receive {:DOWN, ^ref, :process, ^worker, _}, 2_000
+        drain_leak_probes()
+    after
+      0 -> :done
+    end
+  end
+
+  defp serve_cancellable_loads(listener, parent) do
+    case :gen_tcp.accept(listener, 5_000) do
+      {:ok, socket} ->
+        read_wire_request(socket, parent)
+        send(parent, {:peer_result, :gen_tcp.recv(socket, 0, 10_000)})
+        :gen_tcp.close(socket)
+        serve_success_loads(listener, parent)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, :timeout} ->
+        serve_cancellable_loads(listener, parent)
+    end
+  end
+
+  defp serve_success_loads(listener, parent) do
+    case :gen_tcp.accept(listener, 5_000) do
+      {:ok, socket} ->
+        rows = read_wire_request(socket, parent)
+
+        response =
+          Jason.encode!(%{
+            "Status" => "Success",
+            "NumberLoadedRows" => length(rows),
+            "NumberFilteredRows" => 0
+          })
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+            Integer.to_string(byte_size(response)),
+            "\r\n\r\n",
+            response
+          ])
+
+        :gen_tcp.close(socket)
+        serve_success_loads(listener, parent)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, :timeout} ->
+        serve_success_loads(listener, parent)
+    end
+  end
+
+  defp read_wire_request(socket, parent) do
+    {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 5_000)
+    headers = receive_headers(socket, %{})
+    :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
+    :ok = :inet.setopts(socket, packet: :raw)
+
+    {:ok, body} =
+      :gen_tcp.recv(socket, String.to_integer(headers["content-length"]), 5_000)
+
+    rows = Jason.decode!(body)
+    send(parent, {:wire_request, rows})
+    rows
   end
 
   defp receive_headers(socket, headers) do

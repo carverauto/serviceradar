@@ -14,6 +14,11 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
   @moduletag :db_free
 
+  setup do
+    start_supervised!(ServiceRadar.Analytics.StarRocks.LoadSupervisor)
+    :ok
+  end
+
   @flow_rows [
     %{
       id: "flow-alpha-0001",
@@ -751,12 +756,14 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
   end
 
   test "raw flow loads protect attribution across regrouped deliveries" do
+    parent = self()
+
     http = fn %{headers: headers, body: body} ->
       assert {"merge_condition", "attribution_version"} in headers
       refute {"partial_update", "true"} in headers
       rows = Jason.decode!(body)
       assert Enum.all?(rows, &(&1["attribution_version"] == 0))
-      send(self(), {:load_label, List.keyfind(headers, "label", 0)})
+      send(parent, {:load_label, List.keyfind(headers, "label", 0)})
 
       {:ok,
        %{

@@ -26,6 +26,48 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
     :ok
   end
 
+  test "continuous warehouse enqueues and completion races cannot bypass the persisted interval" do
+    starrocks = ServiceRadar.Analytics.StarRocks
+    previous = Application.get_env(:serviceradar_core, starrocks, [])
+    Application.put_env(:serviceradar_core, starrocks, Keyword.put(previous, :enabled, true))
+    on_exit(fn -> Application.put_env(:serviceradar_core, starrocks, previous) end)
+    age_watermark_write!(0)
+
+    assert {:ok, %Oban.Job{id: id, state: "scheduled", scheduled_at: due}} = request_refresh()
+    assert DateTime.diff(due, DateTime.utc_now()) in 9..10
+
+    for _ <- 1..20 do
+      assert {:ok, %Oban.Job{conflict?: true, id: ^id}} = request_refresh()
+    end
+
+    # Direct execution represents cron/operator jobs and a completion-racing
+    # enqueue: they must snooze without issuing warehouse queries or advancing
+    # the ingest watermark. No warehouse transport is running in this fixture.
+    before =
+      SQL.query!(
+        Repo,
+        "SELECT watermark, updated_at FROM observability_watermarks WHERE key = $1",
+        [
+          RefreshTraceSummariesWorker.watermark_key()
+        ]
+      ).rows
+
+    for _ <- 1..3 do
+      assert {:snooze, seconds} = RefreshTraceSummariesWorker.perform(%Oban.Job{})
+      assert seconds in 1..10
+    end
+
+    assert SQL.query!(
+             Repo,
+             "SELECT watermark, updated_at FROM observability_watermarks WHERE key = $1",
+             [
+               RefreshTraceSummariesWorker.watermark_key()
+             ]
+           ).rows == before
+
+    assert [%Oban.Job{id: ^id}] = incomplete_jobs()
+  end
+
   test "ingest enqueues during an executing refresh coalesce into the running job" do
     executing =
       %{}
