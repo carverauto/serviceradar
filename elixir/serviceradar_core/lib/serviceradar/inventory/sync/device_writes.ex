@@ -21,6 +21,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
+  alias ServiceRadar.Inventory.Sync.ParameterChunking
   alias ServiceRadar.Inventory.Sync.SourcePolicy
   alias ServiceRadar.Repo
 
@@ -392,10 +393,40 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     with_inventory_rollup_bypassed(fn -> insert_devices(records, update_query, false) end)
   end
 
+  # One statement per chunk, so a wide batch stays under the bound-parameter
+  # limit without losing whole-batch atomicity: a caller that already owns a
+  # transaction (the identity fence, the release paths, the rollup bypass)
+  # gets the chunks inline inside it, and an unfenced caller (mapper
+  # discovery) gets a transaction of its own.
+  #
+  # The already-in-transaction case MUST NOT open a nested Repo.transaction:
+  # on this Ecto/DBConnection stack a nested transaction is a passthrough (no
+  # savepoint) whose exception path calls DBConnection.fail/1, which marks the
+  # connection failed client-side on the very errors the IP-conflict recovery
+  # is designed to retry inside the same fence -- the recovery then sees
+  # ConnectionError "transaction rolling back" instead of the server's
+  # Postgrex.Error, the fenced-write retry classifier treats it as
+  # non-transient, and a lost active-IP race kills the whole batch.
   defp insert_devices(records, update_query, false) do
+    chunks =
+      records
+      |> jsonb_safe()
+      |> ParameterChunking.insert_all_chunks()
+
+    if Repo.in_transaction?() do
+      Enum.each(chunks, fn chunk -> insert_device_chunk(chunk, update_query) end)
+    else
+      Repo.transaction(
+        fn -> Enum.each(chunks, fn chunk -> insert_device_chunk(chunk, update_query) end) end,
+        timeout: :infinity
+      )
+    end
+  end
+
+  defp insert_device_chunk(chunk, update_query) do
     Repo.insert_all(
       Device,
-      jsonb_safe(records),
+      chunk,
       on_conflict: update_query,
       conflict_target: [:uid]
     )

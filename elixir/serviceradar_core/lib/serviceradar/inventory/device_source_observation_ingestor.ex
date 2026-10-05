@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.SourceRetirementWorker
+  alias ServiceRadar.Inventory.Sync.ParameterChunking
   alias ServiceRadar.Repo
 
   require Logger
@@ -19,8 +20,6 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   @max_devices 100_000
   @max_metadata_bytes 16 * 1024
   @lookup_chunk_size 5_000
-  # Postgres's wire protocol hard limit (int16) on bound parameters in one query.
-  @max_bound_parameters 65_535
   @db_prefix "platform"
   @observations_table "device_source_observations"
   @snapshots_table "device_source_snapshots"
@@ -466,13 +465,12 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
           # that). insert_all/3 does not chunk on its own, so a collection large
           # enough to cross that line at this table's field count -- reached for
           # the first time only once a full 50k-device sync actually got this far
-          # -- fails the whole activation. Chunk by the actual field count instead
-          # of a fixed record count so this stays correct if fields are added.
-          field_count = records |> hd() |> map_size()
-          batch_size = max(div(@max_bound_parameters, field_count), 1)
-
+          # -- fails the whole activation. Chunk by the batch's bound columns
+          # instead of a fixed record count so this stays correct if fields are
+          # added; the chunker sizes on the union of every row's keys, so rows
+          # carrying optional columns a sibling lacks still stay under the cap.
           records
-          |> Enum.chunk_every(batch_size)
+          |> ParameterChunking.insert_all_chunks()
           |> Enum.each(fn batch ->
             Repo.insert_all(@observations_table, batch,
               prefix: @db_prefix,
