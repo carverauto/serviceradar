@@ -443,7 +443,7 @@ impl TopologyClient {
                 "  edge{index}(func: eq(topo.link_key, {key_q})) {{ e{index} as uid }}\n"
             ));
             mutations.push(mutation(
-                &format!("@if(eq(len(e{index}), 1))"),
+                &format!("@if(gt(len(e{index}), 0))"),
                 &json!({}),
                 Some(&json!({ "uid": format!("uid(e{index})") })),
             )?);
