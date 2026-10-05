@@ -85,7 +85,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorkerTest do
   setup do
     prior_account_name = Application.get_env(:serviceradar, :nats_account_name)
     prior_account_seed = Application.get_env(:serviceradar, :nats_account_seed)
-    prior_coordinator = Application.get_env(:serviceradar_core, :provision_collector_worker_test_coordinator)
+
+    prior_coordinator =
+      Application.get_env(:serviceradar_core, :provision_collector_worker_test_coordinator)
 
     Application.put_env(:serviceradar, :nats_account_name, "TEST_ACCOUNT")
     Application.put_env(:serviceradar, :nats_account_seed, "SEED_PLACEHOLDER")
@@ -94,28 +96,35 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorkerTest do
     on_exit(fn ->
       restore_env(:serviceradar, :nats_account_name, prior_account_name)
       restore_env(:serviceradar, :nats_account_seed, prior_account_seed)
-      restore_env(:serviceradar_core, :provision_collector_worker_test_coordinator, prior_coordinator)
+
+      restore_env(
+        :serviceradar_core,
+        :provision_collector_worker_test_coordinator,
+        prior_coordinator
+      )
     end)
 
     client_started? =
-      case start_supervised({Client,
-             host: "127.0.0.1",
-             port: 1,
-             sec_mode: "plaintext",
-             connect_timeout_ms: 10,
-             reconnect_base_ms: 60_000,
-             reconnect_max_ms: 60_000}) do
+      case start_supervised(
+             {Client,
+              host: "127.0.0.1",
+              port: 1,
+              sec_mode: "plaintext",
+              connect_timeout_ms: 10,
+              reconnect_base_ms: 60_000,
+              reconnect_max_ms: 60_000}
+           ) do
         {:ok, _pid} -> true
         {:error, {:already_started, _pid}} -> false
       end
 
     prior_channel =
-      unless client_started? do
+      if !client_started? do
         Client |> :sys.get_state(15_000) |> Map.take([:channel, :connect_task])
       end
 
     on_exit(fn ->
-      unless client_started? do
+      if !client_started? do
         :sys.replace_state(Client, fn state -> Map.merge(state, prior_channel) end, 15_000)
       end
     end)
@@ -169,7 +178,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorkerTest do
       assert credential.credential_type == :collector
 
       assert count_credentials(actor) == 1
-      assert stored_creds_ciphertext(package.id) != nil
+      assert stored_creds_ciphertext(package.id)
     end
   end
 
