@@ -55,10 +55,11 @@ func run() error {
 
 		// Add-on systemd supervision mode (delivery-models task 3.1): install/enable or
 		// uninstall the add-on's bundled systemd units.
-		addonSystemdInstall   = flag.String("addon-systemd-install", "", "Comma-separated staged unit files to install (.service/.timer)")
-		addonSystemdEnable    = flag.String("addon-systemd-enable", "", "Unit to enable --now after install (must be one of --addon-systemd-install)")
-		addonSystemdUninstall = flag.String("addon-systemd-uninstall", "", "Comma-separated installed unit files to disable + remove")
-		addonSystemdResources = flag.String("addon-systemd-resources", "", "JSON resource limits applied to the enabled unit via a drop-in (cpu_max_percent, memory_max_bytes, ...)")
+		addonSystemdInstall     = flag.String("addon-systemd-install", "", "Comma-separated staged unit files to install (.service/.timer)")
+		addonSystemdEnable      = flag.String("addon-systemd-enable", "", "Unit to enable --now after install (must be one of --addon-systemd-install)")
+		addonSystemdUninstall   = flag.String("addon-systemd-uninstall", "", "Comma-separated installed unit files to disable + remove")
+		addonSystemdResources   = flag.String("addon-systemd-resources", "", "JSON resource limits applied to the enabled unit via a drop-in (cpu_max_percent, memory_max_bytes, ...)")
+		addonSystemdRunTimerNow = flag.Bool("addon-systemd-run-timer-now", false, "Reset the prior timer service failure and queue a fresh run of the staged candidate")
 	)
 	flag.Parse()
 
@@ -77,6 +78,7 @@ func run() error {
 			Units:       splitCommaList(*addonSystemdInstall),
 			Enable:      *addonSystemdEnable,
 			Resources:   resources,
+			RunTimerNow: *addonSystemdRunTimerNow,
 		})
 	case *addonSystemdUninstall != "":
 		return agent.UninstallAddonSystemdUnits(ctx, splitCommaList(*addonSystemdUninstall))

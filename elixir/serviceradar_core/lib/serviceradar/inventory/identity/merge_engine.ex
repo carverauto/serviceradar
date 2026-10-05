@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceSourceObservation
+  alias ServiceRadar.Inventory.DistinctDeviceAssertion
   alias ServiceRadar.Inventory.Identity.AliasGuard
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Deduplication
@@ -23,6 +24,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.Identity.MergePolicy
   alias ServiceRadar.Inventory.Identity.Reassignments
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
+  alias ServiceRadar.Inventory.Identity.SourceSuccession
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Monitoring.Alert
@@ -96,20 +98,54 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     end
   end
 
+  @succession_reason "source_succession"
+
+  # A succession's metadata change (`SourceSuccession.metadata_patch/3`): remove the keys, then
+  # put the values. The device rows are locked for the merge, so no write lands between the
+  # read the change is computed from and this one.
+  @succession_metadata_sql """
+  UPDATE platform.ocsf_devices
+  SET metadata = (COALESCE(metadata, CAST('{}' AS jsonb)) - CAST($2 AS text[])) || CAST($3 AS jsonb)
+  WHERE uid = $1
+  RETURNING uid
+  """
+
+  # Whether a live record of the partition other than the named ones holds the address.
+  @address_held_sql """
+  SELECT EXISTS (
+    SELECT 1 FROM platform.ocsf_devices
+    WHERE deleted_at IS NULL AND partition = $1 AND ip = $2 AND uid <> ALL (CAST($3 AS text[]))
+  )
+  """
+
+  @set_address_sql """
+  UPDATE platform.ocsf_devices SET ip = $2, modified_time = timezone('UTC', now())
+  WHERE uid = $1 AND deleted_at IS NULL
+  RETURNING uid
+  """
+
   @doc """
   Merge a duplicate device into a canonical device and reassign related records.
+
+  A source succession (`SourceSuccession`) passes reason `#{@succession_reason}` with
+  `succession:`, the pair it merges; neither is accepted without the other.
   """
   @spec merge_devices(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def merge_devices(from_device_id, to_device_id, opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:device_merge))
     reason = Keyword.get(opts, :reason, "identity_resolution")
     details = Keyword.get(opts, :details, %{})
+    succession = Keyword.get(opts, :succession)
 
     cond do
       from_device_id == to_device_id ->
         :ok
 
-      merge_guard_blocked = merge_guard_violation(from_device_id, to_device_id, reason, actor) ->
+      error = succession_error(from_device_id, to_device_id, reason, succession) ->
+        {:error, error}
+
+      merge_guard_blocked =
+          merge_guard_violation(from_device_id, to_device_id, reason, succession, actor) ->
         emit_merge_guard_telemetry(merge_guard_blocked, reason, from_device_id, to_device_id)
         record_guard_block(merge_guard_blocked, reason, from_device_id, to_device_id, details)
 
@@ -121,13 +157,32 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         {:error, {:merge_blocked, merge_guard_blocked}}
 
       true ->
-        do_merge_devices(from_device_id, to_device_id, reason, details, actor)
+        do_merge_devices(from_device_id, to_device_id, reason, details, succession, actor)
     end
   end
 
+  # A succession merges exactly its pair, and only a succession merges with its reason.
+  defp succession_error(_from, _to, @succession_reason, nil), do: :succession_required
+  defp succession_error(_from, _to, _reason, nil), do: nil
+
+  defp succession_error(from, to, @succession_reason, %{
+         identifier_type: type,
+         partitions: [_ | _],
+         predecessor: predecessor,
+         successor: successor
+       })
+       when is_atom(type) do
+    if Enum.sort([from, to]) == Enum.sort([predecessor, successor]),
+      do: nil,
+      else: :succession_mismatch
+  end
+
+  defp succession_error(_from, _to, @succession_reason, _succession), do: :succession_mismatch
+  defp succession_error(_from, _to, _reason, _succession), do: :succession_reason_mismatch
+
   # Guards that apply to every automatic merge path (ingest-time, alias,
   # scheduled backfill). Manual/administrative merges bypass them.
-  defp merge_guard_violation(from_device_id, to_device_id, reason, actor) do
+  defp merge_guard_violation(from_device_id, to_device_id, reason, succession, actor) do
     cond do
       manual_override_merge_reason?(reason) or reason == "unmerge" ->
         nil
@@ -139,8 +194,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       AliasGuard.distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
         :distinct_agent_identity
 
-      source_conflict =
-          SourceAuthorityGuard.conflict_details([from_device_id, to_device_id]) ->
+      source_conflict = source_conflict(from_device_id, to_device_id, succession) ->
         _ = SourceAuthorityGuard.record_blocked(source_conflict, reason)
         :source_authority_conflict
 
@@ -154,6 +208,12 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         nil
     end
   end
+
+  defp source_conflict(from_device_id, to_device_id, nil),
+    do: SourceAuthorityGuard.conflict_details([from_device_id, to_device_id])
+
+  defp source_conflict(from_device_id, to_device_id, succession),
+    do: SourceAuthorityGuard.succession_conflict([from_device_id, to_device_id], succession)
 
   # Merge-inert provisional topology identities (endpoint attachment identity
   # promotion): a device minted from mapper topology sightings may be merged
@@ -269,7 +329,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     )
   end
 
-  defp do_merge_devices(from_device_id, to_device_id, reason, details, actor) do
+  defp do_merge_devices(from_device_id, to_device_id, reason, details, succession, actor) do
     resources = [
       Device,
       DeviceIdentifier,
@@ -302,17 +362,26 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
              Device.get_by_uid(from_device_id, false, actor: actor),
            {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
            :ok <-
-             source_authority_transaction_guard(from_device_id, to_device_id, reason),
+             source_authority_transaction_guard(
+               from_device_id,
+               to_device_id,
+               reason,
+               succession,
+               actor
+             ),
            # Read before the reassignment moves them: these are the identifiers
            # an unmerge must give back, and nothing else records them.
            {:ok, source_identifiers} <- source_identifiers(from_device_id, actor),
            :ok <- preserve_survivor_attributes(from_device_id, to_device_id),
+           {:ok, succession_details} <- succession_changes(succession, from_device, to_device),
            :ok <- Reassignments.reassign_device_identifiers(from_device_id, to_device_id, actor),
            # Returns the rows it moved, which an unmerge moves back.
            {:ok, archived_identifiers} <-
              Reassignments.reassign_archived_identifiers(from_device_id, to_device_id),
            audit_details =
-             merge_audit_details(details, from_device, source_identifiers, archived_identifiers),
+             details
+             |> merge_audit_details(from_device, source_identifiers, archived_identifiers)
+             |> put_succession_details(succession_details),
            :ok <-
              Reassignments.reassign_source_observations(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_service_checks(from_device_id, to_device_id, actor),
@@ -340,6 +409,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                actor: actor
              ),
            {:ok, _} <- tombstone_merged_device(from_device, actor),
+           # After the tombstone, which frees the successor's address when it is the merged record.
+           :ok <- take_successor_address(succession_details, to_device_id),
            # The survivor's identity composition changed: it now owns the
            # merged-away device's identifiers. Once here, not per reassigned
            # record -- the reassignments above are bulk updates, and a
@@ -398,13 +469,106 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     end
   end
 
-  defp source_authority_transaction_guard(from_device_id, to_device_id, reason) do
+  defp source_authority_transaction_guard(from_device_id, to_device_id, reason, nil, _actor) do
     if manual_override_merge_reason?(reason) or reason == "unmerge" do
       :ok
     else
       SourceAuthorityGuard.ensure_merge_allowed([from_device_id, to_device_id], lock: true)
     end
   end
+
+  # A run's earlier merges can change a succession, so it is re-checked under the locks.
+  defp source_authority_transaction_guard(
+         from_device_id,
+         to_device_id,
+         _reason,
+         succession,
+         actor
+       ) do
+    with :ok <-
+           SourceAuthorityGuard.ensure_succession_allowed(
+             [from_device_id, to_device_id],
+             succession,
+             lock: true
+           ) do
+      SourceSuccession.revalidate(succession, actor)
+    end
+  end
+
+  # The survivor takes the successor's source-owned metadata, the facts the source updated
+  # last, and the successor's address (D3). Returns what the unmerge needs to give them back.
+  defp succession_changes(nil, _from_device, _to_device), do: {:ok, nil}
+
+  defp succession_changes(%{successor: successor}, from_device, to_device) do
+    {side, successor_device, predecessor_device} =
+      if to_device.uid == successor,
+        do: {:survivor, to_device, from_device},
+        else: {:merged, from_device, to_device}
+
+    patch = SourceSuccession.metadata_patch(to_device.metadata, from_device.metadata, side)
+
+    with {:ok, _result} <-
+           Repo.query(@succession_metadata_sql, [to_device.uid, patch.remove, patch.put]),
+         {:ok, take_address?} <- take_address?(successor_device, to_device) do
+      {:ok,
+       %{
+         "survivor_before" => %{
+           "ip" => to_device.ip,
+           "source_owned" => SourceSuccession.source_owned(to_device.metadata)
+         },
+         "survivor_after" => %{
+           "ip" => if(take_address?, do: successor_device.ip, else: to_device.ip),
+           "source_owned" => SourceSuccession.source_owned(patch.put)
+         },
+         "ip_transferred" => take_address?,
+         "predecessor_source_retired_at" =>
+           predecessor_device.source_retired_at &&
+             DateTime.to_iso8601(predecessor_device.source_retired_at)
+       }}
+    end
+  end
+
+  # The successor's address, when it holds one the survivor does not and no other live record
+  # of the survivor's partition holds it.
+  defp take_address?(%Device{uid: uid}, %Device{uid: uid}), do: {:ok, false}
+
+  defp take_address?(%Device{ip: ip} = successor, %Device{} = survivor)
+       when is_binary(ip) and ip != "" do
+    if ip == survivor.ip do
+      {:ok, false}
+    else
+      with {:ok, held?} <- address_held?(survivor.partition, ip, [successor.uid, survivor.uid]),
+           do: {:ok, not held?}
+    end
+  end
+
+  defp take_address?(_successor, _survivor), do: {:ok, false}
+
+  defp address_held?(partition, ip, except) do
+    case Repo.query(@address_held_sql, [partition, ip, except]) do
+      {:ok, %{rows: [[held?]]}} -> {:ok, held?}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp set_address(uid, ip) do
+    case Repo.query(@set_address_sql, [uid, ip]) do
+      {:ok, %{num_rows: 1}} -> :ok
+      {:ok, _result} -> {:error, {:address_not_set, uid}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp take_successor_address(
+         %{"ip_transferred" => true, "survivor_after" => %{"ip" => ip}},
+         uid
+       ),
+       do: set_address(uid, ip)
+
+  defp take_successor_address(_succession_details, _uid), do: :ok
+
+  defp put_succession_details(details, nil), do: details
+  defp put_succession_details(details, succession), do: Map.put(details, "succession", succession)
 
   defp maybe_record_transaction_source_conflict(
          {:error, {:source_authority_conflict, conflict}},
@@ -609,7 +773,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   end
 
   defp do_unmerge(from_device_id, to_device_id, audit, actor) do
-    resources = [Device, DeviceIdentifier, MergeAudit]
+    resources = [Device, DeviceIdentifier, MergeAudit, DistinctDeviceAssertion]
 
     # See do_merge_devices/5: must be transact, not transaction, or an unmerge
     # that fails partway commits a half-reversed merge.
@@ -617,6 +781,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     |> Ash.transact(fn ->
       # Recreate the from-device
       with :ok <- lock_device_rows([from_device_id, to_device_id], actor),
+           # Before the restore, which reclaims the merged record's address when it is free.
+           :ok <- revert_succession(audit, to_device_id, actor),
            {:ok, _device} <- recreate_device(from_device_id, audit, actor),
            {:ok, restored} <-
              reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
@@ -640,6 +806,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                },
                actor: actor
              ),
+           :ok <- assert_succession_distinct(audit, from_device_id, to_device_id),
            # The to-device just gave identifiers back, so its identity
            # composition changed too. The from-device needs no bump here:
            # recreate_device/3 restores it through :restore, which carries one.
@@ -664,6 +831,77 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       {:error, _} = error -> error
     end
   end
+
+  # An unmerge of a succession gives the survivor back its address and source-owned metadata,
+  # each only when the succession's value is still there; a later write wins. The facts and the
+  # `source_retired` mark are not restored.
+  defp revert_succession(
+         %MergeAudit{reason: @succession_reason, details: %{"succession" => %{} = succession}},
+         to_device_id,
+         actor
+       ) do
+    with {:ok, %Device{} = survivor} <- Device.get_by_uid(to_device_id, false, actor: actor),
+         :ok <- revert_address(survivor, succession) do
+      revert_source_owned(survivor, succession)
+    end
+  end
+
+  defp revert_succession(_audit, _to_device_id, _actor), do: :ok
+
+  defp revert_address(%Device{} = survivor, %{
+         "ip_transferred" => true,
+         "survivor_before" => %{"ip" => before},
+         "survivor_after" => %{"ip" => taken}
+       }) do
+    cond do
+      survivor.ip != taken ->
+        :ok
+
+      is_binary(before) and before != "" ->
+        with {:ok, held?} <- address_held?(survivor.partition, before, [survivor.uid]),
+             do: set_address(survivor.uid, if(held?, do: nil, else: before))
+
+      true ->
+        set_address(survivor.uid, nil)
+    end
+  end
+
+  defp revert_address(_survivor, _succession), do: :ok
+
+  defp revert_source_owned(%Device{} = survivor, %{
+         "survivor_before" => %{"source_owned" => before},
+         "survivor_after" => %{"source_owned" => taken}
+       }) do
+    if SourceSuccession.source_owned(survivor.metadata) == taken do
+      case Repo.query(@succession_metadata_sql, [
+             survivor.uid,
+             SourceSuccession.source_owned_keys(),
+             before || %{}
+           ]) do
+        {:ok, _result} -> :ok
+        {:error, _} = error -> error
+      end
+    else
+      :ok
+    end
+  end
+
+  defp revert_source_owned(_survivor, _succession), do: :ok
+
+  # So that the next run does not merge the pair again (D3).
+  defp assert_succession_distinct(%MergeAudit{reason: @succession_reason} = audit, from, to) do
+    case Deduplication.assert_distinct(
+           from,
+           to,
+           "Unmerged source succession #{audit.event_id}",
+           SystemActor.system(:device_unmerge)
+         ) do
+      {:ok, _assertion} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp assert_succession_distinct(_audit, _from, _to), do: :ok
 
   defp recreate_device(from_device_id, audit, actor) do
     details = audit.details || %{}

@@ -591,7 +591,8 @@ Successive(pr, sc, corr) ==
     /\ \A q \in Recs \ {pr} : ~Paired(q, sc, corr)
     /\ ~DistinctAgents(pr, sc)
 \*   Unsafe mac_only_succession: a linking MAC alone converges the pair.
-Succession(pr, sc) == Successive(pr, sc, "mac_only_succession" \notin Unsafe)
+SuccCorr == "mac_only_succession" \notin Unsafe
+Succession(pr, sc) == Successive(pr, sc, SuccCorr)
 
 \* The succession merge, reason source_succession. The record created first survives, usually the
 \* predecessor; the model does not order creation, so either may. The survivor holds the current
@@ -613,14 +614,28 @@ Succeed(pr, sc) ==
                addressMerged |-> {}]
     /\ UNCHANGED <<ipAt, created, srcOf, absence, archive, idSeen>>
 
-\* D4: weaker evidence never merges. The pair gets a succession_review decision, which opens a
-\* de-duplication task: corroborated without a MAC, a MAC only, a MAC linking the predecessor to
-\* another current record, or a pairing that is not one-to-one.
+\* The other records a review of the pair names (SourceSuccession.classify/1): for a pairing that
+\* is not one-to-one, every record paired with either; for a MAC that links the predecessor to
+\* another current record, every current record reporting a MAC the two share.
+Rivals(pr, sc) ==
+    IF Paired(pr, sc, SuccCorr)
+    THEN {r \in Recs \ {pr, sc} : Paired(pr, r, SuccCorr) \/ Paired(r, sc, SuccCorr)}
+    ELSE IF LinkMacs(pr, sc) = {}
+         THEN {r \in Recs \ {pr, sc} : Succ(r) /\ MacEv(r) \cap MacEv(pr) \cap MacEv(sc) # {}}
+         ELSE {}
+
+\* D4: weaker evidence never merges. The pair gets a succession_review decision, naming its
+\* rivals, which opens a de-duplication task: a MAC only, a MAC linking the predecessor to another
+\* current record, a pairing that is not one-to-one, or, without a MAC, agreement on both the
+\* hostname and the first-seen time (a first-seen time names the device in the model, FsOf). A
+\* hostname alone, without a MAC, records nothing. Distinct agents rule the pair out, as for a
+\* succession.
 Review(pr, sc) ==
     /\ Pred(pr) /\ Succ(sc)
-    /\ MacEv(pr) \cap MacEv(sc) # {} \/ Corroborated(pr, sc)
+    /\ MacEv(pr) \cap MacEv(sc) # {} \/ recFs[pr] \cap recFs[sc] # {}
     /\ ~Succession(pr, sc)
-    /\ LET d == {[kind |-> "succession_review", recs |-> {pr, sc}]} IN
+    /\ ~DistinctAgents(pr, sc)
+    /\ LET d == {[kind |-> "succession_review", recs |-> {pr, sc} \cup Rivals(pr, sc)]} IN
        act' = [name |-> "Review", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
                addressMerged |-> {}]
     /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf,

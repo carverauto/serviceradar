@@ -7,6 +7,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Plugins.StorageToken
+  alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
 
   require Logger
@@ -326,20 +327,9 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
   end
 
   defp core_nodes do
-    nodes = Node.list()
-
-    coordinators =
-      Enum.filter(nodes, fn node ->
-        case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
-          pid when is_pid(pid) -> true
-          _ -> false
-        end
-      end)
-
-    if coordinators == [] do
-      Enum.filter(nodes, &core_node?/1)
-    else
-      coordinators
+    case ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth) do
+      [] -> Enum.filter(Node.list(), &core_node?/1)
+      coordinators -> coordinators
     end
   end
 

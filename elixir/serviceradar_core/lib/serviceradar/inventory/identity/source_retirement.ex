@@ -73,13 +73,46 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # Collection ids an absence row keeps as evidence: the largest N the settings allow.
   @max_collection_ids 32
 
+  # Query shape. These statements run where the planner's estimates are least reliable: the
+  # activation transaction counts over rows it has just written, the worker reads candidates as
+  # soon as that commits, a new collection id has no statistics, and `right(partition, n)` has
+  # none at all. A large set estimated at one row makes a nested loop look free. Without
+  # statistics, a condition on two constant columns also looks as selective as a key, so an
+  # index matching only the instance's constants can serve a lookup by object id, and a partial
+  # index of live rows can look free to read in full. Inside a nested loop, either reads a
+  # whole table once per outer row. So:
+  # - No statement looks up an observation per row. A statement reads the observations it needs
+  #   once, by the instance's constants, and meets the other side in a set operation or an
+  #   aggregate, which never loops.
+  # - A correlated lookup, fenced with OFFSET 0 so the planner keeps it as one, goes only to a
+  #   device by its uid alone, or to an identifier by type and value: every index that can
+  #   serve either is bounded by the key.
+  # - A statement that deletes a computed set takes the set as a parameter array, read by a
+  #   statement of its own.
+
+  # The identifier row `di` belongs to a live record: NULL, which a condition takes as false,
+  # when it has no device row. The device is found by uid alone and its deletion read from the
+  # row found, so that no partial index of live devices can serve the lookup.
+  @held_live "(SELECT d.deleted_at IS NULL FROM platform.ocsf_devices AS d " <>
+               "WHERE d.uid = di.device_id)"
+
+  # The values the collection reported that the instance counts absences of.
+  @reported_absent_sql """
+  SELECT a.source_object_id FROM platform.source_identifier_absences AS a
+  WHERE a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
+    AND a.source_instance = CAST($3 AS text)
+  INTERSECT
+  SELECT o.source_object_id FROM platform.device_source_observations AS o
+  WHERE o.partition = CAST($1 AS text) AND o.source = CAST($2 AS text)
+    AND o.source_instance = CAST($3 AS text)
+    AND o.collection_id = CAST($4 AS text) AND o.present
+  """
+
   @reset_presence_sql """
   DELETE FROM platform.source_identifier_absences AS a
-  USING platform.device_source_observations AS o
-  WHERE a.partition = $1::text AND a.source = $2::text AND a.source_instance = $3::text
-    AND o.partition = a.partition AND o.source = a.source
-    AND o.source_instance = a.source_instance AND o.source_object_id = a.source_object_id
-    AND o.collection_id = $4::text AND o.present
+  WHERE a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
+    AND a.source_instance = CAST($3 AS text)
+    AND a.source_object_id = ANY (CAST($4 AS text[]))
   """
 
   # One absence per in-scope identifier value a live record holds that the collection did not
@@ -89,18 +122,20 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   INSERT INTO platform.source_identifier_absences AS a
     (partition, source, source_instance, source_object_id, identifier_type, absent_count,
      query_hash, collection_ids, first_absent_at, last_absent_at, inserted_at, updated_at)
-  SELECT DISTINCT $1::text, $2::text, $3::text, di.identifier_value, $5::text, 1, $7::text,
-         ARRAY[$4::text], $8::timestamp, $8::timestamp, $9::timestamp, $9::timestamp
-  FROM platform.device_identifiers AS di
-  JOIN platform.ocsf_devices AS d ON d.uid = di.device_id AND d.deleted_at IS NULL
-  WHERE di.identifier_type = $5::text
-    AND right(di.partition, char_length($6::text)) = $6::text
-    AND NOT EXISTS (
-      SELECT 1 FROM platform.device_source_observations AS o
-      WHERE o.partition = $1::text AND o.source = $2::text AND o.source_instance = $3::text
-        AND o.source_object_id = di.identifier_value
-        AND o.collection_id = $4::text AND o.present
-    )
+  SELECT CAST($1 AS text), CAST($2 AS text), CAST($3 AS text), absent.value, CAST($5 AS text),
+         1, CAST($7 AS text), ARRAY[CAST($4 AS text)], CAST($8 AS timestamp),
+         CAST($8 AS timestamp), CAST($9 AS timestamp), CAST($9 AS timestamp)
+  FROM (
+    SELECT di.identifier_value FROM platform.device_identifiers AS di
+    WHERE di.identifier_type = CAST($5 AS text)
+      AND right(di.partition, char_length(CAST($6 AS text))) = CAST($6 AS text)
+      AND #{@held_live}
+    EXCEPT
+    SELECT o.source_object_id FROM platform.device_source_observations AS o
+    WHERE o.partition = CAST($1 AS text) AND o.source = CAST($2 AS text)
+      AND o.source_instance = CAST($3 AS text)
+      AND o.collection_id = CAST($4 AS text) AND o.present
+  ) AS absent (value)
   ON CONFLICT (partition, source, source_instance, source_object_id) DO UPDATE SET
     absent_count =
       CASE WHEN a.query_hash IS NOT DISTINCT FROM EXCLUDED.query_hash
@@ -108,7 +143,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     collection_ids =
       CASE WHEN a.query_hash IS NOT DISTINCT FROM EXCLUDED.query_hash
         THEN (a.collection_ids || EXCLUDED.collection_ids)
-          [GREATEST(cardinality(a.collection_ids) + 2 - $10::integer, 1):]
+          [GREATEST(cardinality(a.collection_ids) + 2 - CAST($10 AS integer), 1):]
         ELSE EXCLUDED.collection_ids END,
     first_absent_at =
       CASE WHEN a.query_hash IS NOT DISTINCT FROM EXCLUDED.query_hash
@@ -124,66 +159,98 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # retired, deleted) proves nothing.
   @prune_absences_sql """
   DELETE FROM platform.source_identifier_absences AS a
-  WHERE a.partition = $1::text AND a.source = $2::text AND a.source_instance = $3::text
+  WHERE a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
+    AND a.source_instance = CAST($3 AS text)
     AND NOT EXISTS (
       SELECT 1 FROM platform.device_identifiers AS di
-      JOIN platform.ocsf_devices AS d ON d.uid = di.device_id AND d.deleted_at IS NULL
       WHERE di.identifier_type = a.identifier_type
         AND di.identifier_value = a.source_object_id
-        AND right(di.partition, char_length($4::text)) = $4::text
+        AND right(di.partition, char_length(CAST($4 AS text))) = CAST($4 AS text)
+        AND #{@held_live}
+      OFFSET 0
     )
   """
 
   # The identifier rows the rule retires. "Last reported" is the later of the source
   # observation and the identifier's own last sighting, so a report on any ingest path, exact
-  # or not, holds the id. Neither known means no proof, and NULL compares false.
+  # or not, holds the id. Neither known means no proof, and NULL compares false. Each absence
+  # row meets its observation in one aggregate over the instance's absences and observations.
   @candidates_sql """
-  SELECT di.id, di.device_id, di.identifier_value, di.partition, a.absent_count,
-         a.collection_ids, GREATEST(o.last_observed_at, di.last_seen)
-  FROM platform.source_identifier_absences AS a
-  JOIN platform.device_identifiers AS di
-    ON di.identifier_type = a.identifier_type AND di.identifier_value = a.source_object_id
-   AND right(di.partition, char_length($4::text)) = $4::text
-  JOIN platform.ocsf_devices AS d ON d.uid = di.device_id AND d.deleted_at IS NULL
-  LEFT JOIN platform.device_source_observations AS o
-    ON o.partition = a.partition AND o.source = a.source
-   AND o.source_instance = a.source_instance AND o.source_object_id = a.source_object_id
-  WHERE a.partition = $1::text AND a.source = $2::text AND a.source_instance = $3::text
-    AND a.identifier_type = $5::text
-    AND a.absent_count >= $6::integer
-    AND a.query_hash IS NOT DISTINCT FROM $7::text
-    AND GREATEST(o.last_observed_at, di.last_seen) <= $8::timestamp
-    AND ($9::text[] IS NULL OR di.device_id = ANY ($9::text[]))
+  SELECT di.id, di.device_id, di.identifier_value, di.partition, c.absent_count,
+         c.collection_ids, c.observed_at, GREATEST(c.observed_at, di.last_seen)
+  FROM (
+    SELECT r.value, max(r.absent_count) AS absent_count, max(r.collection_ids) AS collection_ids,
+           max(r.observed_at) AS observed_at
+    FROM (
+      SELECT a.source_object_id, a.absent_count, a.collection_ids, NULL::timestamp
+      FROM platform.source_identifier_absences AS a
+      WHERE a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
+        AND a.source_instance = CAST($3 AS text)
+        AND a.identifier_type = CAST($5 AS text)
+        AND a.absent_count >= CAST($6 AS integer)
+        AND a.query_hash IS NOT DISTINCT FROM CAST($7 AS text)
+      UNION ALL
+      SELECT o.source_object_id, NULL::integer, NULL::text[], o.last_observed_at
+      FROM platform.device_source_observations AS o
+      WHERE o.partition = CAST($1 AS text) AND o.source = CAST($2 AS text)
+        AND o.source_instance = CAST($3 AS text)
+    ) AS r (value, absent_count, collection_ids, observed_at)
+    GROUP BY r.value
+    HAVING max(r.absent_count) IS NOT NULL
+  ) AS c
+  CROSS JOIN LATERAL (
+    SELECT di.id, di.device_id, di.identifier_value, di.partition, di.last_seen
+    FROM platform.device_identifiers AS di
+    WHERE di.identifier_type = CAST($5 AS text) AND di.identifier_value = c.value
+      AND right(di.partition, char_length(CAST($4 AS text))) = CAST($4 AS text)
+      AND (CAST($9 AS text[]) IS NULL OR di.device_id = ANY (CAST($9 AS text[])))
+      AND #{@held_live}
+    OFFSET 0
+  ) AS di
+  WHERE GREATEST(c.observed_at, di.last_seen) <= CAST($8 AS timestamp)
   ORDER BY di.device_id, di.id
   """
 
   @live_holders_sql """
   SELECT count(DISTINCT di.device_id)
   FROM platform.device_identifiers AS di
-  JOIN platform.ocsf_devices AS d ON d.uid = di.device_id AND d.deleted_at IS NULL
-  WHERE di.identifier_type = $1::text
-    AND right(di.partition, char_length($2::text)) = $2::text
-    AND ($3::text[] IS NULL OR di.device_id = ANY ($3::text[]))
+  WHERE di.identifier_type = CAST($1 AS text)
+    AND right(di.partition, char_length(CAST($2 AS text))) = CAST($2 AS text)
+    AND (CAST($3 AS text[]) IS NULL OR di.device_id = ANY (CAST($3 AS text[])))
+    AND #{@held_live}
   """
 
-  # The candidate rule again, for one device, under the transaction's locks.
+  # Whether the instance's latest activated collection is still the one the pass read.
+  @collection_unchanged_sql """
+  SELECT EXISTS (
+    SELECT 1 FROM platform.device_source_snapshots AS s
+    WHERE s.partition = CAST($1 AS text) AND s.source = CAST($2 AS text)
+      AND s.source_instance = CAST($3 AS text)
+      AND s.collection_id = CAST($4 AS text) AND s.activated_at = CAST($5 AS timestamp)
+  )
+  """
+
+  # The candidate rule again, for one device, under the transaction's locks, with each row's
+  # observation time as the candidates read it. Every table is bounded by the device's rows:
+  # the identifiers by id, the absences by the values being rechecked.
   @recheck_sql """
   SELECT di.id, di.device_id, di.identifier_value, di.partition, a.absent_count,
-         a.collection_ids, GREATEST(o.last_observed_at, di.last_seen)
+         a.collection_ids, k.observed_at, GREATEST(k.observed_at, di.last_seen)
   FROM platform.device_identifiers AS di
   JOIN platform.source_identifier_absences AS a
-    ON a.partition = $1::text AND a.source = $2::text AND a.source_instance = $3::text
+    ON a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
+   AND a.source_instance = CAST($3 AS text)
+   AND a.source_object_id = ANY (CAST($11 AS text[]))
    AND a.identifier_type = di.identifier_type AND a.source_object_id = di.identifier_value
-  LEFT JOIN platform.device_source_observations AS o
-    ON o.partition = a.partition AND o.source = a.source
-   AND o.source_instance = a.source_instance AND o.source_object_id = a.source_object_id
-  WHERE di.device_id = $4::text
-    AND di.id = ANY ($5::bigint[])
-    AND di.identifier_type = $6::text
-    AND right(di.partition, char_length($7::text)) = $7::text
-    AND a.absent_count >= $8::integer
-    AND a.query_hash IS NOT DISTINCT FROM $9::text
-    AND GREATEST(o.last_observed_at, di.last_seen) <= $10::timestamp
+  JOIN unnest(CAST($5 AS bigint[]), CAST($12 AS timestamp[])) AS k (id, observed_at)
+    ON k.id = di.id
+  WHERE di.device_id = CAST($4 AS text)
+    AND di.id = ANY (CAST($5 AS bigint[]))
+    AND di.identifier_type = CAST($6 AS text)
+    AND right(di.partition, char_length(CAST($7 AS text))) = CAST($7 AS text)
+    AND a.absent_count >= CAST($8 AS integer)
+    AND a.query_hash IS NOT DISTINCT FROM CAST($9 AS text)
+    AND GREATEST(k.observed_at, di.last_seen) <= CAST($10 AS timestamp)
   ORDER BY di.id
   FOR UPDATE OF di, a
   """
@@ -192,9 +259,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   @accompanying_sql """
   SELECT di.id, di.identifier_value
   FROM platform.device_identifiers AS di
-  WHERE di.device_id = $1::text AND di.identifier_type = 'integration_id'
-    AND di.identifier_value = ANY ($2::text[])
-    AND right(di.partition, char_length($3::text)) = $3::text
+  WHERE di.device_id = CAST($1 AS text) AND di.identifier_type = 'integration_id'
+    AND di.identifier_value = ANY (CAST($2 AS text[]))
+    AND right(di.partition, char_length(CAST($3 AS text))) = CAST($3 AS text)
   ORDER BY di.id
   FOR UPDATE
   """
@@ -202,7 +269,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   @archive_sql """
   WITH moved AS (
     DELETE FROM platform.device_identifiers AS di
-    WHERE di.device_id = $1::text AND di.id = ANY ($2::bigint[])
+    WHERE di.device_id = CAST($1 AS text) AND di.id = ANY (CAST($2 AS bigint[]))
     RETURNING di.*
   )
   INSERT INTO platform.device_identifier_archive
@@ -211,7 +278,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   SELECT id, device_id, identifier_type::text, identifier_value,
          COALESCE(partition, 'default'), confidence::text, source,
          first_seen AT TIME ZONE 'UTC', last_seen AT TIME ZONE 'UTC',
-         COALESCE(verified, false), COALESCE(metadata, '{}'::jsonb), $3::timestamptz, $4::text
+         COALESCE(verified, false), COALESCE(metadata, '{}'::jsonb), CAST($3 AS timestamptz),
+         CAST($4 AS text)
   FROM moved
   ON CONFLICT (id) DO UPDATE SET
     device_id = EXCLUDED.device_id,
@@ -233,13 +301,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # the value and is still counting.
   @clear_absences_sql """
   DELETE FROM platform.source_identifier_absences AS a
-  WHERE a.partition = $1::text AND a.source = $2::text AND a.source_instance = $3::text
-    AND a.source_object_id = ANY ($4::text[])
+  WHERE a.partition = CAST($1 AS text) AND a.source = CAST($2 AS text)
+    AND a.source_instance = CAST($3 AS text)
+    AND a.source_object_id = ANY (CAST($4 AS text[]))
     AND NOT EXISTS (
       SELECT 1 FROM platform.device_identifiers AS di
       WHERE di.identifier_type = a.identifier_type
         AND di.identifier_value = a.source_object_id
-        AND right(di.partition, char_length($5::text)) = $5::text
+        AND right(di.partition, char_length(CAST($5 AS text))) = CAST($5 AS text)
+      OFFSET 0
     )
   """
 
@@ -248,20 +318,20 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # identity-bearing observation, and not created by an operator.
   @mark_sql """
   UPDATE platform.ocsf_devices AS d
-  SET source_retired_at = $2::timestamp
-  WHERE d.uid = $1::text AND d.deleted_at IS NULL AND d.source_retired_at IS NULL
+  SET source_retired_at = CAST($2 AS timestamp)
+  WHERE d.uid = CAST($1 AS text) AND d.deleted_at IS NULL AND d.source_retired_at IS NULL
     AND NULLIF(btrim(COALESCE(d.agent_id, '')), '') IS NULL
-    AND (d.identity_observed_at IS NULL OR d.identity_observed_at <= $3::timestamp)
-    AND NOT (COALESCE(d.discovery_sources, ARRAY[]::text[]) && $4::text[])
+    AND (d.identity_observed_at IS NULL OR d.identity_observed_at <= CAST($3 AS timestamp))
+    AND NOT (COALESCE(d.discovery_sources, ARRAY[]::text[]) && CAST($4 AS text[]))
     AND NOT EXISTS (
       SELECT 1 FROM platform.device_identifiers AS di
-      WHERE di.device_id = d.uid AND di.identifier_type = ANY ($5::text[])
+      WHERE di.device_id = CAST($1 AS text) AND di.identifier_type = ANY (CAST($5 AS text[]))
     )
   """
 
   @owner_lock_sql """
   SELECT pg_advisory_xact_lock(
-           hashtextextended('serviceradar:armis-identifier-owner:' || $1::text, 0)
+           hashtextextended('serviceradar:armis-identifier-owner:' || CAST($1 AS text), 0)
          )
   """
 
@@ -294,9 +364,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
 
   defp count_collection(snapshot, scope) do
     instance = [snapshot.partition, snapshot.source, snapshot.source_instance]
-
-    %{num_rows: reset} =
-      Repo.query!(@reset_presence_sql, instance ++ [snapshot.collection_id])
+    reset = reset_presence(instance, snapshot.collection_id)
 
     %{num_rows: absent} =
       Repo.query!(
@@ -316,6 +384,20 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     %{num_rows: pruned} = Repo.query!(@prune_absences_sql, instance ++ [scope.partition_suffix])
 
     %{reset: reset, absent: absent, pruned: pruned}
+  end
+
+  # A value the collection reported loses its absence row.
+  defp reset_presence(instance, collection_id) do
+    case Repo.query!(@reported_absent_sql, instance ++ [collection_id]) do
+      %{rows: []} ->
+        0
+
+      %{rows: rows} ->
+        %{num_rows: reset} =
+          Repo.query!(@reset_presence_sql, instance ++ [Enum.map(rows, &hd/1)])
+
+        reset
+    end
   end
 
   @doc """
@@ -442,14 +524,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   end
 
   defp candidate_rows(%{rows: rows}) do
-    Enum.map(rows, fn [id, device_id, value, partition, absent_count, collection_ids, last] ->
+    Enum.map(rows, fn [id, device_id, value, partition, count, collection_ids, observed, last] ->
       %{
         id: id,
         device_id: device_id,
         identifier_value: value,
         partition: partition,
-        absent_count: absent_count,
+        absent_count: count,
         collection_ids: collection_ids,
+        observed_at: observed,
         last_reported_at: last
       }
     end)
@@ -569,14 +652,18 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # One transaction per device: the instance lock orders the pass after any activation in
   # flight, the device row is locked before its identifiers (as the fenced ingest write and
   # `MergeEngine` do), and the rule is checked again under those locks, so an id reported, or
-  # a device deleted, since the candidates were read is left alone. Returns the retired rows
-  # and whether the record was marked, or :not_retirable.
+  # a device deleted, since the candidates were read is left alone. Observation times are
+  # written only by an activation, under the instance lock, and every activation replaces the
+  # instance's latest collection: while that is still the pass's, the times the candidates
+  # read still hold, and once it is not, the pass retires nothing more. Returns the retired
+  # rows and whether the record was marked, or :not_retirable.
   defp retire_device(device_id, rows, ctx) do
     Device
     |> Ash.transact(fn ->
       lock_instance(ctx.instance)
 
-      with {:ok, device} <- lock_live_device(device_id, ctx.actor),
+      with true <- collection_unchanged?(ctx),
+           {:ok, device} <- lock_live_device(device_id, ctx.actor),
            :ok <- lock_identifier_owner(device_id),
            [_ | _] = rows <- recheck(device_id, rows, ctx) do
         archive(device_id, rows, device, ctx)
@@ -603,6 +690,19 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     key = Enum.join([instance.partition, instance.source, instance.source_instance], ":")
     _ = Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
     :ok
+  end
+
+  defp collection_unchanged?(%{instance: instance, collection: collection}) do
+    %{rows: [[unchanged]]} =
+      Repo.query!(@collection_unchanged_sql, [
+        instance.partition,
+        instance.source,
+        instance.source_instance,
+        collection.collection_id,
+        collection.activated_at
+      ])
+
+    unchanged
   end
 
   defp lock_live_device(device_id, actor) do
@@ -642,7 +742,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
       ctx.scope.partition_suffix,
       ctx.min_collections,
       ctx.query_hash,
-      ctx.cutoff
+      ctx.cutoff,
+      Enum.map(rows, & &1.identifier_value),
+      Enum.map(rows, & &1.observed_at)
     ])
     |> candidate_rows()
   end
