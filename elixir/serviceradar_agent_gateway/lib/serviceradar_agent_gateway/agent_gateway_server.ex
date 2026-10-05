@@ -47,6 +47,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadarAgentGateway.ConfigChunks
   alias ServiceRadarAgentGateway.ConfigResponse
   alias ServiceRadarAgentGateway.ControlStreamSession
+  alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusProcessor
 
   require Logger
@@ -766,7 +767,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp deliver_prepared_service_status(service, status) do
-    case StatusProcessor.process(status) do
+    if StatusProcessor.synchronous_acceptance?(status) do
+      deliver_synchronous_status(service, status)
+    else
+      # The agent does not keep these. Reply now and let the bounded buffer
+      # forward them. A full or missing buffer drops the status and counts it.
+      buffer_best_effort_status(status)
+    end
+  end
+
+  defp deliver_synchronous_status(service, status) do
+    case process_within_budget(status) do
       :ok ->
         {committed_delivery_outcome(status), []}
 
@@ -786,6 +797,50 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  # Best-effort statuses are not retained by the agent. Owning them here and
+  # answering received=true is the acceptance the agent already treats as final.
+  defp buffer_best_effort_status(status) do
+    case StatusBuffer.enqueue(status) do
+      :ok ->
+        StatusBuffer.request_flush()
+
+      {:error, :unavailable} ->
+        Logger.warning("Status buffer did not accept #{status.source} status from agent #{status.agent_id}")
+        StatusBuffer.record_drop(status, :unavailable)
+    end
+
+    {:best_effort_accepted, []}
+  end
+
+  defp process_within_budget(status) do
+    budget = StatusProcessor.acceptance_budget_ms(status)
+
+    case Process.whereis(ServiceRadarAgentGateway.DeliveryTaskSupervisor) do
+      pid when is_pid(pid) ->
+        task = Task.Supervisor.async_nolink(pid, fn -> StatusProcessor.process(status) end)
+        await_delivery_task(task, budget)
+
+      _missing ->
+        StatusProcessor.process(status)
+    end
+  end
+
+  defp await_delivery_task(task, budget) do
+    case Task.yield(task, budget) do
+      {:ok, result} ->
+        result
+
+      {:exit, reason} ->
+        {:error, reason}
+
+      nil ->
+        case Task.shutdown(task, :brutal_kill) do
+          {:ok, result} -> result
+          _expired -> {:error, :forward_timeout}
+        end
+    end
+  end
+
   defp committed_delivery_outcome(status) do
     if agent_retained_status?(status), do: :agent_retained_committed, else: :best_effort_accepted
   end
@@ -796,6 +851,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         Logger.warning("Failed to commit #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
 
         {:agent_retained_uncommitted, []}
+
+      StatusProcessor.endpoint_inventory_status?(status) ->
+        Logger.warning("Endpoint inventory was not accepted for agent #{status.agent_id}: #{inspect(reason)}")
+
+        {:not_accepted, []}
 
       strict_delivery_status?(status) ->
         maybe_raise_strict_delivery_error(service, status, reason)
@@ -862,7 +922,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       message: "invalid #{source} payload"
   end
 
-  defp delivery_response(:agent_retained_uncommitted, _directives) do
+  defp delivery_response(outcome, _directives) when outcome in [:agent_retained_uncommitted, :not_accepted] do
     %Monitoring.GatewayStatusResponse{received: false, directives: []}
   end
 
@@ -873,6 +933,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp combine_delivery_outcomes(:agent_retained_uncommitted, _outcome), do: :agent_retained_uncommitted
 
   defp combine_delivery_outcomes(_outcome, :agent_retained_uncommitted), do: :agent_retained_uncommitted
+
+  defp combine_delivery_outcomes(:not_accepted, _outcome), do: :not_accepted
+
+  defp combine_delivery_outcomes(_outcome, :not_accepted), do: :not_accepted
 
   defp combine_delivery_outcomes(:agent_retained_committed, _outcome), do: :agent_retained_committed
 

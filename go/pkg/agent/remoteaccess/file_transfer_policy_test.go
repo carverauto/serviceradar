@@ -216,6 +216,53 @@ func TestEvaluateFileTransferPolicyFailsClosedWithoutPolicy(t *testing.T) {
 	}
 }
 
+func TestEvaluateFileTransferPolicyRenameDestinationSymlink(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		mode        FileTransferSymlinkMode
+		resolved    string
+		resolvedOK  bool
+		wantAllowed bool
+	}{
+		{name: "default deny", resolved: "/srv/data/real/report.txt", resolvedOK: true, wantAllowed: false},
+		{name: "follow outside root", mode: FileTransferSymlinkFollowInsideRoot, resolved: "/tmp/report.txt", resolvedOK: true, wantAllowed: false},
+		{name: "follow unresolved", mode: FileTransferSymlinkFollowInsideRoot, wantAllowed: false},
+		{name: "follow inside root", mode: FileTransferSymlinkFollowInsideRoot, resolved: "/srv/data/real/report.txt", resolvedOK: true, wantAllowed: true},
+		{name: "allow outside root", mode: FileTransferSymlinkAllow, resolved: "/tmp/report.txt", resolvedOK: true, wantAllowed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			decision, err := EvaluateFileTransferPolicy(
+				FileTransferPolicyInput{
+					Request:                 renameFileTransferRequest("/srv/data/report.txt", "/srv/data/link/report.txt"),
+					HasDestinationSymlink:   true,
+					ResolvedDestinationPath: tt.resolved,
+					DestinationRealPathOK:   tt.resolvedOK,
+				},
+				FileTransferPolicy{
+					AllowedOperations: []FileTransferOperation{FileTransferOperationRename},
+					AllowedPathRules:  []string{testAllowedRoot},
+					SymlinkMode:       tt.mode,
+				},
+			)
+			if tt.wantAllowed && err != nil {
+				t.Fatalf("EvaluateFileTransferPolicy returned error: %v", err)
+			}
+			if !tt.wantAllowed && !errors.Is(err, ErrFileTransferPolicyDenied) {
+				t.Fatalf("error = %v, want %v", err, ErrFileTransferPolicyDenied)
+			}
+			if decision.Allowed != tt.wantAllowed {
+				t.Fatalf("Allowed = %t, want %t", decision.Allowed, tt.wantAllowed)
+			}
+		})
+	}
+}
+
 func fileTransferRequest(operation FileTransferOperation, candidatePath string) FileTransferRequestPayload {
 	return FileTransferRequestPayload{
 		TransferID: testTransferID,
@@ -223,4 +270,11 @@ func fileTransferRequest(operation FileTransferOperation, candidatePath string) 
 		Operation:  operation,
 		Path:       candidatePath,
 	}
+}
+
+func renameFileTransferRequest(source string, destination string) FileTransferRequestPayload {
+	request := fileTransferRequest(FileTransferOperationRename, source)
+	request.DestinationPath = destination
+
+	return request
 }
