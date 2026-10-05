@@ -1027,7 +1027,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "473dc521d1383057323e3f58fe260ca881c4ed5fd45fd3f153ecdcfdb5d88f33",
+    "fingerprint": "fee3d4b7e1785151fd710c624aa365c50263114f9b62e8942b525156837228fd",
     "classification": "canonical_machine",
     "reason": "ICMP availability window encoded as an SRQL time range"
   },
@@ -1035,7 +1035,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 2,
-    "fingerprint": "f66561ba616b033644f82a04f7e93d41219a7969e690f8a9fa111c780b45e4ad",
+    "fingerprint": "244ab96ad4a97a7dd50d03f5232b66348ead655e4f79e01e9794a0e622e9f3e2",
     "classification": "canonical_machine",
     "reason": "ICMP availability window encoded as an SRQL time range"
   },
@@ -1046,6 +1046,14 @@
     "fingerprint": "888956ed48508add77a32aecc1362e96279466008f2c4b766d07d26964132365",
     "classification": "canonical_machine",
     "reason": "availability bucket identity encoded as canonical UTC"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 4,
+    "fingerprint": "846d08720b8de657346eb6004e983691da8d6552c6caac90decddcc668034e7f",
+    "classification": "canonical_machine",
+    "reason": "Plugin-reported availability observation timestamp encoded as canonical UTC for bucket calculation"
   },
   {
     "path": "lib/serviceradar_web_ng_web/live/device_live/endpoint_inventory_components.ex",
