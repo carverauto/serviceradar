@@ -5,8 +5,8 @@ The earlier proposal is #5266. None of its implementation tasks is complete.
 
 StatusHandler's retained_plugin_result_status?/1 now checks plugin-result source,
 the plugin-result-retained:v1 capability, and retained_plugin_admission_enabled.
-The last setting defaults to false. The issue's original hard-coded-false claim
-is stale; the disabled-by-default routing remains real. Other statuses must not
+The last setting now defaults to true (PR #5322 — task 3a.2); the kill switch
+RETAINED_PLUGIN_ADMISSION_ENABLED=false restores the previous path. Other statuses must not
 be misclassified as retained results, including strings/atoms at supported
 normalization boundaries.
 
