@@ -17,6 +17,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.AgentCommands.StatusSupervisor
 
+  require Logger
+
   def child_spec(opts) do
     %{
       id: __MODULE__,
@@ -43,7 +45,17 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       when kind in [:command_ack, :command_progress, :command_result] and is_map(data) do
     command_id = Map.get(data, :command_id) || Map.get(data, "command_id")
     shard = :erlang.phash2(command_key(command_id), state.shards)
-    send(StatusSupervisor.worker_pid!({:persistence, shard}), message)
+
+    try do
+      send(StatusSupervisor.worker_pid!({:persistence, shard}), message)
+    catch
+      _kind, _reason ->
+        Logger.warning("AgentCommandStatusHandler: persistence shard unavailable",
+          command_id: command_id,
+          shard: shard
+        )
+    end
+
     {:noreply, state}
   end
 
