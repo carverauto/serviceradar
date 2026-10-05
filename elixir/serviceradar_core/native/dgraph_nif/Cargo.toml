@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 rustler = { workspace = true, features = ["nif_version_2_15"] }
 dgraph-topology = { path = "../../../../rust/dgraph-topology" }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

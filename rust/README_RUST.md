@@ -113,7 +113,7 @@ These first-party crates sit next to the client pin:
 | `rust/dgraph-migrate` | Generic verify / apply / scoped remove, `Outcome`, env resolution. Schema string and predicate/type lists are parameters. Never `drop_all`. | Any product schema. Scrith's SMDB schema stays in scrith. |
 | `rust/dgraph-topology` | Topology DQL schema (`device.*`, `iface.*`, `hop.*`, `collector.*`, `topo.*`, `prefix.*`, `change.*`), typed JSON upserts/reads, and the `dgraph-migrate` binary that applies that schema. | The generic runner (it calls `dgraph-migrate`). |
 | `rust/age-to-dgraph` | Rebuild-from-evidence and AGE-vs-Dgraph checksum binary. Default mode is rebuild; checksum fails the Job on divergence. | Schema apply (`dgraph-migrate`). Live dumps never enter git. |
-| `elixir/serviceradar_core/native/dgraph_nif` | Thin Rustler ABI (`ServiceRadar.Dgraph.Native`) over `dgraph-topology`. Typed `NifMap` writes, read-only DQL hatch, dedicated tokio runtime, DirtyIo. | Schema apply, Helm, credentials. |
+| `elixir/serviceradar_core/native/dgraph_nif` | Thin Rustler ABI (`ServiceRadar.Dgraph.Native`) over `dgraph-topology`. Typed `NifMap` writes, read-only DQL hatch, dedicated tokio runtime, async NIFs (normal scheduler). | Schema apply, Helm, credentials. |
 | `rust/network-config-downparser` | V1 IOS-like running-config parser. Invented fixtures only; extracts interface name, prefixes, description, VLAN, shutdown, VRF. | Topology projection, live NA dumps. |
 | `elixir/serviceradar_core/native/network_config_nif` | Thin Rustler ABI (`ServiceRadar.NetworkConfig.Native`) over `network-config-downparser`. Typed `NifMap` facts, DirtyCpu, `catch_unwind`. | Wasm plugin parse. |
 

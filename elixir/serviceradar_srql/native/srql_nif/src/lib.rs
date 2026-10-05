@@ -1,3 +1,6 @@
+#[cfg(panic = "abort")]
+compile_error!("srql_nif requires panic=unwind to contain native panics");
+
 use arrow_array::{ArrayRef, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray};
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{DataType, Field, Schema};
