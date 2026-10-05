@@ -45,9 +45,7 @@ defmodule ServiceRadar.TestSupport.MetricContract do
     end
 
     for {key, value} <- measurements, is_atom(key), is_number(value) do
-      assert Enum.any?(metrics, fn metric ->
-               not match?(%Counter{}, metric) and metric.measurement == key
-             end),
+      assert Enum.any?(metrics, &(&1.measurement == key)),
              "#{inspect(key)} in #{inspect(event)} has no metric definition"
     end
 
