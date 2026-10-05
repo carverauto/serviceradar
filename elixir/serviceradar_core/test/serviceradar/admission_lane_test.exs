@@ -13,6 +13,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Cluster.CoordinatorChildren
+  alias ServiceRadar.Ingestion.LeaseSupervisor
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Ingestion.WorkerBudget
 
@@ -573,7 +574,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     ids = Enum.map(specs, & &1.id)
 
     assert ServiceRadar.Ingestion.Supervisor in ids
-    assert ServiceRadar.Ingestion.LeaseSupervisor in ids
+    assert LeaseSupervisor in ids
     assert FlowLeaseSupervisor in ids
     assert RetainedPluginLeaseSupervisor in ids
     refute FlowSupervisor in ids
@@ -830,7 +831,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     admission_ids = [
       ServiceRadar.Ingestion.Supervisor,
-      ServiceRadar.Ingestion.LeaseSupervisor,
+      LeaseSupervisor,
       FlowTaskSupervisor,
       RetainedPluginTaskSupervisor,
       FlowLeaseSupervisor,
