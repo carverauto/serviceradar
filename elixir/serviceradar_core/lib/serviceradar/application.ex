@@ -74,6 +74,7 @@ defmodule ServiceRadar.Application do
         # Supervise asynchronous config dependency notifications so shutdown and
         # database ownership boundaries can drain them deterministically.
         dependency_dispatcher_task_supervisor_child(),
+        reload_task_supervisor_child(),
 
         # Startup migrations (core-elx only, after repo)
         startup_migrations_child(),
@@ -313,6 +314,10 @@ defmodule ServiceRadar.Application do
 
   defp dependency_dispatcher_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor}
+  end
+
+  defp reload_task_supervisor_child do
+    {Task.Supervisor, name: ServiceRadar.Reload.TaskSupervisor}
   end
 
   defp sync_ingestor_queue_child do

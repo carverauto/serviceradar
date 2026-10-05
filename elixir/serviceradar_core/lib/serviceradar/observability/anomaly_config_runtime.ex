@@ -18,7 +18,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   @anomaly_runtime_override_keys ~w(n_sigma window_size confirm_slots min_samples)
   @cache_key {__MODULE__, :settings}
   @default_refresh_ms 30_000
-  @default_task_supervisor ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
+  @default_task_supervisor ServiceRadar.Reload.TaskSupervisor
   defstruct [
     :anomaly_fetcher,
     :forecast_fetcher,
