@@ -272,7 +272,11 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
       |> Enum.map(&Supervisor.child_spec(&1, []))
       |> Enum.find(&(&1.id == ServiceRadar.EventWriter.Supervisor))
 
-    start_supervised!({Supervisor, {[spec], strategy: :one_for_one}})
+    # Supervisor has no child_spec/1, so start it through an explicit spec map.
+    start_supervised!(%{
+      id: :event_writer_coordinator_test_supervisor,
+      start: {Supervisor, :start_link, [[spec], [strategy: :one_for_one]]}
+    })
     assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
     assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 3_000
     assert Health.check() == :ok
@@ -310,7 +314,19 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
   defp config(port) do
     %Config{
       enabled: true,
-      nats: %{host: "127.0.0.1", port: port, tls: false},
+      # The full nats_config() key set: Producer.apply_auth_settings/2 reads
+      # .jwt/.nkey_seed/.user/.password by key, so a partial map crashes
+      # handle_info(:connect) with KeyError before any NATS traffic flows.
+      nats: %{
+        host: "127.0.0.1",
+        port: port,
+        tls: false,
+        user: nil,
+        password: nil,
+        jwt: nil,
+        nkey_seed: nil,
+        creds_file: nil
+      },
       consumer_name: "recovery",
       retired_consumers: [],
       max_ack_pending: 8,
