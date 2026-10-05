@@ -149,6 +149,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
   # them; every other statement reaches the handler untouched.
   defp with_freshness_probes(mv_max, raw_max, handler) do
     fn
+      "SELECT IS_ACTIVE," <> _ ->
+        {:ok, %{rows: [["true", "SUCCESS", 15]]}}
+
       "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
         {:ok, %{rows: [[mv_max]], num_rows: 1}}
 

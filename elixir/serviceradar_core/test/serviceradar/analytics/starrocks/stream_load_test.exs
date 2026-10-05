@@ -1,10 +1,21 @@
 defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Analytics.StarRocks.Attribution
+  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.LoadAdmission
+  alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
 
   @moduletag :db_free
+
+  setup context do
+    start_supervised!(
+      {LoadSupervisor, max_in_flight: 2, wait_timeout_ms: context[:wait_timeout_ms] || 5_000}
+    )
+
+    :ok
+  end
 
   @rows [
     %{"id" => "flow-alpha", "bytes_in" => 1200, "bytes_out" => 80},
@@ -81,6 +92,161 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert_received :put
     refute_received :put
     assert :counters.get(states, 1) == 2
+  end
+
+  test "single and split loads from different datasets share admission through redirects" do
+    parent = self()
+
+    http = fn request ->
+      send(parent, {:request, self(), request})
+
+      receive do
+        :redirect ->
+          {:ok, %{status: 307, headers: [{"location", "http://cn.example.com/load"}]}}
+
+        :success ->
+          {:ok,
+           %{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "Status" => "Success",
+                 "NumberLoadedRows" => length(Jason.decode!(request.body)),
+                 "NumberFilteredRows" => 0
+               })
+           }}
+      after
+        5_000 -> flunk("synthetic HTTP adapter was not released")
+      end
+    end
+
+    load = fn dataset, rows, options ->
+      Task.async(fn ->
+        Destination.persist_warehouse(
+          dataset,
+          rows,
+          Keyword.merge([http: http], options)
+        )
+      end)
+    end
+
+    logs =
+      load.(:logs, [%{id: "log-first", timestamp: ~U[2000-01-01 00:00:00Z], body: "first"}], [])
+
+    metrics =
+      load.(:metrics, [%{timestamp: ~U[2000-01-01 00:00:00Z], metric_name: "cpu", value: 1}], [])
+
+    assert_receive {:request, first, _}, 1_000
+    assert_receive {:request, second, _}, 1_000
+
+    split =
+      load.(
+        :logs,
+        [
+          %{id: "log-second", timestamp: ~U[2000-01-01 00:00:00Z], body: "second"},
+          %{id: "log-third", timestamp: ~U[2000-01-01 00:00:00Z], body: "third"}
+        ],
+        stream_load: [max_rows: 1]
+      )
+
+    refute_receive {:request, _, _}, 100
+    send(first, :redirect)
+    assert_receive {:request, ^first, %{url: "http://cn.example.com/load"}}, 1_000
+    refute_receive {:request, _, _}, 100
+    send(first, :success)
+    assert_receive {:request, third, _}, 1_000
+    refute_receive {:request, _, _}, 100
+    send(second, :success)
+    assert_receive {:request, fourth, _}, 1_000
+    send(third, :success)
+    send(fourth, :success)
+    assert {:ok, %{loaded: 1}} = Task.await(logs)
+    assert {:ok, %{loaded: 1}} = Task.await(metrics)
+    assert {:ok, %{loaded: 2, loads: 2}} = Task.await(split)
+  end
+
+  @tag wait_timeout_ms: 100
+  test "waiting work times out without leaking a late admission, and caller death releases capacity" do
+    parent = self()
+
+    http = fn _request ->
+      send(parent, {:blocked, self()})
+
+      receive do
+        :fail -> {:error, :timeout}
+      after
+        5_000 -> flunk("synthetic HTTP adapter was not released")
+      end
+    end
+
+    # Use unlinked callers: killing one simulates cancellation of an in-flight load.
+    first = spawn(fn -> StreamLoad.persist("logs", @rows, http: http) end)
+    second = spawn(fn -> StreamLoad.persist("otel_metrics", @rows, http: http) end)
+    assert_receive {:blocked, _first_worker}
+    assert_receive {:blocked, _second_worker}
+    max_bytes = Destination.stream_load_limits()[:max_bytes]
+
+    assert {:error, :load_admission_full} =
+             LoadAdmission.run(max_bytes * 2 + 1, fn ->
+               flunk("over-budget waiter must never start transport work")
+             end)
+
+    assert {:error, :load_admission_timeout} =
+             StreamLoad.persist("otel_traces", @rows, http: http)
+
+    Process.exit(first, :kill)
+    Process.exit(second, :kill)
+
+    successful = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: successful)
+    refute_receive {:blocked, _}, 150
+  end
+
+  test "exceptions and transport errors release shared capacity" do
+    for _ <- 1..3 do
+      assert_raise RuntimeError, "synthetic exception", fn ->
+        StreamLoad.persist("logs", @rows, http: fn _ -> raise "synthetic exception" end)
+      end
+
+      assert {:error, {:disconnected, _}} =
+               StreamLoad.persist("logs", @rows, http: fn _ -> {:error, :disconnected} end)
+    end
+  end
+
+  test "an admission restart stops outstanding HTTP workers before admitting new loads" do
+    parent = self()
+
+    http = fn _ ->
+      send(parent, {:active_load, self()})
+
+      receive do
+        :unexpected -> flunk("old HTTP worker must be stopped on restart")
+      after
+        5_000 -> flunk("old HTTP worker survived the admission restart")
+      end
+    end
+
+    for _ <- 1..2, do: spawn(fn -> StreamLoad.persist("logs", @rows, http: http) end)
+    assert_receive {:active_load, first}, 1_000
+    assert_receive {:active_load, second}, 1_000
+    first_ref = Process.monitor(first)
+    second_ref = Process.monitor(second)
+    Process.exit(Process.whereis(LoadAdmission), :kill)
+    assert_receive {:DOWN, ^first_ref, :process, ^first, _}, 1_000
+    assert_receive {:DOWN, ^second_ref, :process, ^second, _}, 1_000
+    # A supervisor call completes after its current restart callback finishes.
+    assert length(Supervisor.which_children(LoadSupervisor)) == 2
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
   end
 
   test "stable identities produce the same load label across retry regrouping" do

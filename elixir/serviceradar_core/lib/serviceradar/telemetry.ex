@@ -324,9 +324,53 @@ defmodule ServiceRadar.Telemetry do
       camera_relay_metrics() ++
       observability_signal_metrics() ++
       event_writer_metrics() ++
+      starrocks_load_metrics() ++
       prefix_tag_metrics() ++
       capacity_forecasting_metrics() ++
       stateful_alert_engine_metrics() ++ admission_lane_metrics() ++ notification_metrics()
+  end
+
+  @doc "Returns Stream Load counts, payload sizes, failures and duration by dataset."
+  def starrocks_load_metrics do
+    import Telemetry.Metrics
+
+    event = [:serviceradar, :starrocks, :stream_load, :request, :stop]
+    tags = [:dataset, :table]
+
+    [
+      counter("serviceradar.starrocks.stream_load.count",
+        event_name: event,
+        measurement: :loads,
+        tags: tags
+      ),
+      sum("serviceradar.starrocks.stream_load.rows",
+        event_name: event,
+        measurement: :rows,
+        tags: tags
+      ),
+      sum("serviceradar.starrocks.stream_load.bytes",
+        event_name: event,
+        measurement: :bytes,
+        tags: tags
+      ),
+      sum("serviceradar.starrocks.stream_load.failures",
+        event_name: event,
+        measurement: :failures,
+        tags: tags
+      ),
+      counter("serviceradar.starrocks.stream_load.exceptions",
+        event_name: [:serviceradar, :starrocks, :stream_load, :request, :exception],
+        measurement: :duration,
+        tags: tags
+      ),
+      distribution("serviceradar.starrocks.stream_load.duration",
+        event_name: event,
+        measurement: :duration,
+        tags: tags,
+        unit: {:native, :millisecond},
+        reporter_options: [buckets: [10, 50, 100, 500, 1_000, 5_000, 10_000, 60_000]]
+      )
+    ]
   end
 
   @doc "Returns bounded core admission lane depth, latency, and outcome metrics."

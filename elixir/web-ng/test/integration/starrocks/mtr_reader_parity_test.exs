@@ -918,6 +918,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp marks(raw_max, mv_max) do
     fn
       "SELECT MAX(`time`) FROM " <> _ -> {:ok, %{rows: [[raw_max]]}}
+      "SELECT IS_ACTIVE," <> _ -> {:ok, %{rows: [["true", "SUCCESS", 15]]}}
       "SELECT MAX(`bucket`) FROM " <> _ -> {:ok, %{rows: [[mv_max]]}}
       _other -> {:error, :unexpected_probe}
     end

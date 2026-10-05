@@ -28,20 +28,45 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
     mv = flows_mv_sql()
     raw = flows_raw_sql()
 
-    fn
+    healthy_refresh(fn
       ^mv -> result(mv_rows)
       ^raw -> result(raw_rows)
+    end)
+  end
+
+  defp healthy_refresh(query) do
+    fn sql ->
+      if String.contains?(sql, "information_schema.materialized_views"),
+        do: result([["true", "SUCCESS", 15]]),
+        else: query.(sql)
+    end
+  end
+
+  test "a scheduled view fails closed after a stale or failed refresh within the same bucket" do
+    for metadata <- [
+          [["true", "FAILED", 10]],
+          [["true", "SUCCESS", 121]],
+          [["false", "SUCCESS", 5]],
+          []
+        ] do
+      query = fn sql ->
+        if String.contains?(sql, "information_schema.materialized_views"),
+          do: result(metadata),
+          else: flunk("unhealthy view must select raw before high-water probes")
+      end
+
+      refute RollupFreshness.fresh?(:flows, query: query)
     end
   end
 
   test "a view that has kept up with its source table reads as fresh" do
     probe = probes([[~N[1999-06-15 12:00:00]]], [[~N[1999-06-15 12:59:00]]])
-    assert RollupFreshness.fresh?(:flows, query: probe)
+    assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   test "a view lagging its source table past the threshold reads as stale" do
     probe = probes([[~N[1999-06-15 09:00:00]]], [[~N[1999-06-15 12:59:00]]])
-    refute RollupFreshness.fresh?(:flows, query: probe)
+    refute RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   # The signal is lag behind the source table, not the wall clock: a dataset
@@ -49,27 +74,27 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
   # every long-window chart onto a full raw scan.
   test "an idle dataset stays on its rollup no matter how old the newest row is" do
     probe = probes([[~N[1999-06-15 03:00:00]]], [[~N[1999-06-15 03:30:00]]])
-    assert RollupFreshness.fresh?(:flows, query: probe)
+    assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   test "a source table with no rows at all reads as fresh" do
     probe = probes([[nil]], [[nil]])
-    assert RollupFreshness.fresh?(:flows, query: probe)
+    assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   test "an empty view over a populated source table reads as stale" do
     probe = probes([[nil]], [[~N[1999-06-15 12:00:00]]])
-    refute RollupFreshness.fresh?(:flows, query: probe)
+    refute RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   test "a probe returning no rows fails closed to stale" do
     probe = fn _sql -> result([]) end
-    refute RollupFreshness.fresh?(:flows, query: probe)
+    refute RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   test "an unparseable high-water mark fails closed to stale" do
     probe = probes([["not-a-timestamp"]], [[~N[1999-06-15 12:00:00]]])
-    refute RollupFreshness.fresh?(:flows, query: probe)
+    refute RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   # The Frontend answers over the MySQL text protocol and the transport hands
@@ -89,17 +114,17 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
 
   test "a DateTime high-water mark is read too" do
     probe = probes([[~U[1999-06-15 12:00:00Z]]], [[~U[1999-06-15 12:59:00Z]]])
-    assert RollupFreshness.fresh?(:flows, query: probe)
+    assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   test "a failed freshness probe fails closed to stale" do
     probe = fn _sql -> {:error, :connect_failed} end
-    refute RollupFreshness.fresh?(:flows, query: probe)
+    refute RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
   end
 
   test "an unknown dataset reads as stale and issues no probe" do
     probe = fn sql -> flunk("unknown dataset must not probe StarRocks: #{sql}") end
-    refute RollupFreshness.fresh?(:unknown_dataset, query: probe)
+    refute RollupFreshness.fresh?(:unknown_dataset, query: healthy_refresh(probe))
   end
 
   test "metrics and events probe their own source table and time column" do
@@ -113,7 +138,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
         result([[~N[1999-06-15 12:30:00]]])
     end
 
-    assert RollupFreshness.fresh?(:metrics, query: metrics)
+    assert RollupFreshness.fresh?(:metrics, query: healthy_refresh(metrics))
 
     events = fn
       "SELECT MAX(`bucket`) FROM " <> _ = sql ->
@@ -125,7 +150,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
         result([[~N[1999-06-15 12:30:00]]])
     end
 
-    assert RollupFreshness.fresh?(:events, query: events)
+    assert RollupFreshness.fresh?(:events, query: healthy_refresh(events))
   end
 
   # `bucket` is date_trunc('hour', ...), so the source mark is floored to the
@@ -134,12 +159,12 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
   # threshold under an hour reports it stale for most of every hour.
   test "a caught-up view is fresh even under a sub-hour threshold" do
     probe = probes([[~N[1999-06-15 12:00:00]]], [[~N[1999-06-15 12:44:55]]])
-    assert RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 900)
+    assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe), stale_after_seconds: 900)
   end
 
   test "a view one whole hour behind is stale under a sub-hour threshold" do
     probe = probes([[~N[1999-06-15 11:00:00]]], [[~N[1999-06-15 12:29:00]]])
-    refute RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 900)
+    refute RollupFreshness.fresh?(:flows, query: healthy_refresh(probe), stale_after_seconds: 900)
   end
 
   # `traces_stats_5m` buckets on a 5-minute slice, not the hour, so its source
@@ -156,7 +181,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
       ^raw -> result([[~N[1999-06-15 14:58:00]]])
     end
 
-    assert RollupFreshness.fresh?(:traces_stats, query: probe, stale_after_seconds: 0)
+    assert RollupFreshness.fresh?(:traces_stats,
+             query: healthy_refresh(probe),
+             stale_after_seconds: 0
+           )
   end
 
   test "a 5-minute view whose newest bucket is only the first slice reads as stale" do
@@ -171,14 +199,24 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
       ^raw -> result([[~N[1999-06-15 14:58:00]]])
     end
 
-    refute RollupFreshness.fresh?(:traces_stats, query: probe, stale_after_seconds: 0)
+    refute RollupFreshness.fresh?(:traces_stats,
+             query: healthy_refresh(probe),
+             stale_after_seconds: 0
+           )
   end
 
   test "the staleness threshold is configurable per call" do
     probe = probes([[~N[1999-06-15 09:00:00]]], [[~N[1999-06-15 12:00:00]]])
 
-    assert RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 11_000)
-    refute RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 3_000)
+    assert RollupFreshness.fresh?(:flows,
+             query: healthy_refresh(probe),
+             stale_after_seconds: 11_000
+           )
+
+    refute RollupFreshness.fresh?(:flows,
+             query: healthy_refresh(probe),
+             stale_after_seconds: 3_000
+           )
   end
 
   describe "with the high-water cache running" do
@@ -209,9 +247,9 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
           result([[~N[1999-06-15 12:30:00]]])
       end
 
-      assert RollupFreshness.fresh?(:flows, query: probe)
-      assert RollupFreshness.fresh?(:flows, query: probe)
-      assert RollupFreshness.fresh?(:flows, query: probe)
+      assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
+      assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
+      assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
 
       assert_received :raw_probe
       assert_received :mv_probe
@@ -232,8 +270,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
         end
       end
 
-      assert RollupFreshness.fresh?(:flows, query: probe)
-      assert RollupFreshness.fresh?(:events, query: probe)
+      assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
+      assert RollupFreshness.fresh?(:events, query: healthy_refresh(probe))
 
       assert_received {:probe, flows_raw}
       assert flows_raw =~ "ocsf_network_activity"
@@ -266,8 +304,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
           result([[~N[1999-06-15 12:00:00]]])
       end
 
-      refute RollupFreshness.fresh?(:flows, query: probe)
-      assert RollupFreshness.fresh?(:flows, query: probe)
+      refute RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
+      assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
     end
   end
 
@@ -327,8 +365,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
           result([[~N[1999-06-15 12:30:00]]])
       end
 
-      assert RollupFreshness.fresh?(:flows, query: probe)
-      assert RollupFreshness.fresh?(:flows, query: probe)
+      assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
+      assert RollupFreshness.fresh?(:flows, query: healthy_refresh(probe))
 
       assert_received :raw_probe
       assert_received :mv_probe

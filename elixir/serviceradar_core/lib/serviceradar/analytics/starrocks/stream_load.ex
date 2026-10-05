@@ -28,6 +28,14 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   @default_http_timeout_ms 60_000
 
   def persist(table, rows, opts \\ []) when is_binary(table) and is_list(rows) do
+    body = Keyword.get_lazy(opts, :body, fn -> encode_json_rows(rows) end)
+
+    ServiceRadar.Analytics.StarRocks.LoadAdmission.run(byte_size(body), fn ->
+      persist_admitted(table, rows, Keyword.put(opts, :body, body))
+    end)
+  end
+
+  defp persist_admitted(table, rows, opts) do
     http = Keyword.get(opts, :http, &default_http/1)
     config = Keyword.get(opts, :config, %{})
     label = Keyword.get(opts, :label) || load_label(table, rows)

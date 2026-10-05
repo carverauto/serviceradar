@@ -69,6 +69,7 @@ defmodule ServiceRadar.Application do
         starrocks_schema_migrator_child(),
         starrocks_mysql_child(),
         starrocks_rollup_freshness_cache_child(),
+        ServiceRadar.Analytics.StarRocks.LoadSupervisor,
 
         # Supervise asynchronous config dependency notifications so shutdown and
         # database ownership boundaries can drain them deterministically.

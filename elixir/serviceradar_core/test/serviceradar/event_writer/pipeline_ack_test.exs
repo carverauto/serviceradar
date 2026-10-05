@@ -1,11 +1,15 @@
 defmodule ServiceRadar.EventWriter.PipelineAckTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Broadway.Message
+  alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
+  alias ServiceRadar.Analytics.StarRocks.StreamLoad
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AdhocScan
   alias ServiceRadar.EventWriter.Processors.Mtr
+
+  @moduletag :db_free
 
   setup do
     handler_id = "pipeline-ack-test-#{System.unique_integer([:positive])}"
@@ -495,11 +499,180 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
              ServiceRadar.EventWriter.Processors.FlowAttributionObservations
   end
 
+  test "the running OTel topology coalesces sparse spans, splits loads and ACKs after HTTP completion" do
+    starrocks = ServiceRadar.Analytics.StarRocks
+    previous = Application.get_env(:serviceradar_core, starrocks, [])
+    on_exit(fn -> Application.put_env(:serviceradar_core, starrocks, previous) end)
+
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+
+    {:ok, {_, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+    start_supervised!({Task, fn -> serve_loads(listener, parent) end})
+    start_supervised!(LoadSupervisor)
+
+    Application.put_env(:serviceradar_core, starrocks,
+      enabled: true,
+      fe_http: "http://127.0.0.1:#{port}",
+      stream_load: [max_age_ms: 200, max_rows: 2]
+    )
+
+    config = %Config{
+      enabled: true,
+      producer_name: __MODULE__.Producer,
+      nats: %{
+        host: "127.0.0.1",
+        port: 1,
+        jwt: "synthetic-token",
+        nkey_seed: nil,
+        user: nil,
+        password: nil,
+        tls: false
+      },
+      batch_size: 100,
+      batch_timeout: 1_000,
+      max_ack_pending: 8,
+      consumer_name: "synthetic-warehouse",
+      streams: Config.default_streams()
+    }
+
+    start_supervised!({Pipeline, {config, [name: __MODULE__.Topology]}})
+
+    spans =
+      for n <- 1..3 do
+        Jason.encode!(%{
+          "timestamp" => "2000-01-01T00:00:00Z",
+          "trace_id" => "00000000000000000000000000000001",
+          "span_id" => n |> Integer.to_string(16) |> String.pad_leading(16, "0"),
+          "name" => "synthetic"
+        })
+      end
+
+    ref =
+      Broadway.test_batch(__MODULE__.Topology, spans,
+        metadata: %{subject: "otel.traces.synthetic"},
+        batch_mode: :bulk
+      )
+
+    refute_receive {:warehouse_rows, _, _}, 75
+    assert_receive {:warehouse_rows, first_http, first_rows}, 650
+    assert_receive {:warehouse_rows, second_http, second_rows}, 650
+    assert Enum.sort([length(first_rows), length(second_rows)]) == [1, 2]
+
+    assert (first_rows ++ second_rows) |> Enum.map(& &1["span_id"]) |> Enum.sort() ==
+             ["0000000000000001", "0000000000000002", "0000000000000003"]
+
+    refute_receive {:ack, ^ref, _, _}, 50
+    send(first_http, :commit)
+    send(second_http, :commit)
+    assert_receive {:ack, ^ref, successful, []}, 1_000
+    assert length(successful) == 3
+
+    # Sparse idle traffic must also flush at maxAge, independently of maxRows.
+    idle =
+      Broadway.test_batch(__MODULE__.Topology, [hd(spans)],
+        metadata: %{subject: "otel.traces.synthetic"},
+        batch_mode: :bulk
+      )
+
+    assert_receive {:warehouse_rows, idle_http, [_]}, 650
+    send(idle_http, :commit)
+    assert_receive {:ack, ^idle, [_], []}, 1_000
+  end
+
+  test "caller cancellation closes the default HTTP request and releases admission" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+
+    {:ok, {_, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+    start_supervised!({Task, fn -> serve_loads(listener, parent) end})
+    start_supervised!({LoadSupervisor, max_in_flight: 1})
+    config = %{fe_http: "http://127.0.0.1:#{port}"}
+    rows = [%{"id" => "synthetic-cancellation"}]
+    caller = spawn(fn -> StreamLoad.persist("logs", rows, config: config) end)
+    assert_receive {:warehouse_rows, http, ^rows}, 1_000
+    send(http, :observe_close)
+    Process.exit(caller, :kill)
+    assert_receive :load_connection_closed, 1_000
+
+    next = Task.async(fn -> StreamLoad.persist("logs", rows, config: config) end)
+    assert_receive {:warehouse_rows, next_http, ^rows}, 1_000
+    send(next_http, :commit)
+    assert {:ok, %{loaded: 1}} = Task.await(next)
+  end
+
+  defp serve_loads(listener, parent) do
+    case :gen_tcp.accept(listener) do
+      {:ok, socket} ->
+        # Accept the next chunk while this one is waiting for durable commit.
+        Task.start_link(fn -> answer_load(socket, parent) end)
+        serve_loads(listener, parent)
+
+      {:error, :closed} ->
+        :ok
+    end
+  end
+
+  defp answer_load(socket, parent) do
+    {:ok, _request_line} = :gen_tcp.recv(socket, 0, 5_000)
+    bytes = load_headers(socket, 0)
+    :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
+    :ok = :inet.setopts(socket, packet: :raw)
+    {:ok, body} = :gen_tcp.recv(socket, bytes, 5_000)
+    rows = Jason.decode!(body)
+    send(parent, {:warehouse_rows, self(), rows})
+
+    receive do
+      :observe_close ->
+        {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+        send(parent, :load_connection_closed)
+
+      :commit ->
+        response =
+          Jason.encode!(%{
+            "Status" => "Success",
+            "NumberLoadedRows" => length(rows),
+            "NumberFilteredRows" => 0
+          })
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+            Integer.to_string(byte_size(response)),
+            "\r\n\r\n",
+            response
+          ])
+    after
+      5_000 -> raise "synthetic HTTP load was never committed"
+    end
+
+    :gen_tcp.close(socket)
+  end
+
+  defp load_headers(socket, bytes) do
+    {:ok, line} = :gen_tcp.recv(socket, 0, 5_000)
+
+    case String.split(String.trim(line), ":", parts: 2) do
+      [""] ->
+        bytes
+
+      [key, value] ->
+        if String.downcase(key) == "content-length",
+          do: load_headers(socket, value |> String.trim() |> String.to_integer()),
+          else: load_headers(socket, bytes)
+    end
+  end
+
   describe "warehouse batch sizing" do
     @batchers [
       metrics: [batch_size: 100, batch_timeout: 1_000],
       falco: [batch_size: 100, batch_timeout: 1_000],
       otel_traces: [batch_size: 100, batch_timeout: 1_000],
+      otel_metrics: [batch_size: 100, batch_timeout: 1_000],
       logs: [batch_size: 500, batch_timeout: 10_000]
     ]
 
@@ -522,10 +695,10 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
       assert sized[:metrics] == [batch_size: 128, batch_timeout: 2_000]
       assert sized[:falco] == [batch_size: 128, batch_timeout: 2_000]
-      # Not a warehouse writer: untouched.
-      assert sized[:otel_traces] == [batch_size: 100, batch_timeout: 1_000]
-      # A configured timeout longer than the max age is kept.
-      assert sized[:logs] == [batch_size: 128, batch_timeout: 10_000]
+      assert sized[:otel_traces] == [batch_size: 128, batch_timeout: 2_000]
+      assert sized[:otel_metrics] == [batch_size: 128, batch_timeout: 2_000]
+      # The maximum age also caps a longer CNPG timeout.
+      assert sized[:logs] == [batch_size: 128, batch_timeout: 2_000]
     end
 
     test "a configured batch size the consumer cannot deliver is capped" do

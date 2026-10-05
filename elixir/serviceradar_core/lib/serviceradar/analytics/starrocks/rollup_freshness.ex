@@ -7,14 +7,15 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   trace rollups `traces_stats_5m` and `spans_red_1h` from `0022`, and the MTR
   rollups `mtr_hops_hourly` and `mtr_destination_hourly` from `0025`, are built
   the same way and gated the same way. They
-  are `REFRESH ASYNC` with no schedule, so a reader must verify the view has
+  use a 30-second schedule after migration `0027`, so a reader must verify the view has
   caught up before trusting it: an unrefreshed view returns short counts with
   no error.
 
-  Staleness is the view's lag behind its own source table, never the wall
-  clock, so a dataset that simply stopped receiving rows keeps its rollup
-  instead of pushing long windows onto a full raw scan. A source table
-  holding no rows reads as fresh. Any error, empty result, or unparseable
+  A recent successful refresh (within 120 seconds, plus the cache TTL) is
+  required alongside the view's lag behind its own source table. This catches
+  failed refreshes and late rows that bucket maxima alone cannot detect.
+  After that health check, a source table holding no rows reads as fresh.
+  Any error, empty result, or unparseable
   high-water mark reads as stale, which routes the query to the StarRocks
   raw table, never CNPG.
 
@@ -76,7 +77,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   @doc """
   Settles a compiled StarRocks translation against the freshness gate.
 
-  Hourly materialized views are `REFRESH ASYNC` with no schedule, so a view the
+  Materialized views refresh on a bounded schedule, so a view the
   compiler actually picked has to be checked before its rows are served: an
   unrefreshed view returns short counts with no error. Only the compiled SQL
   knows whether a rollup was chosen, so this runs after compilation -- a query
@@ -120,7 +121,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   def fresh?(dataset, opts) when is_atom(dataset) and is_list(opts) do
     case Map.get(@sources, dataset) do
       {mv, raw, column, grain} ->
-        caught_up?(runner(opts), dataset, mv, raw, column, grain, opts)
+        run = runner(opts)
+
+        refresh_healthy?(run, dataset, mv, opts) and
+          caught_up?(run, dataset, mv, raw, column, grain, opts)
 
       nil ->
         false
@@ -129,6 +133,39 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
     error -> stale(dataset, error)
   catch
     :exit, reason -> stale(dataset, reason)
+  end
+
+  # Bucket maxima cannot detect a failed refresh or missing late rows within
+  # the newest bucket. Scheduled views must also have a recent successful
+  # refresh. Probe metadata rather than scanning the raw table a second time.
+  # The 30-second schedule has 90 seconds of execution slack. Cache age adds at
+  # most its configured TTL. Missing/failed metadata always selects raw SQL.
+  defp refresh_healthy?(run, dataset, mv, opts) do
+    sql = """
+    SELECT IS_ACTIVE, LAST_REFRESH_STATE,
+      TIMESTAMPDIFF(SECOND, LAST_REFRESH_START_TIME, CURRENT_TIMESTAMP())
+    FROM information_schema.materialized_views
+    WHERE TABLE_SCHEMA = '#{Env.config()[:database]}' AND TABLE_NAME = '#{mv}'
+    """
+
+    max_age = Keyword.get(opts, :refresh_stale_after_seconds, 120)
+
+    key = {dataset, :refresh, max_age}
+
+    case RollupFreshnessCache.fetch(key) do
+      {:ok, value} ->
+        value
+
+      :miss ->
+        case run.(sql) do
+          {:ok, %{rows: [[active, "SUCCESS", age]]}}
+          when active in [true, "true", "TRUE", 1] and is_integer(age) ->
+            RollupFreshnessCache.put(key, age >= 0 and age <= max_age)
+
+          _ ->
+            false
+        end
+    end
   end
 
   defp stale(dataset, reason) do

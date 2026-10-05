@@ -21,7 +21,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   One call is one EventWriter batch. Its rows are encoded once and split into
   Stream Loads of at most `stream_load[:max_rows]` rows and
   `stream_load[:max_bytes]` encoded bytes, run at most
-  `stream_load[:max_in_flight]` at a time. Every load must succeed before the
+  `stream_load[:max_in_flight]` at a time. StreamLoad also enforces the shared
+  node-wide budget across datasets and pipelines, including single loads.
+  Every load must succeed before the
   call does, so the batch keeps a single ACK decision. A batch within both
   limits is one load, labelled exactly as before; a split load's label is still
   derived from its own rows (or suffixed from a caller-supplied label), so a
@@ -349,7 +351,26 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   end
 
   defp load_chunk(persist, dataset, table, rows, persist_opts) do
-    case persist.(table, rows, persist_opts) do
+    :telemetry.span(
+      [:serviceradar, :starrocks, :stream_load, :request],
+      %{dataset: dataset, table: table},
+      fn ->
+        result = persist.(table, rows, persist_opts)
+
+        measurements = %{
+          loads: 1,
+          rows: length(rows),
+          bytes: byte_size(Keyword.fetch!(persist_opts, :body)),
+          failures: if(match?({:ok, _}, result), do: 0, else: 1)
+        }
+
+        {classify_load(result, dataset, table), measurements, %{dataset: dataset, table: table}}
+      end
+    )
+  end
+
+  defp classify_load(result, dataset, table) do
+    case result do
       {:quarantine, reason} when dataset == :flow_attribution ->
         {:error, reason}
 

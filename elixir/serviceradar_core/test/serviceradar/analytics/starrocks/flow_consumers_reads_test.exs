@@ -37,6 +37,9 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersReadsTest do
       "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly" ->
         mark(mv_max)
 
+      "SELECT IS_ACTIVE," <> _ ->
+        {:ok, %{rows: [["true", "SUCCESS", 15]]}}
+
       sql ->
         send(parent, {:sql, sql})
         {:ok, %{rows: rows}}
