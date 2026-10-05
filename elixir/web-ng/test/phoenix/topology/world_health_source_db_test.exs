@@ -78,6 +78,7 @@ defmodule ServiceRadarWebNG.Topology.WorldHealthSourceDBTest do
   end
 
   test "failed first-page source read retries with backoff without another rescan hint", %{scope: scope} do
+    {:ok, _applications} = Application.ensure_all_started(:phoenix_pubsub)
     device = create_device(scope, "sr:health-retry", true, %{})
     pubsub = __MODULE__.RetryPubSub
     start_supervised!({Phoenix.PubSub, name: pubsub})
