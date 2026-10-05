@@ -5,8 +5,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   Records arrive as `%{advisory: map, coordinates: [map], assertions: [map]}`
   with optional `products` and `product_sets` lists from a parser. This module
-  accumulates bounded chunks (default 2,000 advisories, with an additional byte
-  cap for Ubuntu projections) and flushes them with `Repo.insert_all` upserts —
+  accumulates bounded chunks (default 2,000 advisories, with a byte cap for
+  Ubuntu projections and nist-nvd2) and flushes them with `Repo.insert_all` upserts —
   never one Ash create per row.
 
   ## Skipping unchanged advisories
@@ -67,6 +67,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   @max_product_set_insert_bytes 16 * 1_024 * 1_024
   @max_assertion_lock_batch 1_000
   @default_ubuntu_chunk_bytes 16 * 1_024 * 1_024
+  @nvd_chunk_bytes 16 * 1_024 * 1_024
   @schema "platform"
   @content_hash_feeds MapSet.new(~w(cisa-kev vulncheck-kev))
   @advisory_content_fields [
@@ -283,8 +284,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     end)
   end
 
+  @doc false
+  @spec nvd_chunk_bytes() :: pos_integer()
+  def nvd_chunk_bytes, do: @nvd_chunk_bytes
+
+  @doc false
+  @spec chunk_records(Enumerable.t(), String.t(), keyword()) :: Enumerable.t()
+  def chunk_records(records, provider, opts \\ []) do
+    chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
+    record_chunks(records, provider, chunk_size, opts)
+  end
+
   defp record_chunks(records, "ubuntu", chunk_size, opts) do
     chunk_bytes = Keyword.get(opts, :chunk_bytes, @default_ubuntu_chunk_bytes)
+    chunk_by_serialized_size(records, chunk_size, chunk_bytes)
+  end
+
+  defp record_chunks(records, "nvd", chunk_size, opts) do
+    chunk_bytes = Keyword.get(opts, :chunk_bytes, @nvd_chunk_bytes)
     chunk_by_serialized_size(records, chunk_size, chunk_bytes)
   end
 
