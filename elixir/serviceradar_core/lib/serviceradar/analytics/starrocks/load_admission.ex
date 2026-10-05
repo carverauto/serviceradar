@@ -35,7 +35,8 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
     task =
       try do
         Task.Supervisor.async_nolink(ServiceRadar.Analytics.StarRocks.LoadTasks, fn ->
-          watcher = spawn_link(fn -> watch_caller(caller, self()) end)
+          worker = self()
+          watcher = spawn_link(fn -> watch_caller(caller, worker) end)
 
           try do
             {:result, run_admitted(bytes, fun)}
@@ -97,7 +98,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
   end
 
   # A catchable shutdown lets a worker inside the default HTTP adapter trap
-  # the exit, cancel its httpc request, and die before capacity is reused.
+  # the exit, cancel its HTTP request, and die before capacity is reused.
   # Escalation to :kill is bounded: only when the worker ignores shutdown.
   defp shutdown_worker(worker) do
     ref = Process.monitor(worker)

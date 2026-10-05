@@ -5,13 +5,16 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.LoadAdmission
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
+  alias ServiceRadar.Analytics.StarRocks.LoadTasks
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
 
   @moduletag :db_free
 
   setup context do
     start_supervised!(
-      {LoadSupervisor, max_in_flight: 2, wait_timeout_ms: context[:wait_timeout_ms] || 5_000}
+      {LoadSupervisor,
+       max_in_flight: context[:max_in_flight] || 2,
+       wait_timeout_ms: context[:wait_timeout_ms] || 5_000}
     )
 
     :ok
@@ -403,6 +406,96 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
   end
 
+  @tag max_in_flight: 1
+  test "caller death escalates when the worker ignores shutdown" do
+    parent = self()
+
+    ignoring_http = fn _request ->
+      send(parent, {:ignoring_worker, self()})
+      Process.flag(:trap_exit, true)
+      send(parent, :ignoring_trapping)
+
+      receive do
+        {:EXIT, _pid, :shutdown} -> send(parent, :shutdown_ignored)
+      after
+        2_000 -> flunk("watcher never attempted catchable shutdown")
+      end
+
+      receive do
+        :release -> flunk("escalated worker must not resume")
+      after
+        30_000 -> flunk("escalation never killed the worker")
+      end
+    end
+
+    caller = spawn(fn -> StreamLoad.persist("logs", @rows, http: ignoring_http) end)
+    assert_receive {:ignoring_worker, worker}, 1_000
+    assert_receive :ignoring_trapping, 1_000
+    ref = Process.monitor(worker)
+    Process.exit(caller, :kill)
+    assert_receive :shutdown_ignored, 2_000
+    assert_receive {:DOWN, ^ref, :process, ^worker, _}, 8_000
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
+  test "killing the caller closes the real HTTP request and frees the permit" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!({Task, fn -> serve_cancellable_loads(listener, parent) end})
+
+    config = %{fe_http: "http://127.0.0.1:#{port}"}
+    caller = spawn(fn -> StreamLoad.persist("logs", @rows, config: config) end)
+    assert_receive {:wire_request, @rows}, 5_000
+    assert [worker] = Task.Supervisor.children(LoadTasks)
+    worker_ref = Process.monitor(worker)
+    Process.exit(caller, :kill)
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}, 3_000
+    assert_receive {:peer_result, {:error, :closed}}, 3_000
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, config: config)
+    assert_received {:wire_request, @rows}
+  end
+
+  test "admission restart closes the real HTTP request and keeps the caller retryable" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!({Task, fn -> serve_cancellable_loads(listener, parent) end})
+
+    config = %{fe_http: "http://127.0.0.1:#{port}"}
+
+    spawn(fn ->
+      send(parent, {:caller_result, StreamLoad.persist("logs", @rows, config: config)})
+    end)
+
+    assert_receive {:wire_request, @rows}, 5_000
+    assert [worker] = Task.Supervisor.children(LoadTasks)
+    worker_ref = Process.monitor(worker)
+    Process.exit(Process.whereis(LoadAdmission), :kill)
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}, 3_000
+    assert_receive {:peer_result, {:error, :closed}}, 3_000
+    assert_receive {:caller_result, {:error, :load_admission_unavailable}}, 5_000
+    assert length(Supervisor.which_children(LoadSupervisor)) == 2
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, config: config)
+    assert_received {:wire_request, @rows}
+  end
+
   test "admission restart window stays on the retry path" do
     Process.exit(Process.whereis(LoadAdmission), :kill)
 
@@ -719,6 +812,67 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     after
       0 -> :done
     end
+  end
+
+  defp serve_cancellable_loads(listener, parent) do
+    case :gen_tcp.accept(listener, 5_000) do
+      {:ok, socket} ->
+        read_wire_request(socket, parent)
+        send(parent, {:peer_result, :gen_tcp.recv(socket, 0, 10_000)})
+        :gen_tcp.close(socket)
+        serve_success_loads(listener, parent)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, :timeout} ->
+        serve_cancellable_loads(listener, parent)
+    end
+  end
+
+  defp serve_success_loads(listener, parent) do
+    case :gen_tcp.accept(listener, 5_000) do
+      {:ok, socket} ->
+        rows = read_wire_request(socket, parent)
+
+        response =
+          Jason.encode!(%{
+            "Status" => "Success",
+            "NumberLoadedRows" => length(rows),
+            "NumberFilteredRows" => 0
+          })
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+            Integer.to_string(byte_size(response)),
+            "\r\n\r\n",
+            response
+          ])
+
+        :gen_tcp.close(socket)
+        serve_success_loads(listener, parent)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, :timeout} ->
+        serve_success_loads(listener, parent)
+    end
+  end
+
+  defp read_wire_request(socket, parent) do
+    {:ok, {:http_request, :PUT, _, _}} = :gen_tcp.recv(socket, 0, 5_000)
+    headers = receive_headers(socket, %{})
+    :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
+    :ok = :inet.setopts(socket, packet: :raw)
+
+    {:ok, body} =
+      :gen_tcp.recv(socket, String.to_integer(headers["content-length"]), 5_000)
+
+    rows = Jason.decode!(body)
+    send(parent, {:wire_request, rows})
+    rows
   end
 
   defp receive_headers(socket, headers) do
