@@ -393,13 +393,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
                  timeout: 120_000
                )
 
-      assert {:ok, %{rows: [["SUCCESS", encoded]]}} =
-               MySQL.query(
-                 "SELECT STATE, EXTRA_MESSAGE FROM information_schema.task_runs WHERE QUERY_ID = #{quote_sr(query_id)}",
-                 conn: conn
-               )
-
-      metadata = Jason.decode!(encoded)
+      metadata = refresh_metadata!(conn, query_id, System.monotonic_time(:millisecond) + 30_000)
       day = Calendar.strftime(before_midnight.time, "%Y%m%d")
       next_day = before_midnight.time |> DateTime.shift(day: 1) |> Calendar.strftime("%Y%m%d")
       partition = "p#{day}"
@@ -635,6 +629,32 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     case MySQL.query(sql, conn: conn, timeout: 60_000) do
       {:ok, %{rows: rows}} -> rows != []
       {:error, _reason} -> false
+    end
+  end
+
+  # The synchronous refresh can return before task_runs publishes its final
+  # state. Wait for this exact task, keeping failed tasks and timeouts fatal.
+  defp refresh_metadata!(conn, query_id, deadline) do
+    assert {:ok, %{rows: rows}} =
+             MySQL.query(
+               "SELECT STATE, EXTRA_MESSAGE FROM information_schema.task_runs WHERE QUERY_ID = #{quote_sr(query_id)}",
+               conn: conn,
+               timeout: 5_000
+             )
+
+    case rows do
+      [["SUCCESS", encoded]] ->
+        Jason.decode!(encoded)
+
+      pending when pending == [] or hd(hd(pending)) in ["PENDING", "RUNNING"] ->
+        assert System.monotonic_time(:millisecond) < deadline,
+               "refresh #{query_id} did not publish success within 30 seconds: #{inspect(rows)}"
+
+        Process.sleep(200)
+        refresh_metadata!(conn, query_id, deadline)
+
+      terminal ->
+        flunk("refresh #{query_id} failed or returned unexpected task metadata: #{inspect(terminal)}")
     end
   end
 

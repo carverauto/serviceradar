@@ -960,9 +960,14 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
         println!("srql-parity: swept stale databases {swept_sr:?} {swept_pg:?}");
     }
 
+    // Refusal must return before entering the cleanup scope: the existing
+    // objects belong to another run, so this run has nothing to drop.
+    if fixed {
+        sr_refuse_busy(&mut sr, &sr_database).await?;
+    }
+
     let result = async {
         if fixed {
-            sr_refuse_busy(&mut sr, &sr_database).await?;
             sr_clear(&mut sr, &sr_database).await?;
         }
         sr_create(&mut sr, &sr_database, &ddl_dir, fixed).await?;
