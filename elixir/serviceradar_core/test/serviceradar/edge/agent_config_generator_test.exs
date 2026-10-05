@@ -7,8 +7,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
   use ServiceRadar.DataCase, async: false
 
-  alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
