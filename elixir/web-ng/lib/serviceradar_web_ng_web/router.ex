@@ -1425,6 +1425,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       # CLI device-code approval — handles its own redirect-to-log-in so
       # the user_code stays pinned through authentication.
       live("/cli/auth/device", CliDeviceAuthorizeLive)
+      # CLI PKCE consent. The path is the one `serviceradar-cli auth login --web`
+      # probes. Logged-out visits redirect to log-in and keep the query.
+      live("/api/v1/cli/auth/authorize", CliPkceAuthorizeLive)
     end
   end
 

@@ -30,7 +30,7 @@
 
 ## 4. Deferred
 
-- [ ] 4.1 PKCE `/api/v1/cli/auth/authorize` for `serviceradar-cli login --web`. It needs an authorize page, code storage and a PKCE `authorization_code` grant in `CliAuthController.token`, so it is deferred. Until then the CLI falls back to the device-code flow.
+- [x] 4.1 PKCE `/api/v1/cli/auth/authorize` for `serviceradar-cli login --web`. The consent page stores a hashed one-time code, and `CliAuthController.token` exchanges it with the `authorization_code` grant.
 - [ ] 4.2 Per-leaf revocation. Leaves authenticate with a shared partition role SAN, so revocation currently relies on certificate expiry.
 - [ ] 4.3 Leafnode subject permissions. The leaf binds to the platform account with account-wide access, and a dedicated edge account with explicit imports is a follow-up.
 - [ ] 4.4 Local listener client authentication for collectors that have no CA-issued client certificate.
