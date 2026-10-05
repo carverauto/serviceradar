@@ -1128,7 +1128,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp values_equal?(l, r) when is_float(l) and is_float(r) do
     # CNPG computes in NUMERIC and the warehouse in DOUBLE, and summation
     # order differs; anything larger than a rounding is a real difference.
-    abs(l - r) <= 1.0e-6 * max(abs(l), abs(r), 1.0)
+    abs(l - r) <= 1.0e-6 * max(max(abs(l), abs(r)), 1.0)
   end
 
   defp values_equal?(l, r) when is_integer(l) and is_integer(r), do: l == r
