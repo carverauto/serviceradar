@@ -300,13 +300,6 @@ dig +short TXT AS15169.asn.cymru.com
 # Should return: "15169 | US | arin | 2000-03-30 | GOOGLE, US"
 ```
 
-**Check AS lookup cache**:
-```elixir
-# In Elixir console (iex -S mix)
-ServiceRadar.BGP.ASLookup.lookup(15169)
-# Should return: "Google LLC"
-```
-
 ### Performance Issues
 
 BGP queries use GIN indexes for fast array operations. If queries are slow:
