@@ -80,6 +80,24 @@ persistence, Agent B returns not-accepted for ack-required statuses. A generic
 received:true fallback is prohibited. No wire-level acknowledgement change is
 proposed, and repeated retained payloads keep their current deduplication identity.
 
+- **Decision: `SyncIngestorQueue` admits with a reply and decodes in the task.**
+  `enqueue/1` becomes a bounded call (short timeout) returning `:ok` or
+  `{:error, :sync_ingest_queue_full}`. The raw payload is held, and decoded only
+  in the ingestion task, so the queue's mailbox and heap are bounded by the
+  admitted bytes rather than by decoded maps. The bound counts work queued while
+  a task is in flight (#5210 item 5). Callers are now queue workers, not the
+  singleton, so the call cannot stall the router.
+  - Sync results are grouped into runs (`{:sync_run, source_id, run_id}`).
+    Snapshot activation already refuses a run whose collected distinct-row count
+    does not match its declared population (`ArmisSourceSnapshot.activate/3`), so
+    a dropped chunk cannot activate a partial snapshot today. What is missing is
+    visibility. The queue therefore remembers which chunks of each run it has
+    ingested; when a run's final chunk arrives with chunks missing (rejected at
+    admission or lost upstream), the run is recorded as failed with
+    `:sync_run_incomplete`, its activation is skipped, and an `incomplete_run`
+    event is emitted. Attributing a rejected chunk to its run at admission would
+    mean decoding it in the queue process, which this change removes.
+
 Agent B was contacted on #5195 with this contract. Confirmation of its final
 budget/error mapping and supported rollout pairings is an implementation
 prerequisite; this proposal does not claim that coordination is complete.

@@ -4,6 +4,20 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   In schema-agnostic mode, operates as a single queue since the DB schema
   is set by CNPG search_path credentials.
+
+  Admission is bounded and answers: `enqueue/1` returns `:ok`, or
+  `{:error, :sync_ingest_queue_full}` once the queued chunks or bytes reach
+  their limits (`:sync_ingestor_queue_max_pending_chunks`, default 256, and
+  `:sync_ingestor_queue_max_pending_bytes`, default 512 MiB), counting chunks
+  queued while an ingestion task is running. The queue holds the raw payloads;
+  they are decoded in the ingestion task, so a large or malformed payload costs
+  this process nothing.
+
+  The queue remembers which chunks of each sync run it has ingested. When a
+  run's final chunk arrives and some of its chunks never did -- rejected here,
+  or lost upstream -- the run is recorded as failed with `:sync_run_incomplete`
+  (so its snapshot is not activated) and `[:serviceradar, :sync_ingestion,
+  :incomplete_run]` is emitted.
   """
 
   use GenServer
@@ -18,8 +32,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defmodule Queue do
     @moduledoc false
-    defstruct batches: [], chunk_count: 0, timer_ref: nil, inflight: false, ready: false
+    defstruct batches: [], chunk_count: 0, bytes: 0, timer_ref: nil, inflight: false, ready: false
   end
+
+  @default_max_pending_chunks 256
+  @default_max_pending_bytes 512 * 1_024 * 1_024
+  @default_admission_timeout_ms 5_000
+  # A run whose final chunk never arrives is forgotten after this long.
+  @run_tracking_ttl_ms to_timeout(hour: 6)
 
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -28,8 +48,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
+  @spec enqueue(binary() | nil) ::
+          :ok | {:error, :sync_ingest_queue_full | :sync_ingest_queue_unavailable}
   def enqueue(message) do
-    GenServer.cast(queue_server(), {:enqueue, message})
+    GenServer.call(queue_server(), {:enqueue, message}, admission_timeout_ms())
+  catch
+    :exit, reason ->
+      Logger.warning("Sync ingestion queue did not admit a chunk: #{inspect(reason)}")
+      {:error, :sync_ingest_queue_unavailable}
   end
 
   def ingest_sync_results(message) do
@@ -42,20 +68,46 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
      %{
        queue: %Queue{},
        inflight_ref: nil,
+       runs: %{},
        task_supervisor: Keyword.get(opts, :task_supervisor, task_supervisor())
      }}
   end
 
   @impl true
-  def handle_cast({:enqueue, message}, state) do
-    case decode_results(message) do
-      {:ok, updates} ->
-        {:noreply, enqueue_updates(state, updates)}
+  def handle_call({:enqueue, message}, _from, state) do
+    bytes = message_bytes(message)
+    queue = state.queue
 
-      {:error, reason} ->
-        Logger.warning("Sync results decode failed: #{inspect(reason)}")
-        {:noreply, state}
+    if queue.chunk_count + 1 > max_pending_chunks() or queue.bytes + bytes > max_pending_bytes() do
+      :telemetry.execute(
+        [:serviceradar, :sync_ingestion, :rejected],
+        %{count: 1, bytes: bytes},
+        %{
+          reason: :sync_ingest_queue_full
+        }
+      )
+
+      Logger.warning("Sync ingestion queue full; rejected a #{bytes}-byte chunk")
+      {:reply, {:error, :sync_ingest_queue_full}, state}
+    else
+      {:reply, :ok, enqueue_message(state, message, bytes)}
     end
+  end
+
+  # The ingestion task reports the chunks it ingested for runs not yet final.
+  @impl true
+  def handle_cast({:sync_runs_seen, seen, finished}, state) do
+    now = System.monotonic_time(:millisecond)
+
+    runs =
+      state.runs
+      |> Map.drop(finished)
+      |> Map.merge(seen, fn _key, old, new ->
+        %{new | indices: MapSet.union(old.indices, new.indices)}
+      end)
+      |> Map.reject(fn {_key, run} -> now - run.seen_at > @run_tracking_ttl_ms end)
+
+    {:noreply, %{state | runs: runs}}
   end
 
   @impl true
@@ -87,13 +139,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp enqueue_updates(state, updates) do
+  defp message_bytes(message) when is_binary(message), do: byte_size(message)
+  defp message_bytes(_message), do: 0
+
+  defp enqueue_message(state, message, bytes) do
     queue = state.queue
 
     queue = %{
       queue
-      | batches: [updates | queue.batches],
-        chunk_count: queue.chunk_count + 1
+      | batches: [message | queue.batches],
+        chunk_count: queue.chunk_count + 1,
+        bytes: queue.bytes + bytes
     }
 
     {queue, state} = maybe_schedule_flush(state, queue)
@@ -143,19 +199,24 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp start_ingestion_task(state) do
     queue = state.queue
-    ingestion_groups = queue.batches |> Enum.reverse() |> group_batches_for_ingestion()
-    update_count = Enum.sum(Enum.map(ingestion_groups, &length/1))
+    messages = Enum.reverse(queue.batches)
+    chunk_count = queue.chunk_count
+    runs = state.runs
+    owner = self()
 
-    Logger.info(
-      "Coalesced #{queue.chunk_count} sync chunks into #{length(ingestion_groups)} run groups and #{update_count} updates"
-    )
+    queue = %{
+      queue
+      | batches: [],
+        chunk_count: 0,
+        bytes: 0,
+        inflight: true,
+        ready: false,
+        timer_ref: nil
+    }
 
-    queue = %{queue | batches: [], chunk_count: 0, inflight: true, ready: false, timer_ref: nil}
     state = %{state | queue: queue}
 
-    task_fun = fn ->
-      Enum.each(ingestion_groups, &ingest_updates/1)
-    end
+    task_fun = fn -> ingest_messages(messages, chunk_count, runs, owner) end
 
     case start_task(task_fun, state.task_supervisor) do
       {:ok, ref} ->
@@ -214,6 +275,30 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
   end
 
+  defp max_pending_chunks do
+    Application.get_env(
+      :serviceradar_core,
+      :sync_ingestor_queue_max_pending_chunks,
+      @default_max_pending_chunks
+    )
+  end
+
+  defp max_pending_bytes do
+    Application.get_env(
+      :serviceradar_core,
+      :sync_ingestor_queue_max_pending_bytes,
+      @default_max_pending_bytes
+    )
+  end
+
+  defp admission_timeout_ms do
+    Application.get_env(
+      :serviceradar_core,
+      :sync_ingestor_queue_admission_timeout_ms,
+      @default_admission_timeout_ms
+    )
+  end
+
   defp queue_server do
     Application.get_env(:serviceradar_core, :sync_ingestor_queue_server, __MODULE__)
   end
@@ -224,6 +309,94 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       :sync_ingestor_task_supervisor,
       ServiceRadar.SyncIngestor.TaskSupervisor
     )
+  end
+
+  # Runs in the ingestion task: decode, group by sync run, check each run that
+  # ends here for missing chunks, ingest, and report the runs still open.
+  defp ingest_messages(messages, chunk_count, runs, owner) do
+    chunks = Enum.flat_map(messages, &decode_chunk/1)
+    groups = Enum.chunk_by(chunks, &sync_batch_key/1)
+
+    Logger.info(
+      "Coalesced #{chunk_count} sync chunks into #{length(groups)} run groups and " <>
+        "#{chunks |> Enum.map(&length/1) |> Enum.sum()} updates"
+    )
+
+    {seen, finished} =
+      Enum.reduce(groups, {%{}, []}, fn group, {seen, finished} ->
+        key = sync_batch_key(hd(group))
+        {track, complete?} = track_run(key, group, Map.merge(runs, seen))
+        _ = ingest_updates(List.flatten(group), complete?)
+
+        case track do
+          :finished -> {Map.delete(seen, key), [key | finished]}
+          {:open, run} -> {Map.put(seen, key, run), finished}
+          :untracked -> {seen, finished}
+        end
+      end)
+
+    GenServer.cast(owner, {:sync_runs_seen, seen, finished})
+  end
+
+  defp decode_chunk(message) do
+    case decode_results(message) do
+      {:ok, []} ->
+        []
+
+      {:ok, updates} ->
+        [updates]
+
+      {:error, reason} ->
+        Logger.warning("Sync results decode failed: #{inspect(reason)}")
+        []
+    end
+  end
+
+  # Returns how the run stands after this group, and whether the group may be
+  # recorded as a complete run.
+  defp track_run({:sync_run, _source_id, _run_id} = key, group, runs) do
+    metas = Enum.map(group, &extract_sync_meta/1)
+    previous = Map.get(runs, key, %{indices: MapSet.new(), total: nil})
+
+    indices =
+      metas
+      |> Enum.map(& &1[:chunk_index])
+      |> Enum.filter(&is_integer/1)
+      |> MapSet.new()
+      |> MapSet.union(previous.indices)
+
+    total = Enum.find_value(metas, previous.total, & &1[:total_chunks])
+
+    if Enum.any?(metas, &(&1[:is_final] == true)) do
+      {:finished, run_complete?(key, indices, total)}
+    else
+      {{:open, %{indices: indices, total: total, seen_at: System.monotonic_time(:millisecond)}},
+       true}
+    end
+  end
+
+  defp track_run(_legacy_key, _group, _runs), do: {:untracked, true}
+
+  defp run_complete?(_key, _indices, total) when not is_integer(total) or total <= 0, do: true
+
+  defp run_complete?({:sync_run, source_id, run_id}, indices, total) do
+    missing = total - MapSet.size(indices)
+
+    if missing > 0 do
+      :telemetry.execute(
+        [:serviceradar, :sync_ingestion, :incomplete_run],
+        %{count: 1, missing_chunks: missing, total_chunks: total},
+        %{sync_service_id: source_id, sync_run_id: run_id}
+      )
+
+      Logger.warning(
+        "Sync run #{run_id} for source #{source_id} is incomplete: #{missing} of #{total} chunks missing"
+      )
+
+      false
+    else
+      true
+    end
   end
 
   @doc false
@@ -244,7 +417,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp ingest_updates(updates) do
+  defp ingest_updates(updates, complete? \\ true) do
     Logger.info("Processing sync results")
     Logger.info("Decoded #{length(updates)} sync updates")
 
@@ -255,6 +428,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     log_sync_progress("started", updates, sync_meta)
     record_sync_start(updates, actor, sync_meta)
     result = ingest_device_updates(device_updates, actor)
+    # A run with missing chunks keeps the devices it did deliver but is recorded
+    # as failed, and its snapshot is not activated from partial data.
+    result = if complete? or result != :ok, do: result, else: {:error, :sync_run_incomplete}
     result = maybe_activate_source_snapshot(result, updates, sync_meta, actor)
     Logger.info("SyncIngestor result: #{inspect(result)}")
 

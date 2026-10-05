@@ -46,9 +46,9 @@
 
 - [ ] 4.1 Token ResultsRouter flush messages; invalidate before threshold flush/rearm, ignore stale ticks, arm only while pending, and bound both buffered and in-flight service-state batches.
 - [ ] 4.2 Move actual batch writes into workers and preserve persistence-before-completion publication.
-- [ ] 4.3 Give SyncIngestorQueue bounded reply-bearing raw-payload admission, in-worker decoding, caller rejection handling, and run/chunk ordering.
-- [ ] 4.4 Prove rejected or unattributable chunks cannot activate partial snapshots; persist available incompleteness outside callbacks and preserve the existing population guard across restart/replay.
-- [ ] 4.5 Add stale-tick, queue-full-while-in-flight, byte-cap, malformed payload, interleaved incomplete/complete run, and no-retirement-on-overflow regressions.
+- [x] 4.3 Give SyncIngestorQueue bounded reply-bearing raw-payload admission, in-worker decoding, caller rejection handling, and run/chunk ordering.
+- [x] 4.4 Prove rejected or unattributable chunks cannot activate partial snapshots; persist available incompleteness outside callbacks and preserve the existing population guard across restart/replay.
+- [x] 4.5 Add stale-tick, queue-full-while-in-flight, byte-cap, malformed payload, interleaved incomplete/complete run, and no-retirement-on-overflow regressions.
 
 ## 5. JetStream telemetry
 

@@ -151,9 +151,15 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestor do
 
         case Jason.encode(updates) do
           {:ok, json} ->
-            SyncIngestorQueue.enqueue(json)
-            emit(:enqueued, %{updates: length(updates)}, attested)
-            :ok
+            case SyncIngestorQueue.enqueue(json) do
+              :ok ->
+                emit(:enqueued, %{updates: length(updates)}, attested)
+                :ok
+
+              {:error, reason} = error ->
+                emit(reason, %{updates: length(updates)}, attested)
+                error
+            end
 
           {:error, reason} ->
             # A value that cannot be encoded must not take down the batch it

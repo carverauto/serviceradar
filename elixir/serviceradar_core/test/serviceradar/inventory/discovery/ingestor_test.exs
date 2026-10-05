@@ -48,8 +48,9 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
       spawn(fn ->
         loop = fn loop ->
           receive do
-            {:"$gen_cast", {:enqueue, message}} ->
+            {:"$gen_call", from, {:enqueue, message}} ->
               send(parent, {:enqueued, message})
+              GenServer.reply(from, :ok)
               loop.(loop)
 
             _other ->

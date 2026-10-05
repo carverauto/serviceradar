@@ -36,6 +36,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     previous_pid = Application.get_env(:serviceradar_core, :sync_ingestor_test_pid)
     previous_queue_server = Application.get_env(:serviceradar_core, :sync_ingestor_queue_server)
 
+    previous_max_pending =
+      Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_pending_chunks)
+
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_test_pid, self())
 
@@ -54,6 +57,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
       restore_env(:sync_ingestor_test_delay_ms, previous_delay)
       restore_env(:sync_ingestor_test_pid, previous_pid)
       restore_env(:sync_ingestor_queue_server, previous_queue_server)
+      restore_env(:sync_ingestor_queue_max_pending_chunks, previous_max_pending)
     end)
 
     :ok
@@ -89,6 +93,82 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     refute_receive {:ingest_started, _updates}, 150
     assert_receive :ingest_finished, 2_000
     assert_receive {:ingest_started, _updates}, 2_000
+  end
+
+  test "a full queue rejects while a task is in flight and keeps its size" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 0)
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_pending_chunks, 2)
+    Application.put_env(:serviceradar_core, :sync_ingestor_test_delay_ms, 500)
+
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-1"}]))
+    assert_receive {:ingest_started, _updates}, 1_000
+
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-2"}]))
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-3"}]))
+
+    assert {:error, :sync_ingest_queue_full} =
+             SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-4"}]))
+
+    assert_receive :ingest_finished, 2_000
+    assert_receive {:ingest_started, updates}, 2_000
+    assert Enum.map(updates, & &1["device_id"]) == ["dev-2", "dev-3"]
+  end
+
+  test "a malformed payload is rejected by the ingestion task, not at admission" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 0)
+
+    assert :ok = SyncIngestorQueue.enqueue("not json")
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-ok"}]))
+
+    assert_receive {:ingest_started, [%{"device_id" => "dev-ok"}]}, 1_000
+  end
+
+  test "a sync run that lost a chunk is reported incomplete; a whole run is not" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 0)
+    test_pid = self()
+    handler = "sync-incomplete-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      [:serviceradar, :sync_ingestion, :incomplete_run],
+      fn _event, measurements, metadata, _ ->
+        send(test_pid, {:incomplete_run, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    chunk = fn run_id, index, final? ->
+      Jason.encode!([
+        %{
+          "device_id" => "#{run_id}-#{index}",
+          "sync_meta" => %{
+            "sync_service_id" => "source-test",
+            "sync_run_id" => run_id,
+            "chunk_index" => index,
+            "total_chunks" => 3,
+            "is_final" => final?
+          }
+        }
+      ])
+    end
+
+    # Chunk 1 of the lossy run never arrives.
+    for {run, index, final?} <- [{"lossy", 0, false}, {"lossy", 2, true}] do
+      assert :ok = SyncIngestorQueue.enqueue(chunk.(run, index, final?))
+      assert_receive :ingest_finished, 1_000
+    end
+
+    assert_receive {:incomplete_run, %{missing_chunks: 1}, %{sync_run_id: "lossy"}}, 1_000
+
+    for {run, index, final?} <- [{"whole", 0, false}, {"whole", 1, false}, {"whole", 2, true}] do
+      assert :ok = SyncIngestorQueue.enqueue(chunk.(run, index, final?))
+      assert_receive :ingest_finished, 1_000
+    end
+
+    refute_receive {:incomplete_run, _measurements, %{sync_run_id: "whole"}}, 200
   end
 
   test "keeps different sync run envelopes in separate arrival-ordered groups" do
