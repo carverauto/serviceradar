@@ -18,7 +18,7 @@ defmodule ServiceRadar.TestSupport.MetricContract do
   Asserts at least one metric is defined for `event` and that every metric it keeps finds
   each of its tags, as a scalar, and a numeric measurement. A counter counts the event and
   reads no measurement. Also asserts that every numeric measurement in `measurements` is
-  the measurement of at least one non-counter metric for `event`.
+  the measurement of at least one metric for `event`.
   """
   @spec assert_exported([atom()], map(), map()) :: :ok
   def assert_exported(event, measurements, metadata) do
