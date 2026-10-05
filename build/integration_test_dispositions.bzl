@@ -4,6 +4,7 @@ projection.
 """
 
 ASYNC_INTEGRATION_SRCS = [
+    "test/integration/armis_northbound_credential_resolution_integration_test.exs",
     "test/integration/camera_relay_session_reaper_integration_test.exs",
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",
     "test/integration/secret_broker_audit_integration_test.exs",
