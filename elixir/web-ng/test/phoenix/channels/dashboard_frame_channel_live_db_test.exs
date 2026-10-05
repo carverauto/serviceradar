@@ -511,8 +511,10 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       }
 
       assert_push "frame:binary", {:binary, frame}
-      assert <<"DFB1", id_size::unsigned-integer-size(16), metadata_size::unsigned-integer-size(32),
-               rest::binary>> = frame
+
+      assert <<"DFB1", id_size::unsigned-integer-size(16), metadata_size::unsigned-integer-size(32), rest::binary>> =
+               frame
+
       assert <<id::binary-size(id_size), metadata::binary-size(metadata_size), payload::binary>> = rest
       assert id == "arrow"
       assert Jason.decode!(metadata)["byte_length"] == byte_size("arrow bytes")
