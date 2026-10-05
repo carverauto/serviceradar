@@ -124,6 +124,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     admin = start_postgrex!(cnpg_env, "postgres")
     Postgrex.query!(admin, "CREATE DATABASE #{run_database}", [])
 
+    on_exit(fn ->
+      try do
+        Postgrex.query!(
+          admin,
+          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+          [run_database]
+        )
+      rescue
+        _ -> :ok
+      end
+
+      try do
+        Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{run_database} WITH (FORCE)", [])
+      rescue
+        _ -> :ok
+      end
+
+      case Postgrex.query(admin, "SELECT 1 FROM pg_database WHERE datname = $1", [run_database]) do
+        {:ok, %{rows: []}} -> :ok
+        {:ok, %{rows: _}} -> flunk("scratch database #{run_database} was not deleted")
+        {:error, _} -> :ok
+      end
+    end)
+
     cnpg = start_postgrex!(cnpg_env, run_database)
     apply_cnpg_schema!(cnpg)
 
@@ -136,12 +160,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
 
     on_exit(fn ->
       empty_starrocks!(starrocks, sr_env.database)
-
-      try do
-        Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{run_database}", [])
-      rescue
-        _ -> :ok
-      end
     end)
 
     cnpg_query = fn sql, params ->
@@ -683,13 +701,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
 
   defp baseline_table(baseline, table) do
     marker = "CREATE TABLE platform.#{table} ("
-    start = String.index(baseline, marker) || flunk("baseline has no #{table}")
-    body_start = start + String.length(marker) - 1
+
+    start =
+      case :binary.match(baseline, marker) do
+        {pos, _} -> pos
+        :nomatch -> flunk("baseline has no #{table}")
+      end
+
+    body_start = start + byte_size(marker) - 1
+    rest = :binary.part(baseline, body_start, byte_size(baseline) - body_start)
 
     stop =
-      String.index(baseline, "\n);", body_start) || flunk("baseline #{table} has no terminator")
+      case :binary.match(rest, "\n);") do
+        {offset, _} -> body_start + offset
+        :nomatch -> flunk("baseline #{table} has no terminator")
+      end
 
-    String.slice(baseline, start, stop + 2 - start) <> ";"
+    :binary.part(baseline, start, stop + 2 - start) <> ";"
   end
 
   # ---------------------------------------------------------------------------
