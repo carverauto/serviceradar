@@ -491,6 +491,26 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
     assert depth.value >= 1
   end
 
+  test "a core-call sample reported while the metrics process is busy is still published" do
+    metrics = install_runtime_metric_publisher!(self())
+    :ok = :sys.suspend(metrics)
+
+    # Reporting must not block the PushStatus path, and it must not drop the
+    # sample when the metrics process can't answer right away.
+    {elapsed_us, :ok} =
+      :timer.tc(fn -> RuntimeMetrics.report_core_call(7, :failed, %{source: "flow-attribution"}) end)
+
+    assert elapsed_us < 50_000
+    :ok = :sys.resume(metrics)
+
+    duration =
+      await_runtime_metric("agent_gateway_core_call_duration_ms", fn row ->
+        row.tags["result"] == "failed"
+      end)
+
+    assert duration.value == 7
+  end
+
   test "retained PushStatus does not acknowledge a core call that misses the acceptance budget" do
     parent = self()
     install_runtime_metric_publisher!(parent)
