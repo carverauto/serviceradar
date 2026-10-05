@@ -9,6 +9,7 @@ import textwrap
 import unittest
 
 import yaml
+from python.runfiles import runfiles
 
 
 ROOT = (
@@ -156,39 +157,10 @@ class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             record = root / "requests.jsonl"
-            # RBE test runners have no jq; emulate the two dispatch filters in Python
-            # so the executed shell stays hermetic while production keeps using jq.
-            fake_jq = root / "jq"
-            fake_jq.write_text(
-                "#!/usr/bin/env python3\n"
-                "import json, sys\n"
-                "args = sys.argv[1:]\n"
-                "arg_vals = {}\n"
-                "argjson_vals = {}\n"
-                "filter_expr = args[-1] if args else ''\n"
-                "i = 0\n"
-                "while i < len(args):\n"
-                "    if args[i] == '--arg' and i + 2 < len(args):\n"
-                "        arg_vals[args[i + 1]] = args[i + 2]\n"
-                "        i += 3\n"
-                "    elif args[i] == '--argjson' and i + 2 < len(args):\n"
-                "        argjson_vals[args[i + 1]] = json.loads(args[i + 2])\n"
-                "        i += 3\n"
-                "    else:\n"
-                "        i += 1\n"
-                "data = json.load(sys.stdin)\n"
-                "if 'assets' in filter_expr:\n"
-                "    name = arg_vals.get('name', '')\n"
-                "    count = sum(1 for a in (data.get('assets') or [])\n"
-                "                if a.get('name') == name and (a.get('size') or 0) > 0)\n"
-                "    print(count)\n"
-                "else:\n"
-                "    ok = (data.get('id') == argjson_vals.get('id')\n"
-                "          and data.get('tag_name') == arg_vals.get('tag')\n"
-                "          and data.get('draft') is True)\n"
-                "    sys.exit(0 if ok else 1)\n"
-            )
-            fake_jq.chmod(0o755)
+            jq = runfiles.Create().Rlocation("jq_linux_amd64/file/downloaded")
+            if not jq or not Path(jq).is_file():
+                raise FileNotFoundError("declared jq runfile is unavailable")
+            (root / "jq").symlink_to(Path(jq).resolve())
             fake_gh = root / "gh"
             fake_gh.write_text(
                 "#!/usr/bin/env python3\n"
