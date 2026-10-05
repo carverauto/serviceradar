@@ -4,9 +4,8 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
 
   Samples are queued here, bounded, and published as a ServiceRadar metric
   envelope on `metrics.agent_gateway`. EventWriter's metrics consumer
-  persists that subject. A full queue or a publisher that does not answer
-  drops the sample. PushStatus never waits on this GenServer for more than
-  a short enqueue timeout, and a failed publish does not fail delivery.
+  persists that subject. A full queue drops the sample. PushStatus never
+  waits on this GenServer, and a failed publish does not fail delivery.
   """
 
   use GenServer
