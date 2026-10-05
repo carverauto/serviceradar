@@ -55,6 +55,7 @@ func NewDriver() syncsources.SourceDriver {
 // emitting one batch of device updates per fetched page.
 func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, error) {
 	apiClient := newClient(run.Source)
+	defer apiClient.close()
 	queries := configuredQueries(run.Source.Queries)
 	if len(queries) == 0 {
 		return 0, errNoQueriesConfigured
