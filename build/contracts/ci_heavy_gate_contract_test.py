@@ -357,6 +357,73 @@ def is_executable_bazel_test(segment: str, start: int) -> bool:
     )
 
 
+def run_step_shell_lines(action: str) -> tuple[str, ...]:
+    """Normalized shell lines of every top-level ``run:`` step.
+
+    Literal blocks keep shell structure: comments drop out and continuations
+    join. Folded and inline scalars collapse to one command. The workflow YAML
+    is the contract, so callers assert these commands rather than raw text.
+    """
+    lines_out: list[str] = []
+    raw_lines = action.splitlines()
+    index = 0
+    while index < len(raw_lines):
+        match = re.match(r"^      - run: ?(.*)$", raw_lines[index])
+        if not match:
+            index += 1
+            continue
+        rest = match.group(1)
+        index += 1
+        if rest in {"|", "|-", "|+"}:
+            body: list[str] = []
+            while index < len(raw_lines):
+                candidate = raw_lines[index]
+                if candidate.strip() == "":
+                    body.append(candidate)
+                    index += 1
+                    continue
+                if candidate.startswith("          "):
+                    body.append(candidate[10:])
+                    index += 1
+                    continue
+                break
+            lines_out.extend(normalized_shell_lines("\n".join(body)))
+            continue
+        if rest in {">", ">-", ">+"}:
+            folded: list[str] = []
+            while index < len(raw_lines):
+                candidate = raw_lines[index]
+                if candidate.strip() == "":
+                    index += 1
+                    continue
+                if candidate.startswith("          "):
+                    folded.append(candidate.strip())
+                    index += 1
+                    continue
+                break
+            if folded:
+                lines_out.append(" ".join(" ".join(folded).split()))
+            continue
+        if rest:
+            lines_out.append(" ".join(rest.split()))
+    return tuple(lines_out)
+
+
+def executable_bazel_commands(action: str, verb: str) -> tuple[str, ...]:
+    """Every executable ``bazel <verb>`` command, in workflow order."""
+    commands = []
+    pattern = re.compile(rf"(?:command\s+)?bazel\s+{re.escape(verb)}\b")
+    for line in run_step_shell_lines(action):
+        for segment in shell_command_segments(line):
+            match = pattern.search(segment)
+            if not match or not is_executable_bazel_test(segment, match.start()):
+                continue
+            command = segment[match.start() :]
+            command = re.sub(r"^command\s+", "", command, count=1)
+            commands.append(" ".join(command.split()))
+    return tuple(commands)
+
+
 def normalized_bazel_test_commands(action: str) -> tuple[str, ...]:
     """Inventory every literal executable ``bazel test`` in lifecycle order."""
     commands = []
@@ -913,6 +980,19 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
+    # Same run id and build selection as the suite, before the clone. The manual
+    # netprobe target is named because a wildcard skips it. $FLAGS stays off:
+    # bazel build rejects the test-only options that string carries.
+    integration_compile = (
+        "bazel build -c opt --config=ci --//build:enable_integration_tests "
+        "--//build:run_id=$RUN_ID --build_tests_only "
+        "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
+        "//... //rust/netprobe:loaded_tcp_attribution_test"
+    )
+    unit_suite = (
+        "bazel test -c opt --config=ci --//build:enable_integration_tests "
+        "//... --test_tag_filters=-integration_test,-acceptance_test,-benchmark"
+    )
     web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
     topology_db_suite = "bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test"
     dgraph_schema_suite = "bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test"
@@ -1448,6 +1528,24 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 if "$FLAGS" in command and "//..." in command
             ),
         )
+        # The integration compile is the only bazel build in this action. It
+        # runs after schema preflight and before the measured clock, so a
+        # compile break fails before provision_generation and does not consume
+        # the observer budget. LargeIngestionGate keeps its own world build.
+        shell_lines = normalized_shell_lines(database_lifecycle_shell(action))
+        compile_at = shell_lines.index(self.integration_compile)
+        preflight = (
+            "echo \"SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready "
+            "digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED\""
+        )
+        self.assertLess(shell_lines.index(preflight), compile_at)
+        self.assertLess(compile_at, shell_lines.index('START_NS="$(date +%s%N)"'))
+        self.assertLess(compile_at, shell_lines.index(self.ordinary_provision))
+        self.assertEqual(
+            (self.integration_compile,),
+            executable_bazel_commands(action, "build"),
+        )
+        self.assertEqual(1, run_step_shell_lines(action).count(self.unit_suite))
 
     def test_go_race_step_uses_a_private_output_base_and_shuts_it_down(self):
         """Race flags stay off the parked default Bazel server.
