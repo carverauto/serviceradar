@@ -1784,6 +1784,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> redact_json_secret("password")
     |> redact_json_secret("secret")
     |> redact_json_secret("api_key")
+    |> redact_json_secret("authorization")
     |> redact_authorization_secret()
     |> redact_assignment_secret("token")
     |> redact_assignment_secret("password")
