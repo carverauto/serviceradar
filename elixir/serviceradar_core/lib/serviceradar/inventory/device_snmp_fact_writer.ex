@@ -69,8 +69,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
   @doc """
   Writes one fact per SNMP reading in the batch.
 
-  Always returns `:ok`. Fact storage is a secondary surface: a failure here must
-  not fail the timeseries write that the same batch is about to perform, because
+  Always returns `:ok`. Fact storage is a secondary surface: a failure here
+  must not affect the timeseries write the same batch already performed, because
   losing a metric point is worse than losing a snapshot row that the next poll
   will rewrite anyway.
   """
