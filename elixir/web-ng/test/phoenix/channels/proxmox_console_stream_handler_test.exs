@@ -133,6 +133,23 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     end
   end
 
+  defmodule FailedBrokerStub do
+    @moduledoc false
+
+    def start_link(session, _owner, _opts) do
+      send(session.metadata["test_pid"], :broker_start_attempted)
+      {:error, :console_assignment_policy_binding_mismatch}
+    end
+  end
+
+  defmodule SensitiveFailedBrokerStub do
+    @moduledoc false
+
+    def start_link(_session, _owner, _opts) do
+      {:error, {:unexpected, "invented-secret-for-negative-control"}}
+    end
+  end
+
   defmodule AuthorizationStub do
     @moduledoc false
 
@@ -170,6 +187,30 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     assert opts[:rows] == 43
 
     ProxmoxConsoleStreamHandler.terminate(:normal, attached)
+  end
+
+  test "a broker start failure retires the accepted session and is not a ticket error" do
+    for broker <- [FailedBrokerStub, SensitiveFailedBrokerStub] do
+      session_id = "example-start-failure-#{System.unique_integer([:positive])}"
+      {:ok, state} = init_state(session_id)
+      state = %{state | broker_module: broker}
+
+      assert {:stop, :normal, 1011, [{:text, response}], failed} =
+               ProxmoxConsoleStreamHandler.handle_in({attach_payload(session_id), [opcode: :text]}, state)
+
+      assert %{"code" => "console_start_failed", "type" => "error"} = Jason.decode!(response)
+      refute response =~ "Invalid or expired"
+      refute response =~ "srpve_test_ticket"
+      refute response =~ "invented-secret-for-negative-control"
+      assert failed.session.id == session_id
+      assert failed.closing_action == :failed
+      assert_receive {:attach_with_ticket, "srpve_test_ticket", _opts}
+      assert_receive {:fail_session, ^session_id, reason, _opts}
+      assert reason in [:console_assignment_policy_binding_mismatch, :console_broker_unavailable]
+
+      ProxmoxConsoleStreamHandler.terminate(:normal, failed)
+      refute_received {:request_close, ^session_id, _opts}
+    end
   end
 
   test "rejected attach does not echo the supplied ticket" do

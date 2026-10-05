@@ -404,11 +404,11 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     with_short_ownership_repo(fn ->
       TestSupport.checkout_repo!(%{sandbox: :unboxed})
 
-      # The ownership timer fires mid-query and Postgres cancels the in-flight
-      # statement, so the caller sees 57014/query_canceled. The
-      # "ownership_timeout" text only appears in the server-side disconnect log.
-      assert {:error, %Postgrex.Error{postgres: %{code: :query_canceled}}} =
-               Repo.query("SELECT pg_sleep($1::float8)", [@outlasting_query_s])
+      result = Repo.query("SELECT pg_sleep($1::float8)", [@outlasting_query_s])
+
+      assert ownership_timeout_outcome?(result),
+             "expected the pool ownership timer to interrupt the outlasting query, got: " <>
+               inspect(result)
     end)
   end
 
@@ -499,6 +499,24 @@ defmodule ServiceRadar.TestSupportSandboxTest do
       Sandbox.mode(Repo, :manual)
     end
   end
+
+  # The ownership timer counts from checkout and disconnects whatever query is in
+  # flight when it fires. Mid-query that surfaces as one of two documented outcomes,
+  # depending on which side of the teardown wins the race: Postgres cancels the
+  # in-flight statement (57014/query_canceled), or the ownership proxy tears the
+  # connection down first and the caller sees its disconnect reason. That reason is
+  # emitted only by the ownership-timer handler (DBConnection.Ownership.Proxy), so
+  # requiring its exact ":ownership_timeout option" marker both proves the timer fired
+  # and rejects unrelated connection failures. Anything else -- notably :ok -- means the
+  # pool default did not govern this checkout and must stay red.
+  defp ownership_timeout_outcome?({:error, %Postgrex.Error{postgres: %{code: :query_canceled}}}),
+    do: true
+
+  defp ownership_timeout_outcome?({:error, %DBConnection.ConnectionError{message: message}})
+       when is_binary(message),
+       do: message =~ "(set via the :ownership_timeout option)"
+
+  defp ownership_timeout_outcome?(_other), do: false
 
   defp with_short_ownership_repo(fun) do
     {:ok, repo} =

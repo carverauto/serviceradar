@@ -16,6 +16,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   require Logger
 
   @camera_preview_limit 4
+  # `/dashboard?q=` renders its results as a paginated table: at most one page
+  # of rows lives in the assign. It used to allow 50_000 rows per load.
+  @query_results_limit 100
   @camera_relay_poll_interval_ms 1_000
 
   @impl true
@@ -48,7 +51,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     {:noreply,
      socket
      |> SRQLPage.init(entity)
-     |> SRQLPage.load_list(params, uri, :query_results, default_limit: 100, max_limit: 50_000)}
+     |> SRQLPage.load_list(params, uri, :query_results,
+       default_limit: @query_results_limit,
+       max_limit: @query_results_limit
+     )}
   end
 
   def handle_params(_params, _uri, socket) do

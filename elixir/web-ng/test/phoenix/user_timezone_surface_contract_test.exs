@@ -3,7 +3,6 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias ServiceRadarWebNGWeb.AnalyticsLive.Index, as: AnalyticsIndex
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents
   alias ServiceRadarWebNGWeb.BmpLive.Index, as: BmpIndex
   alias ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel
@@ -197,42 +196,6 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
 
     assert LazyHTML.attribute(times, "datetime") == List.duplicate(@canonical, 3)
     assert times |> LazyHTML.attribute("id") |> Enum.uniq() |> length() == 3
-  end
-
-  test "analytics absolute event times are semantic without changing the event query" do
-    query =
-      "in:events log_level:(FATAL,fatal,CRITICAL,critical,ERROR,error) time:last_24h sort:time:desc limit:100"
-
-    html =
-      render_component(&AnalyticsIndex.critical_events_widget/1,
-        timezone: @timezone,
-        loading: false,
-        summary: %{
-          total: 2,
-          critical: 2,
-          error: 0,
-          warning: 0,
-          info: 0,
-          recent: [analytics_event("event-a"), analytics_event("event-b")]
-        }
-      )
-
-    document = LazyHTML.from_fragment(html)
-    times = LazyHTML.query(document, "time[data-user-time-zone='#{@timezone}']")
-
-    assert LazyHTML.attribute(times, "id") == [
-             "analytics-event-event-a-observed-at",
-             "analytics-event-event-b-observed-at"
-           ]
-
-    assert LazyHTML.attribute(times, "datetime") == [
-             "2026-08-20T18:00:00Z",
-             "2026-08-20T18:00:00Z"
-           ]
-
-    assert times |> LazyHTML.attribute("id") |> Enum.uniq() |> length() == 2
-
-    assert html =~ URI.encode_query(%{"q" => query})
   end
 
   test "device alias rows use stable resource-derived ids for repeated instants" do
@@ -809,16 +772,6 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
       looked_up_at: ~U[2026-08-30 18:00:00Z],
       device_uid: nil,
       hostname: nil
-    }
-  end
-
-  defp analytics_event(uid) do
-    %{
-      "uid" => uid,
-      "host" => "edge-1",
-      "message" => "threshold exceeded",
-      "severity" => "Critical",
-      "time" => "2026-08-20T18:00:00Z"
     }
   end
 

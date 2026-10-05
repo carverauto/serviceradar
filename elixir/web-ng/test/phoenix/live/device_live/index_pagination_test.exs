@@ -273,21 +273,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexPaginationTest do
     enrichment_monitor = Process.monitor(enrichment_pid)
     stats_monitor = Process.monitor(stats_pid)
 
-    socket = %{socket | transport_pid: nil}
-
     refreshed =
       IndexRefresh.refresh_devices(socket,
         list_params: %{"q" => "in:devices", "page" => "2", "cursor" => "cursor-page-2"}
       )
 
+    on_exit(fn ->
+      cancel_async(refreshed, refreshed.assigns.device_enrichment_task)
+      cancel_async(refreshed, refreshed.assigns.device_stats_task)
+    end)
+
     assert_receive {:DOWN, ^enrichment_monitor, :process, ^enrichment_pid, {:shutdown, :cancel}}
     assert_receive {:DOWN, ^stats_monitor, :process, ^stats_pid, {:shutdown, :cancel}}
     assert_receive {:index_pagination_srql, "cursor-page-2", 20}
     assert refreshed.assigns.pagination_page == 2
-    refute refreshed.assigns.device_enrichment_token == :pending_generation
+    token = refreshed.assigns.device_enrichment_token
+    refute token == :pending_generation
     refute refreshed.assigns.device_refresh_pending
-    assert is_nil(refreshed.assigns.device_enrichment_task)
-    assert is_nil(refreshed.assigns.device_stats_task)
+    # The pending generation's tasks were replaced by the new page's own.
+    assert refreshed.assigns.device_enrichment_task == {:device_enrichment, token}
+    assert refreshed.assigns.device_stats_task == {:device_stats, token}
   end
 
   defp pending_devices do
@@ -302,8 +307,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexPaginationTest do
     )
   end
 
+  # A connected socket: list queries run on the connected render only.
   defp load_devices(params) do
-    %Socket{}
+    %Socket{transport_pid: self()}
     |> Phoenix.Component.assign(:current_scope, self())
     |> Phoenix.Component.assign(:live_action, :index)
     |> Phoenix.Component.assign(:device_stats_loaded, false)
