@@ -51,11 +51,11 @@ Defaults cover reserved descriptors, queued payloads, and in-flight work:
 | Completed service-state batch | 200 | 32 MiB | 1 |
 
 Per-agent byte credit defaults to one quarter of the lane byte credit, raised
-to one 16 MiB payload plus envelope overhead where the lane credit permits
-it, and never above the lane credit. Ordinary lanes therefore default to one
-16 MiB payload plus overhead; flow and retained lanes default to 16 MiB plus
-overhead. Explicit per-agent overrides are capped at the effective lane
-credit, including runtime byte overrides.
+to cover one source-ceiling payload plus 4096 bytes of headers and envelope
+where the lane credit permits it, and never above the lane credit. Ordinary
+lanes therefore default to 16 MiB + 4096 bytes, flow to exactly 16 MiB, and
+retained plugin to 16 MiB + 4096 bytes. Explicit per-agent overrides are
+capped at the effective lane credit, including runtime byte overrides.
 
 The node also limits DB-active ingestion workers. A Repo pool of ten reserves
 three slots for other core services, one each for flow, plugin, and endpoint,

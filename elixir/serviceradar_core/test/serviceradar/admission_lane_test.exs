@@ -178,57 +178,131 @@ defmodule ServiceRadar.AdmissionLaneTest do
              Lane.admit(source_lane, status("agent-a", "12345"), {self(), make_ref()})
   end
 
-  test "per-agent byte credit isolates independent keys" do
+  test "default sweep byte credit stops one agent filling the lane" do
     parent = self()
-    probe = status("agent-a", "payload-a")
-    retained = Lane.descriptor(probe, 10_000).retained_bytes
 
     lane =
-      start_lane(held_processor(parent),
-        max_items: 8,
-        max_items_per_agent: 8,
-        max_bytes: 4 * retained,
-        max_bytes_per_agent: 2 * retained - 1,
-        source_max_bytes: 1_024
+      start_lane_with(
+        held_processor(parent),
+        LaneSupervisor.limits(:sweep),
+        16 * 1_024 * 1_024
       )
 
-    first = admit(lane, status("agent-a", "payload-a"))
-    assert_receive {:started, "payload-a", first_release}
+    first = admit(lane, status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)))
+    assert_receive {:started, _, first_release}
 
     assert {:error, :per_agent_byte_full} =
-             Lane.admit(lane, status("agent-a", "payload-a"), {self(), make_ref()})
+             Lane.admit(
+               lane,
+               status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
+               {self(), make_ref()}
+             )
 
-    second = admit(lane, status("agent-b", "payload-b"))
+    second = admit(lane, status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024)))
     send(first_release, :release)
     assert_receive {^first, :ok}
-    assert_receive {:started, "payload-b", second_release}
+    assert_receive {:started, _, second_release}
     send(second_release, :release)
     assert_receive {^second, :ok}
     assert_empty(lane)
   end
 
-  test "lane owners derive a bounded per-agent byte credit" do
-    sweep_limits = LaneSupervisor.limits(:sweep)
-    flow_limits = FlowLane.limits()
-    retained_limits = RetainedPluginLane.limits()
+  test "default sweep reservations stop one agent filling the lane" do
+    parent = self()
 
-    assert sweep_limits[:max_bytes_per_agent] <= sweep_limits[:max_bytes]
-    assert flow_limits[:max_bytes_per_agent] <= flow_limits[:max_bytes]
-    assert retained_limits[:max_bytes_per_agent] <= retained_limits[:max_bytes]
+    lane =
+      start_lane_with(
+        held_processor(parent),
+        LaneSupervisor.limits(:sweep),
+        16 * 1_024 * 1_024
+      )
 
-    assert sweep_limits[:max_bytes_per_agent] >= 16 * 1_024 * 1_024
-    assert flow_limits[:max_bytes_per_agent] >= 6 * 1_024 * 1_024
-    assert retained_limits[:max_bytes_per_agent] >= 16 * 1_024 * 1_024
+    first_status = status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024))
+    first_ref = make_ref()
 
-    assert :ok = Lane.validate_config(sweep_limits, 15_000)
-    assert :ok = Lane.validate_config(flow_limits, 15_000)
-    assert :ok = Lane.validate_config(retained_limits, 15_000)
+    assert {:ok, {^lane, first_id}} =
+             Lane.reserve(lane, Lane.descriptor(first_status, 10_000), self(), 1_000)
 
-    assert {:error, {:non_positive, :max_bytes_per_agent}} =
-             Lane.validate_config(
-               Keyword.put(sweep_limits, :max_bytes_per_agent, 0),
-               15_000
+    assert :ok = Lane.submit(lane, first_id, first_status, {self(), first_ref})
+    assert_receive {:started, _, first_release}
+
+    assert {:error, :per_agent_byte_full} =
+             Lane.reserve(
+               lane,
+               Lane.descriptor(
+                 status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
+                 10_000
+               ),
+               self(),
+               1_000
              )
+
+    second_status = status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024))
+    second_ref = make_ref()
+
+    assert {:ok, {^lane, second_id}} =
+             Lane.reserve(lane, Lane.descriptor(second_status, 10_000), self(), 1_000)
+
+    assert :ok = Lane.submit(lane, second_id, second_status, {self(), second_ref})
+    send(first_release, :release)
+    assert_receive {^first_ref, :ok}
+    assert_receive {:started, _, second_release}
+    send(second_release, :release)
+    assert_receive {^second_ref, :ok}
+    assert_empty(lane)
+  end
+
+  test "default flow byte credit stops one agent filling the lane" do
+    parent = self()
+    lane = start_lane_with(held_processor(parent), FlowLane.limits(), 6 * 1_024 * 1_024)
+    payload = fn agent -> status(agent, String.duplicate("f", 5_900_000)) end
+
+    first = admit(lane, payload.("agent-a"))
+    assert_receive {:started, _, first_release}
+    queued = admit(lane, payload.("agent-a"))
+
+    assert {:error, :per_agent_byte_full} =
+             Lane.admit(lane, payload.("agent-a"), {self(), make_ref()})
+
+    other = admit(lane, payload.("agent-b"))
+    send(first_release, :release)
+    assert_receive {^first, :ok}
+    assert_receive {:started, _, queued_release}
+    send(queued_release, :release)
+    assert_receive {^queued, :ok}
+    assert_receive {:started, _, other_release}
+    send(other_release, :release)
+    assert_receive {^other, :ok}
+    assert_empty(lane)
+  end
+
+  test "default retained byte credit stops one agent filling the lane" do
+    parent = self()
+
+    lane =
+      start_lane_with(
+        held_processor(parent),
+        RetainedPluginLane.limits(),
+        16 * 1_024 * 1_024
+      )
+
+    first = admit(lane, status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)))
+    assert_receive {:started, _, first_release}
+
+    assert {:error, :per_agent_byte_full} =
+             Lane.admit(
+               lane,
+               status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
+               {self(), make_ref()}
+             )
+
+    second = admit(lane, status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024)))
+    send(first_release, :release)
+    assert_receive {^first, :ok}
+    assert_receive {:started, _, second_release}
+    send(second_release, :release)
+    assert_receive {^second, :ok}
+    assert_empty(lane)
   end
 
   test "saturation accounting is independent between runtime lanes" do
@@ -758,6 +832,27 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     opts = lane_opts(task_supervisor, processor, overrides)
     start_supervised!(Supervisor.child_spec({Lane, opts}, id: make_ref()))
+  end
+
+  defp start_lane_with(processor, config, source_max_bytes) do
+    task_supervisor =
+      start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {Lane,
+         [
+           lane: :test,
+           concurrency: 1,
+           task_supervisor: task_supervisor,
+           processor: processor,
+           source_max_bytes: source_max_bytes,
+           gateway_max_ms: 15_000,
+           config: config
+         ]},
+        id: make_ref()
+      )
+    )
   end
 
   defp lane_opts(task_supervisor, processor, overrides) do

@@ -55,6 +55,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :count_full,
     :configured_byte_full,
     :per_agent_full,
+    :per_agent_byte_full,
     :wire_payload_too_large,
     :invalid_admission_descriptor,
     :admission_timeout,
