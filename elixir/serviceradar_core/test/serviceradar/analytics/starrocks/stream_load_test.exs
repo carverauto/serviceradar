@@ -353,6 +353,56 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("logs", @rows, http: fn _ -> exit(:shutdown) end)
   end
 
+  test "unrelated callback exits are re-raised instead of retried" do
+    assert catch_exit(StreamLoad.persist("logs", @rows, http: fn _ -> exit(:my_bug) end)) ==
+             :my_bug
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
+  test "immediate caller death never leaks workers or permits" do
+    parent = self()
+
+    for i <- 1..25 do
+      tag = {:leak_probe, i}
+
+      http = fn _ ->
+        send(parent, {tag, self()})
+
+        receive do
+          :unexpected -> flunk("worker survived caller death")
+        after
+          5_000 -> flunk("worker survived caller death")
+        end
+      end
+
+      caller = spawn(fn -> StreamLoad.persist("logs", @rows, http: http) end)
+      Process.exit(caller, :kill)
+
+      receive do
+        {^tag, worker} ->
+          ref = Process.monitor(worker)
+          assert_receive {:DOWN, ^ref, :process, ^worker, _}, 2_000
+      after
+        0 -> :no_worker_started
+      end
+    end
+
+    drain_leak_probes()
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
   test "admission restart window stays on the retry path" do
     Process.exit(Process.whereis(LoadAdmission), :kill)
 
@@ -658,6 +708,17 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     end
 
     refute_received {:wire_request, _, _}
+  end
+
+  defp drain_leak_probes do
+    receive do
+      {{:leak_probe, _}, worker} ->
+        ref = Process.monitor(worker)
+        assert_receive {:DOWN, ^ref, :process, ^worker, _}, 2_000
+        drain_leak_probes()
+    after
+      0 -> :done
+    end
   end
 
   defp receive_headers(socket, headers) do

@@ -28,13 +28,22 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
   # worker when its caller dies, using a catchable shutdown so real HTTP
   # requests are cancelled before the permit is reused.
   def run(bytes, fun) do
+    # Capture the caller before starting work: self() inside the fun would
+    # return the worker itself and caller death would never cancel.
+    caller = self()
+
     task =
       try do
         Task.Supervisor.async_nolink(ServiceRadar.Analytics.StarRocks.LoadTasks, fn ->
+          watcher = spawn_link(fn -> watch_caller(caller, self()) end)
+
           try do
             {:result, run_admitted(bytes, fun)}
           catch
             kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+          after
+            Process.unlink(watcher)
+            Process.exit(watcher, :kill)
           end
         end)
       catch
@@ -46,25 +55,26 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
         {:error, :load_admission_unavailable}
 
       task ->
-        # Capture the caller before spawning: self() inside the fun would
-        # return the watcher itself and caller death would never cancel.
-        caller = self()
-        worker = task.pid
-        watcher = spawn(fn -> watch_caller(caller, worker) end)
-
         awaited =
           try do
             Task.await(task, :infinity)
           catch
             :exit, _ -> {:result, {:error, :load_admission_unavailable}}
-          after
-            Process.exit(watcher, :kill)
           end
 
         case awaited do
-          {:result, result} -> result
-          {:raised, :exit, _reason, _stacktrace} -> {:error, :load_admission_unavailable}
-          {:raised, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+          {:result, result} ->
+            result
+
+          {:raised, :exit, reason, _stacktrace}
+          when reason in [:shutdown, :killed] ->
+            {:error, :load_admission_unavailable}
+
+          {:raised, :exit, {:shutdown, _}, _} ->
+            {:error, :load_admission_unavailable}
+
+          {:raised, kind, reason, stacktrace} ->
+            :erlang.raise(kind, reason, stacktrace)
         end
     end
   end
