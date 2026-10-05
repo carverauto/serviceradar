@@ -166,6 +166,7 @@ func partitionCorePermissions(partitionID string) *server.Permissions {
 		Publish: &server.SubjectPermission{
 			Allow: []string{
 				"flow.raw.>",
+				"flows.raw.>",
 				"logs.>",
 				"live.logs.>",
 				"events.>",
@@ -179,6 +180,7 @@ func partitionCorePermissions(partitionID string) *server.Permissions {
 		Subscribe: &server.SubjectPermission{
 			Allow: []string{
 				"flow.raw.>",
+				"flows.raw.>",
 				"logs.>",
 				"events.>",
 				"config.>",

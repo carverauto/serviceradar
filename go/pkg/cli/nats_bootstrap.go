@@ -612,10 +612,11 @@ func generatePlatformAccount(
 
 	// Subject-scoping model (B-5): the platform-services credential is the
 	// shared core/admin identity used by ServiceRadar control-plane
-	// components. It needs broad read access on flow.> and write access on
-	// the attributed-flow + control subjects, but must NOT publish raw
-	// host-slice telemetry (that is the flow-collector's role) and must NOT
-	// touch $SYS.> (system-account exclusive).
+	// components. It needs broad read access on flow.> and flows.raw.> and
+	// write access on the attributed-flow + control subjects. The packaged
+	// flow collector authenticates with this credential and publishes
+	// flows.raw.*. This credential must NOT publish raw host-slice
+	// telemetry and must NOT touch $SYS.> (system-account exclusive).
 	//
 	// Per-agent credentials (per-host flow-collector JWTs) should be issued
 	// with GenerateAgentFlowCollectorCreds, which scopes publish to a
@@ -624,6 +625,7 @@ func generatePlatformAccount(
 		PublishAllow: []string{
 			"flow.attributed.>",
 			"flow.raw.>",
+			"flows.raw.>",
 			"logs.>",
 			"live.logs.>",
 			"events.>",
@@ -647,6 +649,7 @@ func generatePlatformAccount(
 			"flow.host-slice.>",
 			"flow.attributed.>",
 			"flow.raw.>",
+			"flows.raw.>",
 			"logs.>",
 			"events.>",
 			"config.>",
@@ -751,9 +754,10 @@ func GenerateAgentFlowCollectorCreds(
 // The permission shape:
 //
 //   - PublishAllow lists the control subjects core legitimately publishes
-//     (flow.raw.>, logs.>, live.logs.>, events.>, config.>, JetStream control,
-//     inboxes). Attributed-flow DB writes are in-process/in-cluster and
-//     no longer publish/read back through flow.attributed.*.
+//     (flow.raw.>, flows.raw.>, logs.>, live.logs.>, events.>, config.>,
+//     JetStream control, inboxes). Attributed-flow DB writes are
+//     in-process/in-cluster and no longer publish/read back through
+//     flow.attributed.*.
 //   - PublishDeny is limited to $SYS.> (reserved for the system
 //     account on every identity).
 //   - SubscribeAllow lists the raw flow, log, event, config, JetStream,
@@ -780,6 +784,7 @@ func GeneratePartitionCoreCreds(
 	permissions := &accounts.UserPermissions{
 		PublishAllow: []string{
 			"flow.raw.>",
+			"flows.raw.>",
 			"logs.>",
 			"live.logs.>",
 			"events.>",
@@ -791,6 +796,7 @@ func GeneratePartitionCoreCreds(
 		PublishDeny: []string{"$SYS.>"},
 		SubscribeAllow: []string{
 			"flow.raw.>",
+			"flows.raw.>",
 			"logs.>",
 			"events.>",
 			"config.>",
