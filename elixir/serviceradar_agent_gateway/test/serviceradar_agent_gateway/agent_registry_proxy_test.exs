@@ -65,17 +65,61 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
     assert_eventually(fn -> agent_status(ctx.agent_id) == :disconnected end)
   end
 
-  test "a disconnected agent that pushes again is connected again", ctx do
+  test "a push from an agent whose control session ended does not make it routable again", ctx do
     connect_agent(ctx)
     session = start_control_session!(ctx)
     kill_and_await(session)
     assert_eventually(fn -> agent_status(ctx.agent_id) == :disconnected end)
 
-    :ok = AgentRegistryProxy.touch_agent(ctx.agent_id, %{partition_id: ctx.partition_id, status: :connected})
+    push(ctx)
+
+    assert agent_status(ctx.agent_id) == :disconnected
+    assert AgentRegistry.find_available_agent_for_domain(ctx.domain) == nil
+  end
+
+  test "a push from an agent that never opened a control session does not make it routable", ctx do
+    push(ctx)
+
+    assert agent_status(ctx.agent_id) == :disconnected
+    assert AgentRegistry.find_available_agent_for_domain(ctx.domain) == nil
+
+    _session = start_control_session!(ctx)
+    assert agent_status(ctx.agent_id) == :connected
+  end
+
+  test "the old session's exit during a reconnect does not mark the agent disconnected", ctx do
+    connect_agent(ctx)
+    old_session = start_control_session!(ctx)
+
+    # The reconnecting agent says hello before its new session is registered,
+    # and the old session's exit lands in between.
+    connect_agent(ctx)
+    kill_and_await(old_session)
+    _new_session = start_control_session!(ctx)
 
     assert agent_status(ctx.agent_id) == :connected
-    assert %{agent_id: agent_id} = AgentRegistry.find_available_agent_for_domain(ctx.domain)
-    assert agent_id == ctx.agent_id
+  end
+
+  test "a session that reports while the proxy is busy is still tracked", ctx do
+    connect_agent(ctx)
+    proxy = Process.whereis(AgentRegistryProxy)
+
+    :ok = :sys.suspend(proxy)
+
+    session =
+      try do
+        start_control_session!(ctx, [], await_proxy?: false)
+      after
+        # Longer than any timeout on the session's report to the proxy.
+        Process.sleep(1_500)
+        :ok = :sys.resume(proxy)
+      end
+
+    await_proxy()
+    assert agent_status(ctx.agent_id) == :connected
+
+    kill_and_await(session)
+    assert_eventually(fn -> agent_status(ctx.agent_id) == :disconnected end)
   end
 
   test "an agent silent for the stale window is unregistered and its capabilities dropped", ctx do
@@ -122,7 +166,19 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
       })
   end
 
-  defp start_control_session!(ctx, capabilities \\ []) do
+  # What a status push sends the proxy.
+  defp push(ctx) do
+    :ok =
+      AgentRegistryProxy.touch_agent(ctx.agent_id, %{
+        partition_id: ctx.partition_id,
+        domain: ctx.domain,
+        status: :connected
+      })
+  end
+
+  defp await_proxy, do: _ = :sys.get_state(AgentRegistryProxy)
+
+  defp start_control_session!(ctx, capabilities \\ [], opts \\ []) do
     session =
       {ControlStreamSession, stream: nil}
       |> Supervisor.child_spec(id: make_ref(), restart: :temporary)
@@ -136,6 +192,7 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxyTest do
     }
 
     assert :ok = ControlStreamSession.register(session, ctx.agent_id, ctx.partition_id, capabilities, identity)
+    if Keyword.get(opts, :await_proxy?, true), do: await_proxy()
     session
   end
 

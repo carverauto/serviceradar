@@ -1154,7 +1154,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       partition_id: partition_id,
       domain: Config.domain(),
       capabilities: capabilities,
-      status: :connected,
+      # No :status: AgentRegistryProxy derives it from the agent's live control
+      # session, which a push or unary hello must not override.
       gateway_id: Config.gateway_id(),
       source_ip: get_peer_ip(stream)
     }

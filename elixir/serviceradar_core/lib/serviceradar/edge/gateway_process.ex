@@ -310,37 +310,32 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   end
 
   defp find_available_agent(state) do
-    # Try domain-based selection first if gateway has a domain, then fall back to partition
-    domain = Map.get(state, :domain)
-
-    agents =
-      if domain do
-        # Try domain-based selection first
-        domain_agents = AgentRegistry.find_agents_for_domain(domain)
-
-        if Enum.empty?(domain_agents) do
-          # Fall back to partition-based selection
-          AgentRegistry.find_agents_for_partition(state.partition_id)
-        else
-          domain_agents
-        end
-      else
-        # Use partition-based selection
-        AgentRegistry.find_agents_for_partition(state.partition_id)
+    # Prefer connected agents in the gateway's domain; with none, fall back to
+    # connected agents in its partition. Filtering before the emptiness check
+    # matters: a domain whose agents are all disconnected must fall back too.
+    domain_agents =
+      case Map.get(state, :domain) do
+        nil -> []
+        domain -> domain |> AgentRegistry.find_agents_for_domain() |> connected_agents()
       end
 
-    # Filter to connected agents and pick one
-    connected_agents =
-      Enum.filter(agents, fn agent ->
-        agent[:status] == :connected
-      end)
+    candidates =
+      case domain_agents do
+        [] ->
+          state.partition_id |> AgentRegistry.find_agents_for_partition() |> connected_agents()
 
-    case connected_agents do
+        agents ->
+          agents
+      end
+
+    case candidates do
       [] -> nil
       # Simple load balancing - random selection
       agents -> Enum.random(agents)
     end
   end
+
+  defp connected_agents(agents), do: Enum.filter(agents, &(&1[:status] == :connected))
 
   defp execute_checks_on_agent(agent, checks, state) do
     agent_id = agent[:agent_id]

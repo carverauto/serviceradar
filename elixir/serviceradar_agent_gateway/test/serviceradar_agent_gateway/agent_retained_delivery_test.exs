@@ -713,6 +713,9 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   defp assert_new_agent_registry_proxy(previous, attempts) do
     case Process.whereis(AgentRegistryProxy) do
       current when is_pid(current) and current != previous ->
+        # The name is registered before init/1 runs; wait for init to finish so it
+        # reads the live sessions before the caller goes on to end one.
+        _ = :sys.get_state(current)
         :ok
 
       _other ->
