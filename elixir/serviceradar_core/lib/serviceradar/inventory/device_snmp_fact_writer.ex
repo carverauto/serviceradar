@@ -208,19 +208,23 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
         end
       end)
 
-    if rows != [] do
-      Repo.insert_all(DeviceSNMPFact, Enum.reverse(rows),
-        on_conflict: {:replace, @replace_fields},
-        conflict_target: @conflict_target,
-        returning: false
-      )
-    end
+    insert_chunk(Enum.reverse(rows), valid_attrs, actor)
+  end
+
+  defp insert_chunk([], _valid_attrs, _actor), do: :ok
+
+  defp insert_chunk(rows, valid_attrs, actor) do
+    Repo.insert_all(DeviceSNMPFact, rows,
+      on_conflict: {:replace, @replace_fields},
+      conflict_target: @conflict_target,
+      returning: false
+    )
 
     :ok
   rescue
     error ->
       Logger.debug("device SNMP fact chunk upsert failed; retrying row by row",
-        rows: length(facts),
+        rows: length(rows),
         error: inspect(error)
       )
 
