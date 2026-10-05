@@ -117,6 +117,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     end)
 
     starrocks = start_starrocks!(sr_env)
+
     assert warehouse_objects!(starrocks, sr_env.database) == [],
            "reader fixture warehouse is occupied; refusing to modify another run's objects"
 
@@ -1152,7 +1153,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
       objects ->
         statement = Schema.retarget(statement, database, 1)
 
-        case Regex.run(~r/^CREATE\s+(?:TABLE|MATERIALIZED\s+VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)/i, statement) do
+        case Regex.run(
+               ~r/^CREATE\s+(?:TABLE|MATERIALIZED\s+VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)/i,
+               statement
+             ) do
           [_, ^database, object] -> MapSet.put(objects, object)
           _ -> objects
         end
