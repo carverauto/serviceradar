@@ -18,9 +18,9 @@ test source. It checks the two routing facts a formatter cannot see:
   * a file is routed when the evaluated Bazel query puts it in any
     ``//elixir/web-ng`` ``ex_unit_test`` target's ``srcs``, or when the
     ``unit_tests`` glob loads it (everything under ``test/`` except
-    ``test/integration`` and ``test/property``) -- unless the file is on
-    the shared-fixture inventory, which is routed only by database-lane
-    ``srcs`` membership (see db_selected);
+    ``test/integration`` and ``test/property``) -- unless the file declares
+    a database-lane tag, which is routed only by database-lane ``srcs``
+    membership (see db_selected and db_declared_sources);
   * files excluded from that glob and absent from every such target's
     evaluated ``srcs`` are never loaded, so each one must be listed below
     with a reason. A new such file fails this test until it is deliberately
@@ -31,17 +31,16 @@ the BUILD text. The two database lanes above must be present in that query;
 every other ``ex_unit_test`` rule in it counts as well.
 
 Selection is stricter than loading: the database-free lane excludes every
-non-:db_free test at runtime, so a file carrying a database lane tag is
-routed only when a database lane lists it in ``srcs`` (see db_selected).
+non-:db_free test at runtime, so a file declaring a database-lane tag is
+routed only when a database lane lists it in ``srcs``.
 Unit-glob loading alone leaves such a file unexecuted.
 """
 
 import os
+import re
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
-
-from web_ng_db_runner_contract_test import SHARED_FIXTURE_SOURCES
 
 
 def _runfiles_root():
@@ -65,6 +64,10 @@ TOPOLOGY_TARGET = "//elixir/web-ng:topology_atlas_db_test"
 WEB_NG_LABEL = "//elixir/web-ng:"
 
 DB_SELECTING_TARGETS = (NETWORKS_TARGET, TOPOLOGY_TARGET)
+
+DB_LANE_TAGS = frozenset({"web_ng_shared_fixture_db", "topology_atlas_db"})
+
+_TAG_ATTRIBUTE_RE = re.compile(r"^[ \t]*@(moduletag|tag)[ \t]+:([A-Za-z0-9_]+)[ \t]*$")
 
 # Files under test/ that NO lane loads: excluded from the unit_tests glob and
 # absent from every DB lane's srcs. Every entry needs a reason. A file leaves
@@ -128,12 +131,25 @@ def lane_src_union(srcs):
     return union
 
 
-def _routed(source, lane_srcs, lane_srcs_by_target):
-    if source in SHARED_FIXTURE_SOURCES:
+def _routed(source, lane_srcs, lane_srcs_by_target, db_declared):
+    if source in db_declared:
         return db_selected(source, lane_srcs_by_target)
     if source in lane_srcs:
         return True
     return not source.startswith(GLOB_EXCLUDED_DIRS)
+
+
+def db_declared_sources(files):
+    """Files declaring a database-lane tag, read from the test sources."""
+    declared = set()
+    for source in files:
+        with open(WEB_NG / source, encoding="utf-8") as handle:
+            for line in handle:
+                match = _TAG_ATTRIBUTE_RE.match(line.rstrip("\n"))
+                if match and match.group(2) in DB_LANE_TAGS:
+                    declared.add(source)
+                    break
+    return declared
 
 
 def db_selected(source, lane_srcs_by_target):
@@ -194,29 +210,25 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
 
     def test_routing_decision_distinguishes_loading_from_selection(self):
         by_target = {
-            NETWORKS_TARGET: {"test/app_domain/accounts_test.exs"},
+            NETWORKS_TARGET: {"test/owned_db_test.exs"},
             TOPOLOGY_TARGET: set(),
             "//elixir/web-ng:unit_tests": {
-                "test/app_domain/accounts_test.exs",
+                "test/owned_db_test.exs",
                 "test/plain_unit_test.exs",
-                "test/phoenix/controllers/api/device_remove_facts_controller_test.exs",
+                "test/orphan_db_test.exs",
             },
         }
         union = lane_src_union(by_target)
-        self.assertTrue(_routed("test/app_domain/accounts_test.exs", union, by_target))
-        self.assertTrue(_routed("test/plain_unit_test.exs", union, by_target))
-        self.assertFalse(
-            _routed(
-                "test/phoenix/controllers/api/device_remove_facts_controller_test.exs",
-                union,
-                by_target,
-            )
-        )
+        db_declared = {"test/owned_db_test.exs", "test/orphan_db_test.exs"}
+        self.assertTrue(_routed("test/owned_db_test.exs", union, by_target, db_declared))
+        self.assertTrue(_routed("test/plain_unit_test.exs", union, by_target, db_declared))
+        self.assertFalse(_routed("test/orphan_db_test.exs", union, by_target, db_declared))
 
     def test_every_file_is_routed_or_declared_unrouted(self):
+        db_declared = db_declared_sources(self.files)
         routed = []
         for source in self.files:
-            if _routed(source, self.lane_srcs, self.lane_srcs_by_target):
+            if _routed(source, self.lane_srcs, self.lane_srcs_by_target, db_declared):
                 routed.append(source)
                 self.assertNotIn(
                     source,

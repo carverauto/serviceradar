@@ -117,6 +117,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/security_headers_test.exs",
     "test/phoenix/controllers/topology_snapshot_controller_test.exs",
     "test/phoenix/controllers/user_session_controller_test.exs",
+    "test/phoenix/homepage_test.exs",
     "test/phoenix/identity/cli_auth_cleanup_worker_test.exs",
     "test/phoenix/live/admin/addon_fleet_live_test.exs",
     "test/phoenix/live/admin/addon_package_live_test.exs",

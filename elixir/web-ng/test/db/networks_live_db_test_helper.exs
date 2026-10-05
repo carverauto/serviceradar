@@ -14,7 +14,7 @@ ExUnit.configure(
 # tracked in https://github.com/carverauto/serviceradar/issues/4988); they load
 # but never select.
 # Pinned from the filtered BazelCI lane summary (total - excluded - skipped).
-expected_selected_tests = 2414
+expected_selected_tests = 2419
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped
