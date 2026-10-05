@@ -148,10 +148,47 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
     end
   end
 
-  @spec cleanup_expired(module()) :: :ok | {:error, term()}
-  def cleanup_expired(repo \\ Repo) do
-    case repo.query("DELETE FROM #{@prefix}.#{@table} WHERE expires_at <= now()", []) do
-      {:ok, _result} -> :ok
+  @default_cleanup_batch_size 10_000
+
+  @doc """
+  Deletes expired seasonal disposition chronological states in bounded batches.
+
+  Options:
+    * `:repo` - Ecto repo module to execute the query (default: `Repo`)
+    * `:batch_size` - Maximum number of rows to delete per call (default: #{@default_cleanup_batch_size})
+    * `:table` - Target table identifier (default: `platform.seasonal_disposition_chronological_states`)
+  """
+  @spec cleanup_expired(module() | keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def cleanup_expired(opts_or_repo \\ [])
+
+  def cleanup_expired(repo) when is_atom(repo) do
+    cleanup_expired(repo: repo)
+  end
+
+  def cleanup_expired(opts) when is_list(opts) do
+    repo = Keyword.get(opts, :repo, Repo)
+    batch_size = positive_integer(Keyword.get(opts, :batch_size), @default_cleanup_batch_size)
+    table = Keyword.get(opts, :table, "#{@prefix}.#{@table}")
+
+    sql = """
+    WITH doomed AS (
+      SELECT source, series_key, dow, hod
+      FROM #{table}
+      WHERE expires_at <= now()
+      ORDER BY expires_at ASC
+      LIMIT $1
+    )
+    DELETE FROM #{table} AS target
+    USING doomed
+    WHERE target.source = doomed.source
+      AND target.series_key = doomed.series_key
+      AND target.dow = doomed.dow
+      AND target.hod = doomed.hod
+    """
+
+    case repo.query(sql, [batch_size]) do
+      {:ok, %{num_rows: num_rows}} when is_integer(num_rows) -> {:ok, num_rows}
+      {:ok, _result} -> {:ok, 0}
       {:error, _reason} = error -> error
     end
   end

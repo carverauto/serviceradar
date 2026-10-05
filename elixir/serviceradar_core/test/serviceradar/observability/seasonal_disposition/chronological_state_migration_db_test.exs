@@ -186,6 +186,41 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.ChronologicalStateMigra
     assert [%{"consecutive_anomalous" => 0}] = read_rows("migration_legacy_states")
   end
 
+  test "cleanup_expired removes expired rows and retains live rows with bounded batching" do
+    run_upgrade()
+
+    Repo.query!("""
+    INSERT INTO migration_chronological_states (
+      source, series_key, dow, hod, consecutive_anomalous,
+      last_disposition, last_status, last_score, last_evaluated_at,
+      last_bucket_started_at, last_bucket_ended_at, expires_at, inserted_at, updated_at
+    ) VALUES
+      ('expired_source_1', 'series/expired_1', 1, 1, 0, 'normal', 'normal', 0.1,
+       now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'UTC', (now() AT TIME ZONE 'UTC') + INTERVAL '1 hour',
+       (now() AT TIME ZONE 'UTC') - INTERVAL '2 hours', now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'UTC'),
+      ('expired_source_2', 'series/expired_2', 1, 2, 0, 'normal', 'normal', 0.1,
+       now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'UTC', (now() AT TIME ZONE 'UTC') + INTERVAL '1 hour',
+       (now() AT TIME ZONE 'UTC') - INTERVAL '1 hour', now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'UTC'),
+      ('live_source', 'series/live', 1, 3, 0, 'normal', 'normal', 0.1,
+       now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'UTC', (now() AT TIME ZONE 'UTC') + INTERVAL '1 hour',
+       (now() AT TIME ZONE 'UTC') + INTERVAL '1 hour', now() AT TIME ZONE 'UTC', now() AT TIME ZONE 'UTC')
+    """)
+
+    assert {:ok, 1} = StateStore.cleanup_expired(repo: TemporaryRepo, batch_size: 1)
+
+    rows_after_first = read_rows("migration_chronological_states")
+    assert length(rows_after_first) == 2
+    refute Enum.any?(rows_after_first, &(&1["source"] == "expired_source_1"))
+    assert Enum.any?(rows_after_first, &(&1["source"] == "expired_source_2"))
+    assert Enum.any?(rows_after_first, &(&1["source"] == "live_source"))
+
+    assert {:ok, 1} = StateStore.cleanup_expired(repo: TemporaryRepo, batch_size: 10)
+
+    rows_after_second = read_rows("migration_chronological_states")
+    assert length(rows_after_second) == 1
+    assert [%{"source" => "live_source"}] = rows_after_second
+  end
+
   defp run_upgrade, do: run_statements(Migration.upgrade_statements())
 
   defp run_statements(statements) do

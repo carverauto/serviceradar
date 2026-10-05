@@ -50,4 +50,11 @@ defmodule ServiceRadar.Observability.DataRetentionWorkerTest do
     assert migration =~ "add_retention_policy(@table, @retention_interval)"
     assert migration =~ "remove_retention_policy(@table)"
   end
+
+  test "worker prunes expired seasonal disposition states in maintenance" do
+    worker = File.read!(@worker_path)
+
+    assert worker =~ "StateStore.cleanup_expired"
+    assert worker =~ "prune_seasonal_disposition_states"
+  end
 end
