@@ -198,7 +198,8 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsBindingTest do
 
     destroyer =
       Task.async(fn ->
-        Ash.get!(K8sInventoryClusterBinding, cluster, actor: %{role: :system})
+        K8sInventoryClusterBinding
+        |> Ash.get!(cluster, actor: %{role: :system})
         |> Ash.destroy(actor: %{role: :system})
       end)
 
