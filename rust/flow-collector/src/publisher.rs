@@ -102,7 +102,7 @@ impl Publisher {
 
     pub async fn run(mut self) -> Result<()> {
         // Never inherit a previous pod/process readiness or half-written marker.
-        clear_publisher_ready(&self.config)?;
+        clear_publisher_ready(&self.config, "publisher starting")?;
         // verified_dup_window comes from stream ensure INFO — never invent a fallback
         // that could exceed the real window (unsafe for retry age).
         // admin_js: control-plane (INFO/CREATE/UPDATE) with default API timeout.
@@ -155,7 +155,10 @@ impl Publisher {
                 }
 
                 if publisher_ready {
-                    clear_publisher_ready(&self.config)?;
+                    clear_publisher_ready(
+                        &self.config,
+                        "ambiguous publish awaiting a new NATS generation",
+                    )?;
                     publisher_ready = false;
                 }
                 expire_old_retries(&mut retry_q, max_retry_age);
@@ -200,7 +203,7 @@ impl Publisher {
             if !connected {
                 if publisher_ready {
                     warn!("NATS disconnected; clearing readiness marker");
-                    clear_publisher_ready(&self.config)?;
+                    clear_publisher_ready(&self.config, "NATS disconnected")?;
                     publisher_ready = false;
                 }
             } else if !publisher_ready {
@@ -403,7 +406,7 @@ impl Publisher {
             }
             PublishPassResult::Disconnected => {
                 if *publisher_ready {
-                    clear_publisher_ready(&self.config)?;
+                    clear_publisher_ready(&self.config, "NATS disconnected")?;
                     *publisher_ready = false;
                 }
                 if drive_retry_schedule {
@@ -542,7 +545,10 @@ impl Publisher {
                     continue;
                 }
                 if *publisher_ready {
-                    clear_publisher_ready(&self.config)?;
+                    clear_publisher_ready(
+                        &self.config,
+                        "ambiguous publish awaiting a new NATS generation",
+                    )?;
                     *publisher_ready = false;
                 }
                 attempts += 1;
@@ -576,7 +582,7 @@ impl Publisher {
                 }
                 PublishPassResult::Disconnected => {
                     if *publisher_ready {
-                        clear_publisher_ready(&self.config)?;
+                        clear_publisher_ready(&self.config, "NATS disconnected")?;
                         *publisher_ready = false;
                     }
                     sleep(backoff).await;
@@ -649,9 +655,15 @@ impl Publisher {
         reason: &str,
     ) -> Result<()> {
         error!("Owned JetStream stream unavailable ({reason}); clearing ready and re-ensuring");
-        clear_publisher_ready(&self.config)?;
+        clear_publisher_ready(&self.config, &format!("owned stream unavailable: {reason}"))?;
         wait_until_connected(client).await;
-        let window = self.ensure_owned_stream(admin_js).await?;
+        let window = match self.ensure_owned_stream(admin_js).await {
+            Ok(window) => window,
+            Err(err) => {
+                clear_publisher_ready(&self.config, &err.to_string())?;
+                return Err(err);
+            }
+        };
         *max_retry_age = max_retry_age_from_window(window);
         mark_publisher_ready(&self.config)?;
         info!(
@@ -907,7 +919,7 @@ impl Publisher {
             // Fail readiness closed before requesting a reconnect. It may remain
             // on the old socket for a while, so never reassert until a distinct
             // generation is observed and stream ownership is re-verified.
-            clear_publisher_ready(&self.config)?;
+            clear_publisher_ready(&self.config, "ambiguous in-flight publish")?;
             match force_reconnect_and_await_generation(client).await {
                 Ok(()) => {
                     reconnected = true;
@@ -1234,6 +1246,7 @@ impl Publisher {
             match self.connect_once().await {
                 Ok(conn) => return Ok(conn),
                 Err(err) => {
+                    clear_publisher_ready(&self.config, &err.to_string())?;
                     if attempt >= max_attempts {
                         error!(
                             "NATS connection attempt {} failed: {}. Giving up after {} attempts.",
@@ -1977,8 +1990,34 @@ async fn force_reconnect_and_await_generation(
     })
 }
 
-fn clear_publisher_ready(config: &Config) -> Result<()> {
+fn ensure_parent_dir(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create readiness dir {}", parent.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn write_not_ready_reason(ready_path: &Path, reason: &str) -> Result<()> {
+    let path = crate::metrics::not_ready_reason_path(ready_path);
+    ensure_parent_dir(&path)?;
+    let text = crate::metrics::sanitize_not_ready_reason(reason);
+    fs::write(&path, text.as_bytes()).with_context(|| {
+        format!(
+            "failed to write readiness reason {} (fail closed)",
+            path.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn clear_publisher_ready(config: &Config, reason: &str) -> Result<()> {
     let path = ready_marker_path(config);
+    // Record the reason before removing the marker so a probe that races
+    // this function still sees why the publisher is not ready.
+    write_not_ready_reason(&path, reason)?;
     if path.exists() {
         fs::remove_file(&path).with_context(|| {
             format!(
@@ -1992,16 +2031,24 @@ fn clear_publisher_ready(config: &Config) -> Result<()> {
 
 fn mark_publisher_ready(config: &Config) -> Result<()> {
     let path = ready_marker_path(config);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create readiness marker dir {}", parent.display()))?;
-    }
+    ensure_parent_dir(&path)?;
     fs::write(&path, b"ready\n").with_context(|| {
         format!(
             "failed to write readiness marker {} (fail closed)",
             path.display()
         )
     })?;
+    // The marker wins if both files exist. Remove the reason only after
+    // the marker is in place.
+    let reason_path = crate::metrics::not_ready_reason_path(&path);
+    if reason_path.exists() {
+        fs::remove_file(&reason_path).with_context(|| {
+            format!(
+                "failed to clear readiness reason {} (fail closed)",
+                reason_path.display()
+            )
+        })?;
+    }
     info!("Publisher ready marker written to {}", path.display());
     Ok(())
 }
@@ -2771,6 +2818,48 @@ mod tests {
         );
         clear_rehome_marker(&path);
         assert!(load_rehome_marker(&path).unwrap().is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn clear_writes_a_sibling_reason_and_mark_removes_it() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("flow-collector-ready-reason-{nanos}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ready = dir.join("flow-collector.ready");
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "nats_url": "nats://127.0.0.1:4222",
+            "stream_name": "flows",
+            "ready_state_path": ready,
+            "listeners": []
+        }))
+        .unwrap();
+        let marker = ready_marker_path(&config);
+        let reason_path = crate::metrics::not_ready_reason_path(&marker);
+        std::fs::write(&marker, b"ready\n").unwrap();
+
+        clear_publisher_ready(&config, "subjects\toverlap\r\nwith an existing stream").unwrap();
+        assert!(!marker.exists());
+        assert_eq!(
+            std::fs::read_to_string(&reason_path).unwrap(),
+            "subjects overlap with an existing stream"
+        );
+
+        clear_publisher_ready(&config, " \n\t ").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&reason_path).unwrap(),
+            crate::metrics::NOT_READY_REASON_FALLBACK
+        );
+
+        mark_publisher_ready(&config).unwrap();
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "ready\n");
+        assert!(!reason_path.exists());
+
+        let _ = std::fs::remove_file(&marker);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
