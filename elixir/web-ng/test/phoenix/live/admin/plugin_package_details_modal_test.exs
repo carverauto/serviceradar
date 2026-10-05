@@ -248,6 +248,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
       repository_errors: [],
       editing_repository_id: nil,
       import_running?: false,
+      egress_check_running?: false,
+      egress_check: nil,
       show_create_modal: false,
       show_details_modal: true,
       create_form: %{"manifest_yaml" => ""},

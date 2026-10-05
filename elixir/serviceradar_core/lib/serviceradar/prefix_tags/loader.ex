@@ -25,7 +25,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
   # Re-emit snapshot age/freshness even when reloads fail so last-value gauges
   # age and sources without a durable timestamp remain observable.
   @snapshot_age_tick_ms 60_000
-  @default_task_supervisor ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
+  @default_task_supervisor ServiceRadar.Reload.TaskSupervisor
 
   @load_active_sql """
   SELECT DISTINCT source FROM platform.prefix_tag_snapshots WHERE is_active = TRUE ORDER BY source

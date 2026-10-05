@@ -628,6 +628,7 @@ ex_unit_test(
         "test/integration/starrocks/mtr_reader_parity_test.exs",
     ],
     data = [
+        "test/db/mtr_reader_parity_test_helper.exs",
         "//elixir/serviceradar_core:schema_template_baseline_sql",
     ],
     elixir_opts = [

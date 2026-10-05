@@ -130,3 +130,43 @@ Core SHALL bound payload ingress, pending and in-flight item/byte reservations, 
 - **WHEN** its reservation is released
 - **THEN** task termination SHALL already have been observed
 - **AND** the credit SHALL be released exactly once
+
+### Requirement: Result ingestion backlog is observable
+Every result ingestion queue and admission lane SHALL report pending and in-flight item counts and bytes, admission wait, execution duration, completion result, rejection reason, timeout, and task exit through `:telemetry`, tagged by lane or result class with bounded cardinality and never by agent, using the same export path as the admission-lane telemetry.
+
+#### Scenario: Gauges return to zero after work drains
+- **GIVEN** results of a class were admitted, executed, rejected, or timed out
+- **WHEN** the class queue drains
+- **THEN** its pending and in-flight count and byte gauges SHALL report zero
+
+### Requirement: Ingestion lane metrics are published on JetStream
+Core SHALL publish ingestion lane metrics (per lane or class: queue depth and bytes, and for the interval the admitted, rejected by reason, negatively acknowledged, and timed-out counts, plus incomplete sync runs) as one `serviceradar.metric.v1` MetricBatch per publish interval on the `metrics.ingestion_lanes` JetStream subject, persisted by the EventWriter `Metrics` processor to the active telemetry backend. Core MUST NOT write these metrics to the database directly, MUST NOT publish them per ingested message, and a failed publish SHALL be logged without affecting ingestion. The metrics SHALL be queryable through `timeseries_metrics`; no alert or dashboard is required to consume them by this requirement.
+
+#### Scenario: Published lane metrics are persisted by the Metrics processor
+- **GIVEN** a lane admitted and rejected results during a publish interval
+- **WHEN** the interval's MetricBatch is published and consumed by the EventWriter `Metrics` processor
+- **THEN** the lane's depth and interval counts SHALL be persisted as timeseries metrics
+
+#### Scenario: A publish failure does not affect ingestion
+- **GIVEN** the JetStream publish of a lane MetricBatch fails
+- **WHEN** results continue to arrive
+- **THEN** the failure SHALL be logged
+- **AND** admission and ingestion SHALL proceed unchanged
+
+#### Scenario: Publishing is per interval
+- **GIVEN** many results are admitted within one publish interval
+- **WHEN** the interval ends
+- **THEN** core SHALL publish one MetricBatch for that interval
+
+### Requirement: Ingestion lane metrics are visible to operators
+Ingestion lane metrics SHALL be available on three surfaces: Prometheus metrics in the core-elx scrape with panels in the chart's Grafana ingestion dashboards; a seeded ServiceRadar dashboard charting the persisted lane metrics from `timeseries_metrics`; and an Ingestion card on Settings -> Cluster Status showing current per-lane depth and capacity and recent rejections and negative acknowledgements. The Cluster Status card SHALL read live values from a lane-stats call rather than a database query and SHALL show an unavailable state when lane stats cannot be read.
+
+#### Scenario: Cluster Status shows lane depth
+- **GIVEN** the retained-plugin lane holds queued work
+- **WHEN** an operator opens Settings -> Cluster Status
+- **THEN** the Ingestion card SHALL show that lane's depth against its capacity
+
+#### Scenario: Lane stats unavailable
+- **GIVEN** core cannot return lane stats
+- **WHEN** an operator opens Settings -> Cluster Status
+- **THEN** the Ingestion card SHALL show an unavailable state instead of failing the page

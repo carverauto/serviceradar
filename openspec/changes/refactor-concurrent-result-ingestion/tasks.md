@@ -26,6 +26,12 @@
 - [ ] 3.4 Implement bounded commit-confirming flag-off compatibility; prohibit inline fallbacks or duplicate owners during migration.
 - [ ] 3.5 Exercise full lane, timeout, worker crash, late commit, unavailable worker, and repeated payload outcomes at the agent/gateway/core boundaries.
 
+## 3a. Retained plugin lane by default (first PR)
+
+- [ ] 3a.1 Confirm the `harden-flow-attribution-pipeline` task 9.1 preconditions (bounded two-way gateway forwarding and the updated agent deadline) are met in every supported release pairing.
+- [x] 3a.2 Default `retained_plugin_admission_enabled` to true; keep it as a kill switch and document it.
+- [x] 3a.3 Tests: default config admits capability-retained plugin results through the lane; a full lane NACKs immediately; the flag off restores the previous path.
+
 ## 4. Timer and sync admission (#5210 items 2 and 5)
 
 - [ ] 4.1 Token ResultsRouter flush messages; invalidate before threshold flush/rearm, ignore stale ticks, arm only while pending, and bound both buffered and in-flight service-state batches.
@@ -47,3 +53,14 @@
 - [ ] 6.3 Run no-mistakes without --yes and require every PR BazelCI/native check green before implementation merge; report untested live scenarios explicitly.
 - [ ] 6.4 Apply the coordinated gateway-first compatible rollout; verify canary metrics and safe bounded rollback without overlapping writers.
 - [ ] 6.5 Close #5195 and #5210 only when their implementation and evidence requirements land; no count pins or captured live fixtures.
+- [ ] 6.6 Check the sum of per-class worker defaults against the coordinator Repo pool at boot and fail loudly when it exceeds it.
+- [ ] 6.7 Load evidence from a synthetic fleet: ingestion throughput scales with worker counts, gateway acknowledgement p99 stays well under 30 s, and deadlock retries are recorded.
+- [ ] 6.8 Close GitHub #5195 and #5210 when the change ships.
+
+## 7. Lane metrics publication and visibility (last PR)
+
+- [ ] 7.1 Add a periodic aggregator that publishes one `serviceradar.metric.v1` MetricBatch per interval on `metrics.ingestion_lanes` via `ServiceRadar.NATS.JetStreamPublish`, following `ServiceRadar.FlowAttribution.PassMetrics`; log and ignore publish failures.
+- [ ] 7.2 Test that the published envelope is accepted and persisted by the EventWriter `Metrics` processor, that a publish failure leaves ingestion unaffected, and that many admissions in one interval yield one batch.
+- [ ] 7.3 Register the lane `:telemetry` events as `Telemetry.Metrics` in core-elx's metrics (depth last_value; admitted, rejected, NACK, incomplete-run counters; lane/class tags only) and add Grafana panels to the chart's ingestion dashboards, validated as parsed dashboard JSON.
+- [ ] 7.4 Seed a ServiceRadar dashboard in web-ng charting the persisted lane metrics from `timeseries_metrics` via SRQL (depth, reject and NACK rates).
+- [ ] 7.5 Add an Ingestion card and table to Settings -> Cluster Status fed by a lane-stats call on the page's existing refresh timer (no query or RPC in the disconnected mount), with LiveView tests for lane values and the unavailable state.
