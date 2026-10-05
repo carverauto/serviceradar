@@ -166,8 +166,8 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     end
 
     # NATS demultiplexes one connection by subscription SID: the server must
-    # echo the SID of the inbox SUB the requester created. A hardcoded 0 is
-    # unroutable, so the client drops the reply and every request times out.
+    # echo the SID of the inbox SUB the requester created. Gnat reserves
+    # request SID 0 for its wildcard request inbox, so the 0 fallback is valid.
     defp sid_for(subscriptions, reply), do: Map.get(subscriptions, reply, 0)
   end
 
@@ -285,7 +285,7 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     old_conns =
       (Broadway.producer_names(ServiceRadar.EventWriter.Pipeline) ++
          Broadway.producer_names(FlowPipeline))
-      |> Enum.map(&:sys.get_state(&1).conn)
+      |> Enum.map(&:sys.get_state(&1).state.module_state.conn)
       |> Enum.filter(&is_pid/1)
 
     assert old_conns != []
