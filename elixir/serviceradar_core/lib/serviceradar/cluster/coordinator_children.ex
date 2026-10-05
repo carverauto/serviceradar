@@ -464,7 +464,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   defp event_writer_child do
     if enabled?("EVENT_WRITER_ENABLED", :event_writer_enabled, false) do
-      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :temporary)
+      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :permanent)
     end
   end
 

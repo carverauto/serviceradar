@@ -853,7 +853,7 @@ func systemdUnitActive(ctx context.Context, unit string) bool {
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
 // agent-updater. Indirected so reconcileStagedSystemdUnits's rollback paths are testable
 // without the updater.
-type installUnitsFn func(ctx context.Context, addonID string, units []string, enable string, resources agentaddon.Resources) error
+type installUnitsFn func(ctx context.Context, addonID string, units []string, enable string, resources agentaddon.Resources, runTimerNow bool) error
 
 // reconcileStagedSystemdUnits installs + enables the freshly staged add-on's systemd units
 // and, on any discovery/selection/install failure, rolls `current` back to priorTarget so a
@@ -912,7 +912,9 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	}
 	relabel(runtimeRoot, a.GetAddonId())
 
-	if err := install(ctx, a.GetAddonId(), units, enable, addonResourcesFromProto(a.GetResources())); err != nil {
+	version := addonStagedVersion(a, strings.ToLower(strings.TrimSpace(a.GetArtifactSha256())))
+	runTimerNow := supervision == addonSupervisionSystemdTimer && filepath.Base(priorTarget) != version
+	if err := install(ctx, a.GetAddonId(), units, enable, addonResourcesFromProto(a.GetResources()), runTimerNow); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
 		return false
 	}

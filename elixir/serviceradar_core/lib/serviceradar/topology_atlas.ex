@@ -77,9 +77,22 @@ defmodule ServiceRadar.TopologyAtlas do
   defdelegate world_info(world), to: Native
   defdelegate candidate_info(candidate), to: Native
 
-  @doc "Read the topology view directly into a native resource from one paged Dgraph snapshot."
+  @doc """
+  Read the topology view directly into a native resource from one paged Dgraph snapshot.
+
+  The read is asynchronous and holds no scheduler while Dgraph answers; it is
+  bounded by the Dgraph bulk deadline and cancelled if no reply arrives.
+  """
   def read_graph do
-    with {:ok, url} <- Dgraph.url(), do: Native.read_graph(url, Utils.stale_cutoff_iso8601())
+    with {:ok, url} <- Dgraph.url() do
+      cutoff = Utils.stale_cutoff_iso8601()
+
+      Dgraph.Call.run(
+        :read_graph,
+        &Native.read_graph(url, cutoff, &1),
+        [cancel: &Native.cancel_read/1] ++ Dgraph.call_options(:bulk, false)
+      )
+    end
   end
 
   def tile(world, z, x, y, budget \\ %{nodes: 128, edges: 512})

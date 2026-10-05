@@ -29,6 +29,9 @@
 //! primary error channel. Missing/invalid config is a normal `{:error, _}` result,
 //! never an unwind.
 
+#[cfg(panic = "abort")]
+compile_error!("anomaly_disposition_nif requires panic=unwind to contain native panics");
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use rustler::{NifTaggedEnum, NifUnitEnum};

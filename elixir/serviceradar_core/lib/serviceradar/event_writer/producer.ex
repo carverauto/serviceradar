@@ -54,7 +54,6 @@ defmodule ServiceRadar.EventWriter.Producer do
   @fetch_interval 100
   # Slow idle tick while long-polling so reconnect hygiene still runs.
   @long_poll_idle_interval 5_000
-  @reconnect_delay 5_000
   # A stream whose consumer cannot be set up (for example NATS cannot place it)
   # is retried on its own with this backoff while the other consumers run.
   @consumer_retry_base_ms 5_000
@@ -104,10 +103,20 @@ defmodule ServiceRadar.EventWriter.Producer do
     GenStage.start_link(__MODULE__, config, name: config.producer_name || __MODULE__)
   end
 
+  @doc "Returns the producer's connection and consumer readiness without exposing GenStage internals."
+  def status(name \\ __MODULE__) do
+    GenStage.call(name, :status, 1_000)
+  catch
+    :exit, _ -> %{running: false, connected: false, ready: false}
+  end
+
   # GenStage callbacks
 
   @impl true
   def init(%Config{} = config) do
+    # Gnat only exposes start_link. Trap its exit during the short interval
+    # before we can unlink it; OTP still handles our supervisor's exit.
+    Process.flag(:trap_exit, true)
     max_buffered = max_buffered(config)
 
     Logger.info("Starting EventWriter producer",
@@ -151,6 +160,22 @@ defmodule ServiceRadar.EventWriter.Producer do
     schedule_ownership_reconcile(state)
 
     {:producer, state}
+  end
+
+  @impl true
+  def handle_call(:status, _from, state) do
+    connected = state.connected and is_pid(state.conn) and Process.alive?(state.conn)
+    failed_streams = Map.keys(state.failed_streams)
+
+    {:reply,
+     %{
+       running: true,
+       connected: connected,
+       ready: connected and failed_streams == [],
+       failed_streams: failed_streams,
+       pending_messages: state.pending_count,
+       demand: state.demand
+     }, [], state}
   end
 
   @doc false
@@ -208,7 +233,7 @@ defmodule ServiceRadar.EventWriter.Producer do
         :telemetry.execute(
           [:serviceradar, :event_writer, :connected],
           %{count: 1},
-          %{host: state.config.nats.host}
+          %{host: state.config.nats.host, producer: state.config.producer_name || __MODULE__}
         )
 
         sid_map = Map.get(consumer_context, :sid_to_pull_subject, %{})
@@ -243,8 +268,8 @@ defmodule ServiceRadar.EventWriter.Producer do
 
         :telemetry.execute(
           [:serviceradar, :event_writer, :connection_failed],
-          %{count: 1},
-          %{reason: inspect(reason)}
+          %{count: 1, attempt: state.setup_failures, retry_in_ms: delay},
+          %{reason: inspect(reason), producer: state.config.producer_name || __MODULE__}
         )
 
         Process.send_after(self(), :connect, delay)
@@ -298,7 +323,15 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   def handle_info({:DOWN, _ref, :process, pid, reason}, %{conn: conn} = state) when pid == conn do
     Logger.warning("NATS connection process died: #{inspect(reason)}")
-    send(self(), :connect)
+    setup_failures = state.setup_failures + 1
+    delay = reconnect_delay(reason, setup_failures)
+    Process.send_after(self(), :connect, delay)
+
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :disconnected],
+      %{count: 1, retry_in_ms: delay},
+      %{reason: inspect(reason), producer: state.config.producer_name || __MODULE__}
+    )
 
     {:noreply, [],
      %{
@@ -309,7 +342,8 @@ defmodule ServiceRadar.EventWriter.Producer do
          pull_inflight: 0,
          pull_inflight_by_subject: %{},
          pull_inflight_started_at: %{},
-         failed_streams: %{}
+         failed_streams: %{},
+         setup_failures: setup_failures
      }}
   end
 
@@ -361,6 +395,11 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   def handle_info(_msg, state) do
     {:noreply, [], state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    safe_stop_conn(state.conn)
   end
 
   # Private functions
@@ -451,14 +490,16 @@ defmodule ServiceRadar.EventWriter.Producer do
       settings ->
         case Gnat.start_link(settings) do
           {:ok, conn} ->
+            Process.unlink(conn)
+            ref = Process.monitor(conn)
+
             case setup_jetstream_consumers(conn, config) do
               {:ok, consumer_context} ->
-                Process.monitor(conn)
-                Process.unlink(conn)
                 {:ok, conn, consumer_context}
 
               {:error, reason} ->
-                # setup_jetstream_consumers already stops conn safely (unlinked).
+                safe_stop_conn(conn)
+                Process.demonitor(ref, [:flush])
                 {:error, reason}
             end
 
@@ -553,6 +594,10 @@ defmodule ServiceRadar.EventWriter.Producer do
       Enum.map(config.streams, fn stream -> {stream, setup_consumer(conn, config, stream)} end)
 
     finalize_consumer_setup(conn, config, results)
+  catch
+    :exit, reason ->
+      safe_stop_conn(conn)
+      {:error, {:connection_exit, reason}}
   end
 
   @doc false
@@ -586,7 +631,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     # A `best_effort` stream is a backlog drain, not part of the live pipeline.
     # Failing one must not unsubscribe the healthy consumers and re-arm the
-    # whole connection every @reconnect_delay ms: on a deployment whose `events`
+    # whole connection on every reconnect: on a deployment whose `events`
     # stream never carried a given flow subject, that turned a cosmetic mismatch
     # into a permanent flow-ingestion outage.
     {optional_failures, failures} =
@@ -755,6 +800,10 @@ defmodule ServiceRadar.EventWriter.Producer do
       {:error, reason} ->
         {:error, {stream.name, reason}}
     end
+  catch
+    # An unlinked transport can disappear between an API call and its reply.
+    # Treat that expected exit like other consumer setup failures and retry.
+    :exit, reason -> {:error, {stream.name, {:connection_exit, reason}}}
   end
 
   defp validate_resolved_stream(stream, resolved, expected) do
@@ -800,7 +849,8 @@ defmodule ServiceRadar.EventWriter.Producer do
     %{state | setup_failures: state.setup_failures + 1}
   end
 
-  def record_connect_failure(state, _reason), do: state
+  def record_connect_failure(state, _reason),
+    do: %{state | setup_failures: state.setup_failures + 1}
 
   defp record_stream_failed(state, name, reason) do
     attempt = Map.get(state.degraded_streams, name, 0) + 1
@@ -896,13 +946,9 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   @doc false
-  # Delay before reconnecting after a failed connect. A setup failure is the
-  # stream, not the transport, so it backs off like a per-stream retry;
-  # `setup_failures` counts consecutive ones including this one.
-  def reconnect_delay({:consumer_setup_failed, _failures}, setup_failures),
-    do: consumer_retry_delay(max(setup_failures, 1))
-
-  def reconnect_delay(_reason, _setup_failures), do: @reconnect_delay
+  # Bound transport and setup retries alike. The consecutive failure counter
+  # resets only after a successful connection with usable consumers.
+  def reconnect_delay(_reason, setup_failures), do: consumer_retry_delay(max(setup_failures, 1))
 
   @doc false
   # Backoff before retry `attempt` of a failed stream: 5 s doubling to 60 s.
@@ -921,7 +967,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp safe_unsub(_conn, _sid), do: :ok
 
   # Unlink first so :kill/:shutdown does not take down the Producer GenServer.
-  # Gnat.start_link/1 links the connection to the caller until setup succeeds.
+  # Also used by direct setup callers whose connection is still linked.
   defp safe_stop_conn(conn) when is_pid(conn) do
     if Process.alive?(conn) do
       Process.unlink(conn)
@@ -1112,6 +1158,8 @@ defmodule ServiceRadar.EventWriter.Producer do
       nil,
       opts
     )
+  catch
+    :exit, reason -> {:error, {:connection_exit, reason}}
   end
 
   defp pull_expires_ns(%{config: %Config{pull_expires_ns: expires}})
