@@ -221,8 +221,11 @@ actions:
 
     # cpu also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
     # UNITS: `GB` HERE MEANS GiB, NOT 10^9.
+    # 48GB: at 36GB the runner VM ran at ~38/38.6GB (BuildBuddy low-memory
+    # warning). The workflows executors are 72Gi request / 80Gi limit with
+    # max_runner_count 1, so 48GB fits with headroom.
     resource_requests:
-      memory: "36GB"
+      memory: "48GB"
       disk: "40GB"
 
     steps:
