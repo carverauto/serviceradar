@@ -21,10 +21,16 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  # The admitted worker is unlinked from the caller, so a supervisor restart
+  # that stops the worker never propagates a linked exit into a normal
+  # (non-trapping) caller: the await below maps the worker death to the
+  # retryable admission error instead. An unlinked watcher still stops the
+  # worker when its caller dies, using a catchable shutdown so real HTTP
+  # requests are cancelled before the permit is reused.
   def run(bytes, fun) do
     task =
       try do
-        Task.Supervisor.async(ServiceRadar.Analytics.StarRocks.LoadTasks, fn ->
+        Task.Supervisor.async_nolink(ServiceRadar.Analytics.StarRocks.LoadTasks, fn ->
           try do
             {:result, run_admitted(bytes, fun)}
           catch
@@ -40,11 +46,19 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
         {:error, :load_admission_unavailable}
 
       task ->
+        # Capture the caller before spawning: self() inside the fun would
+        # return the watcher itself and caller death would never cancel.
+        caller = self()
+        worker = task.pid
+        watcher = spawn(fn -> watch_caller(caller, worker) end)
+
         awaited =
           try do
             Task.await(task, :infinity)
           catch
             :exit, _ -> {:result, {:error, :load_admission_unavailable}}
+          after
+            Process.exit(watcher, :kill)
           end
 
         case awaited do
@@ -52,6 +66,39 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
           {:raised, :exit, _reason, _stacktrace} -> {:error, :load_admission_unavailable}
           {:raised, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
         end
+    end
+  end
+
+  # Unlinked from the caller, so it survives caller death long enough to
+  # cancel the worker. Exits normally once the worker completes.
+  defp watch_caller(caller, worker) do
+    caller_ref = Process.monitor(caller)
+    worker_ref = Process.monitor(worker)
+
+    receive do
+      {:DOWN, ^caller_ref, :process, _, _} ->
+        Process.demonitor(worker_ref, [:flush])
+        shutdown_worker(worker)
+
+      {:DOWN, ^worker_ref, :process, _, _} ->
+        Process.demonitor(caller_ref, [:flush])
+        :ok
+    end
+  end
+
+  # A catchable shutdown lets a worker inside the default HTTP adapter trap
+  # the exit, cancel its httpc request, and die before capacity is reused.
+  # Escalation to :kill is bounded: only when the worker ignores shutdown.
+  defp shutdown_worker(worker) do
+    ref = Process.monitor(worker)
+    Process.exit(worker, :shutdown)
+
+    receive do
+      {:DOWN, ^ref, :process, ^worker, _} -> :ok
+    after
+      5_000 ->
+        if Process.alive?(worker), do: Process.exit(worker, :kill)
+        :ok
     end
   end
 

@@ -94,6 +94,28 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert :counters.get(states, 1) == 2
   end
 
+  # Bounded poll for an expected eventual condition (supervisor restart).
+  # Returns true when fun yields a pid within timeout_ms, false otherwise.
+  defp eventually(fun, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    poll_until(fun, deadline)
+  end
+
+  defp poll_until(fun, deadline) do
+    case fun.() do
+      pid when is_pid(pid) ->
+        true
+
+      _ ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(10)
+          poll_until(fun, deadline)
+        else
+          false
+        end
+    end
+  end
+
   test "single and split loads from different datasets share admission through redirects" do
     parent = self()
 
@@ -252,8 +274,10 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
   test "restart during HTTP cancels the load and returns a retryable error" do
     parent = self()
 
-    http = fn _ ->
-      send(parent, {:in_flight, self()})
+    # Models the default HTTP adapter: traps the supervisor shutdown, cancels
+    # the physical request, then exits with the shutdown reason.
+    cancelling_http = fn _ ->
+      send(parent, {:in_flight_cancelling, self()})
       previous = Process.flag(:trap_exit, true)
 
       try do
@@ -269,16 +293,51 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
       end
     end
 
-    spawn(fn ->
-      Process.flag(:trap_exit, true)
-      send(parent, {:caller_result, StreamLoad.persist("logs", @rows, http: http)})
-    end)
+    # A worker that cannot trap the shutdown dies with it. Its caller must
+    # still observe the retryable error: the admitted worker is unlinked, so
+    # the shutdown never propagates through a link to the caller.
+    blocking_http = fn _ ->
+      send(parent, {:in_flight_blocking, self()})
 
-    assert_receive {:in_flight, worker}, 1_000
-    worker_ref = Process.monitor(worker)
+      receive do
+        :unexpected -> flunk("old HTTP worker must be stopped on restart")
+      after
+        5_000 -> flunk("old HTTP worker survived the admission restart")
+      end
+    end
+
+    # Normal callers: trap_exit stays false, so a linked supervisor shutdown
+    # would kill them instead of returning the retryable error below.
+    cancelling_caller =
+      spawn(fn ->
+        send(
+          parent,
+          {:caller_result, StreamLoad.persist("logs", @rows, http: cancelling_http)}
+        )
+      end)
+
+    blocking_caller =
+      spawn(fn ->
+        send(
+          parent,
+          {:blocking_result, StreamLoad.persist("logs", @rows, http: blocking_http)}
+        )
+      end)
+
+    cancelling_ref = Process.monitor(cancelling_caller)
+    blocking_ref = Process.monitor(blocking_caller)
+    assert_receive {:in_flight_cancelling, _cancelling_worker}, 1_000
+    assert_receive {:in_flight_blocking, blocking_worker}, 1_000
+    blocking_worker_ref = Process.monitor(blocking_worker)
     Process.exit(Process.whereis(LoadAdmission), :kill)
-    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}, 1_000
+    assert_receive {:DOWN, ^blocking_worker_ref, :process, ^blocking_worker, _}, 1_000
+    # Physical HTTP cancellation runs before the retryable result is reported.
+    assert_receive :http_cancelled, 1_000
     assert_receive {:caller_result, {:error, :load_admission_unavailable}}, 5_000
+    assert_receive {:blocking_result, {:error, :load_admission_unavailable}}, 5_000
+    # Both normal callers survived the supervisor restart instead of exiting.
+    assert_receive {:DOWN, ^cancelling_ref, :process, ^cancelling_caller, :normal}, 1_000
+    assert_receive {:DOWN, ^blocking_ref, :process, ^blocking_caller, :normal}, 1_000
     assert length(Supervisor.which_children(LoadSupervisor)) == 2
 
     success = fn _ ->
@@ -312,7 +371,9 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              _ -> false
            end)
 
-    assert is_pid(Process.whereis(LoadAdmission))
+    # Supervisor restart is asynchronous; poll briefly rather than asserting
+    # it completed within microseconds of the kill.
+    assert eventually(fn -> Process.whereis(LoadAdmission) end, 2_000)
   end
 
   test "missing load coordination returns retryable unavailable" do
