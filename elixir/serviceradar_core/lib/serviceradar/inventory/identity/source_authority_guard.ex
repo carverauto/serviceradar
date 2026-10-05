@@ -417,10 +417,16 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     end)
   end
 
-  @spec record_blocked(map(), String.t(), map()) :: :ok | {:error, term()}
-  def record_blocked(details, reason, evidence \\ %{})
+  @doc """
+  Records a conflict that blocked a merge: a `:source_block` identity decision and the source
+  identity drift row the Armis diagnostics read. `opts`: `:fingerprint`, the evidence
+  fingerprint of the pair (`BlockFingerprint`), which the decision carries so the scheduled run
+  can skip the pair while its evidence is unchanged.
+  """
+  @spec record_blocked(map(), String.t(), map(), keyword()) :: :ok | {:error, term()}
+  def record_blocked(details, reason, evidence \\ %{}, opts \\ [])
 
-  def record_blocked(details, reason, evidence) when is_map(details) do
+  def record_blocked(details, reason, evidence, opts) when is_map(details) do
     now = DateTime.utc_now()
     [first_device | _] = details.device_ids
     retired = Map.get(details, :retired_source_ids, %{})
@@ -432,17 +438,28 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
       |> Enum.uniq()
       |> Enum.sort()
 
+    decision_evidence = %{
+      "merge_reason" => reason,
+      "identifier_type" => Atom.to_string(details.identifier_type),
+      "source_id" => details.source_id,
+      "partition" => details.partition,
+      "source_ids" => details.source_ids,
+      "retired_source_ids" => retired,
+      "evidence" => evidence
+    }
+
+    decision_evidence =
+      case Keyword.get(opts, :fingerprint) do
+        fingerprint when is_binary(fingerprint) ->
+          Map.put(decision_evidence, "fingerprint", fingerprint)
+
+        _ ->
+          decision_evidence
+      end
+
     DecisionLog.record(:source_block, "source_authority_conflict", details.device_ids,
       source: reason,
-      evidence: %{
-        "merge_reason" => reason,
-        "identifier_type" => Atom.to_string(details.identifier_type),
-        "source_id" => details.source_id,
-        "partition" => details.partition,
-        "source_ids" => details.source_ids,
-        "retired_source_ids" => retired,
-        "evidence" => evidence
-      }
+      evidence: decision_evidence
     )
 
     # The Armis source-identity diagnostics (northbound withholding, drift reports) read this
@@ -470,7 +487,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     ])
   end
 
-  def record_blocked(_details, _reason, _evidence), do: :ok
+  def record_blocked(_details, _reason, _evidence, _opts), do: :ok
 
   # The live rows and the archived rows are read by separate statements: `FOR UPDATE` cannot
   # lock the rows of a `UNION`.

@@ -128,7 +128,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [x] 2.3 Add the new fields to the Inventory Cleanup settings page in web-ng.
 - [ ] 2.4 Bump `core.migrations.expectedVersion` in `helm/serviceradar/values.yaml` to the
       newest migration this change adds, in the same pull request as each migration. Done for
-      PR 2's and PR 3's migrations; 9.4's bumps it again.
+      PR 2's, PR 3's and PR 6's migrations; 9.4's bumps it again.
 
 ## 3. Retirement (D1)
 
@@ -240,18 +240,21 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 ## 10. Blocked-component accounting (D9)
 
-- [ ] 10.1 Compute the evidence fingerprint per blocked component and store it in the identity
+- [x] 10.1 Compute the evidence fingerprint per blocked component and store it in the identity
       decision's evidence; skip an unchanged component without re-attempting or re-recording it.
-- [ ] 10.2 Add a reconciliation rule version constant, changed with every merge-rule change.
-- [ ] 10.3 Add `succession_merges`, `succession_review` and `blocked_unchanged` to the run
-      record, and stop counting blocked merges as errors.
+      PR 6 fingerprints the pairs a merge guard refuses on evidence too, and trusts a recorded
+      fingerprint for a bounded recheck window, one day by default.
+- [x] 10.2 Add a reconciliation rule version constant, changed with every merge-rule change.
+- [x] 10.3 Add `succession_merges`, `succession_reviews` and `blocked_unchanged` to the run
+      record, and stop counting blocked merges as errors. PR 6 also records `blocked_merges`,
+      the skipped and deferred successions and the configured succession cap.
 
 ## 11. Guardrails and telemetry
 
-- [ ] 11.1 Telemetry: live-to-current ratio per source instance, records holding only retired
+- [x] 11.1 Telemetry: live-to-current ratio per source instance, records holding only retired
       ids, `source_retired` records, live released-seed shells, retirement and grace-delete
       refusals, and the reconciler's blocked counts.
-- [ ] 11.2 Reserve the identity-bearing metadata keys in `MergeDeviceFacts` (`armis_device_id`,
+- [x] 11.2 Reserve the identity-bearing metadata keys in `MergeDeviceFacts` (`armis_device_id`,
       `integration_id`, `mac`, `ip`, `hostname`, `switch_port_attachment`) beside the existing
       ones.
 
@@ -268,7 +271,8 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       `armis_alias_pass_blind` and `foreign_sighting_confirms_alias`, with the `aliasRow`
       variable only the second needed. PR 5 removes no switch, since D3 and D4 had none; it
       tightens the model's `Review` to what D4 records, adds its rivals, and adds the traces
-      `src_rekey_new_first_seen`, `src_rekey_no_macs` and `src_rekey_shared_mac_rival`.
+      `src_rekey_new_first_seen`, `src_rekey_no_macs` and `src_rekey_shared_mac_rival`. PR 6
+      removes no switch, since D9 and section 11 had none.
 - [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`.
 
@@ -311,7 +315,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.8 Expiry: a metadata-only and a numeric metadata source id hold the device inside the
       delete statement itself; the guard judges eligible devices; each counter carries its
       own value.
-- [ ] 14.9 Blocked accounting: an unchanged component is skipped, a retirement re-opens it, a
+- [x] 14.9 Blocked accounting: an unchanged component is skipped, a retirement re-opens it, a
       rule-version change re-checks everything once, and blocks are not errors.
 - [ ] 14.10 Remediation: dry run writes nothing; execute writes the manifest; each rollback
       restores the pre-run state; every verification check fails on the pre-fix fixture.
@@ -319,9 +323,10 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
       Done for PR 2, PR 3, PR 4 and the alias pull request. #5171 removed the counts; from PR 5
-      on, a new test file gets its disposition row and its lane entry instead.
+      on, a new test file gets its disposition row and its lane entry instead; done for PR 5
+      and PR 6.
 - [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run. Done for PR 2, PR 3, PR 4, the alias pull request and PR 5.
+      check not run. Done for PR 2, PR 3, PR 4, the alias pull request, PR 5 and PR 6.
 
 ## 15. Alias rows (D16)
 

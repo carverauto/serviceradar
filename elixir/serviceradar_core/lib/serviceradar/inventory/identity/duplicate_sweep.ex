@@ -11,32 +11,52 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   a record whose source-authoritative id retired into the record holding the source's current
   id when the evidence is strong enough, and records a `succession_review` decision when it is
   not.
+
+  A component the sweep blocks, or a pair a merge guard refuses, is recorded with its evidence
+  fingerprint (`BlockFingerprint`, design D9). The next run skips it while the fingerprint is
+  unchanged: it is counted as blocked and unchanged, and neither attempted nor recorded again.
+
+  Each run's counts are emitted as `[:serviceradar, :identity_reconciler, :run]`, followed by
+  the inventory gauges of `PopulationGauges`.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceInterfaceMac
+  alias ServiceRadar.Inventory.Identity.BlockFingerprint
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.MergePolicy
+  alias ServiceRadar.Inventory.Identity.PopulationGauges
   alias ServiceRadar.Inventory.Identity.ReconciliationRun
   alias ServiceRadar.Inventory.Identity.Resolver
   alias ServiceRadar.Inventory.Identity.SourceSuccession
+  alias ServiceRadar.Inventory.IdentityDecision
 
   require Ash.Query
   require Logger
 
-  # The run record has no columns for the succession counters; they are logged with the
-  # stats, and each merge, review and skip emits telemetry (`SourceSuccession`).
-  @succession_stats [
-    :successions,
-    :successions_skipped,
-    :successions_deferred,
+  @component_block_reason "ambiguous_transitive_component"
+
+  # The devices whose fingerprint inputs one read covers (`BlockFingerprint.load/1`). The
+  # components are disjoint, so a chunk of them is read in one pass; a larger component is a
+  # chunk of its own.
+  @fingerprint_chunk_devices 500
+
+  # The run counts `[:serviceradar, :identity_reconciler, :run]` carries.
+  @run_measurements [
+    :merges,
+    :errors,
+    :blocked_components,
+    :blocked_merges,
+    :blocked_unchanged,
+    :succession_merges,
     :succession_reviews,
-    :max_successions_configured
+    :successions_skipped,
+    :successions_deferred
   ]
 
   @doc """
@@ -65,7 +85,12 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       # nil reads `max_successions_per_run` from the device cleanup settings.
       max_successions: Keyword.get(opts, :max_successions),
       trigger: normalize_trigger(Keyword.get(opts, :trigger)),
-      job_schedule_id: Keyword.get(opts, :job_schedule_id)
+      job_schedule_id: Keyword.get(opts, :job_schedule_id),
+      # A test stands for a release that changes the rules with `:rule_version`.
+      fingerprint_opts: [
+        rule_version: Keyword.get(opts, :rule_version, BlockFingerprint.rule_version()),
+        recheck_seconds: blocked_recheck_seconds()
+      ]
     }
 
     Logger.info("Device identity reconciliation started")
@@ -75,12 +100,14 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
         stats = build_run_stats(acc, context)
         Logger.info("Device identity reconciliation completed: #{inspect(stats)}")
         record_run(context, :completed, stats, acc, nil)
+        report_run(context, :completed, stats)
         {:ok, stats}
 
       {:error, acc, error} ->
         stats = build_run_stats(acc, context)
         Logger.warning("Device identity reconciliation failed: #{inspect(error)}")
         record_run(context, :failed, stats, acc, error)
+        report_run(context, :failed, stats)
         {:error, error}
     end
   end
@@ -92,8 +119,8 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   defp run_stages(context, actor) do
     {:ok, initial_accumulator()}
     |> run_stage(&collect_duplicate_candidates/1)
-    |> run_stage(&classify_and_report/1)
-    |> run_stage(&merge_stage(&1, actor, context.max_merges))
+    |> run_stage(&classify_and_report(&1, context))
+    |> run_stage(&merge_stage(&1, actor, context))
     |> run_stage(&succession_stage(&1, actor, context.max_successions))
   end
 
@@ -116,7 +143,9 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       largest_blocked_component: 0,
       merges: 0,
       errors: 0,
-      successions: 0,
+      blocked_merges: 0,
+      blocked_unchanged: 0,
+      succession_merges: 0,
       successions_skipped: 0,
       successions_deferred: 0,
       succession_reviews: 0,
@@ -150,16 +179,17 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     }
   end
 
-  defp classify_and_report(acc) do
+  defp classify_and_report(acc, context) do
     %{mergeable: components, blocked: blocked_components} =
       classify_duplicate_components(acc.identifier_duplicates)
 
     largest_blocked = report_blocked_components(blocked_components)
-    record_blocked_components(blocked_components)
+    unchanged = record_blocked_components(blocked_components, context.fingerprint_opts)
 
     %{
       acc
       | components: components,
+        blocked_unchanged: acc.blocked_unchanged + unchanged,
         duplicate_components: length(components) + length(blocked_components),
         mergeable_components: length(components),
         blocked_components: length(blocked_components),
@@ -170,9 +200,16 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     }
   end
 
-  defp merge_stage(acc, actor, max_merges) do
-    {merge_count, error_count} = merge_components(acc.components, actor, max_merges)
-    %{acc | merges: merge_count, errors: error_count}
+  defp merge_stage(acc, actor, context) do
+    counts = merge_components(acc.components, actor, context)
+
+    %{
+      acc
+      | merges: counts.merges,
+        errors: counts.errors,
+        blocked_merges: counts.blocked_merges,
+        blocked_unchanged: acc.blocked_unchanged + counts.blocked_unchanged
+    }
   end
 
   # After the duplicate pass, so the succession pass sees the records it merged as merged.
@@ -181,7 +218,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
 
     %{
       acc
-      | successions: counts.merged,
+      | succession_merges: counts.merged,
         successions_skipped: counts.skipped,
         successions_deferred: counts.deferred,
         succession_reviews: counts.reviewed,
@@ -200,9 +237,11 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       largest_blocked_component: acc.largest_blocked_component,
       merges: acc.merges,
       errors: acc.errors,
+      blocked_merges: acc.blocked_merges,
+      blocked_unchanged: acc.blocked_unchanged,
       max_merges_configured: context.max_merges,
       merge_cap_reached: merge_cap_reached?(context.max_merges, acc.merges),
-      successions: acc.successions,
+      succession_merges: acc.succession_merges,
       successions_skipped: acc.successions_skipped,
       successions_deferred: acc.successions_deferred,
       succession_reviews: acc.succession_reviews,
@@ -222,7 +261,6 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     attrs =
       stats
       |> Map.delete(:duration_ms)
-      |> Map.drop(@succession_stats)
       |> Map.merge(%{
         run_id: context.run_id,
         started_at: context.started_at,
@@ -252,6 +290,18 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       )
 
       :ok
+  end
+
+  # Neither the event nor the gauges can fail the run: a telemetry handler that raises is
+  # detached, and the gauges rescue their own reads.
+  defp report_run(context, status, stats) do
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :run],
+      Map.take(stats, @run_measurements),
+      %{status: status, trigger: context.trigger}
+    )
+
+    PopulationGauges.emit_inventory()
   end
 
   defp prune_run_records(actor) do
@@ -309,6 +359,15 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     :serviceradar
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:blocked_component_capture_limit, 100)
+  end
+
+  # How long an unchanged blocked component is skipped before it is evaluated again anyway
+  # (`BlockFingerprint.recorded/2`). The bound covers what the fingerprint cannot see: an input
+  # it misses, or a change between the read and the attempt.
+  defp blocked_recheck_seconds do
+    :serviceradar
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:blocked_recheck_seconds, 86_400)
   end
 
   @doc false
@@ -410,11 +469,20 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     rows
     |> Enum.group_by(fn {_mac, _device_id, partition} -> partition end)
     |> Enum.flat_map(fn {partition, partition_rows} ->
-      sibling_groups_for_partition(partition, partition_rows)
+      hardware_mac_sibling_groups_from_rows(partition, partition_rows)
     end)
   end
 
-  defp sibling_groups_for_partition(partition, rows) do
+  @doc false
+  # Pure half of hardware_mac_sibling_groups/0, so the pairing is testable without a
+  # database. A pair is keyed by its universally administered member, the lower of the two
+  # values, not by whichever row the unordered scan returned first: the key is the
+  # component's evidence, which `BlockFingerprint` covers, and a key that followed row order
+  # would make a blocked pair look changed between runs.
+  @spec hardware_mac_sibling_groups_from_rows(String.t() | nil, [
+          {String.t(), String.t(), String.t() | nil}
+        ]) :: [{{String.t() | nil, :mac_sibling, String.t()}, MapSet.t()}]
+  def hardware_mac_sibling_groups_from_rows(partition, rows) when is_list(rows) do
     by_mac = Map.new(rows, fn {mac, device_id, _partition} -> {mac, device_id} end)
 
     rows
@@ -431,7 +499,10 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
         true ->
           case Map.get(by_mac, sibling) do
             other_id when is_binary(other_id) and other_id != device_id ->
-              group = {{partition, :mac_sibling, mac}, MapSet.new([device_id, other_id])}
+              group =
+                {{partition, :mac_sibling, Enum.min([mac, sibling])},
+                 MapSet.new([device_id, other_id])}
+
               {[group | groups], MapSet.put(seen, {mac, sibling})}
 
             _ ->
@@ -617,6 +688,9 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   end
 
   @doc false
+  # A change to what this classifies as blocked, or to `MergePolicy`, must bump
+  # `BlockFingerprint`'s rule version, so that the components blocked under the old rules are
+  # evaluated again.
   def classify_duplicate_components(duplicate_entries) when is_list(duplicate_entries) do
     components =
       duplicate_entries
@@ -726,71 +800,83 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     end
   end
 
-  defp merge_components(components, actor, max_merges) do
-    Enum.reduce_while(components, {0, 0}, fn device_ids, {merged, errors} ->
-      {merged_count, error_count, halted?} =
-        merge_component_devices(device_ids, actor, max_merges, merged)
+  # The mergeable components are pairs (`classify_duplicate_components/1`). A pair a guard
+  # blocked is skipped while its fingerprint is unchanged: it counts as blocked and unchanged,
+  # and is neither attempted nor recorded again. Only a merge counts toward the cap.
+  defp merge_components(components, actor, context) do
+    counts = %{merges: 0, errors: 0, blocked_merges: 0, blocked_unchanged: 0}
 
-      total_merged = merged + merged_count
-      total_errors = errors + error_count
+    components
+    |> fingerprint_chunks()
+    |> Enum.reduce_while(counts, fn chunk, counts ->
+      counts =
+        chunk
+        |> merge_candidates(actor, context.fingerprint_opts)
+        |> Enum.reduce_while(counts, &merge_candidate(&1, &2, actor, context.max_merges))
 
-      if halted? or merge_cap_reached?(max_merges, total_merged) do
-        {:halt, {total_merged, total_errors}}
+      if merge_cap_reached?(context.max_merges, counts.merges),
+        do: {:halt, counts},
+        else: {:cont, counts}
+    end)
+  end
+
+  # The survivor is part of the fingerprint only where the outcome depends on the direction
+  # (`BlockFingerprint.directional?/2`); elsewhere it is chosen when the pair is attempted.
+  defp merge_candidates(chunk, actor, fingerprint_opts) do
+    fingerprint_candidates(chunk, fingerprint_opts, fn component, inputs ->
+      survivor =
+        if BlockFingerprint.directional?(component.device_ids, inputs),
+          do: choose_canonical_device_id(component.device_ids, actor)
+
+      {survivor, pair_block_keys(component.device_ids)}
+    end)
+  end
+
+  defp pair_block_keys([device_a, device_b]),
+    do: MergeEngine.block_decision_keys(device_a, device_b)
+
+  defp pair_block_keys(_device_ids), do: []
+
+  defp merge_candidate(candidate, counts, actor, max_merges) do
+    cond do
+      merge_cap_reached?(max_merges, counts.merges) ->
+        {:halt, counts}
+
+      candidate.unchanged? ->
+        {:cont,
+         %{
+           counts
+           | blocked_merges: counts.blocked_merges + 1,
+             blocked_unchanged: counts.blocked_unchanged + 1
+         }}
+
+      true ->
+        {:cont, attempt_merge(candidate, counts, actor, max_merges)}
+    end
+  end
+
+  defp attempt_merge(%{component: component} = candidate, counts, actor, max_merges) do
+    canonical_id = candidate.survivor || choose_canonical_device_id(component.device_ids, actor)
+
+    component.device_ids
+    |> Enum.reject(&(&1 == canonical_id))
+    |> Enum.reduce_while(counts, fn from_id, counts ->
+      if merge_cap_reached?(max_merges, counts.merges) do
+        {:halt, counts}
       else
-        {:cont, {total_merged, total_errors}}
+        outcome = merge_component_device(from_id, canonical_id, candidate, actor)
+        {:cont, count_merge(outcome, counts)}
       end
     end)
   end
 
-  defp merge_component_devices(
-         %{device_ids: device_ids} = component,
-         actor,
-         max_merges,
-         merged_so_far
-       ) do
-    canonical_id = choose_canonical_device_id(device_ids, actor)
+  defp count_merge(:merged, counts), do: %{counts | merges: counts.merges + 1}
 
-    {local_merged, local_errors} =
-      device_ids
-      |> Enum.reject(&(&1 == canonical_id))
-      |> Enum.reduce_while({0, 0}, fn from_id, acc ->
-        merge_component_step(
-          from_id,
-          canonical_id,
-          component,
-          actor,
-          max_merges,
-          merged_so_far,
-          acc
-        )
-      end)
+  defp count_merge(:blocked, counts), do: %{counts | blocked_merges: counts.blocked_merges + 1}
 
-    halted? = merge_cap_reached?(max_merges, merged_so_far + local_merged)
-    {local_merged, local_errors, halted?}
-  end
+  defp count_merge(:error, counts), do: %{counts | errors: counts.errors + 1}
 
-  defp merge_component_step(
-         from_id,
-         canonical_id,
-         component,
-         actor,
-         max_merges,
-         merged_so_far,
-         acc
-       ) do
-    {local_merged, local_errors} = acc
-
-    if merge_cap_reached?(max_merges, merged_so_far + local_merged) do
-      {:halt, {local_merged, local_errors}}
-    else
-      case merge_component_device(from_id, canonical_id, component, actor) do
-        :ok -> {:cont, {local_merged + 1, local_errors}}
-        {:error, _reason} -> {:cont, {local_merged, local_errors + 1}}
-      end
-    end
-  end
-
-  defp merge_component_device(from_id, canonical_id, component, actor) do
+  defp merge_component_device(from_id, canonical_id, %{component: component} = candidate, actor) do
     case MergeEngine.merge_devices(from_id, canonical_id,
            actor: actor,
            reason: "identifier_backfill",
@@ -798,22 +884,89 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
              source: "scheduled_reconciliation",
              component_size: length(component.device_ids),
              evidence: component.evidence
-           }
+           },
+           fingerprint: candidate.fingerprint
          ) do
       :ok ->
-        :ok
+        :merged
 
-      {:error, {:merge_blocked, _guard}} = error ->
-        # Guard-block already logged at info by the engine; no duplicate line here.
-        error
+      # A guard refused the merge, before the transaction or under its locks. The engine logged
+      # and recorded it; a refusal is the guard working, not a failed merge.
+      {:error, {:merge_blocked, _guard}} ->
+        :blocked
+
+      {:error, {:source_authority_conflict, _conflict}} ->
+        :blocked
 
       {:error, reason} ->
         Logger.warning(
           "Failed to merge device #{from_id} into #{canonical_id}: #{inspect(reason)}"
         )
 
-        {:error, reason}
+        :error
     end
+  end
+
+  # Consecutive components holding at most `@fingerprint_chunk_devices` devices together, so
+  # that one read covers each chunk. Lazy, so a run that reaches its merge cap reads no further.
+  defp fingerprint_chunks(components) do
+    Stream.chunk_while(
+      components,
+      {[], 0},
+      fn component, {chunk, size} ->
+        devices = length(component.device_ids)
+
+        if chunk != [] and size + devices > @fingerprint_chunk_devices,
+          do: {:cont, Enum.reverse(chunk), {[component], devices}},
+          else: {:cont, {[component | chunk], size + devices}}
+      end,
+      fn
+        {[], _size} -> {:cont, {[], 0}}
+        {chunk, _size} -> {:cont, Enum.reverse(chunk), {[], 0}}
+      end
+    )
+  end
+
+  # Each component of `chunk` with its fingerprint, the keys of the decisions a block of it
+  # records, and whether one of them recorded the same fingerprint recently. `prepare` returns
+  # the survivor the fingerprint covers (or nil) and the keys. A failed read leaves the chunk
+  # without fingerprints, so its components are evaluated and recorded as if new.
+  defp fingerprint_candidates(chunk, opts, prepare) do
+    inputs = chunk |> Enum.flat_map(& &1.device_ids) |> BlockFingerprint.load()
+
+    candidates =
+      Enum.map(chunk, fn component ->
+        {survivor, keys} = prepare.(component, inputs)
+
+        fingerprint =
+          BlockFingerprint.fingerprint(component, inputs,
+            survivor: survivor,
+            rule_version: Keyword.get(opts, :rule_version, BlockFingerprint.rule_version())
+          )
+
+        %{component: component, survivor: survivor, keys: keys, fingerprint: fingerprint}
+      end)
+
+    recorded =
+      candidates
+      |> Enum.flat_map(& &1.keys)
+      |> BlockFingerprint.recorded(Keyword.get(opts, :recheck_seconds, blocked_recheck_seconds()))
+
+    Enum.map(candidates, fn candidate ->
+      unchanged? = Enum.any?(candidate.keys, &(Map.get(recorded, &1) == candidate.fingerprint))
+      Map.put(candidate, :unchanged?, unchanged?)
+    end)
+  rescue
+    error ->
+      Logger.warning(
+        "Failed to read the evidence of #{length(chunk)} duplicate component(s); " <>
+          "evaluating them as changed: #{inspect(error)}"
+      )
+
+      Enum.map(
+        chunk,
+        &%{component: &1, survivor: nil, keys: [], fingerprint: nil, unchanged?: false}
+      )
   end
 
   @doc false
@@ -845,19 +998,51 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   # set for a de-duplication task (#4604). Every component is recorded, however many there are:
   # each is one upserted row, so a repeat sweep adds none. Only the run record's membership
   # snapshot is capped.
-  def record_blocked_components(components) when is_list(components) do
-    components
-    |> Enum.map(fn component ->
+  #
+  # A component recorded recently with the same fingerprint (`BlockFingerprint`) is not
+  # recorded again, so the decision's occurrence count measures evidence changes, not runs.
+  # Returns the number of such unchanged components. `opts`: `:rule_version` and
+  # `:recheck_seconds`.
+  def record_blocked_components(components, opts \\ []) when is_list(components) do
+    {unchanged, changed} =
+      components
+      |> fingerprint_chunks()
+      |> Enum.flat_map(
+        &fingerprint_candidates(&1, opts, fn component, _inputs ->
+          {nil, [component_block_key(component)]}
+        end)
+      )
+      |> Enum.split_with(& &1.unchanged?)
+
+    changed
+    |> Enum.map(fn %{component: component, fingerprint: fingerprint} ->
       %{
         kind: :component_block,
-        reason: "ambiguous_transitive_component",
+        reason: @component_block_reason,
         device_uids: component.device_ids,
         source: "duplicate_sweep",
-        evidence: %{"component_size" => length(component.device_ids)}
+        evidence: component_block_evidence(component, fingerprint)
       }
     end)
     |> DecisionLog.record_many()
+
+    length(unchanged)
   end
+
+  defp component_block_key(component),
+    do:
+      IdentityDecision.decision_key(
+        :component_block,
+        @component_block_reason,
+        component.device_ids,
+        nil
+      )
+
+  defp component_block_evidence(component, nil),
+    do: %{"component_size" => length(component.device_ids)}
+
+  defp component_block_evidence(component, fingerprint),
+    do: %{"component_size" => length(component.device_ids), "fingerprint" => fingerprint}
 
   @doc false
   # Membership only. The evidence that joins these devices is derived at query

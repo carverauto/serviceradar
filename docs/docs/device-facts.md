@@ -68,9 +68,11 @@ login.
 - Values must be scalars: boolean, number, or string.
 - At most 32 externally written facts per device. Overwriting a fact you
   already wrote does not count against the cap.
-- Keys reserved for internal enrichment are rejected, including
-  `passive_fingerprint`, `identity_state`, `identity_source`, and
-  `__fact_provenance`.
+- Keys reserved for internal enrichment and identity evidence are rejected:
+  `passive_fingerprint`, `identity_state`, `identity_source`,
+  `armis_device_id`, `integration_id`, `mac`, `ip`, `hostname`,
+  `switch_port_attachment`, and `__fact_provenance`. A fact at one of these
+  keys would read as identity evidence that no source reported.
 
 If any fact in a request is invalid, the whole request is rejected and
 nothing is written. A partial write would leave the caller believing

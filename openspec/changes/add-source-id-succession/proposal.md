@@ -125,10 +125,11 @@ scenario of "Address Is Evidence, Not Identity" specifies the leak.
   - The expiry guard judges the devices a pass would actually expire.
   - The result, logs and telemetry report `candidates`, `kept_by_evidence`,
     `kept_by_exclusion`, `eligible`, `expired` and `skipped_at_delete`.
-- **Blocked components are not retried.** The scheduled sweep skips a blocked component whose
-  evidence fingerprint is unchanged since it was last blocked. The fingerprint covers the
-  device set, the live and archived identifiers, the assertions and the rule version. The run
-  record reports blocked components apart from errors.
+- **Blocked components are not retried.** The scheduled sweep skips a blocked component, or a
+  pair a merge guard refused on evidence, whose evidence fingerprint is unchanged since it was
+  last blocked, for at most a day. The fingerprint covers the device set, the live and
+  archived identifiers, the device state the guards read, the assertions and the rule
+  version. The run record reports blocked merges apart from errors.
 - **Guardrails.**
   - A mass-retirement guard refuses, and records, any retirement or grace-delete pass that
     would affect more than a configured fraction of a source instance's live records.

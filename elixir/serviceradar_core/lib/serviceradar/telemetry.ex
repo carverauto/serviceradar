@@ -327,7 +327,8 @@ defmodule ServiceRadar.Telemetry do
       starrocks_load_metrics() ++
       prefix_tag_metrics() ++
       capacity_forecasting_metrics() ++
-      stateful_alert_engine_metrics() ++ admission_lane_metrics() ++ notification_metrics()
+      stateful_alert_engine_metrics() ++
+      admission_lane_metrics() ++ identity_reconciliation_metrics() ++ notification_metrics()
   end
 
   @doc "Returns Stream Load counts, payload sizes, failures and duration by dataset."
@@ -451,6 +452,162 @@ defmodule ServiceRadar.Telemetry do
         event_name: [:serviceradar, :admission_lane, :crash],
         measurement: :count,
         tags: [:lane, :reason, :exit_reason]
+      )
+    ]
+  end
+
+  @doc """
+  Returns the device identity reconciliation metrics of change `add-source-id-succession`:
+  source id retirement and its refusals, the grace pass and its refusals, released seeds,
+  source succession, merge guard blocks, the reconciler's per-run counts, and the population
+  gauges (`ServiceRadar.Inventory.Identity.PopulationGauges`).
+
+  Tags are bounded: a source instance, a guard, an identifier type or a reason. No metric is
+  tagged with a device or an identifier value.
+  """
+  @spec identity_reconciliation_metrics() :: list()
+  def identity_reconciliation_metrics do
+    import Telemetry.Metrics
+
+    retirement_run = [:serviceradar, :inventory, :source_retirement, :run]
+    expiry_run = [:serviceradar, :inventory, :source_retired_expiry, :run]
+    source_population = [:serviceradar, :inventory, :source_population]
+    identity_population = [:serviceradar, :inventory, :identity_population]
+    reconciler_run = [:serviceradar, :identity_reconciler, :run]
+    instance_tags = [:partition, :source, :source_instance]
+
+    [
+      sum("serviceradar.inventory.source_retirement.run.retired",
+        event_name: retirement_run,
+        measurement: :retired,
+        tags: [:source, :source_instance],
+        description: "Source ids retired after sustained absence"
+      ),
+      sum("serviceradar.inventory.source_retirement.run.marked",
+        event_name: retirement_run,
+        measurement: :marked,
+        tags: [:source, :source_instance],
+        description: "Records a retirement left retired-only and marked source_retired"
+      ),
+      sum("serviceradar.inventory.source_retirement.run.failed",
+        event_name: retirement_run,
+        measurement: :failed,
+        tags: [:source, :source_instance],
+        description: "Records whose retirement failed and is retried by a later pass"
+      ),
+      counter("serviceradar.inventory.source_retirement.refused.count",
+        tags: [:source, :source_instance, :reason],
+        description: "Retirement passes the mass-retirement guard refused"
+      ),
+      sum("serviceradar.inventory.source_retired_expiry.run.deleted",
+        event_name: expiry_run,
+        measurement: :deleted,
+        tags: [:deleted_reason],
+        description: "source_retired records soft-deleted after the grace period"
+      ),
+      counter("serviceradar.inventory.source_retired_expiry.refused.count",
+        tags: [:reason],
+        description: "Grace passes the mass-retirement guard refused"
+      ),
+      sum("serviceradar.inventory.seed_released.count",
+        event_name: [:serviceradar, :inventory, :seed_released],
+        measurement: :count,
+        tags: [:deleted_reason],
+        description: "Sweep seeds soft-deleted when they released their address"
+      ),
+      counter("serviceradar.inventory.source_succession.merged.count",
+        tags: [:identifier_type],
+        description: "Records merged into the record holding their source's current id"
+      ),
+      counter("serviceradar.inventory.source_succession.skipped.count",
+        tags: [:identifier_type, :reason],
+        description: "Succession merges not made: refused, stale, failed or deferred by the cap"
+      ),
+      counter("serviceradar.inventory.source_succession.reviewed.count",
+        tags: [:identifier_type, :reason],
+        description: "Succession candidates recorded for review instead of merged"
+      ),
+      counter("serviceradar.identity_reconciler.merge.guard_blocked.count",
+        tags: [:guard],
+        description: "Merges a merge guard refused"
+      ),
+      counter("serviceradar.identity_reconciler.run.count",
+        event_name: reconciler_run,
+        tags: [:status, :trigger],
+        description: "Identity reconciliation runs"
+      ),
+      sum("serviceradar.identity_reconciler.run.merges",
+        event_name: reconciler_run,
+        measurement: :merges,
+        description: "Duplicate records merged by reconciliation runs"
+      ),
+      sum("serviceradar.identity_reconciler.run.errors",
+        event_name: reconciler_run,
+        measurement: :errors,
+        description: "Merges that failed in reconciliation runs, not counting guard blocks"
+      ),
+      sum("serviceradar.identity_reconciler.run.succession_merges",
+        event_name: reconciler_run,
+        measurement: :succession_merges,
+        description: "Succession merges made by reconciliation runs"
+      ),
+      last_value("serviceradar.identity_reconciler.run.blocked_components",
+        event_name: reconciler_run,
+        measurement: :blocked_components,
+        description: "Duplicate components the latest run blocked as ambiguous"
+      ),
+      last_value("serviceradar.identity_reconciler.run.blocked_merges",
+        event_name: reconciler_run,
+        measurement: :blocked_merges,
+        description: "Merges a guard refused in the latest run, including unchanged ones skipped"
+      ),
+      last_value("serviceradar.identity_reconciler.run.blocked_unchanged",
+        event_name: reconciler_run,
+        measurement: :blocked_unchanged,
+        description: "Blocked components and pairs the latest run skipped as unchanged"
+      ),
+      last_value("serviceradar.identity_reconciler.run.succession_reviews",
+        event_name: reconciler_run,
+        measurement: :succession_reviews,
+        description: "Succession candidates the latest run sent to review"
+      ),
+      last_value("serviceradar.identity_reconciler.run.successions_deferred",
+        event_name: reconciler_run,
+        measurement: :successions_deferred,
+        description: "Succession candidates the latest run left to the next by the cap"
+      ),
+      last_value("serviceradar.inventory.source_population.live_records",
+        event_name: source_population,
+        measurement: :live_records,
+        tags: instance_tags,
+        description: "Live records holding an id of the source instance's scope"
+      ),
+      last_value("serviceradar.inventory.source_population.current_ids",
+        event_name: source_population,
+        measurement: :current_ids,
+        tags: instance_tags,
+        description: "Ids the source instance's latest exact collection reported present"
+      ),
+      last_value("serviceradar.inventory.source_population.live_to_current.ratio",
+        event_name: source_population,
+        measurement: :live_to_current,
+        tags: instance_tags,
+        description: "Live records per current id of the source instance; about 1 when healthy"
+      ),
+      last_value("serviceradar.inventory.identity_population.retired_only_records",
+        event_name: identity_population,
+        measurement: :retired_only_records,
+        description: "Live records holding a retired source id and no source or agent id"
+      ),
+      last_value("serviceradar.inventory.identity_population.source_retired_records",
+        event_name: identity_population,
+        measurement: :source_retired_records,
+        description: "Live records marked source_retired and awaiting the grace period"
+      ),
+      last_value("serviceradar.inventory.identity_population.released_seed_shells",
+        event_name: identity_population,
+        measurement: :released_seed_shells,
+        description: "Live sweep seeds left with no address and no identifier"
       )
     ]
   end

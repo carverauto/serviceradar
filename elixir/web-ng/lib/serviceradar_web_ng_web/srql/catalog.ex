@@ -451,6 +451,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "errors",
         "blocked_components",
         "largest_blocked_component",
+        "blocked_merges",
+        "blocked_unchanged",
+        "succession_merges",
+        "succession_reviews",
+        "successions_skipped",
+        "successions_deferred",
         "duration_ms"
       ],
       boolean_fields: ["merge_cap_reached"],

@@ -425,17 +425,31 @@ through the normal discovery path.
 
 ### D9. Blocked components carry an evidence fingerprint
 
-For each blocked component (a source conflict, a guard block or a component block),
-`DuplicateSweep` computes a fingerprint over:
+`DuplicateSweep` computes an evidence fingerprint (`BlockFingerprint`) for each component it
+blocks as an ambiguous transitive component, and for each pair it attempts that a merge guard
+refuses: the asserted-distinct, agent and source-authority guards, and the provisional-identity
+guard with its distinct-MAC check. The fingerprint covers every input those decisions read:
 
-- the sorted device set;
-- each device's live and archived identifier rows (type, value, partition);
-- the distinct assertions covering the set;
-- a reconciliation rule version that changes whenever the merge rules change.
+- the reconciliation rule version, a constant changed with every change to the merge rules;
+- the sorted device set and, when the outcome depends on the merge direction, the survivor.
+  Only the provisional-identity guard reads the direction, so the survivor is part of the
+  fingerprint only when one of the devices is a provisional topology sighting;
+- the evidence that joined the component;
+- each device's live and archived identifier rows of the merge identifier types (type, value,
+  partition and the source id their metadata names);
+- each device's tombstone state, agent id, identity state and identity source;
+- each device's registered interface MACs;
+- the distinct assertions within the set.
 
-It stores the fingerprint in the evidence of the identity decision for that set. On the next
-run, a component whose fingerprint is unchanged is skipped. It is neither re-attempted nor
-re-recorded, so the decision's occurrence count measures evidence changes rather than runs.
+That is more than the identifiers, because the guards read more than the identifiers. An input
+left out could change the outcome without changing the fingerprint, and the component would stay
+blocked on evidence that no longer holds.
+
+The fingerprint is stored in the evidence of the identity decision the block records (the
+`component_block`, `guard_block` or `source_block` decision for that set). On the next run, a
+component or pair whose current fingerprint equals the one recorded is skipped. It is neither
+re-attempted nor re-recorded, so the decision's occurrence count measures evidence changes
+rather than runs.
 
 The fingerprint changes whenever its inputs do:
 
@@ -443,12 +457,25 @@ The fingerprint changes whenever its inputs do:
   re-evaluated and can succeed;
 - a deploy that changes the rules changes the rule version, so everything is re-checked once.
 
-Blocked merges are reported as blocked, never as errors. The run record gains:
+A recorded fingerprint is trusted only for a bounded time after its decision was last made
+(24 hours by default). After that the component is evaluated again whether or not it changed,
+which bounds the cost of an input the fingerprint misses or of a change between the read and
+the attempt. The merge cooldown depends on time rather than evidence, so its blocks carry no
+fingerprint and are attempted every run. A source-authority conflict found only under the merge
+transaction's locks is recorded without a fingerprint, so the next run attempts the pair again.
+A failed read of the fingerprint inputs leaves the components unfingerprinted, so they are
+attempted as if new.
 
-- `succession_merges`;
-- `succession_review`;
-- `blocked_unchanged`;
-- the blocked count, kept separate from `errors`.
+Blocked merges are reported as blocked, never as errors. A skipped pair is counted as a blocked
+merge and as blocked and unchanged; only a merge counts toward the merge cap. The run record
+gains:
+
+- `blocked_merges`: the merges a guard refused, which the run used to count as errors;
+- `blocked_unchanged`: the blocked components and pairs skipped as unchanged;
+- `succession_merges`, `succession_reviews`, `successions_skipped` and `successions_deferred`:
+  the succession pass's counters (D3, D4), which the run only logged;
+- `max_successions_configured`: the per-run succession cap the run was given, or nil when it
+  had no succession candidate and so read none.
 
 ### D10. The formal model
 
