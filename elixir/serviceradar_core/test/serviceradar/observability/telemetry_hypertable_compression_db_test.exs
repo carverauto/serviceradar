@@ -26,38 +26,37 @@ defmodule ServiceRadar.Observability.TelemetryHypertableCompressionDbTest do
   end
 
   defp compression(table) do
-    options = reloptions(table)
+    %{segmentby: segmentby, orderby: orderby} = compression_settings(table)
 
     %{
-      segmentby: csv_columns(option!(options, "timescaledb.compress_segmentby")),
-      orderby: order_columns(option!(options, "timescaledb.compress_orderby")),
+      segmentby: csv_columns(segmentby),
+      orderby: order_columns(orderby),
       compress_after: interval_text(compress_after(table))
     }
   end
 
-  defp reloptions(table) do
+  # TimescaleDB consumes timescaledb.compress_segmentby/compress_orderby into
+  # its catalog when compression is enabled and strips them from
+  # pg_class.reloptions, so the settings view (not reloptions) is the source
+  # of truth. A row with NULL settings means compression never landed.
+  defp compression_settings(table) do
     %{rows: rows} =
       SQL.query!(
         Repo,
         """
-        SELECT option
-        FROM pg_class AS relation
-        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-        CROSS JOIN LATERAL unnest(relation.reloptions) AS option
-        WHERE namespace.nspname = 'platform' AND relation.relname = $1
+        SELECT segmentby, orderby
+        FROM timescaledb_information.hypertable_compression_settings
+        WHERE hypertable = $1::regclass
         """,
-        [table]
+        ["platform.#{table}"]
       )
 
-    Enum.map(rows, fn [option] -> option end)
-  end
+    case rows do
+      [[segmentby, orderby]] when is_binary(segmentby) and is_binary(orderby) ->
+        %{segmentby: segmentby, orderby: orderby}
 
-  defp option!(options, name) do
-    prefix = name <> "="
-
-    case Enum.find(options, &String.starts_with?(&1, prefix)) do
-      nil -> flunk("#{name} missing from #{inspect(options)}")
-      option -> String.replace_prefix(option, prefix, "")
+      other ->
+        flunk("expected compression settings for platform.#{table}, got #{inspect(other)}")
     end
   end
 
