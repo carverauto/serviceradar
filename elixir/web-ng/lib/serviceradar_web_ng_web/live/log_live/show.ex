@@ -140,7 +140,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         %{} = log ->
           log
           |> Map.delete("source_device_uid")
-          |> normalize_metadata_value()
           |> redact_secret_value()
           |> Jason.encode!(pretty: true)
 
@@ -1918,7 +1917,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end)
   end
 
-  defp redact_secret_value(value) when is_list(value), do: Enum.map(value, &redact_secret_value/1)
+  defp redact_secret_value(value) when is_list(value) do
+    if printable_charlist?(value) do
+      text = List.to_string(value)
+      redacted = redact_secret_text(text)
+      if redacted == text, do: value, else: redacted
+    else
+      Enum.map(value, &redact_secret_value/1)
+    end
+  end
   defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
   defp redact_secret_value(value), do: value
 

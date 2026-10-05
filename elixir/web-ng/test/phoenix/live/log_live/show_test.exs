@@ -465,6 +465,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       details = copied["resource_attributes"]["details"]
       assert details["note"] == "token=[REDACTED]"
       assert details["counts"] == [1, 2, 3]
+      assert details["initials"] == [65, 66]
       assert details["level"] == 9
       assert copied["resource_attributes"]["service.name"] == "serviceradar-web-ng"
       refute Map.has_key?(copied, "source_device_uid")
@@ -861,7 +862,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
             "flags" => ["token=SENSITIVE_LIST_TOKEN", "plain-flag"]
           }),
         resource_attributes:
-          "service.name=serviceradar-web-ng,details={\"note\":[116,111,107,101,110,61,69,88,65,77,80,76,69,95,67,82,69,68],\"counts\":[1,2,3],\"level\":9}",
+          "service.name=serviceradar-web-ng,details={\"note\":[116,111,107,101,110,61,69,88,65,77,80,76,69,95,67,82,69,68],\"counts\":[1,2,3],\"initials\":[65,66],\"level\":9}",
         created_at: now,
         ingest_identity: "spiffe://sr/agent/edge-9",
         ingest_agent_id: "agent-edge-9",
