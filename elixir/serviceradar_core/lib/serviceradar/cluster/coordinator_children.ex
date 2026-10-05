@@ -8,7 +8,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   use Supervisor
 
-
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts)
   end
@@ -135,10 +134,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
       ServiceRadar.StatusHandler
     end
   end
-
-
-
-
 
   defp command_status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do

@@ -44,8 +44,8 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
     end
   end
 
-  defp publish_status_update(%{source: source}, _opts) when source in ["plugin-result", :plugin_result],
-    do: :ok
+  defp publish_status_update(%{source: source}, _opts)
+       when source in ["plugin-result", :plugin_result], do: :ok
 
   defp publish_status_update(status, opts) do
     if Keyword.get(opts, :best_effort?, false) and

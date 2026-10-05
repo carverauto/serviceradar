@@ -2,19 +2,22 @@ defmodule ServiceRadar.StatusHandlerTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Admission.FlowLane
+  alias ServiceRadar.Admission.FlowLeaseSupervisor
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
+  alias ServiceRadar.Ingestion.StatusIngestor
   alias ServiceRadar.Observability.CausalPredictionSubject
   alias ServiceRadar.StatusHandler
-  alias ServiceRadar.Ingestion.StatusIngestor
 
   defmodule HeldPluginIngestor do
+    @moduledoc false
     def ingest(_payload, status) do
       parent = Application.fetch_env!(:serviceradar_core, :retained_ingestion_test_owner)
       send(parent, {:retained_worker_started, self(), status})
+
       receive do
         :release_retained_ingest -> :ok
       end
@@ -29,23 +32,39 @@ defmodule ServiceRadar.StatusHandlerTest do
     Application.put_env(:serviceradar_core, :status_handler_enabled, true)
     Application.put_env(:serviceradar_core, :plugin_result_ingestor, HeldPluginIngestor)
     Application.put_env(:serviceradar_core, :retained_ingestion_test_owner, self())
+
     on_exit(fn ->
       restore_env(StatusHandler, original)
       restore_env(:plugin_result_ingestor, previous_ingestor)
       restore_env(:retained_ingestion_test_owner, previous_owner)
       restore_env(:status_handler_enabled, previous_enabled)
     end)
+
     ServiceRadar.TestSupport.start_ingestion_topology!()
+
     for config <- [[], [retained_plugin_admission_enabled: false]] do
       Application.put_env(:serviceradar_core, StatusHandler, config)
-      status = %{source: "plugin-result", service_type: "plugin", agent_id: "fixture-agent",
+
+      status = %{
+        source: "plugin-result",
+        service_type: "plugin",
+        agent_id: "fixture-agent",
         delivery_capabilities: ["plugin-result-retained:v1"],
-        message: Jason.encode!(%{"status" => "OK", "summary" => "fixture result"})}
+        message: Jason.encode!(%{"status" => "OK", "summary" => "fixture result"})
+      }
+
       parent = self()
       ref = make_ref()
-      caller = start_supervised!({Task, fn ->
-        send(parent, {ref, GenServer.call(StatusHandler, {:status_update, status}, 5_000)})
-      end}, id: ref)
+
+      caller =
+        start_supervised!(
+          {Task,
+           fn ->
+             send(parent, {ref, GenServer.call(StatusHandler, {:status_update, status}, 5_000)})
+           end},
+          id: ref
+        )
+
       assert_receive {:retained_worker_started, worker, _status}, 1_000
       refute_receive {^ref, _}, 50
       send(worker, :release_retained_ingest)
@@ -55,10 +74,23 @@ defmodule ServiceRadar.StatusHandlerTest do
   end
 
   test "metric-only sources are rejected by their ingestion owner" do
-    for source <- ["sysmon-metrics", "snmp-metrics", "icmp-metrics", "rperf-metrics",
-                   "mtr-metrics", "sweep-metrics"] do
-      status = %{source: source, service_type: "metrics", service_name: source, message: <<10, 0>>}
-      assert {:error, {:gateway_metric_status_not_core_routable, ^source}} = StatusIngestor.ingest(status)
+    for source <- [
+          "sysmon-metrics",
+          "snmp-metrics",
+          "icmp-metrics",
+          "rperf-metrics",
+          "mtr-metrics",
+          "sweep-metrics"
+        ] do
+      status = %{
+        source: source,
+        service_type: "metrics",
+        service_name: source,
+        message: <<10, 0>>
+      }
+
+      assert {:error, {:gateway_metric_status_not_core_routable, ^source}} =
+               StatusIngestor.ingest(status)
     end
   end
 
@@ -1056,13 +1088,16 @@ defmodule ServiceRadar.StatusHandlerTest do
   end
 
   defmodule LoadPluginIngestor do
+    @moduledoc false
     def ingest(_payload, _status) do
       if Application.get_env(:serviceradar_core, :result_load_hold, false) do
         send(Application.fetch_env!(:serviceradar_core, :result_load_owner), {:load_held, self()})
+
         receive do
           :release_result_load -> :ok
         end
       end
+
       :ok
     end
   end
@@ -1071,9 +1106,17 @@ defmodule ServiceRadar.StatusHandlerTest do
 
   @tag timeout: 30_000
   test "synthetic load compares dispatcher isolation with the previous singleton" do
-    keys = [StatusHandler, :status_handler_enabled, :plugin_result_ingestor,
-            :result_load_owner, :result_load_hold, :results_router_batching]
+    keys = [
+      StatusHandler,
+      :status_handler_enabled,
+      :plugin_result_ingestor,
+      :result_load_owner,
+      :result_load_hold,
+      :results_router_batching
+    ]
+
     previous = for key <- keys, do: {key, Application.fetch_env(:serviceradar_core, key)}
+
     on_exit(fn ->
       for {key, value} <- previous do
         case value do
@@ -1082,24 +1125,34 @@ defmodule ServiceRadar.StatusHandlerTest do
         end
       end
     end)
+
     bounded = function_exported?(StatusHandler, :admission_protocol, 0)
     Application.put_env(:serviceradar_core, :status_handler_enabled, true)
     Application.put_env(:serviceradar_core, :plugin_result_ingestor, LoadPluginIngestor)
     Application.put_env(:serviceradar_core, :result_load_owner, self())
     Application.put_env(:serviceradar_core, :results_router_batching, false)
+
     Application.put_env(:serviceradar_core, StatusHandler,
-      flow_attribution_publisher: {__MODULE__, :publish_load_flow, []})
+      flow_attribution_publisher: {__MODULE__, :publish_load_flow, []}
+    )
+
     if bounded do
       apply(ServiceRadar.TestSupport, :start_ingestion_topology!, [])
     else
-      start_supervised!(Supervisor.child_spec(
-        {Task.Supervisor, name: ServiceRadar.Admission.FlowLeaseSupervisor},
-        id: ServiceRadar.Admission.FlowLeaseSupervisor))
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task.Supervisor, name: FlowLeaseSupervisor},
+          id: FlowLeaseSupervisor
+        )
+      )
+
       start_supervised!(ServiceRadar.Admission.FlowSupervisor)
       start_supervised!(ServiceRadar.ResultsRouter)
       start_supervised!(StatusHandler)
     end
+
     clients = start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: :load_clients))
+
     for per_type <- [16, 64] do
       Application.put_env(:serviceradar_core, :result_load_hold, true)
       started = System.monotonic_time(:millisecond)
@@ -1108,72 +1161,148 @@ defmodule ServiceRadar.StatusHandlerTest do
       for type <- [:flow, :plain], index <- 1..per_type, do: offer_load(clients, type, index)
       for index <- 2..per_type, do: offer_load(clients, :plugin, index)
       Process.send_after(self(), :release_load_window, 1_000)
-      {replies, before_release, mailbox_max} = collect_dispatch_load([], MapSet.new([first]),
-        per_type * 3, false, 0, 0)
+
+      {replies, before_release, mailbox_max} =
+        collect_dispatch_load([], MapSet.new([first]), per_type * 3, false, 0, 0)
+
       if bounded, do: assert(before_release > 0), else: assert(before_release == 0)
       assert length(replies) == per_type * 3
       rejected = Enum.count(replies, fn {_, result, _} -> match?({:error, _}, result) end)
-      assert Enum.all?(replies, fn {_, result, _} -> result == :ok or match?({:error, _}, result) end)
-      completed_by_type = for type <- [:plugin, :flow, :plain], into: %{} do
-        {type, Enum.count(replies, fn {kind, result, _} -> kind == type and result == :ok end)}
-      end
+
+      assert Enum.all?(replies, fn {_, result, _} ->
+               result == :ok or match?({:error, _}, result)
+             end)
+
+      completed_by_type =
+        for type <- [:plugin, :flow, :plain], into: %{} do
+          {type, Enum.count(replies, fn {kind, result, _} -> kind == type and result == :ok end)}
+        end
+
       assert completed_by_type.flow > 0
       assert completed_by_type.plain > 0
       assert completed_by_type.plugin > 0
       fast_ms = for {type, _, ms} <- replies, type in [:flow, :plain], do: ms
       elapsed = System.monotonic_time(:millisecond) - started
       assert Enum.max(fast_ms) < 15_000
-      IO.puts("RESULT_INGESTION_DISPATCH_LOAD " <> Jason.encode!(%{
-        implementation: if(bounded, do: "bounded", else: "singleton"),
-        per_type: per_type, offered: length(replies), rejected: rejected,
-        completed: length(replies) - rejected, completed_by_type: completed_by_type,
-        fast_replies_before_release: before_release,
-        fast_ack_p50_ms: load_percentile(fast_ms, 0.5), fast_ack_p95_ms: load_percentile(fast_ms, 0.95),
-        fast_ack_p99_ms: load_percentile(fast_ms, 0.99), fast_ack_max_ms: Enum.max(fast_ms),
-        singleton_mailbox_max: mailbox_max, elapsed_ms: elapsed,
-        replies_per_second: length(replies) * 1_000 / max(elapsed, 1),
-        leaf_ingestors: "controlled", durable_store_validation: false, live: false
-      }))
+
+      IO.puts(
+        "RESULT_INGESTION_DISPATCH_LOAD " <>
+          Jason.encode!(%{
+            implementation: if(bounded, do: "bounded", else: "singleton"),
+            per_type: per_type,
+            offered: length(replies),
+            rejected: rejected,
+            completed: length(replies) - rejected,
+            completed_by_type: completed_by_type,
+            fast_replies_before_release: before_release,
+            fast_ack_p50_ms: load_percentile(fast_ms, 0.5),
+            fast_ack_p95_ms: load_percentile(fast_ms, 0.95),
+            fast_ack_p99_ms: load_percentile(fast_ms, 0.99),
+            fast_ack_max_ms: Enum.max(fast_ms),
+            singleton_mailbox_max: mailbox_max,
+            elapsed_ms: elapsed,
+            replies_per_second: length(replies) * 1_000 / max(elapsed, 1),
+            leaf_ingestors: "controlled",
+            durable_store_validation: false,
+            live: false
+          })
+      )
     end
   end
 
   defp offer_load(clients, type, index) do
     parent = self()
-    {:ok, _} = Task.Supervisor.start_child(clients, fn ->
-      base = %{agent_id: "agent#{index}.example.com", service_name: "load-#{type}-#{index}",
-        service_type: "load", gateway_id: "gateway01.example.com", partition: "default"}
-      status = case type do
-        :plugin -> Map.merge(base, %{source: "plugin-result", delivery_capabilities: ["plugin-result-retained:v1"],
-          message: Jason.encode!(%{"summary" => "synthetic result"})})
-        :flow -> Map.merge(base, %{source: "flow-attribution", message: FlowAttributionEventBatch.encode(
-          %FlowAttributionEventBatch{events: [%FlowAttributionEvent{local_ip: "192.0.2.10",
-            remote_ip: "198.51.100.20", local_port: 50_000, remote_port: 443,
-            transport_protocol: "TCP", pid: 101, comm: "fixture"}]})})
-        :plain -> Map.merge(base, %{source: "status", message: "synthetic status"})
-      end
-      began = System.monotonic_time(:millisecond)
-      result = try do
-        GenServer.call(StatusHandler, {:status_update, status}, 20_000)
-      catch
-        :exit, reason -> {:error, {:caller_exit, reason}}
-      end
-      send(parent, {:dispatch_load_reply, type, result, System.monotonic_time(:millisecond) - began})
-    end)
+
+    {:ok, _} =
+      Task.Supervisor.start_child(clients, fn ->
+        base = %{
+          agent_id: "agent#{index}.example.com",
+          service_name: "load-#{type}-#{index}",
+          service_type: "load",
+          gateway_id: "gateway01.example.com",
+          partition: "default"
+        }
+
+        status =
+          case type do
+            :plugin ->
+              Map.merge(base, %{
+                source: "plugin-result",
+                delivery_capabilities: ["plugin-result-retained:v1"],
+                message: Jason.encode!(%{"summary" => "synthetic result"})
+              })
+
+            :flow ->
+              Map.merge(base, %{
+                source: "flow-attribution",
+                message:
+                  FlowAttributionEventBatch.encode(%FlowAttributionEventBatch{
+                    events: [
+                      %FlowAttributionEvent{
+                        local_ip: "192.0.2.10",
+                        remote_ip: "198.51.100.20",
+                        local_port: 50_000,
+                        remote_port: 443,
+                        transport_protocol: "TCP",
+                        pid: 101,
+                        comm: "fixture"
+                      }
+                    ]
+                  })
+              })
+
+            :plain ->
+              Map.merge(base, %{source: "status", message: "synthetic status"})
+          end
+
+        began = System.monotonic_time(:millisecond)
+
+        result =
+          try do
+            GenServer.call(StatusHandler, {:status_update, status}, 20_000)
+          catch
+            :exit, reason -> {:error, {:caller_exit, reason}}
+          end
+
+        send(
+          parent,
+          {:dispatch_load_reply, type, result, System.monotonic_time(:millisecond) - began}
+        )
+      end)
   end
 
   defp collect_dispatch_load(replies, _held, 0, _released, before_release, mailbox_max),
     do: {replies, before_release, mailbox_max}
+
   defp collect_dispatch_load(replies, held, remaining, released, before_release, mailbox_max) do
     {:message_queue_len, depth} = Process.info(Process.whereis(StatusHandler), :message_queue_len)
     mailbox_max = max(mailbox_max, depth)
+
     receive do
       {:dispatch_load_reply, type, result, ms} ->
         fast = if !released and type in [:flow, :plain], do: 1, else: 0
-        collect_dispatch_load([{type, result, ms} | replies], held, remaining - 1,
-          released, before_release + fast, mailbox_max)
+
+        collect_dispatch_load(
+          [{type, result, ms} | replies],
+          held,
+          remaining - 1,
+          released,
+          before_release + fast,
+          mailbox_max
+        )
+
       {:load_held, pid} ->
         if released, do: send(pid, :release_result_load)
-        collect_dispatch_load(replies, MapSet.put(held, pid), remaining, released, before_release, mailbox_max)
+
+        collect_dispatch_load(
+          replies,
+          MapSet.put(held, pid),
+          remaining,
+          released,
+          before_release,
+          mailbox_max
+        )
+
       :release_load_window ->
         Application.put_env(:serviceradar_core, :result_load_hold, false)
         Enum.each(held, &send(&1, :release_result_load))
