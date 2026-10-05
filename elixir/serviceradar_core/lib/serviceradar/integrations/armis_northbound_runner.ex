@@ -1911,12 +1911,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp fetch_access_token(source, opts) do
-    fetcher = Keyword.get(opts, :token_fetcher, &default_token_fetcher/1)
-    fetcher.(source)
+    fetcher = Keyword.get(opts, :token_fetcher, &default_token_fetcher/2)
+
+    if is_function(fetcher, 2) do
+      fetcher.(source, opts)
+    else
+      fetcher.(source)
+    end
   end
 
-  defp default_token_fetcher(source) do
-    with {:ok, credentials} <- resolve_run_credentials(source),
+  defp default_token_fetcher(source, opts \\ []) do
+    with {:ok, credentials} <- resolve_run_credentials(source, opts),
          secret_key when is_binary(secret_key) and secret_key != "" <-
            armis_secret_key(credentials) do
       fetch_access_token_with_secret(source, secret_key)
