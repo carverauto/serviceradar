@@ -35,12 +35,13 @@ Core SHALL ingest each asynchronous result class (sweep, mapper interfaces, mapp
 - **AND** other classes' queues SHALL be unaffected
 
 #### Scenario: Snapshot reports coalesce per agent
-- **GIVEN** a workload identity snapshot or add-on status report for an agent is pending and not yet started
+- **GIVEN** a complete replaceable workload identity snapshot or add-on status snapshot for an agent is pending and not yet started
 - **WHEN** a newer report for the same agent arrives
-- **THEN** the newer report SHALL replace the pending one instead of queueing behind it
+- **THEN** the newer complete snapshot SHALL replace the pending one instead of queueing behind it
+- **AND** deltas and irreversible lifecycle transitions SHALL NOT be coalesced
 
 ### Requirement: Capability-retained plugin results are admitted by the retained-plugin lane by default
-Core SHALL route every `plugin-result` status that carries the `plugin-result-retained:v1` delivery capability through the retained-plugin admission lane unless the `retained_plugin_admission_enabled` compatibility flag is explicitly set to false. With the flag set to false, core SHALL use the previous synchronous path. The agent-facing retained-delivery contract SHALL be unchanged: a result the lane cannot admit or commit SHALL be negatively acknowledged with `received: false` and the agent keeps its exact pending set.
+Core SHALL route every supported plugin-result status carrying plugin-result-retained:v1 through the retained-plugin admission lane by default, using explicit source/capability classification. With retained_plugin_admission_enabled explicitly false, core SHALL use a bounded commit-confirming compatibility worker without executing database work in either dispatcher. The agent-facing retained-delivery contract SHALL remain unchanged: a result that cannot reach its existing durable terminal outcome SHALL receive not-accepted / received:false and the agent SHALL retain its exact pending payload set. A durably committed handler-domain failure marker SHALL retain its existing terminal acceptance semantics; in-memory admission alone SHALL NOT count as success.
 
 #### Scenario: Default configuration uses the lane
 - **GIVEN** a deployment that does not set `retained_plugin_admission_enabled`
@@ -54,10 +55,13 @@ Core SHALL route every `plugin-result` status that carries the `plugin-result-re
 - **THEN** core SHALL reply with the lane's admission error without waiting for queued work
 - **AND** the gateway SHALL return `received: false` to the agent
 
-#### Scenario: Kill switch restores the previous path
-- **GIVEN** `retained_plugin_admission_enabled` is set to false
+#### Scenario: Flag-off compatibility stays bounded
+- **GIVEN** retained_plugin_admission_enabled is false
 - **WHEN** a capability-retained plugin result reaches core
-- **THEN** core SHALL ingest it through the previous synchronous path
+- **THEN** a bounded compatibility worker SHALL perform the existing ingestion
+- **AND** its reply SHALL require the same durable terminal outcome
+- **AND** neither dispatcher SHALL run database work
+- **AND** unavailable capacity SHALL return not-accepted rather than falling back inline
 
 ### Requirement: Service-state batching cannot multiply its flush timer
 Core SHALL coalesce service-state upserts for asynchronous results into batches flushed after a configured interval or item count, SHALL perform each flush outside the router process, SHALL arm the flush timer only while items are pending, and SHALL ignore any flush tick that does not match the currently armed timer.
@@ -73,10 +77,56 @@ Core SHALL coalesce service-state upserts for asynchronous results into batches 
 - **WHEN** the flush interval elapses
 - **THEN** no flush timer SHALL be armed
 
-### Requirement: Result ingestion backlog is observable
-Every result ingestion queue SHALL report pending and in-flight item counts and bytes, admission wait, execution duration, completion result, rejection reason, timeout, and task exit, tagged by result class with bounded cardinality, using the same export path as the admission-lane telemetry.
+### Requirement: Result ingestion backlog is observable through JetStream
+Every result ingestion queue SHALL publish pending/in-flight counts and bytes, admission/execution latency, completions, rejection reasons, timeouts, and worker exits through canonical metric envelopes on JetStream with PubAck and EventWriter persistence in the configured telemetry backend. Local telemetry and Prometheus SHALL be supplementary; no metric producer SHALL write directly to CNPG or StarRocks. Publisher work, outage buffering, and label cardinality SHALL be bounded and independent of ingestion acknowledgements.
 
-#### Scenario: Gauges return to zero after work drains
-- **GIVEN** results of a class were admitted, executed, rejected, or timed out
-- **WHEN** the class queue drains
-- **THEN** its pending and in-flight count and byte gauges SHALL report zero
+#### Scenario: Queue metrics reach the telemetry backend
+- **GIVEN** admitted, rejected, completed, or timed-out queue work
+- **WHEN** the bounded metric publisher receives JetStream acknowledgement
+- **THEN** EventWriter SHALL persist the canonical gauge and delta metric samples
+- **AND** metric labels SHALL exclude agent/device/run identities
+
+#### Scenario: Gauges return to zero after drain
+- **GIVEN** results were admitted, rejected, completed, or cancelled
+- **WHEN** the queue drains and its metric samples are consumed
+- **THEN** pending/in-flight item and byte gauges SHALL be zero
+
+#### Scenario: Metrics publishing fails
+- **GIVEN** JetStream is unavailable to the metrics publisher
+- **WHEN** the bounded buffer reaches capacity
+- **THEN** it SHALL account for dropped health samples visibly without recursive publication
+- **AND** a healthy ingestion lane SHALL still complete its own acknowledgements
+
+### Requirement: Acknowledged result deadlines preserve the retained contract
+Core SHALL hand acknowledged statuses to independent bounded workers with a remaining deadline that fits inside the gateway forwarding budget and the existing 30-second agent PushStatus deadline. Dispatchers SHALL return to their mailbox after bounded admission, and the worker SHALL reply only after the existing durable terminal outcome is confirmed. Failure, rejection, timeout, or lost completion SHALL return not-accepted, preserve replay identity, and leave the exact pending payload with the agent. A later commit after a lost response SHALL be reconciled by idempotent replay, not converted into an invented successful acknowledgement.
+
+#### Scenario: Unrelated slow ingestion does not delay an ack
+- **GIVEN** one result class has a deliberately blocked ingestion worker
+- **WHEN** an acknowledged status enters a different class with available capacity
+- **THEN** it SHALL finish its own durable work and reply within its remaining deadline
+- **AND** it SHALL NOT wait for the blocked class or its database writes
+
+#### Scenario: Worker admission is not an ack
+- **GIVEN** a retained plugin result has been admitted but its persistence is blocked
+- **WHEN** its deadline expires or worker exits
+- **THEN** the gateway SHALL return not-accepted / received:false before the agent deadline
+- **AND** the agent SHALL retain the exact pending payload for replay
+
+#### Scenario: Invalid budgets are rejected
+- **WHEN** queue wait plus worker timeout and cancellation/reply reserve exceed the coordinated core forwarding budget
+- **THEN** configuration SHALL fail validation before that route is enabled
+
+### Requirement: Result ingestion ingress and compatibility are bounded
+Core SHALL bound payload ingress, pending and in-flight item/byte reservations, and supervised task execution for each result class and acknowledged lane. Limits SHALL count work waiting to enter the worker and SHALL NOT rely only on a queued-item count behind an unbounded mailbox. Capacity exhaustion or unavailable workers SHALL reject explicitly, including compatibility/rollback paths, without fallback database work in singleton callbacks.
+
+#### Scenario: Payload ingress is saturated
+- **GIVEN** a class has used its configured ingress or byte credit
+- **WHEN** another producer attempts admission
+- **THEN** admission SHALL reject before growing an intermediary payload mailbox
+- **AND** other result classes with their own capacity SHALL remain admissible
+
+#### Scenario: Cancelled tasks release capacity safely
+- **GIVEN** a worker must be cancelled after timeout
+- **WHEN** its reservation is released
+- **THEN** task termination SHALL already have been observed
+- **AND** the credit SHALL be released exactly once
