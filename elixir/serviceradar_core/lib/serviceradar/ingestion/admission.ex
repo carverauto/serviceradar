@@ -1,5 +1,12 @@
 defmodule ServiceRadar.Ingestion.Admission do
-  @moduledoc "Bounded status routing; payloads move only after a metadata reservation."
+  @moduledoc """
+  Bounded status routing; payloads move only after a metadata reservation.
+
+  Sweep group metadata is extracted producer-side before reservation. Core
+  admission never decodes message payloads in coordinator callbacks, so sweep
+  statuses arriving without prepared group metadata keep the conservative
+  per-agent ordering key.
+  """
 
   alias ServiceRadar.Admission.FlowLane
   alias ServiceRadar.Admission.Lane
