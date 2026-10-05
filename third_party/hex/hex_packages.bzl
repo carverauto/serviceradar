@@ -179,7 +179,7 @@ HEX_PACKAGES = [
     ("membrane_vp9_format", "membrane_vp9_format", "0.5.1", "7857f28716cb48adea6dc27f531a0343db03d0708f8bda7555a8fa0437a8297a"),
     ("membrane_vpx_plugin", "membrane_vpx_plugin", "0.4.4", "c2e177fa97289e1e6e258d09769e6112ea07e1e986624925a0cd50956d18c2b8"),
     ("membrane_wav_plugin", "membrane_wav_plugin", "0.10.3", "b419b090158cc3aede42194d0d9e1af80020d327b161bd092a349b5feeb419bf"),
-    ("membrane_webrtc_plugin", "membrane_webrtc_plugin", "0.26.7", "4690ae3c06185cf6e3511b03e56522f681cefde5b862914fa437e2a2c5da87fb"),
+    ("membrane_webrtc_plugin", "membrane_webrtc_plugin", "0.26.8", "52103f4f714368661b2d82ca7853a2ea7c7cd963b5c25584649195761665e780"),
     ("merkle_map", "merkle_map", "0.2.2", "383107f0503f230ac9175e0631647c424efd027e89ea65ab5ea12eeb54257aaf"),
     ("mime", "mime", "2.0.7", "6171188e399ee16023ffc5b76ce445eb6d9672e2e241d2df6050f3c771e80ccd"),
     ("mint", "mint", "1.11.0", "c6279ba2d6aa3a383a1d4cfbe7b59f42e6efd400f58d8e2acfeac48a438693ab"),
