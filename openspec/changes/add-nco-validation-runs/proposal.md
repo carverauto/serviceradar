@@ -102,8 +102,8 @@ subset. That preserves `add-composite-service-checks` D1.
 - Reuses `AgentCommandBus.dispatch_adhoc_scan/3` and
   `CompositeChecks.Evaluation.evaluate_devices/5`. Does not change sweep
   group scheduling or the composite check authoring UI.
-- Docs: `docs/docs/nco-validation-runs.md` (ASCII), plus a pointer from
-  `docs/docs/nco-device-facts.md`.
+- Docs: `docs/docs/validation-runs.md` (ASCII), plus a pointer from
+  `docs/docs/device-facts.md`.
 - NCO client: POST validation-run with inline facts (gets uid + run id),
   then poll GET. Alternatively finish a facts PATCH before POST. A missing
   required probe produces `not_probed`, not a passing verdict.

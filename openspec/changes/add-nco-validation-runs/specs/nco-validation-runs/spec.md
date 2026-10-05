@@ -12,9 +12,9 @@ canonical device UID for every target.
 
 The request SHALL accept either a `devices` array of
 `{ip, partition?, mac?, facts?}` objects or a single-device shorthand of top-level
-`ip`, optional `mac`, and optional `partition`. A missing partition SHALL
+`ip`, optional `mac`, optional `partition`, and optional top-level `facts`. A missing partition SHALL
 default to `"default"`. A top-level partition SHALL apply to every device
-that does not set its own.
+that does not set its own. Top-level `facts` SHALL apply to the single device.
 
 The system SHALL reject the request and create no run when any target
 fails identity resolution, when the check slug is unknown or not
