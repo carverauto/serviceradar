@@ -114,6 +114,39 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     :ok
   end
 
+  test "fans chunks out and reports viewer counts while the registry process is busy" do
+    relay_session_id = "relay-viewers-busy-#{System.unique_integer([:positive])}"
+    viewer_id = "viewer-busy"
+
+    :ok = RelayPubSub.subscribe_viewer(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
+    assert_receive {:sync_viewer_count, ^relay_session_id, 1}
+
+    # Stand-in for a registry mailbox backed up behind other cameras' work.
+    :ok = :sys.suspend(ViewerRegistry)
+
+    try do
+      count = Task.async(fn -> ViewerRegistry.viewer_count(relay_session_id) end)
+      assert Task.yield(count, 500) == {:ok, 1}
+
+      ViewerRegistry.broadcast_chunk(relay_session_id, %{
+        media_ingest_id: "core-media-busy",
+        sequence: 1,
+        payload: <<9>>
+      })
+
+      assert_receive {:camera_relay_viewer_chunk,
+                      %{relay_session_id: ^relay_session_id, viewer_id: ^viewer_id, sequence: 1}},
+                     500
+    after
+      :sys.resume(ViewerRegistry)
+    end
+
+    :ok = RelayPubSub.viewer_leave(relay_session_id, viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
+  end
+
   test "fans chunks only to registered viewers for a relay session" do
     relay_session_id = "relay-viewers-1"
     viewer_a = "viewer-a"
