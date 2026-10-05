@@ -101,20 +101,22 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     parent = self()
     tasks = start_supervised!({Task.Supervisor, []})
 
-    flow = start_reserved_lane!(tasks, :flow_attribution, fn _status ->
-      send(parent, {:flow_started, self()})
-      receive do
-        :commit -> :ok
-      end
-    end)
+    flow =
+      start_reserved_lane!(tasks, :flow_attribution, fn _status ->
+        send(parent, {:flow_started, self()})
 
-    plugin = start_reserved_lane!(tasks, :retained_plugin, fn status ->
-      send(parent, {:plugin_committed, status.message})
-      :ok
-    end)
+        receive do
+          :commit -> :ok
+        end
+      end)
 
-    Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler,
-      flow_lane: flow, retained_plugin_lane: plugin)
+    plugin =
+      start_reserved_lane!(tasks, :retained_plugin, fn status ->
+        send(parent, {:plugin_committed, status.message})
+        :ok
+      end)
+
+    Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler, flow_lane: flow, retained_plugin_lane: plugin)
 
     on_exit(fn ->
       case previous do
@@ -124,17 +126,24 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     end)
 
     start_supervised!({ServiceRadar.StatusHandler, []})
-    pending = Task.async(fn -> StatusProcessor.process(%{
-      source: "flow-attribution", service_type: "flow", service_name: "flow",
-      agent_id: "agent01.example.com", gateway_id: "gateway01.example.com",
-      partition: "default", message: "invented-flow-payload"
-    }) end)
+
+    pending =
+      Task.async(fn ->
+        StatusProcessor.process(%{
+          source: "flow-attribution",
+          service_type: "flow",
+          service_name: "flow",
+          agent_id: "agent01.example.com",
+          gateway_id: "gateway01.example.com",
+          partition: "default",
+          message: "invented-flow-payload"
+        })
+      end)
 
     assert_receive {:flow_started, worker}, 1_000
     assert Task.yield(pending, 0) == nil
 
-    status = plugin_result_status(
-      delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
+    status = plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
     assert :ok = StatusProcessor.process(status)
     assert_receive {:plugin_committed, message}, 1_000
     assert message == status.message
@@ -145,13 +154,28 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
   end
 
   defp start_reserved_lane!(tasks, type, processor) do
-    start_supervised!(Supervisor.child_spec({ServiceRadar.Admission.Lane, [
-      lane: type, task_supervisor: tasks, processor: processor, concurrency: 1,
-      source_max_bytes: 1_024 * 1_024, gateway_max_ms: 15_000,
-      config: [max_items: 2, max_bytes: 2 * 1_024 * 1_024, max_items_per_agent: 1,
-               queue_wait_ms: 2_000, worker_timeout_ms: 10_000,
-               gateway_call_timeout_ms: 15_000]
-    ]}, id: {:reserved_lane, type}))
+    start_supervised!(
+      Supervisor.child_spec(
+        {ServiceRadar.Admission.Lane,
+         [
+           lane: type,
+           task_supervisor: tasks,
+           processor: processor,
+           concurrency: 1,
+           source_max_bytes: 1_024 * 1_024,
+           gateway_max_ms: 15_000,
+           config: [
+             max_items: 2,
+             max_bytes: 2 * 1_024 * 1_024,
+             max_items_per_agent: 1,
+             queue_wait_ms: 2_000,
+             worker_timeout_ms: 10_000,
+             gateway_call_timeout_ms: 15_000
+           ]
+         ]},
+        id: {:reserved_lane, type}
+      )
+    )
   end
 
   test "forwards sync result statuses to the local core status handler" do

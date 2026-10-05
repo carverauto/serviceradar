@@ -6,10 +6,10 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
-  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.TestSupport
 
   @moduletag :integration

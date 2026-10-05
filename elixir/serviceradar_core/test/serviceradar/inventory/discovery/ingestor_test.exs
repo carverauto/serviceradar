@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
   alias Serviceradar.Agent.Discovery.V1.DiscoveryEnvelope
   alias Serviceradar.Agent.Netprobe.V1.DeviceCensusObservation
   alias Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot
+  alias ServiceRadar.Ingestion.WorkerBudget
   alias ServiceRadar.Inventory.Discovery.Buffer
   alias ServiceRadar.Inventory.DiscoveryIngestor
   alias ServiceRadar.Inventory.SyncIngestorQueue
@@ -21,9 +22,13 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
   @last_seen 1_700_000_060_000_000_000
 
   defmodule CapturingIngestor do
+    @moduledoc false
     def ingest_updates(updates, _opts) do
-      send(Application.fetch_env!(:serviceradar_core, :discovery_ingestor_test_pid),
-           {:enqueued, Jason.encode!(updates)})
+      send(
+        Application.fetch_env!(:serviceradar_core, :discovery_ingestor_test_pid),
+        {:enqueued, Jason.encode!(updates)}
+      )
+
       :ok
     end
   end
@@ -56,24 +61,29 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
 
     Application.put_env(:serviceradar_core, :sync_ingestor, CapturingIngestor)
     Application.put_env(:serviceradar_core, :discovery_ingestor_test_pid, self())
-    if !Process.whereis(ServiceRadar.Ingestion.WorkerBudget) do
-      start_supervised!({ServiceRadar.Ingestion.WorkerBudget, pool_size: 10})
+
+    if !Process.whereis(WorkerBudget) do
+      start_supervised!({WorkerBudget, pool_size: 10})
     end
+
     tasks = start_supervised!({Task.Supervisor, []})
     queue = start_supervised!({SyncIngestorQueue, name: nil, task_supervisor: tasks})
     Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, queue)
 
     on_exit(fn ->
-      Enum.each([
-        {:sync_ingestor, previous_ingestor},
-        {:discovery_ingestor_test_pid, previous_pid},
-        {:sync_ingestor_queue_server, previous_server}
-      ], fn {key, previous} ->
-        case previous do
-          {:ok, value} -> Application.put_env(:serviceradar_core, key, value)
-          :error -> Application.delete_env(:serviceradar_core, key)
+      Enum.each(
+        [
+          {:sync_ingestor, previous_ingestor},
+          {:discovery_ingestor_test_pid, previous_pid},
+          {:sync_ingestor_queue_server, previous_server}
+        ],
+        fn {key, previous} ->
+          case previous do
+            {:ok, value} -> Application.put_env(:serviceradar_core, key, value)
+            :error -> Application.delete_env(:serviceradar_core, key)
+          end
         end
-      end)
+      )
     end)
 
     :ok

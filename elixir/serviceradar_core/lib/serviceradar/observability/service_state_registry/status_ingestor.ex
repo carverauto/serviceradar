@@ -147,7 +147,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
   @spec bulk_upsert([map()]) :: :ok
   def bulk_upsert(statuses) when is_list(statuses) do
     case bulk_upsert_strict(statuses) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Bulk service state upsert failed: #{inspect(reason)}")
         :ok
@@ -162,12 +164,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
       |> Enum.filter(&is_map/1)
       |> Enum.split_with(&plugin_status?/1)
 
-    with :ok <- Enum.reduce_while(plugin_statuses, :ok, fn status, :ok ->
-           case upsert_strict(status) do
-             :ok -> {:cont, :ok}
-             {:error, _} = error -> {:halt, error}
-           end
-         end) do
+    with :ok <-
+           Enum.reduce_while(plugin_statuses, :ok, fn status, :ok ->
+             case upsert_strict(status) do
+               :ok -> {:cont, :ok}
+               {:error, _} = error -> {:halt, error}
+             end
+           end) do
       bulk_upsert_non_plugin(other_statuses)
     end
   end
@@ -259,12 +262,18 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
       Enum.reduce(attrs_list, {[], %{}}, fn attrs, {keys, acc} ->
         key = identity_key(attrs)
         keys = if Map.has_key?(acc, key), do: keys, else: [key | keys]
-        winner = case acc[key] do
-          nil -> attrs
-          previous ->
-            if DateTime.compare(attrs.last_observed_at, previous.last_observed_at) == :lt,
-              do: previous, else: attrs
-        end
+
+        winner =
+          case acc[key] do
+            nil ->
+              attrs
+
+            previous ->
+              if DateTime.before?(attrs.last_observed_at, previous.last_observed_at),
+                do: previous,
+                else: attrs
+          end
+
         {keys, Map.put(acc, key, winner)}
       end)
 

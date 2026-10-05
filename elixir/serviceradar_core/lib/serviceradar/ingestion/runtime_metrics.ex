@@ -18,60 +18,140 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
   @table __MODULE__
   @subject "metrics.core.result_ingestion"
-  @lanes [:flow_attribution, :retained_plugin_result, :sweep, :mapper, :bumblebee,
-          :legacy_plugin, :endpoint, :other_results, :status, :sync, :service_state]
-  @events [:state, :admission, :admitted, :timeout, :rejected, :completion, :execution, :queue_timeout,
-           :worker_timeout, :worker_crash, :caller_down, :coordinator_restart,
-           :cancellation, :delivery, :publish_failure, :coalesced_interval, :crash, :other]
-  @reasons [:count_full, :configured_byte_full, :per_agent_full, :wire_payload_too_large,
-            :invalid_admission_descriptor, :admission_timeout, :lane_unavailable,
-            :worker_unavailable, :queue_timeout, :worker_timeout, :worker_crash,
-            :reservation_expired, :reservation_payload_mismatch, :sync_ingest_queue_full,
-            :service_state_queue_full, :malformed_payload, :other]
-  @gauges [:pending_count, :pending_bytes, :in_flight_count, :in_flight_bytes,
-           :acknowledgement_ms, :queue_wait_ms, :execution_ms, :cancellation_ms,
-           :worker_ms, :duration_ms, :payload_bytes]
+  @lanes [
+    :flow_attribution,
+    :retained_plugin_result,
+    :sweep,
+    :mapper,
+    :bumblebee,
+    :legacy_plugin,
+    :endpoint,
+    :other_results,
+    :status,
+    :sync,
+    :service_state
+  ]
+  @events [
+    :state,
+    :admission,
+    :admitted,
+    :timeout,
+    :rejected,
+    :completion,
+    :execution,
+    :queue_timeout,
+    :worker_timeout,
+    :worker_crash,
+    :caller_down,
+    :coordinator_restart,
+    :cancellation,
+    :delivery,
+    :publish_failure,
+    :coalesced_interval,
+    :crash,
+    :other
+  ]
+  @reasons [
+    :count_full,
+    :configured_byte_full,
+    :per_agent_full,
+    :wire_payload_too_large,
+    :invalid_admission_descriptor,
+    :admission_timeout,
+    :lane_unavailable,
+    :worker_unavailable,
+    :queue_timeout,
+    :worker_timeout,
+    :worker_crash,
+    :reservation_expired,
+    :reservation_payload_mismatch,
+    :sync_ingest_queue_full,
+    :service_state_queue_full,
+    :malformed_payload,
+    :other
+  ]
+  @gauges [
+    :pending_count,
+    :pending_bytes,
+    :in_flight_count,
+    :in_flight_bytes,
+    :acknowledgement_ms,
+    :queue_wait_ms,
+    :execution_ms,
+    :cancellation_ms,
+    :worker_ms,
+    :duration_ms,
+    :payload_bytes
+  ]
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   def record(lane, event, measurements) when lane in @lanes and is_map(measurements) do
     event = if event in @events, do: event, else: :other
-    count = case measurements[:count] do
-      count when is_integer(count) and count > 0 and count <= 10_000 -> count
-      _ -> 1
-    end
+
+    count =
+      case measurements[:count] do
+        count when is_integer(count) and count > 0 and count <= 10_000 -> count
+        _ -> 1
+      end
+
     :ets.update_counter(@table, {:events, lane, event}, {2, count}, {{:events, lane, event}, 0})
+
     if event == :rejected do
       reason = if measurements[:reason] in @reasons, do: measurements[:reason], else: :other
-      :ets.update_counter(@table, {:rejection, lane, reason}, {2, count},
-        {{:rejection, lane, reason}, 0})
+
+      :ets.update_counter(
+        @table,
+        {:rejection, lane, reason},
+        {2, count},
+        {{:rejection, lane, reason}, 0}
+      )
     end
+
     if event == :completion and measurements[:outcome] in [:accepted, :not_accepted] do
       outcome = measurements[:outcome]
-      :ets.update_counter(@table, {:outcome, lane, outcome}, {2, count},
-        {{:outcome, lane, outcome}, 0})
+
+      :ets.update_counter(
+        @table,
+        {:outcome, lane, outcome},
+        {2, count},
+        {{:outcome, lane, outcome}, 0}
+      )
     end
+
     Enum.each(measurements, fn
       {name, value} when name in @gauges and is_number(value) and value >= 0 ->
         :ets.insert(@table, {{:gauge, lane, name}, value})
-      _ -> :ok
+
+      _ ->
+        :ok
     end)
+
     :ok
   rescue
     ArgumentError -> :ok
   end
+
   def record(_lane, _event, _measurements), do: :ok
 
   @impl true
   def init(opts) do
     :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])
     interval = Keyword.get(opts, :interval_ms, 1_000)
-    unless is_integer(interval) and interval > 0 do
+
+    if !(is_integer(interval) and interval > 0) do
       raise ArgumentError, "invalid metric cadence"
     end
+
     Process.send_after(self(), :publish, interval)
-    {:ok, %{interval: interval, publish_opts: Keyword.get(opts, :publish_opts, []), pending: nil,
-            started_at: System.system_time(:nanosecond)}}
+
+    {:ok,
+     %{
+       interval: interval,
+       publish_opts: Keyword.get(opts, :publish_opts, []),
+       pending: nil,
+       started_at: System.system_time(:nanosecond)
+     }}
   end
 
   @impl true
@@ -80,46 +160,83 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     # intentionally coalesced into latest gauges and cumulative counters.
     if state.pending, do: record(:service_state, :coalesced_interval, %{})
     frame = state.pending || frame(:ets.tab2list(@table), state.started_at)
-    pending = case frame do
-      nil -> nil
-      {body, id} ->
-        opts = Keyword.merge(state.publish_opts, timeout: 1_000, msg_id: id)
-        case publish(body, opts) do
-          :ok -> nil
-          {:error, _} ->
-            record(:service_state, :publish_failure, %{})
-            frame
-        end
-    end
+
+    pending =
+      case frame do
+        nil ->
+          nil
+
+        {body, id} ->
+          opts = Keyword.merge(state.publish_opts, timeout: 1_000, msg_id: id)
+
+          case publish(body, opts) do
+            :ok ->
+              nil
+
+            {:error, _} ->
+              record(:service_state, :publish_failure, %{})
+              frame
+          end
+      end
+
     Process.send_after(self(), :publish, state.interval)
     {:noreply, %{state | pending: pending}}
   end
 
   defp frame([], _started_at), do: nil
+
   defp frame(samples, started_at) do
     now = System.system_time(:nanosecond)
-    metrics = Enum.map(samples, fn {{kind, lane, name}, value} ->
-      prefix = case kind do
-        :events -> "result_ingestion_events_"
-        :rejection -> "result_ingestion_rejections_"
-        :outcome -> "result_ingestion_terminals_"
-        :gauge -> "result_ingestion_"
-      end
-      %Metric{name: prefix <> Atom.to_string(name), metric_type: "core.result_ingestion",
-        kind: if(kind != :gauge, do: :METRIC_KIND_SUM, else: :METRIC_KIND_GAUGE),
-        temporality: if(kind != :gauge, do: :METRIC_TEMPORALITY_CUMULATIVE,
-                       else: :METRIC_TEMPORALITY_UNSPECIFIED),
-        is_monotonic: kind != :gauge,
-        unit: unit(kind, name),
-        tags: [%StringMapEntry{key: "lane", value: Atom.to_string(lane)}],
-        points: [%MetricPoint{value: value * 1.0, observed_at_unix_nano: now,
-          start_time_unix_nano: if(kind == :gauge, do: 0, else: started_at)}]}
-    end)
-    body = MetricBatch.encode(%MetricBatch{
-      schema_version: "serviceradar.metric.v1", emitted_at_unix_nano: now,
-      resource: %MetricResource{gateway_id: "core:#{node()}", service_name: "core", service_type: "ingestion"},
-      ingest_identity: %IngestIdentity{source: "core", payload_kind: "metrics", producer_kind: "core"},
-      metrics: metrics})
+
+    metrics =
+      Enum.map(samples, fn {{kind, lane, name}, value} ->
+        prefix =
+          case kind do
+            :events -> "result_ingestion_events_"
+            :rejection -> "result_ingestion_rejections_"
+            :outcome -> "result_ingestion_terminals_"
+            :gauge -> "result_ingestion_"
+          end
+
+        %Metric{
+          name: prefix <> Atom.to_string(name),
+          metric_type: "core.result_ingestion",
+          kind: if(kind == :gauge, do: :METRIC_KIND_GAUGE, else: :METRIC_KIND_SUM),
+          temporality:
+            if(kind == :gauge,
+              do: :METRIC_TEMPORALITY_UNSPECIFIED,
+              else: :METRIC_TEMPORALITY_CUMULATIVE
+            ),
+          is_monotonic: kind != :gauge,
+          unit: unit(kind, name),
+          tags: [%StringMapEntry{key: "lane", value: Atom.to_string(lane)}],
+          points: [
+            %MetricPoint{
+              value: value * 1.0,
+              observed_at_unix_nano: now,
+              start_time_unix_nano: if(kind == :gauge, do: 0, else: started_at)
+            }
+          ]
+        }
+      end)
+
+    body =
+      MetricBatch.encode(%MetricBatch{
+        schema_version: "serviceradar.metric.v1",
+        emitted_at_unix_nano: now,
+        resource: %MetricResource{
+          gateway_id: "core:#{node()}",
+          service_name: "core",
+          service_type: "ingestion"
+        },
+        ingest_identity: %IngestIdentity{
+          source: "core",
+          payload_kind: "metrics",
+          producer_kind: "core"
+        },
+        metrics: metrics
+      })
+
     {body, Ecto.UUID.generate()}
   end
 
@@ -132,7 +249,10 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   end
 
   defp unit(kind, _name) when kind in [:events, :rejection, :outcome], do: "events"
-  defp unit(:gauge, name) when name in [:pending_bytes, :in_flight_bytes, :payload_bytes], do: "bytes"
+
+  defp unit(:gauge, name) when name in [:pending_bytes, :in_flight_bytes, :payload_bytes],
+    do: "bytes"
+
   defp unit(:gauge, name) when name in [:pending_count, :in_flight_count], do: "entries"
   defp unit(:gauge, _name), do: "ms"
 end
