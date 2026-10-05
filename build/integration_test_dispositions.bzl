@@ -7,6 +7,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/integration/armis_northbound_credential_resolution_integration_test.exs",
     "test/integration/camera_relay_session_reaper_integration_test.exs",
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",
+    "test/integration/device_upsert_bind_parameter_limit_integration_test.exs",
     "test/integration/secret_broker_audit_integration_test.exs",
     "test/serviceradar/agent_commands/status_handler_result_gate_db_test.exs",
     "test/serviceradar/application_startup_test.exs",
