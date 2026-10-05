@@ -18,7 +18,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
       Map.merge(
         %{
           "cluster_id" => "demo",
-          "ip" => "23.138.124.7",
+          "ip" => "198.51.100.7",
           "port" => 22,
           "protocol" => "tcp",
           "exposure_class" => "LoadBalancer",
@@ -29,7 +29,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
           "endpoint_targets" => [
             %{"ip" => "10.42.221.140", "port" => 10_022, "pod_name" => "envoy-pod"}
           ],
-          "annotations" => %{"metallb.io/loadBalancerIPs" => "23.138.124.7"}
+          "annotations" => %{"metallb.io/loadBalancerIPs" => "198.51.100.7"}
         },
         endpoint_overrides
       )
@@ -49,7 +49,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
     assert snapshot_at == ~U[2026-08-05 17:00:00Z]
 
     assert row.cluster_id == "demo"
-    assert row.ip == "23.138.124.7"
+    assert row.ip == "198.51.100.7"
     assert row.port == 22
     assert row.namespace == "envoy-gateway-system"
     assert row.service_name == "envoy-forgejo"

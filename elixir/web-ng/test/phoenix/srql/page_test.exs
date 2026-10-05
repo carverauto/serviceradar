@@ -365,7 +365,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
              {"/devices/wifi", %{}}
 
     assert Page.route_target_for_query(
-             "in:public_endpoints ip:23.138.124.7",
+             "in:public_endpoints ip:198.51.100.7",
              "/devices"
            ) == {"/inventory/public-endpoints", %{}}
 
