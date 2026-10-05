@@ -119,32 +119,42 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     apply_starrocks_schema!(starrocks, sr_env.database)
     empty_starrocks!(starrocks, sr_env.database)
 
+    # Registered before any seeding so a setup failure still empties the
+    # shared warehouse database.
+    on_exit(fn ->
+      empty_starrocks!(starrocks, sr_env.database)
+    end)
+
     run_database = "srql_parity_mtr_readers_#{System.system_time(:second)}"
 
     admin = start_postgrex!(cnpg_env, "postgres")
     Postgrex.query!(admin, "CREATE DATABASE #{run_database}", [])
+    GenServer.stop(admin)
 
+    # The setup process (and its linked connections) is gone by the time
+    # this runs, so reconnect here instead of reusing `admin`. Every
+    # failure is loud: a scratch database must never survive the suite.
     on_exit(fn ->
+      cleanup = start_postgrex!(cnpg_env, "postgres")
+
       try do
         Postgrex.query!(
-          admin,
+          cleanup,
           "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
           [run_database]
         )
-      rescue
-        _ -> :ok
-      end
 
-      try do
-        Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{run_database} WITH (FORCE)", [])
-      rescue
-        _ -> :ok
-      end
+        Postgrex.query!(cleanup, "DROP DATABASE IF EXISTS #{run_database} WITH (FORCE)", [])
 
-      case Postgrex.query(admin, "SELECT 1 FROM pg_database WHERE datname = $1", [run_database]) do
-        {:ok, %{rows: []}} -> :ok
-        {:ok, %{rows: _}} -> flunk("scratch database #{run_database} was not deleted")
-        {:error, _} -> :ok
+        case Postgrex.query(cleanup, "SELECT 1 FROM pg_database WHERE datname = $1", [
+               run_database
+             ]) do
+          {:ok, %{rows: []}} -> :ok
+          {:ok, %{rows: _}} -> flunk("scratch database #{run_database} was not deleted")
+          {:error, reason} -> flunk("scratch database check failed: #{inspect(reason)}")
+        end
+      after
+        GenServer.stop(cleanup)
       end
     end)
 
@@ -157,10 +167,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     seed_cnpg!(cnpg, traces, hops)
     seed_starrocks!(starrocks, sr_env.database, traces, hops)
     refresh_starrocks_views!(starrocks, sr_env.database)
-
-    on_exit(fn ->
-      empty_starrocks!(starrocks, sr_env.database)
-    end)
 
     cnpg_query = fn sql, params ->
       case Postgrex.query(cnpg, sql, params) do
@@ -879,6 +885,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     end
   end
 
+  # Postgrex maps the `uuid` OID to a 16-byte binary, so UUID text must be
+  # dumped at this boundary; the fixture keeps text for StarRocks quoting
+  # and reader comparisons.
+  defp uuid_param!(text), do: Ecto.UUID.dump!(text)
+
   defp cnpg_trace_insert(batch) do
     columns =
       ~w(id time agent_id gateway_id check_id check_name device_id target target_ip target_reached
@@ -888,7 +899,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     {placeholders, params} =
       Enum.map_reduce(batch, [], fn trace, params ->
         values = [
-          trace.id,
+          uuid_param!(trace.id),
           trace.time,
           trace.agent_id,
           trace.gateway_id,
@@ -930,9 +941,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     {placeholders, params} =
       Enum.map_reduce(batch, [], fn hop, params ->
         values = [
-          hop.id,
+          uuid_param!(hop.id),
           hop.time,
-          hop.trace_id,
+          uuid_param!(hop.trace_id),
           hop.target_ip,
           hop.device_id,
           hop.hop_number,
