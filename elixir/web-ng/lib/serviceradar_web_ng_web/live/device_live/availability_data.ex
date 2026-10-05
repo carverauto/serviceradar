@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
     now = opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> DateTime.truncate(:second)
     start_at = DateTime.shift(now, second: -@window_seconds)
     range = "[#{DateTime.to_iso8601(start_at)},#{DateTime.to_iso8601(now)}]"
+    device_is_available = Keyword.get(opts, :device_is_available)
 
     case ICMPData.load_availability(srql_module, [device_uid], scope,
            time_range: range,
@@ -18,8 +19,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
            agent_id: Keyword.get(opts, :agent_id),
            limit: 100
          ) do
-      {:ok, rows} -> build_availability(rows, start_at, now)
-      {:error, _reason} -> nil
+      {:ok, [_ | _] = rows} ->
+        build_availability(rows, start_at, now)
+
+      {:ok, []} ->
+        build_availability_from_device_state(device_uid, device_is_available, start_at, now)
+
+      {:error, _reason} ->
+        nil
     end
   end
 
@@ -88,6 +95,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
       window_end: end_at,
       segments: segments
     }
+  end
+
+  # When a device reports its availability through plugin discovery (e.g. a satellite
+  # terminal with no IP sweep path), synthesize the full window from the device's
+  # current is_available state. Each bucket is marked with the device's reported
+  # state so the timeline is not entirely unknown.
+  defp build_availability_from_device_state(_uid, nil, start_at, end_at) do
+    build_availability([], start_at, end_at)
+  end
+
+  defp build_availability_from_device_state(uid, is_available, start_at, end_at) do
+    value = if is_available, do: 1.0, else: 0.0
+    first_bucket = start_at |> DateTime.to_unix() |> bucket_start()
+    last_bucket = end_at |> DateTime.to_unix() |> Kernel.-(1) |> bucket_start()
+
+    rows =
+      Enum.map(first_bucket..last_bucket//@bucket_seconds, fn second ->
+        %{
+          "series" => uid,
+          "value" => value,
+          "timestamp" => second |> DateTime.from_unix!() |> DateTime.to_iso8601()
+        }
+      end)
+
+    result = build_availability(rows, start_at, end_at)
+    Map.put(result, :source, :plugin_reported)
   end
 
   defp bucket_start(second), do: Integer.floor_div(second, @bucket_seconds) * @bucket_seconds

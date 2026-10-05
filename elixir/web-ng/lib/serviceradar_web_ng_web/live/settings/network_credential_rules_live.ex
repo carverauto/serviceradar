@@ -745,7 +745,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <tbody>
                 <tr :for={consumer <- @consumers.consumers}>
                   <td class="font-mono">{consumer.agent_uid}</td>
-                  <td class="font-mono">{consumer.plugin_id}</td>
+                  <td class="font-mono">
+                    {consumer.plugin_id}
+                    <%= if consumer.plugin_version do %>
+                      <span class="badge badge-sm badge-ghost ml-1">v{consumer.plugin_version}</span>
+                    <% end %>
+                  </td>
                   <td>{consumer.purpose}</td>
                   <td>
                     <span class={[
