@@ -562,9 +562,12 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 /// axum/hyper in for two endpoints.
 ///
 /// `/readyz` is deliberately NOT the same signal as "this server is
-/// answering": it reports `200` only while `ready_path` exists on disk
-/// (the same file `Publisher::mark_publisher_ready`/`clear_publisher_ready`
-/// write), and `503` otherwise. The HTTP server itself binds independently
+/// answering": it reports `200` with body `ready` only while `ready_path`
+/// exists on disk (the same file `Publisher::mark_publisher_ready` /
+/// `clear_publisher_ready` write). Otherwise it reports `503` with
+/// `not ready: {reason}`, read from the sibling file
+/// [`not_ready_reason_path`]. A missing reason file uses
+/// [`NOT_READY_REASON_FALLBACK`]. The HTTP server itself binds independently
 /// of the publisher (see `main.rs`), so `/metrics` alone would report a pod
 /// Ready before it has ever connected to NATS -- this is what the Helm
 /// readinessProbe checks instead.
@@ -631,6 +634,51 @@ pub async fn run_prometheus_server(
     }
 }
 
+/// Fallback body text when the publisher has not written a reason yet.
+pub(crate) const NOT_READY_REASON_FALLBACK: &str = "publisher has not reported ready";
+
+const NOT_READY_REASON_MAX_CHARS: usize = 300;
+const NOT_READY_REASON_READ_MAX: usize = 512;
+
+/// Sibling of the ready marker. `with_extension` would turn
+/// `flow-collector.ready` into `flow-collector.reason`, so the suffix is
+/// appended to the file name instead.
+pub(crate) fn not_ready_reason_path(ready_path: &Path) -> PathBuf {
+    let mut name = ready_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "flow-collector.ready".to_string());
+    name.push_str(".reason");
+    match ready_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(name),
+        _ => PathBuf::from(name),
+    }
+}
+
+/// Collapse whitespace, drop CR/LF, and cap the probe body at a char boundary.
+pub(crate) fn sanitize_not_ready_reason(raw: &str) -> String {
+    let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = collapsed.trim();
+    if trimmed.is_empty() {
+        return NOT_READY_REASON_FALLBACK.to_string();
+    }
+    trimmed.chars().take(NOT_READY_REASON_MAX_CHARS).collect()
+}
+
+fn read_not_ready_reason(ready_path: &Path) -> String {
+    let path = not_ready_reason_path(ready_path);
+    let mut file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(_) => return NOT_READY_REASON_FALLBACK.to_string(),
+    };
+    let mut buf = [0u8; NOT_READY_REASON_READ_MAX];
+    let n = match std::io::Read::read(&mut file, &mut buf) {
+        Ok(n) => n,
+        Err(_) => return NOT_READY_REASON_FALLBACK.to_string(),
+    };
+    sanitize_not_ready_reason(&String::from_utf8_lossy(&buf[..n]))
+}
+
 async fn serve_one(
     conn: tokio::net::TcpStream,
     listeners: &[Arc<ListenerMetrics>],
@@ -686,7 +734,8 @@ async fn serve_one(
         if ready_path.exists() {
             ("200 OK", "ready\n".to_string())
         } else {
-            ("503 Service Unavailable", "not ready\n".to_string())
+            let reason = read_not_ready_reason(ready_path);
+            ("503 Service Unavailable", format!("not ready: {reason}\n"))
         }
     } else if path.starts_with("/metrics") {
         ("200 OK", render_prometheus(listeners))
@@ -953,9 +1002,11 @@ mod tests {
             .unwrap()
             .as_nanos();
         let ready_path = std::env::temp_dir().join(format!("flow-collector-readyz-test-{nanos}"));
+        let reason_path = not_ready_reason_path(&ready_path);
         // Guarantee a clean slate even if a previous run of this test
         // process crashed before cleanup.
         let _ = std::fs::remove_file(&ready_path);
+        let _ = std::fs::remove_file(&reason_path);
 
         let listeners: Vec<Arc<ListenerMetrics>> = vec![];
         let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -978,27 +1029,64 @@ mod tests {
             resp
         }
 
-        // Marker absent: not ready.
+        // Marker absent and no reason file: the probe names the fallback.
         let resp = get_readyz(addr).await;
         assert!(
             resp.starts_with("HTTP/1.1 503 Service Unavailable"),
             "resp={resp}"
         );
+        assert!(
+            resp.contains("not ready: publisher has not reported ready\n"),
+            "resp={resp}"
+        );
 
-        // Marker created (mirrors Publisher::mark_publisher_ready): ready.
+        // A sibling reason file is the body. Whitespace and a long line are
+        // collapsed and capped so a probe body stays one line.
+        let messy = format!(
+            "subjects\toverlap\r\nwith an existing stream {}",
+            "x".repeat(400)
+        );
+        std::fs::write(&reason_path, messy.as_bytes()).unwrap();
+        let resp = get_readyz(addr).await;
+        assert!(
+            resp.starts_with("HTTP/1.1 503 Service Unavailable"),
+            "resp={resp}"
+        );
+        let expected_reason = format!(
+            "subjects overlap with an existing stream {}",
+            "x".repeat(300 - "subjects overlap with an existing stream ".len())
+        );
+        assert!(
+            resp.contains(&format!("not ready: {expected_reason}\n")),
+            "resp={resp}"
+        );
+        assert!(
+            !resp.contains(&"x".repeat(301)),
+            "reason was not capped: resp={resp}"
+        );
+
+        // Marker created (mirrors Publisher::mark_publisher_ready): ready,
+        // even while the reason file is still present.
         std::fs::write(&ready_path, b"ready\n").unwrap();
         let resp = get_readyz(addr).await;
         assert!(resp.starts_with("HTTP/1.1 200 OK"), "resp={resp}");
+        assert!(resp.contains("\r\n\r\nready\n"), "resp={resp}");
+        assert!(!resp.contains("not ready:"), "resp={resp}");
 
         // Marker removed (mirrors Publisher::clear_publisher_ready): not
         // ready again -- the socket never stopped listening, proving this
-        // is not just "the server is up".
+        // is not just "the server is up". The reason file is served again.
         std::fs::remove_file(&ready_path).unwrap();
         let resp = get_readyz(addr).await;
         assert!(
             resp.starts_with("HTTP/1.1 503 Service Unavailable"),
             "resp={resp}"
         );
+        assert!(
+            resp.contains(&format!("not ready: {expected_reason}\n")),
+            "resp={resp}"
+        );
+        let _ = std::fs::remove_file(&reason_path);
     }
 
     #[test]

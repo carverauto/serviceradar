@@ -172,4 +172,73 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
 
     assert AnomalyConfigRuntime.capacity_forecasting_opts()[:warning_threshold_percent] == 70.0
   end
+
+  test "anomaly config readers never wait on a slow reload" do
+    test_pid = self()
+
+    initial_settings = %AnomalyDetectionConfig{
+      n_sigma: 3.0,
+      window_size: 300,
+      confirm_slots: 5,
+      min_samples: 30,
+      metric_class_overrides: %{}
+    }
+
+    updated_settings = %AnomalyDetectionConfig{
+      n_sigma: 7.5,
+      window_size: 500,
+      confirm_slots: 10,
+      min_samples: 50,
+      metric_class_overrides: %{}
+    }
+
+    slow_anomaly_fetcher = fn _actor ->
+      send(test_pid, :fetch_started)
+      Process.sleep(300)
+      {:ok, updated_settings}
+    end
+
+    name = :"#{__MODULE__}.SlowReloadRuntime"
+
+    start_supervised!(
+      {AnomalyConfigRuntime,
+       name: name,
+       refresh_interval_ms: 60_000,
+       anomaly_fetcher: fn _actor -> {:ok, initial_settings} end,
+       forecast_fetcher: fn _actor -> {:ok, nil} end}
+    )
+
+    assert AnomalyConfigRuntime.anomaly_series_config().metric_class_defaults["default"][
+             "n_sigma"
+           ] == 3.0
+
+    # Hot-swap the fetcher to the slow one and trigger refresh in a background task
+    :sys.replace_state(Process.whereis(name), fn state ->
+      %{state | anomaly_fetcher: slow_anomaly_fetcher}
+    end)
+
+    refresh_task = Task.async(fn -> AnomalyConfigRuntime.refresh(name) end)
+
+    assert_receive :fetch_started, 1_000
+
+    # While reload is still in flight (sleeping 300ms), readers return immediately without waiting
+    start_time = System.monotonic_time(:millisecond)
+
+    assert AnomalyConfigRuntime.anomaly_series_config().metric_class_defaults["default"][
+             "n_sigma"
+           ] == 3.0
+
+    assert is_list(AnomalyConfigRuntime.capacity_forecasting_opts())
+    assert is_list(AnomalyConfigRuntime.seasonal_disposition_opts())
+
+    elapsed_ms = System.monotonic_time(:millisecond) - start_time
+    assert elapsed_ms < 50, "Reader blocked on reload for #{elapsed_ms}ms"
+
+    # Once the slow reload completes, the updated configuration is visible
+    assert {:ok, _cache} = Task.await(refresh_task, 2_000)
+
+    assert AnomalyConfigRuntime.anomaly_series_config().metric_class_defaults["default"][
+             "n_sigma"
+           ] == 7.5
+  end
 end

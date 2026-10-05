@@ -387,7 +387,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # agent can preserve inventory context while scanning.
     case group.target_query do
       query when is_binary(query) and query != "" ->
-        normalized = normalize_target_query(query)
+        normalized = normalize_target_query(query, group.partition)
 
         case device_targets_for_query(normalized, query, group, modes, query_memo, query_page_fn) do
           {:ok, device_targets, query_memo} ->
@@ -518,8 +518,52 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # The normalized query string is both the memo key and the shared cache key:
   # it is exactly what SRQL receives, so equal keys can never share a wrong
   # result.
-  defp normalize_target_query(query) do
-    SRQLQuery.ensure_target(query, :devices)
+  #
+  # An unscoped device query would match every partition. Scope it to the
+  # group's device partition. That is not the compiling agent's home
+  # partition: a selected agent in another partition is an isolation scan
+  # and must still see this group's devices. A query that already names
+  # `partition` is left alone. Static targets are not passed through here.
+  defp normalize_target_query(query, partition) do
+    query
+    |> SRQLQuery.ensure_target(:devices)
+    |> scope_device_partition(partition)
+  end
+
+  defp scope_device_partition(query, partition) when is_binary(partition) do
+    partition = String.trim(partition)
+
+    if partition == "" or query_scopes_partition?(query) do
+      query
+    else
+      query <> " partition:" <> srql_filter_value(partition)
+    end
+  end
+
+  defp scope_device_partition(query, _partition), do: query
+
+  defp query_scopes_partition?(query) do
+    query
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.any?(&filter_key_is_partition?/1)
+  end
+
+  defp filter_key_is_partition?(term) do
+    term = String.trim_leading(term, "-")
+    String.starts_with?(term, "partition:") or String.starts_with?(term, "partition!=")
+  end
+
+  defp srql_filter_value(value) do
+    if value =~ ~r/^[A-Za-z0-9_.:-]+$/ do
+      value
+    else
+      escaped =
+        value
+        |> String.replace("\\", "\\\\")
+        |> String.replace("\"", "\\\"")
+
+      "\"#{escaped}\""
+    end
   end
 
   defp target_query_rows(query, query_memo, query_page_fn) do

@@ -5,6 +5,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
   A pipeline that stops on its own (not through `close_session/1`) is logged
   and reported to the session tracker, which drains the relay so the agent
   closes it instead of uploading into a session with no media path.
+
+  Only the pipeline lifecycle (open, close, DOWN) goes through this process.
+  Session-to-pipeline lookups are mirrored into a protected ETS table, so
+  `record_chunk/2` and the viewer/branch calls run in the caller: a chunk is a
+  direct send to the session's pipeline, and a slow `Membrane.Pipeline.call`
+  for one camera no longer blocks every other camera's chunks behind this
+  mailbox.
   """
 
   use GenServer
@@ -13,6 +20,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
   alias ServiceRadarCoreElx.CameraRelay.Pipeline
 
   require Logger
+
+  @pipelines_table :camera_relay_pipelines
+  @pipeline_call_timeout 5_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -23,35 +33,65 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
   end
 
   def record_chunk(relay_session_id, attrs) when is_binary(relay_session_id) and is_map(attrs) do
-    GenServer.call(__MODULE__, {:record_chunk, relay_session_id, attrs})
+    with {:ok, pipeline_pid} <- pipeline_pid(relay_session_id) do
+      send(pipeline_pid, {:media_chunk, Map.put(attrs, :relay_session_id, relay_session_id)})
+      :ok
+    end
   end
 
   def add_webrtc_viewer(relay_session_id, viewer_session_id, signaling, opts \\ [])
       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
-    GenServer.call(__MODULE__, {:add_webrtc_viewer, relay_session_id, viewer_session_id, signaling, opts})
+    pipeline_call(
+      relay_session_id,
+      {:add_webrtc_viewer, viewer_session_id, signaling, opts},
+      Keyword.get(opts, :timeout, @pipeline_call_timeout)
+    )
   end
 
   def add_analysis_branch(relay_session_id, branch_id, opts \\ [])
       when is_binary(relay_session_id) and is_binary(branch_id) do
-    GenServer.call(__MODULE__, {:add_analysis_branch, relay_session_id, branch_id, opts})
+    pipeline_call(
+      relay_session_id,
+      {:add_analysis_branch, branch_id, opts},
+      Keyword.get(opts, :timeout, @pipeline_call_timeout)
+    )
   end
 
   def add_boombox_branch(relay_session_id, branch_id, opts \\ [])
       when is_binary(relay_session_id) and is_binary(branch_id) do
-    GenServer.call(__MODULE__, {:add_boombox_branch, relay_session_id, branch_id, opts})
+    pipeline_call(
+      relay_session_id,
+      {:add_boombox_branch, branch_id, opts},
+      Keyword.get(opts, :timeout, @pipeline_call_timeout)
+    )
   end
 
   def remove_webrtc_viewer(relay_session_id, viewer_session_id)
       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
-    GenServer.call(__MODULE__, {:remove_webrtc_viewer, relay_session_id, viewer_session_id})
+    pipeline_call(relay_session_id, {:remove_webrtc_viewer, viewer_session_id}, @pipeline_call_timeout)
   end
 
   def remove_analysis_branch(relay_session_id, branch_id) when is_binary(relay_session_id) and is_binary(branch_id) do
-    GenServer.call(__MODULE__, {:remove_analysis_branch, relay_session_id, branch_id})
+    pipeline_call(relay_session_id, {:remove_analysis_branch, branch_id}, @pipeline_call_timeout)
   end
 
   def remove_boombox_branch(relay_session_id, branch_id) when is_binary(relay_session_id) and is_binary(branch_id) do
-    GenServer.call(__MODULE__, {:remove_boombox_branch, relay_session_id, branch_id})
+    pipeline_call(relay_session_id, {:remove_boombox_branch, branch_id}, @pipeline_call_timeout)
+  end
+
+  defp pipeline_call(relay_session_id, message, timeout) do
+    with {:ok, pipeline_pid} <- pipeline_pid(relay_session_id) do
+      Membrane.Pipeline.call(pipeline_pid, message, timeout)
+    end
+  end
+
+  defp pipeline_pid(relay_session_id) do
+    case :ets.lookup(@pipelines_table, relay_session_id) do
+      [{^relay_session_id, pipeline_pid}] -> {:ok, pipeline_pid}
+      [] -> {:error, :not_found}
+    end
+  rescue
+    ArgumentError -> {:error, :not_found}
   end
 
   def close_session(relay_session_id) when is_binary(relay_session_id) do
@@ -60,6 +100,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
 
   @impl true
   def init(opts) do
+    _ = :ets.new(@pipelines_table, [:named_table, :protected, :set, read_concurrency: true])
+
     {:ok,
      %{
        sessions: %{},
@@ -96,106 +138,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
               monitor_ref: ref
             }
 
+            true = :ets.insert(@pipelines_table, {relay_session_id, pipeline_pid})
             {:reply, {:ok, session}, put_in(state, [:sessions, relay_session_id], session)}
 
           {:error, reason} ->
             {:reply, {:error, reason}, state}
         end
-    end
-  end
-
-  def handle_call({:record_chunk, relay_session_id, attrs}, _from, state) do
-    case Map.get(state.sessions, relay_session_id) do
-      %{pipeline_pid: pipeline_pid} ->
-        send(pipeline_pid, {:media_chunk, Map.put(attrs, :relay_session_id, relay_session_id)})
-        {:reply, :ok, state}
-
-      nil ->
-        {:reply, {:error, :not_found}, state}
-    end
-  end
-
-  def handle_call({:add_webrtc_viewer, relay_session_id, viewer_session_id, signaling, opts}, _from, state) do
-    case Map.get(state.sessions, relay_session_id) do
-      %{pipeline_pid: pipeline_pid} ->
-        reply =
-          Membrane.Pipeline.call(
-            pipeline_pid,
-            {:add_webrtc_viewer, viewer_session_id, signaling, opts},
-            Keyword.get(opts, :timeout, 5_000)
-          )
-
-        {:reply, reply, state}
-
-      nil ->
-        {:reply, {:error, :not_found}, state}
-    end
-  end
-
-  def handle_call({:add_analysis_branch, relay_session_id, branch_id, opts}, _from, state) do
-    case Map.get(state.sessions, relay_session_id) do
-      %{pipeline_pid: pipeline_pid} ->
-        reply =
-          Membrane.Pipeline.call(
-            pipeline_pid,
-            {:add_analysis_branch, branch_id, opts},
-            Keyword.get(opts, :timeout, 5_000)
-          )
-
-        {:reply, reply, state}
-
-      nil ->
-        {:reply, {:error, :not_found}, state}
-    end
-  end
-
-  def handle_call({:add_boombox_branch, relay_session_id, branch_id, opts}, _from, state) do
-    case Map.get(state.sessions, relay_session_id) do
-      %{pipeline_pid: pipeline_pid} ->
-        reply =
-          Membrane.Pipeline.call(
-            pipeline_pid,
-            {:add_boombox_branch, branch_id, opts},
-            Keyword.get(opts, :timeout, 5_000)
-          )
-
-        {:reply, reply, state}
-
-      nil ->
-        {:reply, {:error, :not_found}, state}
-    end
-  end
-
-  def handle_call({:remove_webrtc_viewer, relay_session_id, viewer_session_id}, _from, state) do
-    case Map.get(state.sessions, relay_session_id) do
-      %{pipeline_pid: pipeline_pid} ->
-        reply = Membrane.Pipeline.call(pipeline_pid, {:remove_webrtc_viewer, viewer_session_id}, 5_000)
-        {:reply, reply, state}
-
-      nil ->
-        {:reply, {:error, :not_found}, state}
-    end
-  end
-
-  def handle_call({:remove_analysis_branch, relay_session_id, branch_id}, _from, state) do
-    case Map.get(state.sessions, relay_session_id) do
-      %{pipeline_pid: pipeline_pid} ->
-        reply = Membrane.Pipeline.call(pipeline_pid, {:remove_analysis_branch, branch_id}, 5_000)
-        {:reply, reply, state}
-
-      nil ->
-        {:reply, {:error, :not_found}, state}
-    end
-  end
-
-  def handle_call({:remove_boombox_branch, relay_session_id, branch_id}, _from, state) do
-    case Map.get(state.sessions, relay_session_id) do
-      %{pipeline_pid: pipeline_pid} ->
-        reply = Membrane.Pipeline.call(pipeline_pid, {:remove_boombox_branch, branch_id}, 5_000)
-        {:reply, reply, state}
-
-      nil ->
-        {:reply, {:error, :not_found}, state}
     end
   end
 
@@ -205,6 +153,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
         {:reply, {:error, :not_found}, %{state | sessions: sessions}}
 
       {session, sessions} ->
+        true = :ets.delete(@pipelines_table, relay_session_id)
         Process.demonitor(session.monitor_ref, [:flush])
         send(session.pipeline_pid, :end_of_stream)
         :ok = Membrane.Pipeline.terminate(session.pipeline_pid)
@@ -220,6 +169,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
           "Camera relay media pipeline stopped: relay_session_id=#{relay_session_id} reason=#{inspect(reason)}"
         )
 
+        true = :ets.delete(@pipelines_table, relay_session_id)
         _ = state.session_tracker.pipeline_down(relay_session_id, reason)
         {:noreply, update_in(state, [:sessions], &Map.delete(&1, relay_session_id))}
 

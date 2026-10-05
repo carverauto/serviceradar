@@ -1,4 +1,7 @@
 {{- if .Values.flowCollector.enabled }}
+{{- if not (.Values.flowCollector.config).metrics_addr }}
+{{- fail "flowCollector.config.metrics_addr is required so the readiness probe can call /readyz" }}
+{{- end }}
 {{- $data := default (dict) .Values.flowCollector.data -}}
 {{- $dataEnabled := true -}}
 {{- if hasKey $data "enabled" -}}
@@ -143,18 +146,11 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-        {{- if (.Values.flowCollector.config).metrics_addr }}
-          # HTTP beats a bare ready-file exec check: it also fails a process
-          # that is running but wedged (deadlocked accept loop), which
-          # `test -f` cannot detect. /readyz (not /metrics) is what makes
-          # this reflect true publisher readiness: /metrics answers 200 as
-          # soon as the HTTP server binds, before the publisher has ever
-          # connected to NATS -- run_prometheus_server is spawned
-          # independently of the publisher (main.rs). /readyz instead
-          # checks the same publisher-ready marker file the old exec probe
-          # used (mark_publisher_ready/clear_publisher_ready), so a new pod
-          # under maxUnavailable:0 is not considered Ready until it can
-          # actually publish.
+          # /readyz (not /metrics) reflects publisher readiness. /metrics
+          # answers 200 as soon as the HTTP server binds, before the
+          # publisher has connected to NATS. /readyz checks the publisher
+          # marker file, so a new pod is not Ready until it can publish.
+          # metrics_addr is required above: there is no file-probe fallback.
           httpGet:
             path: /readyz
             port: {{ .Values.flowCollector.service.ports.metrics.targetPort | default 50046 }}
@@ -162,17 +158,6 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 12
-        {{- else }}
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - "test -f {{ .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" }}"
-          initialDelaySeconds: 5
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 12
-        {{- end }}
         resources:
           {{- toYaml .Values.flowCollector.resources | nindent 10 }}
         volumeMounts:

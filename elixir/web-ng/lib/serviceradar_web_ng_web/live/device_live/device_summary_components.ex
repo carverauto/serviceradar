@@ -119,10 +119,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
               <.kv_inline label="Last Seen" mono>
                 <.user_time
                   id={"device-summary-#{device_time_key(@device_row)}-last-seen-at"}
-                  value={
-                    Map.get(@device_row, "last_seen") ||
-                      Map.get(@device_row, "last_seen_time")
-                  }
+                  value={device_last_seen(@device_row)}
+                  fallback="Unknown"
                   timezone={@timezone}
                   style={:compact}
                 />
@@ -417,6 +415,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
   end
 
   defp device_added_at(_row), do: nil
+
+  defp device_last_seen(row) do
+    metadata = row_metadata(row)
+
+    # Inventory refreshes can advance last_seen_time without reaching the
+    # device. Once sweeps have observed it, use their successful observation;
+    # failed attempts without a success leave reachability history unknown.
+    cond do
+      agent_device?(row) ->
+        Map.get(row, "last_seen") || Map.get(row, "last_seen_time")
+
+      Map.has_key?(metadata, "sweep_consecutive_failures") or
+          present?(metadata["sweep_last_available_at"]) ->
+        metadata["sweep_last_available_at"]
+
+      true ->
+        Map.get(row, "last_seen") || Map.get(row, "last_seen_time")
+    end
+  end
 
   # Agent status comes from the ocsf_agents linkage resolved at load time
   # (DeviceStateData.tag_agent_device/2); the OCSF agent_list column is dead.

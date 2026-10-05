@@ -2,6 +2,7 @@
 
 import os
 import json
+import platform
 from pathlib import Path
 import subprocess
 import tempfile
@@ -134,6 +135,31 @@ class ReleasePackageWorkflowTest(unittest.TestCase):
         self.assertTrue(self.record.exists())
 
 
+def _pinned_jq_binary():
+    """Locate the pinned jq for this host inside the test runfiles.
+
+    Mirrors scripts/test-external-wasm-plugin-release-workflow.sh: match the
+    arch-specific repository by substring because Bzlmod runfiles use the
+    canonical repository name (+http_file+jq_linux_<arch>), not the apparent
+    one. Fail explicitly when the declared tool is unavailable: no host
+    fallback, no skips.
+    """
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        repository = "jq_linux_amd64"
+    elif machine in ("aarch64", "arm64"):
+        repository = "jq_linux_arm64"
+    else:
+        raise FileNotFoundError(f"no pinned jq for machine {machine!r}")
+    srcdir = Path(os.environ["TEST_SRCDIR"])
+    for dirpath, _dirnames, filenames in os.walk(srcdir, followlinks=True):
+        if repository in dirpath and "downloaded" in filenames:
+            candidate = Path(dirpath) / "downloaded"
+            if os.access(candidate, os.X_OK):
+                return candidate
+    raise FileNotFoundError("declared jq runfile is unavailable")
+
+
 class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -156,39 +182,7 @@ class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             record = root / "requests.jsonl"
-            # RBE test runners have no jq; emulate the two dispatch filters in Python
-            # so the executed shell stays hermetic while production keeps using jq.
-            fake_jq = root / "jq"
-            fake_jq.write_text(
-                "#!/usr/bin/env python3\n"
-                "import json, sys\n"
-                "args = sys.argv[1:]\n"
-                "arg_vals = {}\n"
-                "argjson_vals = {}\n"
-                "filter_expr = args[-1] if args else ''\n"
-                "i = 0\n"
-                "while i < len(args):\n"
-                "    if args[i] == '--arg' and i + 2 < len(args):\n"
-                "        arg_vals[args[i + 1]] = args[i + 2]\n"
-                "        i += 3\n"
-                "    elif args[i] == '--argjson' and i + 2 < len(args):\n"
-                "        argjson_vals[args[i + 1]] = json.loads(args[i + 2])\n"
-                "        i += 3\n"
-                "    else:\n"
-                "        i += 1\n"
-                "data = json.load(sys.stdin)\n"
-                "if 'assets' in filter_expr:\n"
-                "    name = arg_vals.get('name', '')\n"
-                "    count = sum(1 for a in (data.get('assets') or [])\n"
-                "                if a.get('name') == name and (a.get('size') or 0) > 0)\n"
-                "    print(count)\n"
-                "else:\n"
-                "    ok = (data.get('id') == argjson_vals.get('id')\n"
-                "          and data.get('tag_name') == arg_vals.get('tag')\n"
-                "          and data.get('draft') is True)\n"
-                "    sys.exit(0 if ok else 1)\n"
-            )
-            fake_jq.chmod(0o755)
+            (root / "jq").symlink_to(_pinned_jq_binary())
             fake_gh = root / "gh"
             fake_gh.write_text(
                 "#!/usr/bin/env python3\n"

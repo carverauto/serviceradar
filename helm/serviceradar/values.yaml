@@ -724,7 +724,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261006170000"
+    expectedVersion: "20261007020000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1880,9 +1880,11 @@ flowCollector:
     stream_replicas: 3
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
     ready_state_path: "/var/lib/serviceradar/flow-collector.ready"
-    # Serves the Prometheus exposition on /metrics. Must agree with
-    # service.ports.metrics.targetPort below. Unset it to disable the
-    # in-process HTTP server entirely.
+    # Serves the Prometheus exposition on /metrics and the /readyz
+    # readiness probe. Must agree with
+    # service.ports.metrics.targetPort below. Required by the chart:
+    # an empty value fails rendering because readiness is always httpGet
+    # /readyz (there is no file-probe fallback).
     metrics_addr: "0.0.0.0:50046"
     # Shared template persistence is retired. Remove any previous override;
     # a non-null template_store fails collector startup. TLS state is per session.

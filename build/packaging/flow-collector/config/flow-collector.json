@@ -30,5 +30,6 @@
     }
   },
   "rehome_state_path": "/var/lib/serviceradar/flow-collector-rehome.json",
+  "metrics_addr": "0.0.0.0:50046",
   "ready_state_path": "/var/lib/serviceradar/flow-collector.ready"
 }

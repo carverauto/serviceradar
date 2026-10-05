@@ -39,6 +39,44 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
+  test "forwards chunks to the session's pipeline while the manager process is busy" do
+    relay_session_id = "relay-membrane-busy-#{System.unique_integer([:positive])}"
+    viewer_id = "viewer-membrane-busy"
+    :ok = RelayPubSub.subscribe_viewer(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
+
+    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+
+    # Stand-in for the manager blocked in another camera's Membrane call.
+    :ok = :sys.suspend(PipelineManager)
+
+    try do
+      chunk =
+        Task.async(fn ->
+          PipelineManager.record_chunk(relay_session_id, %{
+            media_ingest_id: "core-media-busy",
+            sequence: 21,
+            pts: 33_000_000,
+            dts: 33_000_000,
+            codec: "h264",
+            payload_format: "annexb",
+            track_id: "video",
+            keyframe: true,
+            payload: <<0, 0, 0, 1, 103, 100, 0, 31>>
+          })
+        end)
+
+      assert Task.yield(chunk, 500) == {:ok, :ok}
+
+      assert_receive {:camera_relay_viewer_chunk, %{relay_session_id: ^relay_session_id, sequence: 21}}, 1_000
+    after
+      :sys.resume(PipelineManager)
+    end
+
+    assert :ok = PipelineManager.close_session(relay_session_id)
+  end
+
   test "pipes media chunks through membrane and republishes them to relay pubsub" do
     relay_session_id = "relay-membrane-1"
     viewer_id = "viewer-membrane-1"

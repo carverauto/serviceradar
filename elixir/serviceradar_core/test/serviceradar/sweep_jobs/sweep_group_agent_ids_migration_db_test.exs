@@ -13,6 +13,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAgentIdsMigrationDbTest do
 
   Code.require_file(@migration_path)
 
+  @current_migration_path Path.expand(
+                            "../../../priv/repo/migrations/20261006200000_keep_multi_agent_sweep_assignment.exs",
+                            __DIR__
+                          )
+
+  Code.require_file(@current_migration_path)
+
   setup do
     table = "sweep_group_agent_ids_#{System.unique_integer([:positive, :monotonic])}"
 
@@ -94,8 +101,40 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAgentIdsMigrationDbTest do
     refute migration =~ "remove :agent_id\n"
   end
 
+  test "the current trigger keeps a multi-agent list when only the scalar changes", %{
+    table: table
+  } do
+    install_current_trigger(table)
+
+    Repo.query!(
+      "INSERT INTO #{table} (agent_ids, agent_id) VALUES (ARRAY['agent-b', 'agent-a'], 'agent-a')"
+    )
+
+    Repo.query!("UPDATE #{table} SET agent_id = 'agent-c'")
+
+    assert %{rows: [["agent-a", ["agent-a", "agent-b"]]]} =
+             Repo.query!("SELECT agent_id, agent_ids FROM #{table}")
+  end
+
+  test "the current trigger still reassigns a one-agent group from the scalar", %{table: table} do
+    install_current_trigger(table)
+    Repo.query!("INSERT INTO #{table} (agent_id) VALUES ('agent-a')")
+    Repo.query!("UPDATE #{table} SET agent_id = 'agent-c'")
+
+    assert %{rows: [["agent-c", ["agent-c"]]]} =
+             Repo.query!("SELECT agent_id, agent_ids FROM #{table}")
+  end
+
   defp install_trigger(table) do
     Repo.query!(AddSweepGroupAgentIds.compatibility_function_sql())
+    Repo.query!(AddSweepGroupAgentIds.compatibility_trigger_sql(table))
+  end
+
+  defp install_current_trigger(table) do
+    Repo.query!(
+      ServiceRadar.Repo.Migrations.KeepMultiAgentSweepAssignment.compatibility_function_sql()
+    )
+
     Repo.query!(AddSweepGroupAgentIds.compatibility_trigger_sql(table))
   end
 end

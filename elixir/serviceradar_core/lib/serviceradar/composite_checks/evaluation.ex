@@ -319,8 +319,15 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
     rows =
       Enum.map(uids, fn uid ->
         resolutions = resolve_inputs(inputs, uid, availability, metadata, now)
+        resolutions = validation_resolutions(resolutions, inputs, uid, opts)
         values = Map.new(resolutions, fn {key, resolution} -> {key, resolution.value} end)
-        {verdict, status, matched_rule_id} = decide(check, uid, values, rules)
+
+        {verdict, status, matched_rule_id} =
+          if not_probed?(resolutions, inputs, opts) do
+            {"not_probed", :unknown, nil}
+          else
+            decide(check, uid, values, rules)
+          end
 
         %{
           device_uid: uid,
@@ -332,6 +339,62 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
       end)
 
     {:ok, rows}
+  end
+
+  defp validation_resolutions(resolutions, inputs, uid, opts) do
+    case Keyword.fetch(opts, :validation_coverage) do
+      :error ->
+        resolutions
+
+      {:ok, coverage} ->
+        inputs
+        |> Enum.filter(&(&1.kind == :vantage_point))
+        |> Enum.reduce(resolutions, fn input, acc ->
+          meta = get_in(coverage, [uid, input.config["agent_id"]]) || %{}
+          Map.put(acc, input.key, validation_observation(meta))
+        end)
+    end
+  end
+
+  defp validation_observation(meta) do
+    observed_at = observation_time(meta["observed_at"])
+
+    observed? =
+      meta["state"] == "observed" and is_boolean(meta["is_available"]) and not is_nil(observed_at)
+
+    value =
+      cond do
+        not observed? -> :unknown
+        meta["is_available"] -> :available
+        true -> :blocked
+      end
+
+    %{
+      value: value,
+      observed_at: if(observed?, do: observed_at),
+      stale: false,
+      reason: if(observed?, do: nil, else: meta["reason"] || meta["state"] || "no_probe"),
+      covered: meta["state"] not in [nil, "uncovered", "skipped"],
+      probed: observed?
+    }
+  end
+
+  defp observation_time(nil), do: nil
+
+  defp observation_time(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, time, _offset} -> time
+      _ -> nil
+    end
+  end
+
+  defp not_probed?(resolutions, inputs, opts) do
+    if Keyword.has_key?(opts, :validation_coverage) do
+      vantages = Enum.filter(inputs, &(&1.kind == :vantage_point))
+      vantages == [] or Enum.any?(vantages, &(not resolutions[&1.key].probed))
+    else
+      false
+    end
   end
 
   defp decide(check, uid, values, rules) do
@@ -369,12 +432,17 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   defp snapshot(resolutions) do
     Map.new(resolutions, fn {key, resolution} ->
       {key,
-       %{
-         "value" => to_string(resolution.value),
-         "observed_at" => resolution.observed_at && DateTime.to_iso8601(resolution.observed_at),
-         "stale" => resolution.stale,
-         "reason" => resolution.reason && to_string(resolution.reason)
-       }}
+       Map.merge(
+         %{
+           "value" => to_string(resolution.value),
+           "observed_at" => resolution.observed_at && DateTime.to_iso8601(resolution.observed_at),
+           "stale" => resolution.stale,
+           "reason" => resolution.reason && to_string(resolution.reason)
+         },
+         resolution
+         |> Map.take([:covered, :probed])
+         |> Map.new(fn {key, value} -> {to_string(key), value} end)
+       )}
     end)
   end
 

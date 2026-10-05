@@ -25,6 +25,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
     :ok
   end
 
+  # Partition is left nil unless a test sets it: the Ash default ("default")
+  # would scope every target query, which belongs to the partition-scoping
+  # tests below, not to the resolution, memoization and error-path tests
+  # that share this helper.
   defp group(attrs) do
     struct!(
       SweepGroup,
@@ -36,6 +40,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
           cron_expression: nil,
           static_targets: [],
           target_query: nil,
+          partition: nil,
           ports: nil,
           sweep_modes: nil,
           overrides: %{},
@@ -166,6 +171,102 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
     do: Enum.map(compiled_group["device_targets"] || [], & &1["network"])
 
   describe "declared targets" do
+    test "a device query without a partition is scoped to the group's device partition" do
+      query_page_fn = fn query, _opts ->
+        send(self(), {:scoped_query, query})
+
+        {:ok,
+         %{
+           rows: [
+             %{
+               "ip" => "198.51.100.20",
+               "uid" => "sr:dev-0020",
+               "hostname" => "host20.example.com"
+             }
+           ],
+           next_cursor: nil
+         }}
+      end
+
+      group =
+        group(%{
+          id: "sg-site-a",
+          name: "site-a",
+          partition: "site-a",
+          target_query: @lab_query,
+          static_targets: ["192.0.2.20"]
+        })
+
+      assert SweepCompiler.declared_targets(group, query_page_fn: query_page_fn) == %{
+               static: ["192.0.2.20"],
+               device: [%{target: "198.51.100.20", device_uid: "sr:dev-0020"}]
+             }
+
+      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-a"}
+    end
+
+    test "an explicit partition filter is left intact" do
+      explicit = "in:devices partition:site-b tags.env:lab"
+
+      query_page_fn = fn query, _opts ->
+        send(self(), {:scoped_query, query})
+        {:ok, %{rows: [], next_cursor: nil}}
+      end
+
+      group =
+        group(%{
+          id: "sg-explicit-partition",
+          name: "explicit-partition",
+          partition: "site-a",
+          target_query: explicit
+        })
+
+      assert SweepCompiler.declared_targets(group, query_page_fn: query_page_fn) == %{
+               static: [],
+               device: []
+             }
+
+      assert_received {:scoped_query, explicit}
+    end
+
+    test "the same base query in two partitions resolves each group's own devices" do
+      query_page_fn = fn query, _opts ->
+        send(self(), {:scoped_query, query})
+
+        rows =
+          if String.contains?(query, "partition:site-a") do
+            [%{"ip" => "198.51.100.21", "uid" => "sr:dev-0021"}]
+          else
+            [%{"ip" => "198.51.100.22", "uid" => "sr:dev-0022"}]
+          end
+
+        {:ok, %{rows: rows, next_cursor: nil}}
+      end
+
+      groups = [
+        group(%{
+          id: "sg-scope-a",
+          name: "scope-a",
+          partition: "site-a",
+          target_query: @lab_query
+        }),
+        group(%{
+          id: "sg-scope-b",
+          name: "scope-b",
+          partition: "site-b",
+          target_query: @lab_query
+        })
+      ]
+
+      compiled = compile_by_id(groups, query_page_fn: query_page_fn)
+
+      assert networks(compiled["sg-scope-a"]) == ["198.51.100.21"]
+      assert networks(compiled["sg-scope-b"]) == ["198.51.100.22"]
+
+      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-a"}
+      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-b"}
+    end
+
     test "a query-target group resolves the device targets compile would deliver" do
       query_page_fn = fake_inventory(self())
 

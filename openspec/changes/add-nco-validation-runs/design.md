@@ -93,7 +93,7 @@ Lookup, per `(device, vantage agent)`:
      (one cheap page, not a rescan of `in:devices`).
 3. Zero covering groups → that vantage is **uncovered** for this
    device. Record `uncovered` on the run row and do **not** dispatch a
-   probe. Do not invent ICMP. The later verdict will be `inconclusive`
+   probe. Do not invent ICMP. The later verdict will be `not_probed`
    the same way a scheduled sweep that never includes the host would.
 4. One or more covering groups → compile settings exactly as
    `SweepCompiler.compile_group_settings/2` already does: profile as base,
@@ -138,27 +138,24 @@ Default deadline 180 seconds from insert. Devices still probing at
 deadline are `timed_out` / `inconclusive` on the run. The composite
 result row is left as it was (do not write a fake pass).
 
-### D5 — Facts stay on the existing endpoint
+### D5 - Facts commit before probe dispatch
 
-`acl_enforced` and switch/port are written with
-`PATCH /api/devices/:uid/metadata` **before** this POST, using the UID
-from a previous run or from this run's 202 if NCO writes facts after
-resolve. Typical NCO order:
+The create payload accepts per-target scalar `facts`, with top-level facts
+for the single-device shorthand. Identity resolves synchronously; fact writes
+use the existing `Device.write_facts` action and caller authority. Supplying
+facts requires `devices.facts.write` in addition to `validation_runs.execute`.
+Fact writes, run creation, child rows, and job insertion share a transaction.
+Any invalid target fact rolls back the request, so no worker can evaluate
+before the write commits.
 
-1. POST validation-run with IP + partition (gets `uid` immediately).
-2. PATCH facts for that `uid` (if not already written).
-3. If facts were written after step 1, POST a second run — or, v1
-   allows PATCH first only when NCO already cached the uid. Simpler
-   prescribed order for the NCO agent:
+A caller that already knows the UID may finish a separate facts PATCH before
+creating the run. A caller without a UID can use inline facts or resolve
+identity, PATCH, then create. PATCH after create is not an attestation barrier
+and requires another run after the write finishes.
 
-   **Preferred:** if NCO has no uid yet, POST a run, read uid from 202,
-   PATCH facts, then either wait for this run (fact may land before
-   evaluate) or POST a second run after the PATCH.
-
-   To keep v1 dumb: the orchestrator re-reads device metadata at
-   evaluate time, not at POST time. NCO can PATCH as soon as it has
-   the uid from 202 and before probes finish (seconds). One run is
-   enough.
+Only observations from this run's completed scans satisfy vantage inputs.
+Coverage and probe evidence are exposed per input. Missing evidence produces
+`not_probed` / `unknown` on the run and leaves official results untouched.
 
 ## API shape
 
@@ -235,12 +232,11 @@ or `mac_ip_conflict`.
   are not fully represented on `ocsf_devices` today (global unique
   active-IP index). Callers MUST send partition now so the same client
   keeps working if that index is later partitioned.
-- A stale `acl_enforced` PATCH that lands after evaluate produces a
-  wrong report. Mitigated by evaluate-time metadata read plus NCO
-  PATCHing immediately after 202 (seconds before probes return).
+- A separate facts PATCH after create races evaluation. Inline facts commit
+  before dispatch; separate PATCH requests must finish before create.
 - A device that matches no sweep-group SRQL for a vantage agent is
   uncovered. That is a real coverage gap, not a prompt to invent ICMP.
-  The run records it; the verdict stays `inconclusive`.
+  The run records it; the verdict is `not_probed` / `unknown`.
 - Two covering groups with different ports/modes are merged the same
   way the agent already merges groups (union). Record every
   contributing `sweep_group_id` on the run row.

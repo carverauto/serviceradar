@@ -1,12 +1,18 @@
 defmodule ServiceRadarWebNGWeb.CameraMultiview do
   @moduledoc false
 
+  alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source, as: CameraSource
 
   require Ash.Query
 
   @source_limit 96
+  # Tiles follow relay state broadcasts; this timer is only a fallback for a
+  # missed broadcast and for a session that never leaves `opening`, which
+  # stale_pending_session?/1 times out after 45s. Tiles used to re-read their
+  # session from the database every second, per tile, per viewer.
+  @default_fallback_refresh_ms 15_000
 
   def open_preview_tiles(scope, count) when is_integer(count) and count > 0 do
     scope
@@ -86,6 +92,33 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   end
 
   defp open_preview_candidates(_candidates, _scope, _count), do: []
+
+  @doc """
+  Subscribes the calling LiveView to relay state for the tile's session, once.
+  `subscribed` is the set of session ids already subscribed; returns it updated.
+  """
+  def subscribe_relay_state(subscribed, tile) do
+    case session_id(tile) do
+      session_id when is_binary(session_id) ->
+        if MapSet.member?(subscribed, session_id) do
+          subscribed
+        else
+          :ok = RelayPubSub.subscribe(session_id)
+          MapSet.put(subscribed, session_id)
+        end
+
+      _ ->
+        subscribed
+    end
+  end
+
+  @doc "Fallback refresh interval for camera tiles (`:camera_relay_poll_interval_ms`)."
+  def fallback_refresh_ms do
+    case Application.get_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms, @default_fallback_refresh_ms) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> @default_fallback_refresh_ms
+    end
+  end
 
   def refresh_tile_session(scope, tile) when is_map(tile) do
     case session_id(tile) do

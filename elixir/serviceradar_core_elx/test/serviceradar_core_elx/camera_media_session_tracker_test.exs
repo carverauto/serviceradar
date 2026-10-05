@@ -45,6 +45,21 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
     end
   end
 
+  defmodule ExitingViewerRegistryStub do
+    @moduledoc false
+
+    # The shape of a viewer-count call that timed out behind a busy mailbox.
+    def viewer_count(_relay_session_id),
+      do: exit({:timeout, {GenServer, :call, [:viewer_registry, :viewer_count, 5_000]}})
+  end
+
+  defmodule AcceptingPipelineManagerStub do
+    @moduledoc false
+
+    def open_session(attrs), do: {:ok, %{relay_session_id: attrs.relay_session_id}}
+    def record_chunk(_relay_session_id, _attrs), do: :ok
+  end
+
   setup do
     previous_state =
       CameraMediaSessionTracker
@@ -198,6 +213,45 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
                       close_reason: "viewer idle timeout",
                       failure_reason: nil
                     }}
+  end
+
+  test "a failing viewer-count source does not crash the tracker or drop its sessions" do
+    tracker = Process.whereis(CameraMediaSessionTracker)
+
+    :sys.replace_state(CameraMediaSessionTracker, fn state ->
+      state
+      |> Map.put(:viewer_registry, ExitingViewerRegistryStub)
+      |> Map.put(:pipeline_manager, AcceptingPipelineManagerStub)
+    end)
+
+    sessions =
+      for camera <- ["camera-a", "camera-b"] do
+        assert {:ok, session} =
+                 CameraMediaSessionTracker.open_session(%{
+                   relay_session_id: unique_relay_session_id(),
+                   agent_id: "agent-1",
+                   gateway_id: "gateway-1",
+                   camera_source_id: camera,
+                   stream_profile_id: "main"
+                 })
+
+        session
+      end
+
+    for session <- sessions do
+      assert {:ok, %{viewer_count: 0}} =
+               CameraMediaSessionTracker.record_chunk(session.relay_session_id, session.media_ingest_id, %{
+                 sequence: 1,
+                 payload: <<1, 2, 3>>
+               })
+    end
+
+    assert Process.whereis(CameraMediaSessionTracker) == tracker
+
+    for session <- sessions do
+      assert %{relay_session_id: id} = CameraMediaSessionTracker.fetch_session(session.relay_session_id)
+      assert id == session.relay_session_id
+    end
   end
 
   test "rejects duplicate relay session ids" do

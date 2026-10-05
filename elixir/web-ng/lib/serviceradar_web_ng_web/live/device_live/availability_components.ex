@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
     offline_checks = Map.get(assigns.availability, :offline_checks, 0)
     unknown_checks = Map.get(assigns.availability, :unknown_checks, 0)
     segments = Map.get(assigns.availability, :segments, [])
+    source = Map.get(assigns.availability, :source)
 
     assigns =
       assigns
@@ -33,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       |> assign(:offline_checks, offline_checks)
       |> assign(:unknown_checks, unknown_checks)
       |> assign(:segments, segments)
+      |> assign(:plugin_reported, source == :plugin_reported)
 
     ~H"""
     <div id="device-availability-timeline" class="rounded-xl border border-sr-line bg-sr-surface">
@@ -42,6 +44,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
             <div class="text-sm font-semibold">Availability Timeline</div>
             <div class="text-xs text-sr-muted">
               Last 24h · 30m buckets (partial at edges) · gaps are unknown
+              <%= if @plugin_reported do %>
+                · <span class="badge badge-sm badge-ghost">plugin-reported</span>
+              <% end %>
             </div>
           </div>
           <div class="text-right">

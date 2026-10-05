@@ -418,9 +418,9 @@ nats stream info flows
 #    (EVENT_WRITER_FLOW_DRAIN_EVENTS=true, default). Drain durables reuse the
 #    pre-cutover durable names so ACK cursors continue (no full-history replay).
 # 2. Helm uses Deployment strategy Recreate for flow-collector so the legacy
-#    publisher is terminated before the new pod starts. Readiness requires
-#    /var/lib/serviceradar/flow-collector.ready (written only after JetStream
-#    rehome/ensure succeeds). Rehome marker lives on the data PVC at
+#    publisher is terminated before the new pod starts. Helm readiness is an
+#    httpGet of /readyz, which returns 200 only after the publisher marker
+#    exists (written only after JetStream rehome/ensure succeeds). Rehome marker lives on the data PVC at
 #    rehome_state_path (/var/lib/serviceradar/flow-collector-rehome.json).
 # 3. New collector detaches subjects from events, attaches them on flows, then
 #    publishes with Nats-Msg-Id retries (preferred dedup window 120s, capped by stream max_age and the NATS server limit).
@@ -448,8 +448,9 @@ scripts/prepare-flow-collector-rollback.sh \
 ```
 
 The helper fails closed unless the target revision contains the legacy `events`
-configuration and the current Deployment uses `Recreate` plus the ready-file
-probe. It patches only the current flow ConfigMap to `events`, restarts the
+configuration and the current Deployment uses `Recreate` plus Helm readiness as
+an httpGet of `/readyz`, which returns 200 only after the publisher marker
+exists. It patches only the current flow ConfigMap to `events`, restarts the
 current image, waits until its reverse-transfer path is ready, checks the
 `legacy events stream` confirmation log, and only then invokes `helm rollback`.
 

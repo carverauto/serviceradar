@@ -16,27 +16,29 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunController do
   def create(conn, params) do
     scope = conn.assigns[:current_scope]
 
-    case require_permission(scope, "validation_runs.execute") do
-      :ok ->
-        params = Map.put(params, "requested_by", requested_by(scope))
+    with :ok <- require_permission(scope, "validation_runs.execute"),
+         :ok <- require_fact_permission(scope, params) do
+      params = Map.put(params, "requested_by", requested_by(scope))
 
-        case Orchestrator.start(params, actor: SystemActor.system(:validation_run_api)) do
-          {:ok, run} ->
-            conn
-            |> put_status(:accepted)
-            |> json(%{
-              "id" => run.id,
-              "status" => to_string(run.status),
-              "check" => run.check_slug,
-              "devices" => Enum.map(run.devices, &device_preview/1)
-            })
+      case Orchestrator.start(params,
+             actor: SystemActor.system(:validation_run_api),
+             facts_scope: scope
+           ) do
+        {:ok, run} ->
+          conn
+          |> put_status(:accepted)
+          |> json(%{
+            "id" => run.id,
+            "status" => to_string(run.status),
+            "check" => run.check_slug,
+            "devices" => Enum.map(run.devices, &device_preview/1)
+          })
 
-          {:error, reason} ->
-            render_error(conn, reason)
-        end
-
-      {:error, :forbidden} ->
-        render_error(conn, :forbidden)
+        {:error, reason} ->
+          render_error(conn, reason)
+      end
+    else
+      {:error, :forbidden} -> render_error(conn, :forbidden)
     end
   end
 
@@ -74,6 +76,16 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunController do
       :ok
     else
       {:error, :forbidden}
+    end
+  end
+
+  defp require_fact_permission(scope, params) do
+    targets = if is_list(params["devices"]), do: params["devices"], else: [params]
+
+    if Enum.any?(targets, &(is_map(&1) and Map.has_key?(&1, "facts"))) do
+      require_permission(scope, "devices.facts.write")
+    else
+      :ok
     end
   end
 
@@ -117,7 +129,7 @@ defmodule ServiceRadarWebNGWeb.Api.ValidationRunController do
   defp render_error(conn, :forbidden) do
     conn
     |> put_status(:forbidden)
-    |> json(%{"error" => "forbidden", "message" => "missing validation_runs.execute or validation_runs.read"})
+    |> json(%{"error" => "forbidden", "message" => "missing required validation_runs or devices.facts.write permission"})
   end
 
   defp render_error(conn, :run_not_found) do
