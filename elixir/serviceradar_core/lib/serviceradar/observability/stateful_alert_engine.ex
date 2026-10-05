@@ -26,6 +26,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   alias ServiceRadar.Observability.StatefulAlertEngine.Diagnostics
   alias ServiceRadar.Observability.StatefulAlertEngine.EdgeAnomalyDisposition
   alias ServiceRadar.Observability.StatefulAlertEngine.Record
+  alias ServiceRadar.Observability.StatefulAlertEngine.ShardRouting
   alias ServiceRadar.Observability.StatefulAlertEngine.StateMachine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleState
@@ -141,22 +142,26 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     GenServer.start_link(__MODULE__, %{shard: shard}, name: via_tuple(shard))
   end
 
-  # The batch is sent to every shard. Each shard only evaluates the rules it
-  # owns, so records that match no rule in a shard cost just the (in-memory)
-  # match check. Shards run concurrently; the call aggregates their replies and
-  # surfaces the first error, preserving the previous `:ok | {:error, _}`
-  # contract and the "effects are visible when the call returns" guarantee that
-  # the integration tests rely on.
+  # The batch goes only to the shards that own a rule for its signal
+  # (`ShardRouting`): a shard owning none would match nothing in it, and
+  # waiting on it would let that shard's unrelated DB writes gate the batch.
+  # The routed shards run concurrently; the call aggregates their replies and
+  # surfaces the first error, preserving the `:ok | {:error, _}` contract and
+  # the "effects are visible when the call returns" guarantee that the
+  # integration tests rely on. When the rules cannot be read, every shard gets
+  # the batch, as before.
   defp fan_out(_message_tag, []), do: :ok
 
   defp fan_out(message_tag, records) do
-    case shard_count() do
-      1 ->
-        # Sharding disabled: call the single shard directly, no task overhead.
-        dispatch_shard(0, message_tag, records)
+    case routed_shards(message_tag) do
+      [] ->
+        :ok
 
-      shard_count ->
-        0..(shard_count - 1)
+      [shard] ->
+        dispatch_shard(shard, message_tag, records)
+
+      shards ->
+        shards
         |> Task.async_stream(
           fn shard -> dispatch_shard(shard, message_tag, records) end,
           timeout: to_timeout(second: 20),
@@ -172,6 +177,19 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         end)
     end
   end
+
+  defp routed_shards(message_tag) do
+    count = shard_count()
+
+    case ShardRouting.shards_for(message_signal(message_tag), count, &shard_for_rule_id/1) do
+      {:ok, shards} -> shards
+      :all -> Enum.to_list(0..(count - 1))
+    end
+  end
+
+  defp message_signal(:evaluate_logs), do: :log
+  defp message_signal(:evaluate_events), do: :event
+  defp message_signal(:evaluate_metrics), do: :metric
 
   defp dispatch_shard(shard, message_tag, records) do
     with {:ok, pid} <- ensure_started(shard) do

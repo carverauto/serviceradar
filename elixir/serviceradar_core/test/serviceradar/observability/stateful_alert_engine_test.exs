@@ -1542,6 +1542,77 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end
   end
 
+  test "a batch waits only on shards that own a rule for its signal", %{actor: actor} do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
+    reset_engine()
+
+    unique = System.unique_integer([:positive])
+    cleanup_jobs_before = stateful_cleanup_job_ids()
+
+    # Shard 1 owns no event rule and never answers: a stand-in for a shard busy
+    # in slow alert writes for rules of another signal.
+    {:ok, stuck} =
+      Agent.start(fn -> nil end, name: ProcessRegistry.via({:stateful_alert_engine, 1}))
+
+    :sys.suspend(stuck)
+
+    on_exit(fn ->
+      Process.exit(stuck, :kill)
+      restore_env(:stateful_alert_engine_shards, previous_shards)
+      cleanup_shard_fanout(unique, cleanup_jobs_before)
+    end)
+
+    title = "Shard routing #{unique}"
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "shard-fanout-#{unique}-routed",
+          enabled: true,
+          signal: :event,
+          match: %{"attribute_equals" => %{"routing_case" => "#{unique}"}},
+          group_by: ["routing_case"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600,
+          event: %{"log_name" => "alert.test.shard_routing", "message" => "Routed finding"},
+          alert: %{"title" => title, "severity" => "warning"}
+        },
+        actor: actor
+      )
+      |> Ash.Changeset.force_change_attribute(:id, rule_id_for_shard(0))
+      |> Ash.create()
+
+    event = %{
+      id: Ash.UUID.generate(),
+      time: DateTime.utc_now(),
+      severity_id: OCSF.severity_high(),
+      severity: OCSF.severity_name(OCSF.severity_high()),
+      message: "routed event",
+      log_name: "routing",
+      log_provider: "routing",
+      unmapped: %{"log_attributes" => %{"routing_case" => "#{unique}"}}
+    }
+
+    {elapsed_us, result} = :timer.tc(fn -> StatefulAlertEngine.evaluate_events([event]) end)
+
+    assert result == :ok
+    assert elapsed_us < 5_000_000, "the batch waited #{div(elapsed_us, 1000)} ms"
+
+    active_alerts =
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+
+    assert Enum.count(active_alerts, &(&1.title == title)) == 1
+  end
+
   # Guards the dispatch path against dropping a batch when a shard is (re)started:
   # `dispatch_shard/3` must call the pid `ensure_started/1` resolved and restart a
   # shard that is genuinely gone, instead of resolving the registered name a
