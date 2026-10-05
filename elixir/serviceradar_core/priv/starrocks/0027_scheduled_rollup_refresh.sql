@@ -4,7 +4,8 @@
 -- history to the newest days. One partition per refresh subtask bounds initial
 -- catch-up and midnight/late-data repair without a whole-history rebuild.
 -- MTR destination retains its terminal-hop selection semantics. Its broad hop
--- invalidation still needs a separate engine-proven partition-pruning change.
+-- invalidation was narrowed to one event-day partition by 0028, which joins on
+-- equal trace and hop event times.
 ALTER MATERIALIZED VIEW serviceradar.ocsf_network_activity_hourly REFRESH ASYNC EVERY(INTERVAL 30 SECOND);
 ALTER MATERIALIZED VIEW serviceradar.ocsf_network_activity_hourly SET ("partition_refresh_number" = "1");
 
