@@ -66,7 +66,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   defdelegate bulk_upsert_from_statuses(statuses), to: StatusIngestor, as: :bulk_upsert
 
   @doc false
-  defdelegate bulk_upsert_from_statuses_strict(statuses), to: StatusIngestor, as: :bulk_upsert_strict
+  defdelegate bulk_upsert_from_statuses_strict(statuses),
+    to: StatusIngestor,
+    as: :bulk_upsert_strict
 
   @spec repair_plugin_states_from_history(keyword()) ::
           {:ok, non_neg_integer()} | {:error, term()}

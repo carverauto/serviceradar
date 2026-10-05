@@ -11,6 +11,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Integrations.ArmisNorthboundPopulation
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
@@ -23,7 +24,6 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
-  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.TestSupport
 
@@ -550,7 +550,11 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
         update
       end)
 
-    updates = if updates == [], do: [%{"_sync_control" => "collection_final", "sync_meta" => sync_meta}], else: updates
+    updates =
+      if updates == [],
+        do: [%{"_sync_control" => "collection_final", "sync_meta" => sync_meta}],
+        else: updates
+
     :ok = ServiceRadar.Inventory.SyncIngestorQueue.ingest_sync_results(Jason.encode!(updates))
   end
 
