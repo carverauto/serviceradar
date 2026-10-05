@@ -603,7 +603,12 @@ impl Addon for OtelCollectorAddon {
             while let Some(item) = acks.next().await {
                 match item {
                     Ok(ack) => {
-                        if let Err(e) = ack_spool.advance_watermark(ack.acked_relay_id) {
+                        // Every ack fsyncs the meta file: keep it off the
+                        // async workers.
+                        if let Err(e) = ack_spool
+                            .advance_watermark_blocking(ack.acked_relay_id)
+                            .await
+                        {
                             error!(
                                 "failed to advance relay watermark to {}: {e:#}",
                                 ack.acked_relay_id
@@ -626,14 +631,20 @@ impl Addon for OtelCollectorAddon {
         let mut reader = spool.reader();
         tokio::spawn(async move {
             loop {
-                match reader.try_next() {
-                    Ok(Some(frame)) => {
-                        if tx.send(Ok(frame)).await.is_err() {
-                            debug!("relay stream dropped by agent; stopping pump");
-                            return;
+                // Reads take the spool lock, which an append can hold across
+                // an fsync, so they run on the blocking pool.
+                match reader.next_frames_blocking(RELAY_CHANNEL_DEPTH).await {
+                    Ok((next_reader, frames)) if !frames.is_empty() => {
+                        reader = next_reader;
+                        for frame in frames {
+                            if tx.send(Ok(frame)).await.is_err() {
+                                debug!("relay stream dropped by agent; stopping pump");
+                                return;
+                            }
                         }
                     }
-                    Ok(None) => {
+                    Ok((next_reader, _)) => {
+                        reader = next_reader;
                         let position = reader.position();
                         tokio::select! {
                             _ = tx.closed() => {
