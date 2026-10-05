@@ -544,10 +544,10 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       assert Producer.reconnect_delay(error, 50) == 60_000
     end
 
-    test "a transport failure reconnects at the fixed delay and reports no stream",
+    test "a transport failure backs off and reports no stream",
          %{state: state} do
-      assert Producer.record_connect_failure(state, :econnrefused) == state
-      assert Producer.reconnect_delay(:econnrefused, 7) == 5_000
+      assert Producer.record_connect_failure(state, :econnrefused).setup_failures == 1
+      assert Producer.reconnect_delay(:econnrefused, 7) == 60_000
       refute_received {:setup_failed, _stream, _reason, _attempt}
     end
   end
