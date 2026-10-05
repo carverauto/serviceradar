@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
       # 29 hourly-ish buckets: step 5 puts a tick at index 25, three points from
       # the final one at 28, and their date labels overlapped on screen.
       start = ~U[2026-09-13 00:00:00Z]
-      points = for n <- 0..28, do: point(DateTime.add(start, n * 6 * 3600, :second), "p#{n}", n + 1)
+      points = for n <- 0..28, do: point(DateTime.shift(start, hour: n * 6), "p#{n}", n + 1)
 
       xs =
         points

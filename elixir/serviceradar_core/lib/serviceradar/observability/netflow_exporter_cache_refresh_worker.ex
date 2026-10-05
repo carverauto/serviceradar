@@ -175,7 +175,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
              limit > 0 do
     since =
       DateTime.utc_now()
-      |> DateTime.add(-scan_window_seconds, :second)
+      |> DateTime.shift(second: -scan_window_seconds)
       |> DateTime.truncate(:second)
 
     # Flows live in the warehouse or nowhere: an installation that has not cut

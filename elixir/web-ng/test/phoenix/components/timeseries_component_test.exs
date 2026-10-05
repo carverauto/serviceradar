@@ -233,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
   test "focuses a finding on its matching series and time window" do
     points =
       for minute <- 0..20 do
-        {DateTime.add(~U[2025-01-01 00:00:00Z], minute, :minute), minute * 1.0}
+        {DateTime.shift(~U[2025-01-01 00:00:00Z], minute: minute), minute * 1.0}
       end
 
     html =
@@ -506,12 +506,12 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
   test "downsampling preserves bucket minima and maxima" do
     start_dt = ~U[2025-01-01 00:00:00Z]
-    spike_dt = DateTime.add(start_dt, 457, :second)
-    dip_dt = DateTime.add(start_dt, 612, :second)
+    spike_dt = DateTime.shift(start_dt, second: 457)
+    dip_dt = DateTime.shift(start_dt, second: 612)
 
     points =
       for idx <- 0..999 do
-        dt = DateTime.add(start_dt, idx, :second)
+        dt = DateTime.shift(start_dt, second: idx)
 
         value =
           cond do
@@ -620,7 +620,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     points =
       Enum.map(0..1000, fn idx ->
         value = if idx == 501, do: 10_000.0, else: 10.0
-        {DateTime.add(~U[2025-01-01 00:00:00Z], idx * 60, :second), value}
+        {DateTime.shift(~U[2025-01-01 00:00:00Z], minute: idx), value}
       end)
 
     html =

@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
             gateway_id: "gateway-1",
             credential_rule_id: Ecto.UUID.generate(),
             status: :attached,
-            ticket_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+            ticket_expires_at: DateTime.shift(DateTime.utc_now(), minute: 1),
             idle_timeout_seconds: 30,
             absolute_timeout_seconds: 120,
             metadata: %{"test_pid" => test_pid(opts)},

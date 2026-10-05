@@ -27,11 +27,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerDbT
     gateway_id = "edge-baseline-db-gateway-#{unique}"
     series_key = "sysmon:cpu:#{device_id}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    start = DateTime.add(now, -6 * 7 * 24 * 60 * 60, :second)
+    start = DateTime.shift(now, week: -6)
 
     on_exit(fn ->
       Repo.query!("DELETE FROM platform.timeseries_metrics WHERE series_key = $1", [series_key])
-      refresh_hourly!(start, DateTime.add(now, 24 * 60 * 60, :second))
+      refresh_hourly!(start, DateTime.shift(now, day: 1))
     end)
 
     Repo.query!(
@@ -54,7 +54,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerDbT
       [start, gateway_id, series_key, device_id]
     )
 
-    refresh_hourly!(start, DateTime.add(now, 24 * 60 * 60, :second))
+    refresh_hourly!(start, DateTime.shift(now, day: 1))
 
     source =
       Enum.find(Source.defaults(), &(&1.name == "cpu_seasonal"))

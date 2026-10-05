@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictDataTest do
       input_fixture(check, "agent-a", %{position: 0, expected: "available"})
       input_fixture(check, "agent-b", %{position: 1, expected: "blocked"})
 
-      observed = DateTime.add(DateTime.utc_now(), -120, :second)
+      observed = DateTime.shift(DateTime.utc_now(), minute: -2)
 
       upsert_result(device, check, %{
         inputs: %{
@@ -199,7 +199,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictDataTest do
       check = check_fixture(%{})
       input_fixture(check, "agent-a", %{position: 0})
 
-      observed = DateTime.add(DateTime.utc_now(), -7200, :second)
+      observed = DateTime.shift(DateTime.utc_now(), hour: -2)
 
       upsert_result(device, check, %{
         inputs: %{"agent-a" => snapshot("unknown", observed, stale: true, reason: "stale")}

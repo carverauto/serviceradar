@@ -361,7 +361,7 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
   defp settled(status), do: %{status: status, snooze_until: nil}
 
   defp snooze_until(record, opts) do
-    DateTime.add(now(opts), record.snooze_seconds, :second)
+    DateTime.shift(now(opts), second: record.snooze_seconds)
   end
 
   defp transition(_record, alert, %{status: :already_applied}, _opts), do: {:ok, alert, []}

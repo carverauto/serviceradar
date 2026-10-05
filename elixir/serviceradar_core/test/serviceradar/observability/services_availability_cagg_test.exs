@@ -26,7 +26,7 @@ defmodule ServiceRadar.Observability.ServicesAvailabilityCaggTest do
 
     report = fn service_name, service_type, agent_id, available, offset_seconds ->
       %{
-        timestamp: DateTime.add(at, offset_seconds, :second),
+        timestamp: DateTime.shift(at, second: offset_seconds),
         gateway_id: "gateway-#{unique}",
         agent_id: agent_id,
         service_name: "#{service_name}-#{unique}",

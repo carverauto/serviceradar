@@ -266,7 +266,7 @@ defmodule ServiceRadarWebNGWeb.SAMLControllerTest do
   defp open_pending_request(opts \\ []) do
     relay_state = random_relay_state()
     request_id = Keyword.get_lazy(opts, :request_id, fn -> unique_id("_req") end)
-    expires_at = DateTime.add(DateTime.utc_now(), Keyword.get(opts, :expires_in, 600), :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), second: Keyword.get(opts, :expires_in, 600))
 
     {:ok, _pending} =
       SAMLPendingRequest.open(

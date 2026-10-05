@@ -60,7 +60,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
     assert {:ok, alert_id} =
              AlertLifecycle.create_event_and_alert(rule, snapshot(rule), record(now), now)
 
-    resolved_at = DateTime.add(now, 60, :second)
+    resolved_at = DateTime.shift(now, minute: 1)
 
     assert :ok = AlertLifecycle.resolve_alert(alert_id, rule, snapshot(rule), resolved_at)
 

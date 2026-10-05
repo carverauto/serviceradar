@@ -372,7 +372,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
 
   defp claim(attempt, now, opts) do
     lease_token = Ecto.UUID.generate()
-    lease_expires_at = DateTime.add(now, @lease_seconds, :second)
+    lease_expires_at = DateTime.shift(now, second: @lease_seconds)
     claimer = Keyword.get(opts, :claim, &claim_persisted/4)
 
     case claimer.(attempt, lease_token, lease_expires_at, now) do
@@ -558,7 +558,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
       %{
         lease_token: lease_token,
         dispatched_at: now,
-        next_attempt_at: DateTime.add(now, 1, :second)
+        next_attempt_at: DateTime.shift(now, second: 1)
       },
       actor: @actor
     )
@@ -567,7 +567,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   defp release_dispatch(attempt, lease_token, reason, now, opts) do
     releaser = Keyword.get(opts, :release_dispatch, &release_dispatch_persisted/4)
 
-    case releaser.(attempt, lease_token, DateTime.add(now, 1, :second), error_code(reason)) do
+    case releaser.(attempt, lease_token, DateTime.shift(now, second: 1), error_code(reason)) do
       {:ok, _updated} -> {:ok, :deferred}
       {:error, release_reason} -> {:error, {:secure_execution_release_failed, release_reason}}
     end

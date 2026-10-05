@@ -53,7 +53,7 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
     defp history(device_id, host_id) do
       for hour <- 0..47 do
         %{
-          "bucket" => DateTime.add(@start, hour * 3_600, :second),
+          "bucket" => DateTime.shift(@start, hour: hour),
           "device_id" => device_id,
           "host_id" => host_id,
           "avg_usage_percent" => 20.0 + hour

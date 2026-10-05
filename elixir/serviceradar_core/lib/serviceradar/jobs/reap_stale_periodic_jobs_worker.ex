@@ -176,7 +176,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
 
   defp reap_jobs_past_threshold do
     now = DateTime.utc_now()
-    cutoff = DateTime.add(now, -stale_threshold_minutes() * 60, :second)
+    cutoff = DateTime.shift(now, minute: -stale_threshold_minutes())
 
     Repo.transaction(fn ->
       stale_jobs =

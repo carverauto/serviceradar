@@ -140,7 +140,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
     }
 
     # The source times and collections a trace places after t0 lie in the past.
-    t0 = DateTime.utc_now() |> DateTime.add(-10, :day) |> DateTime.truncate(:second)
+    t0 = DateTime.utc_now() |> DateTime.shift(day: -10) |> DateTime.truncate(:second)
 
     trace = %__MODULE__{name: name, actor: actor, world: world, real: real, t0: t0}
     trace = %{trace | pre_uids: trace |> read_devices() |> MapSet.new(& &1.uid)}
@@ -200,7 +200,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
   defp put_run(update, trace, true) do
     Map.merge(update, %{
       "first_seen_time" => DateTime.to_iso8601(trace.t0),
-      "last_seen_time" => trace.t0 |> DateTime.add(5, :hour) |> DateTime.to_iso8601(),
+      "last_seen_time" => trace.t0 |> DateTime.shift(hour: 5) |> DateTime.to_iso8601(),
       "sync_meta" => %{"sync_service_id" => @armis_instance}
     })
   end
@@ -623,7 +623,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
   def expire(trace, d) do
     uid = uid_of!(trace, d)
     before = raw(trace)
-    later = DateTime.add(DateTime.utc_now(), 2 * 86_400, :second)
+    later = DateTime.shift(DateTime.utc_now(), day: 2)
     # The pass is scoped to one device, so the mass-expiry guard's fraction is 1 of 1.
     settings = %{
       ephemeral_expiry_enabled: true,
@@ -668,7 +668,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
         assert {:ok, %{status: :completed, devices: 1, failed: 0}} =
                  SourceRetirement.run(@armis_scope,
                    settings: @retirement_settings,
-                   now: DateTime.add(trace.t0, 100, :hour),
+                   now: DateTime.shift(trace.t0, hour: 100),
                    actor: trace.actor,
                    uids: [uid]
                  )
@@ -691,7 +691,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
   defp collect(trace, hours, uid, values) do
     collection_id = "#{@armis_instance}-#{System.unique_integer([:positive, :monotonic])}"
     content_hash = :sha256 |> :crypto.hash(collection_id) |> Base.encode16(case: :lower)
-    observed_at = DateTime.add(trace.t0, hours, :hour)
+    observed_at = DateTime.shift(trace.t0, hour: hours)
 
     snapshot = %{
       partition: "default",
@@ -745,7 +745,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
     uid = uid_of!(trace, d)
     before = raw(trace)
     # The mark records when the retirement pass ran, not the pass's reference time.
-    later = DateTime.add(DateTime.utc_now(), 8 * 86_400, :second)
+    later = DateTime.shift(DateTime.utc_now(), day: 8)
 
     {trace, before, after_} =
       run(trace, before, fn ->

@@ -173,8 +173,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       # Snooze is NOT a state-machine state.
       assert reloaded.status == :pending
       assert %DateTime{} = reloaded.snooze_until
-      assert DateTime.after?(reloaded.snooze_until, DateTime.add(before, 3_500, :second))
-      assert DateTime.before?(reloaded.snooze_until, DateTime.add(before, 3_700, :second))
+      assert DateTime.after?(reloaded.snooze_until, DateTime.shift(before, second: 3_500))
+      assert DateTime.before?(reloaded.snooze_until, DateTime.shift(before, second: 3_700))
     end
 
     test "renders the derived snoozed badge rather than a snoozed status", %{conn: conn} do
@@ -445,7 +445,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
     alert
     |> Ash.Changeset.for_update(
       :snooze,
-      %{snooze_until: DateTime.add(DateTime.utc_now(), seconds, :second)},
+      %{snooze_until: DateTime.shift(DateTime.utc_now(), second: seconds)},
       actor: system_actor()
     )
     |> Ash.update!()

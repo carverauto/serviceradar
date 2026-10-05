@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
   """
   def visible_ids(%{user: user}, events) when not is_nil(user) and is_list(events) do
     ids = events |> Enum.map(& &1["id"]) |> Enum.filter(&is_binary/1) |> Enum.uniq()
-    since = DateTime.add(DateTime.utc_now(), -@visibility_window_seconds, :second)
+    since = DateTime.shift(DateTime.utc_now(), second: -@visibility_window_seconds)
 
     OcsfEvent
     |> Ash.Query.for_read(:read, %{}, actor: user)

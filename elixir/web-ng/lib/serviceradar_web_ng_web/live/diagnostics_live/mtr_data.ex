@@ -1325,7 +1325,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
   defp parse_time_range("last_" <> rest) do
     with {:ok, seconds} <- relative_seconds(rest) do
-      {:ok, DateTime.add(DateTime.utc_now(), -seconds, :second), nil}
+      {:ok, DateTime.shift(DateTime.utc_now(), second: -seconds), nil}
     end
   end
 

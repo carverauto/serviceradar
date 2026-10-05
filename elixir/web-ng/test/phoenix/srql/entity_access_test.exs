@@ -71,7 +71,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       matching = %{field => timestamp}
 
       assert [^matching] =
-               FleetQuery.apply_plan([%{field => nil}, %{field => DateTime.add(timestamp, -1)}, matching], plan)
+               FleetQuery.apply_plan([%{field => nil}, %{field => DateTime.shift(timestamp, second: -1)}, matching], plan)
     end
   end
 

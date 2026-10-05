@@ -1084,11 +1084,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Ash.Changeset.for_create(:create, %{
         uid: holder_uid,
         ip: held_ip,
-        last_seen_time: DateTime.add(DateTime.utc_now(), 3600, :second)
+        last_seen_time: DateTime.shift(DateTime.utc_now(), hour: 1)
       })
       |> Ash.Changeset.force_change_attribute(
         :identity_observed_at,
-        DateTime.add(DateTime.utc_now(), 3600, :second)
+        DateTime.shift(DateTime.utc_now(), hour: 1)
       )
       |> Ash.create(actor: actor)
 
@@ -1122,7 +1122,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Ash.Changeset.for_create(:create, %{
         uid: holder_uid,
         ip: held_ip,
-        last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
+        last_seen_time: DateTime.shift(DateTime.utc_now(), hour: -1)
       })
       |> Ash.create(actor: actor)
 
@@ -1195,7 +1195,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     %{num_rows: 1} =
       Repo.query!("UPDATE platform.ocsf_devices SET identity_observed_at = $2 WHERE uid = $1", [
         uid,
-        DateTime.to_naive(DateTime.add(before, -3600, :second))
+        DateTime.to_naive(DateTime.shift(before, hour: -1))
       ])
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})

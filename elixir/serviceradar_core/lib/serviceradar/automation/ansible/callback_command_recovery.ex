@@ -293,7 +293,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
   end
 
   defp list_activation_cleanup_pending(now, opts) do
-    retry_before = DateTime.add(now, -@activation_cleanup_retry_seconds, :second)
+    retry_before = DateTime.shift(now, second: -@activation_cleanup_retry_seconds)
 
     case Keyword.get(opts, :activation_cleanup_lister) do
       fun when is_function(fun, 1) -> fun.(retry_before)

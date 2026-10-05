@@ -236,8 +236,8 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
 
   test "merges duplicate Proxmox identities and keeps the newest enrichment" do
     parent = self()
-    stale_at = DateTime.add(@observed_at, -300, :second)
-    fresh_at = DateTime.add(@observed_at, 300, :second)
+    stale_at = DateTime.shift(@observed_at, minute: -5)
+    fresh_at = DateTime.shift(@observed_at, minute: 5)
 
     stale_details =
       details_fixture()

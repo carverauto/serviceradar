@@ -166,7 +166,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
 
       assert DateTime.before?(
                reloaded.snooze_until,
-               DateTime.add(DateTime.utc_now(), default.seconds + 60, :second)
+               DateTime.shift(DateTime.utc_now(), second: default.seconds + 60)
              )
     end
   end

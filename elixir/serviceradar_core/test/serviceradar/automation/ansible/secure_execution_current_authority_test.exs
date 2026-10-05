@@ -82,7 +82,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
 
     # Snapshot freshness constrains initial dispatch, not a long-running job;
     # continuation still requires the exact current, unexpired approval.
-    issued_at = @now |> DateTime.add(-1_800, :second) |> DateTime.to_iso8601()
+    issued_at = @now |> DateTime.shift(minute: -30) |> DateTime.to_iso8601()
     fixture = put_in(fixture.resources.operation.approval_snapshot["issued_at"], issued_at)
 
     for {stage, purpose, operation_state, execution_state} <- phases do
@@ -142,7 +142,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
              issued
              |> put_in(
                [:principal, :authority, :profile_versions, Access.at(0), :updated_at],
-               DateTime.add(first.updated_at, 1)
+               DateTime.shift(first.updated_at, second: 1)
              )
              |> authorize()
 
@@ -150,7 +150,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
              issued
              |> put_in(
                [:principal, :authority, :profile_versions, Access.at(1), :updated_at],
-               DateTime.add(second.updated_at, 1)
+               DateTime.shift(second.updated_at, second: 1)
              )
              |> authorize()
   end
@@ -267,8 +267,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
         "fresh_permissions" => permissions
       })
 
-    approval_expires_at = DateTime.add(@now, 3_600, :second)
-    reviewed_at = DateTime.add(@now, -3_600, :second)
+    approval_expires_at = DateTime.shift(@now, hour: 1)
+    reviewed_at = DateTime.shift(@now, hour: -1)
     review_metadata = %{"review_ticket" => "SEC-42"}
 
     approval_snapshot = %{

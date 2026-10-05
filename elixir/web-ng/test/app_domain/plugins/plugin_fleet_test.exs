@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
              "assignment_drift" => nil,
              "observed_version" => nil
            }},
-          {state(last_observed_at: DateTime.add(@now, -181)), %{"category" => "unavailable", "stale" => true}},
+          {state(last_observed_at: DateTime.shift(@now, second: -181)), %{"category" => "unavailable", "stale" => true}},
           {state(available: false),
            %{"category" => "action_required", "last_failure_at" => @now, "last_error" => "plugin_result_unavailable"}},
           {state(details: Jason.encode!(%{"plugin_id" => "example-check", "status" => "WARNING"})),
@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
       })
 
     state = %{state | details: Jason.encode!(details), last_observed_at: physical_at}
-    now = DateTime.add(@now, 179)
+    now = DateTime.shift(@now, second: 179)
 
     assert {:ok, json} =
              Native.translate(
@@ -197,8 +197,12 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
              FleetQuery.apply_plan(
                [
                  %{"agent_uid" => "agent-a", "reported_at" => nil},
-                 %{"agent_uid" => "agent-b", "reported_at" => DateTime.add(end_at, -10), "evidence_age_seconds" => 10},
-                 %{"agent_uid" => "agent-c", "reported_at" => DateTime.add(end_at, -7200)}
+                 %{
+                   "agent_uid" => "agent-b",
+                   "reported_at" => DateTime.shift(end_at, second: -10),
+                   "evidence_age_seconds" => 10
+                 },
+                 %{"agent_uid" => "agent-c", "reported_at" => DateTime.shift(end_at, hour: -2)}
                ],
                plan
              )

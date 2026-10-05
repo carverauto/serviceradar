@@ -69,14 +69,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Stats do
         key: :new_last_7d,
         token: "last_7d",
         label: "7d",
-        since: DateTime.add(now, -7, :day),
+        since: DateTime.shift(now, week: -1),
         until: now
       },
       %{
         key: :new_last_30d,
         token: "last_30d",
         label: "30d",
-        since: DateTime.add(now, -30, :day),
+        since: DateTime.shift(now, day: -30),
         until: now
       }
     ]

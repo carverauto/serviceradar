@@ -157,5 +157,5 @@ defmodule ServiceRadar.Observability.InterfaceRatesDbTest do
     )
   end
 
-  defp at(seconds), do: DateTime.add(@time, seconds, :second)
+  defp at(seconds), do: DateTime.shift(@time, second: seconds)
 end

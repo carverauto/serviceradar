@@ -308,7 +308,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     assert payload_bytes < 2_048
 
-    old_seen_at = DateTime.add(DateTime.utc_now(), -3_600, :second)
+    old_seen_at = DateTime.shift(DateTime.utc_now(), hour: -1)
 
     Repo.query!(
       "UPDATE platform.anomaly_episodes SET last_seen_at = $2 WHERE series_key = $1",

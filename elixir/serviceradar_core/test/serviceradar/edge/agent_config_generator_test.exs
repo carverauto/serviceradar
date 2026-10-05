@@ -1311,7 +1311,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           )
 
         ProcessRegistry.update_value({:agent, agent_uid, stale_node}, fn metadata ->
-          %{metadata | last_heartbeat: DateTime.add(DateTime.utc_now(), -300, :second)}
+          %{metadata | last_heartbeat: DateTime.shift(DateTime.utc_now(), minute: -5)}
         end)
 
         {:ok, _stale_group} =

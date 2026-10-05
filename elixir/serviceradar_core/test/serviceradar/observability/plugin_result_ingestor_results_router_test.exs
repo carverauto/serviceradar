@@ -15,7 +15,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
 
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
     {payload, status, observed_at} = plugin_result_fixture()
-    enclosing_timestamp = DateTime.add(observed_at, 10, :second)
+    enclosing_timestamp = DateTime.shift(observed_at, second: 10)
     :ok = ServiceStatusPubSub.subscribe()
 
     routed_status =
@@ -79,7 +79,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
     routed_status =
       Map.merge(status, %{
         available: true,
-        agent_timestamp: DateTime.add(observed_at, 15, :second),
+        agent_timestamp: DateTime.shift(observed_at, second: 15),
         message: Jason.encode!(payload)
       })
 

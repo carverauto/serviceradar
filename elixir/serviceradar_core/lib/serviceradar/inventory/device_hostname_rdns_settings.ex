@@ -317,7 +317,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
 
         changeset
         |> Ash.Changeset.change_attribute(:last_run_at, now)
-        |> Ash.Changeset.change_attribute(:next_run_at, DateTime.add(now, 60, :second))
+        |> Ash.Changeset.change_attribute(:next_run_at, DateTime.shift(now, minute: 1))
         |> Ash.Changeset.change_attribute(:last_status, "error")
         |> Ash.Changeset.change_attribute(:last_error, format_run_error(reason))
         |> Ash.Changeset.change_attribute(:last_looked_up, 0)
@@ -344,7 +344,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
   end
 
   defp next_run_after(settings, now, _stats) do
-    next_cron_due(settings.cron, settings.timezone, now) || DateTime.add(now, 3_600, :second)
+    next_cron_due(settings.cron, settings.timezone, now) || DateTime.shift(now, hour: 1)
   end
 
   defp next_cron_due(cron, timezone, now) when is_binary(cron) do

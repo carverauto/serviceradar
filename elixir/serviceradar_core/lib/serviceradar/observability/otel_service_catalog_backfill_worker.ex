@@ -84,7 +84,7 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogBackfillWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     days = OtelServiceCatalogPruneWorker.retention_days()
-    since = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+    since = DateTime.shift(DateTime.utc_now(), day: -days)
 
     case Repo.query(@backfill_sql, [since, ServiceCatalog.max_name_length()],
            timeout: @query_timeout_ms

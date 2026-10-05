@@ -75,7 +75,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
      inst: inst,
      instance: %{partition: "default", source: "armis", source_instance: inst},
      id_partition: "default:armis:#{inst}",
-     t0: DateTime.utc_now() |> DateTime.add(-10, :day) |> DateTime.truncate(:second)}
+     t0: DateTime.utc_now() |> DateTime.shift(day: -10) |> DateTime.truncate(:second)}
   end
 
   describe "a retired id reported again" do
@@ -147,7 +147,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
       reported =
         ingest!(ctx, 2,
           ip: "192.0.2.52",
-          first_seen: DateTime.add(ctx.t0, 5, :hour),
+          first_seen: DateTime.shift(ctx.t0, hour: 5),
           hostname: "HOST02.example.com."
         )
 
@@ -162,7 +162,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
       [armis_row, _integration_row] = archived(ctx, b.source_id)
 
       # First seen at t0+2h, while the source still saw the id (until t0+5h): a clone.
-      reported = ingest!(ctx, 2, ip: "192.0.2.52", first_seen: DateTime.add(ctx.t0, 2, :hour))
+      reported = ingest!(ctx, 2, ip: "192.0.2.52", first_seen: DateTime.shift(ctx.t0, hour: 2))
 
       # The uid the id derives is b's own, so the update goes to the uid derived from it and
       # the archived row.
@@ -330,7 +330,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
     end
 
     test "does not return on a hostname alone", ctx do
-      reported = ingest!(ctx, 2, ip: "192.0.2.52", first_seen: DateTime.add(ctx.t0, 6, :hour))
+      reported = ingest!(ctx, 2, ip: "192.0.2.52", first_seen: DateTime.shift(ctx.t0, hour: 6))
 
       refute reported.uid == ctx.b.uid
       assert [decision] = decisions(ctx, :source_id_reissued, ctx.b)
@@ -586,7 +586,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
       "hostname" => Keyword.get(attrs, :hostname, "host0#{i}.example.com"),
       "source" => "armis",
       "first_seen_time" => iso(Keyword.get(attrs, :first_seen, ctx.t0)),
-      "last_seen_time" => iso(Keyword.get(attrs, :last_seen, DateTime.add(ctx.t0, 5, :hour))),
+      "last_seen_time" => iso(Keyword.get(attrs, :last_seen, DateTime.shift(ctx.t0, hour: 5))),
       "metadata" => %{
         "integration_type" => "armis",
         "armis_device_id" => source_id,
@@ -623,7 +623,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
   defp collect(ctx, k, present, opts) do
     collection_id = "#{ctx.inst}-c#{k}"
     content_hash = sha(collection_id)
-    observed_at = DateTime.add(ctx.t0, Keyword.fetch!(opts, :hours), :hour)
+    observed_at = DateTime.shift(ctx.t0, hour: Keyword.fetch!(opts, :hours))
 
     snapshot = %{
       partition: "default",
@@ -672,7 +672,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
   defp retire(ctx, hours) do
     SourceRetirement.run(ctx.instance,
       settings: @settings,
-      now: DateTime.add(ctx.t0, hours, :hour),
+      now: DateTime.shift(ctx.t0, hour: hours),
       actor: ctx.actor
     )
   end
@@ -755,7 +755,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
       ])
   end
 
-  defp days_ago(days), do: DateTime.add(DateTime.utc_now(), -days, :day)
+  defp days_ago(days), do: DateTime.shift(DateTime.utc_now(), day: -days)
 
   defp revival_audit_reason(uid) do
     %{rows: rows} =

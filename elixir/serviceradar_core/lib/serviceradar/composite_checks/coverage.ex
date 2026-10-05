@@ -74,7 +74,7 @@ defmodule ServiceRadar.CompositeChecks.Coverage do
   defp apply_freshness(query, nil, _now), do: query
 
   defp apply_freshness(query, max_age, now) when is_integer(max_age) do
-    cutoff = DateTime.add(now, -max_age, :second)
+    cutoff = DateTime.shift(now, second: -max_age)
     where(query, [r], r.checked_at >= ^cutoff)
   end
 end

@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
                },
                observed_at:
                  DateTime.utc_now()
-                 |> DateTime.add(-2, :hour)
+                 |> DateTime.shift(hour: -2)
                  |> DateTime.truncate(:microsecond)
              })
 
@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
     on_exit(fn -> restore_env(:plugin_result_handlers, previous_handlers) end)
     ReplayHandler.put_outcomes([{:error, :transient_failure}, :ok])
 
-    observed_at = DateTime.utc_now() |> DateTime.add(-5, :second) |> DateTime.truncate(:microsecond)
+    observed_at = DateTime.utc_now() |> DateTime.shift(second: -5) |> DateTime.truncate(:microsecond)
 
     payload = %{
       "status" => "OK",
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
   test "active plugin card read excludes non-plugin rows and large details" do
     observed_at =
       DateTime.utc_now()
-      |> DateTime.add(-2, :minute)
+      |> DateTime.shift(minute: -2)
       |> DateTime.truncate(:microsecond)
 
     insert_service_state!(%{

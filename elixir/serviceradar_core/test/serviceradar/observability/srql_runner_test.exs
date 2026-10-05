@@ -8,8 +8,8 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
 
   test "typed rate reads reject an oversized request before SQL and propagate execution failure" do
     since = ~U[2001-02-03 04:05:00Z]
-    until = DateTime.add(since, 60, :second)
-    fresh_after = DateTime.add(since, 30, :second)
+    until = DateTime.shift(since, minute: 1)
+    fresh_after = DateTime.shift(since, second: 30)
     put_cutover([])
 
     assert {:error, :invalid_interface_rate_request} =
@@ -27,7 +27,7 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
 
   test "typed rate reads route to warehouse and normalize actual sample times" do
     since = ~U[2001-02-03 04:05:00Z]
-    until = DateTime.add(since, 60, :second)
+    until = DateTime.shift(since, minute: 1)
     put_cutover([:metrics])
 
     put_mysql(fn _sql ->
@@ -42,7 +42,7 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
 
     assert {:ok, rows} =
              SRQLRunner.interface_rates([{"sr:rate-warehouse", 7}], since, until,
-               fresh_after: DateTime.add(since, 30, :second)
+               fresh_after: DateTime.shift(since, second: 30)
              )
 
     assert_received :typed_warehouse_read

@@ -115,7 +115,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
     cache_ttl_seconds = Keyword.get(config, :cache_ttl_seconds, @default_cache_ttl_seconds)
     now = DateTime.utc_now()
-    cache_expires_at = DateTime.add(now, cache_ttl_seconds, :second)
+    cache_expires_at = DateTime.shift(now, second: cache_ttl_seconds)
     actor = SystemActor.system(:netflow_security_refresh)
 
     settings =

@@ -656,8 +656,8 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   defp correlated_logs_time_window(metric) do
     case parse_timestamp(Map.get(metric, "timestamp")) do
       {:ok, dt, _iso} ->
-        from = dt |> DateTime.add(-3600, :second) |> iso8601_z()
-        to = dt |> DateTime.add(3600, :second) |> iso8601_z()
+        from = dt |> DateTime.shift(hour: -1) |> iso8601_z()
+        to = dt |> DateTime.shift(hour: 1) |> iso8601_z()
         "time:[#{from},#{to}]"
 
       _ ->

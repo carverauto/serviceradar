@@ -101,7 +101,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
       repo = Keyword.get(opts, :repo, Repo)
       now = Keyword.get_lazy(opts, :now, &now/0)
       ttl_days = positive_integer(Keyword.get(opts, :seasonal_state_ttl_days), @default_ttl_days)
-      expires_at = DateTime.add(now, ttl_days * 86_400, :second)
+      expires_at = DateTime.shift(now, day: ttl_days)
 
       rows =
         Enum.map(actions, fn action ->

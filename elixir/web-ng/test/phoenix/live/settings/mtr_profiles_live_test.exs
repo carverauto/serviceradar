@@ -166,8 +166,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
         "192.0.2.#{rem(idx, 254) + 1}"
       end)
 
-    inserted_at = DateTime.add(DateTime.utc_now(), -60, :second)
-    completed_at = DateTime.add(inserted_at, 30, :second)
+    inserted_at = DateTime.shift(DateTime.utc_now(), minute: -1)
+    completed_at = DateTime.shift(inserted_at, second: 30)
 
     {:ok, command} =
       AgentCommand.create_command(
@@ -177,7 +177,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
           partition_id: "default",
           payload: %{"targets" => targets, "protocol" => "icmp"},
           ttl_seconds: 900,
-          expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: 15)
         },
         actor: actor
       )

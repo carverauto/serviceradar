@@ -129,12 +129,12 @@ defmodule ServiceRadar.Notifications.Callbacks.PagerDutyTest do
 
       assert :ok =
                PagerDuty.verify(raw, headers(raw), @secret,
-                 now: DateTime.add(@now, PagerDuty.occurred_at_tolerance_seconds(), :second)
+                 now: DateTime.shift(@now, second: PagerDuty.occurred_at_tolerance_seconds())
                )
 
       assert {:error, :stale_timestamp} =
                PagerDuty.verify(raw, headers(raw), @secret,
-                 now: DateTime.add(@now, PagerDuty.occurred_at_tolerance_seconds() + 1, :second)
+                 now: DateTime.shift(@now, second: PagerDuty.occurred_at_tolerance_seconds() + 1)
                )
     end
 

@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLiveTest do
           user_code: user_code,
           client_id: "serviceradar-cli",
           scope: "dashboard.publish",
-          expires_at: DateTime.add(DateTime.utc_now(), 900, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: 15),
           interval_seconds: 5
         },
         actor: actor
@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLiveTest do
   end
 
   defp backdate_expiry!(%DeviceAuthorization{id: id}) do
-    past = DateTime.add(DateTime.utc_now(), -3600, :second)
+    past = DateTime.shift(DateTime.utc_now(), hour: -1)
 
     Ecto.Adapters.SQL.query!(
       ServiceRadar.Repo,

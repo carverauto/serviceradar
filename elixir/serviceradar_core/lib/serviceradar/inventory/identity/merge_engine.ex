@@ -273,7 +273,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   # loop, so block and alert instead.
   defp recent_pair_merge?(device_a, device_b, actor) do
     window_seconds = merge_cooldown_seconds()
-    cutoff = DateTime.add(DateTime.utc_now(), -window_seconds, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), second: -window_seconds)
     query_opts = if actor, do: [actor: actor], else: []
 
     MergeAudit

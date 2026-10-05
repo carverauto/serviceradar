@@ -2482,7 +2482,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       ttl_seconds = Map.get(attrs, :ttl_seconds) || 60
 
       expires_at =
-        Map.get(attrs, :expires_at) || DateTime.add(DateTime.utc_now(), ttl_seconds, :second)
+        Map.get(attrs, :expires_at) || DateTime.shift(DateTime.utc_now(), second: ttl_seconds)
 
       case control_repo().query(
              """

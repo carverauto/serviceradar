@@ -33,10 +33,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitorConfigHealthTest do
     struct(Agent, Map.merge(defaults, Map.new(overrides)))
   end
 
-  defp before_threshold, do: DateTime.add(@threshold, -60, :second)
-  defp after_threshold, do: DateTime.add(@threshold, 60, :second)
+  defp before_threshold, do: DateTime.shift(@threshold, minute: -1)
+  defp after_threshold, do: DateTime.shift(@threshold, minute: 1)
   # Older than `before_threshold/0` — used for an ack that precedes a later push.
-  defp well_before_threshold, do: DateTime.add(@threshold, -120, :second)
+  defp well_before_threshold, do: DateTime.shift(@threshold, minute: -2)
 
   describe "no-ack window (rule 1)" do
     test "no config data at all is not wedged" do

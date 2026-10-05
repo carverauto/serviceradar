@@ -52,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesAggregationTest do
     points =
       for idx <- 0..999 do
         value = if idx == 999, do: 100.0, else: 0.0
-        {DateTime.add(start_dt, idx, :second), value}
+        {DateTime.shift(start_dt, second: idx), value}
       end
 
     [series] =

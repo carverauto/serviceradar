@@ -1457,8 +1457,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     case center do
       %DateTime{} = dt ->
-        start_dt = DateTime.add(dt, -@anomaly_chart_side_seconds, :second)
-        end_dt = DateTime.add(dt, @anomaly_chart_side_seconds, :second)
+        start_dt = DateTime.shift(dt, second: -@anomaly_chart_side_seconds)
+        end_dt = DateTime.shift(dt, second: @anomaly_chart_side_seconds)
         "[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]"
 
       _ ->

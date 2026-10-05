@@ -553,7 +553,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
       hostname: hostname,
       status: status,
       looked_up_at: now,
-      expires_at: DateTime.add(now, 86_400, :second),
+      expires_at: DateTime.shift(now, day: 1),
       error: error,
       error_count: if(is_nil(error), do: 0, else: 1)
     }

@@ -2113,12 +2113,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {start_dt, end_dt} =
       if match?(%DateTime{}, start_dt) and match?(%DateTime{}, end_dt) do
         {
-          DateTime.add(start_dt, -@detail_metric_window_padding_seconds, :second),
-          DateTime.add(end_dt, @detail_metric_window_padding_seconds, :second)
+          DateTime.shift(start_dt, second: -@detail_metric_window_padding_seconds),
+          DateTime.shift(end_dt, second: @detail_metric_window_padding_seconds)
         }
       else
         half_window = div(@detail_metric_min_window_seconds, 2)
-        {DateTime.add(center, -half_window, :second), DateTime.add(center, half_window, :second)}
+        {DateTime.shift(center, second: -half_window), DateTime.shift(center, second: half_window)}
       end
 
     expand_detail_window_to_minimum(start_dt, end_dt, center)
@@ -2129,7 +2129,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {start_dt, end_dt}
     else
       half_window = div(@detail_metric_min_window_seconds, 2)
-      {DateTime.add(center, -half_window, :second), DateTime.add(center, half_window, :second)}
+      {DateTime.shift(center, second: -half_window), DateTime.shift(center, second: half_window)}
     end
   end
 

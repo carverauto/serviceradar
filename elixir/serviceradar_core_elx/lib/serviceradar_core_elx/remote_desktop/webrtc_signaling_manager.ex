@@ -724,7 +724,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   end
 
   defp schedule_expiry(viewer_session_id, session_ttl_ms) do
-    expires_at = DateTime.add(DateTime.utc_now(), div(session_ttl_ms, 1_000), :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), second: div(session_ttl_ms, 1_000))
     timer_ref = Process.send_after(self(), {:expire_session, viewer_session_id}, session_ttl_ms)
     {expires_at, timer_ref}
   end

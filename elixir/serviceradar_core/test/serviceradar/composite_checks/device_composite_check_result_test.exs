@@ -55,7 +55,9 @@ defmodule ServiceRadar.CompositeChecks.DeviceCompositeCheckResultTest do
   test "one row per device and check", %{check: check} do
     now = DateTime.utc_now()
     assert {:ok, _} = upsert(check, "device-1", "isolated_verified", :healthy, now)
-    assert {:ok, _} = upsert(check, "device-1", "not_isolated", :down, DateTime.add(now, 60))
+
+    assert {:ok, _} =
+             upsert(check, "device-1", "not_isolated", :down, DateTime.shift(now, minute: 1))
 
     assert {:ok, rows} = DeviceCompositeCheckResult.list_by_check(check.id, actor: actor())
     assert length(rows) == 1

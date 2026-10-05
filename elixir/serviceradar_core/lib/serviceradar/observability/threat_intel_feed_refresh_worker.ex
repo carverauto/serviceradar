@@ -73,7 +73,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
       Keyword.get(config, :max_indicators_per_feed, @default_max_indicators_per_feed)
 
     now = DateTime.utc_now()
-    expires_at = DateTime.add(now, indicator_ttl_seconds, :second)
+    expires_at = DateTime.shift(now, second: indicator_ttl_seconds)
     actor = SystemActor.system(:threat_intel_refresh)
 
     settings =

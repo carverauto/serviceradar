@@ -60,8 +60,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     runtime_actor: runtime_actor
   } do
     {:ok, target} = create_target(actor)
-    next_poll_at = DateTime.add(DateTime.utc_now(), 30, :second)
-    deadline = DateTime.add(DateTime.utc_now(), 300, :second)
+    next_poll_at = DateTime.shift(DateTime.utc_now(), second: 30)
+    deadline = DateTime.shift(DateTime.utc_now(), minute: 5)
 
     assert {:ok, polling} =
              ActionInvocationTarget.record_deferred(
@@ -116,7 +116,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     runtime_actor: runtime_actor
   } do
     {:ok, target} = create_target(actor)
-    deadline = DateTime.add(DateTime.utc_now(), -1, :second)
+    deadline = DateTime.shift(DateTime.utc_now(), second: -1)
 
     assert {:ok, polling} =
              ActionInvocationTarget.record_deferred(
@@ -125,7 +125,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
                  result: %{"message" => "queued"},
                  external_correlation_id: "external-job-expired",
                  continuation_state: %{"external_task_id" => "external-job-expired"},
-                 next_poll_at: DateTime.add(DateTime.utc_now(), -1, :second),
+                 next_poll_at: DateTime.shift(DateTime.utc_now(), second: -1),
                  poll_deadline_at: deadline
                },
                actor: runtime_actor
@@ -224,7 +224,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
 
     timestamp =
       DateTime.utc_now()
-      |> DateTime.add(-600, :second)
+      |> DateTime.shift(minute: -10)
       |> DateTime.to_unix()
       |> Integer.to_string()
 

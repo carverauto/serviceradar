@@ -41,7 +41,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
   } do
     route = create_group_route!(actor, group_wait_seconds: 30, group_interval_seconds: 300)
     first_alert = create_alert!(actor, "First device unreachable")
-    first_now = DateTime.add(first_alert.triggered_at, 1, :second)
+    first_now = DateTime.shift(first_alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [delivery_id]}} =
              Dispatcher.route(first_alert.id, :fire, actor: actor, now: first_now)
@@ -49,7 +49,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert [first_delivery] = group_deliveries(route, actor)
     assert first_delivery.id == delivery_id
     assert first_delivery.state == :pending
-    assert first_delivery.next_attempt_at == DateTime.add(first_delivery.queued_at, 30, :second)
+    assert first_delivery.next_attempt_at == DateTime.shift(first_delivery.queued_at, second: 30)
 
     first_due_at = first_delivery.next_attempt_at
     second_alert = create_alert!(actor, "Second device unreachable")
@@ -57,7 +57,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: [^delivery_id]}} =
              Dispatcher.route(second_alert.id, :fire,
                actor: actor,
-               now: DateTime.add(first_now, 10, :second)
+               now: DateTime.shift(first_now, second: 10)
              )
 
     assert [grouped] = group_deliveries(route, actor)
@@ -77,7 +77,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: []}} =
              Dispatcher.route(second_alert.id, :fire,
                actor: actor,
-               now: DateTime.add(first_now, 11, :second)
+               now: DateTime.shift(first_now, second: 11)
              )
 
     assert [same_group] = group_deliveries(route, actor)
@@ -88,7 +88,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
   test "a later member of a sent group is held until group_interval elapses", %{actor: actor} do
     route = create_group_route!(actor, group_wait_seconds: 30, group_interval_seconds: 300)
     first_alert = create_alert!(actor, "Initial grouped incident")
-    first_now = DateTime.add(first_alert.triggered_at, 1, :second)
+    first_now = DateTime.shift(first_alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [first_delivery_id]}} =
              Dispatcher.route(first_alert.id, :fire, actor: actor, now: first_now)
@@ -98,7 +98,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: [^first_delivery_id]}} =
              Dispatcher.route(sibling.id, :fire,
                actor: actor,
-               now: DateTime.add(first_now, 5, :second)
+               now: DateTime.shift(first_now, second: 5)
              )
 
     sent =
@@ -112,11 +112,11 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: []}} =
              Dispatcher.route(sibling.id, :fire,
                actor: actor,
-               now: DateTime.add(sent.finished_at, 1, :second)
+               now: DateTime.shift(sent.finished_at, second: 1)
              )
 
     second_alert = create_alert!(actor, "Later grouped incident")
-    later_now = DateTime.add(sent.finished_at, 1, :second)
+    later_now = DateTime.shift(sent.finished_at, second: 1)
 
     assert {:ok, %{planned: [second_delivery_id]}} =
              Dispatcher.route(second_alert.id, :fire, actor: actor, now: later_now)
@@ -126,7 +126,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
 
     assert second_delivery.state == :pending
     assert second_delivery.dedupe_key == @dedupe_key
-    assert second_delivery.next_attempt_at == DateTime.add(sent.finished_at, 300, :second)
+    assert second_delivery.next_attempt_at == DateTime.shift(sent.finished_at, minute: 5)
     assert DateTime.after?(second_delivery.next_attempt_at, later_now)
     assert length(group_deliveries(route, actor)) == 2
   end
@@ -136,7 +136,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
   } do
     route = create_group_route!(actor, group_wait_seconds: 30, group_interval_seconds: 300)
     first_alert = create_alert!(actor, "Pending anchor")
-    first_now = DateTime.add(first_alert.triggered_at, 1, :second)
+    first_now = DateTime.shift(first_alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [delivery_id]}} =
              Dispatcher.route(first_alert.id, :fire, actor: actor, now: first_now)
@@ -146,13 +146,13 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: [^delivery_id]}} =
              Dispatcher.route(sibling.id, :fire,
                actor: actor,
-               now: DateTime.add(first_now, 5, :second)
+               now: DateTime.shift(first_now, second: 5)
              )
 
     assert {:ok, %{cancelled: [], planned: []}} =
              Dispatcher.route(first_alert.id, :resolve,
                actor: actor,
-               now: DateTime.add(first_now, 10, :second)
+               now: DateTime.shift(first_now, second: 10)
              )
 
     remaining = reload_delivery!(delivery_id, actor)
@@ -164,7 +164,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{cancelled: [^delivery_id], planned: []}} =
              Dispatcher.route(sibling.id, :resolve,
                actor: actor,
-               now: DateTime.add(first_now, 11, :second)
+               now: DateTime.shift(first_now, second: 11)
              )
 
     assert reload_delivery!(delivery_id, actor).state == :cancelled
@@ -183,7 +183,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
       )
 
     first_alert = create_alert!(actor, "Sent group anchor")
-    first_now = DateTime.add(first_alert.triggered_at, 1, :second)
+    first_now = DateTime.shift(first_alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [source_id]}} =
              Dispatcher.route(first_alert.id, :fire, actor: actor, now: first_now)
@@ -193,7 +193,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: [^source_id]}} =
              Dispatcher.route(sibling.id, :fire,
                actor: actor,
-               now: DateTime.add(first_now, 5, :second)
+               now: DateTime.shift(first_now, second: 5)
              )
 
     source =
@@ -209,7 +209,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: [resolution_id]}} =
              Dispatcher.route(sibling.id, :resolve,
                actor: actor,
-               now: DateTime.add(source.finished_at, 1, :second)
+               now: DateTime.shift(source.finished_at, second: 1)
              )
 
     resolution = reload_delivery!(resolution_id, actor)
@@ -223,13 +223,13 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: []}} =
              Dispatcher.route(first_alert.id, :resolve,
                actor: actor,
-               now: DateTime.add(source.finished_at, 2, :second)
+               now: DateTime.shift(source.finished_at, second: 2)
              )
 
     assert {:ok, %{planned: []}} =
              Dispatcher.route(sibling.id, :resolve,
                actor: actor,
-               now: DateTime.add(source.finished_at, 3, :second)
+               now: DateTime.shift(source.finished_at, second: 3)
              )
 
     assert [only_resolution] =
@@ -251,7 +251,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
       )
 
     first_alert = create_alert!(actor, "Multi-correlation anchor")
-    first_now = DateTime.add(first_alert.triggered_at, 1, :second)
+    first_now = DateTime.shift(first_alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [source_id]}} =
              Dispatcher.route(first_alert.id, :fire, actor: actor, now: first_now)
@@ -261,7 +261,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: [^source_id]}} =
              Dispatcher.route(sibling.id, :fire,
                actor: actor,
-               now: DateTime.add(first_now, 5, :second)
+               now: DateTime.shift(first_now, second: 5)
              )
 
     first_source =
@@ -279,14 +279,14 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
         first_source,
         sibling.id,
         "correlation-two",
-        DateTime.add(first_source.finished_at, 60, :second),
+        DateTime.shift(first_source.finished_at, minute: 1),
         actor
       )
 
     assert {:ok, %{planned: resolution_ids}} =
              Dispatcher.route(sibling.id, :resolve,
                actor: actor,
-               now: DateTime.add(second_source.finished_at, 1, :second)
+               now: DateTime.shift(second_source.finished_at, second: 1)
              )
 
     assert length(resolution_ids) == 2
@@ -298,7 +298,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: []}} =
              Dispatcher.route(first_alert.id, :resolve,
                actor: actor,
-               now: DateTime.add(second_source.finished_at, 2, :second)
+               now: DateTime.shift(second_source.finished_at, second: 2)
              )
 
     assert route
@@ -319,7 +319,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
     assert {:ok, %{planned: [], suppressed: []}} =
              Dispatcher.route(alert.id, :fire,
                actor: actor,
-               now: DateTime.add(alert.triggered_at, 1, :second)
+               now: DateTime.shift(alert.triggered_at, second: 1)
              )
 
     assert group_deliveries(route, actor) == []
@@ -328,7 +328,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
   test "a member write failure rolls the new delivery back", %{actor: actor} do
     route = create_group_route!(actor, group_wait_seconds: 30, group_interval_seconds: 300)
     alert = create_alert!(actor, "Member persistence failure")
-    now = DateTime.add(alert.triggered_at, 1, :second)
+    now = DateTime.shift(alert.triggered_at, second: 1)
 
     create_delivery_member = fn _attrs, _actor ->
       {:error, :injected_member_write_failure}
@@ -352,7 +352,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
   } do
     route = create_group_route!(actor, group_wait_seconds: 30, group_interval_seconds: 300)
     alert = create_alert!(actor, "History read failure")
-    now = DateTime.add(alert.triggered_at, 1, :second)
+    now = DateTime.shift(alert.triggered_at, second: 1)
 
     load_last_group_sent_at = fn _placement, _step_number, _channel_id, _actor ->
       {:error, :injected_group_history_failure}

@@ -15,7 +15,6 @@ GHSA-rhv4-8758-jx7v
 # ../serviceradar_core/.deps_audit_ignore (EEF-CVE-2026-43966 block).
 EEF-CVE-2026-43966
 EEF-CVE-2026-43969
-EEF-CVE-2026-43971
 GHSA-g2wm-735q-3f56
 
 # mix hex.audit and mix deps.audit report the cowlib response-splitting defect
@@ -25,5 +24,5 @@ GHSA-g2wm-735q-3f56
 # the advisory text is verbatim about cowlib, reported here against the
 # dependent package gun. Note that gun cannot be upgraded out of it -- the gun
 # row carries cowboy's range data (`< 2.16.0`, first patched `2.16.0`) while
-# gun's newest release is 2.5.0, so no gun version can ever satisfy it.
+# gun 2.6.0 still carries that cowboy range, so no current gun release satisfies it.
 GHSA-w4f7-4cxr-rv3c

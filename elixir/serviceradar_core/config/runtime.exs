@@ -1411,7 +1411,7 @@ if config_env() == :prod do
 
   oban_lifeline_rescue_after_ms =
     "OBAN_LIFELINE_RESCUE_AFTER_MS"
-    |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
+    |> System.get_env(Integer.to_string(to_timeout(hour: 4)))
     |> String.to_integer()
 
   # How long a stopping node waits for executing jobs before killing them. A job

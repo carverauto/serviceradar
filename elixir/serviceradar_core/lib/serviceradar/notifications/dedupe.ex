@@ -268,7 +268,7 @@ defmodule ServiceRadar.Notifications.Dedupe do
   def next_eligible_at(nil, _cadence_seconds), do: nil
 
   def next_eligible_at(%DateTime{} = last_notified_at, cadence_seconds) do
-    DateTime.add(last_notified_at, normalize_seconds(cadence_seconds), :second)
+    DateTime.shift(last_notified_at, second: normalize_seconds(cadence_seconds))
   end
 
   @doc """

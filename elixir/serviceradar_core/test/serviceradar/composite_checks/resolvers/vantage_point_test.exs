@@ -27,7 +27,8 @@ defmodule ServiceRadar.CompositeChecks.Resolvers.VantagePointTest do
   end
 
   test "available when the agent reached the device" do
-    resolution = VantagePoint.resolve(input(900), row(true, DateTime.add(@now, -60)), @now)
+    resolution =
+      VantagePoint.resolve(input(900), row(true, DateTime.shift(@now, minute: -1)), @now)
 
     assert resolution.value == :available
     refute resolution.stale
@@ -36,7 +37,7 @@ defmodule ServiceRadar.CompositeChecks.Resolvers.VantagePointTest do
 
   test "blocked when the agent got no positive response" do
     assert %{value: :blocked, stale: false} =
-             VantagePoint.resolve(input(900), row(false, DateTime.add(@now, -60)), @now)
+             VantagePoint.resolve(input(900), row(false, DateTime.shift(@now, minute: -1)), @now)
   end
 
   test "unknown with no_result when no row exists" do
@@ -45,7 +46,7 @@ defmodule ServiceRadar.CompositeChecks.Resolvers.VantagePointTest do
   end
 
   test "unknown with stale when the row is older than max_age" do
-    checked_at = DateTime.add(@now, -1_000)
+    checked_at = DateTime.shift(@now, second: -1_000)
     resolution = VantagePoint.resolve(input(900), row(true, checked_at), @now)
 
     assert resolution.value == :unknown
@@ -56,17 +57,21 @@ defmodule ServiceRadar.CompositeChecks.Resolvers.VantagePointTest do
 
   test "no max_age means the row is never stale" do
     assert %{value: :available, stale: false} =
-             VantagePoint.resolve(input(nil), row(true, DateTime.add(@now, -1_000_000)), @now)
+             VantagePoint.resolve(
+               input(nil),
+               row(true, DateTime.shift(@now, second: -1_000_000)),
+               @now
+             )
   end
 
   test "a row exactly at max_age is still fresh" do
     assert %{value: :available} =
-             VantagePoint.resolve(input(900), row(true, DateTime.add(@now, -900)), @now)
+             VantagePoint.resolve(input(900), row(true, DateTime.shift(@now, minute: -15)), @now)
   end
 
   test "a row one second past max_age is stale" do
     assert %{value: :unknown, reason: :stale} =
-             VantagePoint.resolve(input(900), row(true, DateTime.add(@now, -901)), @now)
+             VantagePoint.resolve(input(900), row(true, DateTime.shift(@now, second: -901)), @now)
   end
 
   test "a row with no checked_at is stale when freshness is required" do
@@ -78,6 +83,10 @@ defmodule ServiceRadar.CompositeChecks.Resolvers.VantagePointTest do
     # Staleness must win. Reporting `blocked` from an old observation would let
     # a check assert isolation it has not actually observed recently.
     assert %{value: :unknown, reason: :stale} =
-             VantagePoint.resolve(input(900), row(false, DateTime.add(@now, -5_000)), @now)
+             VantagePoint.resolve(
+               input(900),
+               row(false, DateTime.shift(@now, second: -5_000)),
+               @now
+             )
   end
 end

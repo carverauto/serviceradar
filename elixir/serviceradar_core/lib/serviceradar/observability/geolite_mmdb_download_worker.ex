@@ -128,7 +128,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
 
   defp check_existing_job(failure_reschedule_seconds) do
     cooldown_started_at =
-      DateTime.add(DateTime.utc_now(), -max(failure_reschedule_seconds, 3_600), :second)
+      DateTime.shift(DateTime.utc_now(), second: -max(failure_reschedule_seconds, 3_600))
 
     query =
       from(j in Oban.Job,
@@ -342,7 +342,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   # about once a minute instead of backing off, so only successors older than the window move.
   defp promote_scheduled_now(failure_reschedule_seconds) do
     now = DateTime.utc_now()
-    backoff_started_at = DateTime.add(now, -max(failure_reschedule_seconds, 3_600), :second)
+    backoff_started_at = DateTime.shift(now, second: -max(failure_reschedule_seconds, 3_600))
 
     query =
       from(j in Oban.Job,

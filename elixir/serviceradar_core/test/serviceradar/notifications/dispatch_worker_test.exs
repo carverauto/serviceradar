@@ -117,7 +117,7 @@ defmodule ServiceRadar.Notifications.DispatchWorkerTest do
 
     test "a retryable delivery snoozes until the instant the row now holds" do
       now = ~U[2026-08-09 12:00:00.000000Z]
-      retry_at = DateTime.add(now, 90, :second)
+      retry_at = DateTime.shift(now, second: 90)
 
       assert {:snooze, 90} =
                DispatchWorker.dispatch(job(%{"delivery_id" => @delivery_id}),
@@ -129,7 +129,7 @@ defmodule ServiceRadar.Notifications.DispatchWorkerTest do
 
     test "a retry instant that has already passed snoozes by the minimum, not by zero" do
       now = ~U[2026-08-09 12:00:00.000000Z]
-      retry_at = DateTime.add(now, -30, :second)
+      retry_at = DateTime.shift(now, second: -30)
 
       # Oban rejects a non-positive snooze, and a delivery whose next_attempt_at
       # is in the past is owed now.

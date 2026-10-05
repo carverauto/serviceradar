@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow do
 
   def relative_window(seconds) when is_integer(seconds) and seconds > 0 do
     end_dt = DateTime.truncate(DateTime.utc_now(), :second)
-    start_dt = DateTime.add(end_dt, -seconds, :second)
+    start_dt = DateTime.shift(end_dt, second: -seconds)
     {:ok, {start_dt, end_dt}}
   end
 

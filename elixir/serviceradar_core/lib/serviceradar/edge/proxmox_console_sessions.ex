@@ -714,7 +714,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
 
     %{
       ticket_hash: ticket_hash,
-      ticket_expires_at: DateTime.add(now, ticket_ttl, :second),
+      ticket_expires_at: DateTime.shift(now, second: ticket_ttl),
       device_uid: device.uid,
       target_kind: target.target_kind,
       console_mode: target.console_mode,

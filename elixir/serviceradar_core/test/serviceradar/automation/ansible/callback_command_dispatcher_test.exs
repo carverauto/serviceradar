@@ -46,7 +46,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
         purpose: :accepted_job_proof,
         command_type: "awx.fetch_job",
         expected_job_id: 42,
-        deadline_at: DateTime.add(@now, 60, :second),
+        deadline_at: DateTime.shift(@now, minute: 1),
         next_attempt_at: @now
       )
 
@@ -330,8 +330,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
 
     {resources, evidence} =
       attested_resources(resources,
-        verified_at: DateTime.add(@now, -120, :second),
-        expires_at: DateTime.add(@now, -1, :second)
+        verified_at: DateTime.shift(@now, minute: -2),
+        expires_at: DateTime.shift(@now, second: -1)
       )
 
     assert {:ok, :dispatched} =
@@ -356,8 +356,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
 
     {resources, evidence} =
       attested_resources(resources,
-        verified_at: DateTime.add(@now, -120, :second),
-        expires_at: DateTime.add(@now, -1, :second)
+        verified_at: DateTime.shift(@now, minute: -2),
+        expires_at: DateTime.shift(@now, second: -1)
       )
 
     assert {:error, :awx_preflight_evidence_expired} =
@@ -471,7 +471,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       purpose: :terminal_confirmation,
       command_type: "awx.fetch_job_host_summaries",
       expected_job_id: 42,
-      deadline_at: DateTime.add(@now, 60, :second),
+      deadline_at: DateTime.shift(@now, minute: 1),
       next_attempt_at: @now
     ]
 
@@ -508,7 +508,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
                command_type: "awx.fetch_job",
                expected_job_id: 42,
                terminal_job_snapshot: terminal,
-               deadline_at: DateTime.add(@now, 60, :second),
+               deadline_at: DateTime.shift(@now, minute: 1),
                next_attempt_at: @now
              )
   end
@@ -543,7 +543,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
         purpose: purpose,
         command_type: "awx.fetch_job",
         expected_job_id: 42,
-        deadline_at: DateTime.add(@now, 60, :second),
+        deadline_at: DateTime.shift(@now, minute: 1),
         next_attempt_at: @now
       )
 
@@ -609,7 +609,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
         purpose: :accepted_job_proof,
         command_type: "awx.launch_job",
         expected_credential_id: 91,
-        deadline_at: DateTime.add(@now, 60, :second),
+        deadline_at: DateTime.shift(@now, minute: 1),
         next_attempt_at: @now
       )
 
@@ -672,7 +672,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
         stage: :create_credential,
         purpose: :credential_provisioning,
         command_type: "awx.create_callback_credential",
-        deadline_at: DateTime.add(@now, 60, :second),
+        deadline_at: DateTime.shift(@now, minute: 1),
         next_attempt_at: @now
       )
 
@@ -730,7 +730,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
         purpose: :host_scope_proof,
         command_type: "awx.fetch_job_host_summaries",
         expected_job_id: 42,
-        deadline_at: DateTime.add(@now, 60, :second),
+        deadline_at: DateTime.shift(@now, minute: 1),
         next_attempt_at: @now
       )
 
@@ -774,7 +774,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
       },
       "allow" => scope.allow,
       "ttl_seconds" => 300,
-      "expires_at" => @now |> DateTime.add(300, :second) |> DateTime.to_iso8601()
+      "expires_at" => @now |> DateTime.shift(minute: 5) |> DateTime.to_iso8601()
     }
 
     struct!(AgentCommand, %{
@@ -825,8 +825,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
           controller_security_snapshot_digest: controller_security_snapshot_digest,
           live_launch_snapshot_digest: String.duplicate("d", 64),
           command_result_digest: String.duplicate("e", 64),
-          verified_at: DateTime.add(@now, -1, :second),
-          expires_at: DateTime.add(@now, 60, :second)
+          verified_at: DateTime.shift(@now, second: -1),
+          expires_at: DateTime.shift(@now, minute: 1)
         },
         overrides
       )

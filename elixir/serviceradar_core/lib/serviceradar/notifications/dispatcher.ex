@@ -646,10 +646,9 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   defp dispatch_stalled?(delivery, now, opts) do
     cutoff =
-      DateTime.add(
+      DateTime.shift(
         now,
-        -Keyword.get(opts, :stall_seconds, @dispatching_stall_seconds),
-        :second
+        second: -Keyword.get(opts, :stall_seconds, @dispatching_stall_seconds)
       )
 
     case Map.get(delivery, :started_at) do

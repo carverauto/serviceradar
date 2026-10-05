@@ -25,8 +25,8 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
     refute edge.forward.animate
     assert edge.reverse.packets_per_second == 6
     assert edge.reverse.animate
-    assert edge.reverse.packet_interval.observed_at == DateTime.add(@now, -10, :second)
-    assert edge.reverse.packet_interval.previous_observed_at == DateTime.add(@now, -70, :second)
+    assert edge.reverse.packet_interval.observed_at == DateTime.shift(@now, second: -10)
+    assert edge.reverse.packet_interval.previous_observed_at == DateTime.shift(@now, second: -70)
 
     [reversed] = summary([%{link | reversed: true}], [%{id: "edge-first", count: 1}], rows, request).edges
     assert reversed.forward.packets_per_second == 6
@@ -132,8 +132,8 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
       Enum.map(
         valid,
         &Map.merge(&1, %{
-          "observed_at" => DateTime.add(@now, -121, :second),
-          "previous_observed_at" => DateTime.add(@now, -181, :second)
+          "observed_at" => DateTime.shift(@now, second: -121),
+          "previous_observed_at" => DateTime.shift(@now, second: -181)
         })
       )
 
@@ -189,7 +189,7 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
     assert Enum.sort(request.pairs) == Enum.sort([{base.source_id, 7}, {base.target_id, 7}])
     refute Enum.any?(request.pairs, fn {id, _} -> String.starts_with?(id, "sr:x") end)
     assert request.until == @now
-    assert request.fresh_after == DateTime.add(@now, -120, :second)
+    assert request.fresh_after == DateTime.shift(@now, minute: -2)
   end
 
   defp relation(suffix, edge) do
@@ -256,8 +256,8 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
       "agent_id" => "agent.example.com",
       "rate" => value,
       "status" => "measured",
-      "observed_at" => DateTime.add(@now, -10, :second),
-      "previous_observed_at" => DateTime.add(@now, -70, :second)
+      "observed_at" => DateTime.shift(@now, second: -10),
+      "previous_observed_at" => DateTime.shift(@now, second: -70)
     }
   end
 end

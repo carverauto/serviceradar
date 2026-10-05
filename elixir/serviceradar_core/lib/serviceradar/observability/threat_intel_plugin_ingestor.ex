@@ -323,7 +323,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   defp completed_walk_modified_since(now) do
     now
-    |> DateTime.add(-@completed_walk_overlap_seconds, :second)
+    |> DateTime.shift(second: -@completed_walk_overlap_seconds)
     |> DateTime.truncate(:second)
     |> DateTime.to_iso8601()
   end

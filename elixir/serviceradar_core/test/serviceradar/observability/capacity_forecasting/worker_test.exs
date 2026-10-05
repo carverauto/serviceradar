@@ -30,7 +30,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..47 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "host_id" => "host-a",
             "avg_usage_percent" => 20.0 + hour
@@ -51,7 +51,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..71 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "host_id" => "host-a",
             "avg_usage_percent" => 20.0 + hour
@@ -81,7 +81,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for series <- ["", "sr:device-a"], hour <- 0..23 do
           %{
-            "timestamp" => DateTime.add(@start, hour * 3_600, :second),
+            "timestamp" => DateTime.shift(@start, hour: hour),
             "series" => series,
             "value" => 20.0 + hour
           }
@@ -101,7 +101,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..47 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "bytes_total" => 500_000_000_000.0 + hour * 10_000_000_000.0
           }
         end
@@ -120,7 +120,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
           noise = if rem(hour, 2) == 0, do: 18.0, else: -18.0
 
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "mount_point" => "/",
             "avg_usage_percent" => 28.0 + hour * 0.55 + noise
@@ -139,7 +139,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..47 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "mount_point" => "/",
             "avg_usage_percent" => 20.0 + 1.25 * hour
@@ -158,7 +158,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..47 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "mount_point" => "/",
             "avg_usage_percent" => 75.0 - hour * 1.25
@@ -181,7 +181,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..71, {mount, value} <- [{"/", 20.0}, {"/data", 20.0 + hour}] do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "sr:device-a",
             "metric_type" => "sysmon.disk",
             "metric_name" => "disk.used_percent",
@@ -206,7 +206,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..575 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "mount_point" => "/var/lib/checkers",
             "avg_usage_percent" => 33.0 + hour * (0.57 / 24)
@@ -228,7 +228,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..1007 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "mount_point" => "/var/lib/slow",
             "avg_usage_percent" => 10.0 + hour * (70.0 / 300.0 / 24)
@@ -253,7 +253,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
             end
 
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "mount_point" => "/",
             "avg_usage_percent" => value
@@ -274,7 +274,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..47 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "device_id" => "device-a",
             "host_id" => "host-a",
             "avg_usage_percent" => 20.0 + hour
@@ -305,7 +305,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     defp rows(device_id, hours) do
       for hour <- hours do
         %{
-          "bucket" => DateTime.add(@start, hour * 3_600, :second),
+          "bucket" => DateTime.shift(@start, hour: hour),
           "device_id" => device_id,
           "host_id" => "#{device_id}-host",
           "avg_usage_percent" => 20.0 + hour
@@ -337,13 +337,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
   end
 
   defp previous_projected_forecast(hours_ago \\ 1, overrides \\ %{}) do
-    forecasted_at = DateTime.add(@forecasted_at, -hours_ago * 3_600, :second)
+    forecasted_at = DateTime.shift(@forecasted_at, hour: -hours_ago)
 
     Map.merge(
       %{
         status: "projected",
         forecasted_at: forecasted_at,
-        projected_exhaustion_at: DateTime.add(forecasted_at, 50, :second)
+        projected_exhaustion_at: DateTime.shift(forecasted_at, second: 50)
       },
       overrides
     )
@@ -355,8 +355,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     Map.merge(
       %{
         status: "inactive",
-        forecasted_at: DateTime.add(@forecasted_at, -hours_ago * 3_600, :second),
-        projected_exhaustion_at: DateTime.add(@forecasted_at, 2 * 3_600, :second)
+        forecasted_at: DateTime.shift(@forecasted_at, hour: -hours_ago),
+        projected_exhaustion_at: DateTime.shift(@forecasted_at, hour: 2)
       },
       overrides
     )
@@ -369,7 +369,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       %{
         status: "skipped",
         skip_reason: "no_projected_exhaustion",
-        forecasted_at: DateTime.add(@forecasted_at, -hours_ago * 3_600, :second)
+        forecasted_at: DateTime.shift(@forecasted_at, hour: -hours_ago)
       },
       overrides
     )
@@ -687,7 +687,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert_received {:capacity_forecast_runtime_config_fetch, %{role: :system}}
     assert_received {:capacity_forecast_runtime_config, attrs}
     assert attrs.horizon_seconds == 12 * 3_600
-    assert attrs.horizon_ends_at == DateTime.add(@forecasted_at, 12 * 3_600, :second)
+    assert attrs.horizon_ends_at == DateTime.shift(@forecasted_at, hour: 12)
     assert attrs.exhaustion_threshold == 75.0
     assert attrs.model == "linear"
   end
@@ -1927,7 +1927,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
            "avg_usage_percent" => 42.0
          },
          %{
-           "bucket" => DateTime.add(@start, 3_600, :second),
+           "bucket" => DateTime.shift(@start, hour: 1),
            "device_id" => "device-a",
            "mount_point" => "/",
            "avg_usage_percent" => 43.0
@@ -1944,7 +1944,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       {:ok,
        [
          %{
-           "bucket" => DateTime.add(@start, 3_600, :second),
+           "bucket" => DateTime.shift(@start, hour: 1),
            "device_id" => "device-a",
            "mount_point" => "/",
            "avg_usage_percent" => 43.0
@@ -1967,7 +1967,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..47 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "partition" => "edge-a",
             "device_id" => "device-a",
             "target_device_ip" => "10.0.0.10",
@@ -1990,7 +1990,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       rows =
         for hour <- 0..47 do
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "partition" => "edge-a",
             "device_id" => "device-a",
             "target_device_ip" => "10.0.0.10",
@@ -2017,7 +2017,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
           rate = if hour == 24, do: 1.728e14, else: 100_000.0 + hour * 1_000.0
 
           %{
-            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bucket" => DateTime.shift(@start, hour: hour),
             "partition" => "edge-a",
             "device_id" => "device-a",
             "target_device_ip" => "10.0.0.10",
