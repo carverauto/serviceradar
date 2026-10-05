@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   alias ServiceRadar.Plugins.AddonRolloutCoordinator
 
   require Ash.Query
+  require Logger
 
   @default_limit 200
   @max_limit 500
@@ -167,13 +168,26 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
 
     with {:ok, %AddonPackage{} = candidate} <- read_package(package_id, scope),
          :ok <- validate_settings(assignment, settings_attrs),
-         {:ok, updated_assignment} <- update(assignment.id, policy_attrs, opts),
-         {:ok, _rollout} <-
-           AddonRolloutCoordinator.start(updated_assignment, candidate,
+         {:ok, updated_assignment} <- update(assignment.id, policy_attrs, opts) do
+      case AddonRolloutCoordinator.start(updated_assignment, candidate,
              actor: actor,
              trigger: :manual
            ) do
-      update(updated_assignment.id, settings_attrs, opts)
+        {:ok, rollout} ->
+          case update(updated_assignment.id, settings_attrs, opts) do
+            {:ok, _} = ok ->
+              ok
+
+            {:error, _} = error ->
+              cancel_rollout(rollout, actor)
+              restore_policy(assignment, policy_attrs, opts)
+              error
+          end
+
+        {:error, _} = error ->
+          restore_policy(assignment, policy_attrs, opts)
+          error
+      end
     end
   end
 
@@ -189,6 +203,44 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
       :ok
     else
       {:error, changeset.errors}
+    end
+  end
+
+  defp cancel_rollout(rollout, actor) do
+    case AddonRolloutCoordinator.cancel(rollout.id, actor: actor) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to cancel orphaned native add-on rollout",
+          rollout_id: rollout.id,
+          reason: inspect(reason)
+        )
+
+        :ok
+    end
+  end
+
+  defp restore_policy(_assignment, policy_attrs, _opts) when map_size(policy_attrs) == 0, do: :ok
+
+  defp restore_policy(assignment, policy_attrs, opts) do
+    original =
+      Map.new(policy_attrs, fn {key, _} ->
+        atom_key = if is_atom(key), do: key, else: String.to_existing_atom(key)
+        {atom_key, Map.get(assignment, atom_key)}
+      end)
+
+    case update(assignment.id, original, opts) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to restore native add-on assignment policy after failed upgrade",
+          assignment_id: assignment.id,
+          reason: inspect(reason)
+        )
+
+        :ok
     end
   end
 

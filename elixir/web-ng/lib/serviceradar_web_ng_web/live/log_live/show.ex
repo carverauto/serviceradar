@@ -140,6 +140,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         %{} = log ->
           log
           |> Map.delete("source_device_uid")
+          |> normalize_metadata_value()
           |> redact_secret_value()
           |> Jason.encode!(pretty: true)
 

@@ -433,6 +433,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ "SENSITIVE_ATTR_TOKEN"
       refute html =~ "SENSITIVE_NESTED_KEY"
       refute html =~ "SENSITIVE_LIST_TOKEN"
+      refute html =~ "EXAMPLE_CRED"
+      assert html =~ "token=[REDACTED]"
 
       render_click(lv, "copy_message", %{})
       assert_push_event(lv, "clipboard", %{text: copied_message})
@@ -449,7 +451,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
             "SENSITIVE_JWT",
             "SENSITIVE_ATTR_TOKEN",
             "SENSITIVE_NESTED_KEY",
-            "SENSITIVE_LIST_TOKEN"
+            "SENSITIVE_LIST_TOKEN",
+            "EXAMPLE_CRED"
           ] do
         refute copied_json =~ secret
       end
@@ -459,6 +462,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert copied["attributes"]["safe"] == "kept"
       assert copied["attributes"]["nested"] == %{"api_key" => "[REDACTED]"}
       assert copied["attributes"]["flags"] == ["token=[REDACTED]", "plain-flag"]
+      details = copied["resource_attributes"]["details"]
+      assert details["note"] == "token=[REDACTED]"
+      assert details["counts"] == [1, 2, 3]
+      assert details["level"] == 9
       assert copied["resource_attributes"]["service.name"] == "serviceradar-web-ng"
       refute Map.has_key?(copied, "source_device_uid")
       assert is_binary(copied["timestamp"])
@@ -853,7 +860,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
             "nested" => %{"api_key" => "SENSITIVE_NESTED_KEY"},
             "flags" => ["token=SENSITIVE_LIST_TOKEN", "plain-flag"]
           }),
-        resource_attributes: Jason.encode!(%{"service.name" => "serviceradar-web-ng"}),
+        resource_attributes:
+          "service.name=serviceradar-web-ng,details={\"note\":[116,111,107,101,110,61,69,88,65,77,80,76,69,95,67,82,69,68],\"counts\":[1,2,3],\"level\":9}",
         created_at: now,
         ingest_identity: "spiffe://sr/agent/edge-9",
         ingest_agent_id: "agent-edge-9",
