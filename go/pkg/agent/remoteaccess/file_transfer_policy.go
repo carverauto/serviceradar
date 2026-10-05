@@ -105,6 +105,16 @@ func EvaluateFileTransferPolicy(input FileTransferPolicyInput, policy FileTransf
 		err := fmt.Errorf("%w: path", ErrFileTransferPolicyDenied)
 		return deniedDecision(normalizedPath, FileTransferStatusDenied, err), err
 	}
+	if input.Request.Operation == FileTransferOperationRename {
+		normalizedDestination, err := normalizeRemotePath(input.Request.DestinationPath)
+		if err != nil {
+			return deniedDecision(normalizedPath, FileTransferStatusDenied, err), err
+		}
+		if !pathAllowed(normalizedDestination, policy.AllowedPathRules) || pathDenied(normalizedDestination, policy.DeniedPathRules) {
+			err := fmt.Errorf("%w: destination path", ErrFileTransferPolicyDenied)
+			return deniedDecision(normalizedPath, FileTransferStatusDenied, err), err
+		}
+	}
 	if err := enforceSymlinkPolicy(input, policy, normalizedPath); err != nil {
 		return deniedDecision(normalizedPath, FileTransferStatusDenied, err), err
 	}

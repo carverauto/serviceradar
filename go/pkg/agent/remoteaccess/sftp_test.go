@@ -241,6 +241,28 @@ func TestSFTPAdapterDeniesBeforeOpeningFile(t *testing.T) {
 	}
 }
 
+func TestSFTPAdapterDeniesRenameOutsideAllowedRoot(t *testing.T) {
+	t.Parallel()
+
+	client := newFakeSFTPClient()
+	client.files["/srv/data/report.txt"] = []byte("synthetic report")
+	adapter := testSFTPAdapter(client, FileTransferOperationRename)
+
+	_, err := adapter.Execute(
+		t.Context(),
+		SSHConfig{},
+		renameSFTPRequest("/srv/data/report.txt", "/tmp/report.txt"),
+		nil,
+		nil,
+	)
+	if !errors.Is(err, ErrFileTransferPolicyDenied) {
+		t.Fatalf("Execute error = %v, want %v", err, ErrFileTransferPolicyDenied)
+	}
+	if slices.Contains(client.ops, "rename:/srv/data/report.txt:/tmp/report.txt") {
+		t.Fatalf("renamed to denied destination, ops = %#v", client.ops)
+	}
+}
+
 func TestSFTPAdapterDeniesSymlinkWhenRealPathFails(t *testing.T) {
 	t.Parallel()
 
