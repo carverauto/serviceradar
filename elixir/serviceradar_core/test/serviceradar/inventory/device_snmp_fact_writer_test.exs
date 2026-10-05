@@ -265,7 +265,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
   test "an upsert rewrites every updatable field of the reading", %{actor: actor, device: device} do
     oid = oid([1, 3, 6, 1, 2, 1, 1, 5, 0])
     profile_id = Ecto.UUID.generate()
-    earlier = DateTime.add(DateTime.utc_now(), -120, :second)
+    earlier = DateTime.shift(DateTime.utc_now(), minute: -2)
 
     :ok =
       DeviceSNMPFactWriter.write_rows([
