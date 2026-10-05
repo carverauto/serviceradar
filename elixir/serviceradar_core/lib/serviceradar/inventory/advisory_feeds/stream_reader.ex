@@ -218,19 +218,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
         {[copy_iodata(output)], {zlib, rest, :continue}}
 
       {:finished, []} ->
-        {[], close_then_done(z)}
+        {[], close_then_done(zlib)}
 
       {:finished, output} ->
-        {[copy_iodata(output)], close_then_done(z)}
+        {[copy_iodata(output)], close_then_done(zlib)}
     end
+  catch
+    :error, reason ->
+      raise ArgumentError, "nvd gzip shard: #{inspect(reason)}"
+  end
 
   defp close_then_done(z) do
     close_zlib(z)
     :done
-  end
-  catch
-    :error, reason ->
-      raise ArgumentError, "nvd gzip shard: #{inspect(reason)}"
   end
 
   defp shard_paths(dir) do
