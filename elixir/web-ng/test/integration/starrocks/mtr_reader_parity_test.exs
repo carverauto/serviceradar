@@ -116,24 +116,28 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     end)
 
     starrocks = start_starrocks!(sr_env)
-    apply_starrocks_schema!(starrocks, sr_env.database)
-    empty_starrocks!(starrocks, sr_env.database)
 
-    # Registered before any seeding so a setup failure still empties the
-    # shared warehouse database.
+    # Registered before schema/seeding so a setup failure still removes only
+    # this suite's rows from the shared warehouse database. The callback
+    # reconnects with its own pool: the setup-owned pool may be gone by the
+    # time on_exit runs, and every error fails loudly.
     on_exit(fn ->
-      empty_starrocks!(starrocks, sr_env.database)
+      cleanup_starrocks_owned!(sr_env)
     end)
 
-    run_database = "srql_parity_mtr_readers_#{System.system_time(:second)}"
+    apply_starrocks_schema!(starrocks, sr_env.database)
+    empty_owned_starrocks!(starrocks, sr_env.database)
+
+    run_database = "srql_parity_mtr_readers_#{random_suffix()}"
 
     admin = start_postgrex!(cnpg_env, "postgres")
     Postgrex.query!(admin, "CREATE DATABASE #{run_database}", [])
-    GenServer.stop(admin)
 
-    # The setup process (and its linked connections) is gone by the time
-    # this runs, so reconnect here instead of reusing `admin`. Every
-    # failure is loud: a scratch database must never survive the suite.
+    # Registered immediately after CREATE and before stopping the admin
+    # connection, so a failure between the two cannot leak the scratch
+    # database. The callback reconnects: the setup process (and its linked
+    # connections) is gone by the time it runs. Every failure is loud: a
+    # scratch database must never survive the suite.
     on_exit(fn ->
       cleanup = start_postgrex!(cnpg_env, "postgres")
 
@@ -157,6 +161,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
         GenServer.stop(cleanup)
       end
     end)
+
+    GenServer.stop(admin)
 
     cnpg = start_postgrex!(cnpg_env, run_database)
     apply_cnpg_schema!(cnpg)
@@ -199,10 +205,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
           [limit: 40, agent_filter: "agent-parity-02"],
           [limit: 40, device_ip: "198.51.100.10"]
         ] do
-      cnpg = cnpg(fn -> MtrData.list_traces(opts ++ [cnpg_query: ctx.cnpg_query]) end)
+      assert {:ok, cnpg} =
+               cnpg(fn -> MtrData.list_traces(opts ++ [cnpg_query: ctx.cnpg_query]) end)
 
-      warehouse =
-        warehouse(fn -> MtrData.list_traces(opts ++ [starrocks_query: ctx.starrocks_query]) end)
+      assert {:ok, warehouse} =
+               warehouse(fn ->
+                 MtrData.list_traces(opts ++ [starrocks_query: ctx.starrocks_query])
+               end)
 
       assert_lists_equal(cnpg, warehouse, {:list_traces, opts})
     end
@@ -282,8 +291,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     anchor = ctx.anchor
 
     opts = [
-      window_a: [start: shift(anchor, 1, :hour), end: shift(anchor, 4, :hour)],
-      window_b: [start: shift(anchor, 5, :hour), end: shift(anchor, 8, :hour)],
+      window_a: %{start: shift(anchor, 1, :hour), end: shift(anchor, 4, :hour)},
+      window_b: %{start: shift(anchor, 5, :hour), end: shift(anchor, 8, :hour)},
       bucket_count: 12,
       signature_limit: 5
     ]
@@ -545,20 +554,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     name = MtrReaderParityStarRocks
     if pid = Process.whereis(name), do: GenServer.stop(pid)
 
-    {:ok, _conn} =
-      MyXQL.start_link(
-        [hostname: env.host,
-         port: env.port,
-         username: env.user,
-         password: env.password,
-         database: env.database,
-         ssl: false,
-         prepare: :unnamed,
-         cache_size: 0,
-         pool_size: 1,
-         timeout: 60_000,
-         connect_timeout: 10_000] ++ [name: name]
-      )
+    {:ok, _conn} = MyXQL.start_link(starrocks_connect_opts(env, name))
 
     name
   end
@@ -1071,19 +1067,99 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     end
   end
 
-  defp empty_starrocks!(conn, database) do
-    for table <- ["mtr_hops", "mtr_traces"] do
-      sr!(MySQL.query("DELETE FROM #{database}.#{table} WHERE 1=1", conn: conn, timeout: 120_000))
+  defp random_suffix do
+    :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+  end
+
+  # Device ids owned by this suite's synthetic fixture; warehouse cleanup
+  # deletes and counts only these rows so concurrent suites sharing the
+  # fixed database keep theirs.
+  @owned_devices "('sr:parity-dev-a', 'sr:parity-dev-b', 'sr:parity-dev-c')"
+
+  # Reconnects with an owned pool, removes only this suite's rows, asserts
+  # same-backend zero counts, and closes the owned pool. Every error fails;
+  # tables/views that were never created are skipped only after an explicit
+  # information_schema check proves they are absent.
+  defp cleanup_starrocks_owned!(env) do
+    name = MtrReaderParityStarRocksCleanup
+    if pid = Process.whereis(name), do: GenServer.stop(pid)
+
+    {:ok, _} = MyXQL.start_link(starrocks_connect_opts(env, name))
+
+    try do
+      empty_owned_starrocks!(name, env.database)
+    after
+      if pid = Process.whereis(name), do: GenServer.stop(pid)
+    end
+  end
+
+  defp starrocks_table_exists?(conn, database, table) do
+    sql = """
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = '#{database}' AND table_name = '#{table}' LIMIT 1
+    """
+
+    case MySQL.query(sql, conn: conn, timeout: 60_000) do
+      {:ok, %{rows: rows}} -> rows != []
+      {:error, reason} -> raise("StarRocks statement failed: #{inspect(reason)}")
+    end
+  end
+
+  defp empty_owned_starrocks!(conn, database) do
+    traces? = starrocks_table_exists?(conn, database, "mtr_traces")
+    hops? = starrocks_table_exists?(conn, database, "mtr_hops")
+
+    for {table, present} <- [{"mtr_hops", hops?}, {"mtr_traces", traces?}], present do
+        sr!(
+          MySQL.query(
+            "DELETE FROM #{database}.#{table} WHERE device_id IN #{@owned_devices}",
+            conn: conn,
+            timeout: 120_000
+          )
+        )
+
+        case MySQL.query(
+               "SELECT COUNT(*) FROM #{database}.#{table} WHERE device_id IN #{@owned_devices}",
+               conn: conn,
+               timeout: 60_000
+             ) do
+          {:ok, %{rows: [[0]]}} -> :ok
+          {:ok, %{rows: [[n]]}} -> flunk("#{table} still holds #{n} owned rows after cleanup")
+          {:error, reason} -> raise("StarRocks statement failed: #{inspect(reason)}")
+        end
     end
 
-    for view <- @mtr_views do
-      sr!(
-        MySQL.query("REFRESH MATERIALIZED VIEW #{database}.#{view} WITH SYNC MODE",
-          conn: conn,
-          timeout: 120_000
+    # The views only exist once the schema ran, which also creates both
+    # base tables; when either table is absent the schema never ran and
+    # there is nothing to refresh. When both exist the views must exist
+    # too, so refresh unconditionally and fail every error.
+    if traces? and hops? do
+      for view <- @mtr_views do
+        sr!(
+          MySQL.query("REFRESH MATERIALIZED VIEW #{database}.#{view} WITH SYNC MODE",
+            conn: conn,
+            timeout: 120_000
+          )
         )
-      )
+      end
     end
+  end
+
+  defp starrocks_connect_opts(env, name) do
+    [
+      hostname: env.host,
+      port: env.port,
+      username: env.user,
+      password: env.password,
+      database: env.database,
+      ssl: false,
+      prepare: :unnamed,
+      cache_size: 0,
+      pool_size: 1,
+      timeout: 60_000,
+      connect_timeout: 10_000,
+      name: name
+    ]
   end
 
   # Freshness runners for the rollup-vs-raw comparisons: the marks answer the
