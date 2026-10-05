@@ -51,10 +51,11 @@ message DiscoveryEnvelope {
   // attribute an observation to a device or an agent.
   string producer_id = 2;
 
-  // observation_scope is the supersession key: within one schema, a later
-  // envelope with the same scope replaces an earlier one. netprobe uses the
-  // capture interface name, so a snapshot of eth0 never hides eth1. Empty
-  // means no supersession.
+  // observation_scope is the producer-local supersession key: within one
+  // schema and gateway-attested producer identity, a later envelope with the
+  // same scope replaces an earlier one. netprobe uses the capture interface
+  // name, so a snapshot of eth0 never hides eth1 and one agent's eth0 never
+  // hides another agent's eth0. Empty means no supersession.
   string observation_scope = 3;
 
   // snapshot_id set means SNAPSHOT semantics: the envelope (with its siblings,
