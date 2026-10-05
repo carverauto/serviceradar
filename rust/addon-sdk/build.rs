@@ -6,14 +6,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The discovery envelope an add-on wraps device observations in. Compiled
     // here rather than per add-on so every add-on gets the same contract, and
     // so `discovery_record` below can build one.
-    let discovery_proto_path = "proto/agent/discovery/v1/discovery.proto";
+    let discovery_proto_path = "../../proto/agent/discovery/v1/discovery.proto";
 
     tonic_prost_build::configure()
         .protoc_arg("--experimental_allow_proto3_optional")
         .build_server(true)
         .build_client(true)
         .disable_comments(["."]) // avoid doctest issues from proto comments
-        .compile_protos(&[addon_proto_path, discovery_proto_path], &["proto"])?;
+        .compile_protos(
+            &[addon_proto_path, discovery_proto_path],
+            &["proto", "../../proto"],
+        )?;
 
     println!("cargo:rerun-if-changed={addon_proto_path}");
     println!("cargo:rerun-if-changed={discovery_proto_path}");
