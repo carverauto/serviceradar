@@ -10,7 +10,7 @@ defmodule ServiceRadar.Infrastructure.Changes.ScrubK8sBindingEndpoints do
   def change(changeset, _opts, context) do
     Ash.Changeset.before_action(changeset, fn changeset ->
       cluster_id = Ash.Changeset.get_data(changeset, :cluster_id)
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      now = DateTime.truncate(DateTime.utc_now(), :second)
       retired_by = StampK8sBindingActor.actor_name(context.actor)
 
       Repo.query!(

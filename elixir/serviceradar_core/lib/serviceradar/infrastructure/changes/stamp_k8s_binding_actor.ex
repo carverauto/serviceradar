@@ -8,7 +8,7 @@ defmodule ServiceRadar.Infrastructure.Changes.StampK8sBindingActor do
   end
 
   def actor_name(%{email: email}) when is_binary(email) and email != "", do: email
-  defp actor_name(%{id: id}) when not is_nil(id), do: to_string(id)
-  defp actor_name(actor) when is_binary(actor) and actor != "", do: actor
-  defp actor_name(_actor), do: "system"
+  def actor_name(%{id: id}) when not is_nil(id), do: to_string(id)
+  def actor_name(actor) when is_binary(actor) and actor != "", do: actor
+  def actor_name(_actor), do: "system"
 end
