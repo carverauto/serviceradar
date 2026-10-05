@@ -745,6 +745,157 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       })
     end
 
+    test "skips inactive optional frames until the stream token marks them active", %{
+      user: user,
+      scope: scope
+    } do
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1},
+        %{
+          "id" => "optional",
+          "query" => "in:test_optional_rows",
+          "encoding" => "json_rows",
+          "limit" => 1,
+          "required" => false
+        }
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      inactive_token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+
+      assert {:ok, _reply, _socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => inactive_token
+               })
+
+      assert_push("frames:replace", %{"frames" => [%{"id" => "required", "status" => "ok"}]})
+      assert_receive {:srql_query, "in:test_rows"}
+      refute_receive {:srql_query, "in:test_optional_rows"}, 100
+      refute_push("frames:replace", %{}, 100)
+
+      active_token =
+        DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, ["optional"])
+
+      assert {:ok, _reply, _socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => active_token
+               })
+
+      assert_push("frames:replace", %{"frames" => [%{"id" => "required", "status" => "ok"}]})
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{"id" => "required", "status" => "ok"},
+          %{"id" => "optional", "status" => "ok"}
+        ]
+      })
+    end
+
+    test "refresh ticks reuse cached optional frames without re-running them", %{
+      user: user,
+      scope: scope
+    } do
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1},
+        %{
+          "id" => "optional",
+          "query" => "in:test_optional_rows",
+          "encoding" => "json_rows",
+          "limit" => 1,
+          "required" => false
+        }
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, ["optional"])
+
+      assert {:ok, _reply, socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{"frames" => [%{"id" => "required", "status" => "ok"}]})
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{"id" => "required", "status" => "ok"},
+          %{"id" => "optional", "status" => "ok"}
+        ]
+      })
+
+      assert_receive {:srql_query, "in:test_rows"}
+      assert_receive {:srql_query, "in:test_optional_rows"}
+      refute_receive {:srql_query, _query}, 50
+      wait_until_settled(socket.channel_pid)
+
+      :sys.replace_state(socket.channel_pid, fn state ->
+        %{state | assigns: Map.put(state.assigns, :frame_refreshed_at, %{})}
+      end)
+
+      send(socket.channel_pid, :dashboard_frame_tick)
+
+      assert_receive {:srql_query, "in:test_rows"}
+      refute_receive {:srql_query, "in:test_optional_rows"}, 100
+    end
+
+    test "a blocked optional query does not delay the required-frame update", %{
+      user: user,
+      scope: scope
+    } do
+      Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+      route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+      data_frames = [
+        %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1},
+        %{
+          "id" => "optional",
+          "query" => "in:test_slow_rows",
+          "encoding" => "json_rows",
+          "limit" => 1,
+          "required" => false
+        }
+      ]
+
+      create_stream_dashboard_instance!(route_slug, data_frames, scope)
+      token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, ["optional"])
+
+      assert {:ok, _reply, _socket} =
+               UserSocket
+               |> socket("user-id", %{current_user: user, current_scope: scope})
+               |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{
+                 "token" => token
+               })
+
+      assert_push("frames:replace", %{
+        "frames" => [%{"id" => "required", "status" => "ok"}]
+      })
+
+      assert_receive {:srql_query_started, "in:test_slow_rows", optional_query_pid}
+      send(optional_query_pid, :release_dashboard_frame_query)
+
+      assert_push("frames:replace", %{
+        "frames" => [
+          %{"id" => "required", "status" => "ok"},
+          %{"id" => "optional", "status" => "ok"}
+        ]
+      })
+    end
+
     test "frame queries run outside the channel process", %{user: user, scope: scope} do
       Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
 
