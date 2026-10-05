@@ -39,12 +39,19 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     assert agent_ids == [agent_a.uid, agent_b.uid]
     assert agent_id == agent_a.uid
 
-    assert {:ok, one_agent} = update_group(selected, %{agent_id: agent_c.uid}, actor)
-    assert one_agent.agent_ids == [agent_c.uid]
-    assert one_agent.agent_id == agent_c.uid
+    assert {:ok, kept_selection} = update_group(selected, %{agent_id: agent_c.uid}, actor)
+    assert kept_selection.agent_ids == [agent_a.uid, agent_b.uid]
+    assert kept_selection.agent_id == agent_a.uid
+
+    assert {:ok, one_agent} =
+             update_group(kept_selection, %{agent_ids: [agent_a.uid]}, actor)
+
+    assert {:ok, reassigned} = update_group(one_agent, %{agent_id: agent_c.uid}, actor)
+    assert reassigned.agent_ids == [agent_c.uid]
+    assert reassigned.agent_id == agent_c.uid
 
     assert {:ok, many_agents} =
-             update_group(one_agent, %{agent_ids: [agent_c.uid, agent_b.uid]}, actor)
+             update_group(reassigned, %{agent_ids: [agent_c.uid, agent_b.uid]}, actor)
 
     assert many_agents.agent_ids == [agent_b.uid, agent_c.uid]
     assert many_agents.agent_id == agent_b.uid
