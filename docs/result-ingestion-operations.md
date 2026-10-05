@@ -31,7 +31,7 @@ switch new gateways to reservation mode against an old core: they reject safely.
 The supported production pair is the new gateway and new core with reservation
 mode true. Canary acceptance must occur after both rollouts finish.
 
-Core's `SERVICERADAR_RETAINED_PLUGIN_ADMISSION_ENABLED` defaults to true. False
+Core's `RETAINED_PLUGIN_ADMISSION_ENABLED` defaults to true. False
 selects a bounded commit-confirming compatibility lane; it never restores inline
 DB work. Before rolling back core, disable gateway reservation mode. Drain or
 cancel the current worker tree before transferring ownership; do not run both

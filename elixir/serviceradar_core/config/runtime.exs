@@ -61,13 +61,6 @@ ingestion_config =
     end
   )
 
-retained_admission =
-  case System.get_env("SERVICERADAR_RETAINED_PLUGIN_ADMISSION_ENABLED", "true") do
-    "true" -> true
-    "false" -> false
-    _ -> raise ArgumentError, "invalid retained plugin admission flag"
-  end
-
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
     enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
@@ -97,14 +90,6 @@ config :serviceradar_core,
 
 config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
   max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
-config :serviceradar_core,
-       ServiceRadar.StatusHandler,
-       Keyword.put(
-         Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler, []),
-         :retained_plugin_admission_enabled,
-         retained_admission
-       )
 
 config :serviceradar_core,
        :results_router_max_bytes,
