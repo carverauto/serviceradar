@@ -45,6 +45,25 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
     GenServer.call(__MODULE__, :size)
   end
 
+  @doc """
+  Asks the buffer to forward queued statuses now.
+
+  Best-effort PushStatus enqueues and returns before core accepts. The
+  periodic flush still runs. This wakes it so a recovered core is not
+  waiting on the interval.
+  """
+  @spec request_flush() :: :ok
+  def request_flush do
+    case Process.whereis(__MODULE__) do
+      pid when is_pid(pid) ->
+        send(pid, :request_flush)
+        :ok
+
+      _missing ->
+        :ok
+    end
+  end
+
   @impl true
   def init(opts) do
     max_entries = Keyword.get(opts, :max_entries, env_int("GATEWAY_RESULTS_BUFFER_LIMIT", @default_max_entries))
@@ -109,6 +128,17 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(:request_flush, state) do
+    {state, more?} = flush_queue(state, @default_flush_batch_size)
+
+    if more? do
+      Process.send_after(self(), :request_flush, 0)
+    end
+
+    {:noreply, state}
+  end
+
   defp enqueue_status(queue, status, max_entries) do
     if :queue.len(queue) >= max_entries do
       {{:value, dropped}, reduced} = :queue.out(queue)
@@ -164,6 +194,8 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
       %{depth: depth, bytes: retained_bytes},
       %{gateway_id: ServiceRadarAgentGateway.Config.gateway_id()}
     )
+
+    ServiceRadarAgentGateway.RuntimeMetrics.report_buffer_depth(depth)
   end
 
   defp buffer_metadata(status, reason) do
