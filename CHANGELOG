@@ -1,3 +1,85 @@
+# ServiceRadar v1.4.82
+
+This release adds hosted edge connectivity: an opt-in NATS leafnode
+listener, JS CLI onboarding commands, and the core and web APIs that
+issue leaf certificates and collector bundles. The chart now mints
+Dgraph TLS secrets itself. Flow attribution moves onto StarRocks, and
+IPFIX collection requires mutual TLS.
+
+## Upgrade Notes
+
+- Helm `core.migrations.expectedVersion` is `20261006160000`.
+  Migrations since 1.4.81 add the `edge.manage` CLI scope, configurable
+  homepages, interface threshold cooldown state, agent identity
+  supersession, warehouse retention settings, telemetry hypertable
+  compression, and indexes for device and agent foreign keys.
+- NATS leafnode connectivity is off unless `nats.leafnodes.enabled` is
+  true. The listener is port 7422. TLS terminates in nats-server, and a
+  leaf certificate must carry the role URI SAN the agent-gateway CA
+  issues for that edge site.
+- Clusters that applied chart 1.4.81 with Dgraph enabled rendered
+  cert-manager Certificate and Issuer resources. This chart writes the
+  Dgraph CA and serving Secrets directly and no longer renders those
+  resources. Orphan the old Certificate and Issuer objects before
+  upgrading that release so Helm does not delete them out from under
+  the Secrets.
+- The flow collector authenticates IPFIX over mutual TLS and rejects
+  UDP templates by default.
+- Core OTX feed credentials resolve from the inventory credential store.
+- Flow-attribution observations and correlation read StarRocks.
+
+## Whats New
+
+**1.4.82**
+- Hosted edge: opt-in NATS leafnode listener and Gateway TCP route for
+  port 7422 (PR #5137). JS CLI commands for edge sites, packages,
+  collectors, and leaf install (PR #5102). Core and web-ng issue leaf
+  certificates and real NATS credentials, enforce the `edge.manage`
+  scope, and serve edge-site and collector download APIs (PR #5245).
+- Dgraph: the chart mints the CA and Alpha/Zero TLS Secrets and reuses
+  them on upgrade. Public HTTPS stays centrally issued (PR #5240).
+- Flow attribution: observations and correlation run on StarRocks, and
+  correlator pass health is published through JetStream (PR #5164).
+  SRQL keeps hourly package and CPE rollup buckets that overlap the
+  query window (PR #5170, PR #5181).
+- IPFIX: authenticate over mutual TLS and reject UDP templates by
+  default (PR #5138).
+- Credentials: restore core OTX sync against the unified inventory
+  (PR #5167). Resolve Proxmox grants at use (PR #5159).
+- Identity: supersede a stale agent identity when a host re-enrolls
+  under a new uid (PR #5148). Configurable default homepages for users,
+  groups, and the deployment (PR #5189).
+- Inventory: device purge no longer stalls on an unlisted foreign-key
+  child (PR #5243). Source-retirement queries stay linear when planner
+  estimates are wrong (PR #5218). A retired source record can merge into
+  its corroborated successor (PR #5225).
+- Telemetry: enable TimescaleDB compression on telemetry hypertables
+  (PR #5230). EventWriter recovers ingestion after NATS failures
+  (PR #5234). Interface threshold alerts fire and persist cooldown
+  state (PR #5229).
+- Gateway: mark agents disconnected when their control sessions end
+  (PR #5231). Heartbeat and release reconcile no longer block
+  PushStatus (PR #5216). Core process locations are cached instead of
+  swept on every push (PR #5224).
+- Dgraph NIF calls run asynchronously so a stalled cluster does not pin
+  a scheduler (PR #5236).
+- Add-ons: a newer approved candidate supersedes a paused rollout
+  (PR #5235). Timer add-on health is re-evaluated on version activation
+  (PR #5232). Deleting an assignment or profile keeps rollout history
+  (PR #5186). A second enabled profile with the same target query is
+  rejected (PR #5188). Package uploads are limited to staged packages
+  (PR #5169).
+- Analytics: StarRocks retention is stored in the database and edited
+  from Data retention settings (PR #5156).
+- Collectors: bound log, BMP, and flow-collector state, and use safe
+  formatting for SNMP varbinds (PR #5112, PR #5117, PR #5119, PR #5123).
+- Web: omit the ephemeral source port from a related NetFlow link
+  (PR #3551). Restore monospace terminal geometry and add a
+  high-contrast light theme (PR #5228). Skip a sort on the sysmon
+  presence probe (PR #5226). Device Anomaly and Capacity views show a
+  loading skeleton (PR #4475). Add-on catalog details group assignments
+  by agent (PR #4461).
+
 # ServiceRadar v1.4.81
 
 This release expands Starlink inventory and telemetry, adds bounded sweep
