@@ -1321,12 +1321,12 @@ defmodule ServiceRadar.DireTrace do
 
     devices =
       Map.new(Enum.with_index(world.phys, 1), fn {h, i} ->
-        {h, DateTime.add(now, -30 * 86_400 + i * 60, :second)}
+        {h, DateTime.shift(now, second: -30 * 86_400 + i * 60)}
       end)
 
     ids =
       Map.new(Enum.with_index(Map.get(world, :new_first_seen_ids, []), 1), fn {a, i} ->
-        {a, DateTime.add(now, 86_400 + i * 60, :second)}
+        {a, DateTime.shift(now, second: 86_400 + i * 60)}
       end)
 
     %{devices: devices, ids: ids}
