@@ -125,7 +125,9 @@ defmodule ServiceRadarWebNG.Topology.WorldHealthSourceDBTest do
   end
 
   defp await_next_snapshot(health, predicate, deadline) do
-    if System.monotonic_time(:millisecond) >= deadline, do: flunk("world health did not recover before its retry deadline")
+    if System.monotonic_time(:millisecond) >= deadline do
+      flunk("world health did not recover before its retry deadline")
+    end
     Process.sleep(20)
     await_snapshot(health, predicate, deadline)
   end
