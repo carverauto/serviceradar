@@ -75,10 +75,34 @@ defmodule ServiceRadar.Admission.Lane do
     keys = [:max_items, :max_bytes, :max_items_per_agent, :queue_wait_ms, :worker_timeout_ms]
 
     with :ok <- validate_positive(config, keys ++ [:gateway_call_timeout_ms]),
+         :ok <- validate_optional_positive(config, :max_bytes_per_agent),
          :ok <- at_most(config, :queue_wait_ms, @max_queue_wait_ms),
          :ok <- at_most(config, :worker_timeout_ms, @max_worker_timeout_ms),
          :ok <- at_most(config, :gateway_call_timeout_ms, gateway_max_ms) do
       validate_deadline(config)
+    end
+  end
+
+  def with_per_agent_bytes(config, source_max_bytes) do
+    max_bytes = Keyword.fetch!(config, :max_bytes)
+    floor = source_max_bytes + 4_096
+
+    derived =
+      if max_bytes <= floor do
+        max_bytes
+      else
+        max(div(max_bytes, 4), floor) |> min(max_bytes)
+      end
+
+    case Keyword.fetch(config, :max_bytes_per_agent) do
+      {:ok, explicit} when is_integer(explicit) ->
+        Keyword.put(config, :max_bytes_per_agent, min(explicit, max_bytes))
+
+      {:ok, _invalid} ->
+        config
+
+      :error ->
+        Keyword.put(config, :max_bytes_per_agent, derived)
     end
   end
 
@@ -874,6 +898,9 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   defp validate_capacity(state, retained_bytes, agent_id) do
+    per_agent = state.config[:max_bytes_per_agent] || state.config[:max_bytes]
+    effective_per_agent = min(state.config[:max_bytes], per_agent)
+
     key_bytes =
       state.jobs
       |> Map.values()
@@ -887,8 +914,7 @@ defmodule ServiceRadar.Admission.Lane do
       state.admitted_bytes + retained_bytes > state.config[:max_bytes] ->
         {:error, :configured_byte_full}
 
-      key_bytes + retained_bytes >
-          (state.config[:max_bytes_per_agent] || state.config[:max_bytes]) ->
+      key_bytes + retained_bytes > effective_per_agent ->
         {:error, :per_agent_byte_full}
 
       Map.get(state.admitted_per_agent, agent_id, 0) >= state.config[:max_items_per_agent] ->
@@ -911,6 +937,14 @@ defmodule ServiceRadar.Admission.Lane do
          end) do
       nil -> :ok
       key -> {:error, {:non_positive, key}}
+    end
+  end
+
+  defp validate_optional_positive(config, key) do
+    case Keyword.get(config, key) do
+      nil -> :ok
+      value when is_integer(value) and value > 0 -> :ok
+      _ -> {:error, {:non_positive, key}}
     end
   end
 
