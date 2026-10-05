@@ -224,10 +224,12 @@ defmodule ServiceRadar.StatusHandler do
 
   defp retained_plugin_result_status?(_status), do: false
 
+  # On unless explicitly disabled. Turning it off is the kill switch back to the
+  # previous synchronous StatusHandler -> ResultsRouter path.
   defp retained_plugin_admission_enabled? do
     :serviceradar_core
     |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:retained_plugin_admission_enabled, false)
+    |> Keyword.get(:retained_plugin_admission_enabled, true)
   end
 
   defp results_router_timeout_ms do
