@@ -7,10 +7,10 @@ defmodule ServiceRadarWebNG.Topology.WorldHealthSourceDBTest do
   alias ServiceRadar.Repo
   alias ServiceRadar.TopologyAtlas
   alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadarWebNG.Topology.WorldHealthSource
+  alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldHealth
-  alias ServiceRadarWebNG.Topology.TileKey
+  alias ServiceRadarWebNG.Topology.WorldHealthSource
   alias ServiceRadarWebNG.Topology.WorldTile
 
   @moduletag :topology_atlas_db
@@ -85,17 +85,34 @@ defmodule ServiceRadarWebNG.Topology.WorldHealthSourceDBTest do
     cache = start_supervised!({WorldCache, task_supervisor: tasks, pubsub: pubsub})
     version = "00000000-0000-4000-8000-000000000481"
     {:ok, builder} = TopologyAtlas.new_builder(version, 0)
-    :ok = TopologyAtlas.add_positions(builder, [
-      %{device_id: device.uid, label: "Synthetic retry device", x: 300_000, y: 300_000,
-        min_zoom: 0, parent_id: nil, component_id: "invented-retry-component",
-        component_z: 0, component_x: 0, component_y: 0, placement_depth: 0, active: true}
-    ])
+
+    :ok =
+      TopologyAtlas.add_positions(builder, [
+        %{
+          device_id: device.uid,
+          label: "Synthetic retry device",
+          x: 300_000,
+          y: 300_000,
+          min_zoom: 0,
+          parent_id: nil,
+          component_id: "invented-retry-component",
+          component_z: 0,
+          component_x: 0,
+          component_y: 0,
+          placement_depth: 0,
+          active: true
+        }
+      ])
+
     {:ok, world} = TopologyAtlas.finish_world(builder)
     manifest = %{layout_version: version, generation: 1, zmax: 0}
-    prepared = Map.new(TileKey.low_zoom(manifest), fn key ->
-      {:ok, tile} = WorldTile.build(world, key)
-      {key, tile}
-    end)
+
+    prepared =
+      Map.new(TileKey.low_zoom(manifest), fn key ->
+        {:ok, tile} = WorldTile.build(world, key)
+        {key, tile}
+      end)
+
     assert :ok = WorldCache.install(world, manifest, prepared, cache)
     on_exit(fn -> Sandbox.mode(Repo, :manual) end)
 
@@ -117,10 +134,13 @@ defmodule ServiceRadarWebNG.Topology.WorldHealthSourceDBTest do
 
   defp await_snapshot(health, predicate, deadline \\ nil) do
     deadline = deadline || System.monotonic_time(:millisecond) + 10_000
+
     case WorldHealth.snapshot(health) do
       {:ok, snapshot} ->
         if predicate.(snapshot), do: snapshot, else: await_next_snapshot(health, predicate, deadline)
-      _ -> await_next_snapshot(health, predicate, deadline)
+
+      _ ->
+        await_next_snapshot(health, predicate, deadline)
     end
   end
 
@@ -128,6 +148,7 @@ defmodule ServiceRadarWebNG.Topology.WorldHealthSourceDBTest do
     if System.monotonic_time(:millisecond) >= deadline do
       flunk("world health did not recover before its retry deadline")
     end
+
     Process.sleep(20)
     await_snapshot(health, predicate, deadline)
   end
