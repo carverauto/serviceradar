@@ -36,6 +36,8 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   - `:jetstream_max_memory` - JetStream memory limit (default: "1G")
   - `:jetstream_max_file` - JetStream file limit (default: "10G")
   - `:debug` - Enable debug logging (default: false)
+  - `:with_credentials` - reference `/etc/nats/creds/account.creds` in the
+    leaf remote (default: false; set only when the bundle ships minted creds)
   - `:direct_leaf_identities` - assignment-scoped identities and their derived
     subject scopes to render as local NATS authorization users
 
@@ -49,6 +51,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     jetstream_max_memory = Keyword.get(opts, :jetstream_max_memory, "1G")
     jetstream_max_file = Keyword.get(opts, :jetstream_max_file, "10G")
     debug = Keyword.get(opts, :debug, false)
+    credentials_line = render_credentials_line(Keyword.get(opts, :with_credentials, false))
 
     direct_leaf_authorization =
       opts
@@ -92,9 +95,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
         remotes = [
             {
                 url: "#{leaf_server.upstream_url}"
-
-                # Use NATS account credentials
-                credentials: "/etc/nats/creds/account.creds"
+    #{credentials_line}
 
                 # mTLS configuration for leaf-to-SaaS connection
                 tls {
@@ -107,6 +108,16 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     }
     """
   end
+
+  defp render_credentials_line(true) do
+    """
+                # NATS account credentials minted for this leaf
+                credentials: "/etc/nats/creds/account.creds"
+    """
+  end
+
+  # The hub authenticates the leaf by its mTLS certificate; no creds file ships.
+  defp render_credentials_line(_), do: ""
 
   @doc false
   @spec render_direct_leaf_authorization(list()) :: String.t()
@@ -197,93 +208,105 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   @doc """
   Generates the setup script for deploying the NATS leaf server.
 
-  The script:
-  1. Creates required directories
-  2. Copies certificates and configuration
-  3. Sets up systemd service
-  4. Enables and starts the service
+  The script targets the `serviceradar-nats` package (Oracle Linux 9 / RHEL
+  RPM, or the Debian package): it installs the config at
+  `/etc/nats/nats-server.conf` (backing up the packaged file), the certificates
+  under `/etc/nats/certs` and, when present, `creds/account.creds` under
+  `/etc/nats/creds`, owned by the packaged `nats` user and `serviceradar` group.
+  It validates the config with `nats-server -t` before enabling and restarting
+  `serviceradar-nats.service`. It runs from any working directory.
+
+  Options:
+    * `:with_credentials` - also install `creds/account.creds` (default: false)
   """
-  @spec generate_setup_script(map()) :: String.t()
-  def generate_setup_script(edge_site) do
+  @spec generate_setup_script(map(), keyword()) :: String.t()
+  def generate_setup_script(edge_site, opts \\ []) do
     site_name = shell_single_quote(edge_site.name)
+    with_credentials = Keyword.get(opts, :with_credentials, false)
+
+    creds_block =
+      if with_credentials do
+        """
+        install -d -m 0750 -o nats -g serviceradar /etc/nats/creds
+        install -m 0600 -o nats -g serviceradar creds/account.creds /etc/nats/creds/account.creds
+        """
+      else
+        ""
+      end
 
     """
     #!/bin/bash
     # NATS Leaf Server Setup Script
     # Generated for EdgeSite: #{edge_site.name} (#{edge_site.slug})
+    #
+    # Requires the serviceradar-nats package (provides /usr/bin/nats-server and
+    # serviceradar-nats.service). Run as root from anywhere.
 
-    set -e
+    set -euo pipefail
 
     SITE_NAME='#{site_name}'
+    UNIT=serviceradar-nats
+    BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$BUNDLE_DIR"
 
-    printf 'Setting up NATS leaf server for %s...\n' "$SITE_NAME"
+    printf 'Setting up NATS leaf server for %s...\\n' "$SITE_NAME"
 
-    # Check if running as root
-    if [ "$EUID" -ne 0 ]; then
-        echo "Please run as root or with sudo"
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "Please run as root or with sudo" >&2
         exit 1
     fi
 
-    # Create directories
-    mkdir -p /etc/nats/certs
-    mkdir -p /etc/nats/creds
-    mkdir -p /var/lib/nats/jetstream
-    mkdir -p /var/log/nats
+    if [ ! -x /usr/bin/nats-server ] || ! systemctl cat "$UNIT.service" >/dev/null 2>&1; then
+        echo "ERROR: the serviceradar-nats package is not installed." >&2
+        echo "Install it first, e.g. on Oracle Linux 9 / RHEL:" >&2
+        echo "  sudo dnf install ./serviceradar-nats-<version>.x86_64.rpm" >&2
+        exit 1
+    fi
 
-    # Copy certificates
+    if ! id -u nats >/dev/null 2>&1 || ! getent group serviceradar >/dev/null; then
+        echo "ERROR: the nats user or serviceradar group is missing (reinstall serviceradar-nats)." >&2
+        exit 1
+    fi
+
     echo "Installing certificates..."
-    cp nats/certs/nats-server.pem /etc/nats/certs/
-    cp nats/certs/nats-server-key.pem /etc/nats/certs/
-    cp nats/certs/nats-leaf.pem /etc/nats/certs/
-    cp nats/certs/nats-leaf-key.pem /etc/nats/certs/
-    cp nats/certs/ca-chain.pem /etc/nats/certs/
+    install -d -m 0750 -o nats -g serviceradar /etc/nats /etc/nats/certs
+    install -m 0644 -o nats -g serviceradar nats/certs/nats-server.pem /etc/nats/certs/nats-server.pem
+    install -m 0600 -o nats -g serviceradar nats/certs/nats-server-key.pem /etc/nats/certs/nats-server-key.pem
+    install -m 0644 -o nats -g serviceradar nats/certs/nats-leaf.pem /etc/nats/certs/nats-leaf.pem
+    install -m 0600 -o nats -g serviceradar nats/certs/nats-leaf-key.pem /etc/nats/certs/nats-leaf-key.pem
+    install -m 0644 -o nats -g serviceradar nats/certs/ca-chain.pem /etc/nats/certs/ca-chain.pem
+    #{creds_block}
+    install -d -m 0750 -o nats -g serviceradar /var/lib/nats /var/lib/nats/jetstream /var/log/nats
 
-    # Copy credentials
-    echo "Installing credentials..."
-    cp creds/account.creds /etc/nats/creds/
+    echo "Validating configuration..."
+    nats-server -c nats/nats-leaf.conf -t
 
-    # Set permissions
-    chmod 600 /etc/nats/certs/*.pem
-    chmod 600 /etc/nats/creds/*.creds
-    chown -R nats:nats /etc/nats 2>/dev/null || true
-    chown -R nats:nats /var/lib/nats 2>/dev/null || true
-    chown -R nats:nats /var/log/nats 2>/dev/null || true
-
-    # Copy configuration
     echo "Installing configuration..."
-    cp nats/nats-leaf.conf /etc/nats/nats-server.conf
+    if [ -f /etc/nats/nats-server.conf ] && ! cmp -s nats/nats-leaf.conf /etc/nats/nats-server.conf; then
+        cp -p /etc/nats/nats-server.conf "/etc/nats/nats-server.conf.bak.$(date +%Y%m%d%H%M%S)"
+    fi
+    install -m 0640 -o nats -g serviceradar nats/nats-leaf.conf /etc/nats/nats-server.conf
 
-    # Check if serviceradar-nats is installed
-    if ! command -v nats-server &> /dev/null; then
-        echo ""
-        echo "WARNING: nats-server not found!"
-        echo "Please install the serviceradar-nats package first:"
-        echo "  # Debian/Ubuntu"
-        echo "  apt install serviceradar-nats"
-        echo ""
-        echo "  # RHEL/CentOS"
-        echo "  dnf install serviceradar-nats"
-        echo ""
-        exit 1
+    # SELinux (Oracle Linux 9): give the installed files their default labels.
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R /etc/nats /var/lib/nats /var/log/nats || true
     fi
 
-    # Enable and restart service
-    echo "Enabling and starting NATS service..."
+    echo "Enabling and restarting $UNIT..."
     systemctl daemon-reload
-    systemctl enable nats-server
-    systemctl restart nats-server
+    systemctl enable "$UNIT"
+    systemctl restart "$UNIT"
 
-    # Check status
     sleep 2
-    if systemctl is-active --quiet nats-server; then
+    if systemctl is-active --quiet "$UNIT"; then
         echo ""
-        echo "NATS leaf server is running!"
-        echo "Check status: systemctl status nats-server"
-        echo "View logs: journalctl -u nats-server -f"
+        echo "NATS leaf server is running."
+        echo "Check status: systemctl status $UNIT"
+        echo "View logs:    journalctl -u $UNIT -f   (and /var/log/nats/nats.log)"
     else
-        echo ""
-        echo "ERROR: NATS server failed to start"
-        echo "Check logs: journalctl -u nats-server -n 50"
+        echo "" >&2
+        echo "ERROR: $UNIT failed to start" >&2
+        echo "Check logs: journalctl -u $UNIT -n 50; tail -n 50 /var/log/nats/nats.log" >&2
         exit 1
     fi
     """
@@ -292,8 +315,15 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   @doc """
   Generates the README for the edge site bundle.
   """
-  @spec generate_readme(map()) :: String.t()
-  def generate_readme(edge_site) do
+  @spec generate_readme(map(), keyword()) :: String.t()
+  def generate_readme(edge_site, opts \\ []) do
+    creds_line =
+      if Keyword.get(opts, :with_credentials, false) do
+        "- `creds/account.creds` - NATS user credentials minted for this leaf\n"
+      else
+        ""
+      end
+
     """
     # NATS Leaf Server Bundle
 
@@ -304,87 +334,65 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
 
     - `nats/nats-leaf.conf` - NATS server configuration
     - `nats/certs/` - TLS certificates
-      - `nats-server.pem` - Server certificate for local clients
-      - `nats-server-key.pem` - Server private key
-      - `nats-leaf.pem` - Leaf certificate for upstream connection
-      - `nats-leaf-key.pem` - Leaf private key
+      - `nats-server.pem` / `nats-server-key.pem` - server certificate for local clients
+      - `nats-leaf.pem` / `nats-leaf-key.pem` - leaf certificate for the upstream connection
       - `ca-chain.pem` - CA certificate chain
-    - `creds/account.creds` - NATS account credentials
-    - `setup.sh` - Automated setup script
-    - `README.md` - This file
+    #{creds_line}- `setup.sh` - automated setup script
+    - `README.md` - this file
 
-    ## Quick Start
+    The leaf authenticates to the ServiceRadar hub with `nats-leaf.pem` (mTLS).
+
+    ## Quick Start (Oracle Linux 9)
 
     1. Install the serviceradar-nats package:
 
        ```bash
-       # Debian/Ubuntu
-       sudo apt install serviceradar-nats
-
-       # RHEL/CentOS
-       sudo dnf install serviceradar-nats
+       sudo dnf install ./serviceradar-nats-<version>.x86_64.rpm
        ```
 
     2. Run the setup script:
 
        ```bash
-       sudo ./setup.sh
+       sudo bash ./setup.sh
        ```
 
     3. Verify the connection:
 
        ```bash
-       systemctl status nats-server
-       journalctl -u nats-server -f
+       systemctl status serviceradar-nats
+       journalctl -u serviceradar-nats -f
        ```
 
     ## Manual Installation
 
-    If you prefer to install manually:
-
-    1. Copy certificates to `/etc/nats/certs/`
-    2. Copy credentials to `/etc/nats/creds/`
-    3. Copy `nats-leaf.conf` to `/etc/nats/nats-server.conf`
-    4. Restart the service: `systemctl restart nats-server`
+    1. Copy `nats/certs/*` to `/etc/nats/certs/` (owner `nats:serviceradar`, keys mode 0600)
+    2. Copy `nats/nats-leaf.conf` to `/etc/nats/nats-server.conf`
+    3. Validate: `nats-server -c /etc/nats/nats-server.conf -t`
+    4. Restart: `systemctl restart serviceradar-nats`
 
     ## Connecting Collectors
 
     Collectors deployed at this site should connect to:
 
     ```
-    #{edge_site.nats_leaf_url || "nats://localhost:4222"}
+    #{edge_site.nats_leaf_url || "tls://localhost:4222"}
     ```
+
+    The local listener requires TLS with a client certificate from the
+    ServiceRadar CA.
 
     ## Troubleshooting
 
-    ### Check service status
-    ```bash
-    systemctl status nats-server
-    ```
-
-    ### View logs
-    ```bash
-    journalctl -u nats-server -f
-    ```
-
-    ### Test local connection
-    ```bash
-    nats-server --config /etc/nats/nats-server.conf --test
-    ```
-
-    ### Verify upstream connection
-    Check the logs for "Leafnode connection" messages indicating
-    successful connection to the SaaS cluster.
+    - Status: `systemctl status serviceradar-nats`
+    - Logs: `journalctl -u serviceradar-nats -f` and `/var/log/nats/nats.log`
+    - Config check: `nats-server -c /etc/nats/nats-server.conf -t`
+    - Look for "Leafnode connection created" in the log to confirm the upstream link.
 
     ## Certificate Expiration
 
-    Certificates in this bundle are valid for 1 year. To renew:
-    1. Download a new bundle from the ServiceRadar admin console
-    2. Run the setup script again
-
-    ## Support
-
-    For help, contact your ServiceRadar administrator.
+    Certificates in this bundle are valid for 1 year. To renew, regenerate the
+    configuration in the ServiceRadar admin console, download a new bundle and
+    run `setup.sh` again.
     """
   end
 

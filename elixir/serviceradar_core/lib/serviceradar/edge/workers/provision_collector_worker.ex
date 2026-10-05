@@ -229,6 +229,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     actor = SystemActor.system(:provision_collector)
 
     NatsCredential
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
+    |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
     |> Ash.Changeset.for_create(
       :create,
       %{
@@ -243,20 +246,19 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
       },
       actor: actor
     )
-    |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
-    |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
     |> Ash.create()
   end
 
   defp mark_ready(package, credential_id, nats_creds_content) do
-    # In single-deployment mode, TLS certificates are handled by external infrastructure
-    # (SPIFFE/SPIRE, cert-manager). We only set the NATS credentials.
+    # TLS certificates are optional here. Bundle downloads that need a key
+    # supply it on the :ready action; this worker records the NATS creds.
     actor = SystemActor.system(:provision_collector)
 
     package
-    |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
+    |> Ash.Changeset.new()
     |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
     |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
+    |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
     |> Ash.update()
   end
 
@@ -266,8 +268,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         actor = SystemActor.system(:provision_collector)
 
         package
-        |> Ash.Changeset.for_update(:fail, %{}, actor: actor)
+        |> Ash.Changeset.new()
         |> Ash.Changeset.set_argument(:error_message, message)
+        |> Ash.Changeset.for_update(:fail, %{}, actor: actor)
         |> Ash.update()
 
       _ ->

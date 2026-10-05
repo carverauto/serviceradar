@@ -61,9 +61,14 @@ change's shared contract.
   - `POST /api/admin/edge-sites/:id/bundle`, which returns 409 `leaf_not_ready`
     until the leaf is provisioned
 - **API:** add `GET /api/admin/agents`, a read-only edge view of agents.
+- **API:** `POST /api/admin/edge-packages` returns the signed `edgepkg-v3`
+  `onboarding_token`. mTLS agent packages are issued through an online
+  agent-gateway, as in the UI. `POST /api/admin/collectors` mints and returns
+  the `collectorpkg-v2` `enrollment_token`. `GET /api/admin/version` returns
+  the running release.
 - **Auth:** add the narrow CLI scope `edge.manage`. It is in the NarrowScopes
-  allowlist and in the default `cli_allowed_scopes`, so the device-code flow can
-  request it.
+  allowlist and in the default `cli_allowed_scopes`, and a migration appends it
+  to existing rows, so the device-code flow can request it.
 
 ## Impact
 

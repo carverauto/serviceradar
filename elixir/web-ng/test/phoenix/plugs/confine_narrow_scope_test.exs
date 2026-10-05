@@ -77,6 +77,47 @@ defmodule ServiceRadarWebNGWeb.Plugs.ConfineNarrowScopeTest do
       assert conn.status == 403
     end
 
+    test "an edge.manage token reaches edge packages, collectors, NATS, edge sites and agents" do
+      id = Ecto.UUID.generate()
+
+      for {method, path} <- [
+            {"GET", "/api/admin/edge-packages"},
+            {"POST", "/api/admin/edge-packages"},
+            {"GET", "/api/admin/edge-packages/defaults"},
+            {"GET", "/api/admin/edge-packages/#{id}"},
+            {"DELETE", "/api/admin/edge-packages/#{id}"},
+            {"POST", "/api/admin/edge-packages/#{id}/revoke"},
+            {"GET", "/api/admin/collectors"},
+            {"POST", "/api/admin/collectors"},
+            {"GET", "/api/admin/collectors/#{id}"},
+            {"POST", "/api/admin/collectors/#{id}/revoke"},
+            {"GET", "/api/admin/nats/account"},
+            {"GET", "/api/admin/nats/credentials"},
+            {"GET", "/api/admin/edge-sites"},
+            {"POST", "/api/admin/edge-sites"},
+            {"GET", "/api/admin/edge-sites/#{id}"},
+            {"DELETE", "/api/admin/edge-sites/#{id}"},
+            {"POST", "/api/admin/edge-sites/#{id}/bundle"},
+            {"GET", "/api/admin/agents"},
+            {"GET", "/api/admin/version"}
+          ] do
+        refute run(method, path, "edge.manage").halted, "expected #{method} #{path} to pass for edge.manage"
+      end
+    end
+
+    test "an edge.manage token cannot reach plugin, device or gateway-cert routes" do
+      for {method, path} <- [
+            {"POST", "/api/admin/plugin-packages"},
+            {"GET", "/api/admin/devices"},
+            {"POST", "/api/admin/gateways/gw-1/agent-certs/agent-1/revoke"},
+            {"POST", "/api/admin/plugin-assignments"}
+          ] do
+        conn = run(method, path, "edge.manage")
+        assert conn.halted, "expected #{method} #{path} to be refused for edge.manage"
+        assert conn.status == 403
+      end
+    end
+
     test "a narrow token is refused on unrelated API routes" do
       for {method, path} <- [
             {"GET", "/api/admin/devices"},

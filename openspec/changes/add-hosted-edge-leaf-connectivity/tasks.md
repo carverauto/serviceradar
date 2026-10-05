@@ -9,20 +9,24 @@
 
 ## 2. Leaf provisioning (PR 2)
 
-- [ ] 2.1 Add the `nats_leaf` component type to the agent-gateway `CertIssuer`, issuing client certs with the partition role URI SAN and server certs with local SANs.
-- [ ] 2.2 Make `ProvisionLeafWorker` issue both certs through a reachable gateway and call `provision` with all required arguments.
-- [ ] 2.3 Mint leaf creds through `AccountClient` when a NATS account is configured, and drop creds from the bundle otherwise.
-- [ ] 2.4 Rewrite `setup.sh` and the README for `serviceradar-nats.service`, `nats:serviceradar` ownership and `nats-server -t` validation.
-- [ ] 2.5 Read `SERVICERADAR_NATS_LEAF_UPSTREAM_URL` into `:nats_leaf_upstream_url` in web-ng.
-- [ ] 2.6 Share one bundle builder between the edge-site LiveView and the API.
+- [x] 2.1 Add the `nats_leaf` component type to the agent-gateway `CertIssuer`, issuing client certs with the partition role URI SAN and server certs with local SANs.
+- [x] 2.2 Make `ProvisionLeafWorker` issue both certs through a reachable gateway and call `provision` with all required arguments.
+- [x] 2.3 Mint leaf creds through `AccountClient` when a NATS account is configured, and drop creds from the bundle otherwise.
+- [x] 2.4 Rewrite `setup.sh` and the README for `serviceradar-nats.service`, `nats:serviceradar` ownership and `nats-server -t` validation.
+- [x] 2.5 Read `SERVICERADAR_NATS_LEAF_UPSTREAM_URL` into `:nats_leaf_upstream_url` in web-ng.
+- [x] 2.6 Share one bundle builder between the edge-site LiveView and the API.
 
 ## 3. Edge-site API and CLI scope (PR 2)
 
-- [ ] 3.1 Add `EdgeSiteController` (index, create, show, delete, bundle) under `:api_key_auth` with `settings.edge.manage`.
-- [ ] 3.2 Add `GET /api/admin/agents` (read-only edge view).
-- [ ] 3.3 Add the `edge.manage` NarrowScopes allowlist.
-- [ ] 3.4 Add `edge.manage` to the default `cli_allowed_scopes` (resource default, migration default, controller and LiveView fallbacks).
-- [ ] 3.5 Add controller and confinement tests.
+- [x] 3.1 Add `EdgeSiteController` (index, create, show, delete, bundle) under `:api_key_auth` with `settings.edge.manage`.
+- [x] 3.2 Add `GET /api/admin/agents` (read-only edge view).
+- [x] 3.3 Add the `edge.manage` NarrowScopes allowlist.
+- [x] 3.4 Add `edge.manage` to the default `cli_allowed_scopes` (resource default, migration default and backfill, controller and LiveView fallbacks).
+- [x] 3.5 Add controller and confinement tests.
+- [x] 3.6 Return the signed `edgepkg-v3` token as `onboarding_token` from `POST /api/admin/edge-packages`, and issue a gateway mTLS bundle for `component_type=agent`, `security_mode=mtls` (503 `gateway_unavailable` without a gateway).
+- [x] 3.7 Mint the collector token hash on `POST /api/admin/collectors` and return the signed `collectorpkg-v2` `enrollment_token`.
+- [x] 3.8 Backfill `edge.manage` into existing `authorization_settings.cli_allowed_scopes` rows.
+- [x] 3.9 Add `GET /api/admin/version` returning `{version}` from `SERVICERADAR_RELEASE_VERSION`.
 
 ## 4. Deferred
 

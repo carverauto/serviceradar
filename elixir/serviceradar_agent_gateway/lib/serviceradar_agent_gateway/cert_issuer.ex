@@ -12,6 +12,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   @default_validity_days 365
   @max_validity_days 825
   @identity_token_regex ~r/\A[A-Za-z0-9_-]+\z/
+  @dns_name_regex ~r/\A(?=.{1,253}\z)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\z/
 
   @spec issue_agent_bundle(String.t(), String.t(), atom() | String.t(), keyword()) ::
           {:ok, map()} | {:error, atom() | term()}
@@ -23,12 +24,60 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
     with :ok <- validate_component_type(component_type),
          :ok <- validate_identity_tokens(component_id, partition_id),
+         {:ok, extra_sans} <- extra_sans(component_type, partition_id, opts),
          :ok <- authorize_identity(component_id, partition_id, opts),
          {:ok, validity_days} <- validate_validity_days(opts),
          {:ok, ca_cert, ca_key} <- load_ca_paths(opts) do
-      generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts)
+      generate_bundle(
+        component_id,
+        partition_id,
+        component_type,
+        ca_cert,
+        ca_key,
+        validity_days,
+        Keyword.put(opts, :extra_sans, extra_sans)
+      )
     end
   end
+
+  @doc """
+  The URI SAN every edge-site NATS leaf client certificate in `partition_id`
+  carries. The hub's leafnode listener maps exactly this URI to the platform
+  account, so only leaf certificates issued here can bind as leaves.
+  """
+  @spec nats_leaf_role_uri(String.t()) :: String.t()
+  def nats_leaf_role_uri(partition_id), do: "spiffe://serviceradar.local/nats-leaf/#{partition_id}"
+
+  defp extra_sans(:nats_leaf, partition_id, _opts), do: {:ok, ["URI:" <> nats_leaf_role_uri(partition_id)]}
+
+  defp extra_sans(:nats_leaf_server, _partition_id, opts) do
+    hosts = ["localhost", "127.0.0.1" | List.wrap(Keyword.get(opts, :server_hosts, []))]
+
+    hosts
+    |> Enum.uniq()
+    |> Enum.reduce_while({:ok, []}, fn host, {:ok, acc} ->
+      case server_host_san(host) do
+        {:ok, san} -> {:cont, {:ok, [san | acc]}}
+        :error -> {:halt, {:error, :invalid_server_host}}
+      end
+    end)
+    |> case do
+      {:ok, sans} -> {:ok, Enum.reverse(sans)}
+      error -> error
+    end
+  end
+
+  defp extra_sans(_component_type, _partition_id, _opts), do: {:ok, []}
+
+  defp server_host_san(host) when is_binary(host) do
+    cond do
+      match?({:ok, _}, :inet.parse_strict_address(String.to_charlist(host))) -> {:ok, "IP:" <> host}
+      Regex.match?(@dns_name_regex, host) -> {:ok, "DNS:" <> host}
+      true -> :error
+    end
+  end
+
+  defp server_host_san(_host), do: :error
 
   def issue_agent_bundle(_, _, _, _), do: {:error, :invalid_identity}
 
@@ -54,7 +103,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     end
   end
 
-  defp validate_component_type(type) when type in [:agent, :addon], do: :ok
+  defp validate_component_type(type) when type in [:agent, :addon, :nats_leaf, :nats_leaf_server], do: :ok
   defp validate_component_type(_), do: {:error, :unsupported_component_type}
 
   defp validate_identity_tokens(component_id, partition_id) do
@@ -191,7 +240,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
                "-subj",
                "/CN=#{cn}"
              ]),
-           :ok <- write_extfile(ext_path, component_type, partition_id, component_id, cn),
+           :ok <-
+             write_extfile(ext_path, component_type, partition_id, component_id, cn, Keyword.get(opts, :extra_sans, [])),
            :ok <- ensure_serial(serial_path),
            :ok <-
              run_openssl([
@@ -424,8 +474,15 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp audit_severity(validity_days) when validity_days > @default_validity_days, do: :medium
   defp audit_severity(_validity_days), do: :informational
 
-  defp write_extfile(path, component_type, partition_id, component_id, cn) do
+  defp write_extfile(path, component_type, partition_id, component_id, cn, extra_sans) do
     spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
+
+    {extra_lines, _counters} =
+      Enum.map_reduce(extra_sans, %{"URI" => 1, "DNS" => 1, "IP" => 0}, fn san, counters ->
+        [kind, value] = String.split(san, ":", parts: 2)
+        index = Map.fetch!(counters, kind) + 1
+        {"#{kind}.#{index} = #{value}", Map.put(counters, kind, index)}
+      end)
 
     contents = """
     [ v3_req ]
@@ -434,6 +491,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     [ alt_names ]
     URI.1 = #{spiffe_id}
     DNS.1 = #{cn}
+    #{Enum.join(extra_lines, "\n")}
     """
 
     File.write(path, contents)

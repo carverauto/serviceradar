@@ -69,6 +69,63 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              "spiffe://serviceradar.local/addon/default/addon-assignment-1"
   end
 
+  describe "edge-site NATS leaf certificates" do
+    setup do
+      parent_dir = unique_tmp_dir!("gateway-nats-leaf-cert-test")
+      on_exit(fn -> File.rm_rf(parent_dir) end)
+
+      ca_cert = Path.join(parent_dir, "root.pem")
+      ca_key = Path.join(parent_dir, "root-key.pem")
+      assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+      %{opts: [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir, audit_writer: nil]}
+    end
+
+    test "leaf client certificates carry the partition role URI the hub maps", %{opts: opts} do
+      assert {:ok, bundle} = CertIssuer.issue_agent_bundle("leaf-nyc", "acme", :nats_leaf, opts)
+
+      sans = subject_alt_names(bundle.certificate_pem)
+      assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats-leaf/acme"} in sans
+      assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats_leaf/acme/leaf-nyc"} in sans
+      assert CertIssuer.nats_leaf_role_uri("acme") == "spiffe://serviceradar.local/nats-leaf/acme"
+    end
+
+    test "agent certificates never carry the leaf role URI", %{opts: opts} do
+      assert {:ok, bundle} = CertIssuer.issue_agent_bundle("agent-1", "acme", :agent, opts)
+
+      refute {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats-leaf/acme"} in subject_alt_names(
+               bundle.certificate_pem
+             )
+    end
+
+    test "leaf server certificates name localhost and the configured local hosts", %{opts: opts} do
+      assert {:ok, bundle} =
+               CertIssuer.issue_agent_bundle(
+                 "leaf-nyc-server",
+                 "acme",
+                 :nats_leaf_server,
+                 Keyword.put(opts, :server_hosts, ["10.0.1.50", "nats.nyc.example.com"])
+               )
+
+      sans = subject_alt_names(bundle.certificate_pem)
+      assert {:dNSName, ~c"localhost"} in sans
+      assert {:dNSName, ~c"nats.nyc.example.com"} in sans
+      assert {:iPAddress, <<127, 0, 0, 1>>} in sans
+      assert {:iPAddress, <<10, 0, 1, 50>>} in sans
+      refute {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats-leaf/acme"} in sans
+    end
+
+    test "rejects a server host that is neither an IP nor a DNS name", %{opts: opts} do
+      assert {:error, :invalid_server_host} =
+               CertIssuer.issue_agent_bundle(
+                 "leaf-nyc-server",
+                 "acme",
+                 :nats_leaf_server,
+                 Keyword.put(opts, :server_hosts, ["bad host\nDNS.9 = evil"])
+               )
+    end
+  end
+
   test "rejects invalid and over-limit validity days before loading CA files" do
     assert {:error, :invalid_validity_days} =
              CertIssuer.issue_agent_bundle("agent-1", "default", :agent, validity_days: 0)
@@ -256,6 +313,18 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              certificate_fingerprint: predecessor_fingerprint,
              serial_number: predecessor_serial_number
            })
+  end
+
+  defp subject_alt_names(cert_pem) do
+    [{:Certificate, der, _}] = :public_key.pem_decode(cert_pem)
+    cert = :public_key.pkix_decode_cert(der, :otp)
+    {:OTPCertificate, tbs, _, _} = cert
+    extensions = elem(tbs, 10)
+
+    Enum.find_value(extensions, [], fn
+      {:Extension, {2, 5, 29, 17}, _critical, sans} -> sans
+      _ -> nil
+    end)
   end
 
   defp generate_ca_bundle(ca_cert, ca_key) do
