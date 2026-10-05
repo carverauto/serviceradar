@@ -636,6 +636,16 @@ core:
   # outbound HTTPS fetch (advisory feeds, GeoLite, OTX, …). Pair it with a
   # default-deny egress NetworkPolicy that admits only that Service:
   #   SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
+  # The proxy ACL must admit every host ServiceRadar fetches from. Hosts the
+  # first-party plugin sync needs (the plugins page has a "Test egress"
+  # button that probes each of these through the same proxy):
+  #   github.com, api.github.com,
+  #   release-assets.githubusercontent.com, objects.githubusercontent.com,
+  #   github-releases.githubusercontent.com (GitHub release assets), and
+  #   registry.carverauto.dev (plugin OCI artifacts)
+  # Advisory-feed and threat-intel fetches additionally need their feed hosts
+  # (for example api.vulncheck.com, otx.alienvault.com) and Geo/ASN datasets
+  # their download hosts.
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
   # OpenBao providers can also use Kubernetes auth with the pod service account
@@ -1386,6 +1396,11 @@ webNg:
   # Extra environment variables for the web-ng pod.
   # SERVICERADAR_EGRESS_PROXY: same CONNECT proxy as core.extraEnv. web-ng
   # starts serviceradar_core, so Finch picks it up from this env.
+  # First-party plugin sync runs here and fetches through that proxy; its ACL
+  # must admit github.com, api.github.com,
+  # release-assets.githubusercontent.com, objects.githubusercontent.com,
+  # github-releases.githubusercontent.com and registry.carverauto.dev (the
+  # "Test egress" button on the plugins page probes each one).
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
   # Keep credentials out of extraEnv so Helm release values and rendered
