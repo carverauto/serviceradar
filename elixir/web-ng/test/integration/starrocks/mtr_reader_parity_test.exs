@@ -1068,7 +1068,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   end
 
   defp random_suffix do
-    :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+    4 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
   end
 
   # Device ids owned by this suite's synthetic fixture; warehouse cleanup
@@ -1110,23 +1110,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     hops? = starrocks_table_exists?(conn, database, "mtr_hops")
 
     for {table, present} <- [{"mtr_hops", hops?}, {"mtr_traces", traces?}], present do
-        sr!(
-          MySQL.query(
-            "DELETE FROM #{database}.#{table} WHERE device_id IN #{@owned_devices}",
-            conn: conn,
-            timeout: 120_000
-          )
+      sr!(
+        MySQL.query(
+          "DELETE FROM #{database}.#{table} WHERE device_id IN #{@owned_devices}",
+          conn: conn,
+          timeout: 120_000
         )
+      )
 
-        case MySQL.query(
-               "SELECT COUNT(*) FROM #{database}.#{table} WHERE device_id IN #{@owned_devices}",
-               conn: conn,
-               timeout: 60_000
-             ) do
-          {:ok, %{rows: [[0]]}} -> :ok
-          {:ok, %{rows: [[n]]}} -> flunk("#{table} still holds #{n} owned rows after cleanup")
-          {:error, reason} -> raise("StarRocks statement failed: #{inspect(reason)}")
-        end
+      case MySQL.query(
+             "SELECT COUNT(*) FROM #{database}.#{table} WHERE device_id IN #{@owned_devices}",
+             conn: conn,
+             timeout: 60_000
+           ) do
+        {:ok, %{rows: [[0]]}} -> :ok
+        {:ok, %{rows: [[n]]}} -> flunk("#{table} still holds #{n} owned rows after cleanup")
+        {:error, reason} -> raise("StarRocks statement failed: #{inspect(reason)}")
+      end
     end
 
     # The views only exist once the schema ran, which also creates both
