@@ -46,7 +46,7 @@ defmodule ServiceRadar.Observability.TelemetryHypertableCompressionDbTest do
         """
         SELECT segmentby, orderby
         FROM timescaledb_information.hypertable_compression_settings
-        WHERE replace(hypertable::text, '"', '') = $1
+        WHERE hypertable = to_regclass($1)
         """,
         ["platform.#{table}"]
       )
@@ -56,7 +56,16 @@ defmodule ServiceRadar.Observability.TelemetryHypertableCompressionDbTest do
         %{segmentby: segmentby, orderby: orderby}
 
       other ->
-        flunk("expected compression settings for platform.#{table}, got #{inspect(other)}")
+        %{rows: debug_rows} =
+          SQL.query!(
+            Repo,
+            "SELECT hypertable::text, segmentby, orderby FROM timescaledb_information.hypertable_compression_settings",
+            []
+          )
+
+        flunk(
+          "expected compression settings for platform.#{table}, got #{inspect(other)}; settings view: #{inspect(debug_rows)}"
+        )
     end
   end
 

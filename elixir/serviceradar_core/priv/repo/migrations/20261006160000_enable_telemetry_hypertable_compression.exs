@@ -98,8 +98,11 @@ defmodule ServiceRadar.Repo.Migrations.EnableTelemetryHypertableCompression do
         );
       END IF;
     EXCEPTION
+      WHEN undefined_table OR undefined_object THEN
+        RAISE NOTICE 'Could not configure compression for #{table_name}: %', SQLERRM;
       WHEN others THEN
         RAISE NOTICE 'Could not configure compression for #{table_name}: %', SQLERRM;
+        RAISE;
     END;
     $$;
     """)
@@ -165,8 +168,11 @@ defmodule ServiceRadar.Repo.Migrations.EnableTelemetryHypertableCompression do
         );
       END IF;
     EXCEPTION
+      WHEN undefined_table OR undefined_object THEN
+        RAISE NOTICE 'Could not apply policy for #{table_name}: %', SQLERRM;
       WHEN others THEN
         RAISE NOTICE 'Could not apply policy for #{table_name}: %', SQLERRM;
+        RAISE;
     END;
     $$;
     """)
