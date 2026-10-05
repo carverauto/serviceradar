@@ -231,6 +231,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/event_writer/processors/anomaly_episode_registry_db_test.exs": 1,
     "test/serviceradar/event_writer/processors/falco_events_integration_test.exs": 1,
     "test/serviceradar/event_writer/processors/k8s_nodes_ordering_test.exs": 1,
+    "test/serviceradar/event_writer/processors/k8s_public_endpoints_binding_test.exs": 1,
     "test/serviceradar/event_writer/processors/trivy_reports_integration_test.exs": 1,
     "test/serviceradar/events/health_state_change_pipeline_test.exs": 1,
     "test/serviceradar/events/ocsf_event_publisher_db_test.exs": 1,

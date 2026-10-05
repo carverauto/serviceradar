@@ -35,6 +35,7 @@ defmodule ServiceRadar.Infrastructure do
   resources do
     resource ServiceRadar.Infrastructure.Gateway
     resource ServiceRadar.Infrastructure.Agent
+    resource ServiceRadar.Infrastructure.K8sInventoryClusterBinding
     resource ServiceRadar.Infrastructure.Checker
     resource ServiceRadar.Infrastructure.Partition
     resource ServiceRadar.Infrastructure.HealthEvent

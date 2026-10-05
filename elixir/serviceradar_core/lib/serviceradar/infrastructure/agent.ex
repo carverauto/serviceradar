@@ -865,6 +865,13 @@ defmodule ServiceRadar.Infrastructure.Agent do
       destination_attribute :agent_uid
       public? true
     end
+
+    has_many :k8s_inventory_cluster_bindings,
+             ServiceRadar.Infrastructure.K8sInventoryClusterBinding do
+      source_attribute :uid
+      destination_attribute :agent_id
+      public? true
+    end
   end
 
   calculations do
