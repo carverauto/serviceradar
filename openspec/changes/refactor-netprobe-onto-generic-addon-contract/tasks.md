@@ -246,12 +246,12 @@ the legacy producers.
   claimed a stale alias would capture these observations. It does not.
   `Lookups.lookup_alias_device_ids_by_ip` filters `state in [:confirmed, :updated]`,
   and every `find_device_uid_by_alias` caller in `mapper_results_ingestor.ex`
-  resolves by primary IP FIRST (`find_live_device_uid_by_ip:586`,
-  `resolve_or_create_topology_candidate_uid:729`, `do_ensure_candidate_device:1376`,
-  `resolve_device_ids:1455` before `create_missing_devices:1458`). The alias path
+  resolves by primary IP FIRST (`find_live_device_uid_by_ip:656`,
+  `resolve_or_create_topology_candidate_uid:795`, `ensure_candidate_devices:1510`,
+  `resolve_device_ids:1604`). The alias path
   is reached only when no device owns the address directly. The narrow residual
   case is an address whose own device is absent or soft-deleted, where a `:stale`
-  alias can both mis-attribute and be reactivated (`maybe_reactivate_alias:1736`).
+  alias can both mis-attribute and be reactivated (`maybe_reactivate_alias:2351`).
 
 - [~] 5.6 **AUDITED 2026-08-25: DO NOT MOVE FLOW ATTRIBUTION ONTO THE RELAY.** The codegen half is
   done (kept below); the transport half should not be built as written.
