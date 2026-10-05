@@ -90,7 +90,12 @@ defmodule ServiceRadar.Observability.DispositionKernels do
 
   use Rustler,
     otp_app: :serviceradar_core,
-    crate: "anomaly_disposition_nif"
+    crate: "anomaly_disposition_nif",
+    # Mix builds path dependencies in :prod, so Rustler compiles this crate in
+    # release mode, where the workspace profile sets panic = "abort". Scope
+    # unwinding to this Cargo invocation, as the Bazel build does with
+    # -Cpanic=unwind: the crate refuses to compile with panic=abort.
+    env: [{"CARGO_PROFILE_RELEASE_PANIC", "unwind"}]
 
   @typedoc "Which disposition kernel to run for the batch."
   @type kind :: :seasonal | :capacity

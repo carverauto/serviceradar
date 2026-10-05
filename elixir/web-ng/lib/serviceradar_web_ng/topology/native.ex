@@ -6,7 +6,12 @@ defmodule ServiceRadarWebNG.Topology.Native do
   use Rustler,
     otp_app: :serviceradar_web_ng,
     crate: "god_view_nif",
-    load_data: :rustler_load_data
+    load_data: :rustler_load_data,
+    # Mix builds path dependencies in :prod, so Rustler compiles this crate in
+    # release mode, where the workspace profile sets panic = "abort". Scope
+    # unwinding to this Cargo invocation, as the Bazel build does with
+    # -Cpanic=unwind: the crate refuses to compile with panic=abort.
+    env: [{"CARGO_PROFILE_RELEASE_PANIC", "unwind"}]
 
   @compile {:no_warn_unused_function, {:rustler_load_data, 2}}
 
