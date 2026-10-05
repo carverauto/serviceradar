@@ -180,4 +180,76 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
 
     refute refreshed_html =~ gateway_id
   end
+
+  @tag :web_ng_shared_fixture_db
+  test "the static render runs no Oban queue query; the connected render does", %{conn: conn} do
+    test_pid = self()
+    handler_id = {__MODULE__, :oban_query, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:service_radar, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          if metadata[:source] == "oban_jobs", do: send(test_pid, {:oban_jobs_query, self()})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    # The static render is discarded as soon as the socket connects.
+    conn = get(conn, ~p"/settings/cluster")
+    assert html_response(conn, 200) =~ "Cluster Status"
+    refute_received {:oban_jobs_query, _}
+
+    {:ok, _view, _html} = live(conn, ~p"/settings/cluster")
+    assert_received {:oban_jobs_query, _}
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "an agent heartbeat updates only that agent's row", %{conn: conn} do
+    steady_id = "agent-heartbeat-steady-#{System.unique_integer([:positive])}"
+    pushing_id = "agent-heartbeat-pushing-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      AgentTracker.remove_agent(steady_id)
+      AgentTracker.remove_agent(pushing_id)
+    end)
+
+    :ok = AgentTracker.track_agent(steady_id, %{service_count: 2, hostname: "host01.example.com"})
+    :ok = AgentTracker.track_agent(pushing_id, %{service_count: 3, hostname: "host02.example.com"})
+
+    {:ok, view, _html} = live(conn, ~p"/settings/cluster")
+    assert has_element?(view, "#cluster-agent-#{steady_id}")
+    assert has_element?(view, "#cluster-agent-#{pushing_id}")
+
+    send(
+      view.pid,
+      {:agent_status,
+       %{
+         agent_id: pushing_id,
+         service_count: 9,
+         hostname: "host02.example.com",
+         last_seen: DateTime.utc_now()
+       }}
+    )
+
+    assert has_element?(view, "#cluster-agent-#{pushing_id}", "9")
+    assert has_element?(view, "#cluster-agent-#{steady_id}", "2")
+
+    # A heartbeat from an agent the page has not seen adds exactly one row.
+    new_id = "agent-heartbeat-new-#{System.unique_integer([:positive])}"
+    send(view.pid, {:agent_status, %{agent_id: new_id, service_count: 1, last_seen: DateTime.utc_now()}})
+
+    assert has_element?(view, "#cluster-agent-#{new_id}")
+
+    rows =
+      view
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query(~s(#cluster-agents tr[id^="cluster-agent-agent-heartbeat-"]))
+
+    assert Enum.count(rows) == 3
+  end
 end
