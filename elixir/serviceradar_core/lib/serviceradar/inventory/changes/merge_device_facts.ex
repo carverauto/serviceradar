@@ -32,7 +32,23 @@ defmodule ServiceRadar.Inventory.Changes.MergeDeviceFacts do
   alias ServiceRadar.Repo
 
   @key_pattern ~r/^[a-z][a-z0-9_]{0,63}$/
-  @reserved_keys ~w(passive_fingerprint identity_state identity_source)
+
+  # Keys the platform writes from its own enrichment and from source evidence. A caller's fact
+  # at one of them would read as evidence no source reported: the identity state and source
+  # mark a provisional topology sighting, a source id, integration id, MAC, address or hostname
+  # is identity evidence, and a switch-port attachment is a source fact with its own provenance
+  # (`ServiceRadar.Inventory.SourceFacts`).
+  @reserved_keys ~w(
+    passive_fingerprint
+    identity_state
+    identity_source
+    armis_device_id
+    integration_id
+    mac
+    ip
+    hostname
+    switch_port_attachment
+  )
   @max_facts 32
 
   # `{:ok, change(...)}`, not a bare `:ok`: the change registers an after_action

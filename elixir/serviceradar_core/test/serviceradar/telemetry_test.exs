@@ -538,6 +538,36 @@ defmodule ServiceRadar.TelemetryTest do
     end
   end
 
+  describe "identity_reconciliation_metrics/0" do
+    test "is part of the exported set, each metric once, under bounded tags" do
+      identity = Telemetry.identity_reconciliation_metrics()
+      names = Enum.map(identity, & &1.name)
+      exported = Enum.map(Telemetry.metrics(), & &1.name)
+
+      assert [:serviceradar, :identity_reconciler, :run, :count] in names
+      assert [:serviceradar, :identity_reconciler, :run, :blocked_unchanged] in names
+      assert [:serviceradar, :identity_reconciler, :merge, :guard_blocked, :count] in names
+      assert [:serviceradar, :inventory, :source_population, :live_to_current, :ratio] in names
+      assert [:serviceradar, :inventory, :identity_population, :retired_only_records] in names
+
+      # A reporter keeps one metric of a name and drops the others.
+      assert Enum.filter(names, &(Enum.count(exported, fn name -> name == &1 end) != 1)) == []
+
+      # Each tag value becomes a series: a device, an id or an address would be one per record.
+      assert identity |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> Enum.sort() == [
+               :deleted_reason,
+               :guard,
+               :identifier_type,
+               :partition,
+               :reason,
+               :source,
+               :source_instance,
+               :status,
+               :trigger
+             ]
+    end
+  end
+
   describe "prefix_tag_metrics/0" do
     test "registers every emitted prefix-tag telemetry event" do
       metrics = Telemetry.prefix_tag_metrics()

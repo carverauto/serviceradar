@@ -2748,20 +2748,24 @@ INSERT INTO public.identity_reconciliation_runs
      duplicate_identifier_count, duplicate_components, mergeable_components,
      blocked_components, blocked_devices, largest_blocked_component,
      merges, errors, max_merges_configured, merge_cap_reached,
-     blocked_component_devices, trigger, job_schedule_id)
+     blocked_component_devices, trigger, job_schedule_id,
+     blocked_merges, blocked_unchanged, succession_merges, succession_reviews,
+     successions_skipped, successions_deferred, max_successions_configured)
 VALUES
     ('55555555-5555-4555-8555-555555555555', NOW() - INTERVAL '2 hours',
      NOW() - INTERVAL '2 hours' + INTERVAL '31 seconds', 31000, 'completed', NULL,
      412, 96, 92, 4, 17, 5, 200, 1, 200, TRUE,
      '[{"device_ids":["identity-comp-a","identity-comp-b","identity-comp-c"]}]'::jsonb,
-     'scheduled', 7),
+     'scheduled', 7, 2, 3, 1, 1, 0, 0, 200),
     ('66666666-6666-4666-8666-666666666666', NOW() - INTERVAL '1 hour',
      NOW() - INTERVAL '1 hour' + INTERVAL '4 seconds', 4000, 'completed', NULL,
-     12, 3, 3, 0, 0, 0, 3, 0, 200, FALSE, '[]'::jsonb, 'scheduled', 7),
+     12, 3, 3, 0, 0, 0, 3, 0, 200, FALSE, '[]'::jsonb, 'scheduled', 7,
+     0, 0, 0, 0, 0, 0, 200),
     ('77777777-7777-4777-8777-777777777777', NOW() - INTERVAL '30 minutes',
      NOW() - INTERVAL '30 minutes' + INTERVAL '2 seconds', 2000, 'failed',
      '** (Postgrex.Error) ERROR 40001 (serialization_failure)',
-     0, 0, 0, 0, 0, 0, 0, 0, 200, FALSE, '[]'::jsonb, 'scheduled', 7);
+     0, 0, 0, 0, 0, 0, 0, 0, 200, FALSE, '[]'::jsonb, 'scheduled', 7,
+     0, 0, 0, 0, 0, 0, 200);
 
 -- Identity decisions and de-duplication tasks. Every device uid, reason and
 -- evidence value here is invented. identity-comp-a and identity-comp-b have one

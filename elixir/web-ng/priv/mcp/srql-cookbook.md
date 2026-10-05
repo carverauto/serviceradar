@@ -50,6 +50,7 @@ in:identity_evidence_edges device:sr:<uuid> limit:100
 in:identity_reconciliation_runs time:last_24h limit:25
 in:identity_reconciliation_runs merge_cap_reached:true time:last_7d limit:25
 in:dire_runs status:failed time:last_7d limit:25
+in:dire_runs blocked_unchanged:>0 time:last_24h limit:25
 in:identity_decisions device:sr:<uuid> limit:50
 in:identity_decisions decision_kind:policy_block time:last_7d limit:50
 in:deduplication_tasks status:open sort:last_decided_at:desc limit:50
@@ -87,13 +88,28 @@ the next run. `blocked_component_devices` lists the device uids of each componen
 it declined to merge; seed `in:identity_evidence_edges device:` with one of them
 to see why.
 
+`blocked_merges` counts the merges a merge guard refused, which are not errors.
+A blocked component or refused pair whose evidence is unchanged since it was last
+blocked is skipped rather than retried, and counted in `blocked_unchanged`; the
+sweep evaluates it again once its evidence changes, or a day after it was last
+evaluated.
+
+`succession_merges` and `succession_reviews` count the records the run merged
+into the record holding their source's new id, and the candidates it sent to
+review instead. `successions_skipped` counts the candidates whose merge was
+refused, had gone stale or failed, and `successions_deferred` those left for the
+next run by `max_successions_configured`.
+
 `in:identity_decisions` records every merge identity reconciliation refused,
 declined or overrode instead of merging (`decision_kind` is `policy_block`,
 `guard_block`, `source_block`, `alias_invalidated`, `ip_conflict`,
 `source_override`, `component_block`, `source_id_reissued` or
 `succession_review`; `reason` says which rule applied), and every source id it
 retired or brought back (`source_id_retired`, `source_id_reactivated`). One row
-per distinct decision; `occurrence_count` counts repeats.
+per distinct decision; `occurrence_count` counts repeats. A block the sweep skips
+while its evidence is unchanged is not counted again: a blocked component or pair
+counts again when its evidence changes, or a day after it was last counted, not
+on every run.
 
 Each decision naming two or more devices opens or counts on one
 `in:deduplication_tasks` row for that device set. `status` is `open` until an

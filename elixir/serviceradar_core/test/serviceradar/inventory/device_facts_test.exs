@@ -162,6 +162,18 @@ defmodule ServiceRadar.Inventory.DeviceFactsTest do
     end
   end
 
+  test "rejects the identity-bearing keys", %{device: device} do
+    # Listed here rather than read from reserved_keys/0, so that a key dropped from the
+    # reserved list fails this test instead of leaving the loop above one key shorter.
+    for key <- ~w(armis_device_id integration_id mac ip hostname switch_port_attachment) do
+      assert {:error, error} = write(device, %{key => "1001"})
+      assert Exception.message(error) =~ "#{key} is reserved"
+    end
+
+    assert {:ok, reread} = Device.get_by_uid(device.uid, false, actor: actor())
+    refute Map.has_key?(reread.metadata || %{}, "armis_device_id")
+  end
+
   test "rejects writing the provenance key directly", %{device: device} do
     assert {:error, error} = write(device, %{DeviceMetadata.provenance_key() => true})
     assert Exception.message(error) =~ "reserved"

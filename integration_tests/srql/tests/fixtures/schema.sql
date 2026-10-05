@@ -1100,7 +1100,14 @@ CREATE TABLE identity_reconciliation_runs (
     merge_cap_reached           BOOLEAN     NOT NULL DEFAULT FALSE,
     blocked_component_devices   JSONB       NOT NULL DEFAULT '[]'::jsonb,
     trigger                     TEXT        NOT NULL DEFAULT 'scheduled',
-    job_schedule_id             BIGINT
+    job_schedule_id             BIGINT,
+    blocked_merges              INT         NOT NULL DEFAULT 0,
+    blocked_unchanged           INT         NOT NULL DEFAULT 0,
+    succession_merges           INT         NOT NULL DEFAULT 0,
+    succession_reviews          INT         NOT NULL DEFAULT 0,
+    successions_skipped         INT         NOT NULL DEFAULT 0,
+    successions_deferred        INT         NOT NULL DEFAULT 0,
+    max_successions_configured  INT
 );
 
 CREATE OR REPLACE VIEW platform.identity_reconciliation_runs AS

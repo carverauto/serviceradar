@@ -262,6 +262,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/inventory/endpoint_vulnerability_consumers_db_test.exs": 1,
     "test/serviceradar/inventory/endpoint_vulnerability_matcher_scale_test.exs": 1,
     "test/serviceradar/inventory/endpoint_vulnerability_matcher_test.exs": 1,
+    "test/serviceradar/inventory/identity/blocked_fingerprint_test.exs": 1,
     "test/serviceradar/inventory/identity/fence_enforcement_test.exs": 1,
     "test/serviceradar/inventory/identity/fence_test.exs": 1,
     "test/serviceradar/inventory/identity/identity_revision_test.exs": 1,
