@@ -1,0 +1,133 @@
+ex_unit_test: name directory apps on ERL_LIBS instead of copying them.
+
+A per-target _deps tree is a unique artifact, so a unit-test cache miss
+re-uploads the whole dependency closure. Directory apps already have
+<app>/ebin beside priv; Erlang accepts a colon-separated ERL_LIBS.
+
+--- a/private/ex_unit_test.bzl
++++ b/private/ex_unit_test.bzl
+@@ -46,6 +46,41 @@
+         return path_join("external", p.removeprefix("../"))
+     return p
+ 
++def _runfiles_erl_libs_entry(info):
++    """Shell fragment for an app Erlang can see without a per-test copy, or None.
++
++    ERL_LIBS is a colon-separated list of directories scanned for <app>/ebin.
++    mix_app already emits that layout (`<target>/<app>/ebin` next to `priv`).
++    Copying it into a private `<test>_deps` tree makes a unique tree artifact per
++    test target, so a cache miss re-uploads every dependency file even when the
++    bytes are already in CAS. Measured on one unit shard: 17550 files, ~605MB,
++    ~15 minutes, almost all of it upload.
++
++    A dependency that is not already in that layout (individual .beam files, or
++    headers that have to sit in include/ beside ebin/) still needs staging.
++    mix_app publishes headers on ErlangAppInfo.include instead of next to ebin,
++    so any app with headers is staged; -include_lib would not see them otherwise.
++    """
++    if info.include:
++        return None
++    if len(info.beam) != 1:
++        return None
++    ebin = info.beam[0]
++    if not ebin.is_directory:
++        return None
++    suffix = "/{}/ebin".format(info.app_name)
++    if not ebin.short_path.endswith(suffix):
++        return None
++    parent = ebin.short_path[:-len(suffix)]
++    for priv in info.priv:
++        if priv.short_path != path_join(parent, info.app_name, "priv"):
++            return None
++    # short_path for an external repo starts with `../<repo>`. Under TEST_SRCDIR
++    # that repo is a sibling of the main workspace, not `../` relative to it.
++    if parent.startswith("../"):
++        return "$TEST_SRCDIR/" + parent[3:]
++    return "$TEST_SRCDIR/$TEST_WORKSPACE/" + parent
++
+ def _impl(ctx):
+     # TEST_TMPDIR, not TEST_UNDECLARED_OUTPUTS_DIR.
+     #
+@@ -76,21 +111,44 @@
+         for s in ctx.files.srcs + ctx.files.data
+     ]
+ 
++    direct_entries = []
++    direct_files = []
++    staged_deps = []
++    for dep in flat_deps(ctx.attr.deps):
++        info = dep[ErlangAppInfo]
++        entry = _runfiles_erl_libs_entry(info)
++        if entry == None:
++            staged_deps.append(dep)
++        elif entry not in direct_entries:
++            direct_entries.append(entry)
++            direct_files.extend(info.beam)
++            direct_files.extend(info.priv)
++
+     erl_libs_dir = ctx.label.name + "_deps"
++    erl_libs_files = []
++    if staged_deps or ctx.files.ez_deps:
++        erl_libs_files = erl_libs_contents(
++            ctx,
++            # target_info = None,
++            headers = True,
++            deps = staged_deps,
++            ez_deps = ctx.files.ez_deps,
++            dir = erl_libs_dir,
++            expand_ezs = True,
++        )
+ 
+-    erl_libs_files = erl_libs_contents(
+-        ctx,
+-        # target_info = None,
+-        headers = True,
+-        deps = flat_deps(ctx.attr.deps),
+-        ez_deps = ctx.files.ez_deps,
+-        dir = erl_libs_dir,
+-        expand_ezs = True,
+-    )
+-
+     package = ctx.label.package
+ 
+-    erl_libs_path = path_join(package, erl_libs_dir)
++    erl_libs_entries = list(direct_entries)
++    if erl_libs_files:
++        erl_libs_entries.append(
++            "$TEST_SRCDIR/$TEST_WORKSPACE/" + path_join(package, erl_libs_dir),
++        )
++    if not erl_libs_entries:
++        fail("ex_unit_test {} has nothing to put on ERL_LIBS".format(ctx.label))
++    # Paths are Bazel-owned and contain no spaces or quotes. Double quotes so
++    # $TEST_SRCDIR and $TEST_WORKSPACE expand when the test starts.
++    erl_libs_export = 'export ERL_LIBS="{}"'.format(":".join(erl_libs_entries))
+ 
+     (erlang_home, _, erlang_runfiles) = erlang_dirs(ctx)
+     (elixir_home, elixir_runfiles) = elixir_dirs(ctx, short_path = True)
+@@ -115,7 +173,7 @@
+ 
+ {copy_srcs_and_data_commands}
+ 
+-export ERL_LIBS="$TEST_SRCDIR/$TEST_WORKSPACE/{erl_libs_path}"
++{erl_libs_export}
+ 
+ cd "${{TEST_TMPDIR}}/{package}"
+ 
+@@ -158,7 +216,7 @@
+             erlang_home = erlang_home,
+             elixir_home = elixir_home,
+             copy_srcs_and_data_commands = "\n".join(copy_srcs_and_data_commands),
+-            erl_libs_path = erl_libs_path,
++            erl_libs_export = erl_libs_export,
+             package = package,
+             env = env,
+             setup = ctx.attr.setup,
+@@ -182,7 +240,7 @@
+     runfiles = erlang_runfiles.merge(elixir_runfiles)
+     runfiles = runfiles.merge_all(
+         [
+-            ctx.runfiles(ctx.files.srcs + ctx.files.data + erl_libs_files),
++            ctx.runfiles(ctx.files.srcs + ctx.files.data + erl_libs_files + direct_files),
+         ] + [
+             tool[DefaultInfo].default_runfiles
+             for tool in ctx.attr.tools
