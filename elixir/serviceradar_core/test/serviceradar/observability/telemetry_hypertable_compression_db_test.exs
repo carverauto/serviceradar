@@ -46,7 +46,7 @@ defmodule ServiceRadar.Observability.TelemetryHypertableCompressionDbTest do
         """
         SELECT segmentby, orderby
         FROM timescaledb_information.hypertable_compression_settings
-        WHERE hypertable = $1::regclass
+        WHERE replace(hypertable::text, '"', '') = $1
         """,
         ["platform.#{table}"]
       )
