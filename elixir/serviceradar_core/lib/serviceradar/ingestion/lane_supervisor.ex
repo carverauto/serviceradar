@@ -13,17 +13,16 @@ defmodule ServiceRadar.Ingestion.LaneSupervisor do
   def limits(type) do
     config = Application.get_env(:serviceradar_core, ServiceRadar.Ingestion.Supervisor, [])
 
-    Keyword.merge(
-      [
-        max_items: 32,
-        max_bytes: 32 * 1_024 * 1_024,
-        max_items_per_agent: 8,
-        queue_wait_ms: 2_000,
-        worker_timeout_ms: 10_000,
-        gateway_call_timeout_ms: 15_000
-      ],
-      Keyword.get(config, type, [])
-    )
+    [
+      max_items: 32,
+      max_bytes: 32 * 1_024 * 1_024,
+      max_items_per_agent: 8,
+      queue_wait_ms: 2_000,
+      worker_timeout_ms: 10_000,
+      gateway_call_timeout_ms: 15_000
+    ]
+    |> Keyword.merge(Keyword.get(config, type, []))
+    |> Lane.with_per_agent_bytes(16 * 1_024 * 1_024)
   end
 
   @impl true
