@@ -109,6 +109,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     defaults [:read]
 
     destroy :destroy do
+      primary? true
       require_atomic? false
       change CreateNewVersion
     end
