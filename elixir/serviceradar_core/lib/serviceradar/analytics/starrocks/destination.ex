@@ -193,6 +193,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   @doc """
   Insert into CNPG then apply `persist_after_cnpg/3`. The insert function is
   the processor's existing CNPG writer.
+
+  Stream Load performs bounded warehouse-only retries within this call, after
+  the CNPG insert has finished. If those exhaust, JetStream redelivery replays
+  the processor's idempotent insert and the same warehouse identities. This is
+  not a durable completion ledger across separate JetStream deliveries.
   """
   @spec ack_cnpg_batch(
           dataset(),
@@ -229,6 +234,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
       missing: missing_dests(starrocks_result, completed)
     }
 
+    progress =
+      case starrocks_result do
+        {:error, reason} -> Map.put(progress, :errors, %{starrocks: reason})
+        _ -> progress
+      end
+
     cond do
       progress.missing == [] ->
         {:ok, Map.put(progress, :loaded, length(encoded))}
@@ -251,8 +262,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
 
       persist_opts =
         opts
-        |> Keyword.take([:http, :label, :config, :partial_update, :columns])
+        |> Keyword.take([:http, :http_timeout, :label, :config, :partial_update, :columns])
         |> Keyword.put_new(:config, client_config())
+        |> Keyword.put(:dataset, dataset)
+        |> Keyword.put(:cnpg_completed, MapSet.member?(completed, :cnpg))
         |> attribution_load_opts(dataset)
 
       chunks = split_loads(encoded, limits)

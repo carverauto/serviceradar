@@ -560,6 +560,12 @@ defmodule ServiceRadar.Telemetry do
     import Telemetry.Metrics
 
     [
+      counter("serviceradar.starrocks.stream_load.failure.count",
+        event_name: [:serviceradar, :starrocks, :stream_load, :failure],
+        measurement: :count,
+        tags: [:dataset, :cnpg_completed, :retrying],
+        description: "Failed warehouse load attempts, including bounded retries"
+      ),
       counter("serviceradar.event_writer.producer.pull_request.count",
         event_name: [:serviceradar, :event_writer, :producer, :pull_request],
         measurement: :messages,
