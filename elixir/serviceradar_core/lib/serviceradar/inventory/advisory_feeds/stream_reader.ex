@@ -90,48 +90,88 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   @spec decode_vulnerability_chunks(Enumerable.t()) :: Enumerable.t()
   def decode_vulnerability_chunks(chunks) do
     Stream.resource(
-      fn -> {NvdShardDecoder.init(), Enum.to_list(chunks)} end,
+      fn -> {NvdShardDecoder.init(), chunk_iter(chunks)} end,
       &pull_chunk/1,
-      fn _ -> :ok end
+      fn
+        :done -> :ok
+        {_dec, iter} -> halt_chunks(iter)
+      end
     )
   end
 
+  defp chunk_iter(enum) do
+    {:suspended, nil, cont} =
+      Enumerable.reduce(enum, {:suspend, nil}, fn el, _ -> {:suspend, el} end)
+
+    cont
+  end
+
+  defp next_chunk(nil), do: :done
+
+  defp next_chunk(cont) do
+    case cont.({:cont, nil}) do
+      {:suspended, el, cont2} -> {:chunk, el, cont2}
+      {:done, _} -> :done
+      {:halted, _} -> :done
+    end
+  end
+
+  defp halt_chunks(cont) when is_function(cont) do
+    try do
+      cont.({:halt, nil})
+    rescue
+      _ -> :ok
+    catch
+      _, _ -> :ok
+    end
+
+    :ok
+  end
+
+  defp halt_chunks(_), do: :ok
+
   defp pull_chunk(:done), do: {:halt, :done}
 
-  defp pull_chunk({dec, chunks}) do
+  defp pull_chunk({dec, iter}) do
     case NvdShardDecoder.pull(dec, <<>>) do
       {:event, event, dec} ->
-        {[event], {dec, chunks}}
+        {[event], {dec, iter}}
 
       {:error, reason, _dec} ->
+        halt_chunks(iter)
         {[{:error, reason}], :done}
 
       {:done, _dec} ->
+        halt_chunks(iter)
         {:halt, :done}
 
       {:need_more, dec} ->
-        case chunks do
-          [] ->
+        case next_chunk(iter) do
+          :done ->
             finish_chunks(dec)
 
-          [chunk | rest] ->
-            pull_fed(dec, chunk, rest)
+          {:chunk, chunk, iter2} ->
+            pull_fed(dec, chunk, iter2)
         end
     end
   end
 
-  defp pull_fed(dec, chunk, rest) do
+  defp pull_fed(dec, chunk, iter) do
     case NvdShardDecoder.pull(dec, chunk) do
-      {:event, event, dec} -> {[event], {dec, rest}}
-      {:error, reason, _dec} -> {[{:error, reason}], :done}
-      {:done, _dec} -> {:halt, :done}
-      {:need_more, dec} -> pull_chunk({dec, rest})
+      {:event, event, dec} -> {[event], {dec, iter}}
+      {:error, reason, _dec} ->
+        halt_chunks(iter)
+        {[{:error, reason}], :done}
+      {:done, _dec} ->
+        halt_chunks(iter)
+        {:halt, :done}
+      {:need_more, dec} -> pull_chunk({dec, iter})
     end
   end
 
   defp finish_chunks(dec) do
     case NvdShardDecoder.finish(dec) do
-      {:event, event, dec} -> {[event], {dec, []}}
+      {:event, event, dec} -> {[event], {dec, nil}}
       {:error, reason, _dec} -> {[{:error, reason}], :done}
       :done -> {:halt, :done}
     end
@@ -151,8 +191,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
         {z, bin, :continue} ->
           gzip_step(z, [], bin, :continue)
 
-        {_z, <<>>, :input} ->
-          {[], :done}
+        {z, <<>>, :input} ->
+          {[], close_then_done(z)}
 
         {z, bin, :input} ->
           size = min(byte_size(bin), @read_bytes)
@@ -178,11 +218,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
         {[copy_iodata(output)], {zlib, rest, :continue}}
 
       {:finished, []} ->
-        {[], :done}
+        {[], close_then_done(z)}
 
       {:finished, output} ->
-        {[copy_iodata(output)], :done}
+        {[copy_iodata(output)], close_then_done(z)}
     end
+
+  defp close_then_done(z) do
+    close_zlib(z)
+    :done
+  end
   catch
     :error, reason ->
       raise ArgumentError, "nvd gzip shard: #{inspect(reason)}"
