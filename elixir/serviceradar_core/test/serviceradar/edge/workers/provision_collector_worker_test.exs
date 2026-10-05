@@ -52,9 +52,16 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorkerTest do
     @impl true
     def receive_data(%Stream{payload: %{test_plan: plan}}, _opts) do
       case plan do
-        {:respond, response} -> {:ok, response}
+        {:respond, response} -> {:ok, decode_response(response)}
         {:error, reason} -> {:error, reason}
       end
+    end
+
+    defp decode_response(response) do
+      response
+      |> Proto.GenerateUserCredentialsResponse.encode()
+      |> IO.iodata_to_binary()
+      |> Proto.GenerateUserCredentialsResponse.decode()
     end
 
     @impl true
@@ -211,7 +218,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorkerTest do
 
       assert_receive {:datasvc_generate_user_credentials, adapter_pid, _request}, 10_000
 
-      malformed = %{credential_response(public_key, u) | creds_file_content: nil}
+      malformed = %{credential_response(public_key, u) | creds_file_content: ""}
       send(adapter_pid, {:datasvc_release, {:respond, malformed}})
       assert {:error, _reason} = Task.await(task, 30_000)
 
