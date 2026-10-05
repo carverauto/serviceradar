@@ -11,6 +11,9 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.TargetBatchParams
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
+  @credential_manage_permission "settings.credentials.manage"
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
@@ -31,7 +34,9 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
     with {:ok, schema} <- resolve_schema(schema_from_context, package_id),
          :ok <- validate_batch_params(params),
          :ok <- validate_params(schema, params, policy_envelope?),
+         :ok <- authorize_policy_assignment(changeset, Map.get(context, :actor)),
          :ok <- validate_secret_linkage(schema, params),
+         :ok <- authorize_new_credential_refs(changeset, schema, params, Map.get(context, :actor)),
          :ok <- validate_auth_linkage(params) do
       :ok
     else
@@ -43,6 +48,21 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
 
       {:error, {:invalid_secret_linkage, errors}} ->
         {:error, field: :params, message: Enum.join(errors, "; ")}
+
+      {:error, :credential_reference_forbidden} ->
+        {:error,
+         field: :params,
+         message: "selecting a network credential requires settings.credentials.manage"}
+
+      {:error, :credential_grant_forbidden} ->
+        {:error,
+         field: :params,
+         message: "credential grant references may only be assigned by a trusted system process"}
+
+      {:error, :policy_assignment_forbidden} ->
+        {:error,
+         field: :source,
+         message: "policy-owned assignments may only be changed by a trusted system process"}
 
       {:error, :package_lookup} ->
         {:error, field: :plugin_package_id, message: "plugin package lookup failed"}
@@ -137,6 +157,68 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   end
 
   defp validate_secret_linkage(_schema, _params), do: :ok
+
+  defp authorize_policy_assignment(changeset, actor) do
+    if Ash.Changeset.get_attribute(changeset, :source) in [:policy, "policy"] and
+         not SystemActor.system_actor?(actor),
+       do: {:error, :policy_assignment_forbidden},
+       else: :ok
+  end
+
+  defp authorize_new_credential_refs(changeset, schema, params, actor) do
+    existing_params = Map.get(changeset.data, :params) || %{}
+
+    existing_secret_bindings =
+      if Ash.Changeset.changing_attribute?(changeset, :plugin_package_id),
+        do: MapSet.new(),
+        else: SecretRefs.network_credential_secret_bindings(schema, existing_params)
+
+    existing_grant_bindings =
+      if Ash.Changeset.changing_attribute?(changeset, :plugin_package_id),
+        do: MapSet.new(),
+        else: SecretRefs.network_credential_grant_bindings(schema, existing_params)
+
+    new_refs =
+      schema
+      |> SecretRefs.network_credential_secret_bindings(params)
+      |> MapSet.difference(existing_secret_bindings)
+
+    new_grants =
+      schema
+      |> SecretRefs.network_credential_grant_bindings(params)
+      |> MapSet.difference(existing_grant_bindings)
+
+    with :ok <- authorize_credential_grants(new_grants, actor) do
+      authorize_credential_refs(new_refs, actor)
+    end
+  end
+
+  defp authorize_credential_grants(grants, actor) do
+    if MapSet.size(grants) == 0 or SystemActor.system_actor?(actor),
+      do: :ok,
+      else: {:error, :credential_grant_forbidden}
+  end
+
+  defp authorize_credential_refs(refs, actor) do
+    if MapSet.size(refs) == 0 do
+      :ok
+    else
+      cond do
+        SystemActor.system_actor?(actor) ->
+          :ok
+
+        ActorHasPermission.match?(
+          actor,
+          [permission: @credential_manage_permission],
+          %{}
+        ) ->
+          :ok
+
+        true ->
+          {:error, :credential_reference_forbidden}
+      end
+    end
+  end
 
   defp validate_auth_linkage(params) when is_map(params) do
     auth_mode =
