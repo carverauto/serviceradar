@@ -158,14 +158,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
 
   defp pull_fed(dec, chunk, iter) do
     case NvdShardDecoder.pull(dec, chunk) do
-      {:event, event, dec} -> {[event], {dec, iter}}
+      {:event, event, dec} ->
+        {[event], {dec, iter}}
+
       {:error, reason, _dec} ->
         halt_chunks(iter)
         {[{:error, reason}], :done}
+
       {:done, _dec} ->
         halt_chunks(iter)
         {:halt, :done}
-      {:need_more, dec} -> pull_chunk({dec, iter})
+
+      {:need_more, dec} ->
+        pull_chunk({dec, iter})
     end
   end
 
