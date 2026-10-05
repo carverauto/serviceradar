@@ -440,16 +440,13 @@ fn build_stats_query(plan: &QueryPlan) -> Result<Option<MetricsStatsSql>> {
     if let Some(group_field) = group_field {
         let column = group_field.column();
         sql.push_str(&format!(
-            "jsonb_build_object('{}', {column}, '{}', COUNT(*)) AS payload",
-            group_field.response_key(),
-            stats.alias
+            "jsonb_build_object('{}', {column}, ?::text, COUNT(*)) AS payload",
+            group_field.response_key()
         ));
     } else {
-        sql.push_str(&format!(
-            "jsonb_build_object('{}', COUNT(*)) AS payload",
-            stats.alias
-        ));
+        sql.push_str("jsonb_build_object(?::text, COUNT(*)) AS payload");
     }
+    binds.insert(0, SqlBindValue::Text(stats.alias.clone()));
     sql.push_str("\nFROM otel_metrics");
     if !clauses.is_empty() {
         sql.push_str("\nWHERE ");
