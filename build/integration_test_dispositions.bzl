@@ -227,6 +227,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/edge/remote_access_sessions_test.exs": 1,
     "test/serviceradar/edge/remote_access_ssh_certificates_test.exs": 1,
     "test/serviceradar/edge/workers/provision_agent_worker_test.exs": 1,
+    "test/serviceradar/edge/workers/provision_collector_worker_test.exs": 1,
     "test/serviceradar/edge/workers/provision_leaf_worker_test.exs": 1,
     "test/serviceradar/event_writer/device_correlation_cache_test.exs": 1,
     "test/serviceradar/event_writer/plugin_device_attribution_db_test.exs": 1,
