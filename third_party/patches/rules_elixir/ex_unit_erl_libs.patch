@@ -48,7 +48,7 @@ re-uploads the whole dependency closure. Directory apps already have
  def _impl(ctx):
      # TEST_TMPDIR, not TEST_UNDECLARED_OUTPUTS_DIR.
      #
-@@ -76,21 +111,49 @@
+@@ -76,21 +111,47 @@
          for s in ctx.files.srcs + ctx.files.data
      ]
  
@@ -101,8 +101,6 @@ re-uploads the whole dependency closure. Directory apps already have
 +        erl_libs_entries.append(
 +            "$TEST_SRCDIR/$TEST_WORKSPACE/" + path_join(package, erl_libs_dir),
 +        )
-+    if not erl_libs_entries:
-+        fail("ex_unit_test {} has nothing to put on ERL_LIBS".format(ctx.label))
 +    # Paths are Bazel-owned and contain no spaces or quotes. Double quotes so
 +    # $TEST_SRCDIR and $TEST_WORKSPACE expand when the test starts.
 +    erl_libs_export = 'export ERL_LIBS="{}"'.format(":".join(erl_libs_entries))
