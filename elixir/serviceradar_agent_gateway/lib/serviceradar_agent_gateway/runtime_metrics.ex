@@ -69,7 +69,7 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
 
   @impl true
   def init(_opts) do
-    {:ok, %{queue: :queue.new(), depth: nil, publishing: false}}
+    {:ok, %{queue: :queue.new(), depth: nil, publishing: false, turn: :depth}}
   end
 
   @impl true
@@ -107,8 +107,14 @@ defmodule ServiceRadarAgentGateway.RuntimeMetrics do
     %{state | publishing: true}
   end
 
-  defp next_sample(%{depth: sample} = state) when not is_nil(sample) do
-    {sample, %{state | depth: nil}}
+  defp next_sample(%{depth: sample, queue: queue} = state)
+       when not is_nil(sample) do
+    if :queue.is_empty(queue) or Map.get(state, :turn, :depth) == :depth do
+      {sample, %{state | depth: nil, turn: :queue}}
+    else
+      {{:value, queued}, rest} = :queue.out(queue)
+      {queued, %{state | queue: rest, turn: :depth}}
+    end
   end
 
   defp next_sample(state) do

@@ -56,7 +56,7 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
   def request_flush do
     case Process.whereis(__MODULE__) do
       pid when is_pid(pid) ->
-        send(pid, :flush)
+        send(pid, :request_flush)
         :ok
 
       _missing ->
@@ -123,6 +123,17 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
       Process.send_after(self(), :flush, 0)
     else
       schedule_flush(state.flush_interval_ms)
+    end
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:request_flush, state) do
+    {state, more?} = flush_queue(state, @default_flush_batch_size)
+
+    if more? do
+      Process.send_after(self(), :request_flush, 0)
     end
 
     {:noreply, state}
