@@ -46,7 +46,10 @@ async fn busy_fixture_survives_refused_run() -> Result<()> {
         return Ok(());
     };
     let database = database.trim();
-    ensure!(fixed_database_allowed(database), "invalid fixed fixture name");
+    ensure!(
+        fixed_database_allowed(database),
+        "invalid fixed fixture name"
+    );
     ensure!(
         std::env::var("SRQL_PARITY_KEEP").as_deref() != Ok("1"),
         "busy fixture regression requires cleanup"
@@ -86,7 +89,10 @@ async fn busy_fixture_survives_refused_run() -> Result<()> {
         let marker: Option<i32> = conn
             .query_first(format!("SELECT marker FROM {table}"))
             .await?;
-        ensure!(marker == Some(7), "refused run changed the existing fixture");
+        ensure!(
+            marker == Some(7),
+            "refused run changed the existing fixture"
+        );
         Ok::<_, anyhow::Error>(())
     }
     .await;
