@@ -231,7 +231,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsBindingTest do
       %{
         data: %{
           "cluster_id" => cluster,
-          "generated_at" => DateTime.add(~U[2026-10-04 12:00:00Z], offset, :second),
+          "generated_at" => DateTime.shift(~U[2026-10-04 12:00:00Z], second: offset),
           "endpoints" => endpoints
         },
         metadata: %{}
@@ -244,7 +244,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsBindingTest do
       %{
         data: %{
           "cluster_id" => cluster,
-          "generated_at" => DateTime.add(~U[2026-10-04 12:00:00Z], offset, :second),
+          "generated_at" => DateTime.shift(~U[2026-10-04 12:00:00Z], second: offset),
           "endpoints" => endpoints
         },
         metadata: %{
