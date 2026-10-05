@@ -41,6 +41,7 @@ defmodule ServiceRadar.Infrastructure.K8sInventoryClusterBinding do
     defaults [:read]
 
     destroy :destroy do
+      primary? true
       require_atomic? false
       change ScrubK8sBindingEndpoints
     end

@@ -198,14 +198,13 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsBindingTest do
 
     destroyer =
       Task.async(fn ->
-        cluster
-        |> Ash.get!(K8sInventoryClusterBinding, actor: %{role: :system})
+        Ash.get!(K8sInventoryClusterBinding, cluster, actor: %{role: :system})
         |> Ash.destroy(actor: %{role: :system})
       end)
 
     assert Task.yield(destroyer, 1_000) == nil
     assert {:ok, 1} = process_direct(cluster, 2)
-    send(holder, :release)
+    send(holder.pid, :release)
 
     assert {:ok, :ok} = Task.await(holder, 10_000)
     assert :ok = Task.await(destroyer, 10_000)
