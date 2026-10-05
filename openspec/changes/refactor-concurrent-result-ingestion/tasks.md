@@ -65,3 +65,10 @@ The corrected identical-input dispatcher baseline passed in invocation
 The earlier load invocation e3acabbe-71e9-41fa-989f-469a48b0b212 is excluded
 because its harness omitted the old flow reply-lease supervisor. Fixed load,
 durable-store, and live rollout evidence remain pending.
+
+The worker-tree downtime regression failed at the intended public reservation
+boundary in RBE invocation afb86701-0c97-4f94-aab5-c16bbbfa4bc6 on published
+head 6c538e085cbc55962257aefd3222aaa1c0767675 with the regression added.
+StatusHandler raised an unknown-registry ArgumentError instead of rejecting
+admission. Fixed-head rejection, dispatcher survival, and recovery proof remain
+pending PR BazelCI.

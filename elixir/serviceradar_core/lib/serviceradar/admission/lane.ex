@@ -31,8 +31,9 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   def reserve(server, descriptor, owner, timeout) do
-    with :ok <- validate_descriptor(descriptor) do
-      GenServer.call(server, {:reserve, descriptor, owner}, timeout)
+    with :ok <- validate_descriptor(descriptor),
+         {:ok, target} <- reservation_target(server) do
+      GenServer.call(target, {:reserve, descriptor, owner}, timeout)
     end
   catch
     :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
@@ -80,6 +81,17 @@ defmodule ServiceRadar.Admission.Lane do
       validate_deadline(config)
     end
   end
+
+  defp reservation_target({:via, Registry, {registry, key}}) do
+    case Registry.lookup(registry, key) do
+      [{pid, _value}] -> {:ok, pid}
+      [] -> {:error, {:admission_lane_unavailable, :noproc}}
+    end
+  rescue
+    ArgumentError -> {:error, {:admission_lane_unavailable, :noproc}}
+  end
+
+  defp reservation_target(server), do: {:ok, server}
 
   @impl true
   def init(opts) do
