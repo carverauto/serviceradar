@@ -10,13 +10,11 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
   alias ServiceRadar.Inventory.Identity.HardwareSerial
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Sync.ParameterChunking
   alias ServiceRadar.Inventory.Sync.SourcePolicy
   alias ServiceRadar.Repo
 
   require Logger
-
-  # Postgres's wire protocol hard limit (int16) on bound parameters in one query.
-  @max_bound_parameters 65_535
 
   # Build identifier records for bulk upsert
   def build_identifier_records(resolved_updates) do
@@ -116,14 +114,11 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
       # A device gets one row per MAC, so a batch of devices that each report
       # dozens of MACs can carry more rows than one statement can bind, and
       # insert_all/3 does not chunk on its own: past the limit Postgrex rejects
-      # the statement and the whole batch fails. Chunk by the rows' field count.
-      # The chunks run in the caller's transaction (SyncIngestor's fenced
-      # write), so a batch still lands whole or not at all.
-      field_count = insert_records |> Enum.map(&map_size/1) |> Enum.max()
-      chunk_size = max(div(@max_bound_parameters, field_count), 1)
-
+      # the statement and the whole batch fails. The chunks run in the caller's
+      # transaction (SyncIngestor's fenced write), so a batch still lands whole
+      # or not at all.
       insert_records
-      |> Enum.chunk_every(chunk_size)
+      |> ParameterChunking.insert_all_chunks()
       |> Enum.each(fn chunk ->
         Repo.insert_all(
           DeviceIdentifier,
