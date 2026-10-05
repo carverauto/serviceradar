@@ -15,6 +15,6 @@
 
 ResolutionBugs == {}
 
-LifecycleBugs == {"sweep_refreshes_expired_tombstone"}
+LifecycleBugs == {"sweep_refreshes_expired_tombstone", "sweep_recreates_purged_seed"}
 
 =============================================================================

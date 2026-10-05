@@ -101,7 +101,7 @@ The DIRE lifecycle model SHALL record whether each record was discovered only by
 - **AND** no sweep write changes a record that is not live after the step
 
 ### Requirement: Regression Traces Cover Source Identifier Change
-The committed DIRE traces SHALL include a source-identifier re-key followed by sustained absence and reconciliation, a shared-MAC pair whose first device leaves its source, an identified device taking the only address of a sweep seed, and an expired sweep-only device that answers a sweep again. Each SHALL be model-checked with exactly the defect switches that the code it was recorded from still has, as listed in `formal/dire/CurrentBugs.tla`.
+The committed DIRE traces SHALL include a source-identifier re-key followed by sustained absence and reconciliation, a shared-MAC pair whose first device leaves its source, an identified device taking the only address of a sweep seed, an expired sweep-only device that answers a sweep again, and a sweep of the address of a sweep seed that was merged away and purged. Each SHALL be model-checked with exactly the defect switches that the code it was recorded from still has, as listed in `formal/dire/CurrentBugs.tla`.
 A trace that demonstrates a defect switch which only withholds a step, so that no knockout
 configuration can reject it, SHALL instead have a configuration that checks it with those
 switches against the property the defect violates and expects that violation. The fix deletes
@@ -132,3 +132,8 @@ that configuration with the switch, as it deletes a knockout configuration.
 #### Scenario: An expired sweep-only device is recorded returning
 - **WHEN** the expired-device trace runs against the real code after the fix
 - **THEN** the recorded trace ends with the device restored, its revision bumped and a revival audit row written
+
+#### Scenario: A purged merged-away seed is recorded staying merged
+- **WHEN** the purged-seed trace runs against the real code after the fix
+- **THEN** the second sweep of the seed's address seeds a record that never existed, and a source still carrying the purged seed's id lands on its survivor
+- **AND** TLC accepts the trace

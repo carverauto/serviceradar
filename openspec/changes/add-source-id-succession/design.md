@@ -618,11 +618,13 @@ trace configuration ever sets it. Each alternative has a negative configuration:
     (two devices, two identifiers) and `lifecycle_goal_retirement_chain` (a three-device merge
     chain, one identifier). The three-device goal and `lifecycle_goal_no_expiry` keep
     `RetirementEnabled = FALSE`, so each check stays inside its budget.
-- Defect switch, under the same confirmation rule as the resolution switches:
+- Defect switches, under the same confirmation rule as the resolution switches. The second was
+  confirmed by task 9.7 (D12):
 
   | Switch | Witness | Expected |
   | --- | --- | --- |
   | `sweep_refreshes_expired_tombstone` | `lifecycle_witness_sweep_refreshes_expired_tombstone` | `violation:ExpiredDeviceReturns` |
+  | `sweep_recreates_purged_seed` | `lifecycle_witness_sweep_recreates_purged_seed` | `violation:NoPurgedResurrection` |
 
 **Traces.** Both traces are corrected, and one is added:
 
@@ -836,6 +838,31 @@ new seed would hold the same address.
 The lifecycle model's `SweepRestore` restores any non-merged tombstone, so it is more permissive
 than the code and could not see this. D10's lifecycle tasks give records a sweep-only discovery
 flag and model the code's rule.
+
+**A sweep re-creates a purged merged-away seed (task 9.7).** A sweep names a seed by its address
+(`create_available_unknown_device/3`). Once a merged-away seed's tombstone is purged, the next
+sweep of that address finds no row there and derives the seed's uid again, so it writes the
+merged-away uid live, outside the redirect #4620 follows: a source still carrying the uid lands
+on the new seed instead of the survivor. The lifecycle trace `purged_seed_sweep` records it on
+the real code, and the switch `sweep_recreates_purged_seed` names it. The change:
+
+- **A sweep never seeds under a uid that redirects.** Before it seeds a batch, the sweep reads
+  the merge rows of the uids it is about to create in one query. A uid with none is seeded as
+  today. A uid with one is resolved (`Resolver.resolve_canonical_device_id/2`): if it resolves
+  to itself, an unmerge reversed the merge and the uid is seeded; if it redirects, the seed takes
+  the next uid of a chain `Ids.reseeded_device_id/1` derives from it, and that uid is checked the
+  same way.
+- **The chain is bounded and fails closed.** A host whose chain finds no free uid within the
+  bound, or whose uid cannot be resolved, is not seeded and is logged; a failed read of the merge
+  rows seeds none of the batch, since an unanswered lookup is never read as "no merge".
+- The chain is deterministic, so every sweep of the address derives the same uid. One side
+  effect: a merged tombstone that no longer holds the address its uid derives from used to keep
+  the sweep from seeding there until the purge, since the create was skipped as a duplicate; the
+  seed now takes the next uid of the chain.
+
+Rejected: never seeding the address of a merged-away uid, which would hide a live host from
+inventory for good; and dropping the merge row with the purge, which is the redirect #4620
+relies on.
 
 ### D13. The SQL strong-identifier hold covers source ids recorded only in metadata
 

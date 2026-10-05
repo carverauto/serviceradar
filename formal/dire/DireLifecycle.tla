@@ -37,7 +37,12 @@ KnownBugs == {
     \* source other than the sweep, so an expired sweep-only device never comes back, and
     \* update_device_statuses_available/3 has no deleted_at filter, so the sweep writes the
     \* availability of a tombstone it did not restore (add-source-id-succession D12).
-    "sweep_refreshes_expired_tombstone"
+    "sweep_refreshes_expired_tombstone",
+    \* create_available_unknown_device/3 derives a seed's uid from its address alone, so a sweep
+    \* at the address of a seed that was merged away and then purged writes a live row under the
+    \* merged-away uid, which then no longer redirects to its survivor (add-source-id-succession
+    \* task 9.7).
+    "sweep_recreates_purged_seed"
 }
 
 ASSUME Bugs \subseteq KnownBugs
@@ -350,16 +355,21 @@ Sweep(p, d) ==
 \* SweepResultsIngestor.create_available_unknown_devices/3: an address no row holds, live or
 \* deleted, gets a new seed with discovery_sources ["sweep"] and no identifier. Its uid comes from
 \* the address (IdentityReconciler.generate_deterministic_device_id/1) and a duplicate create is
-\* skipped, so the model creates only a row that never existed.
+\* skipped, so the model creates only a row that never existed. Today the uid can also name a
+\* purged row: once a seed merged into its survivor is purged, a sweep of its old address writes
+\* the merged-away uid live again (sweep_recreates_purged_seed). The model does not relate a uid
+\* to its address, so the switch lets any purged merged-away record be created again.
 SweepCreate(p, d) ==
     /\ ~\E e \in Devices : status[e] \in {"live", "tomb"} /\ ipOf[e] = p
-    /\ status[d] = "absent"
+    /\ \/ status[d] = "absent"
+       \/ Bug("sweep_recreates_purged_seed") /\ status[d] = "purged" /\ reason[d] = "merged"
     /\ status' = [status EXCEPT ![d] = "live"]
+    /\ reason' = [reason EXCEPT ![d] = "none"]
     /\ ipOf' = [ipOf EXCEPT ![d] = p]
     /\ sweepOnly' = sweepOnly \cup {d}
     /\ work' = MarkStale(work, {d})
     /\ act' = MkAct("SweepCreate", d, NoDev, 0, FALSE, {d})
-    /\ UNCHANGED <<reason, owner, audit, marked, arch>>
+    /\ UNCHANGED <<owner, audit, marked, arch>>
 
 \* AgentGatewaySync.upsert_device_for_agent/4 on the agent's device uid: a soft-deleted device
 \* is restored through Device :gateway_restore, which bumps identity_revision as :restore

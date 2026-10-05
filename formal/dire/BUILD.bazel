@@ -17,9 +17,11 @@ filegroup(
 
 # ---- Lifecycle model ----
 
+# Enormous while sweep_recreates_purged_seed is open: the switch lets a sweep write any purged
+# merged-away record live, and the check takes about 24 minutes against under one without it.
 tlc_test(
     name = "lifecycle_current_test",
-    size = "medium",
+    size = "enormous",
     cfg = "lifecycle_current.cfg",
     spec = "MCDireLifecycle.tla",
     workers = 8,
@@ -167,6 +169,21 @@ tlc_test(
     size = "medium",
     cfg = "lifecycle_witness_sweep_refreshes_expired_tombstone.cfg",
     expect = "violation:ExpiredDeviceReturns",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# A sweep at the address of a purged merged-away seed writes the merged-away uid live again,
+# which no longer redirects to its survivor (add-source-id-succession task 9.7).
+tlc_test(
+    name = "lifecycle_witness_sweep_recreates_purged_seed_test",
+    size = "medium",
+    cfg = "lifecycle_witness_sweep_recreates_purged_seed.cfg",
+    expect = "violation:NoPurgedResurrection",
     spec = "MCDireLifecycle.tla",
     workers = 8,
     deps = [
@@ -712,6 +729,29 @@ tlc_test(
     cfg = "traces/Trace_purge_recreate.cfg",
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_purge_recreate.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_purged_seed_sweep_test",
+    cfg = "traces/Trace_purged_seed_sweep.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_purged_seed_sweep.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_purged_seed_sweep__knockout_test",
+    cfg = "traces/Trace_purged_seed_sweep__knockout.cfg",
+    spec = "traces/Trace_purged_seed_sweep.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",

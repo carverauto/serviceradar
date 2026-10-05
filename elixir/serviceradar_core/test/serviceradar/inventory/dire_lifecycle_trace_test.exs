@@ -113,6 +113,24 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!()
   end
 
+  # add-source-id-succession task 9.7: a sweep seeds a host, the seed is merged into a census
+  # device found at another address, and the merged-away seed is purged. The next sweep of the
+  # seed's address finds no row there and derives the seed's uid from the address again, so it
+  # writes the merged-away uid live, and a source still carrying that uid lands on the new seed
+  # instead of the survivor. The knockout checks the trace without the switch, under which the
+  # model creates only a row that never existed, and requires TLC to reject it.
+  test "purged_seed_sweep", %{actor: actor} do
+    "purged_seed_sweep"
+    |> Trace.start(world(["d1", "d2", "d3"], %{"i1" => :mac}, ["p1", "p2", "p3"]), actor)
+    |> Trace.sweep("p1")
+    |> Trace.census("i1", "p2")
+    |> Trace.merge("d1", "d2", :auto)
+    |> Trace.purge("d1")
+    |> Trace.sweep("p1")
+    |> Trace.by_uid("d1", "p3")
+    |> Trace.assert_golden!(demonstrates: "sweep_recreates_purged_seed")
+  end
+
   # #4603: a device the resolver seeded from its address alone holds no strong identifier, so
   # it expires once unseen past the window (the model's Expire, whose ExpiryKeepsStrongIdentity
   # property forbids expiring a device that owns an identifier). A sweep that finds it again
