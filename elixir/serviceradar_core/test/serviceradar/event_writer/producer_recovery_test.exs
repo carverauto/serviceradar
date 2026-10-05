@@ -277,6 +277,7 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
       id: :event_writer_coordinator_test_supervisor,
       start: {Supervisor, :start_link, [[spec], [strategy: :one_for_one]]}
     })
+
     assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
     assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 3_000
     assert Health.check() == :ok
