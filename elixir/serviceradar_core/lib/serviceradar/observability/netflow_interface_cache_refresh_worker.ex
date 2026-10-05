@@ -172,6 +172,11 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
     end
   end
 
+  defp error_types(%Ash.Error.Changes.InvalidChanges{
+         message: "a value does not fit the type of its column"
+       }),
+       do: [:parameter_encoding_error]
+
   defp error_types(%{__struct__: type}), do: [type]
   defp error_types(_error), do: [:unknown]
 
