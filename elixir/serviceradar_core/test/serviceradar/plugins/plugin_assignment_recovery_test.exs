@@ -622,9 +622,9 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
                  enabled: true,
                  params: %{}
                },
-               actor: actor
+               actor: SystemActor.system(:plugin_assignment_recovery_test)
              )
-             |> Ash.create(actor: actor)
+             |> Ash.create(actor: SystemActor.system(:plugin_assignment_recovery_test))
 
     Repo.query!(
       "UPDATE platform.plugin_assignments SET enabled = false, partition_id = NULL WHERE id = $1",
@@ -732,9 +732,9 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
                  enabled: true,
                  params: %{}
                },
-               actor: actor
+               actor: SystemActor.system(:plugin_assignment_recovery_test)
              )
-             |> Ash.create(actor: actor)
+             |> Ash.create(actor: SystemActor.system(:plugin_assignment_recovery_test))
 
     Repo.query!(
       "UPDATE platform.plugin_assignments SET enabled = false, partition_id = NULL WHERE id = $1",
@@ -795,9 +795,9 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
                  enabled: true,
                  params: %{}
                },
-               actor: actor
+               actor: SystemActor.system(:plugin_assignment_recovery_test)
              )
-             |> Ash.create(actor: actor)
+             |> Ash.create(actor: SystemActor.system(:plugin_assignment_recovery_test))
 
     Repo.query!(
       "UPDATE platform.plugin_assignments SET enabled = false, partition_id = NULL WHERE id = $1",

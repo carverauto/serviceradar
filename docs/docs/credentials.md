@@ -410,6 +410,18 @@ Nothing about this path hands raw secret material to the sandboxed plugin.
 Grants are short-lived (300 seconds for the providers above) and pinned to one
 host, port, method set, and path set. There is no catch-all grant.
 
+### Manual assignment credential bindings
+
+A hand-entered network credential reference on a manual plugin assignment is a
+separate path from the rule above. Binding a new credential reference there
+requires the `settings.credentials.manage` permission; keeping or removing an
+existing binding does not. Signed short-lived grant references and
+policy-owned (`source: policy`) assignment create, update, and destroy are
+system-only -- reconciliation performs them, operators do not. Unchanged
+bindings survive ordinary edits and compatible package upgrades; a binding
+that only becomes active under the new package schema needs reauthorization
+with `settings.credentials.manage`.
+
 ## Row actions
 
 Each rule row on the table offers:
