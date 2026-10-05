@@ -48,7 +48,7 @@ re-uploads the whole dependency closure. Directory apps already have
  def _impl(ctx):
      # TEST_TMPDIR, not TEST_UNDECLARED_OUTPUTS_DIR.
      #
-@@ -76,21 +111,44 @@
+@@ -76,21 +111,49 @@
          for s in ctx.files.srcs + ctx.files.data
      ]
  
@@ -60,10 +60,15 @@ re-uploads the whole dependency closure. Directory apps already have
 +        entry = _runfiles_erl_libs_entry(info)
 +        if entry == None:
 +            staged_deps.append(dep)
-+        elif entry not in direct_entries:
-+            direct_entries.append(entry)
-+            direct_files.extend(info.beam)
-+            direct_files.extend(info.priv)
++        else:
++            if entry not in direct_entries:
++                direct_entries.append(entry)
++            for f in info.beam:
++                if f not in direct_files:
++                    direct_files.append(f)
++            for f in info.priv:
++                if f not in direct_files:
++                    direct_files.append(f)
 +
      erl_libs_dir = ctx.label.name + "_deps"
 +    erl_libs_files = []
