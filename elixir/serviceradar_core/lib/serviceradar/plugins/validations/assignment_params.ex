@@ -19,7 +19,7 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   def atomic(_changeset, _opts, _context), do: :ok
 
   @impl true
-  def validate(changeset, _opts, _context) do
+  def validate(changeset, _opts, context) do
     package_id =
       Ash.Changeset.get_attribute(changeset, :plugin_package_id) ||
         Map.get(changeset.data, :plugin_package_id)
