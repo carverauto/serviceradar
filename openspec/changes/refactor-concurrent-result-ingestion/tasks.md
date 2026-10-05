@@ -89,3 +89,12 @@ head 6c538e085cbc55962257aefd3222aaa1c0767675 with the regression added.
 StatusHandler raised an unknown-registry ArgumentError instead of rejecting
 admission. Fixed-head rejection, dispatcher survival, and recovery proof remain
 pending PR BazelCI.
+
+The default per-agent byte-credit regressions failed at their intended public
+admission boundaries in RBE invocation
+b90f71c2-2b63-4108-818d-4f8e4a8f794e on published head
+6c538e085cbc55962257aefd3222aaa1c0767675 with only the test patch applied.
+Both remote attempts failed the four sweep, sweep reservation, flow, and
+retained-plugin assertions: the pre-fix defaults accepted excess work from
+one agent instead of returning per_agent_byte_full. Fixed-head fairness and
+remaining durable-store evidence are still pending PR BazelCI.
