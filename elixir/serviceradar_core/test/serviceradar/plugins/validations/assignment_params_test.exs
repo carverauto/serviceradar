@@ -91,13 +91,20 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParamsTest do
       source: Keyword.get(opts, :existing_source, :manual)
     }
     |> Changeset.new()
-    |> Changeset.set_context(%{config_schema: schema})
+    |> Changeset.set_context(validation_context(opts, schema))
     |> Changeset.force_change_attribute(:source, Keyword.get(opts, :source, :policy))
     |> Changeset.force_change_attribute(:params, params)
     |> maybe_change_package(opts)
     |> AssignmentParams.validate([], %{
       actor: Keyword.get(opts, :actor, SystemActor.system(:assignment_params_test))
     })
+  end
+
+  defp validation_context(opts, schema) do
+    case Keyword.fetch(opts, :prior_schema) do
+      {:ok, prior_schema} -> %{config_schema: schema, prior_config_schema: prior_schema}
+      :error -> %{config_schema: schema}
+    end
   end
 
   defp maybe_change_package(changeset, opts) do
@@ -244,11 +251,39 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParamsTest do
              )
   end
 
-  test "treats credential refs as new when an update changes package schema" do
+  test "preserves an identical credential binding across a package upgrade" do
     params = %{"api_token_secret_ref" => @materialized_template["api_token_secret_ref"]}
 
     actor = %{
       id: "66666666-6666-4666-8666-666666666666",
+      role: :operator,
+      permissions: MapSet.new(["settings.plugins.manage"])
+    }
+
+    assert :ok =
+             validate(params,
+               source: :manual,
+               actor: actor,
+               schema: @secret_schema,
+               prior_schema: @secret_schema,
+               existing_params: params,
+               existing_package_id: "77777777-7777-4777-8777-777777777777",
+               plugin_package_id: "88888888-8888-4888-8888-888888888888"
+             )
+  end
+
+  test "requires credential manage when a package switch activates a planted binding" do
+    params = %{"api_token_secret_ref" => @materialized_template["api_token_secret_ref"]}
+
+    loose_schema = %{
+      "type" => "object",
+      "properties" => %{
+        "api_token_secret_ref" => %{"type" => "string"}
+      }
+    }
+
+    actor = %{
+      id: "99999999-9999-4999-8999-999999999999",
       role: :operator,
       permissions: MapSet.new(["settings.plugins.manage"])
     }
@@ -258,6 +293,7 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParamsTest do
                source: :manual,
                actor: actor,
                schema: @secret_schema,
+               prior_schema: loose_schema,
                existing_params: params,
                existing_package_id: "77777777-7777-4777-8777-777777777777",
                plugin_package_id: "88888888-8888-4888-8888-888888888888"

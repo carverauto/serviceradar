@@ -171,28 +171,54 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
   defp authorize_new_credential_refs(changeset, schema, params, actor) do
     existing_params = Map.get(changeset.data, :params) || %{}
 
-    existing_secret_bindings =
-      if Ash.Changeset.changing_attribute?(changeset, :plugin_package_id),
-        do: MapSet.new(),
-        else: SecretRefs.network_credential_secret_bindings(schema, existing_params)
+    case resolve_prior_schema(changeset, schema) do
+      {:ok, prior_schema} ->
+        existing_secret_bindings =
+          SecretRefs.network_credential_secret_bindings(prior_schema, existing_params)
 
-    existing_grant_bindings =
-      if Ash.Changeset.changing_attribute?(changeset, :plugin_package_id),
-        do: MapSet.new(),
-        else: SecretRefs.network_credential_grant_bindings(schema, existing_params)
+        existing_grant_bindings =
+          SecretRefs.network_credential_grant_bindings(prior_schema, existing_params)
 
-    new_refs =
-      schema
-      |> SecretRefs.network_credential_secret_bindings(params)
-      |> MapSet.difference(existing_secret_bindings)
+        new_refs =
+          schema
+          |> SecretRefs.network_credential_secret_bindings(params)
+          |> MapSet.difference(existing_secret_bindings)
 
-    new_grants =
-      schema
-      |> SecretRefs.network_credential_grant_bindings(params)
-      |> MapSet.difference(existing_grant_bindings)
+        new_grants =
+          schema
+          |> SecretRefs.network_credential_grant_bindings(params)
+          |> MapSet.difference(existing_grant_bindings)
 
-    with :ok <- authorize_credential_grants(new_grants, actor) do
-      authorize_credential_refs(new_refs, actor)
+        with :ok <- authorize_credential_grants(new_grants, actor) do
+          authorize_credential_refs(new_refs, actor)
+        end
+
+      {:error, _reason} ->
+        {:error, :package_lookup}
+    end
+  end
+
+  defp resolve_prior_schema(changeset, schema) do
+    if Ash.Changeset.changing_attribute?(changeset, :plugin_package_id) do
+      case Map.get(changeset.data, :plugin_package_id) do
+        nil ->
+          {:ok, %{}}
+
+        prior_package_id ->
+          case Map.get(changeset.context, :prior_config_schema) do
+            prior when is_map(prior) and map_size(prior) > 0 -> {:ok, prior}
+            _ -> load_prior_schema(prior_package_id)
+          end
+      end
+    else
+      {:ok, schema}
+    end
+  end
+
+  defp load_prior_schema(prior_package_id) do
+    case load_schema(prior_package_id) do
+      {:ok, prior_schema} -> {:ok, prior_schema || %{}}
+      {:error, _reason} -> {:error, :package_lookup}
     end
   end
 
