@@ -269,6 +269,7 @@ HEX_PACKAGES = [
     ("ueberauth_oidcc", "ueberauth_oidcc", "0.4.2", "b9ea3c981464a5052e4f4fbf0a3c716e124da056aca30b9754654c5c6f90f8c2"),
     ("unicode_util_compat", "unicode_util_compat", "0.7.1", "b3a917854ce3ae233619744ad1e0102e05673136776fb2fa76234f3e03b23642"),
     ("unifex", "unifex", "1.2.5", "7c8d473f8e2b43556d792179d9f6d56ff047c252288dc29a554b5a1e1404e528"),
+    ("usage_rules", "usage_rules", "1.2.8", "f49a69c7219a5b97bfb7e97d4470d790a94ac2cf049d2b1ceda6bd2b243e9cc1"),
     ("vix", "vix", "0.42.0", "c4c92051653859dc5219f553a93fa777d63525ee961c48e16e9f61fed02472ee"),
     ("websock", "websock", "0.5.3", "6105453d7fac22c712ad66fab1d45abdf049868f253cf719b625151460b8b453"),
     ("websock_adapter", "websock_adapter", "0.5.9", "5534d5c9adad3c18a0f58a9371220d75a803bf0b9a3d87e6fe072faaeed76a08"),
