@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Inventory.InterfaceThresholdWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -93,6 +94,31 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     assert {:error, _} = InterfaceThresholdWorker.run(now: DateTime.utc_now())
   end
 
+  test "a warehouse sample emits a threshold event when CNPG has none", %{device_id: device_id} do
+    insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
+    enable_metrics_warehouse!()
+
+    query = fn _sql ->
+      {:ok, %{rows: [[device_id, @if_index, @metric, 900.0]]}}
+    end
+
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.utc_now(), metric_query: query)
+    assert event_count(device_id) == 1
+  end
+
+  test "a CNPG sample does not emit when the warehouse is the metrics store", %{
+    device_id: device_id
+  } do
+    insert_setting!(device_id, %{"comparison" => "gt", "value" => 500})
+    insert_metric!(device_id, 900.0)
+    enable_metrics_warehouse!()
+
+    query = fn _sql -> {:ok, %{rows: []}} end
+
+    assert :ok = InterfaceThresholdWorker.run(now: DateTime.utc_now(), metric_query: query)
+    assert event_count(device_id) == 0
+  end
+
   test "evaluation state is kept only while a metric is violating or cooling down", %{
     device_id: device_id
   } do
@@ -107,6 +133,20 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
     assert :ok = InterfaceThresholdWorker.run(now: DateTime.shift(t0, second: 400))
     assert state_count(setting_id) == 0
     assert event_count(device_id) == 1
+  end
+
+  defp enable_metrics_warehouse! do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+    )
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end)
   end
 
   defp insert_setting!(device_id, threshold) do

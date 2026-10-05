@@ -9,7 +9,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   ## Scheduling
 
   This worker runs every minute and checks all interfaces with metric_thresholds configured.
-  It queries the latest metric values and compares them against per-metric thresholds.
+  It reads the latest stored sample for each configured metric from the store
+  `Readers.mode_for(:metrics)` selects, then compares that value against the threshold.
 
   ## Threshold Configuration
 
@@ -45,6 +46,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.MetricConsumers
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
@@ -124,17 +127,20 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
     * `:now` - the wall-clock time the duration and cooldown checks use;
       defaults to `DateTime.utc_now/0` (tests)
+    * `:metric_query` - warehouse query function for the StarRocks latest-value
+      read; defaults to `ServiceRadar.Analytics.StarRocks.Query.execute/1` (tests)
   """
   @spec run(keyword()) :: :ok | {:error, term()}
   def run(opts \\ []) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
 
     with {:ok, settings} <- get_enabled_thresholds(),
-         {:ok, states} <- load_states() do
+         {:ok, states} <- load_states(),
+         {:ok, values} <- latest_metric_values(settings, states, now, opts) do
       log_evaluation_start(settings)
 
       settings
-      |> evaluate_settings(states, now)
+      |> evaluate_settings(states, values, now)
       |> persist_states(states, now)
     else
       {:error, reason} = error ->
@@ -174,14 +180,19 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   # returns the state each one holds after this run. A metric configured twice
   # on one interface (a legacy threshold on a metric that also has a per-metric
   # threshold) shares one state, evaluated in order, as before.
-  defp evaluate_settings(settings, states, now) do
+  defp evaluate_settings(settings, states, values, now) do
     Enum.reduce(settings, %{}, fn setting, acc ->
       setting
       |> threshold_checks()
       |> Enum.reduce(acc, fn {metric_name, config}, acc ->
         key = {setting.id, metric_name}
         state = Map.get(acc, key) || Map.get(states, key, @idle_state)
-        Map.put(acc, key, evaluate_metric_threshold(setting, metric_name, config, state, now))
+
+        Map.put(
+          acc,
+          key,
+          evaluate_metric_threshold(setting, metric_name, config, state, values, now)
+        )
       end)
     end)
   end
@@ -212,12 +223,12 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     )
   end
 
-  defp evaluate_metric_threshold(setting, metric_name, config, state, now) do
+  defp evaluate_metric_threshold(setting, metric_name, config, state, values, now) do
     if in_cooldown?(state, now) do
       log_cooldown_skip(setting, metric_name)
       state
     else
-      evaluate_threshold_value(setting, metric_name, config, state, now)
+      evaluate_threshold_value(setting, metric_name, config, state, values, now)
     end
   rescue
     error ->
@@ -231,8 +242,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
       state
   end
 
-  defp evaluate_threshold_value(setting, metric_name, config, state, now) do
-    case get_latest_metric_value(setting, metric_name) do
+  defp evaluate_threshold_value(setting, metric_name, config, state, values, now) do
+    case lookup_metric_value(values, setting, metric_name) do
       {:ok, metric_value} when not is_nil(metric_value) ->
         check_threshold(setting, metric_name, config, metric_value, state, now)
 
@@ -496,30 +507,99 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     end)
   end
 
-  defp get_latest_metric_value(setting, metric_name) do
-    if_index = get_if_index(setting)
+  # One lookup for the whole run. Metrics inside their cooldown are omitted:
+  # evaluation never reads them, and a per-metric query was the round trip
+  # this batch replaces. A failed read aborts the run before state is written,
+  # which is the same "keep the previous state" outcome as the old per-metric
+  # rescue, applied to every metric in the batch.
+  defp latest_metric_values(settings, states, now, opts) do
+    case metric_keys(settings, states, now) do
+      [] ->
+        {:ok, %{}}
 
-    if is_nil(if_index) do
-      {:error, :missing_if_index}
-    else
-      query =
-        from(m in "timeseries_metrics",
-          where: m.device_id == ^setting.device_id,
-          where: m.metric_name == ^metric_name,
-          where: m.if_index == ^if_index,
-          where: m.timestamp > ago(5, "minute"),
-          order_by: [desc: m.timestamp],
-          limit: 1,
-          select: m.value
-        )
-
-      case Repo.one(query) do
-        nil -> {:ok, nil}
-        value -> {:ok, value}
-      end
+      keys ->
+        Readers.fetch(:metrics, %{
+          cnpg: fn -> cnpg_latest_metric_values(keys) end,
+          starrocks: fn ->
+            MetricConsumers.latest_interface_values(keys, warehouse_query_opts(opts))
+          end
+        })
     end
+  end
+
+  defp warehouse_query_opts(opts) do
+    case Keyword.fetch(opts, :metric_query) do
+      {:ok, query} when is_function(query, 1) -> [query: query]
+      _ -> []
+    end
+  end
+
+  defp metric_keys(settings, states, now) do
+    settings
+    |> Enum.flat_map(&metric_keys_for_setting(&1, states, now))
+    |> Enum.uniq()
+  end
+
+  defp metric_keys_for_setting(setting, states, now) do
+    case get_if_index(setting) do
+      nil -> []
+      if_index -> due_metric_keys(setting, if_index, states, now)
+    end
+  end
+
+  defp due_metric_keys(setting, if_index, states, now) do
+    setting
+    |> threshold_checks()
+    |> Enum.flat_map(fn {metric_name, _config} ->
+      state = Map.get(states, {setting.id, metric_name}, @idle_state)
+      metric_key_unless_cooldown(setting.device_id, if_index, metric_name, state, now)
+    end)
+  end
+
+  defp metric_key_unless_cooldown(device_id, if_index, metric_name, state, now) do
+    if in_cooldown?(state, now), do: [], else: [{device_id, if_index, metric_name}]
+  end
+
+  defp cnpg_latest_metric_values(keys) do
+    device_ids = Enum.map(keys, &elem(&1, 0))
+    if_indexes = Enum.map(keys, &elem(&1, 1))
+    metric_names = Enum.map(keys, &elem(&1, 2))
+
+    query =
+      from(m in "timeseries_metrics",
+        distinct: [m.device_id, m.if_index, m.metric_name],
+        where:
+          fragment(
+            "(?, ?, ?) IN (SELECT * FROM unnest(?, ?, ?))",
+            m.device_id,
+            m.if_index,
+            m.metric_name,
+            type(^device_ids, {:array, :string}),
+            type(^if_indexes, {:array, :integer}),
+            type(^metric_names, {:array, :string})
+          ),
+        where: m.timestamp > ago(5, "minute"),
+        order_by: [asc: m.device_id, asc: m.if_index, asc: m.metric_name, desc: m.timestamp],
+        select: {m.device_id, m.if_index, m.metric_name, m.value}
+      )
+
+    values =
+      query
+      |> Repo.all()
+      |> Map.new(fn {device_id, if_index, metric_name, value} ->
+        {{device_id, if_index, metric_name}, value}
+      end)
+
+    {:ok, values}
   rescue
     error -> {:error, error}
+  end
+
+  defp lookup_metric_value(values, setting, metric_name) do
+    case get_if_index(setting) do
+      nil -> {:error, :missing_if_index}
+      if_index -> {:ok, Map.get(values, {setting.device_id, if_index, metric_name})}
+    end
   end
 
   defp get_if_index(setting) do
