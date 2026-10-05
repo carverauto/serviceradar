@@ -49,6 +49,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
 
         case awaited do
           {:result, result} -> result
+          {:raised, :exit, _reason, _stacktrace} -> {:error, :load_admission_unavailable}
           {:raised, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
         end
     end

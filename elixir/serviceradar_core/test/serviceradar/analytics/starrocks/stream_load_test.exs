@@ -249,6 +249,51 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
   end
 
+  test "restart during HTTP cancels the load and returns a retryable error" do
+    parent = self()
+
+    http = fn _ ->
+      send(parent, {:in_flight, self()})
+      previous = Process.flag(:trap_exit, true)
+
+      try do
+        receive do
+          {:EXIT, _pid, reason} ->
+            send(parent, :http_cancelled)
+            exit(reason)
+        after
+          5_000 -> flunk("cancelled HTTP worker was not stopped")
+        end
+      after
+        Process.flag(:trap_exit, previous)
+      end
+    end
+
+    spawn(fn ->
+      Process.flag(:trap_exit, true)
+      send(parent, {:caller_result, StreamLoad.persist("logs", @rows, http: http)})
+    end)
+
+    assert_receive {:in_flight, worker}, 1_000
+    worker_ref = Process.monitor(worker)
+    Process.exit(Process.whereis(LoadAdmission), :kill)
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker, _}, 1_000
+    assert_receive {:caller_result, {:error, :load_admission_unavailable}}, 5_000
+    assert length(Supervisor.which_children(LoadSupervisor)) == 2
+
+    success = fn _ ->
+      {:ok,
+       %{status: 200, body: ~s({"Status":"Success","NumberLoadedRows":2,"NumberFilteredRows":0})}}
+    end
+
+    assert {:ok, %{loaded: 2}} = StreamLoad.persist("logs", @rows, http: success)
+  end
+
+  test "a cancelled load reports retryable unavailable instead of raising" do
+    assert {:error, :load_admission_unavailable} =
+             StreamLoad.persist("logs", @rows, http: fn _ -> exit(:shutdown) end)
+  end
+
   test "admission restart window stays on the retry path" do
     Process.exit(Process.whereis(LoadAdmission), :kill)
 
