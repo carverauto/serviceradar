@@ -961,7 +961,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
           quote_sr(NaiveDateTime.to_string(DateTime.to_naive(trace.created_at)))
         ]
         |> Enum.join(", ")
-        |> then(&"(&1)")
+        |> then(&"(#{&1})")
       end)
 
     "INSERT INTO #{database}.mtr_traces (#{Enum.join(columns, ", ")}) VALUES\n#{rows}"
@@ -995,7 +995,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
           quote_sr(NaiveDateTime.to_string(DateTime.to_naive(hop.created_at)))
         ]
         |> Enum.join(", ")
-        |> then(&"(&1)")
+        |> then(&"(#{&1})")
       end)
 
     "INSERT INTO #{database}.mtr_hops (#{Enum.join(columns, ", ")}) VALUES\n#{rows}"
