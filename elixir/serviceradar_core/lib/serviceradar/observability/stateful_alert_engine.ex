@@ -7,6 +7,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   owns. The evaluation work is decomposed into focused sibling modules under
   `ServiceRadar.Observability.StatefulAlertEngine.*`:
 
+    * `ShardRouting` — cached signal→shard routing; limits batch fan-out to owning shards
     * `RuleMatcher` / `MetricCondition` — does a record match a rule?
     * `Record` / `Bucketing` — record field extraction, grouping, and windowing
     * `StateMachine` — per-rule snapshot advance, fire/recover/renotify dispatch
