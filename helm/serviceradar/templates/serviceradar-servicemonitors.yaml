@@ -56,11 +56,7 @@ spec:
       path: {{ default "/metrics" $webTarget.path | quote }}
       interval: {{ $interval | quote }}
       scrapeTimeout: {{ $scrapeTimeout | quote }}
-      {{- if $webTarget.bearerTokenSecret }}
-      bearerTokenSecret:
-        name: {{ $webTarget.bearerTokenSecret.name | quote }}
-        key: {{ $webTarget.bearerTokenSecret.key | quote }}
-      {{- else if eq (default "metrics" $webTarget.port) "http" }}
+      {{- if eq (default "metrics" $webTarget.port) "http" }}
       bearerTokenSecret:
         name: {{ $secrets | quote }}
         key: "web-ng-metrics-token"

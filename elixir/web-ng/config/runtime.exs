@@ -347,12 +347,23 @@ edge_crypto_secret =
   read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE")
 
 metrics_port = parse_int_env.("SERVICERADAR_METRICS_PORT", 9090)
-metrics_token = read_secret_env.("SERVICERADAR_METRICS_TOKEN", "SERVICERADAR_METRICS_TOKEN_FILE")
+
+metrics_token =
+  case read_secret_env.("SERVICERADAR_METRICS_TOKEN", "SERVICERADAR_METRICS_TOKEN_FILE") do
+    token when is_binary(token) ->
+      case String.trim(token) do
+        "" -> nil
+        trimmed -> trimmed
+      end
+
+    other ->
+      other
+  end
 
 metrics_listener_enabled =
   case System.get_env("SERVICERADAR_METRICS_LISTENER_ENABLED") do
-    nil -> true
-    val -> val in ~w(true 1 yes)
+    nil -> config_env() == :prod
+    val -> val |> String.downcase() |> Kernel.in(["1", "true", "yes", "on"])
   end
 
 # =============================================================================

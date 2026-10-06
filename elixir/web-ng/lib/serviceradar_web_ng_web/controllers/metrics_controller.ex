@@ -26,8 +26,8 @@ defmodule ServiceRadarWebNGWeb.MetricsController do
     configured_token = metrics_token()
 
     case get_bearer_token(conn) do
-      {:ok, token} when is_binary(configured_token) and configured_token != "" ->
-        Plug.Crypto.secure_compare(token, configured_token)
+      {:ok, token} when is_binary(configured_token) ->
+        secure_equal?(token, configured_token)
 
       _ ->
         false
@@ -35,28 +35,40 @@ defmodule ServiceRadarWebNGWeb.MetricsController do
   end
 
   defp metrics_token do
-    case Application.get_env(:serviceradar_web_ng, :metrics_token) do
-      token when is_binary(token) and token != "" ->
+    case normalize_token(Application.get_env(:serviceradar_web_ng, :metrics_token)) do
+      token when is_binary(token) ->
         token
 
       _ ->
         case Application.get_env(:serviceradar_web_ng, :metrics_listener) do
-          config when is_list(config) ->
-            case Keyword.get(config, :token) do
-              token when is_binary(token) and token != "" -> token
-              _ -> nil
-            end
-
-          _ ->
-            nil
+          config when is_list(config) -> normalize_token(Keyword.get(config, :token))
+          _ -> nil
         end
     end
   end
 
+  defp normalize_token(token) when is_binary(token) do
+    case String.trim(token) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_token(_), do: nil
+
+  defp secure_equal?(left, right) when byte_size(left) == byte_size(right) do
+    Plug.Crypto.secure_compare(left, right)
+  end
+
+  defp secure_equal?(_, _), do: false
+
   defp get_bearer_token(conn) do
     case get_req_header(conn, "authorization") do
-      ["Bearer " <> token] when byte_size(token) > 0 ->
-        {:ok, String.trim(token)}
+      ["Bearer " <> token] ->
+        case String.trim(token) do
+          "" -> :error
+          trimmed -> {:ok, trimmed}
+        end
 
       _ ->
         :error

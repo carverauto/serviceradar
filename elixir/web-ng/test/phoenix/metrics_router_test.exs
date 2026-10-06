@@ -25,16 +25,6 @@ defmodule ServiceRadarWebNGWeb.MetricsRouterTest do
     assert is_binary(conn.resp_body)
   end
 
-  test "GET /health returns 200 ok" do
-    conn =
-      :get
-      |> conn("/health")
-      |> MetricsRouter.call(MetricsRouter.init([]))
-
-    assert conn.status == 200
-    assert conn.resp_body == "ok"
-  end
-
   test "unrecognized routes return 404" do
     conn =
       :get

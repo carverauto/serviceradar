@@ -36,6 +36,17 @@ defmodule ServiceRadarWebNGWeb.MetricsControllerTest do
     assert json_response(conn, 401) == %{"error" => "unauthorized"}
   end
 
+  test "GET /metrics accepts the configured token when it has surrounding whitespace", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :metrics_token, "\n" <> @test_metrics_token <> "\n")
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer " <> @test_metrics_token)
+      |> get(~p"/metrics")
+
+    assert conn.status == 200
+  end
+
   test "GET /metrics with missing token when no token configured is refused", %{conn: conn} do
     Application.delete_env(:serviceradar_web_ng, :metrics_token)
 
