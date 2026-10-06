@@ -43,12 +43,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.IgnoreSessionWritesTest do
   end
 
   describe "call/2" do
-    test "Plug tolerates a dirty session during the websocket upgrade" do
-      conn = attempt_upgrade(dirty_session_conn())
-
-      assert conn.state == :upgraded
-    end
-
     test "lets the websocket upgrade succeed by ignoring session writes" do
       conn =
         dirty_session_conn()
