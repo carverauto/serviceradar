@@ -401,6 +401,16 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "endpoint_inventory.query",
+          section: "devices",
+          resource: "endpoint_inventory",
+          action: "query",
+          label: "Query endpoint inventory",
+          description:
+            "Dispatch device and cohort endpoint-inventory cache queries through the agent command bus",
+          default_roles: @operator_roles
+        },
+        %{
           key: "endpoint_inventory.force_fresh_scan",
           section: "devices",
           resource: "endpoint_inventory",
