@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Observability.SeasonalDisposition.StateStore, as: SeasonalStateStore
   alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulAlertEngine.ShardRouting
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.ProcessRegistry
@@ -1611,6 +1612,36 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       |> Page.unwrap!()
 
     assert Enum.count(active_alerts, &(&1.title == title)) == 1
+  end
+
+  test "routing sees raw-writer rule changes and replay truncates with no cache", %{actor: _actor} do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
+    reset_engine()
+
+    on_exit(fn ->
+      restore_env(:stateful_alert_engine_shards, previous_shards)
+      reset_engine()
+    end)
+
+    shard_for = &StatefulAlertEngine.shard_for_rule_id/1
+    {:ok, routed_before} = ShardRouting.shards_for(:event, shard_for)
+    uncovered = if 0 in routed_before, do: 1, else: 0
+
+    unique = System.unique_integer([:positive])
+    raw_id = rule_id_for_shard(uncovered)
+
+    Repo.query!(
+      "INSERT INTO platform.stateful_alert_rules (id, name, signal) VALUES ($1::uuid, $2, 'event')",
+      [raw_id, "shard-fanout-#{unique}-raw"]
+    )
+
+    assert {:ok, routed_after} = ShardRouting.shards_for(:event, shard_for)
+    assert uncovered in routed_after
+
+    ServiceRadar.Observability.ApiEvent.ClearForReplay.clear_records!([])
+
+    assert {:ok, []} = ShardRouting.shards_for(:event, shard_for)
   end
 
   # Guards the dispatch path against dropping a batch when a shard is (re)started:

@@ -59,17 +59,10 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
     update_validations: [ServiceRadar.Observability.Validations.WindowBucket],
     create_changes: [
       ServiceRadar.Observability.Changes.ScheduleAlertCleanup,
-      ServiceRadar.Observability.Changes.StampEventSource,
-      ServiceRadar.Observability.Changes.InvalidateAlertEngineRouting
+      ServiceRadar.Observability.Changes.StampEventSource
     ],
-    update_changes: [
-      ServiceRadar.Observability.Changes.StampEventSource,
-      ServiceRadar.Observability.Changes.InvalidateAlertEngineRouting
-    ],
-    destroy_changes: [
-      ServiceRadar.Observability.Changes.StampEventSource,
-      ServiceRadar.Observability.Changes.InvalidateAlertEngineRouting
-    ],
+    update_changes: [ServiceRadar.Observability.Changes.StampEventSource],
+    destroy_changes: [ServiceRadar.Observability.Changes.StampEventSource],
     extensions: [AshJsonApi.Resource, AshEvents.Events],
     extra_code_interface: [quote(do: define(:get_by_id, action: :by_id, args: [:id]))],
     extra_actions: [

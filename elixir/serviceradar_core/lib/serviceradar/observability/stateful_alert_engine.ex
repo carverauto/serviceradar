@@ -7,7 +7,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   owns. The evaluation work is decomposed into focused sibling modules under
   `ServiceRadar.Observability.StatefulAlertEngine.*`:
 
-    * `ShardRouting` — cached signal→shard routing; limits batch fan-out to owning shards
+    * `ShardRouting` — signal→shard routing; limits batch fan-out to owning shards
     * `RuleMatcher` / `MetricCondition` — does a record match a rule?
     * `Record` / `Bucketing` — record field extraction, grouping, and windowing
     * `StateMachine` — per-rule snapshot advance, fire/recover/renotify dispatch
@@ -34,8 +34,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   alias ServiceRadar.ProcessRegistry
 
   require Logger
-
-  @rules_cache_ms to_timeout(minute: 1)
 
   # The engine was historically a single Horde singleton GenServer that every
   # event/metric/log batch from every EventWriter processor funnelled through.
@@ -180,11 +178,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp routed_shards(message_tag) do
-    count = shard_count()
-
-    case ShardRouting.shards_for(message_signal(message_tag), count, &shard_for_rule_id/1) do
+    case ShardRouting.shards_for(message_signal(message_tag), &shard_for_rule_id/1) do
       {:ok, shards} -> shards
-      :all -> Enum.to_list(0..(count - 1))
+      :all -> Enum.to_list(0..(shard_count() - 1))
     end
   end
 
@@ -425,21 +421,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp load_rules_if_needed(state) do
     with {:ok, state} <- load_state_snapshots(state) do
-      load_cached_rules(state)
-    end
-  end
-
-  defp load_cached_rules(%{rules_loaded_at: nil} = state) do
-    load_rules(state)
-  end
-
-  defp load_cached_rules(state) do
-    now = System.monotonic_time(:millisecond)
-
-    if now - state.rules_loaded_at > @rules_cache_ms do
       load_rules(state)
-    else
-      {:ok, state, state.rules}
     end
   end
 

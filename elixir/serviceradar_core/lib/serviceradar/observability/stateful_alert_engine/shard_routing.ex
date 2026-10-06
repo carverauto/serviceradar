@@ -8,11 +8,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.ShardRouting do
   batch, so skipping it changes no evaluation; it only stops the batch waiting
   on that shard's unrelated work.
 
-  The map is computed on the calling node from the active rules and cached for
-  as long as a shard caches its own rules. It is dropped as soon as a rule is
-  created, updated or destroyed on this node, so a new rule is routed to its
-  shard as soon as that shard can load it. When the rules cannot be read (a
-  node without a repo), the caller falls back to every shard.
+  Every call reads the committed active rules from the database, so a rule
+  created, updated or deleted on any node — through Ash, a raw writer, or the
+  replay `TRUNCATE` — is visible to the next batch on every node. There is no
+  node-local cache and nothing to invalidate. A batch that races a rule commit
+  may route from the pre-commit set while its shard evaluates the post-commit
+  set (or the reverse); each read sees its own snapshot and no batch ever sees
+  an older cached generation. When the rules cannot be read (a node without a
+  repo), the caller falls back to every shard.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -20,63 +23,28 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.ShardRouting do
 
   require Ash.Query
 
-  @cache_key {__MODULE__, :routing}
-  @ttl_ms to_timeout(minute: 1)
-
   @type signal :: :log | :event | :metric
 
   @doc """
-  The shards, of `shard_count`, owning an active rule for `signal`, or `:all`
-  when the rules cannot be read.
+  The shards owning an active rule for `signal`, or `:all` when the rules
+  cannot be read.
   """
-  @spec shards_for(signal(), pos_integer(), (term() -> non_neg_integer())) ::
+  @spec shards_for(signal(), (term() -> non_neg_integer())) ::
           {:ok, [non_neg_integer()]} | :all
-  def shards_for(signal, shard_count, shard_for_rule_id) do
-    case routing(shard_count, shard_for_rule_id) do
-      {:ok, by_signal} -> {:ok, by_signal |> Map.get(signal, MapSet.new()) |> Enum.sort()}
-      :error -> :all
-    end
-  end
-
-  @doc "Drops this node's cached routing; the next batch recomputes it."
-  @spec invalidate() :: :ok
-  def invalidate do
-    :persistent_term.erase(@cache_key)
-    :ok
-  end
-
-  defp routing(shard_count, shard_for_rule_id) do
-    now = System.monotonic_time(:millisecond)
-
-    case :persistent_term.get(@cache_key, nil) do
-      %{shard_count: ^shard_count, expires_at: expires_at, by_signal: by_signal}
-      when expires_at > now ->
-        {:ok, by_signal}
-
-      _missing_or_stale ->
-        compute(shard_count, shard_for_rule_id, now)
-    end
-  end
-
-  defp compute(shard_count, shard_for_rule_id, now) do
+  def shards_for(signal, shard_for_rule_id) do
     case read_active_rules() do
       {:ok, rules} ->
-        by_signal =
-          Enum.reduce(rules, %{}, fn rule, acc ->
-            shard = shard_for_rule_id.(rule.id)
-            Map.update(acc, rule.signal, MapSet.new([shard]), &MapSet.put(&1, shard))
-          end)
+        shards =
+          rules
+          |> Enum.filter(&(&1.signal == signal))
+          |> Enum.map(&shard_for_rule_id.(&1.id))
+          |> Enum.uniq()
+          |> Enum.sort()
 
-        :persistent_term.put(@cache_key, %{
-          shard_count: shard_count,
-          expires_at: now + @ttl_ms,
-          by_signal: by_signal
-        })
-
-        {:ok, by_signal}
+        {:ok, shards}
 
       :error ->
-        :error
+        :all
     end
   end
 
