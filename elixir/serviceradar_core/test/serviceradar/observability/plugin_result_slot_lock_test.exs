@@ -58,9 +58,10 @@ defmodule ServiceRadar.Observability.PluginResultSlotLockTest do
     # bucket sequence), each exactly one statement regardless of how many
     # buckets the window spans -- previously five to thirteen statements per
     # result.
-    count = count_lock_statements(fn -> PluginResultIngestor.ingest(payload, status) end)
+    count =
+      count_lock_statements(fn -> assert :ok = PluginResultIngestor.ingest(payload, status) end)
 
-    assert count <= 3
+    assert count in 1..3
   end
 
   defp count_lock_statements(fun) do

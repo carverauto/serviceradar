@@ -314,6 +314,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/notifications/provider_package_approval_test.exs": 1,
     "test/serviceradar/notifications/rate_limiter_durability_test.exs": 1,
     "test/serviceradar/notifications/repeat_interval_floor_test.exs": 1,
+    "test/serviceradar/observability/advisory_locks_test.exs": 1,
     "test/serviceradar/observability/anomaly_episode_stale_close_worker_db_test.exs": 1,
     "test/serviceradar/observability/capacity_forecasting/worker_test.exs": 1,
     "test/serviceradar/observability/hourly_rollup_retention_db_test.exs": 1,
