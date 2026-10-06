@@ -8,6 +8,9 @@ fingerprints.
 
 ## Upgrade Notes
 
+- Public self-registration is gone: `POST /auth/register` now returns
+  404. Create accounts through an administrator, SSO provisioning, or
+  bootstrap.
 - Helm `core.migrations.expectedVersion` is `20261008040000`.
   Migrations since 1.4.82 add sweep group version history, CLI
   authorization codes, reconciliation block counters, Dgraph canonical
@@ -57,9 +60,12 @@ fingerprints.
   PR #5299), transactional inline facts with fail-closed probes
   (PR #5275), and attested snapshot supersession (PR #5345).
 - DIRE: block fingerprints and population gauges (PR #5324).
-- Security: SFTP rename destination policy (PR #5311), CLI browser URLs
-  open without a shell (PR #5306), and tighter NATS permissions for the
-  Trivy sidecar and packaged collectors (PR #5305, PR #5298).
+- Security: public self-registration (`POST /auth/register`) is
+  removed (PR #5355). SRQL entity authorization follows the parser's
+  tokenization (PR #5352). SFTP rename destination policy (PR #5311),
+  CLI browser URLs open without a shell (PR #5306), and tighter NATS
+  permissions for the Trivy sidecar and packaged collectors (PR #5305,
+  PR #5298).
 
 # ServiceRadar v1.4.82
 
