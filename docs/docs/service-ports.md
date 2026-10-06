@@ -61,7 +61,7 @@ These services should remain internal to the ServiceRadar namespace, the cluster
 
 | Service | Port | Reason |
 |---|---:|---|
-| `serviceradar-web-ng` | 4000 | Serve only behind Gateway/ingress. |
+| `serviceradar-web-ng` | 4000, 9090 | Serve HTTP only behind Gateway/ingress (port 4000); internal Prometheus scrape listener (port 9090). |
 | `serviceradar-core` / core-elx | 8090, 50052, 9090 | Internal API, gRPC, and metrics paths. |
 | `serviceradar-datasvc` | 50057 | Internal data service. |
 | CNPG/PostgreSQL | 5432 | Database access; use private administration paths only. |

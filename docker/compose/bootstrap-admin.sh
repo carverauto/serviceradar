@@ -6,6 +6,7 @@ ADMIN_PASSWORD_FILE="${ADMIN_DIR}/admin-password"
 RELEASE_COOKIE_FILE="${ADMIN_DIR}/release-cookie"
 SECRET_KEY_BASE_FILE="${ADMIN_DIR}/secret-key-base"
 PLUGIN_STORAGE_SIGNING_SECRET_FILE="${ADMIN_DIR}/plugin-storage-signing-secret"
+WEB_NG_METRICS_TOKEN_FILE="${ADMIN_DIR}/web-ng-metrics-token"
 ADMIN_EMAIL="${SERVICERADAR_ADMIN_EMAIL:-root@localhost}"
 APP_UID="${SERVICERADAR_UID:-10001}"
 APP_GID="${SERVICERADAR_GID:-10001}"
@@ -46,6 +47,10 @@ ensure_secret_file "${SECRET_KEY_BASE_FILE}" \
 ensure_secret_file "${PLUGIN_STORAGE_SIGNING_SECRET_FILE}" \
   "head -c 48 /dev/urandom | base64 | tr -d '\n'" \
   "plugin storage signing secret"
+
+ensure_secret_file "${WEB_NG_METRICS_TOKEN_FILE}" \
+  "head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'" \
+  "web-ng metrics bearer token"
 
 ADMIN_PASSWORD="$(cat "${ADMIN_PASSWORD_FILE}")"
 

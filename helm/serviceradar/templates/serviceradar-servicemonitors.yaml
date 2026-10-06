@@ -32,6 +32,7 @@
 {{- if hasKey $flowTarget "enabled" -}}
 {{- $flowTargetEnabled = $flowTarget.enabled -}}
 {{- end -}}
+{{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- if and $obsEnabled $serviceMonitorsEnabled $webEnabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -51,10 +52,15 @@ spec:
     matchNames:
       - {{ .Release.Namespace | quote }}
   endpoints:
-    - port: http
+    - port: {{ default "metrics" $webTarget.port | quote }}
       path: {{ default "/metrics" $webTarget.path | quote }}
       interval: {{ $interval | quote }}
       scrapeTimeout: {{ $scrapeTimeout | quote }}
+      {{- if eq (default "metrics" $webTarget.port) "http" }}
+      bearerTokenSecret:
+        name: {{ $secrets | quote }}
+        key: "web-ng-metrics-token"
+      {{- end }}
 {{- end }}
 {{- if and $obsEnabled $serviceMonitorsEnabled $coreEnabled }}
 ---

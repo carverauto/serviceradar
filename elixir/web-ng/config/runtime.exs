@@ -346,6 +346,26 @@ plugin_storage_signing_secret =
 edge_crypto_secret =
   read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE")
 
+metrics_port = parse_int_env.("SERVICERADAR_METRICS_PORT", 9090)
+
+metrics_token =
+  case read_secret_env.("SERVICERADAR_METRICS_TOKEN", "SERVICERADAR_METRICS_TOKEN_FILE") do
+    token when is_binary(token) ->
+      case String.trim(token) do
+        "" -> nil
+        trimmed -> trimmed
+      end
+
+    other ->
+      other
+  end
+
+metrics_listener_enabled =
+  case System.get_env("SERVICERADAR_METRICS_LISTENER_ENABLED") do
+    nil -> config_env() == :prod
+    val -> val |> String.downcase() |> Kernel.in(["1", "true", "yes", "on"])
+  end
+
 # =============================================================================
 # Local-login break-glass + SSO toggle
 # =============================================================================
@@ -366,6 +386,13 @@ config :serviceradar_web_ng, :auth,
     |> System.get_env("false")
     |> String.downcase()
     |> Kernel.in(["1", "true", "yes", "on"])
+
+config :serviceradar_web_ng, :metrics_listener,
+  enabled: metrics_listener_enabled,
+  port: metrics_port,
+  token: metrics_token
+
+config :serviceradar_web_ng, :metrics_token, metrics_token
 
 if is_binary(edge_crypto_secret) and String.trim(edge_crypto_secret) != "" do
   config :serviceradar_core, :crypto_secret, String.trim(edge_crypto_secret)

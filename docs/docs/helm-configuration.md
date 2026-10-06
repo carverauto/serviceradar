@@ -704,3 +704,16 @@ reachable HTTPS origin of the web UI. Recent charts copy that value to
 `SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` on `web-ng` and `core` so
 acknowledge / snooze / resolve links inside notifications resolve to a real
 address. See the [Notifications Quickstart](./notification-quickstart.md).
+
+## Prometheus Metrics Scraping and Authentication
+
+The chart provides Prometheus `ServiceMonitor` resources when `observability.enabled` and `observability.prometheus.serviceMonitors.enabled` are `true`.
+
+By default, `serviceradar-web-ng` serves metrics on a dedicated internal port (`webNg.metricsPort`, default `9090`). This internal listener is omitted from external Gateway and Ingress routes, allowing in-cluster Prometheus to scrape metrics without exposing them publicly.
+
+On the public HTTP/HTTPS listener (port 4000), `/metrics` requires bearer token authentication:
+- Unauthenticated requests to port 4000 return `401 Unauthorized`.
+- Scrapes against port 4000 require an `Authorization: Bearer <token>` header.
+- The bearer token is auto-generated in `serviceradar-secrets` under the `web-ng-metrics-token` key.
+- If `observability.prometheus.serviceMonitors.targets.webNg.port` is changed to `http`, the chart automatically wires `bearerTokenSecret` to supply the token from `serviceradar-secrets`.
+
