@@ -1,0 +1,13 @@
+suite: web-ng tmp emptyDir size limit
+templates:
+  - templates/web.yaml
+tests:
+  - it: bounds the web-ng tmp emptyDir
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].emptyDir.sizeLimit
+          value: 512Mi
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
