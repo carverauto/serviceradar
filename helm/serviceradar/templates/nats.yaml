@@ -333,11 +333,14 @@ spec:
               # gRPC telemetry: sysmon/SNMP status metrics and relayed OTLP
               # chunks. It is not a general NATS producer and cannot publish
               # flow attribution, trap/syslog logs, or events.
+              # metrics.agent_gateway carries the gateway's own core-call latency
+              # and status-buffer depth (RuntimeMetrics). It waits for a PubAck,
+              # so without this entry every sample is denied and times out.
               {
                 user: "CN=serviceradar-agent-gateway,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["metrics.sysmon.>", "metrics.snmp.>", "metrics.icmp.>", "metrics.mtr.>", "metrics.rperf.>", "metrics.sweep.>", "metrics.timeseries.>", "otel.traces.raw", "otel.metrics.raw", "otel.metrics.derived", "logs.otel", "\$JS.API.>"]
+                    allow: ["metrics.sysmon.>", "metrics.snmp.>", "metrics.icmp.>", "metrics.mtr.>", "metrics.rperf.>", "metrics.sweep.>", "metrics.timeseries.>", "metrics.agent_gateway", "otel.traces.raw", "otel.metrics.raw", "otel.metrics.derived", "logs.otel", "\$JS.API.>"]
                     deny: ["\$SYS.>", "flow.attributed.>", "events.>", "logs.syslog", "logs.syslog.>", "logs.snmp", "logs.snmp.>"]
                   }
                   subscribe: {
