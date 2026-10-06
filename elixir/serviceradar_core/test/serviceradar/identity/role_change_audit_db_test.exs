@@ -83,7 +83,10 @@ defmodule ServiceRadar.Identity.RoleChangeAuditDbTest do
   end
 
   defp list_events!(user_id) do
-    UserAuthEvent.list_for_user!(user_id).results
+    case UserAuthEvent.list_for_user!(user_id) do
+      %{results: results} -> results
+      events when is_list(events) -> events
+    end
   end
 
   defp user!(actor, role) do
