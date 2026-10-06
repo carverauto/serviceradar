@@ -69,12 +69,12 @@ func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 	}
 }
 
-// configureGatewaySPIRE configures SPIRE attestation for edge gateways.
-// Gateways write the join token and nested SPIRE agent config that attests to the upstream (k8s) SPIRE server.
+// configureGatewaySPIRE configures SPIRE credentials for edge gateways.
+// Gateways write the join token and nested SPIRE agent config.
 func (b *Bootstrapper) configureGatewaySPIRE(ctx context.Context, spireDir string) error {
 	_ = ctx
 
-	b.logger.Debug().Msg("Configuring nested SPIRE server for gateway")
+	b.logger.Debug().Msg("Configuring gateway SPIRE join token and nested agent")
 
 	// Write join token (one-time use for initial attestation)
 	tokenPath := filepath.Join(spireDir, "upstream-join-token")
