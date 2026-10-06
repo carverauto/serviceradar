@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import ServiceRadarWebNG.AshTestHelpers,
-    only: [admin_user_fixture: 0, api_token_fixture: 2, user_fixture: 0]
+    only: [admin_user_fixture: 0, api_token_with_raw_fixture: 2, user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian
 
@@ -54,11 +54,11 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   describe "POST /api/admin/plugin-packages" do
     test "an API key with plugins.stage is refused", %{conn: conn} do
       admin = admin_user_fixture()
-      token = api_token_fixture(admin, %{})
+      {_token, raw_token} = api_token_with_raw_fixture(admin, %{})
 
       conn =
         conn
-        |> put_req_header("x-api-key", token.token)
+        |> put_req_header("x-api-key", raw_token)
         |> post(~p"/api/admin/plugin-packages", create_params())
 
       assert conn.status == 403

@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
-  import ServiceRadarWebNG.AshTestHelpers, only: [api_token_fixture: 2]
+  import ServiceRadarWebNG.AshTestHelpers, only: [api_token_with_raw_fixture: 2]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardInstance
@@ -115,11 +115,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   describe "POST /api/v1/dashboard-packages — defense in depth" do
     test "API key cannot use its owner's RBAC as a publish scope", %{conn: conn} do
       admin = AccountsFixtures.user_fixture(%{role: :admin})
-      token = api_token_fixture(admin, %{scope: :full_access})
+      {_token, raw_token} = api_token_with_raw_fixture(admin, %{scope: :full_access})
 
       conn =
         conn
-        |> put_req_header("x-api-key", token.token)
+        |> put_req_header("x-api-key", raw_token)
         |> publish_multipart(manifest_for("com.test.api-key-scope", @renderer), @renderer, nil)
 
       body = json_response(conn, 403)
