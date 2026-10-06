@@ -11,13 +11,11 @@ fingerprints.
 - Public self-registration is gone: `POST /auth/register` now returns
   404. Create accounts through an administrator, SSO provisioning, or
   bootstrap.
-- Helm `core.migrations.expectedVersion` is `20261008050000`.
+- Helm `core.migrations.expectedVersion` is `20261008040000`.
   Migrations since 1.4.82 add sweep group version history, CLI
   authorization codes, reconciliation block counters, Dgraph canonical
   rebuild cursors, plugin repository last-sync summaries, HOT-friendly
-  SNMP fact storage, retire K8s public-endpoint attribution rows, and
-  redefine `platform.device_holds_strong_identifier/1` to hold devices
-  whose source id survives only in metadata.
+  SNMP fact storage, and retire K8s public-endpoint attribution rows.
 - Agent gateways answer PushStatus within the agent's 30s deadline.
   Retained plugin results, flow attribution, endpoint inventory, and
   OTLP are acknowledged only after core accepts them, and are retried by
