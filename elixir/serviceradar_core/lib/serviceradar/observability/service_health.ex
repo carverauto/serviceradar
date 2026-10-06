@@ -199,8 +199,32 @@ defmodule ServiceRadar.Observability.ServiceHealth do
   end
 
   defp state_sort_key(%ServiceState{} = state), do: PluginStateContract.state_rank(state)
-  defp state_sort_key(%{} = state), do: PluginStateContract.state_rank(state)
+  defp state_sort_key(%{} = state), do: PluginStateContract.snapshot_rank(state_to_snapshot(state))
   defp state_sort_key(_), do: -1
+
+  defp state_to_snapshot(state) do
+    timestamp =
+      Map.get(state, :last_observed_at) || Map.get(state, "last_observed_at") ||
+        Map.get(state, :timestamp) || Map.get(state, "timestamp")
+
+    %{
+      agent_id: Map.get(state, :agent_id) || Map.get(state, "agent_id"),
+      gateway_id: Map.get(state, :gateway_id) || Map.get(state, "gateway_id"),
+      partition: Map.get(state, :partition) || Map.get(state, "partition"),
+      service_type: Map.get(state, :service_type) || Map.get(state, "service_type"),
+      service_name: Map.get(state, :service_name) || Map.get(state, "service_name"),
+      message: Map.get(state, :message) || Map.get(state, "message"),
+      details: Map.get(state, :details) || Map.get(state, "details"),
+      timestamp: normalize_snapshot_timestamp(timestamp),
+      available: Map.get(state, :available, Map.get(state, "available"))
+    }
+  end
+
+  defp normalize_snapshot_timestamp(value) when is_binary(value) do
+    parse_iso_datetime(value) || value
+  end
+
+  defp normalize_snapshot_timestamp(value), do: value
 
   defp state_identity_key(state) do
     agent_id = Map.get(state, :agent_id) || Map.get(state, "agent_id") || ""

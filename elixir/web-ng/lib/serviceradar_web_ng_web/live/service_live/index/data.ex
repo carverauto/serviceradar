@@ -44,10 +44,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
     |> compute_summary()
   end
 
-  def summary(scope, _services) when not is_list(scope) and not is_nil(scope) do
-    ServiceHealth.summary(scope)
-  end
-
   def summary(_plugin_states, _services) do
     ServiceHealth.empty_summary()
   end
