@@ -459,6 +459,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
         tcp_flags_source: enrichment.tcp_flags_source,
         dst_service_label: enrichment.dst_service_label,
         dst_service_source: enrichment.dst_service_source,
+        app: Map.get(enrichment, :app),
         bytes_total: flow.octets,
         packets_total: flow.packets,
         bytes_in: flow.bytes_in,

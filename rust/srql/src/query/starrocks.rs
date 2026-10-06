@@ -1503,7 +1503,7 @@ fn group_alias(col: &str) -> String {
     match trimmed {
         "dst_port" => "dst_endpoint_port".to_string(),
         "src_port" => "src_endpoint_port".to_string(),
-        "app" => "COALESCE(app, 'unknown')".to_string(),
+        "app" => "app".to_string(),
         "tcp_flag" => "tcp_flags_label".to_string(),
         "duration" => "duration_bucket".to_string(),
         // `partition` is reserved in StarRocks and cannot stand as a bare alias.
