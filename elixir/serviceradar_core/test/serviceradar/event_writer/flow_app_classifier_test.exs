@@ -21,8 +21,10 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifierTest do
 
     assert length(cases) >= 15
 
+    atom_rules = Enum.map(rules, &atomize_rule/1)
+
     for %{"flow" => flow, "expected" => expected, "note" => note} <- cases do
-      actual = FlowAppClassifier.classify(flow, rules)
+      actual = FlowAppClassifier.classify(atomize_flow(flow), atom_rules)
       assert actual == expected, "case (#{note}): expected #{expected}, got #{actual}"
     end
   end
@@ -37,6 +39,17 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifierTest do
     flow = %{protocol_num: 6, src_port: 9, dst_port: 1234}
 
     assert FlowAppClassifier.classify(flow, rules) == "two-fields"
+  end
+
+  test "uuid string ids tie-break deterministically without raising" do
+    rules = [
+      %{id: "018f9b2c-0000-7000-8000-000000000002", priority: 5, dst_port: 8080, app_label: "second"},
+      %{id: "018f9b2c-0000-7000-8000-000000000001", priority: 5, dst_port: 8080, app_label: "first"}
+    ]
+
+    flow = %{partition: "default", protocol_num: 6, dst_port: 8080}
+
+    assert FlowAppClassifier.classify(flow, rules) == "first"
   end
 
   test "a rule load failure degrades to the baseline table" do
@@ -80,5 +93,22 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifierTest do
         )
 
     path |> File.read!() |> Jason.decode!()
+  end
+
+  @rule_keys ~w(id partition priority protocol_num dst_port src_port src_cidr dst_cidr app_label)
+  @flow_keys ~w(partition protocol_num dst_port src_port src_ip dst_ip)
+
+  defp atomize_rule(rule) when is_map(rule) do
+    Map.new(rule, fn {key, value} -> {atomize_key(key, @rule_keys), value} end)
+  end
+
+  defp atomize_flow(flow) when is_map(flow) do
+    Map.new(flow, fn {key, value} -> {atomize_key(key, @flow_keys), value} end)
+  end
+
+  defp atomize_key(key, _known) when is_atom(key), do: key
+
+  defp atomize_key(key, known) when is_binary(key) do
+    if key in known, do: String.to_existing_atom(key), else: key
   end
 end

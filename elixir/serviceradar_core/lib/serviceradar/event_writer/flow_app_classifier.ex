@@ -138,26 +138,40 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
   defp best_rule(attrs, rules) do
     rules
     |> Enum.filter(&matches?(attrs, &1))
-    |> Enum.max_by(&ranking/1, fn -> nil end)
+    |> Enum.reduce(nil, &pick_winner/2)
   end
 
-  defp ranking(rule) do
+  defp pick_winner(rule, nil), do: rule
+
+  defp pick_winner(rule, acc) do
+    if rule_wins?(rule, acc), do: rule, else: acc
+  end
+
+  defp rule_wins?(candidate, current) do
+    {priority_candidate, specificity_candidate} = rank_key(candidate)
+    {priority_current, specificity_current} = rank_key(current)
+
+    cond do
+      priority_candidate != priority_current -> priority_candidate > priority_current
+      specificity_candidate != specificity_current -> specificity_candidate > specificity_current
+      # id ASC is a stable tie-break only, not a semantic order: rule ids
+      # are UUID strings in production and integers in some tests, so the
+      # comparison must never raise and just pick deterministically.
+      true -> id_lt?(Map.get(candidate, :id), Map.get(current, :id))
+    end
+  end
+
+  defp rank_key(rule) do
     specificity =
       Enum.count(
         [:protocol_num, :dst_port, :src_port, :src_cidr, :dst_cidr],
         &(not is_nil(Map.get(rule, &1)))
       )
 
-    {Map.get(rule, :priority) || 0, specificity, -id_value(rule)}
+    {Map.get(rule, :priority) || 0, specificity}
   end
 
-  defp id_value(rule) do
-    case Map.get(rule, :id) do
-      id when is_integer(id) -> id
-      id when is_binary(id) -> String.to_integer(id)
-      _ -> 0
-    end
-  end
+  defp id_lt?(a, b), do: to_string(a) < to_string(b)
 
   defp matches?(attrs, rule) do
     field_matches?(rule, :partition, Map.get(attrs, :partition)) and
