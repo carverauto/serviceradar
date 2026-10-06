@@ -13,7 +13,7 @@
         "additionalProperties": false,
         "required": ["kind", "host", "port"],
         "properties": {
-          "kind": { "enum": ["dish", "router"] },
+          "kind": { "type": "string", "enum": ["dish", "router"] },
           "host": { "type": "string", "minLength": 1, "description": "Private or link-local address of the device." },
           "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
         }

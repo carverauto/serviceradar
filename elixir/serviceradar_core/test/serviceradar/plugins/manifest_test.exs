@@ -572,6 +572,50 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     end)
   end
 
+  test "every bundled first-party manifest and companion schema passes the real import validator" do
+    for manifest_path <- @first_party_manifest_paths do
+      {:ok, manifest_map} = manifest_path |> File.read!() |> Manifest.parse_yaml_map()
+
+      config_schema =
+        case companion_config_schema_path(manifest_path) do
+          nil -> nil
+          schema_path -> schema_path |> File.read!() |> Jason.decode!()
+        end
+
+      changeset =
+        Ash.Changeset.for_create(ServiceRadar.Plugins.PluginPackage, :create, %{
+          manifest: manifest_map,
+          config_schema: config_schema
+        })
+
+      assert :ok == ServiceRadar.Plugins.Validations.Manifest.validate(changeset, [], %{}),
+             "bundled first-party manifest failed import validation: #{Path.relative_to(manifest_path, @wasm_plugins_root)}"
+    end
+  end
+
+  defp companion_config_schema_path(manifest_path) do
+    dir = Path.dirname(manifest_path)
+    filename = Path.basename(manifest_path)
+
+    schema_name =
+      cond do
+        filename == "plugin.yaml" ->
+          "config.schema.json"
+
+        String.starts_with?(filename, "plugin.") and String.ends_with?(filename, ".yaml") ->
+          variant = filename |> String.trim_leading("plugin.") |> String.trim_trailing(".yaml")
+          "config.#{variant}.schema.json"
+
+        true ->
+          nil
+      end
+
+    if schema_name do
+      candidate = Path.join(dir, schema_name)
+      if File.exists?(candidate), do: candidate
+    end
+  end
+
   test "config schema validation accepts vendor extensions and password format annotations" do
     schema = %{
       "type" => "object",

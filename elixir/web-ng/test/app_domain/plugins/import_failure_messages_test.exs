@@ -55,6 +55,35 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessagesTest do
                "Release tag v9.9.9 was not found"
     end
 
+    test "ash invalid error extracts manifest schema error message" do
+      invalid = %Ash.Error.Invalid{
+        errors: [
+          %Ash.Error.Changes.InvalidAttribute{
+            field: :manifest,
+            message: "properties.targets.items.properties.kind.type is required"
+          }
+        ]
+      }
+
+      assert ImportFailureMessages.reason_to_text(invalid) ==
+               "manifest schema invalid: properties.targets.items.properties.kind.type is required"
+    end
+
+    test "invalid manifest and config schema tuples format schema path and reason" do
+      assert ImportFailureMessages.reason_to_text({:invalid_manifest, ["id is required"]}) ==
+               "manifest schema invalid: id is required"
+
+      assert ImportFailureMessages.reason_to_text(
+               {:invalid_config_schema, ["properties.targets.items.properties.kind.type is required"]}
+             ) ==
+               "config schema invalid: properties.targets.items.properties.kind.type is required"
+    end
+
+    test "invalid bundle wraps inner reason" do
+      assert ImportFailureMessages.reason_to_text({:invalid_bundle, :bundle_too_large}) =~
+               "plugin bundle is invalid"
+    end
+
     test "unknown shapes still fall back to the previous wording" do
       assert ImportFailureMessages.reason_to_text({:something_new, %{deep: true}}) ==
                "import was rejected"

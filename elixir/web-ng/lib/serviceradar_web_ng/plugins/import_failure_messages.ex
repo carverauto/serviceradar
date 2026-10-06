@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
   strings) -- only the failure class and the host it applies to.
   """
 
+  alias Ash.Error.Changes.InvalidAttribute
   alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
 
   @plugin_registry_host FirstPartyReleaseClient.oci_registry()
@@ -52,6 +53,40 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
 
   def reason_to_text(:untrusted_oci_registry), do: "plugin registry is not trusted for this source"
 
+  def reason_to_text(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
+    extract_ash_error_text(errors)
+  end
+
+  def reason_to_text(%InvalidAttribute{field: :manifest, message: message}) do
+    "manifest schema invalid: #{message}"
+  end
+
+  def reason_to_text(%InvalidAttribute{field: field, message: message}) do
+    "#{field} invalid: #{message}"
+  end
+
+  def reason_to_text({:invalid_manifest, errors}) when is_list(errors) do
+    "manifest schema invalid: #{Enum.join(errors, "; ")}"
+  end
+
+  def reason_to_text({:invalid_manifest, error}) when is_binary(error) do
+    "manifest schema invalid: #{error}"
+  end
+
+  def reason_to_text({:invalid_config_schema, errors}) when is_list(errors) do
+    "config schema invalid: #{Enum.join(errors, "; ")}"
+  end
+
+  def reason_to_text({:invalid_config_schema, error}) when is_binary(error) do
+    "config schema invalid: #{error}"
+  end
+
+  def reason_to_text({:invalid_bundle, subreason}) do
+    "plugin bundle is invalid: #{reason_to_text(subreason)}"
+  end
+
+  def reason_to_text({:error, subreason}), do: reason_to_text(subreason)
+
   # EgressClient normalizes :httpc connect failures to Req.TransportError with
   # the underlying reason atom; raw atoms arrive from httpc and Req paths.
   def reason_to_text(%Req.TransportError{reason: reason}), do: transport_reason(reason)
@@ -70,6 +105,22 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
   def reason_to_text(reason) when is_binary(reason), do: reason
 
   def reason_to_text(_reason), do: "import was rejected"
+
+  defp extract_ash_error_text(errors) do
+    Enum.find_value(errors, fn
+      %InvalidAttribute{field: :manifest, message: message} ->
+        "manifest schema invalid: #{message}"
+
+      %InvalidAttribute{field: field, message: message} ->
+        "#{field} invalid: #{message}"
+
+      %{message: message} when is_binary(message) and message != "" ->
+        message
+
+      _ ->
+        nil
+    end) || "import was rejected"
+  end
 
   defp transport_reason(:timeout), do: "connection to the plugin host timed out"
   defp transport_reason(:connect_timeout), do: "connection to the plugin host timed out"
