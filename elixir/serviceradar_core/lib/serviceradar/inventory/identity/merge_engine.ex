@@ -998,6 +998,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   defp check_merged(from_device_id, %{require_merged: true}, actor) do
     case Device.get_by_uid(from_device_id, true, actor: actor) do
       {:ok, %Device{deleted_at: %_{}, deleted_reason: "merged"}} -> :ok
+      {:error, _} = error -> error
       _other -> {:refused, :not_merged}
     end
   end
