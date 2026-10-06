@@ -16,6 +16,8 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleState do
     :bucket_seconds,
     :current_bucket_start,
     :bucket_counts,
+    :first_seen_at,
+    :diagnostics,
     :last_seen_at,
     :last_fired_at,
     :last_notification_at,
@@ -31,7 +33,11 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleState do
   end
 
   actions do
-    defaults [:read]
+    defaults [:read, :destroy]
+
+    update :record_notification do
+      accept [:last_notification_at]
+    end
 
     read :by_rule do
       argument :rule_id, :uuid, allow_nil?: false
@@ -98,6 +104,15 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleState do
     end
 
     attribute :last_seen_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :first_seen_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :diagnostics, :map do
+      default %{}
       public? true
     end
 

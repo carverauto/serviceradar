@@ -405,6 +405,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
     end
   end
 
+  defp maybe_flush_snapshot(snapshot, _rule, %{transactional?: true}) do
+    # The durable owner commits all changed groups with the input receipt.
+    # This also includes updates inside the same time bucket.
+    {:ok, Map.put(snapshot, :flush_required, true)}
+  end
+
   defp maybe_flush_snapshot(snapshot, rule, state) do
     if Map.get(snapshot, :bucket_changed, false) || Map.get(snapshot, :flush_required, false) do
       persister = Map.get(state, :persist_snapshot, &persist_snapshot/3)

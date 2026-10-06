@@ -353,6 +353,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/observability/service_state_history_repair_limit_test.exs": 1,
     "test/serviceradar/observability/stateful_alert_engine/alert_lifecycle_notification_test.exs": 1,
     "test/serviceradar/observability/stateful_alert_engine_rules_loaded_telemetry_test.exs": 1,
+    "test/serviceradar/observability/alert_evaluation_inbox_test.exs": 1,
     "test/serviceradar/observability/stateful_alert_engine_test.exs": 1,
     "test/serviceradar/observability/threat_intel_feed_refresh_worker_db_test.exs": 1,
     "test/serviceradar/observability/threat_intel_otx_sync_worker_test.exs": 1,

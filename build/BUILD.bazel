@@ -96,6 +96,7 @@ filegroup(
 )
 
 exports_files([
+    "alert_evaluation_schema.exs",
     "world_snapshots.exs",
     "benchmark_runner.py",
     "elixir_test_config_loader.exs",

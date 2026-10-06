@@ -1,7 +1,7 @@
 ## 1. Review and inventory
 - [x] 1.1 Verify the remaining synchronous fan-out and startup paths on current staging.
 - [x] 1.2 Check overlapping #5343, #5375, and #5349 before implementing duplicate work.
-- [ ] 1.3 Obtain user approval for the admission/completion contract and design.
+- [x] 1.3 Obtain user approval for the admission/completion contract and design.
 - [ ] 1.4 Enumerate every evaluation caller and every rule, snapshot, history, alert, and notification writer, including raw Ecto.
 
 ## 2. Durable admission

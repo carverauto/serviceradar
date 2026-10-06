@@ -661,8 +661,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       last_notification_at: snapshot.last_notification_at,
       cooldown_until: snapshot.cooldown_until,
       alert_id: snapshot.alert_id,
-      first_seen_at: snapshot.last_seen_at,
-      diagnostics: Diagnostics.empty_diagnostics()
+      first_seen_at: snapshot.first_seen_at || snapshot.last_seen_at,
+      diagnostics:
+        if(snapshot.diagnostics in [nil, %{}],
+          do: Diagnostics.empty_diagnostics(),
+          else: snapshot.diagnostics
+        )
     }
   end
 end

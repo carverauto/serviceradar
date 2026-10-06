@@ -1584,6 +1584,8 @@ if config_env() == :prod do
            # Cold-window pruning + manifest/bucket reconciliation (no-op when
            # cold-tier config is absent).
            {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
+           {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
+            queue: :maintenance},
            {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker,
             queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
