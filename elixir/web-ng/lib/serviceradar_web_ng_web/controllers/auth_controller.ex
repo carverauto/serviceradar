@@ -357,30 +357,4 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     {:error, :password_confirmation_mismatch}
   end
 
-  @doc """
-  Handles user registration form submission.
-
-  Creates a new user with password and signs them in.
-  """
-  def register(conn, %{"user" => user_params}) do
-    actor = SystemActor.system(:auth_controller)
-
-    case User.register_with_password(user_params, actor: actor) do
-      {:ok, user} ->
-        # Trigger auth hooks
-        Hooks.on_user_created(user, :password)
-
-        conn
-        |> put_flash(:info, "Account created successfully.")
-        |> UserAuth.log_in_user(user)
-
-      {:error, %Invalid{} = error} ->
-        errors = Ash.Error.to_error_class(error)
-        error_message = inspect(errors)
-
-        conn
-        |> put_flash(:error, "Failed to create account: #{error_message}")
-        |> redirect(to: ~p"/users/log-in")
-    end
-  end
 end

@@ -1073,9 +1073,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/password-reset", AuthController, :new_reset_request)
     get("/password-reset/:token", AuthController, :show_reset_form)
 
-    # Registration (if enabled)
-    post("/register", AuthController, :register)
-
     # SSO initiation + non-callback metadata
     get("/oidc", OIDCController, :request)
     get("/saml/metadata", SAMLController, :metadata)
@@ -1414,7 +1411,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/users/update-password", UserSessionController, :update_password)
   end
 
-  # Public authentication pages (login, register)
+  # Public authentication pages
   scope "/", ServiceRadarWebNGWeb do
     pipe_through(:browser)
 
