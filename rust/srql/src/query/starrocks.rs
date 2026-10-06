@@ -263,7 +263,7 @@ fn dataset_sql(
     // profile aggregation, not a downsample, and it owns its own WHERE because
     // `timezone:` steers the profile rather than filtering a column.
     if is_profile_stats(plan) {
-        return profile_sql(plan, dataset, database);
+        return profile_sql(plan, dataset, database, allow_rollup);
     }
 
     let joins = catalog_joins(plan, dataset)?;
@@ -1596,14 +1596,33 @@ fn rollup_agg(
 /// would hand a JSON object back as an opaque string, and both consumers
 /// already read a flat row (`Map.get(row, "payload", row)`).
 ///
-/// A profile always reads the raw table, on both entry points. It re-derives
-/// the hourly grain itself, so `timeseries_metrics_hourly` could in principle
-/// serve it -- but the view groups by `(bucket, device_id, metric_type,
-/// metric_name)` and every shipped caller asks for `series:uid`, a column the
-/// view does not carry. There is no query that reaches this route and can be
-/// answered from the view, so there is no rollup branch to keep in step with
-/// the freshness gate.
-fn profile_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<TranslateResponse> {
+/// A profile samples one value per `(hour, device, metric_type, metric_name)`
+/// cell -- exactly the grain `timeseries_metrics_hourly` stores -- so a profile
+/// whose filters are all on the view's dimensions reads the view instead of
+/// rescanning months of raw samples (FE audit evidence, issue #5209: the
+/// scheduled seasonal/anomaly profiles were the largest raw-table reader
+/// class, ~415 SELECTs/hr reporting ~5B scanned rows). The view carries
+/// `max_value` and `avg_value`, which reproduce the peak and mean samples
+/// exactly; a filter on any raw-only column (`if_index`, `value`, tag paths)
+/// keeps the raw branch, as does the freshness gate's raw entry point.
+/// True when a profile filter constrains only columns the hourly metrics view
+/// carries (`device_id`, `metric_type`, `metric_name`). The `timezone` filter
+/// steers the profile's timezone rather than filtering a column and never
+/// reaches this check (the caller skips it).
+fn profile_filter_is_dimension(filter: &Filter) -> bool {
+    filter.field.eq_ignore_ascii_case("timezone")
+        || matches!(
+            filter.field.to_ascii_lowercase().as_str(),
+            "device_id" | "metric_type" | "metric_name"
+        )
+}
+
+fn profile_sql(
+    plan: &QueryPlan,
+    dataset: Dataset,
+    database: &str,
+    allow_rollup: bool,
+) -> Result<TranslateResponse> {
     let spec = ProfileSpec::parse(plan)?;
 
     if dataset.raw_table != "timeseries_metrics" {
@@ -1619,17 +1638,43 @@ fn profile_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<Tra
         ));
     };
 
-    let source = format!("{database}.{}", dataset.raw_table);
-    let bucket = format!("date_trunc('hour', `{}`)", dataset.time_column);
-    // One sample per (hour, device, metric_type, metric_name): the grain the
-    // profile scores. Grouping by (device, hour) alone would collapse every
-    // metric a device reports into one cell.
-    let sample = if spec.peak {
-        "MAX(`value`)"
+    // The freshness gate's raw entry point and any filter the hourly view
+    // cannot answer (a raw-only column) keep the raw branch; only a
+    // dimensions-only profile over the metrics table may read the view.
+    let rollup_source = allow_rollup
+        && dataset.raw_table == "timeseries_metrics"
+        && plan.filters.iter().all(profile_filter_is_dimension);
+
+    // On the view the sample cell already exists as one row per (bucket,
+    // device_id, metric_type, metric_name) with `max_value`/`avg_value`
+    // stored, so the CTE is a plain selection; on raw it re-derives the
+    // grain from the samples. Both answer identically: the view's stored
+    // aggregate for a cell is the same MAX/AVG over the same samples.
+    let (source, bucket, sample, group) = if rollup_source {
+        (
+            format!("{database}.timeseries_metrics_hourly"),
+            "`bucket`".to_string(),
+            if spec.peak {
+                "`max_value`"
+            } else {
+                "`avg_value`"
+            }
+            .to_string(),
+            String::new(),
+        )
     } else {
-        "AVG(`value`)"
+        (
+            format!("{database}.{}", dataset.raw_table),
+            format!("date_trunc('hour', `{}`)", dataset.time_column),
+            if spec.peak {
+                "MAX(`value`)"
+            } else {
+                "AVG(`value`)"
+            }
+            .to_string(),
+            "\n  GROUP BY 1, 2, 3, 4".to_string(),
+        )
     };
-    let group = "\n  GROUP BY 1, 2, 3, 4";
 
     let mut clauses = vec!["device_id IS NOT NULL".to_string()];
     if let Some(scope) = dataset.scope {
@@ -1640,7 +1685,11 @@ fn profile_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<Tra
     // `start` and the hour holding `end`, answering the same query differently
     // than CNPG, whose builder widens for the same reason
     // (`hourly_cagg_*_bound_clause`).
-    let time_column = format!("`{}`", dataset.time_column);
+    let time_column = if rollup_source {
+        "`bucket`".to_string()
+    } else {
+        format!("`{}`", dataset.time_column)
+    };
     clauses.push(format!(
         "{time_column} >= '{start}'",
         start = floor_hour(range.start).to_rfc3339_opts(SecondsFormat::Secs, true)
@@ -3170,7 +3219,7 @@ mod tests {
     // as a downsample returned timestamp/series/value rows under a profile
     // query's name; refusing them disabled the baselines instead.
     #[test]
-    fn the_seasonal_profile_route_compiles_against_the_raw_metric_table() {
+    fn the_seasonal_profile_route_compiles_against_the_hourly_metric_view() {
         let compiled = translate(
             &plan(
                 r#"in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"America/Chicago" sort:dow:asc,hod:asc limit:500"#,
@@ -3180,13 +3229,16 @@ mod tests {
         .expect("profile compiles");
 
         let sql = compiled.sql;
-        // `series:uid` is not a view dimension, so the hourly view cannot serve
-        // this profile even on the rollup-eligible entry point.
-        assert!(!sql.contains("timeseries_metrics_hourly"), "{sql}");
+        // Every filter is on a view dimension (the series selector is not a
+        // filter; the profile always scores device_id, which the view carries),
+        // so the rollup-eligible entry point reads the stored hourly cells
+        // instead of rescanning the raw samples.
         assert!(
-            sql.contains("FROM serviceradar.timeseries_metrics\n"),
+            sql.contains("FROM serviceradar.timeseries_metrics_hourly"),
             "{sql}"
         );
+        assert!(sql.contains("`avg_value` AS sample_value"), "{sql}");
+        assert!(!sql.contains("GROUP BY 1, 2, 3, 4"), "{sql}");
         // The consumers read a flat row; a jsonb payload would arrive as an
         // opaque string over the MySQL protocol.
         for column in [
@@ -3230,7 +3282,8 @@ mod tests {
         .expect("peak profile compiles");
 
         let sql = compiled.sql;
-        assert!(sql.contains("MAX(`value`) AS sample_value"), "{sql}");
+        // Peak reads the stored per-cell maximum from the hourly view.
+        assert!(sql.contains("`max_value` AS sample_value"), "{sql}");
         for column in ["AS center", "AS p95", "AS bucket_count", "AS prior_scale"] {
             assert!(sql.contains(column), "missing {column} in {sql}");
         }
@@ -3290,29 +3343,43 @@ mod tests {
     }
 
     // The freshness gate exists to keep a rollup read and its raw fallback
-    // answering the same question. The profile route has no rollup branch at
-    // all, so the gate must not be able to change its answer: both entry points
-    // have to compile the identical statement, sampled one row per (hour,
-    // device, metric_type, metric_name) -- the grain the view itself stores.
+    // answering the same question. For a dimensions-only profile the two entry
+    // points differ in SQL but not in answer: the view stores one row per
+    // (hour, device, metric_type, metric_name) cell with the very MAX/AVG the
+    // raw branch re-derives, and both branches widen the window to whole hours
+    // identically (profile_window_bounds_are_widened_to_whole_hours).
     #[test]
-    fn both_entry_points_compile_the_same_raw_profile() {
+    fn both_entry_points_compile_the_same_profile_answer() {
         let query = r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"UTC" limit:500"#;
 
         let rollup_entry = translate(&plan(query), "serviceradar").expect("profile compiles");
         let raw_entry = translate_raw(&plan(query), "serviceradar").expect("raw profile compiles");
 
-        assert_eq!(rollup_entry.sql, raw_entry.sql);
         assert!(
             rollup_entry
                 .sql
-                .contains("device_id AS series, metric_type, metric_name"),
+                .contains("FROM serviceradar.timeseries_metrics_hourly"),
             "{}",
             rollup_entry.sql
         );
         assert!(
-            rollup_entry.sql.contains("GROUP BY 1, 2, 3, 4"),
+            raw_entry
+                .sql
+                .contains("FROM serviceradar.timeseries_metrics\n"),
             "{}",
-            rollup_entry.sql
+            raw_entry.sql
+        );
+        assert!(
+            raw_entry
+                .sql
+                .contains("device_id AS series, metric_type, metric_name"),
+            "{}",
+            raw_entry.sql
+        );
+        assert!(
+            raw_entry.sql.contains("GROUP BY 1, 2, 3, 4"),
+            "{}",
+            raw_entry.sql
         );
     }
 
@@ -3337,37 +3404,48 @@ mod tests {
         assert!(compiled.sql.contains("if_index"), "{}", compiled.sql);
     }
 
-    // The one query shape the hourly view could have served: no `series:`, and
-    // every filter inside its dimension set. Reading the view here would have
-    // been correct, but it is a shape no shipped caller emits -- so keeping the
-    // branch meant a second profile statement that only a hand-typed query
-    // could reach, with its own sample population to keep in step.
+    // The fleet-wide scheduled profiles (seasonal disposition, anomaly peak)
+    // filter only on view dimensions and carry no `series:` selector -- FE
+    // audit evidence in issue #5209 showed exactly this shape as the largest
+    // raw-table reader class. The rollup-eligible entry point reads the view;
+    // the raw entry point keeps the raw scan for the freshness gate.
     #[test]
-    fn a_profile_filtered_only_on_view_dimensions_still_reads_the_raw_table() {
-        let compiled = translate(
-            &plan(
-                r#"in:timeseries_metrics metric_type:"sysmon.cpu" time:last_30d bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:"UTC" limit:500"#,
-            ),
-            "serviceradar",
-        )
-        .expect("profile compiles");
+    fn a_fleet_wide_profile_filtered_only_on_view_dimensions_reads_the_view() {
+        let query = r#"in:timeseries_metrics metric_type:"snmp" metric_name:"ifOutOctets" time:last_180d bucket:1h agg:avg stats:profile_hour_of_week_peak(value) timezone:"UTC" limit:500"#;
+
+        let rollup_entry = translate(&plan(query), "serviceradar").expect("profile compiles");
+        let raw_entry = translate_raw(&plan(query), "serviceradar").expect("raw profile compiles");
 
         assert!(
-            !compiled.sql.contains("timeseries_metrics_hourly"),
+            rollup_entry
+                .sql
+                .contains("FROM serviceradar.timeseries_metrics_hourly"),
             "{}",
-            compiled.sql
+            rollup_entry.sql
         );
         assert!(
-            compiled
+            rollup_entry.sql.contains("`max_value` AS sample_value"),
+            "{}",
+            rollup_entry.sql
+        );
+        assert!(
+            rollup_entry
+                .sql
+                .contains("metric_type = 'snmp' AND metric_name = 'ifOutOctets'"),
+            "{}",
+            rollup_entry.sql
+        );
+        assert!(
+            raw_entry
                 .sql
                 .contains("FROM serviceradar.timeseries_metrics\n"),
             "{}",
-            compiled.sql
+            raw_entry.sql
         );
         assert!(
-            compiled.sql.contains("AVG(`value`) AS sample_value"),
+            raw_entry.sql.contains("MAX(`value`) AS sample_value"),
             "{}",
-            compiled.sql
+            raw_entry.sql
         );
     }
 
