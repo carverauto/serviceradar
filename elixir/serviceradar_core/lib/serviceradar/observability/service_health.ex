@@ -41,7 +41,7 @@ defmodule ServiceRadar.Observability.ServiceHealth do
 
   Accepts:
   - a list of `ServiceState` structs or maps (computed in memory)
-  - a keyword list of options (e.g. `[states: ...]`, `[services: ...]`, or `[scope: ...]`)
+  - a keyword list of options (e.g. `[states: ...]` or `[scope: ...]`)
   - a scope struct or map or `nil` (queries `platform.service_state`)
   """
   @spec summary(list() | map() | keyword() | term()) :: summary()
@@ -74,13 +74,6 @@ defmodule ServiceRadar.Observability.ServiceHealth do
       is_list(states) and states != [] ->
         summary_from_states(states)
 
-      services = Keyword.get(opts, :services) ->
-        if is_list(services) and services != [] do
-          summary_from_services(services)
-        else
-          empty_summary()
-        end
-
       true ->
         summary_from_db(opts)
     end
@@ -112,36 +105,6 @@ defmodule ServiceRadar.Observability.ServiceHealth do
       availability_pct: availability_pct,
       last_updated: last_updated,
       check_count: total
-    }
-  end
-
-  @doc """
-  Computes the service summary from fallback SRQL service maps.
-  """
-  @spec summary_from_services(list()) :: summary()
-  def summary_from_services(services) when is_list(services) do
-    unique_services = dedupe_raw_services(services)
-    total = length(unique_services)
-
-    {available, unavailable, last_updated} =
-      Enum.reduce(unique_services, {0, 0, nil}, fn service, {avail, unavail, latest_ts} ->
-        is_available = normalize_available(service["available"])
-        new_avail = if is_available, do: avail + 1, else: avail
-        new_unavail = if is_available, do: unavail, else: unavail + 1
-        ts = parse_iso_datetime(service["timestamp"])
-        new_ts = max_datetime(ts, latest_ts)
-        {new_avail, new_unavail, new_ts}
-      end)
-
-    availability_pct = compute_availability_pct(total, available)
-
-    %{
-      total: total,
-      available: available,
-      unavailable: unavailable,
-      availability_pct: availability_pct,
-      last_updated: last_updated,
-      check_count: length(services)
     }
   end
 
@@ -227,19 +190,6 @@ defmodule ServiceRadar.Observability.ServiceHealth do
         if is_list(states) and states != [] do
           summary_from_states(states)
         else
-          case Keyword.get(opts, :services) do
-            services when is_list(services) and services != [] ->
-              summary_from_services(services)
-
-            _ ->
-              empty_summary()
-          end
-        end
-
-      services = Keyword.get(opts, :services) ->
-        if is_list(services) and services != [] do
-          summary_from_services(services)
-        else
           empty_summary()
         end
 
@@ -259,40 +209,6 @@ defmodule ServiceRadar.Observability.ServiceHealth do
     service_name = Map.get(state, :service_name) || Map.get(state, "service_name") || ""
 
     "#{agent_id}:#{partition}:#{service_type}:#{service_name}"
-  end
-
-  defp dedupe_raw_services(services) do
-    services
-    |> Enum.filter(&is_map/1)
-    |> Enum.sort_by(&service_timestamp_sort_key/1, :desc)
-    |> Enum.reduce(%{}, fn service, acc ->
-      Map.put_new(acc, service_raw_identity_key(service), service)
-    end)
-    |> Map.values()
-  end
-
-  defp service_raw_identity_key(service) do
-    agent_id = Map.get(service, "agent_id") || Map.get(service, :agent_id) || ""
-
-    partition =
-      Map.get(service, "partition") ||
-        Map.get(service, "partition_id") ||
-        Map.get(service, :partition) ||
-        Map.get(service, :partition_id) || ""
-
-    service_type = Map.get(service, "service_type") || Map.get(service, :service_type) || ""
-    service_name = Map.get(service, "service_name") || Map.get(service, :service_name) || ""
-
-    "#{agent_id}:#{partition}:#{service_type}:#{service_name}"
-  end
-
-  defp service_timestamp_sort_key(service) do
-    timestamp = Map.get(service, "timestamp") || Map.get(service, :timestamp)
-
-    case parse_iso_datetime(timestamp) do
-      %DateTime{} = dt -> {1, DateTime.to_unix(dt, :nanosecond)}
-      _ -> {0, 0}
-    end
   end
 
   defp parse_iso_datetime(%DateTime{} = dt), do: dt
