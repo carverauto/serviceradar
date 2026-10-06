@@ -614,10 +614,12 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     session_id = Ecto.UUID.generate()
     actor_id = Ecto.UUID.generate()
     transfer = transfer_fixture(session_id)
+
     Process.put(:remote_access_file_transfer_session, %{
       session_fixture(session_id)
       | requested_by: actor_id
     })
+
     Process.put(:remote_access_file_transfer_list, [transfer])
 
     assert {:ok, [^transfer]} =
