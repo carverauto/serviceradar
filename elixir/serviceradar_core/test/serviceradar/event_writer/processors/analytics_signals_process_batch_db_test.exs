@@ -206,6 +206,64 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert alert_row.status == "open"
   end
 
+  test "a multi-assessment batch takes one advisory-lock statement" do
+    suffix = System.unique_integer([:positive])
+
+    messages =
+      for i <- 1..5 do
+        assessment_message(
+          "assessment-batch-locks-#{suffix}-#{i}",
+          "open",
+          "active",
+          "confirmed",
+          "affected"
+        )
+      end
+
+    rows = Enum.map(messages, &AnalyticsSignals.parse_message/1)
+
+    Enum.each(rows, fn row -> delete_event!(row) end)
+    on_exit(fn -> Enum.each(rows, &delete_event!/1) end)
+
+    # The lock statement count must scale with chunks, not rows: one batch,
+    # one statement, however many assessments it carries.
+    assert {1, {:ok, 5}} =
+             {count_lock_statements(fn -> AnalyticsSignals.process_batch(messages) end), {:ok, 5}}
+  end
+
+  defp count_lock_statements(fun) do
+    test_pid = self()
+    handler_id = {:lock_statement_count, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:service_radar, :repo, :query],
+      fn _event, _measurements, %{query: query}, _config ->
+        if self() == test_pid and String.contains?(query, "pg_advisory") do
+          send(test_pid, :advisory_statement)
+        end
+      end,
+      nil
+    )
+
+    try do
+      result = fun.()
+
+      count = drain_advisory_statements(0)
+      {count, result}
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp drain_advisory_statements(n) do
+    receive do
+      :advisory_statement -> drain_advisory_statements(n + 1)
+    after
+      0 -> n
+    end
+  end
+
   @tag sandbox: :unboxed
   test "concurrent duplicate opens serialize and dispatch one durable transition" do
     event_id = "assessment-concurrent-open-#{System.unique_integer([:positive])}"

@@ -19,12 +19,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.ProxmoxSourceScopeResolver
   alias ServiceRadar.Inventory.VulnerabilityAdvisoryIngestor
   alias ServiceRadar.NetworkConfig.PluginIngestor
+  alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.PluginResultReportedMarker
   alias ServiceRadar.Observability.PluginResultSlot
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginResultStateWinner
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginState
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadar.Observability.ServiceStatus
   alias ServiceRadar.Observability.ServiceStatusPubSub
@@ -172,17 +174,26 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     if attempt < PluginResultSlot.insert_attempts() do
       block_base = PluginResultSlot.block_base(row, attempt)
       physical_row = reported_status_physical_row(row, block_base)
-      lock_mode = if attempt == 0, do: :try, else: :exclusive
+      # First attempt probes the physical slot buckets without blocking
+      # (a busy bucket means a concurrent writer holds the slot; retry on the
+      # next block). Retries take them exclusively, folded into the same
+      # ordered statement as the identity locks.
+      first_probe? = attempt == 0
 
       case Repo.transaction(fn ->
-             with :ok <- acquire_status_identity_locks(physical_row),
+             with {:ok, identity_locks} <- status_identity_lock_sequence(physical_row),
+                  :ok <- AdvisoryLocks.acquire_ordered(identity_locks),
                   {:ok, existing} <- existing_reported_status(row, actor) do
                case existing do
                  %ServiceStatus{} = status ->
                    {:ok, status, []}
 
                  nil ->
-                   with :ok <- acquire_status_slot_bucket_locks(physical_row, lock_mode),
+                   with :ok <-
+                          acquire_status_slot_buckets(
+                            physical_row,
+                            if(first_probe?, do: :try, else: :exclusive)
+                          ),
                         {:ok, status, notifications} <-
                           do_insert_reported_status(row, physical_row, actor) do
                      {:ok, status, notifications}
@@ -870,12 +881,18 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp acquire_status_slot_locks(status_row) do
-    with :ok <- acquire_status_identity_locks(status_row) do
-      acquire_status_slot_bucket_locks(status_row, :exclusive)
+    # One statement for the whole ordered sequence: reconcile-shared, logical
+    # plugin state, logical observation, rolling-upgrade compatibility, then
+    # the ascending physical slot buckets -- the stable order shared with
+    # lifecycle mutations, without a round trip per stage.
+    with {:ok, locks} <- status_identity_lock_sequence(status_row) do
+      locks
+      |> Kernel.++(Enum.map(bucket_lock_keys(status_row), &{:exclusive, &1}))
+      |> AdvisoryLocks.acquire_ordered()
     end
   end
 
-  defp acquire_status_identity_locks(status_row) do
+  defp status_identity_lock_sequence(status_row) do
     logical_observed_at = PluginResultSlot.logical_observed_at(status_row)
 
     observation_lock_identity =
@@ -895,31 +912,43 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         status_row.service_name
       ])
 
-    # Keep a stable order shared with lifecycle mutations: logical state,
-    # logical observation, rolling-upgrade compatibility, then ascending
-    # physical service_status interval buckets.
-    with :ok <- ServiceStateRegistry.acquire_plugin_state_lock(status_row),
-         :ok <- acquire_status_slot_lock(observation_lock_identity) do
-      acquire_status_slot_lock(legacy_slot_lock_identity, :shared)
+    with {:ok, plugin_locks} <- PluginState.lock_sequence(status_row) do
+      {:ok,
+       plugin_locks ++
+         [
+           {:exclusive, observation_lock_identity},
+           {:shared, legacy_slot_lock_identity}
+         ]}
     end
   end
 
-  defp acquire_status_slot_bucket_locks(status_row, mode) do
+  # The physical slot buckets a status write touches, ascending: one batched
+  # statement whether the window spans one bucket or several.
+  defp acquire_status_slot_buckets(status_row, :try) do
+    case status_row |> bucket_lock_keys() |> AdvisoryLocks.try_acquire_ordered() do
+      :ok -> :ok
+      {:error, {:advisory_locks_busy, _keys}} -> {:error, :status_slot_lock_busy}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp acquire_status_slot_buckets(status_row, :exclusive) do
+    status_row
+    |> bucket_lock_keys()
+    |> Enum.map(&{:exclusive, &1})
+    |> AdvisoryLocks.acquire_ordered()
+  end
+
+  defp bucket_lock_keys(status_row) do
     status_row
     |> status_slot_bucket_ids()
-    |> Enum.reduce_while(:ok, fn bucket_id, :ok ->
-      lock_identity =
-        Jason.encode!([
-          "service-status-slots-v2",
-          status_row.gateway_id,
-          status_row.service_name,
-          bucket_id
-        ])
-
-      case acquire_status_slot_lock(lock_identity, mode) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
+    |> Enum.map(fn bucket_id ->
+      Jason.encode!([
+        "service-status-slots-v2",
+        status_row.gateway_id,
+        status_row.service_name,
+        bucket_id
+      ])
     end)
   end
 
@@ -930,42 +959,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     last_bucket = Integer.floor_div(last_microsecond, @status_slot_bucket_width_microseconds)
 
     Enum.to_list(first_bucket..last_bucket)
-  end
-
-  defp acquire_status_slot_lock(lock_identity, mode \\ :exclusive)
-
-  defp acquire_status_slot_lock(lock_identity, :exclusive) do
-    acquire_status_slot_lock_with_query(
-      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-      lock_identity
-    )
-  end
-
-  defp acquire_status_slot_lock(lock_identity, :shared) do
-    acquire_status_slot_lock_with_query(
-      "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))",
-      lock_identity
-    )
-  end
-
-  defp acquire_status_slot_lock(lock_identity, :try) do
-    case Repo.query(
-           "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
-           [lock_identity]
-         ) do
-      {:ok, %{rows: [[true]]}} -> :ok
-      {:ok, %{rows: [[false]]}} -> {:error, :status_slot_lock_busy}
-      {:error, reason} -> {:error, {:status_slot_lock_acquire_failed, reason}}
-      other -> {:error, {:unexpected_status_slot_lock_result, other}}
-    end
-  end
-
-  defp acquire_status_slot_lock_with_query(query, lock_identity) do
-    case Repo.query(query, [lock_identity]) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> {:error, {:status_slot_lock_acquire_failed, reason}}
-      other -> {:error, {:unexpected_status_slot_lock_result, other}}
-    end
   end
 
   defp dispatch_handler_side_effects(side_effects) do

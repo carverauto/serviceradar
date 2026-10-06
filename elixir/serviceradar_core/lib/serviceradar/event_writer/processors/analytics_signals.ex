@@ -21,6 +21,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.Inventory.EndpointVulnerabilityAssessment
+  alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.AnomalyDispositionReporter
   alias ServiceRadar.Observability.BmpSettingsRuntime
@@ -371,19 +372,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp acquire_inventory_vulnerability_lifecycle_locks(rows) do
+    # One statement for the whole chunk, keys taken in array order: the same
+    # sorted acquisition order the per-key loop kept (a stable order prevents
+    # two overlapping batches from deadlocking each other), without a round
+    # trip per assessment.
     rows
     |> Enum.map(&ocsf_event_id_key/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
-    # A batch can carry more than one assessment. A stable acquisition order
-    # prevents two overlapping batches from deadlocking each other.
     |> Enum.sort()
-    |> Enum.each(fn event_id ->
-      ServiceRadar.Repo.query!(
-        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-        [@inventory_vulnerability_lifecycle_lock_prefix <> event_id]
-      )
-    end)
+    |> Enum.map(&{:exclusive, @inventory_vulnerability_lifecycle_lock_prefix <> &1})
+    |> AdvisoryLocks.acquire_ordered!()
   end
 
   defp existing_inventory_vulnerability_lifecycle(rows) do
