@@ -44,8 +44,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
         seeded_slots = table_size.()
         assert seeded_slots > 0
 
-        assert_receive {:metric_publish, publisher, "metrics.ingestion_lanes", frame1,
-                        headers1},
+        assert_receive {:metric_publish, publisher, "metrics.ingestion_lanes", frame1, headers1},
                        1_000
 
         batch1 = MetricBatch.decode(frame1)
@@ -87,8 +86,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
         # byte-identical and omits everything recorded while blocked.
         send(publisher, {:puback, {:ok, %{body: "{}"}}})
 
-        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry1,
-                        headers2},
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry1, headers2},
                        1_000
 
         assert retry1 == frame1
@@ -97,24 +95,22 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
         send(publisher, {:puback, {:error, :timeout}})
 
-        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry2,
-                        headers3},
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry2, headers3},
                        1_000
 
         assert retry2 == frame1
         assert headers3 == headers1
 
         assert Enum.any?(headers1[:headers], fn {key, id} ->
-          key == "Nats-Msg-Id" and is_binary(id)
-        end)
+                 key == "Nats-Msg-Id" and is_binary(id)
+               end)
 
         # Records landing between the snapshot and its PubAck are covered by
         # the ack only up to the snapshot; they surface in the next interval.
         for _ <- 1..7, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
 
-        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame2,
-                        _headers},
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame2, _headers},
                        1_000
 
         batch2 = MetricBatch.decode(frame2)
@@ -141,13 +137,13 @@ defmodule ServiceRadar.AdmissionLaneTest do
         RuntimeMetrics.record(:sweep, :state, %{pending_count: 0, pending_bytes: 0})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 2})}}})
 
-        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame3,
-                        _headers},
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame3, _headers},
                        1_000
 
         assert counter_value(frame3, "result_ingestion_events_admitted", "sweep") == 0.0
 
         batch3 = MetricBatch.decode(frame3)
+
         admitted3_point =
           batch3
           |> find_metric!("result_ingestion_events_admitted", "sweep")
@@ -159,8 +155,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
         for _ <- 1..5, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 3})}}})
 
-        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame4,
-                        _headers},
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame4, _headers},
                        1_000
 
         admitted4 =
@@ -177,15 +172,13 @@ defmodule ServiceRadar.AdmissionLaneTest do
         for _ <- 1..3, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 4})}}})
 
-        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame5,
-                        _headers},
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame5, _headers},
                        1_000
 
         assert counter_value(frame5, "result_ingestion_events_admitted", "sweep") == 3.0
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 5})}}})
 
-        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame6,
-                        _headers},
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame6, _headers},
                        1_000
 
         assert counter_value(frame6, "result_ingestion_events_admitted", "sweep") == 0.0

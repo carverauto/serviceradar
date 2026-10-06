@@ -11,8 +11,6 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   """
   use GenServer
 
-  require Logger
-
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
   alias Serviceradar.Metric.V1.MetricBatch
@@ -20,6 +18,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   alias Serviceradar.Metric.V1.MetricResource
   alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadar.NATS.JetStreamPublish
+
+  require Logger
 
   @table __MODULE__
   @subject "metrics.ingestion_lanes"
