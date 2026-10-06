@@ -138,7 +138,7 @@ defmodule ServiceRadar.Observability.ServicesAvailabilityCaggTest do
     # svc-y is active and unavailable.
     state_rows = [
       %{
-        id: Ecto.UUID.generate(),
+        id: Ecto.UUID.dump!(Ecto.UUID.generate()),
         agent_id: "agent-test-#{unique}",
         gateway_id: "gw-1-#{unique}",
         partition: "default",
@@ -151,7 +151,7 @@ defmodule ServiceRadar.Observability.ServicesAvailabilityCaggTest do
         updated_at: now
       },
       %{
-        id: Ecto.UUID.generate(),
+        id: Ecto.UUID.dump!(Ecto.UUID.generate()),
         agent_id: "agent-test-#{unique}",
         gateway_id: "gw-2-#{unique}",
         partition: "default",
@@ -164,7 +164,7 @@ defmodule ServiceRadar.Observability.ServicesAvailabilityCaggTest do
         updated_at: now
       },
       %{
-        id: Ecto.UUID.generate(),
+        id: Ecto.UUID.dump!(Ecto.UUID.generate()),
         agent_id: "agent-test-#{unique}",
         gateway_id: "gw-1-#{unique}",
         partition: "default",
