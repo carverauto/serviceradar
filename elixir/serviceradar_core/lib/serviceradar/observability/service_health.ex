@@ -70,12 +70,10 @@ defmodule ServiceRadar.Observability.ServiceHealth do
   """
   @spec summary(list() | term(), keyword()) :: summary()
   def summary(states, opts) when is_list(opts) do
-    cond do
-      is_list(states) and states != [] ->
-        summary_from_states(states)
-
-      true ->
-        summary_from_db(opts)
+    if is_list(states) and states != [] do
+      summary_from_states(states)
+    else
+      summary_from_db(opts)
     end
   end
 
@@ -185,21 +183,24 @@ defmodule ServiceRadar.Observability.ServiceHealth do
   end
 
   defp summary_from_opts(opts) do
-    cond do
-      states = Keyword.get(opts, :states) || Keyword.get(opts, :plugin_states) ->
-        if is_list(states) and states != [] do
-          summary_from_states(states)
-        else
-          empty_summary()
-        end
+    states = Keyword.get(opts, :states) || Keyword.get(opts, :plugin_states)
 
-      true ->
-        summary_from_db(opts)
+    if states do
+      if is_list(states) and states != [] do
+        summary_from_states(states)
+      else
+        empty_summary()
+      end
+    else
+      summary_from_db(opts)
     end
   end
 
   defp state_sort_key(%ServiceState{} = state), do: PluginStateContract.state_rank(state)
-  defp state_sort_key(%{} = state), do: PluginStateContract.snapshot_rank(state_to_snapshot(state))
+
+  defp state_sort_key(%{} = state),
+    do: PluginStateContract.snapshot_rank(state_to_snapshot(state))
+
   defp state_sort_key(_), do: -1
 
   defp state_to_snapshot(state) do
