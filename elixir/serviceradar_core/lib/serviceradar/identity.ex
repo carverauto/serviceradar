@@ -46,6 +46,7 @@ defmodule ServiceRadar.Identity do
     resource ServiceRadar.Identity.RevokedToken
     resource ServiceRadar.Identity.ApiToken
     resource ServiceRadar.Identity.DeviceAuthorization
+    resource ServiceRadar.Identity.CliAuthorizationCode
     resource ServiceRadar.Identity.CliSession
     resource ServiceRadar.Identity.OAuthClient
     resource ServiceRadar.Identity.McpOAuthGrant

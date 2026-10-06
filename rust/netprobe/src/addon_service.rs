@@ -495,7 +495,7 @@ fn dpi_subject_ip(event: &DpiEvent, collector_ip: &str) -> String {
 ///
 /// The envelope is framed as a single complete part with an EMPTY
 /// `observation_scope`, which is what opts a payload out of supersession
-/// (`buffer.ex:161`). Events are independent; a scope would make each batch
+/// (`buffer.ex` `accept_if_newer`). Events are independent; a scope would make each batch
 /// supersede the one before it by watermark and drop everything but the newest.
 fn event_batch_stream<T, F>(
     receiver: broadcast::Receiver<T>,

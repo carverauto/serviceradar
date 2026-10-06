@@ -39,12 +39,19 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     assert agent_ids == [agent_a.uid, agent_b.uid]
     assert agent_id == agent_a.uid
 
-    assert {:ok, one_agent} = update_group(selected, %{agent_id: agent_c.uid}, actor)
-    assert one_agent.agent_ids == [agent_c.uid]
-    assert one_agent.agent_id == agent_c.uid
+    assert {:ok, kept_selection} = update_group(selected, %{agent_id: agent_c.uid}, actor)
+    assert kept_selection.agent_ids == [agent_a.uid, agent_b.uid]
+    assert kept_selection.agent_id == agent_a.uid
+
+    assert {:ok, one_agent} =
+             update_group(kept_selection, %{agent_ids: [agent_a.uid]}, actor)
+
+    assert {:ok, reassigned} = update_group(one_agent, %{agent_id: agent_c.uid}, actor)
+    assert reassigned.agent_ids == [agent_c.uid]
+    assert reassigned.agent_id == agent_c.uid
 
     assert {:ok, many_agents} =
-             update_group(one_agent, %{agent_ids: [agent_c.uid, agent_b.uid]}, actor)
+             update_group(reassigned, %{agent_ids: [agent_c.uid, agent_b.uid]}, actor)
 
     assert many_agents.agent_ids == [agent_b.uid, agent_c.uid]
     assert many_agents.agent_id == agent_b.uid
@@ -175,6 +182,76 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
 
     assert group.agent_ids == Enum.sort(agent_ids)
     assert drain_agent_lookup_query_count(0) == 1
+  end
+
+  test "an assignment update records the previous scanners and the actor", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    agent_a = register_agent("agent-audit-a-#{suffix}", actor)
+    agent_b = register_agent("agent-audit-b-#{suffix}", actor)
+    agent_c = register_agent("agent-audit-c-#{suffix}", actor)
+
+    {:ok, group} =
+      create_group(
+        "Audit #{suffix}",
+        %{agent_ids: [agent_a.uid, agent_b.uid]},
+        actor
+      )
+
+    {:ok, updated} =
+      update_group(group, %{agent_ids: [agent_c.uid, agent_b.uid]}, actor)
+
+    assert updated.agent_ids == [agent_b.uid, agent_c.uid]
+
+    [first] = assignment_versions(group.id, "update")
+    assert first.actor_id == to_string(actor.id)
+    assert first.action_inputs["actor_id"] == to_string(actor.id)
+    assert first.action_inputs["actor"]["id"] == to_string(actor.id)
+    assert first.action_inputs["actor"]["email"] == actor.email
+    assert assignment_delta(first.changes) == {[agent_a.uid], [agent_c.uid]}
+
+    {:ok, narrowed} = update_group(updated, %{agent_ids: [agent_c.uid]}, actor)
+    [still_first, second] = assignment_versions(group.id, "update")
+    assert still_first == first
+    assert assignment_delta(second.changes) == {[agent_b.uid], []}
+    assert narrowed.agent_ids == [agent_c.uid]
+
+    assert {:ok, _ran} =
+             narrowed
+             |> Ash.Changeset.for_update(:record_execution, %{}, actor: actor)
+             |> Ash.update()
+
+    assert assignment_versions(group.id, "record_execution") == []
+    assert assignment_versions(group.id, "update") == [still_first, second]
+  end
+
+  defp assignment_versions(group_id, action) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT version_action_name, actor_id, changes, version_action_inputs
+        FROM platform.sweep_group_versions
+        WHERE version_source_id = ($1::text)::uuid
+          AND version_action_name = $2
+        ORDER BY version_inserted_at ASC, id ASC
+        """,
+        [to_string(group_id), action]
+      )
+
+    Enum.map(rows, fn [action_name, actor_id, changes, action_inputs] ->
+      %{action: action_name, actor_id: actor_id, changes: changes, action_inputs: action_inputs}
+    end)
+  end
+
+  # FullDiff persists array items as %{"added"/"removed"/"unchanged" => value}
+  # maps (each with an "index" map) under %{"to" => [...]} -- see
+  # AshPaperTrail.ChangeBuilders.FullDiff.ListChange. There are no per-item
+  # "from"/"to" keys.
+  defp assignment_delta(%{"agent_ids" => %{"to" => items}}) when is_list(items) do
+    removed = for %{"removed" => uid} <- items, is_binary(uid), do: uid
+    added = for %{"added" => uid} <- items, is_binary(uid), do: uid
+    {Enum.sort(removed), Enum.sort(added)}
   end
 
   defp create_group(name, attrs, actor) do

@@ -298,7 +298,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   test "alerts feed keeps older retained alerts out of the default dashboard window", %{conn: conn} do
     observed_at =
       DateTime.utc_now()
-      |> DateTime.add(-2, :day)
+      |> DateTime.shift(day: -2)
       |> DateTime.truncate(:second)
 
     alert =

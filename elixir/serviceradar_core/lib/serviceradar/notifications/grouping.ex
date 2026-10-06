@@ -45,10 +45,10 @@ defmodule ServiceRadar.Notifications.Grouping do
     candidate =
       cond do
         match?(%DateTime{}, last_sent_at) ->
-          DateTime.add(last_sent_at, seconds(field(route, :group_interval_seconds)), :second)
+          DateTime.shift(last_sent_at, second: seconds(field(route, :group_interval_seconds)))
 
         first_step?(context) ->
-          DateTime.add(due_at, seconds(field(route, :group_wait_seconds)), :second)
+          DateTime.shift(due_at, second: seconds(field(route, :group_wait_seconds)))
 
         true ->
           due_at

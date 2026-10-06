@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
 
   defp window_start(range, now) do
     case window_seconds(range) do
-      seconds when is_integer(seconds) -> DateTime.add(now, -seconds, :second)
+      seconds when is_integer(seconds) -> DateTime.shift(now, second: -seconds)
       _ -> nil
     end
   end

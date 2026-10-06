@@ -163,11 +163,11 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
 
       now =
         DateTime.utc_now()
-        |> DateTime.add(-60, :second)
+        |> DateTime.shift(minute: -1)
         |> DateTime.truncate(:second)
 
       now
-      |> DateTime.add(30, :second)
+      |> DateTime.shift(second: 30)
       |> insert_flow!(%{
         src_ip: "10.42.10.12",
         src_port: 8,
@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
       })
 
       now
-      |> DateTime.add(20, :second)
+      |> DateTime.shift(second: 20)
       |> insert_flow!(%{
         src_ip: "10.42.10.12",
         src_port: 53_211,
@@ -216,7 +216,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
       })
 
       now
-      |> DateTime.add(10, :second)
+      |> DateTime.shift(second: 10)
       |> insert_flow!(%{
         src_ip: "10.42.10.12",
         src_port: 53_844,
@@ -246,7 +246,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
       })
 
       now
-      |> DateTime.add(5, :second)
+      |> DateTime.shift(second: 5)
       |> insert_flow!(%{
         src_ip: "203.0.113.44",
         src_port: 62_001,
@@ -355,7 +355,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
         expires_at = EXCLUDED.expires_at,
         updated_at = EXCLUDED.updated_at
       """,
-      [ip, hostname, now, DateTime.add(now, 3600, :second)]
+      [ip, hostname, now, DateTime.shift(now, hour: 1)]
     )
   end
 
@@ -384,7 +384,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
         expires_at = EXCLUDED.expires_at,
         updated_at = EXCLUDED.updated_at
       """,
-      [ip, ["alienvault_otx"], now, DateTime.add(now, 3600, :second)]
+      [ip, ["alienvault_otx"], now, DateTime.shift(now, hour: 1)]
     )
   end
 

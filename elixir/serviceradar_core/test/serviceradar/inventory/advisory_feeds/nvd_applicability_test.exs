@@ -354,6 +354,31 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicabilityTest do
     end
   end
 
+  describe "EndpointNvdFacts.build_with_application_cpes/3" do
+    # The matcher computes a device's application CPEs once and builds every
+    # package's facts from them; that must be exactly what build/3 derives.
+    test "matches build/3 for every package of a device" do
+      packages = [
+        %{version: "1.2.3", cpes: ["cpe:2.3:a:fixture:alpha_widget:1.2.3:*:*:*:*:*:*:*"]},
+        %{version: nil, cpes: ["cpe:2.3:a:sample:beta_widget:9.8.7:*:*:*:*:*:*:*"]},
+        %{version: "4.5", cpes: ["cpe:2.3:o:fixture:gamma_os:4.5:*:*:*:*:*:*:*", "not-a-cpe"]},
+        %{version: "7", cpes: []}
+      ]
+
+      context = %{
+        application_cpes: ["cpe:2.3:a:extra:delta_tool:2.0:*:*:*:*:*:*:*"],
+        coverage_state: "complete"
+      }
+
+      application_cpes = EndpointNvdFacts.device_application_cpes(packages)
+
+      for package <- packages do
+        assert EndpointNvdFacts.build_with_application_cpes(package, application_cpes, context) ==
+                 EndpointNvdFacts.build(package, packages, context)
+      end
+    end
+  end
+
   describe "EndpointNvdFacts.build/2" do
     test "uses the package version for every application CPE alias" do
       aliases = [

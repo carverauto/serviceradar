@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
       current: true,
       approval_state: :approved,
       approval_id: Ash.UUID.generate(),
-      approval_expires_at: DateTime.add(now, 3_600, :second),
+      approval_expires_at: DateTime.shift(now, hour: 1),
       inventory_policy: :allow_list,
       allowed_inventory_ids: [inventory_id],
       project_id: 1,

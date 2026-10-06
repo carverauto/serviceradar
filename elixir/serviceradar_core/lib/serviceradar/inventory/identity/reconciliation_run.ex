@@ -45,8 +45,15 @@ defmodule ServiceRadar.Inventory.Identity.ReconciliationRun do
     :largest_blocked_component,
     :merges,
     :errors,
+    :blocked_merges,
+    :blocked_unchanged,
     :max_merges_configured,
     :merge_cap_reached,
+    :succession_merges,
+    :succession_reviews,
+    :successions_skipped,
+    :successions_deferred,
+    :max_successions_configured,
     :blocked_component_devices,
     :trigger,
     :job_schedule_id
@@ -131,7 +138,27 @@ defmodule ServiceRadar.Inventory.Identity.ReconciliationRun do
     end
 
     attribute :merges, :integer, allow_nil?: false, default: 0, public?: true
-    attribute :errors, :integer, allow_nil?: false, default: 0, public?: true
+
+    attribute :errors, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Merges that failed. A merge a guard refused is counted in blocked_merges"
+    end
+
+    attribute :blocked_merges, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Merges a guard refused, including the unchanged ones the run skipped"
+    end
+
+    attribute :blocked_unchanged, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Blocked components and pairs skipped because their evidence was unchanged"
+    end
 
     attribute :max_merges_configured, :integer do
       public? true
@@ -143,6 +170,40 @@ defmodule ServiceRadar.Inventory.Identity.ReconciliationRun do
       default false
       public? true
       description "Whether the run stopped because it reached its configured merge cap"
+    end
+
+    attribute :succession_merges, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Records merged into the record holding their source's current id"
+    end
+
+    attribute :succession_reviews, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Succession candidates sent to review instead of merged"
+    end
+
+    attribute :successions_skipped, :integer do
+      allow_nil? false
+      default 0
+      public? true
+
+      description "Succession merges not made: a guard refused, the pair changed or the merge failed"
+    end
+
+    attribute :successions_deferred, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Succession candidates left for a later run by the succession cap"
+    end
+
+    attribute :max_successions_configured, :integer do
+      public? true
+      description "The per-run succession cap this run was given; nil when no candidate needed it"
     end
 
     attribute :blocked_component_devices, {:array, :map} do

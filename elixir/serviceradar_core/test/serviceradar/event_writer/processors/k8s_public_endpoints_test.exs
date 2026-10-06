@@ -18,7 +18,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
       Map.merge(
         %{
           "cluster_id" => "demo",
-          "ip" => "23.138.124.7",
+          "ip" => "198.51.100.7",
           "port" => 22,
           "protocol" => "tcp",
           "exposure_class" => "LoadBalancer",
@@ -29,7 +29,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
           "endpoint_targets" => [
             %{"ip" => "10.42.221.140", "port" => 10_022, "pod_name" => "envoy-pod"}
           ],
-          "annotations" => %{"metallb.io/loadBalancerIPs" => "23.138.124.7"}
+          "annotations" => %{"metallb.io/loadBalancerIPs" => "198.51.100.7"}
         },
         endpoint_overrides
       )
@@ -49,7 +49,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
     assert snapshot_at == ~U[2026-08-05 17:00:00Z]
 
     assert row.cluster_id == "demo"
-    assert row.ip == "23.138.124.7"
+    assert row.ip == "198.51.100.7"
     assert row.port == 22
     assert row.namespace == "envoy-gateway-system"
     assert row.service_name == "envoy-forgejo"
@@ -98,6 +98,37 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
 
   test "parse_message rejects data that is not JSON" do
     assert K8sPublicEndpoints.parse_message(%{data: "not json", metadata: %{}}) == nil
+  end
+
+  test "parse_message rejects a nested cluster identity that differs from the envelope" do
+    payload = snapshot(%{"cluster_id" => "cluster-example-foreign"})
+    assert K8sPublicEndpoints.parse_message(message(payload)) == nil
+  end
+
+  test "parse_message rejects partial agent-path provenance instead of using the direct path" do
+    msg =
+      snapshot()
+      |> message()
+      |> put_in([:metadata, :headers], [{"Sr-Agent-Id", "agent-example-1"}])
+
+    assert K8sPublicEndpoints.parse_message(msg) == nil
+  end
+
+  test "parse_message accepts complete matching gateway provenance" do
+    msg =
+      snapshot()
+      |> message()
+      |> put_in(
+        [:metadata, :headers],
+        [
+          {"Sr-Ingest-Identity", "agent:agent-example-1"},
+          {"Sr-Agent-Id", "agent-example-1"},
+          {"Sr-Partition", "SITE01"}
+        ]
+      )
+
+    assert %{source: %{mode: :agent, agent_id: "agent-example-1", partition_id: "SITE01"}} =
+             K8sPublicEndpoints.parse_message(msg)
   end
 
   test "implements the EventWriter processor behaviour" do

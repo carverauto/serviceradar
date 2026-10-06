@@ -19,13 +19,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
   test "list_pending_jobs excludes expired active mtr commands", %{actor: actor, scope: scope} do
     stale =
       create_mtr_command(actor, "agent-stale", "192.0.2.10",
-        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
         status: :acknowledged
       )
 
     fresh =
       create_mtr_command(actor, "agent-fresh", "192.0.2.20",
-        expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+        expires_at: DateTime.shift(DateTime.utc_now(), minute: 1),
         status: :sent
       )
 
@@ -40,12 +40,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
   test "list_bulk_jobs matches targets from bulk payloads", %{actor: actor, scope: scope} do
     unrelated =
       create_bulk_mtr_command(actor, "agent-other", ["203.0.113.10", "router-other"],
-        inserted_at: DateTime.add(DateTime.utc_now(), -30, :second)
+        inserted_at: DateTime.shift(DateTime.utc_now(), second: -30)
       )
 
     matching =
       create_bulk_mtr_command(actor, "agent-bulk", ["192.0.2.10", "core-sw01"],
-        inserted_at: DateTime.add(DateTime.utc_now(), -5, :second)
+        inserted_at: DateTime.shift(DateTime.utc_now(), second: -5)
       )
 
     assert {:ok, jobs} = MtrData.list_bulk_jobs(scope, target_filter: "core-sw01")
@@ -57,13 +57,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
   test "list_bulk_jobs excludes expired active bulk commands", %{actor: actor, scope: scope} do
     stale =
       create_bulk_mtr_command(actor, "agent-stale", ["192.0.2.10"],
-        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
         status: :queued
       )
 
     recent =
       create_bulk_mtr_command(actor, "agent-recent", ["192.0.2.20"],
-        inserted_at: DateTime.add(DateTime.utc_now(), -5, :second)
+        inserted_at: DateTime.shift(DateTime.utc_now(), second: -5)
       )
 
     assert {:ok, jobs} = MtrData.list_bulk_jobs(scope)
@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
 
   test "list_traces_paginated applies relative MTR time filters" do
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    old_time = DateTime.add(now, -2, :day)
+    old_time = DateTime.shift(now, day: -2)
 
     old_id = insert_mtr_trace!("agent-time", "198.51.100.10", old_time)
     fresh_id = insert_mtr_trace!("agent-time", "198.51.100.20", now)
@@ -140,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
 
     insert_mtr_trace!("agent-coverage-a", "coverage.example", now, target_reached: true)
 
-    insert_mtr_trace!("agent-coverage-b", "coverage.example", DateTime.add(now, -60, :second), target_reached: false)
+    insert_mtr_trace!("agent-coverage-b", "coverage.example", DateTime.shift(now, minute: -1), target_reached: false)
 
     insert_mtr_trace!("agent-coverage-a", "other.example", now, target_reached: true)
 
@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     silent_transit_id =
-      insert_mtr_trace!("agent-destination", target, DateTime.add(now, -1, :second),
+      insert_mtr_trace!("agent-destination", target, DateTime.shift(now, second: -1),
         target_reached: true,
         total_hops: 3,
         hops: [
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
       )
 
     unreached_id =
-      insert_mtr_trace!("agent-destination", target, DateTime.add(now, -2, :second),
+      insert_mtr_trace!("agent-destination", target, DateTime.shift(now, second: -2),
         target_reached: false,
         total_hops: 3,
         hops: [
@@ -191,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
 
     for_result =
       for offset <- 3..50 do
-        insert_mtr_trace!("agent-destination", target, DateTime.add(now, -offset, :second),
+        insert_mtr_trace!("agent-destination", target, DateTime.shift(now, second: -offset),
           target_reached: true,
           total_hops: 1,
           hops: [{target, 5_000, 0.0}]
@@ -252,7 +252,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     end)
 
     latest_trace_id = List.last(trace_ids)
-    latest_hop_time = DateTime.add(timestamp, 1, :second)
+    latest_hop_time = DateTime.shift(timestamp, second: 1)
 
     insert_mtr_hop!(latest_trace_id, timestamp, 1, {target, 90_000, 100.0, 10, 0}, id: fixture_uuid(902))
 
@@ -294,7 +294,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     older_hop_id = fixture_uuid(912)
     newer_low_id = fixture_uuid(910)
     newer_high_id = fixture_uuid(911)
-    latest_hop_time = DateTime.add(timestamp, 1, :second)
+    latest_hop_time = DateTime.shift(timestamp, second: 1)
 
     insert_mtr_hop!(trace_id, timestamp, 1, {target, 90_000, 100.0, 10, 0}, id: older_hop_id)
 
@@ -563,7 +563,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
 
   defp create_bulk_mtr_command(actor, agent_id, targets, opts) do
     inserted_at = Keyword.get(opts, :inserted_at, DateTime.utc_now())
-    expires_at = Keyword.get(opts, :expires_at, DateTime.add(inserted_at, 300, :second))
+    expires_at = Keyword.get(opts, :expires_at, DateTime.shift(inserted_at, minute: 5))
     status = Keyword.get(opts, :status, :completed)
 
     {:ok, command} =
@@ -620,7 +620,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
 
     completed_at =
       case status do
-        :completed -> DateTime.add(inserted_at, 10, :second)
+        :completed -> DateTime.shift(inserted_at, second: 10)
         _ -> nil
       end
 

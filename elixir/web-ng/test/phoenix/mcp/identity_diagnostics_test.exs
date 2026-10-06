@@ -80,6 +80,8 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnosticsTest do
                 "merges" => 200,
                 "max_merges_configured" => 200,
                 "merge_cap_reached" => true,
+                "blocked_merges" => 2,
+                "blocked_unchanged" => 3,
                 "blocked_component_devices" => [%{"device_ids" => ["sr:x", "sr:y"]}]
               }
             ]
@@ -263,6 +265,15 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnosticsTest do
       assert [run] = payload["runs"]
       assert run["merge_cap_reached"]
       assert run["cap_explanation"] =~ "stopped at its configured cap of 200"
+    end
+
+    test "reports guard refusals apart from errors, and the blocks skipped as unchanged" do
+      use_srql(StubSRQL)
+
+      assert {:ok, payload} = IdentityDiagnostics.explain(scope(), time: "last_24h")
+      assert [run] = payload["runs"]
+      assert run["blocked_explanation"] =~ "2 merge(s) refused by a merge guard"
+      assert run["blocked_explanation"] =~ "3 blocked component(s) or pair(s) skipped"
     end
 
     test "only a fixed set of time windows is accepted, never caller text" do

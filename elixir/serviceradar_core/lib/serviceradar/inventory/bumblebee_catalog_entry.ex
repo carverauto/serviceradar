@@ -31,6 +31,31 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogEntry do
         :metadata
       ]
     end
+
+    create :upsert do
+      accept [
+        :snapshot_id,
+        :catalog_id,
+        :ecosystem,
+        :package_name,
+        :affected_versions,
+        :severity,
+        :source_url,
+        :metadata
+      ]
+
+      upsert? true
+      upsert_identity :unique_snapshot_catalog
+
+      upsert_fields [
+        :ecosystem,
+        :package_name,
+        :affected_versions,
+        :severity,
+        :source_url,
+        :metadata
+      ]
+    end
   end
 
   policies do

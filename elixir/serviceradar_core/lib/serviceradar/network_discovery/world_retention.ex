@@ -66,7 +66,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRetention do
   end
 
   defp candidate(head, retained) do
-    cutoff = DateTime.add(DateTime.utc_now(), -86_400, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -1)
     worker = Oban.Worker.to_string(WorldWorker)
 
     query =

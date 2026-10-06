@@ -50,7 +50,7 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
     # Only the live series has an open episode heartbeating `last_seen_at`.
     upsert_episode!(device_uid, live_series_key, "open", base_time)
 
-    now = DateTime.add(base_time, 3600, :second)
+    now = DateTime.shift(base_time, hour: 1)
     cutoff = now
 
     live_series_keys = ResolveStaleAnomaliesWorker.live_episode_series_keys(now, Repo)
@@ -86,7 +86,7 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
     now = DateTime.utc_now()
 
     upsert_episode!(device_uid, fresh_key, "open", now)
-    upsert_episode!(device_uid, stale_key, "open", DateTime.add(now, -8 * 3600, :second))
+    upsert_episode!(device_uid, stale_key, "open", DateTime.shift(now, hour: -8))
     upsert_episode!(device_uid, cleared_key, "cleared", now)
 
     live_series_keys = ResolveStaleAnomaliesWorker.live_episode_series_keys(now, Repo)
@@ -140,7 +140,7 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
   defp anomaly_event(device_uid, series_key, base_time, offset) do
     %{
       id: Ash.UUID.generate(),
-      time: DateTime.add(base_time, offset, :second),
+      time: DateTime.shift(base_time, second: offset),
       severity_id: OCSF.severity_high(),
       severity: OCSF.severity_name(OCSF.severity_high()),
       message: "Anomaly anomaly_open",
@@ -169,7 +169,7 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
         series_key: series_key,
         detector: "spike",
         status: status,
-        opened_at: DateTime.add(last_seen_at, -600, :second),
+        opened_at: DateTime.shift(last_seen_at, minute: -10),
         last_seen_at: last_seen_at,
         cleared_at: if(status == "cleared", do: last_seen_at),
         clear_reason: if(status == "cleared", do: "clear")

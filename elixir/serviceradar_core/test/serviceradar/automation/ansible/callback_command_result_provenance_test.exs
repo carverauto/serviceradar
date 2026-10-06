@@ -456,7 +456,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
   end
 
   defp recent_jobs_bundle(env, agent_jobs) do
-    reconcile_after = DateTime.add(@now, -60, :second)
+    reconcile_after = DateTime.shift(@now, minute: -1)
     {:ok, request} = Contract.recent_jobs_request(env.execution, reconcile_after)
 
     result_payload = %{
@@ -611,7 +611,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
         Keyword.merge(
           [
             attempt: 1,
-            deadline_at: DateTime.add(@now, 120, :second),
+            deadline_at: DateTime.shift(@now, minute: 2),
             next_attempt_at: @now
           ],
           opts
@@ -721,7 +721,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
       },
       "allow" => scope.allow,
       "ttl_seconds" => 300,
-      "expires_at" => @now |> DateTime.add(300, :second) |> DateTime.to_iso8601()
+      "expires_at" => @now |> DateTime.shift(minute: 5) |> DateTime.to_iso8601()
     }
   end
 
@@ -883,8 +883,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
       controller_security_snapshot_digest: controller_security_snapshot_digest,
       live_launch_snapshot_digest: String.duplicate("d", 64),
       command_result_digest: String.duplicate("e", 64),
-      verified_at: DateTime.add(@now, -1, :second),
-      expires_at: DateTime.add(@now, 60, :second)
+      verified_at: DateTime.shift(@now, second: -1),
+      expires_at: DateTime.shift(@now, minute: 1)
     }
 
     {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)
@@ -928,8 +928,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultProvenanceTest do
   defp expire_preflight_attestation(bundle) do
     attestation =
       bundle.operation.immutable_launch_snapshot
-      |> Map.put("verified_at", DateTime.to_iso8601(DateTime.add(@now, -120, :second)))
-      |> Map.put("expires_at", DateTime.to_iso8601(DateTime.add(@now, -1, :second)))
+      |> Map.put("verified_at", DateTime.to_iso8601(DateTime.shift(@now, minute: -2)))
+      |> Map.put("expires_at", DateTime.to_iso8601(DateTime.shift(@now, second: -1)))
 
     {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)
 

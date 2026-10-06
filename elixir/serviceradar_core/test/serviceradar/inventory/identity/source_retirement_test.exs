@@ -19,18 +19,23 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
+  alias ServiceRadar.Inventory.Identity.PopulationGauges
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.SourceRetirementWorker
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.Remediation.SourceIdentityRepair
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.MetricContract
 
   require Ash.Query
 
   @moduletag :integration
 
   @prefix "platform"
+
+  @source_population [:serviceradar, :inventory, :source_population]
+  @identity_population [:serviceradar, :inventory, :identity_population]
 
   # N = 3 collections, T = 24 hours.
   @settings %{
@@ -59,6 +64,18 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     if metadata.source_instance == source_instance do
       send(parent, {:source_retirement, kind, measurements, metadata})
     end
+  end
+
+  @doc false
+  def forward_population(_event, measurements, metadata, {parent, source_instance}) do
+    if metadata.source_instance == source_instance do
+      send(parent, {:source_population, measurements, metadata})
+    end
+  end
+
+  @doc false
+  def forward_inventory(_event, measurements, metadata, parent) do
+    if self() == parent, do: send(parent, {:identity_population, measurements, metadata})
   end
 
   @doc false
@@ -179,7 +196,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       assert {:ok, %{status: :unscoped}} =
                SourceRetirement.run(instance,
                  settings: @settings,
-                 now: DateTime.add(ctx.t0, 100, :hour),
+                 now: DateTime.shift(ctx.t0, hour: 100),
                  actor: ctx.actor
                )
 
@@ -293,7 +310,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       assert {:ok, %{retired: 1}} =
                SourceRetirement.run(ctx.instance,
                  settings: @settings,
-                 now: DateTime.add(ctx.t0, 100, :hour),
+                 now: DateTime.shift(ctx.t0, hour: 100),
                  actor: ctx.actor,
                  uids: [a.uid, b.uid, d.uid]
                )
@@ -323,7 +340,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       assert {:ok, report} =
                SourceIdentityRepair.dry_run("armis", ctx.inst,
                  settings: @settings,
-                 now: DateTime.add(ctx.t0, 30, :hour)
+                 now: DateTime.shift(ctx.t0, hour: 30)
                )
 
       assert report.mode == "dry_run"
@@ -374,7 +391,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
         absent = Enum.map(2..8, &armis_record(ctx, &1))
 
       # The pass at hour 30 has its cutoff at hour 6: an observation at the cutoff is T old.
-      cutoff = DateTime.add(ctx.t0, 6, :hour)
+      cutoff = DateTime.shift(ctx.t0, hour: 6)
       put_column(at_cutoff, :identity_observed_at, DateTime.to_naive(cutoff))
       put_column(agent, :agent_id, "agent-#{ctx.n}")
       register(ctx, agent_identifier.uid, :agent_id, "agent-#{ctx.n}-id", "default")
@@ -384,7 +401,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       put_column(
         observed,
         :identity_observed_at,
-        cutoff |> DateTime.add(1, :second) |> DateTime.to_naive()
+        cutoff |> DateTime.shift(second: 1) |> DateTime.to_naive()
       )
 
       collect(ctx, 1, [a | absent], hours: 0)
@@ -652,7 +669,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
                linear_reads(n, "dry run", fn ->
                  SourceIdentityRepair.dry_run("armis", ctx.inst,
                    settings: @unguarded,
-                   now: DateTime.add(ctx.t0, 30, :hour)
+                   now: DateTime.shift(ctx.t0, hour: 30)
                  )
                end)
 
@@ -672,6 +689,84 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     end
   end
 
+  describe "population gauges" do
+    test "a pass reports the instance's live records against the ids it last reported", ctx do
+      sustained_absence(ctx)
+      attach_population(ctx)
+      instance = ctx.instance
+
+      # b's id is held and not yet retired, while the latest collection reported only a's.
+      assert {:ok, %{status: :completed, retired: 0}} = retire(ctx, 6)
+
+      assert_received {:source_population,
+                       %{live_records: 2, current_ids: 1, live_to_current: 2.0}, ^instance}
+
+      # A disabled pass retires nothing and still reports.
+      assert {:ok, %{status: :disabled}} =
+               retire(ctx, 30, %{@settings | source_retirement_enabled: false})
+
+      assert_received {:source_population,
+                       %{live_records: 2, current_ids: 1, live_to_current: 2.0}, ^instance}
+
+      # Read after the pass, so the record whose id it retired no longer counts.
+      assert {:ok, %{retired: 1}} = retire(ctx, 30)
+
+      assert_received {:source_population,
+                       %{live_records: 1, current_ids: 1, live_to_current: 1.0} = measurements,
+                       ^instance}
+
+      MetricContract.assert_exported(@source_population, measurements, instance)
+      refute_received {:source_population, _measurements, _metadata}
+    end
+
+    test "a pass limited to some devices reports nothing, since it reads only theirs", ctx do
+      {a, b} = sustained_absence(ctx)
+      attach_population(ctx)
+
+      assert {:ok, %{retired: 1}} =
+               SourceRetirement.run(ctx.instance,
+                 settings: @settings,
+                 now: DateTime.shift(ctx.t0, hour: 30),
+                 actor: ctx.actor,
+                 uids: [a.uid, b.uid]
+               )
+
+      refute_received {:source_population, _measurements, _metadata}
+    end
+
+    test "the inventory gauges count retired-only and marked records and released seed shells",
+         ctx do
+      before = PopulationGauges.inventory()
+
+      sustained_absence(ctx)
+      assert {:ok, %{retired: 1, marked: 1}} = retire(ctx, 30)
+
+      # A sweep seed that released its address, and two records that are not one: a sweep seed
+      # that keeps its address, and a record without an address that a sweep did not find.
+      ctx
+      |> create_device(10)
+      |> put_column(:discovery_sources, ["sweep"])
+      |> put_column(:ip, nil)
+
+      ctx |> create_device(11) |> put_column(:discovery_sources, ["sweep"])
+
+      ctx
+      |> create_device(12)
+      |> put_column(:discovery_sources, ["armis"])
+      |> put_column(:ip, nil)
+
+      counts = PopulationGauges.inventory()
+      assert counts.retired_only_records == before.retired_only_records + 1
+      assert counts.source_retired_records == before.source_retired_records + 1
+      assert counts.released_seed_shells == before.released_seed_shells + 1
+
+      attach_inventory(ctx)
+      assert :ok = PopulationGauges.emit_inventory()
+      assert_received {:identity_population, ^counts, metadata}
+      MetricContract.assert_exported(@identity_population, counts, metadata)
+    end
+  end
+
   # One Armis source instance per test. t0 lies ten days back, so the collections and passes a
   # test places after it are in the past. `ip_base` keeps the addresses of two instances in one
   # test apart.
@@ -686,7 +781,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       ip_base: ip_base,
       instance: %{partition: "default", source: "armis", source_instance: inst},
       id_partition: "default:armis:#{inst}",
-      t0: DateTime.utc_now() |> DateTime.add(-10, :day) |> DateTime.truncate(:microsecond)
+      t0: DateTime.utc_now() |> DateTime.shift(day: -10) |> DateTime.truncate(:microsecond)
     }
   end
 
@@ -826,14 +921,17 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     %{uid: device.uid}
   end
 
-  # Writes a column no device action accepts, as the writer that owns it does.
+  # Writes a column no device action accepts, as the writer that owns it does. Returns the
+  # record, so writes chain.
   defp put_column(record, column, value)
-       when column in [:agent_id, :discovery_sources, :identity_observed_at] do
+       when column in [:agent_id, :discovery_sources, :identity_observed_at, :ip] do
     %{num_rows: 1} =
       Repo.query!("UPDATE platform.ocsf_devices SET #{column} = $2 WHERE uid = $1", [
         record.uid,
         value
       ])
+
+    record
   end
 
   defp device!(ctx, record) do
@@ -885,7 +983,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     collection_id = "#{ctx.inst}-c#{k}"
     content_hash = sha(collection_id)
     query_hash = Keyword.get(opts, :query_hash)
-    observed_at = DateTime.add(ctx.t0, Keyword.get(opts, :hours, k), :hour)
+    observed_at = DateTime.shift(ctx.t0, hour: Keyword.get(opts, :hours, k))
 
     snapshot = %{
       partition: "default",
@@ -987,7 +1085,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   defp retire(ctx, hours, settings \\ @settings) do
     SourceRetirement.run(ctx.instance,
       settings: settings,
-      now: DateTime.add(ctx.t0, hours, :hour),
+      now: DateTime.shift(ctx.t0, hour: hours),
       actor: ctx.actor
     )
   end
@@ -1082,6 +1180,29 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
         &__MODULE__.forward_event/4,
         {self(), ctx.inst}
       )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  defp attach_population(ctx) do
+    handler_id = "source-population-#{ctx.n}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        @source_population,
+        &__MODULE__.forward_population/4,
+        {self(), ctx.inst}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  defp attach_inventory(ctx) do
+    handler_id = "identity-population-#{ctx.n}"
+
+    :ok =
+      :telemetry.attach(handler_id, @identity_population, &__MODULE__.forward_inventory/4, self())
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end

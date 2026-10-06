@@ -44,12 +44,14 @@ defmodule ServiceRadar.Camera.RelaySessionReaper do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
 
     lease_cutoff =
-      DateTime.add(now, -Keyword.get(opts, :lease_grace_seconds, @default_lease_grace_seconds))
+      DateTime.shift(now,
+        second: -Keyword.get(opts, :lease_grace_seconds, @default_lease_grace_seconds)
+      )
 
     unleased_cutoff =
-      DateTime.add(
+      DateTime.shift(
         now,
-        -Keyword.get(opts, :unleased_grace_seconds, @default_unleased_grace_seconds)
+        second: -Keyword.get(opts, :unleased_grace_seconds, @default_unleased_grace_seconds)
       )
 
     actor = Keyword.get(opts, :actor, SystemActor.system(@actor_component))

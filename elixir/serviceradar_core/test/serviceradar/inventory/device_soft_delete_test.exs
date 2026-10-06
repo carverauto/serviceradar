@@ -343,7 +343,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     {:ok, _} = soft_delete_device(actor, old_device, "stale")
     {:ok, _} = soft_delete_device(actor, recent_device, "recent")
 
-    old_cutoff = DateTime.add(DateTime.utc_now(), -2 * 86_400, :second)
+    old_cutoff = DateTime.shift(DateTime.utc_now(), day: -2)
 
     Repo.update_all(
       from(d in "ocsf_devices",

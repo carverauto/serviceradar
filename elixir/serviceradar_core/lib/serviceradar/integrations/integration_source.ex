@@ -68,9 +68,18 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     initial_states [:idle]
     default_initial_state :idle
     state_attribute :sync_status
+    # `pending` was written by sync-status recording before this state machine
+    # existed; deployments still carry sources stranded in it (see the
+    # sync_start transition below).
+    deprecated_states [:pending]
 
     transitions do
-      transition :sync_start, from: [:idle, :success, :failed], to: :running
+      # sync_start accepts any state, including the deprecated `pending`: a new
+      # run supersedes whatever came before, and a stranded source would
+      # otherwise fail every status recording forever -- ingestion succeeds
+      # but the source can never leave the stuck state, so its last recorded
+      # error never clears.
+      transition :sync_start, from: [:*, :pending], to: :running
       transition :sync_success, from: :running, to: :success
       transition :sync_failed, from: :running, to: :failed
     end
@@ -510,8 +519,9 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       default :idle
       allow_nil? false
       public? true
-      constraints one_of: [:idle, :running, :success, :failed]
-      description "Current sync ingestion state"
+      constraints one_of: [:idle, :running, :success, :failed, :pending]
+
+      description "Current sync ingestion state (#{inspect(:pending)} is a deprecated legacy value a new run recovers from)"
     end
 
     attribute :consecutive_failures, :integer do

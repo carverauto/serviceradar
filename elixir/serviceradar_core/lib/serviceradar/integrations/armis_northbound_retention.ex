@@ -21,7 +21,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRetention do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     retention_days = retention_days(opts)
     batch_size = batch_size(opts)
-    cutoff = DateTime.add(now, -retention_days * 86_400, :second)
+    cutoff = DateTime.shift(now, day: -retention_days)
 
     candidates =
       from(target in "integration_update_run_targets",

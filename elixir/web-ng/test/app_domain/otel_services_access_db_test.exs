@@ -27,12 +27,12 @@ defmodule ServiceRadarWebNG.OtelServicesAccessDbTest do
     SQL.query!(Repo, "DELETE FROM platform.otel_service_catalog", [])
 
     now = DateTime.utc_now()
-    hour_ago = DateTime.add(now, -3600, :second)
+    hour_ago = DateTime.shift(now, hour: -1)
 
     # `svc-0001` logged an hour ago and traced a minute ago; `svc-0002` only traced.
     rows = [
-      {"svc-0001", hour_ago, DateTime.add(now, -60, :second), nil},
-      {"svc-0002", nil, DateTime.add(now, -30, :second), nil}
+      {"svc-0001", hour_ago, DateTime.shift(now, minute: -1), nil},
+      {"svc-0002", nil, DateTime.shift(now, second: -30), nil}
     ]
 
     for {name, logs_at, traces_at, metrics_at} <- rows do

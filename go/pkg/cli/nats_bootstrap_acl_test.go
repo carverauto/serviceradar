@@ -145,13 +145,19 @@ func TestGeneratePlatformAccount_AllowsPluginObjectStoreSubjects(t *testing.T) {
 	for _, required := range []string{
 		"$O.serviceradar_plugins.>",
 		"$JS.FC.OBJ_serviceradar_plugins.>",
+		"flows.raw.>",
 	} {
 		if !containsString(claims.Pub.Allow, required) {
 			t.Errorf("platform publish allow missing %q: %v", required, claims.Pub.Allow)
 		}
 	}
-	if !containsString(claims.Sub.Allow, "$O.serviceradar_plugins.>") {
-		t.Errorf("platform subscribe allow missing object-store read subject: %v", claims.Sub.Allow)
+	for _, required := range []string{
+		"$O.serviceradar_plugins.>",
+		"flows.raw.>",
+	} {
+		if !containsString(claims.Sub.Allow, required) {
+			t.Errorf("platform subscribe allow missing %q: %v", required, claims.Sub.Allow)
+		}
 	}
 }
 
@@ -205,6 +211,7 @@ func TestGenerateAgentFlowCollectorCreds_CrossAgentPublishDenied(t *testing.T) {
 	for _, forbidden := range []string{
 		"flow.host-slice.agent-b",
 		"flow.host-slice.>",
+		"flows.raw.>",
 		"flow.attributed.*",
 		"flow.attributed.>",
 		"flow.attributed.agent-b",
@@ -246,7 +253,7 @@ func TestGeneratePartitionCoreCreds_ExcludesAttributedFlowReadback(t *testing.T)
 
 	pubAllow := claims.Pub.Allow
 
-	for _, required := range []string{"flow.raw.>", "logs.>", "live.logs.>", "events.>", "config.>"} {
+	for _, required := range []string{"flow.raw.>", "flows.raw.>", "logs.>", "live.logs.>", "events.>", "config.>"} {
 		if !containsString(pubAllow, required) {
 			t.Errorf("publish allow missing %q: %v", required, pubAllow)
 		}
@@ -274,7 +281,7 @@ func TestGeneratePartitionCoreCreds_ExcludesAttributedFlowReadback(t *testing.T)
 	}
 
 	subAllow := claims.Sub.Allow
-	for _, required := range []string{"flow.raw.>", "logs.>", "events.>", "config.>"} {
+	for _, required := range []string{"flow.raw.>", "flows.raw.>", "logs.>", "events.>", "config.>"} {
 		if !containsString(subAllow, required) {
 			t.Errorf("subscribe allow missing %q: %v", required, subAllow)
 		}

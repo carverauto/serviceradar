@@ -103,8 +103,16 @@ defmodule ServiceRadar.Identity.ApiToken do
     update :record_use do
       description "Record token usage"
       accept @token_usage_fields
+
+      # Callers that coalesce requests record several uses in one write.
+      argument :uses, :integer do
+        allow_nil? false
+        default 1
+        constraints min: 1
+      end
+
       change atomic_update(:last_used_at, expr(now()))
-      change atomic_update(:use_count, expr(use_count + 1))
+      change atomic_update(:use_count, expr(use_count + ^arg(:uses)))
     end
 
     update :revoke do

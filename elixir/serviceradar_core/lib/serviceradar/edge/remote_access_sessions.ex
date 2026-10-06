@@ -729,10 +729,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
           %{
             attach_ticket_hash: ticket_hash,
             attach_expires_at:
-              DateTime.add(
+              DateTime.shift(
                 now,
-                Keyword.get(opts, :attach_ttl_seconds, @default_attach_ttl_seconds),
-                :second
+                second: Keyword.get(opts, :attach_ttl_seconds, @default_attach_ttl_seconds)
               ),
             device_uid: device.uid,
             target_kind: target_kind,

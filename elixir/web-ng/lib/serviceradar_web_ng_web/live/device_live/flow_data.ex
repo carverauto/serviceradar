@@ -576,7 +576,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
     end
   end
 
-  defp flow_probe_since, do: DateTime.add(DateTime.utc_now(), -24, :hour)
+  defp flow_probe_since, do: DateTime.shift(DateTime.utc_now(), day: -1)
 
   defp probe_result({:ok, seen?}) when is_boolean(seen?), do: {:ok, seen?}
   defp probe_result({:error, _reason}), do: :error

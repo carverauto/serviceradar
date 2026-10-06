@@ -38,7 +38,7 @@ defmodule ServiceRadar.Identity.SAMLAssertionCleanupWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    cutoff = DateTime.add(DateTime.utc_now(), -grace_seconds(), :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), second: -grace_seconds())
     actor = SystemActor.system(:saml_assertion_cleanup)
 
     consumed = Ash.Query.filter(SAMLConsumedAssertion, expr(not_on_or_after < ^cutoff))

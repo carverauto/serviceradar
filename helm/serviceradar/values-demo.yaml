@@ -998,7 +998,7 @@ flowCollector:
       # the demo. The Rust binary still starts the in-process Prometheus
       # server (config.metrics_addr remains set in base values), so
       # cluster-internal scrapers can reach /metrics on the pod IP.
-      # Probes are unaffected: they gate on the ready-file, not on HTTP.
+      # Probes are unaffected: readiness is an httpGet of /readyz on the pod IP.
       metrics:
         enabled: false
         port: 50046

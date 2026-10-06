@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventRange do
     case Enum.reduce_while(Enum.with_index(points), {:ok, []}, fn {point, index}, {:ok, acc} ->
            case bucket_start(point) do
              {:ok, start_time} ->
-               end_time = start_time |> DateTime.add(3_600, :second) |> DateTime.add(-1, :microsecond)
+               end_time = start_time |> DateTime.shift(hour: 1) |> DateTime.add(-1, :microsecond)
 
                bucket = %{
                  x: x(index, count),

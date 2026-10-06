@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesPathsDomainTest do
 
   defp series(count) do
     start = ~U[2026-01-01 00:00:00Z]
-    for n <- 0..(count - 1), do: {DateTime.add(start, n * 60, :second), n * 1.0}
+    for n <- 0..(count - 1), do: {DateTime.shift(start, minute: n), n * 1.0}
   end
 
   test "a precomputed domain places instants exactly where the full series does" do

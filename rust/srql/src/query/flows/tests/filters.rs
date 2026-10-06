@@ -514,7 +514,7 @@ fn device_addr_matches_either_endpoint_or_the_sampler() {
             op: FilterOp::In,
             value: FilterValue::List(vec![
                 "192.168.10.1".to_string(),
-                "23.138.124.17".to_string(),
+                "198.51.100.17".to_string(),
             ]),
         }],
         order: Vec::new(),

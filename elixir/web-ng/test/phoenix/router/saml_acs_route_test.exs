@@ -23,4 +23,12 @@ defmodule ServiceRadarWebNGWeb.Router.SAMLACSRouteTest do
     assert info.plug_opts == :request
     assert info.pipe_through == [:browser, :rate_limit_auth_saml_request]
   end
+
+  test "the assertion consumer metadata endpoint runs in the unmetered browser pipeline" do
+    info = Phoenix.Router.route_info(Router, "GET", "/auth/saml/metadata", "localhost")
+
+    assert info.plug == ServiceRadarWebNGWeb.SAMLController
+    assert info.plug_opts == :metadata
+    assert info.pipe_through == [:browser]
+  end
 end

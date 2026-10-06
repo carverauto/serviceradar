@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       state: "degraded",
       active: true,
       version: "0.3.1",
-      reported_at: DateTime.add(DateTime.utc_now(), -30, :day)
+      reported_at: DateTime.shift(DateTime.utc_now(), day: -30)
     )
 
     {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
@@ -413,7 +413,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
           state: :completed,
           policy: %{},
           target_snapshot: %{"eligible" => 1},
-          started_at: DateTime.add(base, i, :second)
+          started_at: DateTime.shift(base, second: i)
         }
 
         attrs
@@ -435,7 +435,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
         state: :running,
         policy: %{},
         target_snapshot: %{"eligible" => 1},
-        started_at: DateTime.add(base, 60, :second)
+        started_at: DateTime.shift(base, minute: 1)
       }
       |> then(&Ash.Changeset.for_create(AddonRollout, :create, &1, actor: actor))
       |> Ash.create!()

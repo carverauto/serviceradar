@@ -2,6 +2,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
   @moduledoc """
   Tracks active browser viewers for each relay session and fans Membrane output
   only to registered viewers.
+
+  Membership changes (join/leave/idle close) go through this process. The
+  per-chunk hot path does not: viewers are mirrored into a protected ETS table, so
+  `broadcast_chunk/2` fans out from the calling pipeline sink and
+  `viewer_count/1` is a table read. Previously every camera's every chunk was a
+  cast into this one mailbox (unbounded, no drop policy), and the session
+  tracker's per-chunk `viewer_count` call queued behind them; under load that
+  call timed out and crashed the tracker, dropping every relay session.
   """
 
   use GenServer
@@ -13,22 +21,62 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
   require Logger
 
   @default_idle_close_ms 5_000
+  @viewers_table :camera_relay_viewers
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc "Fans one media chunk to the session's viewers, from the calling process."
   def broadcast_chunk(relay_session_id, payload) when is_binary(relay_session_id) and is_map(payload) do
-    GenServer.cast(__MODULE__, {:broadcast_chunk, relay_session_id, payload})
+    relay_session_id
+    |> viewers()
+    |> Enum.each(fn viewer_id ->
+      :ok =
+        RelayPubSub.broadcast_viewer_chunk(
+          relay_session_id,
+          viewer_id,
+          viewer_chunk(relay_session_id, viewer_id, payload)
+        )
+    end)
   end
 
+  @doc "Current viewer count for a relay session; a table read, never a call."
   def viewer_count(relay_session_id) when is_binary(relay_session_id) do
-    GenServer.call(__MODULE__, {:viewer_count, relay_session_id})
+    relay_session_id |> viewers() |> MapSet.size()
+  end
+
+  defp viewers(relay_session_id) do
+    case :ets.lookup(@viewers_table, relay_session_id) do
+      [{^relay_session_id, viewers}] -> viewers
+      [] -> MapSet.new()
+    end
+  rescue
+    # The table is owned by this process; before it starts (or while it
+    # restarts) there are no viewers to fan out to.
+    ArgumentError -> MapSet.new()
+  end
+
+  defp viewer_chunk(relay_session_id, viewer_id, payload) do
+    %{
+      relay_session_id: relay_session_id,
+      viewer_id: viewer_id,
+      payload: Map.get(payload, :payload, <<>>),
+      media_ingest_id: Map.get(payload, :media_ingest_id),
+      sequence: Map.get(payload, :sequence),
+      pts: Map.get(payload, :pts),
+      dts: Map.get(payload, :dts),
+      codec: Map.get(payload, :codec),
+      payload_format: Map.get(payload, :payload_format),
+      track_id: Map.get(payload, :track_id),
+      keyframe: Map.get(payload, :keyframe, false) == true
+    }
   end
 
   @impl true
   def init(opts) do
     :ok = RelayPubSub.subscribe_viewer_control()
+    _ = :ets.new(@viewers_table, [:named_table, :protected, :set, read_concurrency: true])
 
     {:ok,
      %{
@@ -59,40 +107,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
            Application.get_env(:serviceradar_core_elx, :camera_relay_session_tracker, CameraMediaSessionTracker)
          )
      }}
-  end
-
-  @impl true
-  def handle_call({:viewer_count, relay_session_id}, _from, state) do
-    count =
-      state.viewers
-      |> Map.get(relay_session_id, MapSet.new())
-      |> MapSet.size()
-
-    {:reply, count, state}
-  end
-
-  @impl true
-  def handle_cast({:broadcast_chunk, relay_session_id, payload}, state) do
-    state
-    |> viewers_for(relay_session_id)
-    |> Enum.each(fn viewer_id ->
-      :ok =
-        RelayPubSub.broadcast_viewer_chunk(relay_session_id, viewer_id, %{
-          relay_session_id: relay_session_id,
-          viewer_id: viewer_id,
-          payload: Map.get(payload, :payload, <<>>),
-          media_ingest_id: Map.get(payload, :media_ingest_id),
-          sequence: Map.get(payload, :sequence),
-          pts: Map.get(payload, :pts),
-          dts: Map.get(payload, :dts),
-          codec: Map.get(payload, :codec),
-          payload_format: Map.get(payload, :payload_format),
-          track_id: Map.get(payload, :track_id),
-          keyframe: Map.get(payload, :keyframe, false) == true
-        })
-    end)
-
-    {:noreply, state}
   end
 
   @impl true
@@ -148,8 +162,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
 
     viewers =
       if MapSet.size(updated_set) == 0 do
+        true = :ets.delete(@viewers_table, relay_session_id)
         Map.delete(state.viewers, relay_session_id)
       else
+        true = :ets.insert(@viewers_table, {relay_session_id, updated_set})
         Map.put(state.viewers, relay_session_id, updated_set)
       end
 

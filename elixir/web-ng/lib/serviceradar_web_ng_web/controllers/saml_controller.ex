@@ -145,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   end
 
   defp open_pending_request(relay_state, request_id, return_to) do
-    expires_at = DateTime.add(DateTime.utc_now(), authn_request_ttl_seconds(), :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), second: authn_request_ttl_seconds())
     # An unusable path is dropped rather than failing the login.
     return_to = if is_binary(return_to) and byte_size(return_to) <= 2048, do: return_to
 

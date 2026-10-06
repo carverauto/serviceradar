@@ -84,13 +84,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
 
       defp local_anchor_select_expr(false, _anchor_alias), do: "FALSE"
 
-      defp cutoff_for_time_window("last_15m"), do: DateTime.add(DateTime.utc_now(), -15, :minute)
-      defp cutoff_for_time_window("last_1h"), do: DateTime.add(DateTime.utc_now(), -1, :hour)
-      defp cutoff_for_time_window("last_6h"), do: DateTime.add(DateTime.utc_now(), -6, :hour)
-      defp cutoff_for_time_window("last_24h"), do: DateTime.add(DateTime.utc_now(), -24, :hour)
-      defp cutoff_for_time_window("last_7d"), do: DateTime.add(DateTime.utc_now(), -7, :day)
-      defp cutoff_for_time_window("last_30d"), do: DateTime.add(DateTime.utc_now(), -30, :day)
-      defp cutoff_for_time_window("last_90d"), do: DateTime.add(DateTime.utc_now(), -90, :day)
+      defp cutoff_for_time_window("last_15m"), do: DateTime.shift(DateTime.utc_now(), minute: -15)
+      defp cutoff_for_time_window("last_1h"), do: DateTime.shift(DateTime.utc_now(), hour: -1)
+      defp cutoff_for_time_window("last_6h"), do: DateTime.shift(DateTime.utc_now(), hour: -6)
+      defp cutoff_for_time_window("last_24h"), do: DateTime.shift(DateTime.utc_now(), day: -1)
+      defp cutoff_for_time_window("last_7d"), do: DateTime.shift(DateTime.utc_now(), week: -1)
+      defp cutoff_for_time_window("last_30d"), do: DateTime.shift(DateTime.utc_now(), day: -30)
+      defp cutoff_for_time_window("last_90d"), do: DateTime.shift(DateTime.utc_now(), day: -90)
       defp cutoff_for_time_window(_), do: cutoff_for_time_window("last_24h")
 
       defp sparkline_bucket_for("last_1h"), do: "1 minute"

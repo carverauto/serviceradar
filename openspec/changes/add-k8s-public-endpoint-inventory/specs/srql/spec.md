@@ -4,7 +4,7 @@
 SRQL SHALL expose a queryable entity for Kubernetes public endpoint inventory (entity name `public_endpoints` or an equivalent documented alias) so operators can look up ownership by IP, hostname, port, protocol, namespace, and cluster identifier.
 
 #### Scenario: Query by IP
-- **WHEN** a user runs a SRQL query equivalent to `in:public_endpoints ip:23.138.124.7`
+- **WHEN** a user runs a SRQL query equivalent to `in:public_endpoints ip:198.51.100.7`
 - **THEN** the engine returns matching current inventory rows for that IP
 
 #### Scenario: Query by port and protocol

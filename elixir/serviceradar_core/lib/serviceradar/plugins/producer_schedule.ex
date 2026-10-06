@@ -476,11 +476,11 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
   defp next_due(%{schedule_type: :manual}, _now), do: nil
 
   defp next_due(%{schedule_type: :cron, cron_expression: cron, timezone: timezone}, now) do
-    next_cron_due(cron, timezone, now) || DateTime.add(now, 86_400, :second)
+    next_cron_due(cron, timezone, now) || DateTime.shift(now, day: 1)
   end
 
   defp next_due(%{cadence_seconds: cadence_seconds}, now) do
-    DateTime.add(now, cadence_seconds || 86_400, :second)
+    DateTime.shift(now, second: cadence_seconds || 86_400)
   end
 
   defp next_cron_due(cron, timezone, now) when is_binary(cron) do

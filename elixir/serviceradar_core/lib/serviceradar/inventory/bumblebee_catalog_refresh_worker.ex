@@ -30,6 +30,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   @default_failure_reschedule_seconds 3_600
   @default_max_entries 250_000
   @default_max_catalog_bytes 16 * 1024 * 1024
+  @default_upsert_batch_size 1_000
 
   @spec ensure_scheduled() ::
           {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:ok, :disabled} | {:error, term()}
@@ -329,17 +330,46 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
     |> normalize_ash_result_with_notifications()
   end
 
-  defp create_entries(snapshot, entries, actor) do
-    Enum.reduce_while(entries, :ok, fn entry, :ok ->
-      attrs = Map.put(entry, :snapshot_id, snapshot.id)
+  defp create_entries(_snapshot, [], _actor), do: :ok
 
-      case BumblebeeCatalogEntry
-           |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-           |> Ash.create(actor: actor, return_notifications?: true) do
-        {:ok, _entry, _notifications} -> {:cont, :ok}
-        {:ok, _entry} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
+  defp create_entries(snapshot, entries, actor) do
+    batch_size = Keyword.get(config(), :upsert_batch_size, @default_upsert_batch_size)
+    attrs = dedup_entries_by_identity(entries, snapshot.id)
+
+    result =
+      Ash.bulk_create(attrs, BumblebeeCatalogEntry, :upsert,
+        actor: actor,
+        batch_size: batch_size,
+        transaction: :batch,
+        return_records?: false,
+        return_errors?: true,
+        stop_on_error?: false
+      )
+
+    case result do
+      %Ash.BulkResult{error_count: 0} ->
+        :ok
+
+      %Ash.BulkResult{error_count: count, errors: errors} ->
+        Logger.warning("Bumblebee catalog entry upsert failed",
+          snapshot_id: snapshot.id,
+          failed: count,
+          reason: inspect(Enum.take(List.wrap(errors), 3))
+        )
+
+        {:error, {:upsert_failed, count, errors}}
+
+      other ->
+        {:error, {:unexpected_upsert_result, other}}
+    end
+  end
+
+  defp dedup_entries_by_identity(entries, snapshot_id) do
+    entries
+    |> Enum.map(&Map.put(&1, :snapshot_id, snapshot_id))
+    |> Enum.uniq_by(fn entry ->
+      {entry[:snapshot_id] || Map.get(entry, "snapshot_id"),
+       entry[:catalog_id] || Map.get(entry, "catalog_id")}
     end)
   end
 

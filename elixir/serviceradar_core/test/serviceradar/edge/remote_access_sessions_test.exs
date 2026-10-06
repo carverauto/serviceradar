@@ -300,7 +300,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, active_audit}
     assert active_audit[:action] == :remote_access_session_active
 
-    old_activity = DateTime.utc_now() |> DateTime.add(-300, :second) |> DateTime.truncate(:second)
+    old_activity = DateTime.utc_now() |> DateTime.shift(minute: -5) |> DateTime.truncate(:second)
 
     Repo.query!(
       "UPDATE platform.remote_access_sessions SET last_activity_at = $2 WHERE id = $1::uuid",
@@ -1708,7 +1708,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                actor: @system_actor
              )
 
-    stale_at = DateTime.add(DateTime.utc_now(), -7_200, :second)
+    stale_at = DateTime.shift(DateTime.utc_now(), hour: -2)
 
     assert {:ok, _result} =
              Repo.query(

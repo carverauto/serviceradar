@@ -11,9 +11,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Events.OcsfEventPublisher
+  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
+  alias ServiceRadarWebNG.Plugins.ImportFailureMessages
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Repositories
 
@@ -37,6 +40,48 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
     else
       {:error, :oban_unavailable}
     end
+  end
+
+  @doc """
+  Runs the first-party sync immediately when the deployed version changed.
+
+  A new release's plugin index would otherwise wait for the next hourly tick.
+  The run each repository last completed recorded the release tag it targeted
+  (`last_sync_summary["release_tag"]`); when the deployed version differs from
+  that on any enabled repository, enqueue a forced run now. No-op when the
+  version is unknown or nothing changed.
+  """
+  @spec enqueue_if_version_changed() :: {:ok, Oban.Job.t()} | {:ok, :unchanged} | {:error, term()}
+  def enqueue_if_version_changed do
+    current = normalize_optional_string(System.get_env("SERVICERADAR_RELEASE_VERSION"))
+
+    if is_nil(current) or not ObanSupport.available?() or not auto_sync_enabled?() do
+      {:ok, :unchanged}
+    else
+      actor = SystemActor.system(:first_party_plugin_sync)
+
+      stale? =
+        [actor: actor]
+        |> Repositories.list_enabled()
+        |> Enum.any?(&repository_version_stale?(&1, current))
+
+      if stale? do
+        Logger.info("First-party plugin sync version changed to #{current}; syncing now")
+        enqueue_now()
+      else
+        {:ok, :unchanged}
+      end
+    end
+  end
+
+  @doc """
+  True when a repository's last completed run targeted a different release
+  tag than `current` (including never having run).
+  """
+  @spec repository_version_stale?(map() | nil, String.t()) :: boolean()
+  def repository_version_stale?(repository, current) when is_binary(current) do
+    summary = Map.get(repository || %{}, :last_sync_summary) || %{}
+    summary["release_tag"] != current
   end
 
   @spec enqueue_now(keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
@@ -139,12 +184,27 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
             )
 
             log_import_failures(summary.failed)
-            record_success(repository, actor)
+
+            run_summary = sync_summary(summary, release_tag(args), repository)
+
+            record_success(repository, run_summary, actor)
+
+            if summary.failed != [] do
+              # A run whose discovery worked but whose imports failed is a
+              # partial failure the hourly cadence would otherwise hide: the
+              # per-plugin errors are in the summary, and one event makes the
+              # run alertable.
+              publish_sync_failed_event(repository, run_summary)
+            end
+
             :ok
 
           {:error, reason} ->
             Logger.warning("Wasm plugin sync failed for #{repository.repo_url}", reason: inspect(reason))
-            record_failure(repository, reason, actor)
+            run_summary = error_summary(reason, release_tag(args), repository)
+
+            record_failure(repository, reason, run_summary, actor)
+            publish_sync_failed_event(repository, run_summary)
             {:error, reason}
         end
 
@@ -154,7 +214,10 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
           reason: inspect(reason)
         )
 
-        record_failure(repository, reason, actor)
+        run_summary = error_summary(reason, release_tag(args), repository)
+
+        record_failure(repository, reason, run_summary, actor)
+        publish_sync_failed_event(repository, run_summary)
         {:error, reason}
     end
   end
@@ -179,19 +242,144 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
     end
   end
 
-  defp record_success(repository, actor) do
+  defp record_success(repository, summary, actor) do
     repository
-    |> Ash.Changeset.for_update(:record_sync_success, %{}, actor: actor)
+    |> Ash.Changeset.for_update(:record_sync_success, %{last_sync_summary: summary}, actor: actor)
     |> Ash.update()
     |> log_stamp_failure(repository)
   end
 
-  defp record_failure(repository, reason, actor) do
+  defp record_failure(repository, reason, summary, actor) do
     repository
-    |> Ash.Changeset.for_update(:record_sync_error, %{last_sync_error: inspect(reason)}, actor: actor)
+    |> Ash.Changeset.for_update(
+      :record_sync_error,
+      %{
+        last_sync_error: inspect(reason),
+        last_sync_summary: summary
+      },
+      actor: actor
+    )
     |> Ash.update()
     |> log_stamp_failure(repository)
   end
+
+  # The run outcome the plugins page renders: counts, the first per-plugin
+  # failure as operator text, and the release tag the run targeted (the
+  # version-change trigger compares it with the deployed version). Public
+  # because the stored map is a contract with the page that renders it.
+  @doc """
+  Builds the `last_sync_summary` map for a completed run.
+
+  String-keyed (jsonb round-trip shape) so what the page reads after a reload
+  is exactly what this builds.
+  """
+  @spec sync_summary(map(), String.t() | nil, map()) :: map()
+  def sync_summary(summary, release_tag, repository) do
+    %{
+      "status" => if(summary.failed == [], do: "success", else: "partial"),
+      "release_tag" => release_tag,
+      "discovered" => summary.discovered,
+      "imported" => summary.imported,
+      "skipped" => summary.skipped,
+      "failed_count" => length(summary.failed)
+    }
+    |> maybe_put_first_failure(summary)
+    |> put_repository(repository)
+  end
+
+  @doc """
+  Builds the `last_sync_summary` map for a run that failed before importing
+  (discovery or credential resolution failed), with the mapped reason text.
+  """
+  @spec error_summary(term(), String.t() | nil, map()) :: map()
+  def error_summary(reason, release_tag, repository) do
+    put_repository(
+      %{
+        "status" => "failed",
+        "release_tag" => release_tag,
+        "discovered" => 0,
+        "imported" => 0,
+        "skipped" => 0,
+        "failed_count" => 0,
+        "error" => ImportFailureMessages.reason_to_text(reason)
+      },
+      repository
+    )
+  end
+
+  defp maybe_put_first_failure(summary, %{failed: [_ | _] = failed}) do
+    first = hd(failed)
+
+    Map.put(summary, "first_error", %{
+      "plugin_id" => Map.get(first, :plugin_id),
+      "version" => Map.get(first, :version),
+      "reason" => ImportFailureMessages.reason_to_text(Map.get(first, :error))
+    })
+  end
+
+  defp maybe_put_first_failure(summary, _), do: summary
+
+  defp put_repository(summary, repository) do
+    Map.put(summary, "repo_url", repository.repo_url)
+  end
+
+  # A failed or partially-failed run is published as an internal integration
+  # event on JetStream (stored by EventWriter like every event) so it can be
+  # alerted on instead of living only in the worker log and a repository
+  # attribute.
+  defp publish_sync_failed_event(repository, summary) do
+    attrs = sync_event_attrs(repository, summary)
+
+    case OcsfEventPublisher.publish(attrs, family: :integration) do
+      {:ok, _event} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Could not publish first-party plugin sync-failed event",
+          repo_url: repository.repo_url,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  @doc """
+  The JetStream event attrs for a failed or partially-failed run.
+
+  `status_code` is `first_party_plugin_sync_failed`: the alerting key.
+  """
+  @spec sync_event_attrs(map(), map()) :: map()
+  def sync_event_attrs(repository, summary) do
+    severity_id = OCSF.severity_high()
+    status_id = OCSF.status_failure()
+    activity_id = OCSF.activity_log_update()
+
+    %{
+      class_uid: OCSF.class_event_log_activity(),
+      category_uid: OCSF.category_system_activity(),
+      type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), activity_id),
+      activity_id: activity_id,
+      activity_name: OCSF.log_activity_name(activity_id),
+      severity_id: severity_id,
+      severity: OCSF.severity_name(severity_id),
+      status_id: status_id,
+      status: OCSF.status_name(status_id),
+      status_code: "first_party_plugin_sync_failed",
+      message: "First-party plugin sync failed: #{sync_event_message(summary)}",
+      metadata: %{
+        "repo_url" => repository.repo_url,
+        "release_tag" => summary["release_tag"],
+        "imported" => summary["imported"],
+        "skipped" => summary["skipped"],
+        "failed_count" => summary["failed_count"]
+      }
+    }
+  end
+
+  defp sync_event_message(%{"first_error" => %{"plugin_id" => plugin_id, "reason" => reason}})
+       when is_binary(plugin_id) and is_binary(reason), do: "#{plugin_id}: #{reason}"
+
+  defp sync_event_message(%{"error" => error}) when is_binary(error), do: error
+  defp sync_event_message(_summary), do: "sync run failed"
 
   defp log_stamp_failure({:ok, _record}, _repository), do: :ok
 

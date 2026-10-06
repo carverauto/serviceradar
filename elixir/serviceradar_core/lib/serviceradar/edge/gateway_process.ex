@@ -315,17 +315,19 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
     agents =
       if domain do
-        # Try domain-based selection first
-        domain_agents = AgentRegistry.find_agents_for_domain(domain)
+        # Disconnected agents in the domain are not a selection. Counting them
+        # as present skips the partition fallback and leaves the job with no agent.
+        domain_agents =
+          domain
+          |> AgentRegistry.find_agents_for_domain()
+          |> Enum.filter(&(&1[:status] == :connected))
 
         if Enum.empty?(domain_agents) do
-          # Fall back to partition-based selection
           AgentRegistry.find_agents_for_partition(state.partition_id)
         else
           domain_agents
         end
       else
-        # Use partition-based selection
         AgentRegistry.find_agents_for_partition(state.partition_id)
       end
 

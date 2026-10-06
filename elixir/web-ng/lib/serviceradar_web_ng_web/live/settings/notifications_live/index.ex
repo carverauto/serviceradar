@@ -304,7 +304,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   defp do_load_tab(socket, "silences") do
     scope = socket.assigns.current_scope
     silences = Data.list_silences(scope)
-    summary = Data.suppression_summary(scope, DateTime.add(DateTime.utc_now(), -7 * 86_400))
+    summary = Data.suppression_summary(scope, DateTime.shift(DateTime.utc_now(), week: -1))
 
     socket
     |> assign(:suppression, summary)
@@ -1959,7 +1959,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
         "name" => "",
         "comment" => "",
         "starts_at" => local_input(now),
-        "ends_at" => local_input(DateTime.add(now, 3600, :second)),
+        "ends_at" => local_input(DateTime.shift(now, hour: 1)),
         "combinator" => "all"
       },
       rows: [Predicate.blank_row()],

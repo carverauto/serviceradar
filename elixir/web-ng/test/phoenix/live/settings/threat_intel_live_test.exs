@@ -419,12 +419,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
       )
       VALUES ($1, true, 2, 5, $2, $3, $4, $3, $3)
       """,
-      ["198.51.100.23", ["alienvault_otx"], now, DateTime.add(now, 3600, :second)]
+      ["198.51.100.23", ["alienvault_otx"], now, DateTime.shift(now, hour: 1)]
     )
   end
 
   defp seed_retrohunt_run_and_finding(indicator_id, now) do
-    window_start = DateTime.add(now, -3600, :second)
+    window_start = DateTime.shift(now, hour: -1)
 
     %Postgrex.Result{rows: [[run_id]]} =
       query!(

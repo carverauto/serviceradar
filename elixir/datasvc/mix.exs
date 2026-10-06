@@ -18,7 +18,6 @@ defmodule Datasvc.MixProject do
         ignore_advisories: [
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-43969",
-          "EEF-CVE-2026-43971",
           "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
@@ -40,7 +39,7 @@ defmodule Datasvc.MixProject do
     [
       {:grpc, "~> 1.0"},
       # grpc 1.0 makes its transport adapters optional and pins the default Gun
-      # adapter to `~> 2.2.0`. Keep the CVE-patched gun 2.4.1 (Phase-1) and force
+      # adapter to `~> 2.2.0`. Keep gun on the CVE-patched 2.4 line and force
       # it via override so the default Gun client adapter stays available.
       {:gun, "~> 2.4", override: true},
       {:protobuf, "~> 0.16.0", override: true},

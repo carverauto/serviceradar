@@ -136,6 +136,24 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
     end
   end
 
+  describe "hardware_mac_sibling_groups_from_rows/2" do
+    test "keys a pair by its universal member, whichever row the scan returns first" do
+      # The scan has no order. A key that followed it would change the component's evidence,
+      # and so its block fingerprint, between two runs over the same rows.
+      rows = [
+        {"02005E005301", "sr:local-side", "default"},
+        {"00005E005301", "sr:universal-side", "default"}
+      ]
+
+      for ordered <- [rows, Enum.reverse(rows)] do
+        assert [{{"default", :mac_sibling, "00005E005301"}, members}] =
+                 DuplicateSweep.hardware_mac_sibling_groups_from_rows("default", ordered)
+
+        assert MapSet.equal?(members, MapSet.new(["sr:local-side", "sr:universal-side"]))
+      end
+    end
+  end
+
   describe "classify_duplicate_components/1" do
     test "keeps isolated pairs and blocks transitive components" do
       entries = [
@@ -302,7 +320,14 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
           blocked_devices: 5,
           largest_blocked_component: 5,
           merges: 50,
-          errors: 2
+          errors: 2,
+          blocked_merges: 3,
+          blocked_unchanged: 4,
+          succession_merges: 6,
+          successions_skipped: 7,
+          successions_deferred: 8,
+          succession_reviews: 9,
+          max_successions_configured: 10
       }
 
       stats = DuplicateSweep.build_run_stats(acc, %{max_merges: 50, started_monotonic: 0})
@@ -313,6 +338,16 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
       assert stats.errors == 2
       assert stats.largest_blocked_component == 5
       assert is_integer(stats.duration_ms)
+
+      # Each counter carries its own value: a blocked merge is not an error, and the succession
+      # pass's counts are not the duplicate pass's.
+      assert stats.blocked_merges == 3
+      assert stats.blocked_unchanged == 4
+      assert stats.succession_merges == 6
+      assert stats.successions_skipped == 7
+      assert stats.successions_deferred == 8
+      assert stats.succession_reviews == 9
+      assert stats.max_successions_configured == 10
     end
 
     test "a run below its cap is not reported as capped" do
@@ -340,6 +375,13 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
             :blocked_devices,
             :merges,
             :errors,
+            :blocked_merges,
+            :blocked_unchanged,
+            :succession_merges,
+            :successions_skipped,
+            :successions_deferred,
+            :succession_reviews,
+            :max_successions_configured,
             :duration_ms
           ] do
         assert Map.has_key?(stats, key), "stats map lost #{key}"

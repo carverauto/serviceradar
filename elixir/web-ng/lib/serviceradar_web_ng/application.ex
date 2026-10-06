@@ -66,7 +66,9 @@ defmodule ServiceRadarWebNG.Application do
           base_children ++
           [
             ServiceRadarWebNG.FieldSurveyStreamLimiter,
-            {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
+            {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor},
+            # After the task supervisor: its shutdown flush writes through it.
+            ServiceRadarWebNG.ApiTokenUsage
           ]
       )
 
@@ -161,7 +163,15 @@ defmodule ServiceRadarWebNG.Application do
     config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
 
     if Keyword.get(config, :auto_sync_enabled, false) do
-      children ++ [ServiceRadarWebNG.Plugins.FirstPartySyncScheduler]
+      # A new release's plugin index must not wait for the next hourly tick:
+      # once supervision is up, a changed SERVICERADAR_RELEASE_VERSION triggers
+      # the sync immediately. The task never blocks boot; failures are logged
+      # by the worker.
+      children ++
+        [
+          ServiceRadarWebNG.Plugins.FirstPartySyncScheduler,
+          {Task, fn -> ServiceRadarWebNG.Plugins.FirstPartySyncWorker.enqueue_if_version_changed() end}
+        ]
     else
       children
     end

@@ -906,17 +906,19 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
         parse_datetime(map_get(payload, :next_poll_at, nil))
 
       is_integer(map_get(payload, :next_poll_delay_seconds, nil)) ->
-        DateTime.add(DateTime.utc_now(), map_get(payload, :next_poll_delay_seconds, nil), :second)
+        DateTime.shift(DateTime.utc_now(),
+          second: map_get(payload, :next_poll_delay_seconds, nil)
+        )
 
       is_integer(map_get(payload, :poll_after_seconds, nil)) ->
-        DateTime.add(DateTime.utc_now(), map_get(payload, :poll_after_seconds, nil), :second)
+        DateTime.shift(DateTime.utc_now(), second: map_get(payload, :poll_after_seconds, nil))
 
       true ->
-        DateTime.add(DateTime.utc_now(), 30, :second)
+        DateTime.shift(DateTime.utc_now(), second: 30)
     end
   end
 
-  defp next_poll_at(_payload), do: DateTime.add(DateTime.utc_now(), 30, :second)
+  defp next_poll_at(_payload), do: DateTime.shift(DateTime.utc_now(), second: 30)
 
   defp next_poll_at(result_payload, payload) do
     if webhook_only?(result_payload) or webhook_only?(payload) do
@@ -949,7 +951,7 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
         parse_datetime(map_get(payload, :poll_deadline_at, nil))
 
       is_integer(map_get(payload, :max_duration_seconds, nil)) ->
-        DateTime.add(DateTime.utc_now(), map_get(payload, :max_duration_seconds, nil), :second)
+        DateTime.shift(DateTime.utc_now(), second: map_get(payload, :max_duration_seconds, nil))
 
       true ->
         nil

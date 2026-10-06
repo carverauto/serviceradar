@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
           stream_profile_id: profile.id,
           agent_id: source.assigned_agent_id,
           gateway_id: source.assigned_gateway_id,
-          lease_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: 5),
           requested_by: "camera-relay-live-test"
         },
         actor: AshTestHelpers.system_actor()
@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
           stream_profile_id: profile.id,
           agent_id: source.assigned_agent_id,
           gateway_id: source.assigned_gateway_id,
-          lease_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: 5),
           requested_by: "camera-relay-live-test"
         },
         actor: AshTestHelpers.system_actor()
@@ -150,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
           stream_profile_id: current_profile.id,
           agent_id: current_source.assigned_agent_id,
           gateway_id: current_source.assigned_gateway_id,
-          lease_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: 5),
           requested_by: "camera-relay-live-test"
         },
         actor: AshTestHelpers.system_actor()
@@ -161,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
         current_session,
         %{
           media_ingest_id: "core-media-current",
-          lease_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: 5),
           viewer_count: 1
         },
         actor: AshTestHelpers.system_actor()
@@ -174,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
           stream_profile_id: expired_profile.id,
           agent_id: expired_source.assigned_agent_id,
           gateway_id: expired_source.assigned_gateway_id,
-          lease_expires_at: DateTime.add(DateTime.utc_now(), -300, :second),
+          lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: -5),
           requested_by: "camera-relay-live-test"
         },
         actor: AshTestHelpers.system_actor()
@@ -185,7 +185,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLiveTest do
         expired_session,
         %{
           media_ingest_id: "core-media-expired",
-          lease_expires_at: DateTime.add(DateTime.utc_now(), -300, :second),
+          lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: -5),
           viewer_count: 1
         },
         actor: AshTestHelpers.system_actor()

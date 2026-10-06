@@ -80,6 +80,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Bucketing do
   end
 
   def add_seconds(%DateTime{} = dt, seconds) when is_integer(seconds) do
-    DateTime.add(dt, seconds, :second)
+    DateTime.shift(dt, second: seconds)
   end
 end

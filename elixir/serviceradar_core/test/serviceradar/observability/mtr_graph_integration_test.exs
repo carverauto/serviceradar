@@ -227,7 +227,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
     # Backdate the edge's last_observed_at to 48 hours ago
     old_time =
       DateTime.utc_now()
-      |> DateTime.add(-48 * 3600, :second)
+      |> DateTime.shift(day: -2)
       |> DateTime.to_iso8601()
 
     graph = String.replace(graph_name(), "'", "\\'")

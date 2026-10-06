@@ -40,7 +40,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorOrderingTest do
   test "older observations cannot replace newer current state" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
     {payload, status, observed_at} = plugin_result_fixture()
-    newer_at = DateTime.add(observed_at, 10, :second)
+    newer_at = DateTime.shift(observed_at, second: 10)
 
     newer_payload = %{
       payload
@@ -65,7 +65,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorOrderingTest do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
     {older_payload, older_status, older_at} = plugin_result_fixture()
     newer_status = %{older_status | gateway_id: "#{older_status.gateway_id}-newer"}
-    newer_at = DateTime.add(older_at, 10, :second)
+    newer_at = DateTime.shift(older_at, second: 10)
 
     older_payload = %{
       older_payload

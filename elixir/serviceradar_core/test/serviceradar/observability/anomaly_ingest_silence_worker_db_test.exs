@@ -9,7 +9,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
 
   # Anchored far in the future so pre-existing rows in a shared scratch DB can
   # never fall inside the probe windows and flake the verdicts.
-  @now DateTime.add(DateTime.utc_now(), 3650 * 86_400, :second)
+  @now DateTime.shift(DateTime.utc_now(), day: 3_650)
 
   setup_all do
     TestSupport.start_core!()
@@ -41,12 +41,12 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
 
     # Metric ingest alive, no anomaly-detection findings, no live episode,
     # no add-on heartbeat -> fires.
-    insert_metric!(series_key, DateTime.add(@now, -600, :second))
+    insert_metric!(series_key, DateTime.shift(@now, minute: -10))
     assert :ok = AnomalyIngestSilenceWorker.run(now: @now, health_recorder: health)
     assert_received {:health, "anomaly-ingest-silence", false, _metadata}
 
     # A 2004 row WITHOUT the anomaly-detection source_type does not count.
-    insert_finding!(DateTime.add(@now, -300, :second), %{
+    insert_finding!(DateTime.shift(@now, minute: -5), %{
       "service_radar" => %{"series_key" => series_key}
     })
 
@@ -54,7 +54,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
     assert_received {:health, "anomaly-ingest-silence", false, _metadata}
 
     # An open episode seen inside the window proves a live pipeline -> healthy.
-    insert_episode!(series_key, "open", DateTime.add(@now, -900, :second))
+    insert_episode!(series_key, "open", DateTime.shift(@now, minute: -15))
     assert :ok = AnomalyIngestSilenceWorker.run(now: @now, health_recorder: health)
     assert_received {:health, "anomaly-ingest-silence", true, _metadata}
 
@@ -64,17 +64,17 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
     assert_received {:health, "anomaly-ingest-silence", false, _metadata}
 
     # A fresh running anomaly add-on heartbeat = healthy quiet fleet.
-    insert_addon_status!(series_key, "running", DateTime.add(@now, -300, :second))
+    insert_addon_status!(series_key, "running", DateTime.shift(@now, minute: -5))
     assert :ok = AnomalyIngestSilenceWorker.run(now: @now, health_recorder: health)
     assert_received {:health, "anomaly-ingest-silence", true, _metadata}
 
     # A stale heartbeat (older than the freshness bound) does not count.
-    set_addon_health!(series_key, DateTime.add(@now, -3600, :second))
+    set_addon_health!(series_key, DateTime.shift(@now, hour: -1))
     assert :ok = AnomalyIngestSilenceWorker.run(now: @now, health_recorder: health)
     assert_received {:health, "anomaly-ingest-silence", false, _metadata}
 
     # A real anomaly-detection finding inside the window -> healthy.
-    insert_finding!(DateTime.add(@now, -300, :second), %{
+    insert_finding!(DateTime.shift(@now, minute: -5), %{
       "service_radar" => %{
         "series_key" => series_key,
         "source_type" => "anomaly_detection"

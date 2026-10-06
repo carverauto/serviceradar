@@ -70,7 +70,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
     window_seconds =
       normalize_positive_int(Map.get(args, "window_seconds"), settings_window(settings))
 
-    window_start = DateTime.add(now, -window_seconds, :second)
+    window_start = DateTime.shift(now, second: -window_seconds)
     triggered_by = normalize_trigger(Map.get(args, "triggered_by"))
 
     with {:ok, state} <-

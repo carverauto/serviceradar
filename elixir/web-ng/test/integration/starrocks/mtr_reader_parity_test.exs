@@ -102,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   # one seam away.
   setup_all do
     sr_env = starrocks_env!()
+    validate_fixture_database!(sr_env.database)
     cnpg_env = cnpg_env!()
 
     prev_database = System.get_env("SERVICERADAR_STARROCKS_DATABASE")
@@ -116,13 +117,53 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     end)
 
     starrocks = start_starrocks!(sr_env)
-    apply_starrocks_schema!(starrocks, sr_env.database)
-    empty_starrocks!(starrocks, sr_env.database)
 
-    run_database = "srql_parity_mtr_readers_#{System.system_time(:second)}"
+    assert warehouse_objects!(starrocks, sr_env.database) == [],
+           "reader fixture warehouse is occupied; refusing to modify another run's objects"
+
+    # The initially empty fixture makes schema ownership explicit. Register
+    # before DDL so partial setup failures also remove this run's objects.
+    on_exit(fn ->
+      cleanup_starrocks_owned!(sr_env)
+    end)
+
+    apply_starrocks_schema!(starrocks, sr_env.database)
+
+    run_database = "srql_parity_mtr_readers_#{random_suffix()}"
 
     admin = start_postgrex!(cnpg_env, "postgres")
     Postgrex.query!(admin, "CREATE DATABASE #{run_database}", [])
+
+    # Registered immediately after CREATE and before stopping the admin
+    # connection, so a failure between the two cannot leak the scratch
+    # database. The callback reconnects: the setup process (and its linked
+    # connections) is gone by the time it runs. Every failure is loud: a
+    # scratch database must never survive the suite.
+    on_exit(fn ->
+      cleanup = start_postgrex!(cnpg_env, "postgres")
+
+      try do
+        Postgrex.query!(
+          cleanup,
+          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+          [run_database]
+        )
+
+        Postgrex.query!(cleanup, "DROP DATABASE IF EXISTS #{run_database} WITH (FORCE)", [])
+
+        case Postgrex.query(cleanup, "SELECT 1 FROM pg_database WHERE datname = $1", [
+               run_database
+             ]) do
+          {:ok, %{rows: []}} -> :ok
+          {:ok, %{rows: _}} -> flunk("scratch database #{run_database} was not deleted")
+          {:error, reason} -> flunk("scratch database check failed: #{inspect(reason)}")
+        end
+      after
+        GenServer.stop(cleanup)
+      end
+    end)
+
+    GenServer.stop(admin)
 
     cnpg = start_postgrex!(cnpg_env, run_database)
     apply_cnpg_schema!(cnpg)
@@ -133,16 +174,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     seed_cnpg!(cnpg, traces, hops)
     seed_starrocks!(starrocks, sr_env.database, traces, hops)
     refresh_starrocks_views!(starrocks, sr_env.database)
-
-    on_exit(fn ->
-      empty_starrocks!(starrocks, sr_env.database)
-
-      try do
-        Postgrex.query!(admin, "DROP DATABASE IF EXISTS #{run_database}", [])
-      rescue
-        _ -> :ok
-      end
-    end)
 
     cnpg_query = fn sql, params ->
       case Postgrex.query(cnpg, sql, params) do
@@ -157,6 +188,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
       anchor: anchor,
       traces: traces,
       hops: hops,
+      starrocks: starrocks,
+      database: sr_env.database,
       cnpg_query: cnpg_query,
       starrocks_query: starrocks_query
     }
@@ -173,10 +206,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
           [limit: 40, agent_filter: "agent-parity-02"],
           [limit: 40, device_ip: "198.51.100.10"]
         ] do
-      cnpg = cnpg(fn -> MtrData.list_traces(opts ++ [cnpg_query: ctx.cnpg_query]) end)
+      assert {:ok, cnpg} =
+               cnpg(fn -> MtrData.list_traces(opts ++ [cnpg_query: ctx.cnpg_query]) end)
 
-      warehouse =
-        warehouse(fn -> MtrData.list_traces(opts ++ [starrocks_query: ctx.starrocks_query]) end)
+      assert {:ok, warehouse} =
+               warehouse(fn ->
+                 MtrData.list_traces(opts ++ [starrocks_query: ctx.starrocks_query])
+               end)
 
       assert_lists_equal(cnpg, warehouse, {:list_traces, opts})
     end
@@ -256,8 +292,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     anchor = ctx.anchor
 
     opts = [
-      window_a: [start: shift(anchor, 1, :hour), end: shift(anchor, 4, :hour)],
-      window_b: [start: shift(anchor, 5, :hour), end: shift(anchor, 8, :hour)],
+      window_a: %{start: shift(anchor, 1, :hour), end: shift(anchor, 4, :hour)},
+      window_b: %{start: shift(anchor, 5, :hour), end: shift(anchor, 8, :hour)},
       bucket_count: 12,
       signature_limit: 5
     ]
@@ -295,6 +331,123 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   # ---------------------------------------------------------------------------
   # The dashboard card and sparklines: rollup against raw fallback
   # ---------------------------------------------------------------------------
+
+  @tag timeout: 180_000
+  test "late terminal hops refresh and scan only their event day across midnight", ctx do
+    conn = ctx.starrocks
+    database = ctx.database
+    trace_template = hd(ctx.traces)
+    hop_template = Enum.find(ctx.hops, &(&1.trace_id == trace_template.id))
+
+    # These are event times, not load times. All three days exist before the
+    # first day's missing hops arrive, after the newer days have been refreshed.
+    traces =
+      for {seconds, n} <- [{86_399, 1}, {86_401, 2}, {172_801, 3}] do
+        time = DateTime.shift(ctx.anchor, second: seconds)
+
+        %{
+          trace_template
+          | id: uuid(0x21, n),
+            time: time,
+            created_at: time,
+            target_reached: n != 3
+        }
+      end
+
+    make_hop = fn trace, n, sent, received, avg_us ->
+      %{
+        hop_template
+        | id: uuid(0x22, n),
+          trace_id: trace.id,
+          time: trace.time,
+          created_at: trace.time,
+          hop_number: trace.total_hops,
+          sent: sent,
+          received: received,
+          avg_us: avg_us
+      }
+    end
+
+    [before_midnight, after_midnight, unreached] = traces
+    initial_hops = [make_hop.(after_midnight, 4, 10, 10, 1_000), make_hop.(unreached, 5, 10, 9, 9_000)]
+    lower = ctx.anchor |> DateTime.shift(hour: 23) |> DateTime.to_naive() |> NaiveDateTime.to_string()
+
+    # Disable the schedule only in this disposable fixture. Otherwise a
+    # scheduled refresh can consume the change before the measured manual run.
+    sr!(MySQL.query("ALTER MATERIALIZED VIEW #{database}.mtr_destination_hourly REFRESH MANUAL", conn: conn))
+
+    try do
+      seed_starrocks!(conn, database, traces, initial_hops)
+      refresh_starrocks_views!(conn, database)
+
+      late_hops = [
+        make_hop.(before_midnight, 1, 100, 100, 60_000),
+        make_hop.(before_midnight, 2, 20, 18, 9_000),
+        %{make_hop.(before_midnight, 3, 500, 0, 0) | hop_number: 1}
+      ]
+
+      seed_starrocks!(conn, database, [], late_hops)
+
+      assert {:ok, %{rows: [[query_id]]}} =
+               MySQL.query("REFRESH MATERIALIZED VIEW #{database}.mtr_destination_hourly WITH SYNC MODE",
+                 conn: conn,
+                 timeout: 120_000
+               )
+
+      metadata = refresh_metadata!(conn, query_id, System.monotonic_time(:millisecond) + 30_000)
+      day = Calendar.strftime(before_midnight.time, "%Y%m%d")
+      next_day = before_midnight.time |> DateTime.shift(day: 1) |> Calendar.strftime("%Y%m%d")
+      partition = "p#{day}"
+
+      assert metadata["mvPartitionsToRefresh"] == ["p#{day}_#{next_day}"]
+
+      for key <- ["refBasePartitionsToRefreshMap", "basePartitionsToRefreshMap"] do
+        assert metadata[key] == %{"mtr_traces" => [partition], "mtr_hops" => [partition]}
+      end
+
+      # This is the engine's generated refresh plan, not a grep of SQL source.
+      assert metadata["planBuilderMessage"] == %{"mtr_traces" => partition, "mtr_hops" => partition}
+
+      assert {:ok, %{rows: rows}} =
+               MySQL.query(
+                 """
+                 SELECT path_count, endpoint_sample_count, loss_sample_count,
+                   latency_sample_count, sent_total, received_total, avg_us_weighted,
+                   latency_weight, degraded_count
+                 FROM #{database}.mtr_destination_hourly
+                 WHERE bucket >= #{quote_sr(lower)} ORDER BY bucket
+                 """,
+                 conn: conn
+               )
+
+      assert rows == [
+               [1, 1, 1, 1, 20, 18, 162_000.0, 18, 1],
+               [1, 1, 1, 1, 10, 10, 10_000.0, 10, 0],
+               [1, 0, 0, 0, nil, nil, nil, nil, 1]
+             ]
+
+      cutoff = DateTime.shift(ctx.anchor, hour: 23)
+
+      assert {:ok, %{rows: raw}} =
+               MtrWarehouse.dashboard_summary(cutoff, starrocks_query: ctx.starrocks_query, query: stale_marks())
+
+      assert {:ok, %{rows: rollup}} =
+               MtrWarehouse.dashboard_summary(cutoff, starrocks_query: ctx.starrocks_query, query: fresh_marks())
+
+      assert_lists_equal(raw, rollup, "late terminal hops across midnight")
+    after
+      ids = Enum.map_join(traces, ",", &quote_sr(&1.id))
+      sr!(MySQL.query("DELETE FROM #{database}.mtr_hops WHERE trace_id IN (#{ids})", conn: conn))
+      sr!(MySQL.query("DELETE FROM #{database}.mtr_traces WHERE id IN (#{ids})", conn: conn))
+      refresh_starrocks_views!(conn, database)
+
+      sr!(
+        MySQL.query("ALTER MATERIALIZED VIEW #{database}.mtr_destination_hourly REFRESH ASYNC EVERY (INTERVAL 30 SECOND)",
+          conn: conn
+        )
+      )
+    end
+  end
 
   test "the dashboard card's rollup read equals its raw fallback", ctx do
     cutoff = shift(ctx.anchor, 2, :hour)
@@ -388,30 +541,31 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp restore_env(name, value), do: System.put_env(name, value)
 
   defp start_starrocks!(env) do
-    {:ok, conn} =
-      MyXQL.start_link(
-        hostname: env.host,
-        port: env.port,
-        username: env.user,
-        password: env.password,
-        database: env.database,
-        ssl: false,
-        prepare: :unnamed,
-        cache_size: 0,
-        pool_size: 1,
-        timeout: 60_000,
-        connect_timeout: 10_000
-      )
+    # `MySQL.query/2` resolves its connection with `Process.whereis/1`,
+    # which only accepts the registered pool atom the product uses -- an
+    # anonymous MyXQL pid never resolves. Register this disposable test
+    # connection under a fixed test-only name and return the name so every
+    # existing `conn:` seam keeps working with no product client change.
+    name = MtrReaderParityStarRocks
+    if pid = Process.whereis(name), do: GenServer.stop(pid)
 
-    conn
+    {:ok, _conn} = MyXQL.start_link(starrocks_connect_opts(env, name))
+
+    name
   end
 
   defp start_postgrex!(env, database) do
     ssl =
       if env.ca_pem do
+        # OTP `ssl` needs certificate DER binaries in `cacerts`; the raw
+        # `:public_key.pem_decode/1` tuples must be unwrapped first. Keep
+        # `verify_peer` with hostname verification (SNI).
+        cacerts =
+          for {:Certificate, der, _} <- :public_key.pem_decode(env.ca_pem), do: der
+
         [
           verify: :verify_peer,
-          cacerts: [:public_key.pem_decode(env.ca_pem)],
+          cacerts: cacerts,
           depth: 3,
           server_name_indication: env.server_name && String.to_charlist(env.server_name)
         ]
@@ -476,6 +630,32 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     case MySQL.query(sql, conn: conn, timeout: 60_000) do
       {:ok, %{rows: rows}} -> rows != []
       {:error, _reason} -> false
+    end
+  end
+
+  # The synchronous refresh can return before task_runs publishes its final
+  # state. Wait for this exact task, keeping failed tasks and timeouts fatal.
+  defp refresh_metadata!(conn, query_id, deadline) do
+    assert {:ok, %{rows: rows}} =
+             MySQL.query(
+               "SELECT STATE, EXTRA_MESSAGE FROM information_schema.task_runs WHERE QUERY_ID = #{quote_sr(query_id)}",
+               conn: conn,
+               timeout: 5_000
+             )
+
+    case rows do
+      [["SUCCESS", encoded]] ->
+        Jason.decode!(encoded)
+
+      pending when pending == [] or hd(hd(pending)) in ["PENDING", "RUNNING"] ->
+        assert System.monotonic_time(:millisecond) < deadline,
+               "refresh #{query_id} did not publish success within 30 seconds: #{inspect(rows)}"
+
+        Process.sleep(200)
+        refresh_metadata!(conn, query_id, deadline)
+
+      terminal ->
+        flunk("refresh #{query_id} failed or returned unexpected task metadata: #{inspect(terminal)}")
     end
   end
 
@@ -544,13 +724,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
 
   defp baseline_table(baseline, table) do
     marker = "CREATE TABLE platform.#{table} ("
-    start = String.index(baseline, marker) || flunk("baseline has no #{table}")
-    body_start = start + String.length(marker) - 1
+
+    start =
+      case :binary.match(baseline, marker) do
+        {pos, _} -> pos
+        :nomatch -> flunk("baseline has no #{table}")
+      end
+
+    body_start = start + byte_size(marker) - 1
+    rest = :binary.part(baseline, body_start, byte_size(baseline) - body_start)
 
     stop =
-      String.index(baseline, "\n);", body_start) || flunk("baseline #{table} has no terminator")
+      case :binary.match(rest, "\n);") do
+        {offset, _} -> body_start + offset
+        :nomatch -> flunk("baseline #{table} has no terminator")
+      end
 
-    String.slice(baseline, start, stop + 2 - start) <> ";"
+    :binary.part(baseline, start, stop + 2 - start) <> ";"
   end
 
   # ---------------------------------------------------------------------------
@@ -560,7 +750,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp anchor do
     now = DateTime.utc_now()
     midnight = DateTime.new!(DateTime.to_date(now), ~T[00:00:00], "Etc/UTC")
-    DateTime.add(midnight, -2, :day)
+    DateTime.shift(midnight, day: -2)
   end
 
   defp shift(%DateTime{} = time, n, unit), do: DateTime.add(time, n, unit)
@@ -611,7 +801,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
             {traces, hops}
           else
             n = length(traces) + 1
-            time = DateTime.add(anchor, slot * 1_200 + n * 7, :second)
+            time = DateTime.shift(anchor, second: slot * 1_200 + n * 7)
             sent = Enum.at([5, 10, 20], Integer.mod(slot + n, 3))
 
             reached? =
@@ -712,6 +902,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     end
   end
 
+  # Postgrex maps the `uuid` OID to a 16-byte binary, so UUID text must be
+  # dumped at this boundary; the fixture keeps text for StarRocks quoting
+  # and reader comparisons.
+  defp uuid_param!(text), do: Ecto.UUID.dump!(text)
+
   defp cnpg_trace_insert(batch) do
     columns =
       ~w(id time agent_id gateway_id check_id check_name device_id target target_ip target_reached
@@ -721,7 +916,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     {placeholders, params} =
       Enum.map_reduce(batch, [], fn trace, params ->
         values = [
-          trace.id,
+          uuid_param!(trace.id),
           trace.time,
           trace.agent_id,
           trace.gateway_id,
@@ -763,9 +958,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     {placeholders, params} =
       Enum.map_reduce(batch, [], fn hop, params ->
         values = [
-          hop.id,
+          uuid_param!(hop.id),
           hop.time,
-          hop.trace_id,
+          uuid_param!(hop.trace_id),
           hop.target_ip,
           hop.device_id,
           hop.hop_number,
@@ -836,7 +1031,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
           quote_sr(NaiveDateTime.to_string(DateTime.to_naive(trace.created_at)))
         ]
         |> Enum.join(", ")
-        |> then(&"(&1)")
+        |> then(&"(#{&1})")
       end)
 
     "INSERT INTO #{database}.mtr_traces (#{Enum.join(columns, ", ")}) VALUES\n#{rows}"
@@ -870,7 +1065,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
           quote_sr(NaiveDateTime.to_string(DateTime.to_naive(hop.created_at)))
         ]
         |> Enum.join(", ")
-        |> then(&"(&1)")
+        |> then(&"(#{&1})")
       end)
 
     "INSERT INTO #{database}.mtr_hops (#{Enum.join(columns, ", ")}) VALUES\n#{rows}"
@@ -893,19 +1088,96 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     end
   end
 
-  defp empty_starrocks!(conn, database) do
-    for table <- ["mtr_hops", "mtr_traces"] do
-      sr!(MySQL.query("DELETE FROM #{database}.#{table} WHERE 1=1", conn: conn, timeout: 120_000))
-    end
+  defp random_suffix do
+    8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
+  end
 
-    for view <- @mtr_views do
-      sr!(
-        MySQL.query("REFRESH MATERIALIZED VIEW #{database}.#{view} WITH SYNC MODE",
-          conn: conn,
-          timeout: 120_000
+  defp validate_fixture_database!(database) do
+    assert Schema.valid_database?(database) and
+             String.starts_with?(database, "srql_parity_") and
+             database != "srql_parity_" and
+             not Regex.match?(~r/^srql_parity_[0-9]{14}_[0-9]+$/, database),
+           "reader parity requires a fixed srql_parity_* fixture database"
+  end
+
+  # Reconnect because ExUnit stops setup-owned pools before on_exit. Remove
+  # views before their base tables, then re-list the same backend to prove
+  # absence. A subsequent Rust parity run must see an empty fixture schema.
+  defp cleanup_starrocks_owned!(env) do
+    name = MtrReaderParityStarRocksCleanup
+    if pid = Process.whereis(name), do: GenServer.stop(pid)
+
+    {:ok, _} = MyXQL.start_link(starrocks_connect_opts(env, name))
+
+    try do
+      objects = warehouse_objects!(name, env.database)
+      declared = declared_warehouse_objects(env.database)
+
+      assert Enum.all?(objects, fn {object, _kind} -> MapSet.member?(declared, object) end),
+             "unexpected fixture schema objects; refusing to delete objects this suite did not create"
+
+      for {object, kind} <- Enum.sort_by(objects, fn {object, kind} -> {kind == "BASE TABLE", object} end) do
+        assert Schema.valid_database?(object), "invalid fixture object identifier"
+        operation = if kind == "BASE TABLE", do: "TABLE", else: "MATERIALIZED VIEW"
+
+        sr!(
+          MySQL.query("DROP #{operation} IF EXISTS #{env.database}.#{object}",
+            conn: name,
+            timeout: 120_000
+          )
         )
-      )
+      end
+
+      assert warehouse_objects!(name, env.database) == [],
+             "reader fixture schema objects survived cleanup"
+    after
+      if pid = Process.whereis(name), do: GenServer.stop(pid)
     end
+  end
+
+  defp warehouse_objects!(conn, database) do
+    validate_fixture_database!(database)
+
+    assert {:ok, %{rows: rows}} =
+             MySQL.query(
+               "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.tables WHERE TABLE_SCHEMA = '#{database}'",
+               conn: conn,
+               timeout: 60_000
+             )
+
+    Enum.map(rows, fn [object, kind] -> {object, kind} end)
+  end
+
+  defp declared_warehouse_objects(database) do
+    for migration <- Schema.migrations(), statement <- migration.statements, reduce: MapSet.new() do
+      objects ->
+        statement = Schema.retarget(statement, database, 1)
+
+        case Regex.run(
+               ~r/^CREATE\s+(?:TABLE|MATERIALIZED\s+VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)/i,
+               statement
+             ) do
+          [_, ^database, object] -> MapSet.put(objects, object)
+          _ -> objects
+        end
+    end
+  end
+
+  defp starrocks_connect_opts(env, name) do
+    [
+      hostname: env.host,
+      port: env.port,
+      username: env.user,
+      password: env.password,
+      database: env.database,
+      ssl: false,
+      prepare: :unnamed,
+      cache_size: 0,
+      pool_size: 1,
+      timeout: 60_000,
+      connect_timeout: 10_000,
+      name: name
+    ]
   end
 
   # Freshness runners for the rollup-vs-raw comparisons: the marks answer the
@@ -918,6 +1190,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp marks(raw_max, mv_max) do
     fn
       "SELECT MAX(`time`) FROM " <> _ -> {:ok, %{rows: [[raw_max]]}}
+      "SELECT IS_ACTIVE," <> _ -> {:ok, %{rows: [["true", "SUCCESS", 15]]}}
       "SELECT MAX(`bucket`) FROM " <> _ -> {:ok, %{rows: [[mv_max]]}}
       _other -> {:error, :unexpected_probe}
     end
@@ -1002,7 +1275,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp values_equal?(l, r) when is_float(l) and is_float(r) do
     # CNPG computes in NUMERIC and the warehouse in DOUBLE, and summation
     # order differs; anything larger than a rounding is a real difference.
-    abs(l - r) <= 1.0e-6 * max(abs(l), abs(r), 1.0)
+    abs(l - r) <= 1.0e-6 * max(max(abs(l), abs(r)), 1.0)
   end
 
   defp values_equal?(l, r) when is_integer(l) and is_integer(r), do: l == r
@@ -1016,6 +1289,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp values_equal?(l, r) when is_binary(l) and is_binary(r), do: l == r
   defp values_equal?(l, r) when is_boolean(l) and is_boolean(r), do: l == r
   defp values_equal?(nil, nil), do: true
+  defp values_equal?(l, r) when is_atom(l) and is_atom(r), do: l == r
 
   defp values_equal?(%DateTime{} = _l, _r), do: false
   defp values_equal?(_l, _r), do: false

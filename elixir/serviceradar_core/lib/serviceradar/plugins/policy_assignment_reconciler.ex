@@ -403,7 +403,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
       fn ->
         case PluginAssignment
-             |> Ash.Changeset.for_create(:create, params)
+             |> Ash.Changeset.for_create(:create, params, actor: actor)
              |> Ash.create(actor: actor, authorize?: true) do
           {:ok, %{partition_id: partition_id} = assignment}
           when partition_id == spec.partition_id ->
@@ -437,7 +437,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       }
 
       existing
-      |> Ash.Changeset.for_update(:update, params)
+      |> Ash.Changeset.for_update(:update, params, actor: actor)
       |> Ash.update(actor: actor, authorize?: true)
       |> disable_manual_duplicate(spec, actor)
     end
@@ -445,7 +445,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     @impl true
     def disable_assignment(assignment, actor) do
       assignment
-      |> Ash.Changeset.for_update(:update, %{enabled: false})
+      |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: actor)
       |> Ash.update(actor: actor, authorize?: true)
     end
 

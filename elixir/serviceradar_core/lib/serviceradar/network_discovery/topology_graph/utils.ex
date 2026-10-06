@@ -72,7 +72,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   """
   def stale_cutoff_iso8601 do
     DateTime.utc_now()
-    |> DateTime.add(-stale_minutes() * 60, :second)
+    |> DateTime.shift(minute: -stale_minutes())
     |> DateTime.truncate(:second)
     |> DateTime.to_iso8601()
   end

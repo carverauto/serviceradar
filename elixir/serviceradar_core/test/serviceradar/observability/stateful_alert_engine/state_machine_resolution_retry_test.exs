@@ -19,12 +19,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     now = ~U[2026-08-11 12:00:00Z]
     rule = rule()
     key = {rule.id, "global"}
-    snapshot = snapshot(rule, now, last_seen_at: DateTime.add(now, -120, :second))
+    snapshot = snapshot(rule, now, last_seen_at: DateTime.shift(now, minute: -2))
     :ets.insert(table, {key, snapshot})
 
     calls = :counters.new(1, [])
     state = state(table, failing_resolver(calls))
-    cutoff = DateTime.add(now, -60, :second)
+    cutoff = DateTime.shift(now, minute: -1)
 
     log =
       capture_log(fn ->
@@ -51,7 +51,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     # persistence flush in this pure state-machine regression.
     snapshot =
       snapshot(rule, now,
-        last_seen_at: DateTime.add(now, -61, :second),
+        last_seen_at: DateTime.shift(now, second: -61),
         current_bucket_start: Bucketing.to_bucket_start(now, rule.bucket_seconds)
       )
 
@@ -77,13 +77,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     table: table
   } do
     now = ~U[2026-08-11 12:00:00Z]
-    next_seen_at = DateTime.add(now, 1, :second)
+    next_seen_at = DateTime.shift(now, second: 1)
     rule = rule()
     key = {rule.id, "global"}
 
     snapshot =
       snapshot(rule, now,
-        last_seen_at: DateTime.add(now, -61, :second),
+        last_seen_at: DateTime.shift(now, second: -61),
         current_bucket_start: Bucketing.to_bucket_start(now, rule.bucket_seconds)
       )
 
@@ -204,7 +204,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     }
 
     first = %{event(now) | id: "first"}
-    second = %{event(DateTime.add(now, 1, :second)) | id: "second"}
+    second = %{event(DateTime.shift(now, second: 1)) | id: "second"}
 
     capture_log(fn ->
       assert {:reply, {:error, "first"}, ^state} =
@@ -371,12 +371,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
         current_bucket_start: bucket_start,
         bucket_counts: %{bucket_start => 0},
         window_count: 0,
-        last_seen_at: DateTime.add(now, -30, :second),
-        last_fired_at: DateTime.add(now, -300, :second),
-        last_notification_at: DateTime.add(now, -300, :second),
+        last_seen_at: DateTime.shift(now, second: -30),
+        last_fired_at: DateTime.shift(now, minute: -5),
+        last_notification_at: DateTime.shift(now, minute: -5),
         cooldown_until: nil,
         alert_id: @alert_id,
-        first_seen_at: DateTime.add(now, -300, :second),
+        first_seen_at: DateTime.shift(now, minute: -5),
         diagnostics: Diagnostics.empty_diagnostics(),
         bucket_changed: false,
         flush_required: false

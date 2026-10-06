@@ -61,7 +61,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
               },
               context: context,
               ttl_seconds: 60,
-              expires_at: DateTime.add(fixture.now, 60, :second),
+              expires_at: DateTime.shift(fixture.now, minute: 1),
               requested_by: "system:live_awx_launch_preflight_persistence_db_test"
             },
             actor: @actor
@@ -257,7 +257,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
 
     binding =
       Fixtures.reviewed_binding(%{
-        approval_expires_at: DateTime.add(now, 600, :second)
+        approval_expires_at: DateTime.shift(now, minute: 10)
       })
 
     membership =
@@ -327,7 +327,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
       target_snapshot_digest: target_digest,
       controller_security_snapshot_digest: security_digest,
       verified_at: now,
-      expires_at: DateTime.add(now, 60, :second)
+      expires_at: DateTime.shift(now, minute: 1)
     })
   end
 

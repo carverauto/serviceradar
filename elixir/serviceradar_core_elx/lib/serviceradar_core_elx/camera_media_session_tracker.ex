@@ -694,9 +694,14 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
 
   defp playback_state(_session), do: "pending"
 
+  # Called for every chunk inside this tracker's handle_call. The viewer count
+  # is a table read in ViewerRegistry; still, a source that raises or exits
+  # must not take the tracker (and every relay session it holds) down with it.
   defp current_viewer_count(state, relay_session_id) do
     viewer_registry(state).viewer_count(relay_session_id)
   rescue
     _error -> 0
+  catch
+    :exit, _reason -> 0
   end
 end

@@ -204,6 +204,96 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
     |> Enum.uniq()
   end
 
+  @doc """
+  Per-second rate for each `{device_id, if_index, metric_name}` over the two
+  newest samples in the last five minutes.
+
+  The rate is `counter_rate_sql/1`. A missing pair or a reset yields no entry,
+  which callers treat as "skip this sample".
+  """
+  @spec latest_interface_rates([{String.t(), integer(), String.t()}], keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def latest_interface_rates(keys, opts \\ []) when is_list(keys) do
+    case latest_predicates(keys) do
+      [] ->
+        {:ok, %{}}
+
+      predicates ->
+        series =
+          "(PARTITION BY device_id, if_index, metric_name ORDER BY `timestamp` DESC)"
+
+        elapsed = "TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0"
+
+        sql =
+          "SELECT device_id, if_index, metric_name, rate_value FROM (" <>
+            "SELECT device_id, if_index, metric_name, #{counter_rate_sql(elapsed)} AS rate_value " <>
+            "FROM (" <>
+            "SELECT device_id, if_index, metric_name, value, counter_width, " <>
+            "CAST(NULL AS DOUBLE) AS max_rate_per_second, `timestamp`, " <>
+            "LEAD(value) OVER #{series} AS previous_value, " <>
+            "LEAD(`timestamp`) OVER #{series} AS previous_timestamp, " <>
+            "ROW_NUMBER() OVER #{series} AS sample_rank " <>
+            "FROM #{Env.table("timeseries_metrics")} " <>
+            "WHERE `timestamp` > DATE_ADD(NOW(), INTERVAL -5 MINUTE) " <>
+            "AND (#{Enum.join(predicates, " OR ")}) " <>
+            ") samples WHERE sample_rank = 1 " <>
+            "AND `timestamp` > previous_timestamp AND previous_value >= 0 AND value >= 0" <>
+            ") rated WHERE rate_value IS NOT NULL"
+
+        case query(opts).(sql) do
+          {:ok, %{rows: rows}} when is_list(rows) -> {:ok, decode_latest_rows(rows)}
+          {:error, reason} -> {:error, reason}
+          other -> {:error, {:unexpected_query_result, other}}
+        end
+    end
+  end
+
+  defp latest_predicates(keys) do
+    keys
+    |> Enum.flat_map(fn
+      {device_id, if_index, metric_name} when is_integer(if_index) ->
+        case {quote_id(device_id), quote_id(metric_name)} do
+          {device, metric} when is_binary(device) and is_binary(metric) ->
+            ["(device_id = #{device} AND if_index = #{if_index} AND metric_name = #{metric})"]
+
+          _ ->
+            []
+        end
+
+      _ ->
+        []
+    end)
+    |> Enum.uniq()
+  end
+
+  defp decode_latest_rows(rows) do
+    Enum.reduce(rows, %{}, fn
+      [device_id, if_index, metric_name, value], acc
+      when is_binary(device_id) and is_binary(metric_name) ->
+        case normalize_if_index(if_index) do
+          index when is_integer(index) ->
+            Map.put_new(acc, {device_id, index, metric_name}, value)
+
+          _ ->
+            acc
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp normalize_if_index(index) when is_integer(index), do: index
+
+  defp normalize_if_index(index) when is_binary(index) do
+    case Integer.parse(index) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp normalize_if_index(_index), do: nil
+
   @spec fetch(keyword()) :: term()
   def fetch(opts) when is_list(opts) do
     Readers.fetch(:metrics, %{

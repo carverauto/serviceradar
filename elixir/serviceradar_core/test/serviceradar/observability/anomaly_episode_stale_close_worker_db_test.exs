@@ -47,17 +47,17 @@ defmodule ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorkerDBTest do
     now = DateTime.utc_now()
 
     # Margin is 2 * 1800s heartbeat = 3600s; one late heartbeat stays open.
-    insert_open_episode!(live_uid, DateTime.add(now, -3_000, :second))
-    insert_open_episode!(stale_uid, DateTime.add(now, -4_200, :second))
+    insert_open_episode!(live_uid, DateTime.shift(now, minute: -50))
+    insert_open_episode!(stale_uid, DateTime.shift(now, minute: -70))
 
     # Central seasonal episodes are refreshed hourly by cron, so the edge margin
     # (60 min) closed every one of them before its next evaluation. They get a
     # 150 min window instead: 70 min silent stays open, 166 min silent closes.
-    insert_open_episode!(central_live_uid, DateTime.add(now, -4_200, :second), "central_seasonal")
+    insert_open_episode!(central_live_uid, DateTime.shift(now, minute: -70), "central_seasonal")
 
     insert_open_episode!(
       central_stale_uid,
-      DateTime.add(now, -9_960, :second),
+      DateTime.shift(now, minute: -166),
       "central_seasonal"
     )
 

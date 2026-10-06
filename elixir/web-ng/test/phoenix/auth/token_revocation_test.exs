@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNG.Auth.TokenRevocationTest do
 
     test "returns {:error, :revoked} for tokens issued before revocation", %{user_id: user_id} do
       # Token issued 1 hour ago
-      issued_at = DateTime.add(DateTime.utc_now(), -3600, :second)
+      issued_at = DateTime.shift(DateTime.utc_now(), hour: -1)
 
       # Revoke all user tokens now
       TokenRevocation.revoke_all_for_user(user_id)

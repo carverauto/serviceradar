@@ -129,9 +129,18 @@ impl AgentForwardOutput {
     /// per-signal rejection (OTLP `partial_success`), NOT a retryable
     /// transport failure, so a full disk can never become an error loop.
     /// Any other error propagates as a batch-level transport failure.
-    fn spool_chunk(&self, kind: TelemetryPayloadKind, payload: Vec<u8>) -> Result<bool> {
+    ///
+    /// The append runs on the blocking pool: it can fsync while holding the
+    /// spool lock, and an OTLP handler must not stall its async worker (and
+    /// every other handler and health check scheduled on it) behind a slow
+    /// disk.
+    async fn spool_chunk(&self, kind: TelemetryPayloadKind, payload: Vec<u8>) -> Result<bool> {
         let record = self.make_record(kind, payload);
-        match self.spool.append_batch(self.make_batch(record)) {
+        match self
+            .spool
+            .append_batch_blocking(self.make_batch(record))
+            .await
+        {
             Ok(relay_id) => {
                 self.emitted_total.fetch_add(1, Ordering::Relaxed);
                 debug!("spooled {kind:?} chunk as relay frame {relay_id}");
@@ -259,7 +268,10 @@ impl TelemetryOutput for AgentForwardOutput {
         for chunk in &chunks {
             let mut payload = Vec::with_capacity(chunk.encoded_len());
             chunk.encode(&mut payload)?;
-            if !self.spool_chunk(TelemetryPayloadKind::OtlpTraces, payload)? {
+            if !self
+                .spool_chunk(TelemetryPayloadKind::OtlpTraces, payload)
+                .await?
+            {
                 spool_rejected += trace_request_spans(chunk);
             }
         }
@@ -300,7 +312,10 @@ impl TelemetryOutput for AgentForwardOutput {
         for chunk in &chunks {
             let mut payload = Vec::with_capacity(chunk.encoded_len());
             chunk.encode(&mut payload)?;
-            if !self.spool_chunk(TelemetryPayloadKind::OtlpLogs, payload)? {
+            if !self
+                .spool_chunk(TelemetryPayloadKind::OtlpLogs, payload)
+                .await?
+            {
                 spool_rejected += logs_request_records(chunk);
             }
         }
@@ -335,7 +350,10 @@ impl TelemetryOutput for AgentForwardOutput {
         for chunk in &chunks {
             let mut payload = Vec::with_capacity(chunk.encoded_len());
             chunk.encode(&mut payload)?;
-            if !self.spool_chunk(TelemetryPayloadKind::OtlpMetrics, payload)? {
+            if !self
+                .spool_chunk(TelemetryPayloadKind::OtlpMetrics, payload)
+                .await?
+            {
                 spool_rejected += metric_request_data_points(chunk);
             }
         }
@@ -372,7 +390,10 @@ impl TelemetryOutput for AgentForwardOutput {
 
         let mut spool_rejected = 0usize;
         for (payload, units) in payloads {
-            if !self.spool_chunk(TelemetryPayloadKind::OtlpDerivedMetric, payload)? {
+            if !self
+                .spool_chunk(TelemetryPayloadKind::OtlpDerivedMetric, payload)
+                .await?
+            {
                 spool_rejected += units;
             }
         }
@@ -398,6 +419,51 @@ mod tests {
 
     fn open_spool(dir: &std::path::Path) -> Arc<Spool> {
         Arc::new(Spool::open(SpoolConfig::new(dir)).unwrap())
+    }
+
+    /// One async worker, so a handler that blocks its thread also blocks every
+    /// other task (other handlers, health checks, timers).
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_slow_spool_does_not_stall_the_async_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let spool = open_spool(dir.path());
+        let output = Arc::new(AgentForwardOutput::new(Arc::clone(&spool)));
+
+        // Stand-in for a slow disk: hold the spool lock as an fsync would.
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let disk = Arc::clone(&spool);
+        let stall = std::thread::spawn(move || {
+            let guard = disk.stall_io();
+            held_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(1_500));
+            drop(guard);
+        });
+        held_rx.recv().unwrap();
+
+        let started = std::time::Instant::now();
+        let publisher = Arc::clone(&output);
+        let publish = tokio::spawn(async move {
+            publisher
+                .publish_traces(
+                    &traces_request(vec![span("a", 10)]),
+                    &IngestContext::anonymous(),
+                )
+                .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let timer_lag = started.elapsed();
+        let stats = spool.stats();
+
+        assert!(
+            timer_lag < std::time::Duration::from_millis(750),
+            "the async worker was blocked for {timer_lag:?} by a spool append"
+        );
+        assert_eq!(stats.frames, 0, "the append is still waiting on the disk");
+
+        let outcome = publish.await.unwrap().unwrap();
+        assert_eq!(outcome.published, 1);
+        stall.join().unwrap();
+        assert_eq!(spool.stats().frames, 1);
     }
 
     fn span(name: &str, attr_value_len: usize) -> Span {

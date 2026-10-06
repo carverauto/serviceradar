@@ -94,7 +94,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorker do
     batch_size = positive_int(Keyword.get(config, :batch_size), @default_batch_size)
     max_batches = positive_int(Keyword.get(config, :max_batches), @default_max_batches)
 
-    cutoff = DateTime.add(DateTime.utc_now(), -ttl_days * 86_400, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -ttl_days)
     protected_agent_uids = linked_agent_uids()
 
     stats =

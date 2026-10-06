@@ -23,8 +23,10 @@ update `device_agent_availability`, so the composite check does not see them.
 NCO needs one call that (1) resolves IP + partition to a UID immediately,
 (2) starts a targeted re-probe of those IPs from every vantage-point agent
 on a named composite check, and (3) exposes a poll URL for the resulting
-verdict. No webhook. Facts (`acl_enforced`, switch/port) stay on the existing
-`PATCH /api/devices/:uid/metadata` path and are written **before** this call.
+verdict. No webhook. Optional per-target facts are accepted in the create
+payload and written through the existing fact action before the run is
+queued. A separate facts PATCH must finish before create; a first-time caller
+can send inline facts or resolve identity before writing them.
 
 ## What Changes
 
@@ -45,7 +47,7 @@ verdict. No webhook. Facts (`acl_enforced`, switch/port) stay on the existing
 
 - **ADD** `ServiceRadar.CompositeChecks.ValidationRun` (and per-device
   child rows) in `platform`. One run names a composite check slug and a
-  list of `{ip, partition?, mac?}` targets.
+  list of `{ip, partition?, mac?, facts?}` targets.
 - **ADD** `POST /api/v1/validation-runs` (202), `GET /api/v1/validation-runs/:id`,
   `GET /api/v1/validation-runs/:id/results`. Same `api_key_auth` pipeline as
   ad-hoc scans. Poll; do not webhook.
@@ -100,7 +102,8 @@ subset. That preserves `add-composite-service-checks` D1.
 - Reuses `AgentCommandBus.dispatch_adhoc_scan/3` and
   `CompositeChecks.Evaluation.evaluate_devices/5`. Does not change sweep
   group scheduling or the composite check authoring UI.
-- Docs: `docs/docs/nco-validation-runs.md` (ASCII), plus a pointer from
-  `docs/docs/nco-device-facts.md`.
-- NCO client: PATCH facts → POST validation-run (gets uid + run id) →
-  poll GET until `completed`/`failed`/`timed_out`.
+- Docs: `docs/docs/validation-runs.md` (ASCII), plus a pointer from
+  `docs/docs/device-facts.md`.
+- NCO client: POST validation-run with inline facts (gets uid + run id),
+  then poll GET. Alternatively finish a facts PATCH before POST. A missing
+  required probe produces `not_probed`, not a passing verdict.

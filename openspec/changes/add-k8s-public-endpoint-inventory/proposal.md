@@ -4,7 +4,7 @@
 
 Incident response against public LoadBalancer / Gateway VIPs still requires
 manual gitops greps and `kubectl get svc -A`. Concrete example: inbound
-connections from Colombia to `23.138.124.7:22` took multiple hops to identify as
+connections from Colombia to `198.51.100.7:22` took multiple hops to identify as
 the Forgejo Envoy Gateway (`forgejo-gateway` → TCPRoute `forgejo-ssh` → Forgejo
 SSH), not a host shell.
 

@@ -33,7 +33,6 @@ defmodule ServiceRadarWebNG.MixProject do
           "GHSA-4g2h-vm7x-747c",
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-43969",
-          "EEF-CVE-2026-43971",
           "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
@@ -117,7 +116,9 @@ defmodule ServiceRadarWebNG.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      # {:usage_rules, "~> 1.0", only: [:dev]},  # Commented out for Docker build
+      # Dev-only: syncs dependency usage rules into agent skills (`mix usage_rules.sync`).
+      # Not fetched by the prod Docker build (`MIX_ENV=prod mix deps.get --only prod`).
+      {:usage_rules, "~> 1.2.8", only: [:dev], runtime: false},
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
       {:gnat, "~> 1.15"},
@@ -137,7 +138,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:phoenix_live_view, "~> 1.2"},
       {:stream_data, "~> 1.1"},
       {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:phoenix_live_dashboard, "~> 0.9"},
       {:broadway_dashboard, "~> 0.4"},
       {:oban_web, "~> 2.10"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},

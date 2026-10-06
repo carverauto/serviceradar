@@ -74,8 +74,8 @@ defmodule ServiceRadarWebNG.SAMLFixtures do
       audience: Keyword.get(opts, :audience, @default_sp_entity_id),
       recipient: Keyword.get(opts, :recipient, @default_acs_url),
       issue_instant: iso(now),
-      not_before: iso(Keyword.get(opts, :not_before, DateTime.add(now, -30, :second))),
-      not_on_or_after: iso(Keyword.get(opts, :not_on_or_after, DateTime.add(now, 120, :second)))
+      not_before: iso(Keyword.get(opts, :not_before, DateTime.shift(now, second: -30))),
+      not_on_or_after: iso(Keyword.get(opts, :not_on_or_after, DateTime.shift(now, minute: 2)))
     }
 
     signer = Keyword.get(opts, :signer, idp)

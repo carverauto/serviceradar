@@ -116,8 +116,8 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
           "family" => "octets",
           "status" => "measured",
           "rate" => 64,
-          "observed_at" => DateTime.add(now, -10, :second),
-          "previous_observed_at" => DateTime.add(now, -70, :second)
+          "observed_at" => DateTime.shift(now, second: -10),
+          "previous_observed_at" => DateTime.shift(now, second: -70)
         }
       end
 

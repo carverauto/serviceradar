@@ -61,7 +61,7 @@ defmodule ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProviderTest
     assert {:error, :callback_response_policy_not_ready} =
              FileCallbackResponsePolicyProvider.snapshot_document(disabled, context())
 
-    expired = put_in(context().now, DateTime.add(@expires_at, 1))
+    expired = put_in(context().now, DateTime.shift(@expires_at, second: 1))
 
     assert {:error, :callback_response_policy_not_ready} =
              FileCallbackResponsePolicyProvider.snapshot_document(document(), expired)

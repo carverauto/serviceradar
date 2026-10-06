@@ -356,7 +356,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
             "comment" => "Planned failover",
             "combinator" => "all",
             "starts_at" => local_input(now),
-            "ends_at" => local_input(DateTime.add(now, 3600, :second)),
+            "ends_at" => local_input(DateTime.shift(now, hour: 1)),
             # A crafted creator id must be ignored: the creator is taken from
             # the authenticated scope, never from the form.
             "created_by_user_id" => to_string(other.id),
@@ -395,7 +395,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
           "comment" => "",
           "combinator" => "all",
           "starts_at" => local_input(now),
-          "ends_at" => local_input(DateTime.add(now, 3600, :second)),
+          "ends_at" => local_input(DateTime.shift(now, hour: 1)),
           "rows" => %{
             "0" => %{"field" => "alert.severity", "operator" => "equals", "value" => "warning"}
           }

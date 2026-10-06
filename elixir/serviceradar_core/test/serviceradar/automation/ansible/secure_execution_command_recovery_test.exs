@@ -35,8 +35,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
 
   test "missed terminal notifications replay the persisted command result even after deadline" do
     now = now()
-    attempt = attempt(:fetch_job, DateTime.add(now, -1, :second))
-    command = command(attempt, :completed, DateTime.add(now, -30, :second))
+    attempt = attempt(:fetch_job, DateTime.shift(now, second: -1))
+    command = command(attempt, :completed, DateTime.shift(now, second: -30))
 
     assert %{attempts: 1} =
              recover(attempt, command,
@@ -52,8 +52,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
 
   test "an expired persisted launch is reconciled and never blindly relaunched" do
     now = now()
-    attempt = attempt(:launch_job, DateTime.add(now, -1, :second))
-    command = command(attempt, :sent, DateTime.add(now, -10, :second))
+    attempt = attempt(:launch_job, DateTime.shift(now, second: -1))
+    command = command(attempt, :sent, DateTime.shift(now, second: -10))
     test_pid = self()
 
     assert %{attempts: 1} =
@@ -71,7 +71,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
   end
 
   test "a missing preallocated command may dispatch only its durable planned attempt" do
-    attempt = attempt(:launch_job, DateTime.add(now(), 60, :second))
+    attempt = attempt(:launch_job, DateTime.shift(now(), minute: 1))
     test_pid = self()
 
     assert %{attempts: 1} =
@@ -125,10 +125,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
 
     attempt =
       :fetch_job
-      |> attempt(DateTime.add(current, 60, :second))
+      |> attempt(DateTime.shift(current, minute: 1))
       |> Map.put(:state, :dispatched)
 
-    command = command(attempt, :running, DateTime.add(current, 30, :second))
+    command = command(attempt, :running, DateTime.shift(current, second: 30))
     resources = continuation_resources(attempt, :running, :running)
     test_pid = self()
 
@@ -160,8 +160,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
 
   test "a non-launch command whose bounded deadline elapsed fails through expiration" do
     now = now()
-    attempt = attempt(:fetch_job, DateTime.add(now, -1, :second))
-    command = command(attempt, :running, DateTime.add(now, 30, :second))
+    attempt = attempt(:fetch_job, DateTime.shift(now, second: -1))
+    command = command(attempt, :running, DateTime.shift(now, second: 30))
 
     assert %{attempts: 1} = recover(attempt, command, now: now)
     assert_receive {:expire_attempt, command_id}
@@ -280,7 +280,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
         stage: :launch_job,
         purpose: :accepted_job_proof,
         command_type: "awx.launch_job",
-        deadline_at: DateTime.add(current, 60, :second)
+        deadline_at: DateTime.shift(current, minute: 1)
       )
 
     attempt =
@@ -366,7 +366,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandRecoveryTest do
       live_launch_snapshot_digest: String.duplicate("d", 64),
       command_result_digest: String.duplicate("e", 64),
       verified_at: verified_at,
-      expires_at: DateTime.add(verified_at, 60, :second)
+      expires_at: DateTime.shift(verified_at, minute: 1)
     }
 
     {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)

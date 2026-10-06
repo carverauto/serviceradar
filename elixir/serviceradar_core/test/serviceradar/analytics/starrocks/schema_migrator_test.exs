@@ -308,7 +308,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
       |> Enum.filter(&Schema.needs_partitioned_tables?/1)
       |> Enum.map(& &1.version)
 
-    # 17 and 22 are the earlier day-partitioned rollups; 25 is the MTR hop rollups.
-    assert waiting == [17, 22, 25]
+    # 17 and 22 are the earlier rollups; 25 and 28 create the MTR rollups.
+    assert waiting == [17, 22, 25, 28]
   end
 end

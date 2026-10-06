@@ -1225,6 +1225,13 @@ if config_env() == :prod do
     canonical_prune_guard_override:
       parse_bool.("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", false)
 
+  # Capability-retained plugin results are admitted by the bounded retained-plugin
+  # lane. "false" is the kill switch back to the previous synchronous path.
+  # Mirrored in serviceradar_core_elx/config/runtime.exs, the one a release reads.
+  config :serviceradar_core, ServiceRadar.StatusHandler,
+    retained_plugin_admission_enabled:
+      System.get_env("RETAINED_PLUGIN_ADMISSION_ENABLED", "true") in ~w(true 1 yes)
+
   # Change-detection skip-guard for workload-identity snapshot upserts (fj #33).
   # persist_snapshot/1 runs once per agent status; on a stable cluster the
   # container->identity content rarely changes, so the guard fingerprints that
@@ -1411,7 +1418,7 @@ if config_env() == :prod do
 
   oban_lifeline_rescue_after_ms =
     "OBAN_LIFELINE_RESCUE_AFTER_MS"
-    |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
+    |> System.get_env(Integer.to_string(to_timeout(hour: 4)))
     |> String.to_integer()
 
   # How long a stopping node waits for executing jobs before killing them. A job

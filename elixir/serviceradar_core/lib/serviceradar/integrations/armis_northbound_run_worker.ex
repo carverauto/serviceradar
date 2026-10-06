@@ -229,6 +229,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
   defp auth_error_reason?({:unexpected_status, status, _body}) when status in [401, 403], do: true
   defp auth_error_reason?({:token_request_failed, _status, _body}), do: true
   defp auth_error_reason?(:missing_secret_key), do: true
+  defp auth_error_reason?({:missing_secret_key, _origin}), do: true
+  defp auth_error_reason?({:credential_resolution_failed, _, _}), do: true
   defp auth_error_reason?(_reason), do: false
 
   defp failure_reason(%{result: %{error_message: message}}) when is_binary(message), do: message

@@ -12,7 +12,9 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
     * It monitors every control-stream session that reports to it. When an
       agent's last live session on this gateway ends, its entry is marked
       `status: :disconnected`, so `AgentRegistry` stops offering it as a connected
-      agent. A later push or hello marks it connected again.
+      agent. A later control session marks it connected again, after that
+      session is monitored. A status push updates liveness and never sets
+      `:connected`.
     * Agents not heard from (no touch, no session report) for the stale window
       and without a live session are unregistered, and their negotiated delivery
       capabilities are dropped. The window is longer than the agent's slowest
@@ -33,6 +35,8 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
   # Agents send a status heartbeat at least every five minutes.
   @default_stale_after_ms to_timeout(minute: 15)
   @default_sweep_interval_ms to_timeout(minute: 1)
+  @sync_attempts 2
+  @sync_timeout_ms 1_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -60,15 +64,38 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
           :ok | {:error, :proxy_unavailable}
   def sync_delivery_capabilities(partition_id, agent_id, capabilities)
       when is_binary(partition_id) and is_binary(agent_id) and is_list(capabilities) do
+    sync_delivery_capabilities(partition_id, agent_id, capabilities, @sync_attempts)
+  end
+
+  defp sync_delivery_capabilities(partition_id, agent_id, capabilities, attempts) do
     case Process.whereis(__MODULE__) do
       pid when is_pid(pid) ->
-        GenServer.call(pid, {:sync_delivery_capabilities, partition_id, agent_id, capabilities}, 1_000)
+        try do
+          GenServer.call(
+            pid,
+            {:sync_delivery_capabilities, partition_id, agent_id, capabilities},
+            @sync_timeout_ms
+          )
+        catch
+          :exit, reason ->
+            retry_delivery_capabilities(partition_id, agent_id, capabilities, attempts, reason)
+        end
 
       nil ->
-        {:error, :proxy_unavailable}
+        retry_delivery_capabilities(partition_id, agent_id, capabilities, attempts, :proxy_unavailable)
     end
-  catch
-    :exit, _reason -> {:error, :proxy_unavailable}
+  end
+
+  defp retry_delivery_capabilities(partition_id, agent_id, capabilities, attempts, reason) when attempts > 1 do
+    Logger.warning("Delivery capability sync for agent #{agent_id} did not finish (#{inspect(reason)}); retrying")
+
+    sync_delivery_capabilities(partition_id, agent_id, capabilities, attempts - 1)
+  end
+
+  defp retry_delivery_capabilities(_partition_id, agent_id, _capabilities, _attempts, reason) do
+    Logger.warning("Delivery capability sync for agent #{agent_id} failed after retry: #{inspect(reason)}")
+
+    {:error, :proxy_unavailable}
   end
 
   @doc """
@@ -101,6 +128,11 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
 
   @impl true
   def handle_call({:touch_agent, agent_id, metadata}, _from, state) do
+    # A push updates liveness. `:connected` is set only after a control
+    # session is monitored, so merging a caller's status would make an agent
+    # with no session routable again.
+    metadata = Map.delete(metadata, :status)
+
     next_state =
       state
       |> put_delivery_capabilities(agent_id, metadata)
@@ -111,12 +143,11 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
            |> Map.merge(metadata)
            |> Map.put(:last_heartbeat, DateTime.utc_now())
          end) do
-      {new_metadata, old_metadata} ->
-        maybe_broadcast_reconnected(old_metadata, new_metadata)
+      {_new_metadata, _old_metadata} ->
         {:reply, :ok, next_state}
 
       :error ->
-        case AgentRegistry.register_agent(agent_id, metadata) do
+        case AgentRegistry.register_agent(agent_id, Map.put(metadata, :status, :disconnected)) do
           {:ok, _pid} ->
             {:reply, :ok, next_state}
 
@@ -183,17 +214,25 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
   defp track_session(state, agent_id, session) when node(session) == node() do
     sessions = Map.get(state.sessions, agent_id, %{})
 
-    if Map.has_key?(sessions, session) do
-      state
-    else
-      ref = Process.monitor(session)
-
-      %{
+    state =
+      if Map.has_key?(sessions, session) do
         state
-        | sessions: Map.put(state.sessions, agent_id, Map.put(sessions, session, ref)),
-          session_refs: Map.put(state.session_refs, ref, {agent_id, session})
-      }
-    end
+      else
+        ref = Process.monitor(session)
+
+        %{
+          state
+          | sessions: Map.put(state.sessions, agent_id, Map.put(sessions, session, ref)),
+            session_refs: Map.put(state.session_refs, ref, {agent_id, session})
+        }
+      end
+
+    # The monitor is in place before the agent becomes routable. An old
+    # session's :DOWN that was already handled left the agent disconnected;
+    # this marks the live session connected. A :DOWN that arrives afterward
+    # sees the new session and does not disconnect it.
+    mark_connected(agent_id)
+    state
   end
 
   defp track_session(state, _agent_id, _session), do: state
@@ -206,6 +245,16 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
       %{state | sessions: Map.delete(state.sessions, agent_id)}
     else
       %{state | sessions: Map.put(state.sessions, agent_id, remaining)}
+    end
+  end
+
+  defp mark_connected(agent_id) do
+    case ProcessRegistry.update_value({:agent, agent_id, node()}, &Map.put(&1, :status, :connected)) do
+      {new_metadata, old_metadata} ->
+        maybe_broadcast_reconnected(old_metadata, new_metadata)
+
+      :error ->
+        :ok
     end
   end
 

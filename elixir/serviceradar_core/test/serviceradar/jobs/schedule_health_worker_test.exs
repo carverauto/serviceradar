@@ -60,7 +60,7 @@ defmodule ServiceRadar.Jobs.ScheduleHealthWorkerTest do
       })
       |> Ash.create(actor: actor)
 
-    stale_time = DateTime.add(DateTime.utc_now(), -4 * 3_600, :second)
+    stale_time = DateTime.shift(DateTime.utc_now(), hour: -4)
 
     {:ok, _schedule} =
       schedule

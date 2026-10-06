@@ -84,6 +84,19 @@ Core SHALL NOT write MTR traces or hops to either store directly. MTR hop rollup
 - **WHEN** a rollup aggregates destination loss over hops that sent different numbers of probes
 - **THEN** it reports the summed-probe loss ratio, not the mean of the hops' loss percentages
 
+#### Scenario: A hop carries a different event time
+- **WHEN** EventWriter receives MTR hop rows with timestamps earlier or later than their trace
+- **THEN** it stores every hop using its trace's event time
+- **AND** warehouse destination summaries join on equal trace and hop event times
+
+#### Scenario: Terminal hops arrive after the trace's day
+- **WHEN** a late load adds terminal hops for a trace before midnight after newer days have been refreshed
+- **THEN** the destination summary refresh invalidates only the trace's original day
+- **AND** each refresh task scans only the corresponding day of both traces and hops
+- **AND** duplicate terminal-hop candidates use the highest id for the trace's terminal hop position
+- **AND** unreached traces do not acquire destination-hop samples
+- **AND** the summary retains summed-probe loss and received-weighted latency
+
 ### Requirement: Warehouse maintenance is bounded by the smallest supported node
 The system SHALL perform warehouse maintenance that moves data in units sized so that a single statement stays within the memory of the smallest supported compute node, SHALL resume at that unit, and SHALL lengthen its retry interval on a memory-limit error instead of retrying at the normal rate.
 The transaction that holds the warehouse migration lock SHALL clear Postgres `statement_timeout` and `lock_timeout` for itself only, so waiting for a long maintenance run is not cancelled (issue #4525).

@@ -143,7 +143,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContraction do
       attempt: min((attempt.attempt || 0) + 1, 1_000),
       expected_job_id: attempt.expected_job_id,
       candidate_job_ids: [],
-      deadline_at: DateTime.add(now, @cancel_deadline_seconds, :second)
+      deadline_at: DateTime.shift(now, second: @cancel_deadline_seconds)
     )
   end
 

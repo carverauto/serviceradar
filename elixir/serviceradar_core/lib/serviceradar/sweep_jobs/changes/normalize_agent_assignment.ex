@@ -33,17 +33,39 @@ defmodule ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment do
   end
 
   defp legacy_scalar_or_stored_assignment(changeset) do
+    stored = AgentAssignment.normalize(Map.get(changeset.data, :agent_ids) || [])
+
     case Ash.Changeset.fetch_change(changeset, :agent_id) do
-      {:ok, agent_id} -> AgentAssignment.normalize(agent_id)
-      :error -> AgentAssignment.normalize(Map.get(changeset.data, :agent_ids) || [])
+      {:ok, agent_id} ->
+        # A multi-agent list is canonical. A scalar-only write, including one
+        # from an older binary, must not collapse it. A create, an empty
+        # (all-agents) list, or a one-agent list still follows the scalar.
+        if length(stored) > 1 do
+          stored
+        else
+          AgentAssignment.normalize(agent_id)
+        end
+
+      :error ->
+        stored
     end
   end
 
   defp maybe_mirror_scalar(changeset, scalar) do
     existing_scalar = Map.get(changeset.data, :agent_id)
 
+    incoming_matches =
+      case Ash.Changeset.fetch_change(changeset, :agent_id) do
+        {:ok, agent_id} ->
+          AgentAssignment.normalize(agent_id) == AgentAssignment.normalize(scalar)
+
+        :error ->
+          true
+      end
+
     if changeset.action_type != :create and
-         AgentAssignment.normalize(existing_scalar) == AgentAssignment.normalize(scalar) do
+         AgentAssignment.normalize(existing_scalar) == AgentAssignment.normalize(scalar) and
+         incoming_matches do
       changeset
     else
       Ash.Changeset.force_change_attribute(changeset, :agent_id, scalar)

@@ -25,6 +25,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   alias ServiceRadarAgentGateway.OtlpRelayPublisher
   alias ServiceRadarAgentGateway.PluginMetricsPublisher
   alias ServiceRadarAgentGateway.RperfMetricsPublisher
+  alias ServiceRadarAgentGateway.RuntimeMetrics
   alias ServiceRadarAgentGateway.SnmpMetricsPublisher
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.SweepMetricsPublisher
@@ -32,8 +33,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   require Logger
 
-  @core_call_timeout_ms 30_000
-  @flow_attribution_core_call_timeout_ms 25_000
+  # The agent unary deadline is 30s (go/pkg/agentgateway defaultPushTimeout).
+  # The core call has to finish inside that, with room for gateway overhead,
+  # or the agent sees DeadlineExceeded and cannot tell acceptance from a drop.
+  @core_call_timeout_ms 20_000
+  @flow_attribution_core_call_timeout_ms 20_000
+  # Budget = call timeout + overhead so the delivery task always has time to
+  # handle the inner call timeout and emit metrics before being killed.
+  @acceptance_budget_overhead_ms 500
   @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
 
   @doc """
@@ -188,6 +195,26 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       K8sPublicEndpointsPublisher
     )
   end
+
+  @doc false
+  @spec acceptance_budget_ms(map()) :: pos_integer()
+  def acceptance_budget_ms(status) when is_map(status), do: core_call_timeout_ms(status) + @acceptance_budget_overhead_ms
+
+  # Flow attribution, retained plugin results, and endpoint-inventory results
+  # are acknowledged only after core accepts them. OTLP relay frames are the
+  # same contract: the agent drops its copy when PushStatus says received.
+  @doc false
+  @spec synchronous_acceptance?(map()) :: boolean()
+  def synchronous_acceptance?(status) when is_map(status) do
+    ack_result_status?(status) or otlp_relay_status?(status)
+  end
+
+  @doc false
+  @spec endpoint_inventory_status?(map()) :: boolean()
+  def endpoint_inventory_status?(%{source: source, service_type: service_type})
+      when source in ["results", :results] and service_type in ["endpoint_inventory", :endpoint_inventory], do: true
+
+  def endpoint_inventory_status?(_status), do: false
 
   @spec forward(map(), keyword()) :: :ok | {:ok, term()} | {:error, term()}
   def forward(status, opts \\ []) do
@@ -387,14 +414,22 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp ack_result_status?(_status), do: false
 
   defp core_call_timeout_ms(%{source: source}) when source in ["flow-attribution", :flow_attribution] do
-    Application.get_env(
-      :serviceradar_agent_gateway,
-      :flow_attribution_core_call_timeout_ms,
-      @flow_attribution_core_call_timeout_ms
-    )
+    positive_timeout(:flow_attribution_core_call_timeout_ms, @flow_attribution_core_call_timeout_ms)
   end
 
-  defp core_call_timeout_ms(_status), do: @core_call_timeout_ms
+  defp core_call_timeout_ms(_status) do
+    positive_timeout(:core_call_timeout_ms, @core_call_timeout_ms)
+  end
+
+  defp positive_timeout(key, default) do
+    case Application.get_env(:serviceradar_agent_gateway, key, default) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> default
+    end
+  end
+
+  defp otlp_relay_status?(%{source: source}) when source in ["otlp-relay", :otlp_relay], do: true
+  defp otlp_relay_status?(_status), do: false
 
   # Find a connected node that runs the handler. The locator answers from its
   # cache and never waits on a node that does not respond when another one does.
@@ -414,7 +449,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp should_buffer?(%{source: source} = status) when source in ["plugin-result", :plugin_result],
     do: not retained_plugin_result_delivery?(status)
 
-  defp should_buffer?(status), do: results_router_source?(status)
+  # Endpoint inventory rides a synchronous call so the agent can apply the
+  # reconcile directive. Buffering a failed call and reporting success would
+  # mark the upload accepted without that directive.
+  defp should_buffer?(status), do: not endpoint_inventory_status?(status) and results_router_source?(status)
 
   defp retained_plugin_result_delivery?(status) do
     @plugin_result_retained_delivery_capability_v1 in List.wrap(Map.get(status, :delivery_capabilities, []))
@@ -687,25 +725,25 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp package_telemetry_source?(_source), do: false
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do
-    if should_buffer?(status) do
-      duration_ms =
-        System.monotonic_time()
-        |> Kernel.-(started_at)
-        |> System.convert_time_unit(:native, :millisecond)
+    duration_ms =
+      System.monotonic_time()
+      |> Kernel.-(started_at)
+      |> System.convert_time_unit(:native, :millisecond)
 
-      :telemetry.execute(
-        [:serviceradar, :agent_gateway, :results, :forward],
-        %{count: 1, duration_ms: duration_ms},
-        %{
-          result: result,
-          from_buffer: from_buffer,
-          service_type: status[:service_type],
-          service_name: status[:service_name],
-          agent_id: status[:agent_id],
-          gateway_id: status[:gateway_id],
-          partition: status[:partition]
-        }
-      )
-    end
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :results, :forward],
+      %{count: 1, duration_ms: duration_ms},
+      %{
+        result: result,
+        from_buffer: from_buffer,
+        service_type: status[:service_type],
+        service_name: status[:service_name],
+        agent_id: status[:agent_id],
+        gateway_id: status[:gateway_id],
+        partition: status[:partition]
+      }
+    )
+
+    RuntimeMetrics.report_core_call(duration_ms, result, status)
   end
 end

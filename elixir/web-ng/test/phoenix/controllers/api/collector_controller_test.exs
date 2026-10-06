@@ -253,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
       |> Ash.Changeset.force_change_attribute(:download_token_hash, token_hash)
       |> Ash.Changeset.force_change_attribute(
         :download_token_expires_at,
-        DateTime.add(DateTime.utc_now(), 86_400, :second)
+        DateTime.shift(DateTime.utc_now(), day: 1)
       )
       |> Ash.update!(actor: system_actor())
 
@@ -267,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
         %{
           user_name: "collector-cred-#{unique}",
           credential_type: :collector,
-          expires_at: DateTime.add(DateTime.utc_now(), 30 * 86_400, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), day: 30),
           metadata: %{site: "demo"}
         },
         actor: system_actor()

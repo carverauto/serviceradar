@@ -252,7 +252,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
       service_name: service_name,
       available: false,
       message: "old gateway result",
-      last_observed_at: DateTime.add(now, -3_600, :second),
+      last_observed_at: DateTime.shift(now, hour: -1),
       state: "active"
     })
 
@@ -282,7 +282,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     package = approved_package_fixture("serviceradar.plugin_result.v1")
     _assignment = assignment_fixture(agent.uid, package.id)
     historical_gateway_id = "serviceradar_agent_gateway@10.42.0.99"
-    observed_at = DateTime.utc_now() |> DateTime.add(-10, :second) |> DateTime.truncate(:microsecond)
+    observed_at = DateTime.utc_now() |> DateTime.shift(second: -10) |> DateTime.truncate(:microsecond)
 
     ServiceStatus
     |> Ash.Changeset.for_create(
@@ -317,8 +317,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
     package = approved_package_fixture("serviceradar.plugin_result.v1")
     _assignment = assignment_fixture(agent.uid, package.id)
-    older_at = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.truncate(:microsecond)
-    newer_at = DateTime.add(older_at, 10, :second)
+    older_at = DateTime.utc_now() |> DateTime.shift(minute: -1) |> DateTime.truncate(:microsecond)
+    newer_at = DateTime.shift(older_at, second: 10)
     newer_gateway_id = "serviceradar_agent_gateway@10.42.0.109"
 
     older_state =
@@ -435,7 +435,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     package = approved_package_fixture("serviceradar.plugin_result.v1")
     assignment = assignment_fixture(agent.uid, package.id)
     runtime_service_name = "Runtime #{package.name}"
-    observed_at = DateTime.utc_now() |> DateTime.add(-5, :second) |> DateTime.truncate(:microsecond)
+    observed_at = DateTime.utc_now() |> DateTime.shift(second: -5) |> DateTime.truncate(:microsecond)
     previous_handlers = Application.get_env(:serviceradar_core, :plugin_result_handlers)
 
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])

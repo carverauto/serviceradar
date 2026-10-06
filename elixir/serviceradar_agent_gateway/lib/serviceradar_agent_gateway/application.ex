@@ -142,6 +142,7 @@ defmodule ServiceRadarAgentGateway.Application do
           ServiceRadarAgentGateway.AgentCertificateRevocation,
           ServiceRadarAgentGateway.ControlStreamTelemetry,
           ServiceRadarAgentGateway.StatusBuffer,
+          ServiceRadarAgentGateway.RuntimeMetrics,
           ServiceRadarAgentGateway.CameraMediaSessionTracker,
           ServiceRadarAgentGateway.DesktopMediaSessionTracker,
           ServiceRadarAgentGateway.DesktopMediaCloseReconciler

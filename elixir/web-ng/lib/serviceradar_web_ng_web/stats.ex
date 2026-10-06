@@ -543,7 +543,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
       Keyword.get(opts, :stale_threshold_seconds, trace_rollup_stale_threshold_seconds())
 
     query = Keyword.get(opts, :query, &StarRocksQuery.execute/1)
-    cutoff = DateTime.utc_now() |> DateTime.add(-86_400, :second) |> warehouse_instant()
+    cutoff = DateTime.utc_now() |> DateTime.shift(day: -1) |> warehouse_instant()
 
     with {:ok, raw} <- warehouse_latest(query, "otel_traces", "timestamp", cutoff),
          {:ok, summary} <- warehouse_latest(query, "otel_trace_summaries", "timestamp", cutoff),

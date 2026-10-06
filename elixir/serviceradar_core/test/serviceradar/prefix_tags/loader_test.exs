@@ -31,11 +31,23 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
         :ok
     end
 
+    task_sup = ServiceRadar.Reload.TaskSupervisor
+
+    case Process.whereis(task_sup) do
+      nil ->
+        start_supervised!({Task.Supervisor, name: task_sup})
+
+      _pid ->
+        :ok
+    end
+
     on_exit(fn ->
       Store.clear()
+      Loader.clear_status_for_test()
     end)
 
     Store.clear()
+    Loader.clear_status_for_test()
     :ok
   end
 
@@ -46,6 +58,7 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
 
     assert {:error, _} = Preview.local_lookup("192.0.2.1")
     :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+    Loader.put_status_for_test(:sys.get_state(pid))
     assert {:ok, [%{tags: ["role:example"]}]} = Preview.local_lookup("192.0.2.1")
     assert {:ok, []} = Preview.local_lookup("198.51.100.1")
   end
@@ -247,7 +260,7 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
         id: loader_name
       )
 
-    known_at = DateTime.add(DateTime.utc_now(), -90, :second)
+    known_at = DateTime.shift(DateTime.utc_now(), second: -90)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -274,5 +287,160 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
 
     refute_receive {:telemetry, [:serviceradar, :prefix_tags, :snapshot_age], _,
                     %{source: "provider"}}
+  end
+
+  test "status and preview lookup never wait on a slow reload" do
+    test_pid = self()
+
+    slow_runner = fn state, target ->
+      send(test_pid, {:reload_started, target})
+      Process.sleep(300)
+      {state, :ok}
+    end
+
+    loader_name = :prefix_tags_slow_reload_test
+
+    pid =
+      start_supervised!(
+        {Loader, load_on_init: false, name: loader_name, reload_runner: slow_runner},
+        id: loader_name
+      )
+
+    :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+    Loader.put_status_for_test(:sys.get_state(pid))
+    Store.put_rows("manual", [%{prefix: "192.0.2.0/24", tags: ["role:fast"], source: "manual"}])
+
+    # Trigger slow reload in background
+    reload_task = Task.async(fn -> GenServer.call(pid, {:reload, "manual"}) end)
+
+    assert_receive {:reload_started, "manual"}, 1_000
+
+    # While reload is still in flight (sleeping 300ms), status and Preview.local_lookup return immediately
+    start_time = System.monotonic_time(:millisecond)
+
+    status = Loader.status(pid)
+    assert status.initial_boot_complete? == true
+
+    assert {:ok, [%{tags: ["role:fast"]}]} = Preview.local_lookup("192.0.2.1")
+
+    elapsed_ms = System.monotonic_time(:millisecond) - start_time
+    assert elapsed_ms < 50, "Status/lookup blocked on reload for #{elapsed_ms}ms"
+
+    # Reload completes successfully
+    assert :ok = Task.await(reload_task, 2_000)
+  end
+
+  test "when reload raises, server stays up, readers keep previous snapshot, and callers get error reply" do
+    test_pid = self()
+
+    exploding_runner = fn _state, _target ->
+      send(test_pid, :runner_called)
+      raise RuntimeError, "prefix tags reload exploded"
+    end
+
+    loader_name = :prefix_tags_crash_recovery_test
+
+    pid =
+      start_supervised!(
+        {Loader, load_on_init: false, name: loader_name, reload_runner: exploding_runner},
+        id: loader_name
+      )
+
+    :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+    Loader.put_status_for_test(:sys.get_state(pid))
+    Store.put_rows("manual", [%{prefix: "192.0.2.0/24", tags: ["role:stable"], source: "manual"}])
+
+    assert {:ok, [%{tags: ["role:stable"]}]} = Preview.local_lookup("192.0.2.1")
+
+    reload_task = Task.async(fn -> GenServer.call(pid, {:reload, "manual"}) end)
+
+    assert_receive :runner_called, 1_000
+
+    assert {:error, reason} = Task.await(reload_task, 2_000)
+    assert inspect(reason) =~ "prefix tags reload exploded"
+
+    assert Process.alive?(pid)
+
+    assert {:ok, [%{tags: ["role:stable"]}]} = Preview.local_lookup("192.0.2.1")
+    assert [%{tags: ["role:stable"]}] = Store.lookup("192.0.2.1", "manual")
+
+    status = Loader.status(pid)
+    assert status.initial_boot_complete? == true
+    assert status.last_error =~ "prefix tags reload exploded"
+  end
+
+  test "a queued reload still runs after the in-flight reload crashes" do
+    test_pid = self()
+
+    runner = fn input_state, target ->
+      send(test_pid, {:runner_called, target, self()})
+
+      if target == "a" do
+        receive do
+          :release_a -> :ok
+        after
+          10_000 -> raise RuntimeError, "timed out waiting for :release_a"
+        end
+
+        raise RuntimeError, "target a exploded"
+      else
+        {input_state, :ok}
+      end
+    end
+
+    loader_name = :prefix_tags_crash_chain_test
+
+    pid =
+      start_supervised!(
+        {Loader, load_on_init: false, name: loader_name, reload_runner: runner},
+        id: loader_name
+      )
+
+    :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+
+    task_a = Task.async(fn -> GenServer.call(pid, {:reload, "a"}) end)
+    assert_receive {:runner_called, "a", runner_a_pid}, 1_000
+
+    task_b = Task.async(fn -> GenServer.call(pid, {:reload, "b"}) end)
+
+    queued? =
+      Enum.any?(1..200, fn _ ->
+        if Enum.any?(:sys.get_state(pid).waiters, fn {_from, t} -> t == "b" end) do
+          true
+        else
+          Process.sleep(10)
+          false
+        end
+      end)
+
+    assert queued?, "reload B was never queued behind in-flight reload A"
+
+    send(runner_a_pid, :release_a)
+
+    assert {:error, reason} = Task.await(task_a, 5_000)
+    assert inspect(reason) =~ "target a exploded"
+
+    assert_receive {:runner_called, "b", _runner_b_pid}, 5_000
+    assert :ok = Task.await(task_b, 5_000)
+
+    assert Process.alive?(pid)
+  end
+
+  test "reload with a dead task supervisor replies error and keeps the server alive" do
+    loader_name = :prefix_tags_dead_supervisor_test
+
+    pid =
+      start_supervised!(
+        {Loader,
+         load_on_init: false, name: loader_name, task_supervisor: :prefix_tags_dead_supervisor_xyz},
+        id: loader_name
+      )
+
+    :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+
+    assert {:error, _reason} = GenServer.call(pid, {:reload, "manual"})
+    assert Process.alive?(pid)
+    assert {:error, _reason} = GenServer.call(pid, {:reload, "manual"})
+    assert Process.alive?(pid)
   end
 end

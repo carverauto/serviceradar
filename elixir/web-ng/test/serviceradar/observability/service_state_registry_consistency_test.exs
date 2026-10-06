@@ -95,7 +95,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryConsistencyTest do
         service_name: package.name,
         available: true,
         message: "real result",
-        last_observed_at: DateTime.add(now, -60, :second),
+        last_observed_at: DateTime.shift(now, minute: -1),
         state: "active"
       })
 
@@ -156,7 +156,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryConsistencyTest do
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
     package = approved_package_fixture()
     _assignment = assignment_fixture(agent.uid, package.id)
-    observed_at = DateTime.utc_now() |> DateTime.add(-10, :second) |> DateTime.truncate(:microsecond)
+    observed_at = DateTime.utc_now() |> DateTime.shift(second: -10) |> DateTime.truncate(:microsecond)
 
     for {runtime_name, availability_order} <- [
           {"History A #{package.name}", [true, false]},

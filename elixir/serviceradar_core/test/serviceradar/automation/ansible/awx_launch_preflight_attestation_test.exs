@@ -46,7 +46,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestationTest do
     assert {:ok, snapshot} = AwxLaunchPreflightAttestation.normalize(attestation())
 
     assert snapshot["verified_at"] == DateTime.to_iso8601(@now)
-    assert snapshot["expires_at"] == DateTime.to_iso8601(DateTime.add(@now, 60, :second))
+    assert snapshot["expires_at"] == DateTime.to_iso8601(DateTime.shift(@now, minute: 1))
   end
 
   test "binds both persisted copies to evidence, controller, and the selected edge tuple" do
@@ -104,8 +104,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestationTest do
     expired =
       attestation(%{
         controller_security_snapshot_digest: security_digest,
-        verified_at: DateTime.add(@now, -120, :second),
-        expires_at: DateTime.add(@now, -1, :second)
+        verified_at: DateTime.shift(@now, minute: -2),
+        expires_at: DateTime.shift(@now, second: -1)
       })
 
     {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(expired)
@@ -193,7 +193,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestationTest do
         live_launch_snapshot_digest: String.duplicate("e", 64),
         command_result_digest: String.duplicate("f", 64),
         verified_at: @now,
-        expires_at: DateTime.add(@now, 60, :second)
+        expires_at: DateTime.shift(@now, minute: 1)
       },
       overrides
     )

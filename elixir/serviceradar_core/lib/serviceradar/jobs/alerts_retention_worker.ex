@@ -49,7 +49,7 @@ defmodule ServiceRadar.Jobs.AlertsRetentionWorker do
   def perform(_job) do
     %{retention_days: retention_days, batch_size: batch_size, max_batches: max_batches} = config()
 
-    cutoff = DateTime.add(DateTime.utc_now(), -retention_days * 86_400, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -retention_days)
 
     Logger.info("Starting alerts retention cleanup",
       retention_days: retention_days,

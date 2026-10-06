@@ -136,6 +136,8 @@ git_override(
 git_override(
     module_name = "rules_elixir",
     commit = "31e99980a43598211d2a6c5fbb893a21a9c0644b",
+    patch_strip = 1,
+    patches = ["//third_party/patches/rules_elixir:ex_unit_erl_libs.patch"],
     remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 
@@ -1409,7 +1411,7 @@ http_file(
     name = "postgresql_18_pgvector_amd64_deb",
     sha256 = "2960d16635b1ea45e9ecddfbbb5d5d669af63db0df7dca56a9fd176f19bc285c",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-18-pgvector_0.8.5-1.pgdg12%2B1_amd64.deb",
+        "https://apt-archive.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-18-pgvector_0.8.5-1.pgdg12%2B1_amd64.deb",
     ],
 )
 

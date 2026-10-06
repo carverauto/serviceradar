@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.Server do
              redirect_uri: redirect_uri,
              code_challenge: challenge,
              scope: grant.scope,
-             expires_at: DateTime.add(DateTime.utc_now(), OAuth.code_ttl_seconds(), :second)
+             expires_at: DateTime.shift(DateTime.utc_now(), second: OAuth.code_ttl_seconds())
            },
            actor: @actor
          ) do
@@ -308,7 +308,7 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.Server do
              client_id: grant.client_id,
              token_hash: OAuth.sha256_hex(plaintext),
              scope: grant.scope,
-             expires_at: DateTime.add(DateTime.utc_now(), ttl, :second)
+             expires_at: DateTime.shift(DateTime.utc_now(), second: ttl)
            },
            actor: @actor
          ) do

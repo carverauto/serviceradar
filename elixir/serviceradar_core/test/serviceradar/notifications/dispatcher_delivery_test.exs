@@ -184,7 +184,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
   describe "not-before scheduling" do
     test "a pending delivery is not contacted before next_attempt_at", %{actor: actor} do
       %{id: id, now: now} = planned!(actor)
-      future = DateTime.add(now, 30, :second)
+      future = DateTime.shift(now, second: 30)
       delivery = reload!(id, actor)
 
       delivery
@@ -413,7 +413,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
       assert %DateTime{} = dispatching.started_at
 
       assert %{settled: settled_ids} =
-               Dispatcher.reconcile(DateTime.add(dispatching.started_at, 301, :second),
+               Dispatcher.reconcile(DateTime.shift(dispatching.started_at, second: 301),
                  actor: actor,
                  limit: 50,
                  stall_seconds: 300
@@ -448,7 +448,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
       assert StubTransport.requests() == []
 
       assert %{retry: retry_ids} =
-               Dispatcher.due(DateTime.add(now, 1, :day), actor: actor, limit: 50)
+               Dispatcher.due(DateTime.shift(now, day: 1), actor: actor, limit: 50)
 
       refute id in retry_ids
     end
@@ -497,7 +497,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
     create_route!(actor, policy)
 
     alert = create_alert!(actor)
-    now = DateTime.add(alert.triggered_at, 1, :second)
+    now = DateTime.shift(alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
 

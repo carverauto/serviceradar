@@ -1066,7 +1066,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp preset_windows(@preset_today_vs_yesterday, _params, now) do
     today_start = start_of_utc_day(now)
-    yesterday_start = DateTime.add(today_start, -1, :day)
+    yesterday_start = DateTime.shift(today_start, day: -1)
 
     {
       %{label: "Today so far", start: today_start, end: now},
@@ -1077,11 +1077,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp preset_windows(@preset_today_vs_yesterday_elapsed, _params, now) do
     today_start = start_of_utc_day(now)
     elapsed = max(DateTime.diff(now, today_start, :second), 60)
-    yesterday_start = DateTime.add(today_start, -1, :day)
+    yesterday_start = DateTime.shift(today_start, day: -1)
 
     {
       %{label: "Today so far", start: today_start, end: now},
-      %{label: "Yesterday same hours", start: yesterday_start, end: DateTime.add(yesterday_start, elapsed, :second)}
+      %{label: "Yesterday same hours", start: yesterday_start, end: DateTime.shift(yesterday_start, second: elapsed)}
     }
   end
 
@@ -1114,9 +1114,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp rolling_windows(now, hours, label_a, label_b) do
     seconds = hours * 3600
-    a_start = DateTime.add(now, -seconds, :second)
+    a_start = DateTime.shift(now, second: -seconds)
     b_end = a_start
-    b_start = DateTime.add(b_end, -seconds, :second)
+    b_start = DateTime.shift(b_end, second: -seconds)
 
     {
       %{label: label_a, start: a_start, end: now},

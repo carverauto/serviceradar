@@ -94,7 +94,7 @@ defmodule ServiceRadar.Notifications.TestDeliveryIsolationTest do
     route = create_route!(actor, policy, throttle_seconds: 3_600)
 
     alert = create_alert!(actor)
-    now = DateTime.add(alert.triggered_at, 1, :second)
+    now = DateTime.shift(alert.triggered_at, second: 1)
     {:ok, dedupe_key} = Dedupe.dedupe_key(alert, route)
 
     test_delivery =

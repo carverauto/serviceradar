@@ -131,7 +131,7 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
     device: device
   } do
     oid = ".1.3.6.1.2.1.1.3.0"
-    older = DateTime.add(DateTime.utc_now(), -60, :second)
+    older = DateTime.shift(DateTime.utc_now(), minute: -1)
 
     :ok =
       DeviceSNMPFactWriter.write_rows([
@@ -202,6 +202,138 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
     assert [fact] = facts(device.uid, actor)
     assert fact.snmp_profile_id == profile.id
     assert fact.plugin_package_id == package.id
+  end
+
+  # One SNMP walk can carry thousands of readings, and the writer sits on the
+  # metrics ingest path: the batch is written in a bounded number of upsert
+  # statements, not one per reading.
+  test "writes a batch of readings with one statement per chunk", %{
+    actor: actor,
+    device: device
+  } do
+    rows =
+      for index <- 1..40 do
+        row(device.uid,
+          oid: oid([1, 3, 6, 1, 2, 1, 2, 2, 1, 10, index]),
+          oid_index: "#{index}",
+          raw_value: "#{index}"
+        )
+      end
+
+    statements = count_fact_writes(fn -> :ok = DeviceSNMPFactWriter.write_rows(rows) end)
+
+    assert length(facts(device.uid, actor)) == 40
+    assert statements == 1
+  end
+
+  # A chunk statement fails as a whole when one of its rows violates a
+  # constraint; the writer then falls back to the rows one by one, so a
+  # reading for a device that no longer exists costs only itself.
+  test "a reading for a missing device does not lose the rest of its chunk", %{
+    actor: actor,
+    device: device
+  } do
+    :ok =
+      DeviceSNMPFactWriter.write_rows([
+        row("sr:snmp-fact-writer:missing-#{System.unique_integer([:positive])}",
+          oid: oid([1, 3, 6, 1, 2, 1, 1, 1, 0])
+        ),
+        row(device.uid, oid: oid([1, 3, 6, 1, 2, 1, 1, 3, 0]), raw_value: "kept")
+      ])
+
+    assert [%{value: "kept"}] = facts(device.uid, actor)
+  end
+
+  # The resource's constraints still apply to each reading: one that fails
+  # them is dropped, the others are written.
+  test "a reading the resource rejects is dropped and the rest are written", %{
+    actor: actor,
+    device: device
+  } do
+    :ok =
+      DeviceSNMPFactWriter.write_rows([
+        row(device.uid,
+          oid: oid([1, 3, 6, 1, 2, 1, 1, 1, 0]),
+          metric_name: String.duplicate("n", 65)
+        ),
+        row(device.uid, oid: oid([1, 3, 6, 1, 2, 1, 1, 3, 0]), raw_value: "kept")
+      ])
+
+    assert [%{value: "kept"}] = facts(device.uid, actor)
+  end
+
+  test "an upsert rewrites every updatable field of the reading", %{actor: actor, device: device} do
+    oid = oid([1, 3, 6, 1, 2, 1, 1, 5, 0])
+    profile_id = Ecto.UUID.generate()
+    earlier = DateTime.shift(DateTime.utc_now(), minute: -2)
+
+    :ok =
+      DeviceSNMPFactWriter.write_rows([
+        row(device.uid,
+          oid: oid,
+          metric_name: "name_a",
+          data_type: "gauge",
+          raw_value: "1",
+          timestamp: earlier
+        )
+      ])
+
+    [before] = facts(device.uid, actor)
+
+    :ok =
+      DeviceSNMPFactWriter.write_rows([
+        row(device.uid,
+          oid: oid,
+          metric_name: "name_b",
+          data_type: "string",
+          raw_value: "two",
+          snmp_profile_id: profile_id
+        )
+      ])
+
+    assert [fact] = facts(device.uid, actor)
+    assert fact.id == before.id
+    assert fact.oid_name == "name_b"
+    assert fact.data_type == "string"
+    assert fact.value == "two"
+    assert fact.snmp_profile_id == profile_id
+    assert DateTime.after?(fact.collected_at, before.collected_at)
+  end
+
+  # An instance OID from its arcs.
+  defp oid(arcs), do: "." <> Enum.map_join(arcs, ".", &Integer.to_string/1)
+
+  defp count_fact_writes(fun) do
+    handler_id = {__MODULE__, :fact_writes, System.unique_integer([:positive])}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:service_radar, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        if self() == test_pid and String.starts_with?(metadata.query, "INSERT") and
+             String.contains?(metadata.query, "device_snmp_facts") do
+          send(test_pid, :fact_write)
+        end
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler_id)
+    end
+
+    drain_writes(0)
+  end
+
+  defp drain_writes(count) do
+    receive do
+      :fact_write -> drain_writes(count + 1)
+    after
+      0 -> count
+    end
   end
 
   defp row(device_uid, opts \\ []) do

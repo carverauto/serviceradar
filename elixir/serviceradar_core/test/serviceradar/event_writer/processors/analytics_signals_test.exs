@@ -193,7 +193,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
             data: Jason.encode!(payload),
             metadata: %{
               subject: "signals.analytics.predictions.sysmon:cpu:sr:anomaly-device:0",
-              received_at: DateTime.add(event_time, 1_000, :second)
+              received_at: DateTime.shift(event_time, second: 1_000)
             }
           })
 

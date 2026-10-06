@@ -396,7 +396,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              id: @grant_id,
              state: :pending,
              action: @action,
-             expires_at: DateTime.add(@now, 120),
+             expires_at: DateTime.shift(@now, minute: 2),
              retryable: true
            }
 
@@ -673,7 +673,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   test "launch dispatch expires an elapsed grant before denial", context do
     {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
     assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
-    expired_opts = Keyword.put(context.opts, :now, DateTime.add(@now, 121))
+    expired_opts = Keyword.put(context.opts, :now, DateTime.shift(@now, second: 121))
 
     assert {:error, :grant_expired} =
              Lifecycle.authorize_launch_dispatch(@grant_id, expired_opts)
@@ -1133,7 +1133,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
       }
     end)
 
-    expired_opts = Keyword.put(context.opts, :now, DateTime.add(@now, 121))
+    expired_opts = Keyword.put(context.opts, :now, DateTime.shift(@now, second: 121))
 
     assert {:error, :grant_expired} =
              Lifecycle.consume(
@@ -1236,7 +1236,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         purpose: :terminal_poll,
         command_type: "awx.fetch_job",
         expected_job_id: 9_001,
-        deadline_at: DateTime.add(@now, 60, :second),
+        deadline_at: DateTime.shift(@now, minute: 1),
         next_attempt_at: @now
       )
 
@@ -1250,7 +1250,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         command_type: "awx.fetch_job_host_summaries",
         expected_job_id: 9_001,
         terminal_job_snapshot: terminal_job,
-        deadline_at: DateTime.add(@now, 60, :second),
+        deadline_at: DateTime.shift(@now, minute: 1),
         next_attempt_at: @now
       )
 
@@ -1370,7 +1370,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
       action: @action,
       audience: "serviceradar.awx.callback/v1",
       budget: 1,
-      expires_at: DateTime.add(@now, 120),
+      expires_at: DateTime.shift(@now, minute: 2),
       actor_snapshot: %{
         principal_type: :human,
         principal_id: @principal_id,
@@ -1381,10 +1381,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         "binding_id" => "binding-1",
         "binding_version" => 3,
         "approval_id" => "approval-1",
-        "approval_expires_at" => DateTime.to_iso8601(DateTime.add(@now, 3_600)),
+        "approval_expires_at" => DateTime.to_iso8601(DateTime.shift(@now, hour: 1)),
         "reviewed_by_principal_type" => "human",
         "reviewed_by_principal_id" => @principal_id,
-        "reviewed_at" => DateTime.to_iso8601(DateTime.add(@now, -3_600)),
+        "reviewed_at" => DateTime.to_iso8601(DateTime.shift(@now, hour: -1)),
         "review_metadata" => %{"policy_version" => "ssh-policy-v3"},
         "issued_at" => DateTime.to_iso8601(@now)
       },
@@ -1396,7 +1396,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         "version" => "ssh-policy-v3",
         "approval_id" => "approval-1",
         "approval_state" => "approved",
-        "approval_expires_at" => DateTime.to_iso8601(DateTime.add(@now, 3_600))
+        "approval_expires_at" => DateTime.to_iso8601(DateTime.shift(@now, hour: 1))
       },
       issuance_ceiling: issuance_ceiling([response_target]),
       awx_scope_snapshot: %{

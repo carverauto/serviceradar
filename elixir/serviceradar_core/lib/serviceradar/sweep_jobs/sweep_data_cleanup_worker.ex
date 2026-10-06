@@ -123,7 +123,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     batch_size = Keyword.get(config, :batch_size, @default_batch_size)
 
     host_results_cutoff = clamp_host_results_cutoff(host_results_days)
-    executions_cutoff = DateTime.add(DateTime.utc_now(), -executions_days * 86_400, :second)
+    executions_cutoff = DateTime.shift(DateTime.utc_now(), day: -executions_days)
     coverage_cutoff = Date.add(Date.utc_today(), -rollup_days)
 
     Logger.info(
@@ -208,7 +208,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   # executions/coverage cleanup are unaffected.
   @spec clamp_host_results_cutoff(pos_integer()) :: {:ok, DateTime.t()} | :skip
   defp clamp_host_results_cutoff(host_results_days) do
-    requested_cutoff = DateTime.add(DateTime.utc_now(), -host_results_days * 86_400, :second)
+    requested_cutoff = DateTime.shift(DateTime.utc_now(), day: -host_results_days)
 
     case earliest_unrolled_day() do
       {:ok, nil} ->

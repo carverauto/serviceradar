@@ -300,7 +300,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsExtensibilityTest do
   defp fire_alert! do
     actor = system_actor()
     alert = alert_fixture(%{title: "Disk 92% on db-01", severity: :critical})
-    now = DateTime.add(alert.triggered_at, 1, :second)
+    now = DateTime.shift(alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
 

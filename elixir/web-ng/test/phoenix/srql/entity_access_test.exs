@@ -71,7 +71,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       matching = %{field => timestamp}
 
       assert [^matching] =
-               FleetQuery.apply_plan([%{field => nil}, %{field => DateTime.add(timestamp, -1)}, matching], plan)
+               FleetQuery.apply_plan([%{field => nil}, %{field => DateTime.shift(timestamp, second: -1)}, matching], plan)
     end
   end
 
@@ -340,6 +340,16 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
 
       assert {:error, :forbidden} =
                EntityAccess.authorize("in:logs limit:1 in:merge_audit", scope)
+    end
+
+    test "authorize/3 ignores decoy in: text inside a quoted filter value" do
+      scope = %Scope{user: nil, permissions: MapSet.new(["observability.logs.view"])}
+
+      assert {:error, :forbidden} =
+               EntityAccess.authorize(
+                 ~s(in:devices name:"synthetic in:not_a_real_entity_zzz value" limit:1),
+                 scope
+               )
     end
   end
 

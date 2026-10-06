@@ -172,6 +172,11 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
     end
   end
 
+  defp error_types(%Ash.Error.Changes.InvalidChanges{
+         message: "a value does not fit the type of its column"
+       }),
+       do: [:parameter_encoding_error]
+
   defp error_types(%{__struct__: type}), do: [type]
   defp error_types(_error), do: [:unknown]
 
@@ -294,7 +299,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
              limit > 0 do
     since =
       DateTime.utc_now()
-      |> DateTime.add(-scan_window_seconds, :second)
+      |> DateTime.shift(second: -scan_window_seconds)
       |> DateTime.truncate(:second)
 
     collect_interface_pairs(since, limit, nil, [], opts)

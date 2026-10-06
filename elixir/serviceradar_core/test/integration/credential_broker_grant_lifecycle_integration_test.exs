@@ -40,7 +40,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
 
     expires_at =
       DateTime.utc_now()
-      |> DateTime.add(-60, :second)
+      |> DateTime.shift(minute: -1)
       |> DateTime.truncate(:second)
 
     {:ok, grant} =
@@ -131,7 +131,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
       secret_ref: SecretRefs.network_credential_ref(to_string(secret.id)),
       status: :issued,
       resolution_location: :agent,
-      expires_at: DateTime.add(DateTime.utc_now(), 60, :second)
+      expires_at: DateTime.shift(DateTime.utc_now(), minute: 1)
     }
 
     assert {:ok, resolved} = SecretBroker.resolve_with_grant(grant, actor: actor)
@@ -158,7 +158,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
       target_kind: "device",
       target_id: "device-#{unique}",
       resolution_location: :agent,
-      expires_at: DateTime.add(DateTime.utc_now(), 60, :second)
+      expires_at: DateTime.shift(DateTime.utc_now(), minute: 1)
     }
 
     assert {:ok, resolved} =
