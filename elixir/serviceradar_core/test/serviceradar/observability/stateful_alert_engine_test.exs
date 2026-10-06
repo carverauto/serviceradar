@@ -1614,30 +1614,118 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.count(active_alerts, &(&1.title == title)) == 1
   end
 
-  test "routing sees raw-writer rule changes and replay truncates with no cache", %{actor: _actor} do
+  test "routing evaluates raw-writer rule changes and replay truncates from one snapshot", %{actor: actor} do
     previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
     Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
     reset_engine()
 
+    unique = System.unique_integer([:positive])
+    cleanup_jobs_before = stateful_cleanup_job_ids()
+
     on_exit(fn ->
       restore_env(:stateful_alert_engine_shards, previous_shards)
+      cleanup_shard_fanout(unique, cleanup_jobs_before)
       reset_engine()
     end)
 
     shard_for = &StatefulAlertEngine.shard_for_rule_id/1
-    {:ok, routed_before} = ShardRouting.shards_for(:event, shard_for)
-    uncovered = if 0 in routed_before, do: 1, else: 0
+    {:ok, %{shards: _routed_before, rules_by_shard: event_by_shard}} =
+      ShardRouting.snapshot_for(:event, shard_for)
 
-    unique = System.unique_integer([:positive])
+    # Genuine negative control: pick a shard owning no event rule right now,
+    # forcing one when the database already routes both shards, so the batch
+    # below proves the raw insert (not a pre-existing rule) fires the alert.
+    uncovered =
+      cond do
+        Map.get(event_by_shard, 0, []) == [] -> 0
+        Map.get(event_by_shard, 1, []) == [] -> 1
+        true ->
+          for rule <- Map.get(event_by_shard, 1, []) do
+            Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [rule.id])
+          end
+
+          1
+      end
+
+    assert {:ok, routed_cleared} = ShardRouting.shards_for(:event, shard_for)
+    refute uncovered in routed_cleared
+
+    raw_event = fn routing_case ->
+      %{
+        id: Ash.UUID.generate(),
+        time: DateTime.utc_now(),
+        severity_id: OCSF.severity_high(),
+        severity: OCSF.severity_name(OCSF.severity_high()),
+        message: "raw writer event",
+        log_name: "raw_writer",
+        log_provider: "raw_writer",
+        unmapped: %{"log_attributes" => %{"routing_case" => routing_case}}
+      }
+    end
+
+    count_alerts = fn title ->
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.count(&(&1.title == title))
+    end
+
+    # Warm both shards so the raw writes below must be visible to the very
+    # next routing read, not just to a cold start.
+    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("warm-#{unique}")])
+
+    title = "Shard raw writer #{unique}"
     raw_id = rule_id_for_shard(uncovered)
 
     Repo.query!(
-      "INSERT INTO platform.stateful_alert_rules (id, name, signal) VALUES ($1::uuid, $2, 'event')",
-      [raw_id, "shard-fanout-#{unique}-raw"]
+      "INSERT INTO platform.stateful_alert_rules (id, name, signal, match, group_by, threshold, window_seconds, bucket_seconds, cooldown_seconds, renotify_seconds, event, alert) VALUES ($1::uuid, $2, 'event', $3::jsonb, '{routing_case}', 1, 300, 60, 60, 3600, $4::jsonb, $5::jsonb)",
+      [
+        raw_id,
+        "shard-fanout-#{unique}-raw",
+        Jason.encode!(%{"attribute_equals" => %{"routing_case" => "#{unique}"}}),
+        Jason.encode!(%{"log_name" => "alert.test.shard_raw_writer", "message" => "Raw writer finding"}),
+        Jason.encode!(%{"title" => title, "severity" => "warning"})
+      ]
     )
 
     assert {:ok, routed_after} = ShardRouting.shards_for(:event, shard_for)
     assert uncovered in routed_after
+
+    # The next batch routes from the same snapshot it evaluates: the raw rule
+    # fires a persisted alert, while an unrelated case still fires nothing.
+    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("#{unique}")])
+    assert count_alerts.(title) == 1
+    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("other-#{unique}")])
+    assert count_alerts.(title) == 1
+
+    # A raw update is visible to the next batch: the old case stops matching
+    # and the new case starts matching, each with persisted outcomes.
+    Repo.query!(
+      "UPDATE platform.stateful_alert_rules SET match = $2::jsonb WHERE id = $1::uuid",
+      [raw_id, Jason.encode!(%{"attribute_equals" => %{"routing_case" => "updated-#{unique}"}})]
+    )
+
+    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("#{unique}")])
+    assert count_alerts.(title) == 1
+
+    updated_title = "#{title} updated"
+
+    Repo.query!(
+      "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
+      [raw_id, Jason.encode!(%{"title" => updated_title, "severity" => "warning"})]
+    )
+
+    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("updated-#{unique}")])
+    assert count_alerts.(updated_title) == 1
+
+    # A raw delete is visible to the next batch: nothing more fires.
+    Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [raw_id])
+
+    assert {:ok, routed_deleted} = ShardRouting.shards_for(:event, shard_for)
+    refute uncovered in routed_deleted
+    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("updated-#{unique}")])
+    assert count_alerts.(updated_title) == 1
 
     ServiceRadar.Observability.ApiEvent.ClearForReplay.clear_records!([])
 

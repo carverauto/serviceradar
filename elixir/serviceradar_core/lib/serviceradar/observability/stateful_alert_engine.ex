@@ -144,23 +144,45 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   # The batch goes only to the shards that own a rule for its signal
   # (`ShardRouting`): a shard owning none would match nothing in it, and
   # waiting on it would let that shard's unrelated DB writes gate the batch.
-  # The routed shards run concurrently; the call aggregates their replies and
-  # surfaces the first error, preserving the `:ok | {:error, _}` contract and
-  # the "effects are visible when the call returns" guarantee that the
-  # integration tests rely on. When the rules cannot be read, every shard gets
-  # the batch, as before.
+  # One committed rule snapshot bounds the batch: `snapshot_for/2` reads the
+  # active rules once, and each owning shard evaluates exactly the rules
+  # selected for it in that snapshot, so a rule commit racing the batch cannot
+  # route from one generation and evaluate from another. The routed shards run
+  # concurrently; the call aggregates their replies and surfaces the first
+  # error, preserving the `:ok | {:error, _}` contract and the "effects are
+  # visible when the call returns" guarantee that the integration tests rely
+  # on. When the rules cannot be read, every shard gets the batch and loads
+  # its own rules, as before.
   defp fan_out(_message_tag, []), do: :ok
 
   defp fan_out(message_tag, records) do
-    case routed_shards(message_tag) do
-      [] ->
+    case ShardRouting.snapshot_for(message_signal(message_tag), &shard_for_rule_id/1) do
+      {:ok, %{shards: [], rules_by_shard: _}} ->
         :ok
 
-      [shard] ->
-        dispatch_shard(shard, message_tag, records)
+      {:ok, %{shards: [shard], rules_by_shard: rules_by_shard}} ->
+        dispatch_shard(shard, message_tag, records, Map.get(rules_by_shard, shard, []))
 
-      shards ->
+      {:ok, %{shards: shards, rules_by_shard: rules_by_shard}} ->
         shards
+        |> Task.async_stream(
+          fn shard ->
+            dispatch_shard(shard, message_tag, records, Map.get(rules_by_shard, shard, []))
+          end,
+          timeout: to_timeout(second: 20),
+          on_timeout: :kill_task,
+          ordered: false
+        )
+        |> Enum.reduce(:ok, fn
+          {:ok, :ok}, acc -> acc
+          {:ok, {:error, reason}}, :ok -> {:error, reason}
+          {:ok, {:error, _reason}}, acc -> acc
+          {:exit, reason}, :ok -> {:error, {:shard_exit, reason}}
+          {:exit, _reason}, acc -> acc
+        end)
+
+      :all ->
+        0..(shard_count() - 1)
         |> Task.async_stream(
           fn shard -> dispatch_shard(shard, message_tag, records) end,
           timeout: to_timeout(second: 20),
@@ -177,20 +199,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp routed_shards(message_tag) do
-    case ShardRouting.shards_for(message_signal(message_tag), &shard_for_rule_id/1) do
-      {:ok, shards} -> shards
-      :all -> Enum.to_list(0..(shard_count() - 1))
-    end
-  end
-
   defp message_signal(:evaluate_logs), do: :log
   defp message_signal(:evaluate_events), do: :event
   defp message_signal(:evaluate_metrics), do: :metric
 
-  defp dispatch_shard(shard, message_tag, records) do
+  defp dispatch_shard(shard, message_tag, records, snapshot_rules \\ :reload) do
     with {:ok, pid} <- ensure_started(shard) do
-      call(shard, pid, {message_tag, records})
+      case snapshot_rules do
+        :reload -> call(shard, pid, {message_tag, records})
+        rules when is_list(rules) -> call(shard, pid, {message_tag, records, {:snapshot_rules, rules}})
+      end
     end
   end
 
@@ -263,6 +281,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   @impl true
+  def handle_call({:evaluate_logs, rows, {:snapshot_rules, snapshot_rules}}, from, state) do
+    handle_snapshot_batch(:log, rows, snapshot_rules, from, state)
+  end
+
+  @impl true
   def handle_call({:evaluate_events, events}, _from, state) do
     case load_rules_if_needed(state) do
       {:ok, state, rules} ->
@@ -279,6 +302,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   @impl true
+  def handle_call({:evaluate_events, events, {:snapshot_rules, snapshot_rules}}, from, state) do
+    handle_snapshot_batch(:event, events, snapshot_rules, from, state)
+  end
+
+  @impl true
   def handle_call({:evaluate_metrics, rows}, _from, state) do
     case load_rules_if_needed(state) do
       {:ok, state, rules} ->
@@ -292,6 +320,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
       {:reply, {:error, error}, state}
+  end
+
+  @impl true
+  def handle_call({:evaluate_metrics, rows, {:snapshot_rules, snapshot_rules}}, from, state) do
+    handle_snapshot_batch(:metric, rows, snapshot_rules, from, state)
   end
 
   @impl true
@@ -423,6 +456,41 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     with {:ok, state} <- load_state_snapshots(state) do
       load_rules(state)
     end
+  end
+
+  # Evaluates a batch against the exact rules selected for this shard in the
+  # caller's snapshot. Snapshots (ETS restore) still load per shard; only the
+  # rule set is pinned to the batch boundary.
+  defp handle_snapshot_batch(signal, records, snapshot_rules, _from, state) do
+    case load_state_snapshots(state) do
+      {:ok, state} ->
+        rules =
+          Enum.filter(snapshot_rules, fn rule -> shard_for_rule_id(rule.id) == state.shard end)
+
+        :telemetry.execute(
+          [:serviceradar, :stateful_alert_engine, :rules_loaded],
+          %{count: length(rules)},
+          %{shard: state.shard}
+        )
+
+        state = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
+
+        result =
+          case signal do
+            :log -> process_records(records, &StateMachine.process_log_rules(&1, rules, state))
+            :event -> process_records(records, &StateMachine.process_event_rules(&1, rules, state))
+            :metric -> process_records(records, &StateMachine.process_metric_rules(&1, rules, state))
+          end
+
+        {:reply, result, state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
+    end
+  rescue
+    error ->
+      Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
+      {:reply, {:error, error}, state}
   end
 
   defp load_rules(state) do

@@ -11,11 +11,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.ShardRouting do
   Every call reads the committed active rules from the database, so a rule
   created, updated or deleted on any node — through Ash, a raw writer, or the
   replay `TRUNCATE` — is visible to the next batch on every node. There is no
-  node-local cache and nothing to invalidate. A batch that races a rule commit
-  may route from the pre-commit set while its shard evaluates the post-commit
-  set (or the reverse); each read sees its own snapshot and no batch ever sees
-  an older cached generation. When the rules cannot be read (a node without a
-  repo), the caller falls back to every shard.
+  node-local cache and nothing to invalidate. A batch uses one committed read
+  for both eligibility (which shards own a rule for the signal) and evaluation
+  (which rules each owning shard applies): the caller takes a single snapshot
+  (`snapshot_for/2`) and hands each owning shard its selected rules, so a rule
+  commit racing the batch cannot route from one generation and evaluate from
+  another. When the rules cannot be read (a node without a repo), the caller
+  falls back to every shard.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -32,27 +34,41 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.ShardRouting do
   @spec shards_for(signal(), (term() -> non_neg_integer())) ::
           {:ok, [non_neg_integer()]} | :all
   def shards_for(signal, shard_for_rule_id) do
-    case read_active_rules() do
+    case snapshot_for(signal, shard_for_rule_id) do
+      {:ok, %{shards: shards}} -> {:ok, shards}
+      :all -> :all
+    end
+  end
+
+  @doc """
+  One committed snapshot for a batch: the shards owning an active rule for
+  `signal`, plus the selected full rules for each owning shard.
+
+  The caller passes each shard its own list so routing and evaluation share
+  one generation. Returns `:all` when the rules cannot be read.
+  """
+  @spec snapshot_for(signal(), (term() -> non_neg_integer())) ::
+          {:ok, %{shards: [non_neg_integer()], rules_by_shard: %{non_neg_integer() => [term()]}}}
+          | :all
+  def snapshot_for(signal, shard_for_rule_id) do
+    case read_snapshot_rules() do
       {:ok, rules} ->
-        shards =
+        rules_by_shard =
           rules
           |> Enum.filter(&(&1.signal == signal))
-          |> Enum.map(&shard_for_rule_id.(&1.id))
-          |> Enum.uniq()
-          |> Enum.sort()
+          |> Enum.group_by(&shard_for_rule_id.(&1.id))
 
-        {:ok, shards}
+        {:ok, %{shards: rules_by_shard |> Map.keys() |> Enum.sort(), rules_by_shard: rules_by_shard}}
 
       :error ->
         :all
     end
   end
 
-  defp read_active_rules do
+  defp read_snapshot_rules do
     if repo_available?() do
       StatefulAlertRule
       |> Ash.Query.for_read(:active, %{})
-      |> Ash.Query.select([:id, :signal])
       |> Ash.read(actor: SystemActor.system(:alert_engine))
       |> case do
         {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
