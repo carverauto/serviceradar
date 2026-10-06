@@ -802,6 +802,9 @@ async fn seed(
         fixture::traces::span_inserts(&spans, Backend::Cnpg, "platform"),
         fixture::traces::summary_inserts(&trace_summaries, Backend::Cnpg, "platform"),
         fixture::bmp::inserts(&bmp, Backend::Cnpg, "platform"),
+        // The app classification rules the warehouse `app` stamp mirrors;
+        // CNPG's query-time classifier reads them live (issue #4851).
+        fixture::app_rule_inserts(),
     ];
     for statement in cnpg_statements.iter().flatten() {
         cnpg.batch_execute(statement)
