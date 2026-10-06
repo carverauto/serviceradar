@@ -32,6 +32,7 @@ defmodule ServiceRadar.Identity.User do
   alias ServiceRadar.Identity.Changes.HashPassword
   alias ServiceRadar.Identity.Changes.InvalidateUserRbacCache
   alias ServiceRadar.Identity.Changes.NormalizeTimezonePreference
+  alias ServiceRadar.Identity.Changes.RecordRoleChange
   alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
   alias ServiceRadar.Identity.Changes.SetHomepage
   alias ServiceRadar.Identity.Constants
@@ -165,6 +166,7 @@ defmodule ServiceRadar.Identity.User do
       change set_attribute(:local_login_enabled, true)
 
       change {HashPassword, force?: true}
+      change RecordRoleChange
     end
 
     create :register_with_password do
@@ -269,11 +271,13 @@ defmodule ServiceRadar.Identity.User do
       require_atomic? false
       change DisallowLastAdminLockout
       change InvalidateUserRbacCache
+      change RecordRoleChange
     end
 
     update :update_role_profile do
       accept @role_profile_fields
       change InvalidateUserRbacCache
+      change RecordRoleChange
     end
 
     update :clear_role_profile_for_boundary do
@@ -282,6 +286,7 @@ defmodule ServiceRadar.Identity.User do
       change set_attribute(:role_profile_source, :manual)
       validate RequirePrivilegeBoundary
       change InvalidateUserRbacCache
+      change RecordRoleChange
     end
 
     update :change_password do

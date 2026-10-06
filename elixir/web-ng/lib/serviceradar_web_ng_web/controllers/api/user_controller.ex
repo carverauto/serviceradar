@@ -204,25 +204,40 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
   defp update_user(user, params, role, scope, conn) do
     display_name = params["display_name"]
     role_profile_id = normalize_profile_id(params["role_profile_id"])
+    both_provided? = role != nil and not is_nil(params["role_profile_id"])
 
-    with {:ok, user} <- maybe_update_role(user, role, scope),
-         {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope),
+    with {:ok, user} <- maybe_update_role(user, role, scope, role_profile_id, both_provided?),
+         {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope, both_provided?),
          {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
       json(conn, user_to_json(user))
     end
   end
 
-  defp maybe_update_role(user, nil, _scope), do: {:ok, user}
+  defp maybe_update_role(user, nil, _scope, _profile_id, _both?), do: {:ok, user}
 
-  defp maybe_update_role(user, role, scope) do
+  defp maybe_update_role(user, role, scope, profile_id, true) do
+    user
+    |> Ash.Changeset.for_update(:update_role, %{role: role}, scope: scope)
+    |> Ash.Changeset.set_context(%{new_role_profile_id: profile_id})
+    |> Ash.update(scope: scope)
+  end
+
+  defp maybe_update_role(user, role, scope, _profile_id, false) do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: role}, scope: scope)
     |> Ash.update(scope: scope)
   end
 
-  defp maybe_update_role_profile(user, nil, _scope), do: {:ok, user}
+  defp maybe_update_role_profile(user, nil, _scope, _both?), do: {:ok, user}
 
-  defp maybe_update_role_profile(user, role_profile_id, scope) do
+  defp maybe_update_role_profile(user, role_profile_id, scope, true) do
+    user
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id}, scope: scope)
+    |> Ash.Changeset.set_context(%{skip_role_change_audit: true})
+    |> Ash.update(scope: scope)
+  end
+
+  defp maybe_update_role_profile(user, role_profile_id, scope, false) do
     user
     |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id}, scope: scope)
     |> Ash.update(scope: scope)
