@@ -16,6 +16,12 @@ defmodule ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine do
     send(test_pid, {:evaluation_requested, from, events})
     {:noreply, test_pid}
   end
+
+  @impl true
+  def handle_call({:evaluate_events, events, {:snapshot_rules, _rules}}, from, test_pid) do
+    send(test_pid, {:evaluation_requested, from, events})
+    {:noreply, test_pid}
+  end
 end
 
 defmodule ServiceRadar.Observability.LogPromotionTest do

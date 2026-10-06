@@ -1648,7 +1648,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
         true ->
           for rule <- Map.get(event_by_shard, 1, []) do
-            Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [rule.id])
+            Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [
+              Ecto.UUID.dump!(rule.id)
+            ])
           end
 
           1
@@ -1700,7 +1702,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     Repo.query!(
       "INSERT INTO platform.stateful_alert_rules (id, name, signal, match, group_by, threshold, window_seconds, bucket_seconds, cooldown_seconds, renotify_seconds, event, alert) VALUES ($1::uuid, $2, 'event', $3::jsonb, '{routing_occurrence}', 1, 300, 60, 60, 3600, $4::jsonb, $5::jsonb)",
       [
-        raw_id,
+        Ecto.UUID.dump!(raw_id),
         "shard-fanout-#{unique}-raw",
         Jason.encode!(%{"attribute_equals" => %{"routing_family" => "#{unique}"}}),
         Jason.encode!(%{
@@ -1732,7 +1734,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     # in a new group instead of being suppressed by cooldown.
     Repo.query!(
       "UPDATE platform.stateful_alert_rules SET match = $2::jsonb WHERE id = $1::uuid",
-      [raw_id, Jason.encode!(%{"attribute_equals" => %{"routing_family" => "updated-#{unique}"}})]
+      [
+        Ecto.UUID.dump!(raw_id),
+        Jason.encode!(%{"attribute_equals" => %{"routing_family" => "updated-#{unique}"}})
+      ]
     )
 
     assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("#{unique}", "#{unique}-2")])
@@ -1742,7 +1747,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     Repo.query!(
       "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
-      [raw_id, Jason.encode!(%{"title" => updated_title, "severity" => "warning"})]
+      [
+        Ecto.UUID.dump!(raw_id),
+        Jason.encode!(%{"title" => updated_title, "severity" => "warning"})
+      ]
     )
 
     assert :ok =
@@ -1754,7 +1762,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     # A raw delete is visible to the next batch: nothing more fires, even with
     # a fresh occurrence that would escape cooldown under a stale rule.
-    Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [raw_id])
+    Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [
+      Ecto.UUID.dump!(raw_id)
+    ])
 
     assert {:ok, %{shards: routed_deleted}} = ShardRouting.snapshot_for(:event, shard_for)
     refute uncovered in routed_deleted
@@ -1875,7 +1885,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
       Repo.query!(
         "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
-        [raw_id, Jason.encode!(%{"title" => title_v2, "severity" => "warning"})]
+        [Ecto.UUID.dump!(raw_id), Jason.encode!(%{"title" => title_v2, "severity" => "warning"})]
       )
 
       :ok = :sys.resume(owner_pid)
