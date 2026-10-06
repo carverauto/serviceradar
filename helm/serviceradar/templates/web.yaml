@@ -909,7 +909,8 @@ spec:
           failureThreshold: 3
       volumes:
       - name: tmp
-        emptyDir: {}
+        emptyDir:
+          sizeLimit: 512Mi
       {{- include "serviceradar.dgraph.caVolume" $ | nindent 6 }}
       - name: cert-data
         secret:

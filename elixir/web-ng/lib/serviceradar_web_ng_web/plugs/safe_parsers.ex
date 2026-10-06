@@ -5,10 +5,20 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
 
   alias ServiceRadarWebNGWeb.NotificationCallbackBody
 
+  # Routes that do not accept a package upload. A 5 MB device CSV still fits.
+  # Package publish keeps the endpoint envelope (50 MB renderer plus framing).
+  @ordinary_multipart_length 8_388_608
+
   @impl true
   def init(opts) do
+    configured_length = Keyword.get(opts, :length, @ordinary_multipart_length)
+
     %{
       default: Plug.Parsers.init(opts),
+      ordinary_multipart:
+        opts
+        |> Keyword.put(:length, min(configured_length, @ordinary_multipart_length))
+        |> Plug.Parsers.init(),
       notification_callback:
         opts
         |> Keyword.put(:parsers, [:urlencoded, :json])
@@ -29,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
         cond do
           NotificationCallbackBody.callback?(conn) -> opts.notification_callback
           automation_callback?(conn) -> opts.automation_callback
+          ordinary_multipart?(conn) -> opts.ordinary_multipart
           true -> opts.default
         end
 
@@ -39,7 +50,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
   defp parse(conn, opts) do
     Plug.Parsers.call(conn, opts)
   rescue
-    _err in [Plug.Parsers.ParseError, Plug.Parsers.RequestTooLargeError, Plug.Parsers.UnsupportedMediaTypeError] ->
+    _err in [
+      Plug.Parsers.ParseError,
+      Plug.Parsers.RequestTooLargeError,
+      Plug.Parsers.UnsupportedMediaTypeError
+    ] ->
       send_malformed_request(conn)
   end
 
@@ -49,6 +64,30 @@ defmodule ServiceRadarWebNGWeb.Plugs.SafeParsers do
   end
 
   defp raw_field_survey_room_artifact?(_conn), do: false
+
+  defp ordinary_multipart?(conn) do
+    multipart?(conn) and not large_package_upload?(conn.request_path)
+  end
+
+  defp multipart?(conn) do
+    conn
+    |> Plug.Conn.get_req_header("content-type")
+    |> Enum.any?(&String.starts_with?(String.downcase(&1), "multipart/"))
+  end
+
+  # LiveView package uploads POST back to the LiveView path. The CLI publish
+  # route is the only other multipart body that carries a renderer archive.
+  defp large_package_upload?(path) when is_binary(path) do
+    case String.split(path, "/", trim: true) do
+      ["api", "v1", "dashboard-packages"] -> true
+      ["admin", "plugins" | _] -> true
+      ["settings", "agents", "plugins" | _] -> true
+      ["settings", "dashboards", "packages" | _] -> true
+      _ -> false
+    end
+  end
+
+  defp large_package_upload?(_path), do: false
 
   defp automation_callback?(%{method: "POST", request_path: request_path}) do
     String.starts_with?(request_path, "/api/v1/automation/callback-grants/") and
