@@ -749,33 +749,50 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
       |> Ash.Changeset.force_change_attribute(:last_reconciled_at, DateTime.utc_now())
       |> Ash.create!()
 
-    AddonAssignment
-    |> Ash.Changeset.for_create(
-      :create,
-      %{
-        agent_uid: "agent-profile-owned",
-        addon_package_id: package.id,
-        source: :profile,
-        source_key: "profile:#{profile.id}:endpoint-inventory-profile-owned:agent-profile-owned",
-        addon_profile_id: profile.id,
-        profile_reconcile_status: "failed",
-        profile_reconcile_error: "agent capability missing",
-        profile_last_reconciled_at: DateTime.utc_now(),
-        params: %{},
-        args: []
-      },
-      actor: actor
-    )
-    |> Ash.create!()
+    profile_assignment =
+      AddonAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: "agent-profile-owned",
+          addon_package_id: package.id,
+          source: :profile,
+          source_key: "profile:#{profile.id}:endpoint-inventory-profile-owned:agent-profile-owned",
+          addon_profile_id: profile.id,
+          profile_reconcile_status: "failed",
+          profile_reconcile_error: "agent capability missing",
+          profile_last_reconciled_at: DateTime.utc_now(),
+          params: %{},
+          args: []
+        },
+        actor: actor
+      )
+      |> Ash.create!()
 
-    {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
 
     assert html =~ "agent-profile-owned"
     assert html =~ "managed by profile"
     assert html =~ "Inventory everywhere"
     assert html =~ "failed"
     assert html =~ "agent capability missing"
-    refute html =~ "Manual"
+    # Profile rows keep the legitimate policy toggle but must not offer
+    # manual deletion: scope the negative proof to the delete_assignment
+    # event for this profile assignment instead of the bare "Manual"
+    # substring (the Advanced Manual Assignment Override form always
+    # renders that word) or the bare phx-value-id (the policy toggle
+    # legitimately carries it).
+    assert has_element?(
+             lv,
+             ~s(button[phx-click="set_assignment_update_policy"][phx-value-id="#{profile_assignment.id}"])
+           )
+
+    refute has_element?(
+             lv,
+             ~s(button[phx-click="delete_assignment"][phx-value-id="#{profile_assignment.id}"])
+           )
+
+    refute has_element?(lv, ~s(button[phx-click="delete_assignment"]))
   end
 
   test "groups assignments by agent and removes only the manual assignment for duplicate host", %{
@@ -849,8 +866,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert html =~ "managed by profile"
     assert html =~ "Global Edge Profile"
     assert html =~ ~s(href="#profile-#{profile.id}")
-    assert html =~ ~s(phx-value-id="#{manual_assignment.id}")
-    refute html =~ ~s(phx-value-id="#{profile_assignment.id}")
+    assert has_element?(
+             lv,
+             ~s(button[phx-click="delete_assignment"][phx-value-id="#{manual_assignment.id}"])
+           )
+    # The profile row legitimately carries its id on the policy toggle;
+    # only manual rows may offer the delete_assignment event.
+    assert has_element?(
+             lv,
+             ~s(button[phx-click="set_assignment_update_policy"][phx-value-id="#{profile_assignment.id}"])
+           )
+
+    refute has_element?(
+             lv,
+             ~s(button[phx-click="delete_assignment"][phx-value-id="#{profile_assignment.id}"])
+           )
 
     html =
       lv
@@ -860,7 +890,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert html =~ "Assignment removed."
     assert html =~ agent_uid
     assert html =~ "Global Edge Profile"
-    refute html =~ "Manual"
+    # The Advanced Manual Assignment Override form always renders the word
+    # "Manual"; scope the removal proof to the delete_assignment event and
+    # the persisted rows (asserted below) instead of the bare substring.
+    refute has_element?(
+             lv,
+             ~s(button[phx-click="delete_assignment"][phx-value-id="#{manual_assignment.id}"])
+           )
+
+    refute has_element?(
+             lv,
+             ~s(button[phx-click="delete_assignment"][phx-value-id="#{profile_assignment.id}"])
+           )
 
     assert {:error, %Ash.Error.Query.NotFound{}} = Ash.get(AddonAssignment, manual_assignment.id, actor: actor)
 
