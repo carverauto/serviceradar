@@ -35,12 +35,7 @@ defmodule ServiceRadar.Identity.Changes.RecordRoleChange do
         profile_changed? = to_string(old_profile_id || "") != to_string(new_profile_id || "")
 
         if role_changed? or profile_changed? do
-          actor =
-            context[:actor] ||
-              changeset.context[:actor] ||
-              changeset.actor ||
-              context[:scope] ||
-              changeset.context[:scope]
+          actor = resolve_actor(context, changeset)
 
           actor_user_id = resolve_actor_user_id(actor)
 
@@ -85,6 +80,28 @@ defmodule ServiceRadar.Identity.Changes.RecordRoleChange do
 
   @impl true
   def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
+
+  defp resolve_actor(context, changeset) do
+    cond do
+      is_struct(context) and Map.has_key?(context, :actor) and not is_nil(context.actor) ->
+        context.actor
+
+      is_map(context) and not is_nil(Map.get(context, :actor)) ->
+        Map.get(context, :actor)
+
+      not is_nil(changeset.actor) ->
+        changeset.actor
+
+      is_map(changeset.context) and not is_nil(Map.get(changeset.context, :actor)) ->
+        Map.get(changeset.context, :actor)
+
+      is_map(changeset.context) and not is_nil(Map.get(changeset.context, :scope)) ->
+        Map.get(changeset.context, :scope)
+
+      true ->
+        nil
+    end
+  end
 
   defp resolve_actor_user_id(%{role: :system}), do: nil
   defp resolve_actor_user_id(%User{id: id}) when is_binary(id), do: check_uuid(id)

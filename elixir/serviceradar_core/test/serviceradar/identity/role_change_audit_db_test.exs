@@ -32,12 +32,12 @@ defmodule ServiceRadar.Identity.RoleChangeAuditDbTest do
          admin: admin,
          target: target
        } do
-    initial_events = UserAuthEvent.list_for_user!(target.id)
+    initial_events = list_events!(target.id)
 
     {:ok, updated} = User.update_role(target, %{role: :operator}, actor: admin)
     assert updated.role == :operator
 
-    events = UserAuthEvent.list_for_user!(target.id)
+    events = list_events!(target.id)
     assert length(events) == length(initial_events) + 1
 
     [event | _] = events
@@ -53,11 +53,11 @@ defmodule ServiceRadar.Identity.RoleChangeAuditDbTest do
     admin: admin,
     target: target
   } do
-    initial_events = UserAuthEvent.list_for_user!(target.id)
+    initial_events = list_events!(target.id)
 
     {:ok, _} = User.update_role(target, %{role: :viewer}, actor: admin)
 
-    events = UserAuthEvent.list_for_user!(target.id)
+    events = list_events!(target.id)
     assert length(events) == length(initial_events)
   end
 
@@ -65,12 +65,12 @@ defmodule ServiceRadar.Identity.RoleChangeAuditDbTest do
     system: system,
     target: target
   } do
-    initial_events = UserAuthEvent.list_for_user!(target.id)
+    initial_events = list_events!(target.id)
 
     {:ok, updated} = User.update_role(target, %{role: :admin}, actor: system)
     assert updated.role == :admin
 
-    events = UserAuthEvent.list_for_user!(target.id)
+    events = list_events!(target.id)
     assert length(events) == length(initial_events) + 1
 
     [event | _] = events
@@ -80,6 +80,10 @@ defmodule ServiceRadar.Identity.RoleChangeAuditDbTest do
     assert event.metadata["old_role"] == "viewer"
     assert event.metadata["new_role"] == "admin"
     assert event.metadata["actor"] == system.email
+  end
+
+  defp list_events!(user_id) do
+    UserAuthEvent.list_for_user!(user_id).results
   end
 
   defp user!(actor, role) do
