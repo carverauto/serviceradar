@@ -48,7 +48,7 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
     # every test in this file did locally.
     #
     # Starting one under a test-local name would fix neither world:
-    # DiscoveryIngestor calls Buffer.offer/1 with the DEFAULT name, so the test's
+    # DiscoveryIngestor calls Buffer.offer/2 with the DEFAULT name, so the test's
     # instance would never be consulted.
     case Process.whereis(Buffer) do
       nil -> start_supervised!(Buffer)

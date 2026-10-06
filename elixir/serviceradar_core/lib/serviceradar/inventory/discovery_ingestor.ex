@@ -94,7 +94,7 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestor do
   end
 
   defp route(envelope, entry, attested) do
-    case Buffer.offer(envelope) do
+    case Buffer.offer(envelope, producer_scope(attested)) do
       :buffered ->
         emit(:buffered, %{parts: envelope.part_count}, attested)
         :ok
@@ -106,6 +106,16 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestor do
       {:ready, payloads} ->
         decode_and_enqueue(payloads, envelope, entry, attested)
     end
+  end
+
+  defp producer_scope(attested) do
+    {
+      attested[:partition_id],
+      attested[:gateway_id],
+      attested[:agent_id],
+      attested[:producer_type],
+      attested[:producer_id]
+    }
   end
 
   # A schema whose decoder folds a payload into ONE observation per subject cannot
