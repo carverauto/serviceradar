@@ -57,7 +57,7 @@ Network devices should send syslog to `<SYSLOG_GATEWAY_ADDRESS>:514/UDP`. Keep t
 
 - Prefer TCP or TLS transports where supported (see [TCP Syslog](#tcp-syslog)). The log-collector's flowgger input supports `udp`, `tcp`, and `tls`; it does not support RELP. When restricted to UDP, enforce ACLs and use an out-of-band management network.
 - UDP zlib and gzip payloads are decompressed before parsing. The expanded record must be at most five times the maximum UDP packet size (65,527 bytes, so 327,635 bytes). Larger expansions are dropped; records at or under that cap are accepted.
-- When senders omit the time zone (RFC 3164), set the assumed zone with `logCollector.rfc3164Timezone` (Helm; `input.rfc3164_timezone` in Compose) instead of renumbering devices. See "RFC3164 sender time zones" in the Helm chart README for the receive-time fallback that keeps fresh logs inside event-time windows.
+- When senders omit the time zone (RFC 3164), set the sender timezone directly with `logCollector.rfc3164Timezone` (Helm; `input.rfc3164_timezone` in Compose). See "RFC3164 sender time zones" in the Helm chart README for the receive-time fallback that keeps fresh logs inside event-time windows.
 - Leverage structured data fields (RFC 5424) for network appliances that support it; ServiceRadar stores them as JSON for easier filtering.
 
 ## Accepted Formats
