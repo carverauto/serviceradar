@@ -6,10 +6,10 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
-  alias ServiceRadar.ResultsRouter
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -93,7 +93,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
       message: Jason.encode!([update])
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert :ok = ResultIngestor.process_and_publish(status)
 
     assert {:ok, device} =
              Device.get_by_uid(expected_id, false, actor: actor)

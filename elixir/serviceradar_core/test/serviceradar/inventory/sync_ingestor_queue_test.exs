@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Ingestion.WorkerBudget
   alias ServiceRadar.Inventory.SyncIngestorQueue
 
   defmodule TestIngestor do
@@ -39,6 +40,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_test_pid, self())
 
+    if !Process.whereis(WorkerBudget) do
+      start_supervised!({WorkerBudget, pool_size: 10})
+    end
+
     {:ok, sync_task_supervisor} = start_supervised(Task.Supervisor)
 
     {:ok, sync_queue} =
@@ -66,8 +71,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     update1 = %{"device_id" => "dev-1", "ip" => "10.0.0.1"}
     update2 = %{"device_id" => "dev-2", "ip" => "10.0.0.2"}
 
-    SyncIngestorQueue.enqueue(Jason.encode!([update1]))
-    SyncIngestorQueue.enqueue(Jason.encode!([update2]))
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([update1]))
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([update2]))
 
     assert_receive {:ingest_started, updates}, 500
     assert [^update1, ^update2] = updates
@@ -78,12 +83,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
     Application.put_env(:serviceradar_core, :sync_ingestor_test_delay_ms, 200)
 
-    SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-a"}]))
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-a"}]))
 
     # Let the first batch become inflight before adding the second.
     assert_receive {:ingest_started, _updates}, 2_000
 
-    SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-b"}]))
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-b"}]))
 
     # Second batch should wait until first finishes
     refute_receive {:ingest_started, _updates}, 150

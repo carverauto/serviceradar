@@ -13,6 +13,373 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Cluster.CoordinatorChildren
+  alias ServiceRadar.EventWriter.Processors.Metrics
+  alias ServiceRadar.Ingestion.LaneSupervisor
+  alias ServiceRadar.Ingestion.LeaseSupervisor
+  alias ServiceRadar.Ingestion.RuntimeMetrics
+  alias ServiceRadar.Ingestion.WorkerBudget
+  alias Serviceradar.Metric.V1.MetricBatch
+
+  test "JetStream metrics publish interval deltas with PubAck-gated watermarks" do
+    parent = self()
+
+    request = fn subject, body, opts ->
+      send(parent, {:metric_publish, self(), subject, body, opts})
+
+      receive do
+        {:puback, response} -> response
+      after
+        2_000 -> {:error, :timeout}
+      end
+    end
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
+        table_size = fn -> :ets.info(RuntimeMetrics, :size) end
+        assert table_size.() == 0
+
+        RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
+        seeded_slots = table_size.()
+        assert seeded_slots > 0
+
+        assert_receive {:metric_publish, publisher, "metrics.ingestion_lanes", frame1, headers1},
+                       1_000
+
+        batch1 = MetricBatch.decode(frame1)
+        admitted1 = find_metric!(batch1, "result_ingestion_events_admitted", "sweep")
+        admitted1_point = point!(admitted1)
+        assert admitted1_point.value == 1.0
+        assert admitted1.temporality == :METRIC_TEMPORALITY_DELTA
+        assert admitted1_point.start_time_unix_nano > 0
+        assert admitted1_point.start_time_unix_nano <= admitted1_point.observed_at_unix_nano
+
+        gauge1 = find_metric!(batch1, "result_ingestion_pending_count", "sweep")
+        assert point!(gauge1).value == 2.0
+        assert gauge1.temporality == :METRIC_TEMPORALITY_UNSPECIFIED
+
+        row1 =
+          Enum.find(
+            decode_rows!(frame1),
+            &(&1.metric_name == "result_ingestion_events_admitted")
+          )
+
+        assert row1.is_delta == true
+        assert row1.metadata["temporality"] == "delta"
+
+        # While the first frame waits for its PubAck, a thousand events land
+        # and unknown labels are rejected without growing ETS.
+        for _ <- 1..1_000 do
+          RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+          RuntimeMetrics.record("invented-unbounded-label", :state, %{pending_count: 1})
+        end
+
+        assert table_size.() == seeded_slots
+
+        lane = start_lane(fn _ -> :ok end)
+        ref = admit(lane, status("agent01.example.com", "independent"))
+        assert_receive {^ref, :ok}, 250
+        assert_empty(lane)
+
+        # Two consecutive transport failures: the retried frame stays
+        # byte-identical and omits everything recorded while blocked.
+        send(publisher, {:puback, {:ok, %{body: "{}"}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry1, headers2},
+                       1_000
+
+        assert retry1 == frame1
+        assert headers2 == headers1
+        assert counter_value(retry1, "result_ingestion_events_admitted", "sweep") == 1.0
+
+        send(publisher, {:puback, {:error, :timeout}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry2, headers3},
+                       1_000
+
+        assert retry2 == frame1
+        assert headers3 == headers1
+
+        assert Enum.any?(headers1[:headers], fn {key, id} ->
+                 key == "Nats-Msg-Id" and is_binary(id)
+               end)
+
+        # Records landing between the snapshot and its PubAck are covered by
+        # the ack only up to the snapshot; they surface in the next interval.
+        for _ <- 1..7, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame2, _headers},
+                       1_000
+
+        batch2 = MetricBatch.decode(frame2)
+        admitted2 = find_metric!(batch2, "result_ingestion_events_admitted", "sweep")
+        admitted2_point = point!(admitted2)
+        assert admitted2_point.value == 1_007.0
+        assert admitted2_point.start_time_unix_nano == admitted1_point.observed_at_unix_nano
+
+        failure2 =
+          find_metric!(batch2, "result_ingestion_events_publish_failure", "service_state")
+
+        assert point!(failure2).value == 2.0
+        assert failure2.is_monotonic == true
+
+        coalesced2 =
+          find_metric!(
+            batch2,
+            "result_ingestion_events_coalesced_interval",
+            "service_state"
+          )
+
+        assert point!(coalesced2).value == 2.0
+
+        RuntimeMetrics.record(:sweep, :state, %{pending_count: 0, pending_bytes: 0})
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 2})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame3, _headers},
+                       1_000
+
+        assert counter_value(frame3, "result_ingestion_events_admitted", "sweep") == 0.0
+
+        batch3 = MetricBatch.decode(frame3)
+
+        admitted3_point =
+          batch3
+          |> find_metric!("result_ingestion_events_admitted", "sweep")
+          |> point!()
+
+        # Records landing while a succeeding frame is in flight appear next,
+        # exactly once: the ack advances to that frame's snapshot, not to the
+        # live ETS totals.
+        for _ <- 1..5, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 3})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame4, _headers},
+                       1_000
+
+        admitted4 =
+          find_metric!(
+            MetricBatch.decode(frame4),
+            "result_ingestion_events_admitted",
+            "sweep"
+          )
+
+        admitted4_point = point!(admitted4)
+        assert admitted4_point.value == 5.0
+        assert admitted4_point.start_time_unix_nano == admitted3_point.observed_at_unix_nano
+
+        for _ <- 1..3, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 4})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame5, _headers},
+                       1_000
+
+        assert counter_value(frame5, "result_ingestion_events_admitted", "sweep") == 3.0
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 5})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame6, _headers},
+                       1_000
+
+        assert counter_value(frame6, "result_ingestion_events_admitted", "sweep") == 0.0
+
+        rows =
+          Metrics.parse_message(%{
+            data: frame6,
+            metadata: %{subject: "metrics.ingestion_lanes"}
+          })
+
+        depth = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_count"))
+        bytes = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_bytes"))
+        assert depth.value == 0
+        assert bytes.value == 0
+        assert depth.tags["lane"] == "sweep"
+        assert depth.is_delta == false
+        assert Enum.all?(rows, &(&1.metric_type == "core.result_ingestion"))
+        refute Enum.any?(rows, &(&1.tags["lane"] == "invented-unbounded-label"))
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 6})}}})
+      end)
+
+    assert log =~ "Ingestion lane metrics publish failing"
+    assert count_occurrences(log, "Ingestion lane metrics publish failing") == 1
+    assert log =~ "Ingestion lane metrics publish recovered"
+  end
+
+  test "a timed-out submit never dispatches while an independent lane stays responsive" do
+    parent = self()
+
+    sweep =
+      start_lane(fn status ->
+        send(parent, {:sweep_processed, status[:message], self()})
+
+        receive do
+          :release_sweep -> :ok
+        end
+      end)
+
+    mapper = start_lane(fn _status -> :ok end)
+
+    sweep_status = status("agent-sweep", "held-sweep")
+
+    assert {:ok, {^sweep, sweep_id}} =
+             Lane.reserve(sweep, Lane.descriptor(sweep_status, 10_000), self(), 1_000)
+
+    :ok = :sys.suspend(sweep)
+
+    mapper_ref = make_ref()
+
+    assert :ok =
+             Lane.admit(mapper, status("agent-mapper", "live-mapper"), {self(), mapper_ref}, 500)
+
+    assert_receive {^mapper_ref, :ok}, 500
+
+    stale_ref = make_ref()
+
+    assert {:error, :admission_timeout} =
+             Lane.submit(sweep, sweep_id, sweep_status, {self(), stale_ref}, 50)
+
+    :ok = :sys.resume(sweep)
+
+    fresh_status = status("agent-sweep", "fresh-sweep")
+    fresh_ref = make_ref()
+
+    assert {:ok, {^sweep, fresh_id}} =
+             Lane.reserve(sweep, Lane.descriptor(fresh_status, 10_000), self(), 1_000)
+
+    assert :ok = Lane.submit(sweep, fresh_id, fresh_status, {self(), fresh_ref}, 500)
+    assert_receive {:sweep_processed, "fresh-sweep", worker}, 500
+    send(worker, :release_sweep)
+    assert_receive {^fresh_ref, :ok}, 500
+
+    refute_received {:sweep_processed, "held-sweep", _}
+    refute_received {^stale_ref, _}
+    assert_empty(sweep)
+    assert_empty(mapper)
+  end
+
+  test "a timed-out reserve never captures credits" do
+    parent = self()
+
+    lane =
+      start_lane(
+        fn status ->
+          send(parent, {:reserve_processed, status[:message]})
+          :ok
+        end,
+        queue_wait_ms: 2_000,
+        gateway_call_timeout_ms: 5_100
+      )
+
+    :ok = :sys.suspend(lane)
+
+    assert {:error, :admission_timeout} =
+             Lane.reserve(lane, Lane.descriptor(status("agent-a", "stale"), 10_000), self(), 50)
+
+    :ok = :sys.resume(lane)
+
+    fresh = status("agent-b", "fresh")
+    fresh_ref = make_ref()
+
+    assert {:ok, {_lane, fresh_id}} =
+             Lane.reserve(lane, Lane.descriptor(fresh, 10_000), self(), 500)
+
+    assert :ok = Lane.submit(lane, fresh_id, fresh, {self(), fresh_ref}, 500)
+    assert_receive {:reserve_processed, "fresh"}, 500
+    assert_receive {^fresh_ref, :ok}, 500
+    refute_received {:reserve_processed, "stale"}
+    assert_empty(lane)
+  end
+
+  test "a timed-out single-phase admission never invokes its processor" do
+    parent = self()
+
+    lane =
+      start_lane(fn status ->
+        send(parent, {:admit_processed, status[:message]})
+        :ok
+      end)
+
+    :ok = :sys.suspend(lane)
+    stale_ref = make_ref()
+
+    assert {:error, :admission_timeout} =
+             Lane.admit(lane, status("agent-a", "stale-admit"), {self(), stale_ref}, 50)
+
+    :ok = :sys.resume(lane)
+    fresh_ref = make_ref()
+    assert :ok = Lane.admit(lane, status("agent-b", "fresh-admit"), {self(), fresh_ref}, 500)
+    assert_receive {:admit_processed, "fresh-admit"}, 500
+    assert_receive {^fresh_ref, :ok}, 500
+    refute_received {:admit_processed, "stale-admit"}
+    refute_received {^stale_ref, _}
+    assert_empty(lane)
+  end
+
+  test "a timed-out single-phase cast never invokes its processor" do
+    parent = self()
+
+    lane =
+      start_lane(fn status ->
+        send(parent, {:cast_processed, status[:message]})
+        :ok
+      end)
+
+    :ok = :sys.suspend(lane)
+
+    assert {:error, :admission_timeout} =
+             Lane.admit_cast(lane, status("agent-a", "stale-cast"), :test, 50)
+
+    :ok = :sys.resume(lane)
+    assert :ok = Lane.admit_cast(lane, status("agent-b", "fresh-cast"), :test, 500)
+    assert_receive {:cast_processed, "fresh-cast"}, 500
+    refute_received {:cast_processed, "stale-cast"}
+    assert_empty(lane)
+  end
+
+  test "legacy plugins cannot occupy the retained database reservation" do
+    budget = start_supervised!({WorkerBudget, pool_size: 7})
+    tasks = start_supervised!({Task.Supervisor, []})
+    parent = self()
+
+    {:ok, legacy} =
+      Task.Supervisor.start_child(tasks, fn ->
+        WorkerBudget.run(budget, :legacy_plugin, fn ->
+          send(parent, {:legacy_started, self()})
+
+          receive do
+            :release -> :ok
+          end
+        end)
+      end)
+
+    assert_receive {:legacy_started, ^legacy}, 1_000
+
+    {:ok, retained} =
+      Task.Supervisor.start_child(tasks, fn ->
+        result = WorkerBudget.run(budget, :retained_plugin_result, fn -> :committed end)
+        send(parent, {:retained_result, self(), result})
+      end)
+
+    assert_receive {:retained_result, ^retained, :committed}, 250
+    send(legacy, :release)
+  end
+
+  test "boot rejects queues that exceed memory or reserved Repo capacity" do
+    key = ServiceRadar.Ingestion.Supervisor
+    previous = Application.get_env(:serviceradar_core, key)
+
+    on_exit(fn ->
+      if previous == nil,
+        do: Application.delete_env(:serviceradar_core, key),
+        else: Application.put_env(:serviceradar_core, key, previous)
+    end)
+
+    Application.put_env(:serviceradar_core, key, memory_budget_bytes: 1_024)
+    assert {:error, _} = start_supervised(ServiceRadar.Ingestion.Supervisor)
+    assert Process.whereis(ServiceRadar.Ingestion.Supervisor) == nil
+    assert {:error, _} = start_supervised({WorkerBudget, pool_size: 6})
+    assert Process.whereis(WorkerBudget) == nil
+  end
 
   test "count, byte, per-agent, and source limits return distinct reasons" do
     parent = self()
@@ -46,7 +413,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert_receive {^admitted, :ok}
     assert_empty(per_agent_lane)
 
-    byte_lane = start_lane(processor, max_bytes: 265)
+    retained_bytes = Lane.descriptor(status("agent-a", "12345"), 10_000).retained_bytes
+    byte_lane = start_lane(processor, max_bytes: retained_bytes)
     byte_ref = admit(byte_lane, status("agent-a", "12345"))
     assert_receive {:started, "12345", byte_release}
 
@@ -61,6 +429,133 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     assert {:error, :wire_payload_too_large} =
              Lane.admit(source_lane, status("agent-a", "12345"), {self(), make_ref()})
+  end
+
+  test "default sweep byte credit stops one agent filling the lane" do
+    parent = self()
+
+    lane =
+      start_lane_with(
+        held_processor(parent),
+        LaneSupervisor.limits(:sweep),
+        16 * 1_024 * 1_024
+      )
+
+    first = admit(lane, status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)))
+    assert_receive {:started, _, first_release}
+
+    assert {:error, :per_agent_byte_full} =
+             Lane.admit(
+               lane,
+               status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
+               {self(), make_ref()}
+             )
+
+    second = admit(lane, status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024)))
+    send(first_release, :release)
+    assert_receive {^first, :ok}
+    assert_receive {:started, _, second_release}
+    send(second_release, :release)
+    assert_receive {^second, :ok}
+    assert_empty(lane)
+  end
+
+  test "default sweep reservations stop one agent filling the lane" do
+    parent = self()
+
+    lane =
+      start_lane_with(
+        held_processor(parent),
+        LaneSupervisor.limits(:sweep),
+        16 * 1_024 * 1_024
+      )
+
+    first_status = status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024))
+    first_ref = make_ref()
+
+    assert {:ok, {^lane, first_id}} =
+             Lane.reserve(lane, Lane.descriptor(first_status, 10_000), self(), 1_000)
+
+    assert :ok = Lane.submit(lane, first_id, first_status, {self(), first_ref})
+    assert_receive {:started, _, first_release}
+
+    assert {:error, :per_agent_byte_full} =
+             Lane.reserve(
+               lane,
+               Lane.descriptor(
+                 status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
+                 10_000
+               ),
+               self(),
+               1_000
+             )
+
+    second_status = status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024))
+    second_ref = make_ref()
+
+    assert {:ok, {^lane, second_id}} =
+             Lane.reserve(lane, Lane.descriptor(second_status, 10_000), self(), 1_000)
+
+    assert :ok = Lane.submit(lane, second_id, second_status, {self(), second_ref})
+    send(first_release, :release)
+    assert_receive {^first_ref, :ok}
+    assert_receive {:started, _, second_release}
+    send(second_release, :release)
+    assert_receive {^second_ref, :ok}
+    assert_empty(lane)
+  end
+
+  test "default flow byte credit stops one agent filling the lane" do
+    parent = self()
+    lane = start_lane_with(held_processor(parent), FlowLane.limits(), 6 * 1_024 * 1_024)
+    payload = fn agent -> status(agent, String.duplicate("f", 5_900_000)) end
+
+    first = admit(lane, payload.("agent-a"))
+    assert_receive {:started, _, first_release}
+    queued = admit(lane, payload.("agent-a"))
+
+    assert {:error, :per_agent_byte_full} =
+             Lane.admit(lane, payload.("agent-a"), {self(), make_ref()})
+
+    other = admit(lane, payload.("agent-b"))
+    send(first_release, :release)
+    assert_receive {^first, :ok}
+    assert_receive {:started, _, queued_release}
+    send(queued_release, :release)
+    assert_receive {^queued, :ok}
+    assert_receive {:started, _, other_release}
+    send(other_release, :release)
+    assert_receive {^other, :ok}
+    assert_empty(lane)
+  end
+
+  test "default retained byte credit stops one agent filling the lane" do
+    parent = self()
+
+    lane =
+      start_lane_with(
+        held_processor(parent),
+        RetainedPluginLane.limits(),
+        16 * 1_024 * 1_024
+      )
+
+    first = admit(lane, status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)))
+    assert_receive {:started, _, first_release}
+
+    assert {:error, :per_agent_byte_full} =
+             Lane.admit(
+               lane,
+               status("agent-a", String.duplicate("a", 9 * 1_024 * 1_024)),
+               {self(), make_ref()}
+             )
+
+    second = admit(lane, status("agent-b", String.duplicate("b", 9 * 1_024 * 1_024)))
+    send(first_release, :release)
+    assert_receive {^first, :ok}
+    assert_receive {:started, _, second_release}
+    send(second_release, :release)
+    assert_receive {^second, :ok}
+    assert_empty(lane)
   end
 
   test "saturation accounting is independent between runtime lanes" do
@@ -459,10 +954,12 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     ids = Enum.map(specs, & &1.id)
 
+    assert ServiceRadar.Ingestion.Supervisor in ids
+    assert LeaseSupervisor in ids
     assert FlowLeaseSupervisor in ids
     assert RetainedPluginLeaseSupervisor in ids
-    assert FlowSupervisor in ids
-    assert RetainedPluginSupervisor in ids
+    refute FlowSupervisor in ids
+    refute RetainedPluginSupervisor in ids
     refute FlowTaskSupervisor in ids
     refute RetainedPluginTaskSupervisor in ids
     refute FlowLane in ids
@@ -570,29 +1067,16 @@ defmodule ServiceRadar.AdmissionLaneTest do
          concurrency: 99}
       )
 
-    assert %{
-             concurrency: 1,
-             config: [
-               max_items: 16,
-               max_bytes: 67_108_864,
-               max_items_per_agent: 4,
-               queue_wait_ms: 2_000,
-               worker_timeout_ms: 20_000,
-               gateway_call_timeout_ms: 25_000
-             ]
-           } = :sys.get_state(flow_lane)
+    assert %{concurrency: 1, config: flow_config} = :sys.get_state(flow_lane)
+    assert %{concurrency: 2, config: plugin_config} = :sys.get_state(plugin_lane)
 
-    assert %{
-             concurrency: 2,
-             config: [
-               max_items: 32,
-               max_bytes: 67_108_864,
-               max_items_per_agent: 8,
-               queue_wait_ms: 2_000,
-               worker_timeout_ms: 20_000,
-               gateway_call_timeout_ms: 30_000
-             ]
-           } = :sys.get_state(plugin_lane)
+    for config <- [flow_config, plugin_config] do
+      assert :ok = Lane.validate_config(config, 15_000)
+      assert config[:gateway_call_timeout_ms] < 20_000
+
+      assert config[:queue_wait_ms] + config[:worker_timeout_ms] + 3_000 <=
+               config[:gateway_call_timeout_ms]
+    end
   end
 
   defp start_lane(processor, overrides \\ []) do
@@ -601,6 +1085,27 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     opts = lane_opts(task_supervisor, processor, overrides)
     start_supervised!(Supervisor.child_spec({Lane, opts}, id: make_ref()))
+  end
+
+  defp start_lane_with(processor, config, source_max_bytes) do
+    task_supervisor =
+      start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {Lane,
+         [
+           lane: :test,
+           concurrency: 1,
+           task_supervisor: task_supervisor,
+           processor: processor,
+           source_max_bytes: source_max_bytes,
+           gateway_max_ms: 15_000,
+           config: config
+         ]},
+        id: make_ref()
+      )
+    )
   end
 
   defp lane_opts(task_supervisor, processor, overrides) do
@@ -727,6 +1232,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
     end)
 
     admission_ids = [
+      ServiceRadar.Ingestion.Supervisor,
+      LeaseSupervisor,
       FlowTaskSupervisor,
       RetainedPluginTaskSupervisor,
       FlowLeaseSupervisor,
@@ -748,6 +1255,27 @@ defmodule ServiceRadar.AdmissionLaneTest do
     }
 
     start_supervised!(topology)
+  end
+
+  defp find_metric!(batch, name, lane) do
+    Enum.find(batch.metrics, fn metric ->
+      metric.name == name and
+        Enum.any?(metric.tags, &(&1.key == "lane" and &1.value == lane))
+    end) || flunk("metric #{name} for lane #{lane} missing from published batch")
+  end
+
+  defp counter_value(body, name, lane) do
+    body |> MetricBatch.decode() |> find_metric!(name, lane) |> point!() |> Map.fetch!(:value)
+  end
+
+  defp point!(metric), do: hd(metric.points)
+
+  defp decode_rows!(body) do
+    Metrics.parse_message(%{data: body, metadata: %{subject: "metrics.ingestion_lanes"}})
+  end
+
+  defp count_occurrences(log, phrase) do
+    length(String.split(log, phrase)) - 1
   end
 
   defp held_processor(parent) do

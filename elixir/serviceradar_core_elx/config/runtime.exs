@@ -23,6 +23,32 @@ alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
 
+# Fail closed on invalid ingestion bounds; do not silently enable a larger queue.
+ingestion_positive_env = fn name, default ->
+  case System.get_env(name) do
+    value when value in [nil, ""] ->
+      default
+
+    value ->
+      case Integer.parse(value) do
+        {number, ""} when number > 0 -> number
+        _ -> raise ArgumentError, "invalid ingestion setting #{name}"
+      end
+  end
+end
+
+ingestion_lane_bytes = ingestion_positive_env.("SERVICERADAR_INGESTION_LANE_MAX_BYTES", 32 * 1_024 * 1_024)
+ingestion_config = Application.get_env(:serviceradar_core, ServiceRadar.Ingestion.Supervisor, [])
+
+ingestion_config =
+  Enum.reduce(
+    [:sweep, :mapper, :bumblebee, :legacy_plugin, :endpoint, :other_results, :status],
+    ingestion_config,
+    fn lane, config ->
+      Keyword.put(config, lane, Keyword.put(Keyword.get(config, lane, []), :max_bytes, ingestion_lane_bytes))
+    end
+  )
+
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
     enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
@@ -36,10 +62,31 @@ callback_deployment =
 # the release, its compile-time env must match at boot or Config.Provider aborts.
 config :lazy_html, :inspect_extra_newline, true
 
+config :serviceradar_core, ServiceRadar.Admission.FlowLane,
+  max_bytes: ingestion_positive_env.("SERVICERADAR_FLOW_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
+
+config :serviceradar_core, ServiceRadar.Admission.RetainedPluginLane,
+  max_bytes: ingestion_positive_env.("SERVICERADAR_PLUGIN_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
+
+config :serviceradar_core,
+       ServiceRadar.Ingestion.Supervisor,
+       Keyword.put(
+         ingestion_config,
+         :memory_budget_bytes,
+         ingestion_positive_env.("SERVICERADAR_INGESTION_MEMORY_BUDGET_BYTES", 4 * 1_024 * 1_024 * 1_024)
+       )
+
+config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
+  max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
+
 # This release hosts callback result coordination and recovery from
 # serviceradar_core. Those internal continuations use persisted authority and
 # must never receive the web tier's bearer HMAC keyring.
 config :serviceradar_core, :automation_callback_grants, []
+
+config :serviceradar_core,
+       :results_router_max_bytes,
+       ingestion_positive_env.("SERVICERADAR_SERVICE_STATE_MAX_BYTES", 32 * 1_024 * 1_024)
 
 if is_map(callback_deployment) do
   envelope_key =

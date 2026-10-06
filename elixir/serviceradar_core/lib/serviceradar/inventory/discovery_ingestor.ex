@@ -161,9 +161,21 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestor do
 
         case Jason.encode(updates) do
           {:ok, json} ->
-            SyncIngestorQueue.enqueue(json)
-            emit(:enqueued, %{updates: length(updates)}, attested)
-            :ok
+            case SyncIngestorQueue.enqueue(json) do
+              :ok ->
+                emit(:enqueued, %{updates: length(updates)}, attested)
+                :ok
+
+              {:error, reason} = error ->
+                emit(:enqueue_rejected, %{updates: length(updates)}, attested)
+
+                Logger.warning("DiscoveryIngestor: queue rejected discovery updates",
+                  reason: inspect(reason),
+                  schema: inspect(envelope.schema)
+                )
+
+                error
+            end
 
           {:error, reason} ->
             # A value that cannot be encoded must not take down the batch it

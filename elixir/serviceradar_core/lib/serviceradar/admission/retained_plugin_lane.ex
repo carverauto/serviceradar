@@ -8,8 +8,8 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     max_bytes: 64 * 1_024 * 1_024,
     max_items_per_agent: 8,
     queue_wait_ms: 2_000,
-    worker_timeout_ms: 20_000,
-    gateway_call_timeout_ms: 30_000
+    worker_timeout_ms: 10_000,
+    gateway_call_timeout_ms: 15_000
   ]
   @fixed_option_keys [
     :config,
@@ -22,9 +22,17 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     :gateway_max_ms
   ]
 
+  def limits do
+    @default_config
+    |> Keyword.merge(configured_limits())
+    |> Lane.with_per_agent_bytes(16 * 1_024 * 1_024)
+  end
+
   def start_link(opts \\ []) do
     config =
-      @default_config |> Keyword.merge(configured_limits()) |> Keyword.merge(opts[:config] || [])
+      limits()
+      |> Keyword.merge(opts[:config] || [])
+      |> Lane.with_per_agent_bytes(16 * 1_024 * 1_024)
 
     lease_supervisor =
       Keyword.get_lazy(opts, :lease_supervisor, fn ->
@@ -45,7 +53,7 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
           lease_supervisor: lease_supervisor,
           processor: {ServiceRadar.ResultsRouter, :process_retained_plugin, []},
           source_max_bytes: 16 * 1_024 * 1_024,
-          gateway_max_ms: 30_000,
+          gateway_max_ms: 15_000,
           config: config
         ],
         Keyword.drop(opts, @fixed_option_keys)
@@ -58,6 +66,8 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
 
   def admit(status, reply_to), do: Lane.admit(server(), status, reply_to)
   def admit_cast(status), do: Lane.admit_cast(server(), status, :retained_plugin_result)
+
+  def reserve(descriptor, owner, timeout), do: Lane.reserve(server(), descriptor, owner, timeout)
 
   defp server do
     :serviceradar_core

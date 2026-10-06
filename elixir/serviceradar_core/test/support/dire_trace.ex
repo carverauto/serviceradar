@@ -28,7 +28,6 @@ defmodule ServiceRadar.DireTrace do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
-  alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -38,6 +37,7 @@ defmodule ServiceRadar.DireTrace do
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
@@ -49,6 +49,8 @@ defmodule ServiceRadar.DireTrace do
     [:serviceradar, :identity_reconciler, :merge, :guard_blocked],
     [:serviceradar, :identity_reconciler, :alias, :invalidated],
     [:serviceradar, :identity_reconciler, :hostname_agreement, :refused],
+    # ---------------------------------------------------------------------------------------
+    # World
     [:serviceradar, :identity_reconciler, :source_identity, :active_ip_conflict],
     [:serviceradar, :identity_reconciler, :source_identity, :source_override],
     [:serviceradar, :inventory, :source_retirement, :retired],
@@ -73,9 +75,6 @@ defmodule ServiceRadar.DireTrace do
     phys: %{},
     states: []
   ]
-
-  # ---------------------------------------------------------------------------------------
-  # World
 
   @doc """
   Starts a trace. `world` uses model constants:
@@ -128,6 +127,8 @@ defmodule ServiceRadar.DireTrace do
         handler,
         @telemetry_events,
         fn event, measurements, metadata, _ ->
+          # ---------------------------------------------------------------------------------------
+          # Steps (each drives the real code, then records)
           send(test_pid, {:dire_trace_event, event, measurements, metadata})
         end,
         nil
@@ -152,9 +153,6 @@ defmodule ServiceRadar.DireTrace do
 
   @doc "Detaches telemetry. Call from on_exit or at the end of the test."
   def stop(%__MODULE__{handler: handler}), do: :telemetry.detach(handler)
-
-  # ---------------------------------------------------------------------------------------
-  # Steps (each drives the real code, then records)
 
   @doc "DHCP: interface `x` leases model address `p`, or releases with `\"NoIp\"`."
   def lease(trace, x, p) do
@@ -321,6 +319,8 @@ defmodule ServiceRadar.DireTrace do
       |> Ash.create()
 
     step(trace, "Sweep", h, x, [], fn ->
+      # ---------------------------------------------------------------------------------------
+      # The source and the reconciler
       assert {:ok, _stats} =
                SweepResultsIngestor.ingest_results(
                  [%{"host_ip" => ip, "available" => true}],
@@ -355,9 +355,6 @@ defmodule ServiceRadar.DireTrace do
     end)
   end
 
-  # ---------------------------------------------------------------------------------------
-  # The source and the reconciler
-
   @doc """
   The source re-identifies physical device `h`: it reports `h` under model id `a` from now on, or
   stops reporting it with `"NoId"`. Nothing is ingested; the next sync or collection carries the
@@ -383,35 +380,64 @@ defmodule ServiceRadar.DireTrace do
   def collect(trace) do
     reported = Enum.sort(trace.src_of)
     count = length(reported)
+    run_id = Ash.UUID.generate()
+    # One chunk per reported device plus the final collection control marker,
+    # so the ledger sees every chunk exactly once and the run completes only
+    # when each real write has landed.
+    total_chunks = count + 1
 
-    sync_meta = %{
-      "sync_service_id" => trace.source,
-      "sync_run_id" => Ash.UUID.generate(),
-      "chunk_index" => 0,
-      "total_chunks" => 1,
-      "total_devices" => count,
-      "is_final" => true,
-      "population" => %{
-        "raw_rows" => count,
-        "excluded_rows" => 0,
-        "invalid_rows" => 0,
-        "valid_occurrences" => count,
-        "distinct_source_ids" => count,
-        "duplicate_occurrences" => 0,
-        "conflicting_duplicate_ids" => 0
-      }
+    population = %{
+      "raw_rows" => count,
+      "excluded_rows" => 0,
+      "invalid_rows" => 0,
+      "valid_occurrences" => count,
+      "distinct_source_ids" => count,
+      "duplicate_occurrences" => 0,
+      "conflicting_duplicate_ids" => 0
     }
 
-    {trace, updates} =
-      Enum.reduce(reported, {trace, []}, fn {h, _a}, {acc, updates} ->
+    {trace, _next_index} =
+      Enum.reduce(reported, {trace, 0}, fn {h, _a}, {acc, index} ->
         x = leased_iface!(acc, h)
+
+        sync_meta = %{
+          "sync_service_id" => acc.source,
+          "sync_run_id" => run_id,
+          "chunk_index" => index,
+          "total_chunks" => total_chunks,
+          "total_devices" => count,
+          "is_final" => false
+        }
+
         {ids, update} = armis_update(acc, h, x, [], sync_meta)
-        {armis_step(acc, h, x, ids, update), [update | updates]}
+        {collect_chunk(acc, h, x, ids, update), index + 1}
       end)
 
+    final_meta = %{
+      "sync_service_id" => trace.source,
+      "sync_run_id" => run_id,
+      "chunk_index" => count,
+      "total_chunks" => total_chunks,
+      "total_devices" => count,
+      "is_final" => true,
+      "population" => population
+    }
+
     step(trace, "Collect", nil, nil, [], fn ->
+      control = [%{"_sync_control" => "collection_final", "sync_meta" => final_meta}]
+
       assert :ok =
-               ArmisSourceSnapshot.activate(Enum.reverse(updates), sync_meta, actor: trace.actor)
+               SyncIngestorQueue.ingest_sync_results(Jason.encode!(control))
+    end)
+  end
+
+  # A collection device chunk: the observation travels through the bounded
+  # queue exactly once, so its ledger receipt follows a real write and the
+  # Collect control marker never re-ingests it.
+  defp collect_chunk(trace, h, x, ids, update) do
+    step(trace, "Armis", h, x, ids, fn ->
+      assert :ok =
+               SyncIngestorQueue.ingest_sync_results(Jason.encode!([update]))
     end)
   end
 
@@ -631,6 +657,9 @@ defmodule ServiceRadar.DireTrace do
         do: Map.update(phys, target, [h], &Enum.uniq([h | &1])),
         else: phys
 
+    # ---------------------------------------------------------------------------------------
+    # Snapshot
+
     decisions = decisions_from(trace, events, ids)
     recorded = recorded_since(trace, decisions_before)
 
@@ -672,9 +701,6 @@ defmodule ServiceRadar.DireTrace do
   defp raw_state(trace) do
     {trace_devices(trace), merge_rows(trace), alias_rows(trace)}
   end
-
-  # ---------------------------------------------------------------------------------------
-  # Snapshot
 
   defp snapshot(trace, act) do
     devices = trace_devices(trace)
@@ -798,6 +824,8 @@ defmodule ServiceRadar.DireTrace do
     end
   end
 
+  # ---------------------------------------------------------------------------------------
+  # Decisions
   defp aliases(trace) do
     rows = alias_rows(trace)
 
@@ -846,9 +874,6 @@ defmodule ServiceRadar.DireTrace do
       {r, claims}
     end)
   end
-
-  # ---------------------------------------------------------------------------------------
-  # Decisions
 
   defp drain_events(acc \\ []) do
     receive do
@@ -1003,6 +1028,9 @@ defmodule ServiceRadar.DireTrace do
     end
   end
 
+  # ---------------------------------------------------------------------------------------
+  # Database reads
+
   defp landing_record(trace, x, ids) do
     owners = owners(trace)
 
@@ -1056,9 +1084,6 @@ defmodule ServiceRadar.DireTrace do
   defp maybe_put_macs(update, []), do: update
   defp maybe_put_macs(update, macs), do: Map.put(update, "mac", Enum.join(macs, ","))
 
-  # ---------------------------------------------------------------------------------------
-  # Database reads
-
   @device_read_limit 1000
 
   # Reads only the devices the trace's world can have produced: the ones already named, the ones
@@ -1074,6 +1099,9 @@ defmodule ServiceRadar.DireTrace do
       |> Ash.Query.filter(uid in ^uids or ip in ^ips)
       |> Ash.read!(actor: trace.actor, page: [limit: @device_read_limit])
       |> Page.unwrap!()
+
+    # ---------------------------------------------------------------------------------------
+    # Output
 
     if length(devices) >= @device_read_limit,
       do: flunk("DIRE trace #{trace.name}: device read reached #{@device_read_limit} rows")
@@ -1134,9 +1162,6 @@ defmodule ServiceRadar.DireTrace do
   end
 
   defp hex2(n), do: n |> Integer.to_string(16) |> String.pad_leading(2, "0") |> String.upcase()
-
-  # ---------------------------------------------------------------------------------------
-  # Output
 
   @doc """
   Compares the trace with the committed files, or writes them with DIRE_TRACE_WRITE=1.

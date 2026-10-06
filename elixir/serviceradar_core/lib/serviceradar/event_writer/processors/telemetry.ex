@@ -40,6 +40,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.Observability.MetricEnvelope
 
@@ -79,11 +80,13 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
     if Enum.empty?(rows) do
       {:ok, 0}
     else
-      ServiceRadar.Analytics.StarRocks.Destination.ack_cnpg_batch(
-        :metrics,
-        rows,
-        &insert_telemetry_rows/1
-      )
+      if Destination.enabled?() do
+        with {:ok, result} <- Destination.persist_warehouse(:metrics, rows) do
+          {:ok, result.loaded}
+        end
+      else
+        insert_telemetry_rows(rows)
+      end
     end
   end
 

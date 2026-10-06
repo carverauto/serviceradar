@@ -5,8 +5,8 @@ defmodule ServiceRadar.RetainedPluginAdmissionDefaultTest do
   """
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.ResultsRouter
   alias ServiceRadar.StatusHandler
+  alias ServiceRadar.TestSupport
 
   defmodule HeldPluginIngestor do
     @moduledoc false
@@ -73,22 +73,26 @@ defmodule ServiceRadar.RetainedPluginAdmissionDefaultTest do
     assert {:ok, :ok} = Task.yield(held, 1_000)
   end
 
-  test "the kill switch sends capability-retained results down the previous path" do
-    lane = start_retained_lane!(max_items_per_agent: 8)
+  test "the kill switch sends capability-retained results down the bounded compatibility lane" do
+    TestSupport.start_ingestion_topology!()
 
     Application.put_env(:serviceradar_core, StatusHandler,
-      retained_plugin_lane: lane,
       retained_plugin_admission_enabled: false
     )
 
-    router = start_router_stub!()
-    handler = start_handler!()
+    handler = Process.whereis(StatusHandler)
 
-    assert :ok = GenServer.call(handler, {:status_update, retained_plugin_status()}, 1_000)
-    assert_receive {:router_received, router_status}
-    assert router_status.source == "plugin-result"
-    assert Process.alive?(router)
-    refute_received {:plugin_ingest_started, _worker}
+    call =
+      Task.async(fn ->
+        GenServer.call(handler, {:status_update, retained_plugin_status()}, 5_000)
+      end)
+
+    assert_receive {:plugin_ingest_started, worker}, 1_000
+    refute worker == handler
+    assert Task.yield(call, 100) == nil
+
+    send(worker, :release_plugin)
+    assert {:ok, :ok} = Task.yield(call, 1_000)
   end
 
   defp start_handler! do
@@ -119,26 +123,6 @@ defmodule ServiceRadar.RetainedPluginAdmissionDefaultTest do
        task_supervisor: task_supervisor,
        config: config}
     )
-  end
-
-  # Stands in for the ResultsRouter singleton on the previous synchronous path.
-  defp start_router_stub! do
-    test_pid = self()
-
-    router =
-      spawn_link(fn ->
-        receive do
-          {:"$gen_call", from, {:results_update, status}} ->
-            send(test_pid, {:router_received, status})
-            GenServer.reply(from, :ok)
-            Process.sleep(:infinity)
-        end
-      end)
-
-    if Process.whereis(ResultsRouter), do: flunk("a ResultsRouter is already registered")
-    Process.register(router, ResultsRouter)
-    on_exit(fn -> if Process.alive?(router), do: Process.exit(router, :kill) end)
-    router
   end
 
   defp retained_plugin_status do

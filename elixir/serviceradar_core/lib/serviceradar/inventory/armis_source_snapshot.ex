@@ -28,6 +28,7 @@ defmodule ServiceRadar.Inventory.ArmisSourceSnapshot do
          {:ok, population} <- validate_population(map_value(sync_meta, :population)),
          {:ok, source} <- IntegrationSource.get_by_id(source_id, actor: actor),
          :ok <- require_armis_source(source),
+         :ok <- ServiceRadar.Inventory.SyncRunLedger.complete(sync_meta),
          rows = collection_rows(source_id, run_id),
          :ok <- require_distinct_count(rows, population.distinct_source_ids) do
       snapshot = build_snapshot(source, run_id, population, rows, updates)

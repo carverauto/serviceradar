@@ -7,6 +7,8 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
   @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
 
   setup do
+    StatusHandlerTestHelpers.legacy_core_transport!()
+
     if !Process.whereis(ServiceRadarAgentGateway.DeliveryTaskSupervisor) do
       start_supervised!({Task.Supervisor, name: ServiceRadarAgentGateway.DeliveryTaskSupervisor})
     end

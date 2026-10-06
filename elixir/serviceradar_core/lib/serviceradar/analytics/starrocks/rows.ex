@@ -235,7 +235,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "if_index" => field(row, :if_index),
       "partition" => stringify(field(row, :partition)),
       "scale" => field(row, :scale),
-      "is_delta" => field(row, :is_delta),
+      "is_delta" => value(row, :is_delta),
       "counter_width" => field(row, :counter_width),
       "target_device_ip" => stringify(field(row, :target_device_ip)),
       "tags" => json_text(field(row, :tags))

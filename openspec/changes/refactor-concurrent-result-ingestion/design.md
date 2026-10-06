@@ -14,9 +14,9 @@ ResultsRouter still ingests in handle_call and flushes serially in
 handle_info(:flush_results). StatusHandler's workload-identity and agent-status
 branches still invoke persistence helpers inline. SyncIngestorQueue still uses
 an enqueue cast, decodes in handle_cast, and accumulates while work is in flight.
-Gateway StatusProcessor currently allows a general 30-second core call, with a
-25-second flow-specific call; this does not leave general PushStatus headroom.
-Agent B is fixing that separate gateway boundary.
+Agent B's merged #5308 bounds gateway core forwarding at 20 seconds inside the
+agent's 30-second RPC deadline. This implementation uses a 15-second core budget,
+including queueing, execution, and cancellation/reply reserve.
 
 ## Goals and boundaries
 
@@ -52,21 +52,21 @@ are owned and released exactly once on completion, cancellation, or worker exit.
 An expired waiter cannot turn a later completion into a false positive response;
 a possible late commit is handled by the existing idempotent agent replay.
 
-Proposed shared budget for Agent B to confirm: at most 25 seconds for core
-forwarding, with bounded gateway lookup/forwarding/response work fitting inside
-the agent's existing 30-second RPC deadline. Lane queue wait plus worker timeout
-plus cancellation/reply reserve must be strictly below that core budget; preserve
-the existing 2-second queue wait and at-most-20-second worker bounds where valid.
-Invalid timeout combinations fail configuration validation. Pass one remaining
-monotonic deadline through admission and workers; do not grant a fresh timeout
-at each hop. On overload, timeout, unavailable core, worker exit, or unsuccessful
-persistence, Agent B returns not-accepted for ack-required statuses. A generic
-received:true fallback is prohibited. No wire-level acknowledgement change is
-proposed, and repeated retained payloads keep their current deduplication identity.
+The user approved implementation after reviewing #5309, with core strictly below
+Agent B's 20-second forwarding budget. Core reserves 15 seconds: at most 2 seconds
+for admission/queueing, 10 seconds for execution, and 3 seconds for cancellation
+and reply. Invalid timeout combinations fail configuration validation. Carry a
+remaining duration across nodes, then use a local monotonic deadline throughout
+core; node-local monotonic timestamps must not be compared across machines.
+On overload, timeout, unavailable core, worker exit, or unsuccessful persistence,
+Agent B returns not-accepted for ack-required statuses. A generic received:true
+fallback is prohibited. No wire-level acknowledgement change is proposed, and
+repeated retained payloads keep their current deduplication identity.
 
-Agent B was contacted on #5195 with this contract. Confirmation of its final
-budget/error mapping and supported rollout pairings is an implementation
-prerequisite; this proposal does not claim that coordination is complete.
+Gateway #5308 is merged. A metadata-only reservation handshake precedes the full
+payload handoff in the gateway/core pairing introduced by this implementation.
+Older gateways may use the bounded compatibility dispatcher, but do not provide
+the new pre-mailbox byte bound; retained default enablement requires the new pair.
 
 - **Decision: telemetry follows the admission-lane convention.** Every queue
   emits `[:serviceradar, :result_ingestion, ...]` events mirroring
@@ -189,7 +189,7 @@ interleaved rejected run followed by a complete run need regression coverage.
 Each queue and existing acknowledged lane reports pending/in-flight items and
 bytes, admission latency, execution duration, completions, rejections by reason,
 timeouts, crashes, and cancellation. Emit canonical protobuf metric envelopes
-through a bounded supervised metrics publisher on metrics.core.result_ingestion,
+through a bounded supervised metrics publisher on metrics.ingestion_lanes,
 confirm PubAck, and persist only through EventWriter in the configured telemetry
 backend. Audit NATS stream/permission coverage before rollout. Local :telemetry
 and Prometheus are supplementary, not the durable platform metric path.
@@ -233,7 +233,7 @@ implementation under identical invented fleet inputs and pool/queue settings.
 Vary worker concurrency and sustained/burst load, isolate one deliberately slow
 type, and include overload and worker failure. Record offered/admitted/completed/
 rejected work, queue bytes/high-water marks, throughput, timeout/replay outcomes,
-and acknowledgement p50/p95/p99/max. Proposed gate: ack p99 below 25 seconds and
+and acknowledgement p50/p95/p99/max. Proposed gate: ack p99 below 15 seconds and
 all responses before the 30-second agent deadline, with explicit rejection rather
 than silent acceptance when overloaded. Every admitted retained item must reconcile
 to its durable terminal record, or remain unaccepted and safely replayable. Report

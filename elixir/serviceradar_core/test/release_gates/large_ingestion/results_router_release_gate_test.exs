@@ -7,9 +7,9 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Ingestion.ResultIngestor
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Repo
-  alias ServiceRadar.ResultsRouter
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -133,7 +133,7 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
         message: Jason.encode!(updates)
       }
 
-      assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+      assert :ok = ResultIngestor.process_and_publish(status)
     end
 
     assert 0 ==

@@ -8,11 +8,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   use Supervisor
 
-  alias ServiceRadar.Admission.FlowLeaseSupervisor
-  alias ServiceRadar.Admission.FlowSupervisor
-  alias ServiceRadar.Admission.RetainedPluginLeaseSupervisor
-  alias ServiceRadar.Admission.RetainedPluginSupervisor
-
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts)
   end
@@ -28,14 +23,14 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
       [
         cluster_health_child(),
         state_monitor_child(),
-        flow_admission_lease_supervisor_child(),
-        retained_plugin_admission_lease_supervisor_child(),
-        flow_admission_supervisor_child(),
-        retained_plugin_admission_supervisor_child(),
+        ingestion_metrics_child(),
+        ingestion_lease_supervisor_child(),
+        flow_lease_supervisor_child(),
+        retained_plugin_lease_supervisor_child(),
+        ingestion_supervisor_child(),
         status_handler_child(),
         command_result_coordination_supervisor_child(),
         command_status_handler_child(),
-        results_router_child(),
         health_check_runner_supervisor_child(),
         health_check_registrar_child(),
         template_seeder_child(),
@@ -102,39 +97,41 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     end
   end
 
+  defp ingestion_metrics_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.Ingestion.RuntimeMetrics
+    end
+  end
+
+  # Reply leases outlive the worker tree so they can report coordinator restarts.
+  # Database workers and their admission credits restart together inside that tree.
+  defp ingestion_lease_supervisor_child do
+    ingestion_lease_supervisor(ServiceRadar.Ingestion.LeaseSupervisor, 224)
+  end
+
+  defp flow_lease_supervisor_child do
+    ingestion_lease_supervisor(ServiceRadar.Admission.FlowLeaseSupervisor, 16)
+  end
+
+  defp retained_plugin_lease_supervisor_child do
+    ingestion_lease_supervisor(ServiceRadar.Admission.RetainedPluginLeaseSupervisor, 32)
+  end
+
+  defp ingestion_lease_supervisor(name, max_children) do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      Supervisor.child_spec({Task.Supervisor, name: name, max_children: max_children}, id: name)
+    end
+  end
+
+  defp ingestion_supervisor_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.Ingestion.Supervisor
+    end
+  end
+
   defp status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.StatusHandler
-    end
-  end
-
-  defp flow_admission_lease_supervisor_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      Supervisor.child_spec(
-        {Task.Supervisor, name: FlowLeaseSupervisor},
-        id: FlowLeaseSupervisor
-      )
-    end
-  end
-
-  defp retained_plugin_admission_lease_supervisor_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      Supervisor.child_spec(
-        {Task.Supervisor, name: RetainedPluginLeaseSupervisor},
-        id: RetainedPluginLeaseSupervisor
-      )
-    end
-  end
-
-  defp flow_admission_supervisor_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      FlowSupervisor
-    end
-  end
-
-  defp retained_plugin_admission_supervisor_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      RetainedPluginSupervisor
     end
   end
 
@@ -148,12 +145,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       {Task.Supervisor,
        name: ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor, max_children: 32}
-    end
-  end
-
-  defp results_router_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      ServiceRadar.ResultsRouter
     end
   end
 
