@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   Maps SRQL `in:<entity>` to the RBAC catalog key for that UI surface.
 
   This is a permission-catalog gate, not Ash.Query translation and not
-  row-level isolation. Unknown entities pass through to the SRQL compiler.
+  row-level isolation. An entity name this map does not know is forbidden.
   Dashboards pass through to the existing Ash/scope search.
   """
 
@@ -68,6 +68,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       merge_audit device_merges merges
       device_revival_audit device_revivals revivals
       device_identifiers identifiers device_identity
+      source_fact_disagreements source_fact_disagreement fact_disagreements
       identity_reconciliation_runs reconciliation_runs dire_runs
       identity_evidence_edges identity_evidence evidence_edges
       identity_decisions identity_decision dire_decisions
@@ -160,8 +161,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   to translate the query MUST use `authorize_signals/3` instead and hand its
   permitted set to translate; the set cannot be recovered from `:ok`.
 
-  Unknown entities and dashboards are `:ok` so the compiler / Ash search
-  remain the source of those errors.
+  Dashboards are `:ok` so the Ash search remains the source of those
+  errors. An entity name this catalog does not know is forbidden on the
+  UI, HTTP, and MCP paths.
 
   A missing scope on a mapped entity is forbidden by default. LiveView,
   HTTP, and MCP execution paths use this default and pass the principal
@@ -195,6 +197,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
     case permission_for_query(query) do
       :passthrough ->
         {:ok, nil}
+
+      :unknown ->
+        {:error, :forbidden}
 
       {:ok, permission} ->
         cond do
@@ -230,7 +235,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
 
   @typedoc "An entity's gate: one permission, an any-of signal set, or none."
   @type entity_permission ::
-          {:ok, String.t()} | {:any_of, [{String.t(), String.t()}]} | :passthrough
+          {:ok, String.t()} | {:any_of, [{String.t(), String.t()}]} | :passthrough | :unknown
 
   @spec permission_for_query(String.t()) :: entity_permission()
   def permission_for_query(query) when is_binary(query) do
@@ -242,10 +247,17 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   @spec permission_for_entity(String.t()) :: entity_permission()
   def permission_for_entity(entity) when is_binary(entity) do
     cond do
-      MapSet.member?(@dashboards, entity) -> :passthrough
-      signal_permissions = Map.get(@signal_scoped_entities, entity) -> {:any_of, signal_permissions}
-      permission = Map.get(@entity_permissions, entity) -> {:ok, permission}
-      true -> :passthrough
+      MapSet.member?(@dashboards, entity) ->
+        :passthrough
+
+      signal_permissions = Map.get(@signal_scoped_entities, entity) ->
+        {:any_of, signal_permissions}
+
+      permission = Map.get(@entity_permissions, entity) ->
+        {:ok, permission}
+
+      true ->
+        :unknown
     end
   end
 

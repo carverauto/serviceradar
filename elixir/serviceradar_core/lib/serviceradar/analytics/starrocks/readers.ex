@@ -99,11 +99,74 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     [current |> Enum.reverse() |> Enum.join() | tokens]
   end
 
+  # Match rust/srql `unquote`: inside quotes a backslash is dropped and the
+  # next character is kept, then one outer " or ' pair is removed. `parse_entity`
+  # then trims any remaining quotes and lowercases. An undecoded `in:"dev\ices"`
+  # would be an unknown name here and `devices` in the compiler.
   defp normalize_entity(entity) do
     entity
+    |> unquote_srql()
     |> String.trim("\"")
     |> String.trim("'")
     |> String.downcase()
+  end
+
+  defp unquote_srql(raw) do
+    raw = String.trim(raw)
+
+    {out, _quote, escape, closed_by_last} =
+      Enum.reduce(String.graphemes(raw), {[], nil, false, nil}, fn grapheme,
+                                                                   {out, quote, escape, _closed} ->
+        cond do
+          escape ->
+            {[grapheme | out], quote, false, nil}
+
+          quote != nil and grapheme == "\\" ->
+            {out, quote, true, nil}
+
+          quote != nil and grapheme == quote ->
+            {[grapheme | out], nil, false, quote}
+
+          quote != nil ->
+            {[grapheme | out], quote, false, nil}
+
+          grapheme in ["\"", "'", "`"] ->
+            {[grapheme | out], grapheme, false, nil}
+
+          true ->
+            {[grapheme | out], nil, false, nil}
+        end
+      end)
+
+    out =
+      out
+      |> then(fn chars -> if escape, do: ["\\" | chars], else: chars end)
+      |> Enum.reverse()
+      |> IO.iodata_to_binary()
+
+    opened_with =
+      case String.first(raw) do
+        quote when quote in ["\"", "'"] -> quote
+        _ -> nil
+      end
+
+    case {opened_with, closed_by_last} do
+      {open, close} when is_binary(open) and open == close ->
+        drop_outer_quotes(out)
+
+      _ ->
+        out
+    end
+  end
+
+  defp drop_outer_quotes(value) do
+    length = String.length(value)
+
+    if length >= 2 do
+      String.slice(value, 1, length - 2)
+    else
+      value
+    end
   end
 
   @spec dataset_for_entity(String.t()) :: atom() | nil

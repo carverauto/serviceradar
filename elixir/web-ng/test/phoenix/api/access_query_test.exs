@@ -52,4 +52,30 @@ defmodule ServiceRadarWebNG.Api.AccessQueryTest do
     assert {:error, :forbidden} = Access.execute_query(scope, %{"query" => "in:devices"})
     refute_received {:srql_request, _}
   end
+
+  test "execute_query fails closed on an unknown entity and on a quoted escape" do
+    logs_only =
+      %Scope{
+        user: %{id: "user-1", email: "custom@localhost"},
+        permissions: MapSet.new(["observability.logs.view"])
+      }
+
+    devices =
+      %Scope{
+        user: %{id: "user-1", email: "custom@localhost"},
+        permissions: MapSet.new(["devices.view"])
+      }
+
+    assert {:error, :forbidden} =
+             Access.execute_query(logs_only, %{"query" => "in:not_a_real_entity_zzz"})
+
+    assert {:error, :forbidden} =
+             Access.execute_query(logs_only, %{"query" => ~S(in:"dev\ices" limit:1)})
+
+    refute_received {:srql_request, _}
+
+    assert {:ok, _} = Access.execute_query(devices, %{"query" => ~S(in:"dev\ices" limit:1)})
+    assert_received {:srql_request, %{"query" => query}}
+    assert query == ~S(in:"dev\ices" limit:1)
+  end
 end
