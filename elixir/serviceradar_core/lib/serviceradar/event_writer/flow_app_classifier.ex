@@ -114,7 +114,11 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
     NetflowAppClassificationRule
     |> Ash.Query.for_read(:read, actor: actor)
     |> Ash.Query.filter(enabled == true)
+<<<<<<< HEAD
     |> Ash.read(actor: actor)
+=======
+    |> Ash.read(authorize?: false, actor: actor)
+>>>>>>> 730b3c49f1
     |> case do
       {:ok, rules} when is_list(rules) ->
         rules
@@ -138,6 +142,7 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
   defp best_rule(attrs, rules) do
     rules
     |> Enum.filter(&matches?(attrs, &1))
+<<<<<<< HEAD
     |> Enum.reduce(nil, &pick_winner/2)
   end
 
@@ -162,16 +167,35 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
   end
 
   defp rank_key(rule) do
+=======
+    |> Enum.max_by(&ranking/1, fn -> nil end)
+  end
+
+  defp ranking(rule) do
+>>>>>>> 730b3c49f1
     specificity =
       Enum.count(
         [:protocol_num, :dst_port, :src_port, :src_cidr, :dst_cidr],
         &(not is_nil(Map.get(rule, &1)))
       )
 
+<<<<<<< HEAD
     {Map.get(rule, :priority) || 0, specificity}
   end
 
   defp id_lt?(a, b), do: to_string(a) < to_string(b)
+=======
+    {Map.get(rule, :priority) || 0, specificity, -id_value(rule)}
+  end
+
+  defp id_value(rule) do
+    case Map.get(rule, :id) do
+      id when is_integer(id) -> id
+      id when is_binary(id) -> String.to_integer(id)
+      _ -> 0
+    end
+  end
+>>>>>>> 730b3c49f1
 
   defp matches?(attrs, rule) do
     field_matches?(rule, :partition, Map.get(attrs, :partition)) and
@@ -185,7 +209,11 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
   # The SQL matches `r.field IS NULL OR r.field = value`: a NULL rule field
   # is a wildcard; a non-NULL rule field must equal the flow value, and a
   # NULL flow value never equals it (`r.field = NULL` is not true).
+<<<<<<< HEAD
   defp field_matches?(rule, field, nil), do: is_nil(Map.get(rule, field))
+=======
+  defp field_matches?(rule, _field, nil), do: is_nil(Map.get(rule, _field))
+>>>>>>> 730b3c49f1
 
   defp field_matches?(rule, field, value) do
     case Map.get(rule, field) do
@@ -194,7 +222,11 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
     end
   end
 
+<<<<<<< HEAD
   defp cidr_matches?(rule, field, nil), do: is_nil(Map.get(rule, field))
+=======
+  defp cidr_matches?(rule, _field, nil), do: is_nil(Map.get(rule, _field))
+>>>>>>> 730b3c49f1
 
   defp cidr_matches?(rule, field, ip) do
     case Map.get(rule, field) do
