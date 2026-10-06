@@ -1,6 +1,6 @@
 # `@carverauto/serviceradar-cli` Changelog
 
-## Unreleased
+## 0.2.1
 
 - `edge install leaf` and `edge install collector` download the matching package
   from the latest GitHub release when `--version` is omitted. `--version` still
