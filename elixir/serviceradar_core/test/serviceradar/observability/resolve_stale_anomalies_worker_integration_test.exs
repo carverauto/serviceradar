@@ -9,18 +9,17 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Repo
+  alias ServiceRadar.TestSupport
 
   @moduletag :integration
 
   setup_all do
-    ServiceRadar.TestSupport.start_core!()
+    TestSupport.start_core!()
     :ok
   end
 
   setup do
     actor = %{id: "system", role: :admin}
-    reset_engine()
-    on_exit(&reset_engine/0)
     {:ok, actor: actor}
   end
 
@@ -45,6 +44,8 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
                anomaly_event(device_uid, dead_series_key, base_time, 10)
              ])
 
+    TestSupport.complete_alert_effects!()
+
     assert [_alert1, _alert2] = active_alerts_by_title(actor, alert_title)
 
     # Only the live series has an open episode heartbeating `last_seen_at`.
@@ -59,7 +60,14 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
 
     # The episode-less alert resolves; the live-episode alert is kept.
     assert {:ok, 1} =
-             StatefulAlertEngine.resolve_stale_anomalies(rule_name, cutoff, now, live_series_keys)
+             TestSupport.complete_alert_operation!(fn ->
+               StatefulAlertEngine.resolve_stale_anomalies(
+                 rule_name,
+                 cutoff,
+                 now,
+                 live_series_keys
+               )
+             end)
 
     assert [kept] = active_alerts_by_title(actor, alert_title)
     assert kept.metadata["incident_group_values"]["anomaly.series_key"] == live_series_key
@@ -71,7 +79,14 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
     refute MapSet.member?(live_series_keys, live_series_key)
 
     assert {:ok, 1} =
-             StatefulAlertEngine.resolve_stale_anomalies(rule_name, cutoff, now, live_series_keys)
+             TestSupport.complete_alert_operation!(fn ->
+               StatefulAlertEngine.resolve_stale_anomalies(
+                 rule_name,
+                 cutoff,
+                 now,
+                 live_series_keys
+               )
+             end)
 
     assert [] = active_alerts_by_title(actor, alert_title)
   end
@@ -184,9 +199,5 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorkerIntegrationTest 
     |> Ash.read!()
     |> ServiceRadar.Ash.Page.unwrap!()
     |> Enum.filter(fn alert -> alert.title == title end)
-  end
-
-  defp reset_engine do
-    ServiceRadar.TestSupport.drain_stateful_alert_engines()
   end
 end

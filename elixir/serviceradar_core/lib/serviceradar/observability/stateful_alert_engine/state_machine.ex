@@ -1,13 +1,11 @@
 defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
   @moduledoc """
-  The per-rule snapshot state machine: dispatching each log/event/metric record
-  to the rules a shard owns, advancing the bucketed window snapshot in ETS,
-  firing/rolling-over/recovering alerts at the threshold, re-notifying, flushing
-  snapshots to Postgres, and the stale-anomaly auto-resolve sweep.
+  The per-rule snapshot state machine advances a disposable ETS working copy,
+  fires/rolls over/recovers incidents, and performs ordered stale resolution.
 
-  Snapshots live in the owning shard's private ETS table (`state.table`); this
-  module mutates that table and delegates all DB writes to
-  `ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle`.
+  The durable owner restores authoritative state, invokes this module inside
+  its database fence, and commits every changed snapshot with lifecycle effects
+  and the input receipt. Failed transactions discard the working copy.
   """
 
   import ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle
@@ -91,10 +89,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
 
   defp store_snapshot({:error, _} = error, _rule, _state, _key), do: error
 
-  defp store_snapshot(snapshot, rule, state, key) do
-    {result, flushed} = maybe_flush_snapshot(snapshot, rule, state)
-    :ets.insert(state.table, {key, flushed})
-    result
+  defp store_snapshot(snapshot, _rule, state, key) do
+    :ets.insert(state.table, {key, Map.put(snapshot, :flush_required, true)})
+    :ok
   end
 
   defp process_log(rule, log, state), do: process_record(rule, log, state)
@@ -312,18 +309,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
     end
   end
 
-  # The state override is a narrow test seam. Production shard state omits it
-  # and always delegates to AlertLifecycle.resolve_alert/4.
-  defp resolve_snapshot_alert(snapshot, rule, now, state) do
-    resolver = Map.get(state, :resolve_alert, &resolve_alert/4)
-    resolver.(snapshot.alert_id, rule, snapshot, now)
+  defp resolve_snapshot_alert(snapshot, rule, now, _state) do
+    resolve_alert(snapshot.alert_id, rule, snapshot, now)
   end
 
-  # Like the resolver override, this is a narrow test seam. Production shard
-  # state omits it and always delegates to AlertLifecycle.create_event_and_alert/4.
-  defp create_snapshot_alert(rule, snapshot, record, now, state) do
-    creator = Map.get(state, :create_event_and_alert, &create_event_and_alert/4)
-    creator.(rule, snapshot, record, now)
+  defp create_snapshot_alert(rule, snapshot, record, now, _state) do
+    create_event_and_alert(rule, snapshot, record, now)
   end
 
   # Resolve every open snapshot for `rule` whose last matching record predates
@@ -359,20 +350,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
       else
         case handle_recovery(snapshot, rule, nil, now, state) do
           {:error, reason} ->
-            sweep_failure(state, reason, acc)
+            {:halt, {:error, reason}}
 
           resolved ->
             case store_snapshot(resolved, rule, state, key) do
               :ok -> {:cont, acc + 1}
-              {:error, reason} -> sweep_failure(state, reason, acc)
+              {:error, reason} -> {:halt, {:error, reason}}
             end
         end
       end
     end)
   end
-
-  defp sweep_failure(%{transactional?: true}, reason, _count), do: {:halt, {:error, reason}}
-  defp sweep_failure(_state, _reason, count), do: {:cont, count}
 
   defp live_series?(snapshot, live_series_keys) do
     case Map.get(snapshot, :group_values) do
@@ -409,28 +397,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
       end
     else
       snapshot
-    end
-  end
-
-  defp maybe_flush_snapshot(snapshot, _rule, %{transactional?: true}) do
-    # The durable owner commits all changed groups with the input receipt.
-    # This also includes updates inside the same time bucket.
-    {:ok, Map.put(snapshot, :flush_required, true)}
-  end
-
-  defp maybe_flush_snapshot(snapshot, rule, state) do
-    if Map.get(snapshot, :bucket_changed, false) || Map.get(snapshot, :flush_required, false) do
-      persister = Map.get(state, :persist_snapshot, &persist_snapshot/3)
-
-      case persister.(snapshot, rule, state) do
-        :ok ->
-          {:ok, snapshot |> Map.put(:bucket_changed, false) |> Map.put(:flush_required, false)}
-
-        :error ->
-          {{:error, :snapshot_persistence_failed}, Map.put(snapshot, :flush_required, true)}
-      end
-    else
-      {:ok, snapshot}
     end
   end
 end

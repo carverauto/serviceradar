@@ -15,6 +15,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
 
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -34,6 +35,44 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   @default_flood_threshold_per_minute 100
   @default_flap_window_seconds 300
   @default_producer_stale_seconds 900
+  @rate_reservations_key {__MODULE__, :rate_reservations}
+
+  @doc "Commits episode transitions with their downstream durable admission."
+  def transaction(work) when is_function(work, 0) do
+    prior = Process.get(@rate_reservations_key)
+    Process.put(@rate_reservations_key, %{})
+
+    try do
+      case Repo.transaction(work) do
+        {:ok, _} = result ->
+          commit_rate_reservations()
+          result
+
+        {:error, _} = error ->
+          error
+      end
+    after
+      if is_nil(prior),
+        do: Process.delete(@rate_reservations_key),
+        else: Process.put(@rate_reservations_key, prior)
+    end
+  end
+
+  defp commit_rate_reservations do
+    Enum.each(Process.get(@rate_reservations_key, %{}), fn {key, count} ->
+      try do
+        :ets.update_counter(
+          AnomalyEpisodeGuardTables.rate_guard_table(),
+          key,
+          {2, count},
+          {key, 0}
+        )
+      rescue
+        # this best-effort node-local governor fails open on restart
+        ArgumentError -> :ok
+      end
+    end)
+  end
 
   @upsert_sql """
   WITH existing AS MATERIALIZED (
@@ -244,7 +283,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   rows pass through unchanged.
   """
   @spec transition_rows([row()], module()) :: [row()]
-  def transition_rows(rows, repo \\ ServiceRadar.Repo)
+  def transition_rows(rows, repo \\ Repo)
 
   def transition_rows([], _repo), do: []
 
@@ -688,8 +727,25 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   defp count_rate_guard(finding_uid) do
     key = {finding_uid, div(System.system_time(:second), 3600)}
 
-    {:ok,
-     :ets.update_counter(AnomalyEpisodeGuardTables.rate_guard_table(), key, {2, 1}, {key, 0})}
+    case Process.get(@rate_reservations_key) do
+      reservations when is_map(reservations) ->
+        # Cache mutation before commit would survive a killed transaction and
+        # suppress its replay. Keep this batch's increments disposable until
+        # commit; parallel batches may briefly exceed the best-effort governor.
+        committed =
+          case :ets.lookup(AnomalyEpisodeGuardTables.rate_guard_table(), key) do
+            [{^key, value}] -> value
+            [] -> 0
+          end
+
+        pending = Map.get(reservations, key, 0) + 1
+        Process.put(@rate_reservations_key, Map.put(reservations, key, pending))
+        {:ok, committed + pending}
+
+      nil ->
+        {:ok,
+         :ets.update_counter(AnomalyEpisodeGuardTables.rate_guard_table(), key, {2, 1}, {key, 0})}
+    end
   rescue
     ArgumentError -> :unavailable
   end

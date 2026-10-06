@@ -17,8 +17,6 @@ defmodule ServiceRadar.TestSupport do
   @dependency_dispatcher_registry_poll_ms 10
   @result_coordination_drain_timeout_ms 70_000
   @result_coordination_registry_poll_ms 10
-  @stateful_engine_drain_timeout_ms 5_000
-  @stateful_engine_registry_poll_ms 10
   @integration_runner_max_cases Map.new(
                                   [
                                     {{"async_serial", "async"}, 8},
@@ -131,6 +129,46 @@ defmodule ServiceRadar.TestSupport do
     complete_alert_rules!(Enum.map(remaining, &hd/1), deadline)
   end
 
+  @doc "Completes accepted alert work and delivers its committed JetStream outbox."
+  def complete_alert_effects! do
+    complete_alert_evaluations!()
+
+    case Oban.drain_queue(queue: :events, with_recursion: true) do
+      %{failure: 0, discard: 0, cancelled: 0, snoozed: 0} -> :ok
+      result -> raise "alert event outbox did not deliver: #{inspect(result)}"
+    end
+  end
+
+  @doc "Runs an effect-observing operation while real alert workers consume its accepted inputs."
+  def complete_alert_operation!(operation) when is_function(operation, 0) do
+    task = Task.async(operation)
+    deadline = System.monotonic_time(:millisecond) + 30_000
+
+    try do
+      complete_alert_operation!(task, deadline)
+    after
+      Task.shutdown(task, :brutal_kill)
+    end
+  end
+
+  defp complete_alert_operation!(task, deadline) do
+    case Task.yield(task, 10) do
+      {:ok, result} ->
+        complete_alert_effects!()
+        result
+
+      {:exit, reason} ->
+        raise "alert operation exited: #{inspect(reason)}"
+
+      nil ->
+        if System.monotonic_time(:millisecond) >= deadline,
+          do: raise("alert operation did not observe committed effects")
+
+        complete_alert_effects!()
+        complete_alert_operation!(task, deadline)
+    end
+  end
+
   @doc "Checks out a rollback-only database owner for the current test."
   def checkout_repo!(context \\ %{}) do
     reject_async_unboxed!(context)
@@ -239,7 +277,6 @@ defmodule ServiceRadar.TestSupport do
   end
 
   def stop_repo_owner(owner, shared: true) do
-    drain_stateful_alert_engines()
     drain_dependency_dispatcher_tasks()
     drain_result_coordination_tasks()
 
@@ -401,95 +438,6 @@ defmodule ServiceRadar.TestSupport do
         end
 
         await_empty_result_coordination(supervisor, deadline)
-    end
-  end
-
-  @doc false
-  def drain_stateful_alert_engines do
-    if Process.whereis(ProcessRegistry.registry_name()) do
-      deadline =
-        System.monotonic_time(:millisecond) + @stateful_engine_drain_timeout_ms
-
-      do_drain_stateful_alert_engines(deadline)
-    else
-      :ok
-    end
-  end
-
-  defp do_drain_stateful_alert_engines(deadline) do
-    case stateful_alert_engine_entries() do
-      [] ->
-        :ok
-
-      entries ->
-        entries
-        |> Enum.map(fn {_key, pid, _metadata} -> pid end)
-        |> Enum.filter(&Process.alive?/1)
-        |> Enum.uniq()
-        |> Enum.each(&terminate_stateful_alert_engine(&1, deadline))
-
-        await_empty_stateful_alert_registry(deadline)
-    end
-  end
-
-  defp await_empty_stateful_alert_registry(deadline) do
-    case stateful_alert_engine_entries() do
-      [] ->
-        :ok
-
-      entries ->
-        if remaining_timeout(deadline) == 0 do
-          raise "stateful alert engine registry did not drain: #{inspect(entries)}"
-        end
-
-        case Enum.find(entries, fn {_key, pid, _metadata} -> Process.alive?(pid) end) do
-          {_key, _pid, _metadata} ->
-            do_drain_stateful_alert_engines(deadline)
-
-          nil ->
-            receive do
-            after
-              min(@stateful_engine_registry_poll_ms, remaining_timeout(deadline)) -> :ok
-            end
-
-            await_empty_stateful_alert_registry(deadline)
-        end
-    end
-  end
-
-  defp stateful_alert_engine_entries do
-    Enum.filter(ProcessRegistry.select_all(), fn
-      {:stateful_alert_engine, _pid, _metadata} -> true
-      {{:stateful_alert_engine, _shard}, _pid, _metadata} -> true
-      _other -> false
-    end)
-  end
-
-  defp terminate_stateful_alert_engine(pid, deadline) do
-    monitor_ref = Process.monitor(pid)
-
-    try do
-      case ProcessRegistry.terminate_child(pid) do
-        :ok ->
-          :ok
-
-        {:error, :not_found} ->
-          if Process.alive?(pid) do
-            raise "stateful alert engine is alive but missing from its supervisor: #{inspect(pid)}"
-          end
-
-        {:error, reason} ->
-          raise "failed to terminate stateful alert engine: #{inspect(reason)}"
-      end
-
-      receive do
-        {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
-      after
-        remaining_timeout(deadline) ->
-          raise "stateful alert engine did not terminate: #{inspect(pid)}"
-      end
-    after
-      Process.demonitor(monitor_ref, [:flush])
     end
   end
 

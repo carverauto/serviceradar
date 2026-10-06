@@ -20,6 +20,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
   def mode, do: Application.get_env(:serviceradar_core, :alert_evaluation_mode, :prepared)
   def consumers_enabled?, do: mode() in [:active, :draining]
 
+  @doc "Whether this host is configured to consume the shared alert work queue."
+  def alert_consumer? do
+    config = Application.get_env(:serviceradar_core, Oban, false)
+
+    if Application.get_env(:serviceradar_core, :oban_enabled, true) and is_list(config) do
+      queues = Keyword.get(config, :queues, [])
+      queue = if is_list(queues), do: Keyword.get(queues, :alerts)
+      limit = if is_list(queue), do: Keyword.get(queue, :limit), else: queue
+      is_integer(limit) and limit > 0
+    else
+      false
+    end
+  end
+
   @doc "Validated deployment settings shared by core and embedded-core releases."
   def runtime_config! do
     mode =
@@ -97,7 +111,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
 
   @doc "Deployment capability queried before enabling admission on connected evaluator peers."
   def capability do
-    with true <- ObanSupport.available?(),
+    with true <- Application.get_env(:serviceradar_core, :repo_enabled, true) != false,
+         true <- is_pid(Process.whereis(Repo)),
+         true <- ObanSupport.available?(),
          true <- AlertEvaluationReceipt.retention_valid?(),
          true <- Code.ensure_loaded?(EvaluationWorker),
          true <- consumer_ready?(),
@@ -176,7 +192,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
         500
       )
 
-    with {:ok, evaluators} <- evaluator_peers(Enum.zip([peers, handlers, writers])) do
+    consumers = :erpc.multicall(peers, __MODULE__, :alert_consumer?, [], 500)
+
+    with {:ok, evaluators} <- evaluator_peers(Enum.zip([peers, handlers, writers, consumers])) do
       # One deadline covers the whole cohort, rather than one timeout per node.
       evaluators
       |> :erpc.multicall(__MODULE__, :capability, [], 1_500)
@@ -192,11 +210,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
 
   defp evaluator_peers(entries) do
     Enum.reduce_while(entries, {:ok, []}, fn
-      {_peer, {:ok, false}, {:ok, false}}, acc ->
+      {_peer, {:ok, false}, {:ok, false}, {:ok, false}}, acc ->
         {:cont, acc}
 
-      {peer, {:ok, handler}, {:ok, writer}}, {:ok, acc}
-      when is_boolean(handler) and is_boolean(writer) ->
+      {peer, {:ok, handler}, {:ok, writer}, {:ok, consumer}}, {:ok, acc}
+      when is_boolean(handler) and is_boolean(writer) and is_boolean(consumer) ->
         {:cont, {:ok, [peer | acc]}}
 
       _, _ ->

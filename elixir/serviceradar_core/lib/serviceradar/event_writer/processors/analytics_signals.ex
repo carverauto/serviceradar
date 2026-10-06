@@ -134,29 +134,38 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
           build_ocsf_event_row(normalized, payload, raw_data, metadata)
         end)
         |> Enum.reject(&is_nil/1)
-        |> AnomalyEpisodeRegistry.transition_rows()
-
-      {ash_ocsf_rows, bulk_ocsf_rows} = Enum.split_with(all_ocsf_rows, &ash_recorded_row?/1)
 
       routing_store = store_routing_events(routing_rows)
-      bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
-      {persisted_ocsf_rows, recorded_ocsf_events} = record_ocsf_events(ash_ocsf_rows)
+
+      {:ok, {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events}} =
+        AnomalyEpisodeRegistry.transaction(fn ->
+          {ash_rows, bulk_rows} =
+            all_ocsf_rows
+            |> AnomalyEpisodeRegistry.transition_rows()
+            |> Enum.split_with(&ash_recorded_row?/1)
+
+          count = insert_rows(table_name(), bulk_rows)
+          {persisted, transitions} = record_ocsf_events(ash_rows)
+
+          # Commit the transition and its accepted evaluation together. A
+          # rejected inbox must leave the prior state available to redelivery.
+          case evaluate_transitions(transitions) do
+            :ok -> {bulk_rows, count, persisted, transitions}
+            {:error, reason} -> ServiceRadar.Repo.rollback(reason)
+          end
+        end)
+
       warehouse = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
 
       dispatch_northbound_inventory_transitions(recorded_ocsf_events)
 
-      # Insert-only rows are evaluated once per event (the ledger),
-      # synchronously: an engine failure fails the batch and its redelivery
-      # evaluates exactly the rows that did not finish. Lifecycle rows are
-      # upserted under a stable event id, so a later transition reuses an
-      # evaluated id; they are evaluated per transition instead, which the
-      # locked prior-state read already makes exactly-once.
+      # Insert-only rows use the source ledger. Lifecycle transitions were
+      # durably admitted in the same transaction as their prior-state update;
+      # their reused event identity is not an occurrence identity.
       evaluation =
         bulk_ocsf_rows
         |> alert_evaluation_rows()
         |> StatefulEvaluationLedger.evaluate_once()
-
-      evaluate_transitions(recorded_ocsf_events)
 
       report_anomaly_dispositions(recorded_ocsf_events)
 
@@ -721,20 +730,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     )
   end
 
-  # A transition that was recorded cannot be detected again on redelivery, so
-  # failing the batch would not retry it; the failure is logged instead.
+  # This runs inside the transition transaction. Occurrence IDs are distinct
+  # from the reused event row ID and are stored with the accepted inbox row.
   defp evaluate_transitions([]), do: :ok
 
   defp evaluate_transitions(rows) do
-    case rows |> alert_evaluation_rows() |> StatefulEvaluationLedger.engine().evaluate_events() do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Stateful alert evaluation of signal transitions failed",
-          reason: inspect(reason)
-        )
-    end
+    rows
+    |> alert_evaluation_rows()
+    |> Enum.map(&Map.put(&1, :__alert_evaluation_occurrence_id__, Ash.UUID.generate()))
+    |> StatefulEvaluationLedger.engine().evaluate_events()
   end
 
   defp alert_evaluation_event_row?(row),

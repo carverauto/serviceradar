@@ -1,29 +1,3 @@
-defmodule ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine do
-  @moduledoc false
-  use GenServer
-
-  def start_link(test_pid) do
-    GenServer.start_link(__MODULE__, test_pid,
-      name: ServiceRadar.ProcessRegistry.via(:stateful_alert_engine)
-    )
-  end
-
-  @impl true
-  def init(test_pid), do: {:ok, test_pid}
-
-  @impl true
-  def handle_call({:evaluate_events, events}, from, test_pid) do
-    send(test_pid, {:evaluation_requested, from, events})
-    {:noreply, test_pid}
-  end
-
-  @impl true
-  def handle_call({:evaluate_events, events, {:snapshot_rules, _rules}}, from, test_pid) do
-    send(test_pid, {:evaluation_requested, from, events})
-    {:noreply, test_pid}
-  end
-end
-
 defmodule ServiceRadar.Observability.LogPromotionTest do
   use ServiceRadar.DataCase, async: false
 
@@ -36,8 +10,6 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   alias ServiceRadar.NATS.DurablePublishWorker
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
-  alias ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine
-  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.ScriptedStatefulAlertEngine
@@ -98,26 +70,10 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   end
 
   test "node transitions commit with their publish queued, and evaluation is retried by redelivery" do
-    use_single_engine_shard()
+    configure_scripted_engine([{:error, :alert_evaluation_draining}])
     subject = ServiceRadar.NATS.Channels.build("logs.internal.k8s")
     create_queue_probe("node-ack", subject)
-    # Exercise acknowledgement/redelivery on a signal that is actually routed;
-    # an empty rule set correctly avoids calling any engine shard.
-    StatefulAlertRule
-    |> Ash.Changeset.for_create(
-      :create,
-      %{
-        name: "node-ack-stateful-#{Ash.UUID.generate()}",
-        signal: :event,
-        match: %{"always" => true},
-        threshold: 2
-      },
-      actor: %{id: "system", role: :admin}
-    )
-    |> Ash.create!()
-
     LogPromotion.invalidate_rules_cache()
-    start_supervised!({AcknowledgingEngine, self()})
 
     cluster = "cluster-#{Ash.UUID.generate()}"
     initial_time = ~U[2026-09-05 12:00:00.000000Z]
@@ -150,19 +106,14 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
                [cluster]
              )
 
-    refute_receive {:evaluation_requested, _, _}
-    publish = Task.async(fn -> publish_queued(subject) end)
+    refute_receive {:evaluated, _}
+    assert [:ok] = publish_queued(subject)
 
-    # The logs batch carrying the transition fails its evaluation...
-    assert_receive {:evaluation_requested, from, [%{id: event_id}]}, 2_000
-    GenServer.reply(from, {:error, :engine_restarting})
-
-    # ...and its redelivery evaluates the same event again.
-    assert_receive {:evaluation_requested, retry_from, [%{id: ^event_id}]}, 2_000
-    GenServer.reply(retry_from, :ok)
-
-    assert [:ok] = Task.await(publish, 5_000)
-    refute_receive {:evaluation_requested, _, _}
+    # Failed durable admission leaves the source event unevaluated, so the
+    # transport redelivers that same identity instead of creating a new one.
+    assert_receive {:evaluated, [%{id: event_id}]}
+    assert_receive {:evaluated, [%{id: ^event_id}]}
+    refute_receive {:evaluated, _}
   end
 
   test "log ingestion propagates promotion evaluation failures" do
@@ -744,19 +695,6 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     |> Enum.map(&DurablePublishWorker.perform/1)
   end
 
-  # The acknowledging stub registers as the single engine shard, so every
-  # evaluation reaches it.
-  defp use_single_engine_shard do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    TestSupport.drain_stateful_alert_engines()
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
-
-    on_exit(fn ->
-      TestSupport.drain_stateful_alert_engines()
-      restore_env(:stateful_alert_engine_shards, previous_shards)
-    end)
-  end
-
   defp alert_count(log_name) do
     %{rows: [[count]]} =
       Repo.query!(
@@ -798,7 +736,4 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
       created_at: DateTime.utc_now()
     }
   end
-
-  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
-  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 end

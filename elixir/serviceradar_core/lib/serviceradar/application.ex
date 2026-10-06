@@ -187,7 +187,9 @@ defmodule ServiceRadar.Application do
   end
 
   defp ingestion_metrics_child do
-    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) or
+         Application.get_env(:serviceradar_core, :event_writer_enabled, false) or
+         ServiceRadar.Observability.StatefulAlertEngine.Rollout.alert_consumer?() do
       ServiceRadar.Ingestion.RuntimeMetrics
     end
   end

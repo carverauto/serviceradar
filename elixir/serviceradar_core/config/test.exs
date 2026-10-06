@@ -380,6 +380,9 @@ config :serviceradar_core,
   service_heartbeat_enabled: false,
   spiffe_cert_monitor_enabled: false,
   status_handler_enabled: false,
+  # The CI fixture applies this checkout's schema and drives the real manual
+  # Oban consumer. Capability checks still reject an unavailable store/pool.
+  alert_evaluation_mode: :active,
   control_repo_enabled: false,
   seeders_enabled: false
 

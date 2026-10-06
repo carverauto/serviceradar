@@ -48,3 +48,23 @@ An absent fresh health sample is unknown health, not an empty queue.
 Live mixed-version rollout, disconnected-owner retirement, drain and rollback
 remain unverified until their deployment evidence is recorded. Unit success does
 not substitute for those checks.
+
+## Writer and caller boundaries
+
+| Boundary | Runtime writers or callers | Durable behavior |
+| --- | --- | --- |
+| Rule inventory | `StatefulAlertRule` Ash/JSON API actions, `RuleSeeder`, `Plugins.AlertRuleCatalog`, `Inventory.MetricRuleSync`, Rules LiveView, event-to-rule creation, AshEvents replay | Database triggers cover row INSERT/UPDATE/DELETE and replay TRUNCATE. Admission captures one revision; disabling/deleting cancels unclaimed accepted input through the lane watermark. |
+| Source acknowledgement | `StatefulEvaluationLedger` used by Events, Falco, Trivy and log promotion | The source marker records acceptance, not completed alert effects. Rejection returns to the source consumer; receipts deduplicate a replay after accepted work commits. |
+| Stateful source transitions | `AnalyticsSignals` and `AnomalyEpisodeRegistry` | Episode and event transitions commit with their accepted evaluation. Distinct transitions may retain one event row ID; occurrence identities distinguish those transitions. |
+| Snapshot and rule history | `Owner`, `AlertLifecycle`, `StatefulAlertCleanupWorker` | The owner fence encloses restore, lifecycle changes, every changed snapshot and the receipt. Cleanup rechecks pending work and incident identity under the admission/owner boundaries. |
+| Incident and notification control | `Monitoring.Alert`, `AlertGenerator`, `AlertLifecycle`, notification routing/continuation/scheduler workers, operator actions | Existing operator acknowledgement, suppression, escalation and resolution remain control-plane actions. Renotify continuation reacquires the rule fence and rechecks the alert/rule/cadence before enqueue and bookkeeping. |
+| Completion-dependent callers | `ResolveStaleAnomaliesWorker`, `AnomalyAlertLivenessCheck` | Maintenance observes ordered receipts and returns actual resolved counts. Liveness observes persisted alert creation and resolution rather than treating acceptance as completion. |
+
+This inventory includes raw SQL and table-level replay, rather than only named
+Ash actions. It does not authorize dropping accepted work or a live rollout
+without checking the complete evaluator cohort.
+
+The source transition transaction defers the existing node-local, best-effort
+rate-governor counter until commit. A rejected transaction does not consume the
+retry's budget. Concurrent batches may briefly exceed that best-effort local
+counter; it is not a deployment-wide quota and already resets on process restart.

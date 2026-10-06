@@ -16,18 +16,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Observability.SeasonalDisposition.StateStore, as: SeasonalStateStore
   alias ServiceRadar.Observability.StatefulAlertEngine
-  alias ServiceRadar.Observability.StatefulAlertEngine.ShardRouting
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
-  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
-
-  @stateful_cleanup_worker "ServiceRadar.Observability.StatefulAlertCleanupWorker"
-
-  # Bounds for the lookup-lag regression tests; this file runs in a serial lane.
-  @lookup_lag_iterations 12
-  @lookup_lag_flooders 64
 
   @moduletag :integration
 
@@ -38,8 +30,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   setup do
     actor = %{id: "system", role: :admin}
-    reset_engine()
-    on_exit(&reset_engine/0)
     {:ok, actor: actor}
   end
 
@@ -90,7 +80,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     events = [event.(base_time), event.(base_time)]
 
     # In single-deployment mode, schema is determined by search_path
-    assert :ok = StatefulAlertEngine.evaluate_events(events)
+    assert :ok = evaluate_events_and_complete!(events)
 
     events =
       OcsfEvent
@@ -119,7 +109,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert alert.status in [:pending, :acknowledged, :escalated]
 
     later = DateTime.shift(base_time, minute: 3)
-    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)])
+    assert :ok = evaluate_events_and_complete!([event.(later)])
 
     {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved
@@ -191,7 +181,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end
 
     assert :ok =
-             StatefulAlertEngine.evaluate_metrics([
+             evaluate_metrics_and_complete!([
                metric.(base_time, 0.62),
                metric.(DateTime.shift(base_time, minute: 1), 0.66),
                metric.(DateTime.shift(base_time, minute: 2), 0.70)
@@ -231,7 +221,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert active_alert.metadata["incident_diagnostics"]["source"]["source_signal"] == "metric"
 
     assert :ok =
-             StatefulAlertEngine.evaluate_metrics([
+             evaluate_metrics_and_complete!([
                metric.(DateTime.shift(base_time, minute: 10), 0.52)
              ])
 
@@ -308,7 +298,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       }
     }
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event])
+    assert :ok = evaluate_events_and_complete!([event])
 
     active_alerts =
       Alert
@@ -433,6 +423,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert row.device == %{"uid" => device_uid}
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    TestSupport.complete_alert_effects!()
     # The episode registry (default-on) stamps a deterministic transition
     # identity onto anomaly rows, so look the persisted row up by device
     # rather than by the pre-registry (id, time) pair.
@@ -534,10 +525,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       }
     end
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("pending_anomaly", 0)])
+    assert :ok = evaluate_events_and_complete!([event.("pending_anomaly", 0)])
     assert [] = active_alerts_by_title(actor, alert_title)
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 10)])
+    assert :ok = evaluate_events_and_complete!([event.("anomaly_open", 10)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
     assert active_alert.severity == :critical
@@ -548,12 +539,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
              "device" => device_uid
            }
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 20)])
+    assert :ok = evaluate_events_and_complete!([event.("anomaly_open", 20)])
     assert [same_alert] = active_alerts_by_title(actor, alert_title)
     assert same_alert.id == active_alert.id
     assert same_alert.metadata["incident_occurrence_count"] == 2
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_clear", 30)])
+    assert :ok = evaluate_events_and_complete!([event.("anomaly_clear", 30)])
     assert [] = active_alerts_by_title(actor, alert_title)
 
     {:ok, resolved_alert} = Alert.get_by_id(active_alert.id, actor: actor)
@@ -567,7 +558,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     series_key = "synthetic:anomaly-alert-liveness:test:#{System.unique_integer([:positive])}"
 
     assert {:ok, result} =
-             AnomalyAlertLivenessCheck.run(
+             run_liveness_and_complete!(
                actor: actor,
                now: now,
                series_key: series_key,
@@ -675,7 +666,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end
 
     # Open the alert; the ETS snapshot now holds a bound, active alert_id.
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 0)])
+    assert :ok = evaluate_events_and_complete!([event.("anomaly_open", 0)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
     # Resolve the alert out-of-band (REST/sweep/duplicate clear), leaving the ETS
@@ -698,7 +689,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     # The clear event drives recover_event -> handle_recovery -> resolve_alert on the
     # already-:resolved alert. Pre-fix this raised KeyError (#1) / NoMatchingTransition
     # (#2); it must now be a clean :ok.
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_clear", 30)])
+    assert :ok = evaluate_events_and_complete!([event.("anomaly_clear", 30)])
 
     {:ok, still_resolved} = Alert.get_by_id(active_alert.id, actor: actor)
     assert still_resolved.status == :resolved
@@ -793,7 +784,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       }
     }
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event])
+    assert :ok = evaluate_events_and_complete!([event])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
     # The engine stringifies every group value (Record.build_group/2 uses
@@ -809,19 +800,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   test "central seasonal normal state suppresses matching edge-spike anomaly alert", %{
     actor: actor
   } do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
-
-    on_exit(fn ->
-      if is_nil(previous_shards) do
-        Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
-      else
-        Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, previous_shards)
-      end
-    end)
-
-    reset_engine()
-
     unique = System.unique_integer([:positive])
     device_uid = "sr:seasonal-suppressed-device-#{unique}"
     series_key = "sysmon:cpu:#{device_uid}:0"
@@ -920,10 +898,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       }
     end
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("edge-spike", 10)])
+    assert :ok = evaluate_events_and_complete!([event.("edge-spike", 10)])
     assert [] = active_alerts_by_title(actor, alert_title)
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("central-seasonal", 20)])
+    assert :ok = evaluate_events_and_complete!([event.("central-seasonal", 20)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
     assert active_alert.metadata["incident_group_values"] == %{
@@ -935,19 +913,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   test "unsupported seasonal metric classes pass through edge-spike anomaly alerts", %{
     actor: actor
   } do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
-
-    on_exit(fn ->
-      if is_nil(previous_shards) do
-        Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
-      else
-        Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, previous_shards)
-      end
-    end)
-
-    reset_engine()
-
     base_time = DateTime.truncate(DateTime.utc_now(), :microsecond)
     bucket_started_at = DateTime.shift(base_time, minute: -1)
     bucket_ended_at = DateTime.shift(base_time, hour: 1)
@@ -1016,8 +981,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         )
         |> Ash.create()
 
-      reset_engine()
-
       event = %{
         id: Ash.UUID.generate(),
         time: DateTime.shift(base_time, second: unique),
@@ -1046,7 +1009,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         }
       }
 
-      assert :ok = StatefulAlertEngine.evaluate_events([event])
+      assert :ok = evaluate_events_and_complete!([event])
       assert [active_alert] = active_alerts_by_title(actor, alert_title)
       assert active_alert.severity == expected_severity
 
@@ -1130,15 +1093,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end
 
     # Open the alert; the series' last matching record is at base_time + 10s.
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("pending_anomaly", 0)])
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 10)])
+    assert :ok = evaluate_events_and_complete!([event.("pending_anomaly", 0)])
+    assert :ok = evaluate_events_and_complete!([event.("anomaly_open", 10)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
     # The series goes silent (no anomaly_clear ever arrives). A cutoff after its
     # last_seen_at marks the open snapshot stale, and the sweep resolves it.
     cutoff = DateTime.shift(base_time, hour: 1)
     now = DateTime.shift(base_time, hour: 1)
-    assert {:ok, 1} = StatefulAlertEngine.resolve_stale_anomalies(rule_name, cutoff, now)
+    assert {:ok, 1} = resolve_and_complete!(rule_name, cutoff, now)
 
     {:ok, resolved} = Alert.get_by_id(active_alert.id, actor: actor)
     assert resolved.status == :resolved
@@ -1150,7 +1113,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.any?(history, &(&1.event_type == :recovered))
 
     # Idempotent: the alert_id was nulled, so a second sweep resolves nothing.
-    assert {:ok, 0} = StatefulAlertEngine.resolve_stale_anomalies(rule_name, cutoff, now)
+    assert {:ok, 0} = resolve_and_complete!(rule_name, cutoff, now)
   end
 
   test "capacity forecast alerts coalesce by resource and resolve on inactive status", %{
@@ -1227,10 +1190,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       }
     end
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("inactive", 0)])
+    assert :ok = evaluate_events_and_complete!([event.("inactive", 0)])
     assert [] = active_alerts_by_title(actor, alert_title)
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("projected", 10)])
+    assert :ok = evaluate_events_and_complete!([event.("projected", 10)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
     assert active_alert.severity == :critical
@@ -1240,12 +1203,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
              "device" => device_uid
            }
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("projected", 20)])
+    assert :ok = evaluate_events_and_complete!([event.("projected", 20)])
     assert [same_alert] = active_alerts_by_title(actor, alert_title)
     assert same_alert.id == active_alert.id
     assert same_alert.metadata["incident_occurrence_count"] == 2
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("inactive", 30)])
+    assert :ok = evaluate_events_and_complete!([event.("inactive", 30)])
     assert [] = active_alerts_by_title(actor, alert_title)
 
     {:ok, resolved_alert} = Alert.get_by_id(active_alert.id, actor: actor)
@@ -1350,13 +1313,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       }
     end
 
-    assert :ok = StatefulAlertEngine.evaluate_events([event.(base_time)])
+    assert :ok = evaluate_events_and_complete!([event.(base_time)])
 
     assert :ok =
-             StatefulAlertEngine.evaluate_events([event.(DateTime.shift(base_time, second: 30))])
+             evaluate_events_and_complete!([event.(DateTime.shift(base_time, second: 30))])
 
     assert :ok =
-             StatefulAlertEngine.evaluate_events([event.(DateTime.shift(base_time, second: 90))])
+             evaluate_events_and_complete!([event.(DateTime.shift(base_time, second: 90))])
 
     alerts =
       Alert
@@ -1422,7 +1385,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     refute Enum.any?(history, &(&1.event_type == :cooldown))
 
     rollover_time = DateTime.shift(base_time, minute: 7)
-    assert :ok = StatefulAlertEngine.evaluate_events([event.(rollover_time)])
+    assert :ok = evaluate_events_and_complete!([event.(rollover_time)])
 
     active_alerts_after_rollover =
       Alert
@@ -1447,26 +1410,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.any?(rollover_history, &(&1.event_type == :recovered))
   end
 
-  @tag sandbox: :unboxed
-  test "fans out across shards so rules in different shards fire concurrently and independently",
+  test "admits only matching rules and commits one alert for each independent rule",
        %{actor: actor} do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
-    reset_engine()
-
-    on_exit(fn ->
-      restore_env(:stateful_alert_engine_shards, previous_shards)
-    end)
-
-    # Pin alternating rule IDs to each configured shard, then drive them in a
-    # single batch. The previous single-GenServer engine processed every rule
-    # serially behind one process (blocking on each rule's DB writes). The
-    # sharded engine runs disjoint rules in separate processes, so this proves
-    # DB writes no longer funnel through a single serialization point while
-    # every rule still fires exactly once.
     unique = System.unique_integer([:positive])
-    cleanup_jobs_before = stateful_cleanup_job_ids()
-    on_exit(fn -> cleanup_shard_fanout(unique, cleanup_jobs_before) end)
 
     rules =
       for index <- 1..6 do
@@ -1495,22 +1441,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             },
             actor: actor
           )
-          |> Ash.Changeset.force_change_attribute(:id, rule_id_for_shard(rem(index, 2)))
           |> Ash.create()
 
         {index, title, rule}
       end
-
-    shards =
-      rules
-      |> Enum.map(fn {_index, _title, rule} ->
-        StatefulAlertEngine.shard_for_rule_id(rule.id)
-      end)
-      |> Enum.uniq()
-
-    # Guard the premise: the batch must exercise both configured shards for this
-    # to be a meaningful concurrency test.
-    assert Enum.sort(shards) == [0, 1]
 
     events =
       for {index, _title, _rule} <- rules do
@@ -1530,6 +1464,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     assert :ok = StatefulAlertEngine.evaluate_events(events)
 
+    %{rows: admitted} =
+      Repo.query!(
+        "SELECT rule_id::text, payload->'unmapped'->'log_attributes'->>'fanout_index' FROM platform.alert_evaluation_work WHERE rule_id::text = ANY($1::text[])",
+        [Enum.map(rules, fn {_index, _title, rule} -> rule.id end)]
+      )
+
+    assert MapSet.new(admitted) ==
+             MapSet.new(rules, fn {index, _title, rule} -> [rule.id, to_string(index)] end)
+
+    for {_index, title, _rule} <- rules, do: assert(active_alerts_by_title(actor, title) == [])
+    TestSupport.complete_alert_effects!()
+
     active_alerts =
       Alert
       |> Ash.Query.for_read(:active, %{}, actor: actor)
@@ -1543,121 +1489,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end
   end
 
-  test "a batch waits only on shards that own a rule for its signal", %{actor: actor} do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
-    reset_engine()
-
-    unique = System.unique_integer([:positive])
-    cleanup_jobs_before = stateful_cleanup_job_ids()
-
-    # Shard 1 owns no event rule and never answers: a stand-in for a shard busy
-    # in slow alert writes for rules of another signal.
-    {:ok, stuck} =
-      Agent.start(fn -> nil end, name: ProcessRegistry.via({:stateful_alert_engine, 1}))
-
-    :sys.suspend(stuck)
-
-    on_exit(fn ->
-      Process.exit(stuck, :kill)
-      restore_env(:stateful_alert_engine_shards, previous_shards)
-      cleanup_shard_fanout(unique, cleanup_jobs_before)
-    end)
-
-    title = "Shard routing #{unique}"
-
-    {:ok, _rule} =
-      StatefulAlertRule
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "shard-fanout-#{unique}-routed",
-          enabled: true,
-          signal: :event,
-          match: %{"attribute_equals" => %{"routing_case" => "#{unique}"}},
-          group_by: ["routing_case"],
-          threshold: 1,
-          window_seconds: 300,
-          bucket_seconds: 60,
-          cooldown_seconds: 60,
-          renotify_seconds: 3600,
-          event: %{"log_name" => "alert.test.shard_routing", "message" => "Routed finding"},
-          alert: %{"title" => title, "severity" => "warning"}
-        },
-        actor: actor
-      )
-      |> Ash.Changeset.force_change_attribute(:id, rule_id_for_shard(0))
-      |> Ash.create()
-
-    event = %{
-      id: Ash.UUID.generate(),
-      time: DateTime.utc_now(),
-      severity_id: OCSF.severity_high(),
-      severity: OCSF.severity_name(OCSF.severity_high()),
-      message: "routed event",
-      log_name: "routing",
-      log_provider: "routing",
-      unmapped: %{"log_attributes" => %{"routing_case" => "#{unique}"}}
-    }
-
-    {elapsed_us, result} = :timer.tc(fn -> StatefulAlertEngine.evaluate_events([event]) end)
-
-    assert result == :ok
-    assert elapsed_us < 5_000_000, "the batch waited #{div(elapsed_us, 1000)} ms"
-
-    active_alerts =
-      Alert
-      |> Ash.Query.for_read(:active, %{}, actor: actor)
-      |> Ash.read!()
-      |> Page.unwrap!()
-
-    assert Enum.count(active_alerts, &(&1.title == title)) == 1
-  end
-
   test "routing evaluates raw-writer rule changes and replay truncates from one snapshot", %{
     actor: actor
   } do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
-    reset_engine()
-
     unique = System.unique_integer([:positive])
-    cleanup_jobs_before = stateful_cleanup_job_ids()
-
-    on_exit(fn ->
-      restore_env(:stateful_alert_engine_shards, previous_shards)
-      cleanup_shard_fanout(unique, cleanup_jobs_before)
-      reset_engine()
-    end)
-
-    shard_for = &StatefulAlertEngine.shard_for_rule_id/1
-
-    {:ok, %{shards: _routed_before, rules_by_shard: event_by_shard}} =
-      ShardRouting.snapshot_for(:event, shard_for)
-
-    # Genuine negative control: pick a shard owning no event rule right now,
-    # forcing one when the database already routes both shards, so the batch
-    # below proves the raw insert (not a pre-existing rule) fires the alert.
-    uncovered =
-      cond do
-        Map.get(event_by_shard, 0, []) == [] ->
-          0
-
-        Map.get(event_by_shard, 1, []) == [] ->
-          1
-
-        true ->
-          for rule <- Map.get(event_by_shard, 1, []) do
-            Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [
-              Ecto.UUID.dump!(rule.id)
-            ])
-          end
-
-          1
-      end
-
-    assert {:ok, %{shards: routed_cleared}} = ShardRouting.snapshot_for(:event, shard_for)
-    refute uncovered in routed_cleared
 
     # The match discriminator stays fixed per family while every occurrence
     # carries a fresh grouping value: a stale match after an update or delete
@@ -1689,15 +1524,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       |> Enum.count(&(&1.title == title))
     end
 
-    # Warm both shards so the raw writes below must be visible to the very
-    # next routing read, not just to a cold start.
+    # A prior batch must not hide a subsequent raw write behind a rule cache.
     assert :ok =
-             StatefulAlertEngine.evaluate_events([
+             evaluate_events_and_complete!([
                raw_event.("warm-#{unique}", "warm-#{unique}-1")
              ])
 
     title = "Shard raw writer #{unique}"
-    raw_id = rule_id_for_shard(uncovered)
+    raw_id = Ash.UUID.generate()
 
     Repo.query!(
       "INSERT INTO platform.stateful_alert_rules (id, name, signal, match, group_by, threshold, window_seconds, bucket_seconds, cooldown_seconds, renotify_seconds, event, alert) VALUES ($1::uuid, $2, 'event', $3::jsonb, '{routing_occurrence}', 1, 300, 60, 60, 3600, $4::jsonb, $5::jsonb)",
@@ -1713,16 +1547,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       ]
     )
 
-    assert {:ok, %{shards: routed_after}} = ShardRouting.snapshot_for(:event, shard_for)
-    assert uncovered in routed_after
-
     # The next batch routes from the same snapshot it evaluates: the raw rule
     # fires a persisted alert, while an unrelated family still fires nothing.
-    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("#{unique}", "#{unique}-1")])
+    assert :ok = evaluate_events_and_complete!([raw_event.("#{unique}", "#{unique}-1")])
     assert count_alerts.(title) == 1
 
     assert :ok =
-             StatefulAlertEngine.evaluate_events([
+             evaluate_events_and_complete!([
                raw_event.("other-#{unique}", "other-#{unique}-1")
              ])
 
@@ -1740,7 +1571,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       ]
     )
 
-    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("#{unique}", "#{unique}-2")])
+    assert :ok = evaluate_events_and_complete!([raw_event.("#{unique}", "#{unique}-2")])
     assert count_alerts.(title) == 1
 
     updated_title = "#{title} updated"
@@ -1754,7 +1585,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     )
 
     assert :ok =
-             StatefulAlertEngine.evaluate_events([
+             evaluate_events_and_complete!([
                raw_event.("updated-#{unique}", "updated-#{unique}-1")
              ])
 
@@ -1766,11 +1597,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       Ecto.UUID.dump!(raw_id)
     ])
 
-    assert {:ok, %{shards: routed_deleted}} = ShardRouting.snapshot_for(:event, shard_for)
-    refute uncovered in routed_deleted
-
     assert :ok =
-             StatefulAlertEngine.evaluate_events([
+             evaluate_events_and_complete!([
                raw_event.("updated-#{unique}", "updated-#{unique}-2")
              ])
 
@@ -1778,31 +1606,23 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     ServiceRadar.Observability.ApiEvent.ClearForReplay.clear_records!([])
 
-    assert {:ok, %{shards: []}} = ShardRouting.snapshot_for(:event, shard_for)
+    assert :ok =
+             evaluate_events_and_complete!([raw_event.("updated-#{unique}", "after-truncate")])
+
+    assert Repo.query!("SELECT count(*) FROM platform.alert_evaluation_work").rows == [[0]]
   end
 
-  test "a batch evaluates the snapshot selected at routing time when a rule changes mid-batch", %{
+  test "accepted input evaluates its captured revision after a later rule edit", %{
     actor: actor
   } do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
-    reset_engine()
-
     unique = System.unique_integer([:positive])
-    cleanup_jobs_before = stateful_cleanup_job_ids()
-
-    on_exit(fn ->
-      restore_env(:stateful_alert_engine_shards, previous_shards)
-      cleanup_shard_fanout(unique, cleanup_jobs_before)
-      reset_engine()
-    end)
 
     title_v1 = "Snapshot coherence #{unique} v1"
     title_v2 = "Snapshot coherence #{unique} v2"
     family = "#{unique}"
     occurrence = "#{unique}-coherent-1"
     rule_name = "shard-fanout-#{unique}-coherent"
-    raw_id = rule_id_for_shard(0)
+    raw_id = Ash.UUID.generate()
 
     {:ok, _rule} =
       StatefulAlertRule
@@ -1848,244 +1668,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       |> Enum.count(&(&1.title == title))
     end
 
-    # Start the owning shard so its pid exists before suspending it.
-    assert :ok =
-             StatefulAlertEngine.evaluate_events([
-               %{
-                 event
-                 | id: Ash.UUID.generate(),
-                   unmapped: %{
-                     "log_attributes" => %{
-                       "routing_family" => "warm-#{unique}",
-                       "routing_occurrence" => "warm-#{unique}-1"
-                     }
-                   }
-               }
-             ])
+    assert :ok = StatefulAlertEngine.evaluate_events([event])
+    assert count_alerts.(title_v1) == 0
+    assert count_alerts.(title_v2) == 0
 
-    [{owner_pid, _}] =
-      eventually(
-        fn -> ProcessRegistry.lookup(:stateful_alert_engine) end,
-        &match?([{_, _}], &1)
-      )
+    Repo.query!(
+      "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
+      [Ecto.UUID.dump!(raw_id), %{"title" => title_v2, "severity" => "warning"}]
+    )
 
-    :ok = :sys.suspend(owner_pid)
+    TestSupport.complete_alert_effects!()
 
-    try do
-      task = Task.async(fn -> StatefulAlertEngine.evaluate_events([event]) end)
-
-      # The fan-out takes its rule snapshot before queueing the batch, so a
-      # queued call proves routing/admission already completed against the
-      # original revision.
-      _ =
-        eventually(
-          fn -> Process.info(owner_pid, :message_queue_len) end,
-          &match?({:message_queue_len, len} when len >= 1, &1)
-        )
-
-      Repo.query!(
-        "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
-        [Ecto.UUID.dump!(raw_id), %{"title" => title_v2, "severity" => "warning"}]
-      )
-
-      :ok = :sys.resume(owner_pid)
-      assert :ok = Task.await(task, 15_000)
-    rescue
-      error ->
-        if Process.alive?(owner_pid), do: :sys.resume(owner_pid)
-        reraise error, __STACKTRACE__
-    catch
-      kind, reason ->
-        if Process.alive?(owner_pid), do: :sys.resume(owner_pid)
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
-
-    # The batch evaluates the revision selected at routing time: the original
-    # title fires, and the mid-batch revision leaves no persisted effect. A
-    # double-read owner that reloaded rules in the shard would fire v2 instead.
+    # Effects belong to the revision committed with acceptance, rather than
+    # whichever revision happens to be current when a worker runs.
     assert count_alerts.(title_v1) == 1
     assert count_alerts.(title_v2) == 0
-  end
-
-  # Guards the dispatch path against dropping a batch when a shard is (re)started:
-  # `dispatch_shard/3` must call the pid `ensure_started/1` resolved and restart a
-  # shard that is genuinely gone, instead of resolving the registered name a
-  # second time and reporting `{:error, :engine_not_running}`.
-  #
-  # The failure that motivated this (Horde populates its name-lookup ETS from
-  # asynchronous CRDT diffs, so a lookup can lag a just-started shard) needs
-  # registry contention to reproduce. The lookup-lag tests below force it; this
-  # test pins the other half of the contract — a terminated shard is restarted
-  # and the next batch is evaluated rather than dropped.
-  test "a shard terminated out-of-band is restarted and takes the next batch", %{actor: actor} do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
-    on_exit(fn -> restore_env(:stateful_alert_engine_shards, previous_shards) end)
-
-    reset_engine()
-
-    unique = System.unique_integer([:positive])
-    alert_title = "Restarted shard #{unique}"
-
-    {:ok, _rule} =
-      StatefulAlertRule
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "restarted-shard-#{unique}",
-          enabled: true,
-          signal: :event,
-          match: %{"always" => true},
-          group_by: ["serviceradar.sync.integration_source_id"],
-          threshold: 1,
-          window_seconds: 120,
-          bucket_seconds: 60,
-          cooldown_seconds: 60,
-          renotify_seconds: 3600,
-          event: %{
-            "log_name" => "alert.test.restarted_shard",
-            "message" => "Restarted shard finding"
-          },
-          alert: %{"title" => alert_title, "severity" => "warning"}
-        },
-        actor: actor
-      )
-      |> Ash.create()
-
-    event = fn source_id ->
-      %{
-        id: Ash.UUID.generate(),
-        time: DateTime.utc_now(),
-        severity_id: OCSF.severity_high(),
-        severity: OCSF.severity_name(OCSF.severity_high()),
-        message: "sync failed",
-        log_name: "sync",
-        log_provider: "sync",
-        unmapped: %{
-          "log_attributes" => %{
-            "serviceradar" => %{"sync" => %{"integration_source_id" => source_id}}
-          }
-        }
-      }
-    end
-
-    # Start the shard and prove it evaluates before we kill it.
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("#{unique}-before")])
-    assert length(active_alerts_by_title(actor, alert_title)) == 1
-
-    [{pid, _metadata}] =
-      eventually(
-        fn -> ProcessRegistry.lookup(:stateful_alert_engine) end,
-        &match?([{_, _}], &1)
-      )
-
-    monitor_ref = Process.monitor(pid)
-    assert :ok = ProcessRegistry.terminate_child(pid)
-    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 5_000
-
-    # Evaluate after the out-of-band termination: the engine must start a fresh
-    # shard and hand it this batch. The registry is idle here, so the lookup does
-    # not lag; the lookup-lag tests below cover that.
-    assert :ok = StatefulAlertEngine.evaluate_events([event.("#{unique}-after")])
-
-    # The restarted shard took the batch (the second group's alert exists), and a
-    # live engine is registered under the shard key again.
-    assert length(active_alerts_by_title(actor, alert_title)) == 2
-
-    assert [{new_pid, _metadata}] =
-             eventually(
-               fn -> ProcessRegistry.lookup(:stateful_alert_engine) end,
-               &match?([{registered, _}] when registered != pid, &1)
-             )
-
-    assert Process.alive?(new_pid)
-  end
-
-  # Regression for the dropped batch itself. Horde replies to a registration
-  # before it writes the keys ETS row that name resolution reads; that row is
-  # written when the registry handles the asynchronous CRDT diff. Keeping the
-  # registry mailbox busy makes the diff queue, so a shard that was just started
-  # is live and registered but not yet resolvable by name. Dispatching by name
-  # in that window reported `{:error, :engine_not_running}` and dropped the
-  # batch; dispatching to the pid `ensure_started/1` returned does not.
-  #
-  # The contention is read-only on purpose: `:members` is answered from registry
-  # state and writes nothing to the CRDT, so it does not grow Horde's causal
-  # context the way churning registrations would.
-  test "a batch sent to a just-started shard is evaluated while the registry lookup lags" do
-    single_shard()
-
-    results =
-      for _ <- 1..@lookup_lag_iterations do
-        reset_engine()
-
-        with_registry_contention(fn ->
-          StatefulAlertEngine.evaluate_events([lookup_lag_event()])
-        end)
-      end
-
-    assert Enum.uniq(results) == [:ok]
-  end
-
-  test "a resolve sweep sent to a just-started shard runs while the registry lookup lags" do
-    single_shard()
-    now = DateTime.utc_now()
-
-    results =
-      for _ <- 1..@lookup_lag_iterations do
-        reset_engine()
-
-        with_registry_contention(fn ->
-          StatefulAlertEngine.resolve_stale_anomalies(
-            "lookup-lag-no-such-rule",
-            DateTime.shift(now, hour: -1),
-            now
-          )
-        end)
-      end
-
-    assert Enum.uniq(results) == [{:ok, 0}]
-  end
-
-  defp single_shard do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
-    on_exit(fn -> restore_env(:stateful_alert_engine_shards, previous_shards) end)
-  end
-
-  defp lookup_lag_event do
-    %{
-      id: Ash.UUID.generate(),
-      time: DateTime.utc_now(),
-      severity_id: OCSF.severity_high(),
-      severity: OCSF.severity_name(OCSF.severity_high()),
-      message: "lookup lag",
-      log_name: "lookup_lag",
-      log_provider: "lookup_lag",
-      unmapped: %{}
-    }
-  end
-
-  # Runs `fun` while flooders keep the registry mailbox full, then kills every
-  # flooder so no contention outlives the call.
-  defp with_registry_contention(fun) do
-    registry = ProcessRegistry.registry_name()
-
-    flooders =
-      for _ <- 1..@lookup_lag_flooders, do: spawn(fn -> flood_registry(registry) end)
-
-    try do
-      # Let the flooders fill the mailbox before the shard is started.
-      Process.sleep(20)
-      fun.()
-    after
-      Enum.each(flooders, &Process.exit(&1, :kill))
-    end
-  end
-
-  defp flood_registry(registry) do
-    _ = GenServer.call(registry, :members, :infinity)
-    flood_registry(registry)
   end
 
   defp active_alerts_by_title(actor, title) do
@@ -2096,72 +1693,28 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     |> Enum.filter(fn alert -> alert.title == title end)
   end
 
-  defp cleanup_shard_fanout(unique, cleanup_jobs_before) do
-    %{rows: rows} =
-      Repo.query!(
-        "SELECT id::text FROM platform.stateful_alert_rules WHERE name LIKE $1",
-        ["shard-fanout-#{unique}-%"]
-      )
-
-    rule_ids = Enum.map(rows, fn [rule_id] -> rule_id end)
-
-    if rule_ids != [] do
-      Repo.query!(
-        "DELETE FROM platform.stateful_alert_rule_histories WHERE rule_id::text = ANY($1::text[])",
-        [rule_ids]
-      )
-
-      Repo.query!(
-        "DELETE FROM platform.stateful_alert_rule_states WHERE rule_id::text = ANY($1::text[])",
-        [rule_ids]
-      )
-
-      Repo.query!(
-        "DELETE FROM platform.alerts WHERE metadata->>'incident_rule_id' = ANY($1::text[])",
-        [rule_ids]
-      )
-
-      Repo.query!(
-        "DELETE FROM platform.ocsf_events WHERE metadata #>> '{serviceradar,rule_id}' = ANY($1::text[])",
-        [rule_ids]
-      )
-
-      Repo.query!(
-        "DELETE FROM platform.stateful_alert_rules WHERE id::text = ANY($1::text[])",
-        [rule_ids]
-      )
-    end
-
-    cleanup_jobs_after = stateful_cleanup_job_ids()
-    created_job_ids = MapSet.difference(cleanup_jobs_after, cleanup_jobs_before)
-
-    if MapSet.size(created_job_ids) > 0 do
-      Repo.query!(
-        "DELETE FROM platform.oban_jobs WHERE id = ANY($1::bigint[])",
-        [MapSet.to_list(created_job_ids)]
-      )
-    end
-
-    assert MapSet.difference(stateful_cleanup_job_ids(), cleanup_jobs_before) == MapSet.new()
-
-    :ok
+  # Public admission is asynchronous. Effects are read only after the real
+  # worker has committed receipts and the real outbox has delivered events.
+  defp evaluate_events_and_complete!(events) do
+    result = StatefulAlertEngine.evaluate_events(events)
+    if result == :ok, do: TestSupport.complete_alert_effects!()
+    result
   end
 
-  defp stateful_cleanup_job_ids do
-    %{rows: rows} =
-      Repo.query!(
-        "SELECT id FROM platform.oban_jobs WHERE worker = $1",
-        [@stateful_cleanup_worker]
-      )
-
-    MapSet.new(rows, fn [id] -> id end)
+  defp evaluate_metrics_and_complete!(metrics) do
+    result = StatefulAlertEngine.evaluate_metrics(metrics)
+    if result == :ok, do: TestSupport.complete_alert_effects!()
+    result
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
-  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
+  defp resolve_and_complete!(rule_name, cutoff, now) do
+    TestSupport.complete_alert_operation!(fn ->
+      StatefulAlertEngine.resolve_stale_anomalies(rule_name, cutoff, now)
+    end)
+  end
 
-  defp reset_engine do
-    TestSupport.drain_stateful_alert_engines()
+  defp run_liveness_and_complete!(opts) do
+    TestSupport.complete_alert_operation!(fn -> AnomalyAlertLivenessCheck.run(opts) end)
   end
 
   defp eventually(fun, predicate, attempts \\ 40)
@@ -2208,12 +1761,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       {:ok, %{num_rows: 1}} -> true
       _ -> false
     end
-  end
-
-  defp rule_id_for_shard(shard) do
-    (&Ash.UUID.generate/0)
-    |> Stream.repeatedly()
-    |> Enum.find(&(StatefulAlertEngine.shard_for_rule_id(&1) == shard))
   end
 
   defp anomaly_key_component(name, value) do

@@ -73,10 +73,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Input do
 
   def prepare(signal, record) when signal in [:log, :event, :metric] and is_map(record) do
     id = Map.get(record, :id) || Map.get(record, "id")
-    occurrence = if is_nil(id), do: Ash.UUID.generate(), else: normalize_id(id)
+    # A lifecycle transition may reuse the event row's stable identity. Its
+    # caller supplies a distinct occurrence inside the same admission/write
+    # transaction; the original event ID remains in incident diagnostics.
+    source_id = Map.get(record, :__alert_evaluation_occurrence_id__) || id
+    occurrence = if is_nil(source_id), do: Ash.UUID.generate(), else: normalize_id(source_id)
     source_key = "#{signal}:" <> Base.encode16(:crypto.hash(:sha256, occurrence), case: :lower)
 
-    record = record |> attributes() |> Map.put(:id, occurrence) |> Map.delete("id")
+    payload_id = if is_nil(id), do: occurrence, else: normalize_id(id)
+
+    record =
+      record
+      |> attributes()
+      |> Map.put(:id, payload_id)
+      |> Map.delete("id")
+      |> Map.delete(:__alert_evaluation_occurrence_id__)
 
     record =
       if is_nil(

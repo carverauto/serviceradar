@@ -5,7 +5,9 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   alias ServiceRadar.Observability.AlertEvaluationLane
   alias ServiceRadar.Observability.AlertEvaluationReceipt
   alias ServiceRadar.Observability.AlertEvaluationWork
+  alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertEngine.Completion
+  alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
   alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulAlertEngine.Owner
   alias ServiceRadar.Observability.StatefulAlertRule
@@ -47,6 +49,11 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     enabled_before =
       Repo.query!("SELECT id FROM platform.stateful_alert_rules WHERE enabled").rows
 
+    cleanup_jobs_before =
+      Repo.query!(
+        "SELECT id FROM platform.oban_jobs WHERE worker = 'ServiceRadar.Observability.StatefulAlertCleanupWorker'"
+      ).rows
+
     Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
     actor = SystemActor.system(:alert_engine)
 
@@ -72,6 +79,17 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
         cleanup_unboxed(rule.name)
 
         Repo.query!(
+          "DELETE FROM platform.oban_jobs WHERE worker = 'ServiceRadar.Observability.StatefulAlertCleanupWorker' AND NOT (id = ANY($1::bigint[]))",
+          [Enum.map(cleanup_jobs_before, &hd/1)]
+        )
+
+        assert Enum.sort(
+                 Repo.query!(
+                   "SELECT id FROM platform.oban_jobs WHERE worker = 'ServiceRadar.Observability.StatefulAlertCleanupWorker'"
+                 ).rows
+               ) == Enum.sort(cleanup_jobs_before)
+
+        Repo.query!(
           "UPDATE platform.stateful_alert_rules SET enabled = TRUE WHERE id = ANY($1::uuid[])",
           [Enum.map(enabled_before, &hd/1)]
         )
@@ -82,13 +100,91 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   end
 
   @tag sandbox: :unboxed
+  test "a failed rule read rejects the batch and a repaired store accepts its redelivery", %{
+    rule: rule,
+    actor: actor
+  } do
+    input = event()
+
+    Repo.query!(
+      "ALTER TABLE platform.stateful_alert_rules RENAME COLUMN match TO synthetic_unavailable_match"
+    )
+
+    try do
+      assert {:error, {:store_unavailable, _}} = StatefulAlertEngine.evaluate_events([input])
+      assert [] = work(rule, actor)
+    after
+      Repo.query!(
+        "ALTER TABLE platform.stateful_alert_rules RENAME COLUMN synthetic_unavailable_match TO match"
+      )
+    end
+
+    assert :ok = StatefulAlertEngine.evaluate_events([input])
+    assert [%{position: 1}] = work(rule, actor)
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert [] = work(rule, actor)
+  end
+
+  @tag sandbox: :unboxed
+  test "failed snapshot restoration backs off without overtaking and retries authoritative counts",
+       %{
+         rule: rule,
+         actor: actor
+       } do
+    assert {:ok, [_]} = Inbox.admit(:event, [event()])
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, keys} = Inbox.admit(:event, [event(), event()])
+
+    Repo.query!(
+      "ALTER TABLE platform.stateful_alert_rule_states RENAME TO synthetic_unavailable_alert_states"
+    )
+
+    try do
+      assert {:snooze, 2} = EvaluationWorker.perform(%Oban.Job{args: %{"rule_id" => rule.id}})
+      assert [%{position: 2, attempts: 1}, %{position: 3, attempts: 0}] = work(rule, actor)
+      assert {:ok, {:backoff, seconds}} = Owner.advance(rule.id)
+      assert seconds > 0
+      assert {:error, :evaluation_completion_timeout} = Completion.await(keys, 25)
+    after
+      Repo.query!(
+        "ALTER TABLE platform.synthetic_unavailable_alert_states RENAME TO stateful_alert_rule_states"
+      )
+    end
+
+    Repo.query!(
+      "UPDATE platform.alert_evaluation_work SET available_at = timezone('utc', now()) - interval '1 second' WHERE rule_id = $1 AND position = 2",
+      [Ecto.UUID.dump!(rule.id)]
+    )
+
+    assert :ok = EvaluationWorker.perform(%Oban.Job{args: %{"rule_id" => rule.id}})
+
+    assert {:ok, [%{disposition: :completed}, %{disposition: :completed}]} =
+             Completion.await(keys, 1_000)
+
+    assert [] = work(rule, actor)
+
+    assert [%{bucket_counts: %{"1767225600" => 3}}] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+  end
+
+  @tag sandbox: :unboxed
   test "a blocked owner neither delays another rule nor loses its input when killed", %{
     rule: rule,
     actor: actor
   } do
     rule =
       rule
-      |> Ash.Changeset.for_update(:update, %{match: %{"body_contains" => "slow"}}, actor: actor)
+      |> Ash.Changeset.for_update(
+        :update,
+        %{
+          match: %{"body_contains" => "slow"},
+          threshold: 2,
+          alert: %{"title" => "Synthetic slow owner"}
+        },
+        actor: actor
+      )
       |> Ash.update!()
 
     initial = %{event() | message: "slow initial"}
@@ -109,7 +205,8 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
           signal: :event,
           match: %{"body_contains" => "fast"},
           group_by: [],
-          threshold: 100,
+          threshold: 1,
+          alert: %{"title" => "Synthetic independent owner"},
           window_seconds: 120,
           bucket_seconds: 60
         },
@@ -175,22 +272,197 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert Process.alive?(blocked)
     refute_receive {:blocked_owner_returned, _}, 0
 
+    # A synthetic burst distinguishes durable acknowledgement from effects:
+    # the blocked rule remains pending while the independent rule drains.
+    burst_size = 16
+    fast_burst = Enum.map(1..burst_size, fn _ -> %{event() | message: "fast synthetic burst"} end)
+    slow_burst = Enum.map(1..burst_size, fn _ -> %{event() | message: "slow synthetic burst"} end)
+
+    {admission_us, {:ok, burst_keys}} =
+      :timer.tc(fn -> Inbox.admit(:event, fast_burst ++ slow_burst) end)
+
+    assert length(burst_keys) == burst_size * 2
+
+    %{rows: [[pending_count, pending_bytes]]} =
+      Repo.query!(
+        "SELECT count(*), sum(payload_bytes)::bigint FROM platform.alert_evaluation_work WHERE rule_id = ANY($1::uuid[])",
+        [[Ecto.UUID.dump!(rule.id), Ecto.UUID.dump!(fast.id)]]
+      )
+
+    assert pending_count == burst_size * 2 + 1
+    assert pending_bytes > 0
+
+    {effect_us, :ok} =
+      :timer.tc(fn ->
+        Enum.each(fast_burst, fn _ ->
+          assert {:ok, {:processed, :completed}} = Owner.advance(fast.id)
+        end)
+      end)
+
+    assert [] = work(fast, actor)
+    assert length(work(rule, actor)) == burst_size + 1
+    assert alert_count(fast.id) == 1
+    assert history_count(fast.id) == 1
+    refute_receive {:blocked_owner_returned, _}, 0
+
+    %{rows: [[blocked_connections]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))",
+        [backend]
+      )
+
+    assert blocked_connections > 0
+
+    IO.puts(
+      "ALERT_EVALUATION_SYNTHETIC_LOAD " <>
+        Jason.encode!(%{
+          input_records: burst_size * 2,
+          accepted_rule_occurrences: length(burst_keys),
+          rejected_rule_occurrences: 0,
+          admission_us: admission_us,
+          independent_effect_us: effect_us,
+          independent_effects_per_second: burst_size * 1_000_000 / max(effect_us, 1),
+          queued_count: pending_count,
+          queued_bytes: pending_bytes,
+          blocked_owner_connections: blocked_connections,
+          configured_repo_pool_size: Repo.config()[:pool_size],
+          consumer: "real database owners driven by fixture"
+        })
+    )
+
     Process.exit(blocked, :kill)
     assert_receive {:DOWN, ^owner_monitor, :process, ^blocked, :killed}, 5_000
     send(locker, :release)
     assert_receive {:DOWN, ^lock_monitor, :process, ^locker, :normal}, 5_000
 
-    assert [%{position: 2}] = work(rule, actor)
+    assert length(work(rule, actor)) == burst_size + 1
+    assert hd(work(rule, actor)).position == 2
+    # The killed transaction had reached the snapshot write after creating
+    # the alert and its outbox. None of those effects may survive rollback.
+    assert alert_count(rule.id) == 0
+    assert history_count(rule.id) == 0
     assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert alert_count(rule.id) == 1
+    assert history_count(rule.id) == 1
 
-    assert [%{bucket_counts: %{"1767225600" => 2}}] =
+    Enum.each(slow_burst, fn _ ->
+      assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    end)
+
+    assert [%{bucket_counts: %{"1767225600" => occurrence_count}}] =
              StatefulAlertRuleState
              |> Ash.Query.filter(rule_id == ^rule.id)
              |> Ash.read!(actor: actor)
 
-    assert {:ok, [_]} = Inbox.admit(:event, [slow_input])
+    assert occurrence_count == burst_size + 2
+
+    assert {:ok, replay_keys} = Inbox.admit(:event, [slow_input | slow_burst])
+    assert length(replay_keys) == burst_size + 1
     assert [] = work(rule, actor)
     assert {:ok, :empty} = Owner.advance(rule.id)
+    assert alert_count(rule.id) == 1
+    assert history_count(rule.id) == 1
+  end
+
+  @tag sandbox: :unboxed
+  test "failed alert creation and recovery preserve accepted work and commit lifecycle effects once",
+       %{
+         rule: rule,
+         actor: actor
+       } do
+    rule =
+      rule
+      |> Ash.Changeset.for_update(
+        :update,
+        %{
+          threshold: 1,
+          match: %{"body_contains" => "down", "recovery" => %{"body_contains" => "ready"}},
+          alert: %{"title" => rule.name}
+        },
+        actor: actor
+      )
+      |> Ash.update!()
+
+    opened = %{event() | message: "synthetic down"}
+    assert {:ok, keys} = Inbox.admit(:event, [opened])
+
+    Repo.query!(
+      "ALTER TABLE platform.alerts ADD CONSTRAINT synthetic_alert_creation_fault CHECK (title <> '#{rule.name}')"
+    )
+
+    try do
+      assert {:error, {:evaluation_failed, _, _}} = Owner.advance(rule.id)
+      assert [_] = work(rule, actor)
+      assert alert_count(rule.id) == 0
+      assert history_count(rule.id) == 0
+
+      assert [] =
+               StatefulAlertRuleState
+               |> Ash.Query.filter(rule_id == ^rule.id)
+               |> Ash.read!(actor: actor)
+    after
+      Repo.query!("ALTER TABLE platform.alerts DROP CONSTRAINT synthetic_alert_creation_fault")
+    end
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, [%{disposition: :completed}]} = Completion.await(keys, 1_000)
+    assert alert_count(rule.id) == 1
+    assert history_count(rule.id) == 1
+
+    assert [snapshot] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    cleared = %{event() | message: "synthetic ready", time: DateTime.shift(@time, second: 30)}
+    assert {:ok, clear_keys} = Inbox.admit(:event, [cleared])
+
+    Repo.query!(
+      "ALTER TABLE platform.alerts ADD CONSTRAINT synthetic_alert_recovery_fault CHECK (id <> '#{snapshot.alert_id}'::uuid OR status <> 'resolved')"
+    )
+
+    try do
+      assert {:error, {:evaluation_failed, _, _}} = Owner.advance(rule.id)
+      assert [_] = work(rule, actor)
+
+      assert [%{alert_id: alert_id}] =
+               StatefulAlertRuleState
+               |> Ash.Query.filter(rule_id == ^rule.id)
+               |> Ash.read!(actor: actor)
+
+      assert alert_id == snapshot.alert_id
+
+      assert Repo.query!("SELECT status FROM platform.alerts WHERE id = $1", [
+               Ecto.UUID.dump!(alert_id)
+             ]).rows == [
+               ["pending"]
+             ]
+
+      assert history_count(rule.id) == 1
+    after
+      Repo.query!("ALTER TABLE platform.alerts DROP CONSTRAINT synthetic_alert_recovery_fault")
+    end
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, [%{disposition: :completed}]} = Completion.await(clear_keys, 1_000)
+
+    assert Repo.query!("SELECT status FROM platform.alerts WHERE id = $1", [
+             Ecto.UUID.dump!(snapshot.alert_id)
+           ]).rows == [
+             ["resolved"]
+           ]
+
+    assert [%{alert_id: nil}] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    assert history_count(rule.id) == 2
+
+    assert {:ok, _} = Inbox.admit(:event, [opened, cleared])
+    assert [] = work(rule, actor)
+    assert alert_count(rule.id) == 1
+    assert history_count(rule.id) == 2
   end
 
   test "invalid accepted input receives an audited terminal receipt", %{rule: rule, actor: actor} do
@@ -532,6 +804,20 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     ids = Enum.map(rows, &hd/1)
 
     Repo.query!(
+      """
+      DELETE FROM platform.oban_jobs
+      WHERE args->>'alert_id' IN (
+        SELECT id::text FROM platform.alerts
+        WHERE metadata->>'incident_rule_id' = ANY($1::text[])
+      ) OR (worker = 'ServiceRadar.NATS.DurablePublishWorker' AND EXISTS (
+        SELECT 1 FROM unnest($1::text[]) rule_id
+        WHERE position(rule_id in coalesce(args->>'body', '')) > 0
+      ))
+      """,
+      [ids]
+    )
+
+    Repo.query!(
       "DELETE FROM platform.oban_jobs WHERE worker = $1 AND args->>'rule_id' = ANY($2::text[])",
       ["ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker", ids]
     )
@@ -540,6 +826,16 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
           ~w(alert_evaluation_work alert_evaluation_receipts alert_evaluation_lanes stateful_alert_rule_histories stateful_alert_rule_states) do
       Repo.query!("DELETE FROM platform.#{table} WHERE rule_id::text = ANY($1::text[])", [ids])
     end
+
+    Repo.query!(
+      "DELETE FROM platform.alerts WHERE metadata->>'incident_rule_id' = ANY($1::text[])",
+      [ids]
+    )
+
+    Repo.query!(
+      "DELETE FROM platform.ocsf_events WHERE metadata #>> '{serviceradar,rule_id}' = ANY($1::text[])",
+      [ids]
+    )
 
     Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id::text = ANY($1::text[])", [
       ids
@@ -550,5 +846,23 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
              [ids]
            ).rows ==
              [[0]]
+  end
+
+  defp alert_count(rule_id) do
+    Repo.query!(
+      "SELECT count(*) FROM platform.alerts WHERE metadata->>'incident_rule_id' = $1",
+      [rule_id]
+    ).rows
+    |> hd()
+    |> hd()
+  end
+
+  defp history_count(rule_id) do
+    Repo.query!(
+      "SELECT count(*) FROM platform.stateful_alert_rule_histories WHERE rule_id = $1",
+      [Ecto.UUID.dump!(rule_id)]
+    ).rows
+    |> hd()
+    |> hd()
   end
 end

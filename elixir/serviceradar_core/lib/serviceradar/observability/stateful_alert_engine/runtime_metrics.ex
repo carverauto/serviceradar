@@ -42,17 +42,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics do
 
   def sample_health do
     with {:ok, %{rows: rows}} <-
-           Repo.query("""
-           SELECT signal, count(*), coalesce(sum(payload_bytes), 0)::bigint,
-                  greatest(extract(epoch FROM (timezone('utc', now()) - min(accepted_at))) * 1000, 0)::bigint,
-                  count(*) FILTER (WHERE attempts > 0)
-           FROM platform.alert_evaluation_work GROUP BY signal
-           """),
+           Repo.query(
+             """
+             SELECT signal, count(*), coalesce(sum(payload_bytes), 0)::bigint,
+                    greatest(extract(epoch FROM (timezone('utc', now()) - min(accepted_at))) * 1000, 0)::bigint,
+                    count(*) FILTER (WHERE attempts > 0)
+             FROM platform.alert_evaluation_work GROUP BY signal
+             """,
+             [],
+             timeout: 1_000
+           ),
          {:ok, %{rows: [[failed]]}} <-
-           Repo.query("""
-           SELECT count(*) FROM platform.alert_evaluation_receipts
-           WHERE disposition = 'failed' AND completed_at >= timezone('utc', now()) - interval '1 hour'
-           """) do
+           Repo.query(
+             """
+             SELECT count(*) FROM platform.alert_evaluation_receipts
+             WHERE disposition = 'failed' AND completed_at >= timezone('utc', now()) - interval '1 hour'
+             """,
+             [],
+             timeout: 1_000
+           ) do
       sampled =
         Map.new(rows, fn [signal, count, bytes, age, retrying] ->
           {signal,

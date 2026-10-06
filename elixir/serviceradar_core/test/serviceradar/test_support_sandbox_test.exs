@@ -116,7 +116,6 @@ defmodule ServiceRadar.TestSupportSandboxTest do
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.StatefulAlertRule
-  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -430,36 +429,26 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     end)
   end
 
-  test "repository owner teardown drains shards started by log promotion" do
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
-
-    on_exit(fn ->
-      case previous_shards do
-        nil -> Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
-        value -> Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, value)
-      end
-    end)
-
-    {engine_pid, monitor_ref} =
+  test "repository owner teardown rolls back log promotion admission and completed effects" do
+    rule_id =
       TestSupport.with_repo_owner(%{async: false}, fn ->
         actor = %{id: "system", role: :admin}
         subject = "logs.sandbox-lifecycle.#{System.unique_integer([:positive])}"
 
-        # Signal routing starts a shard only when it has an active rule. Keep
-        # the real rule below threshold so this remains a teardown test.
-        StatefulAlertRule
-        |> Ash.Changeset.for_create(
-          :create,
-          %{
-            name: "sandbox-stateful-lifecycle-#{Ash.UUID.generate()}",
-            signal: :event,
-            match: %{"always" => true},
-            threshold: 2
-          },
-          actor: actor
-        )
-        |> Ash.create!()
+        # Accepted work and completed state belong to this rollback-only owner.
+        stateful_rule =
+          StatefulAlertRule
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              name: "sandbox-stateful-lifecycle-#{Ash.UUID.generate()}",
+              signal: :event,
+              match: %{"always" => true},
+              threshold: 2
+            },
+            actor: actor
+          )
+          |> Ash.create!()
 
         {:ok, _rule} =
           EventRule
@@ -490,13 +479,27 @@ defmodule ServiceRadar.TestSupportSandboxTest do
 
         assert {:ok, 1} = LogPromotion.promote([log])
 
-        assert [{pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
-        assert Process.alive?(pid)
-        {pid, Process.monitor(pid)}
+        assert Repo.query!(
+                 "SELECT count(*) FROM platform.alert_evaluation_work WHERE rule_id = $1",
+                 [Ecto.UUID.dump!(stateful_rule.id)]
+               ).rows == [[1]]
+
+        TestSupport.complete_alert_evaluations!()
+
+        assert Repo.query!(
+                 "SELECT count(*) FROM platform.alert_evaluation_receipts WHERE rule_id = $1",
+                 [Ecto.UUID.dump!(stateful_rule.id)]
+               ).rows == [[1]]
+
+        stateful_rule.id
       end)
 
-    assert_receive {:DOWN, ^monitor_ref, :process, ^engine_pid, _reason}, 1_000
-    assert ProcessRegistry.lookup(:stateful_alert_engine) == []
+    for table <- ~w(alert_evaluation_work alert_evaluation_receipts stateful_alert_rule_states) do
+      assert Repo.query!(
+               "SELECT count(*) FROM platform.#{table} WHERE rule_id = $1",
+               [Ecto.UUID.dump!(rule_id)]
+             ).rows == [[0]]
+    end
   end
 
   defp with_probe_table(fun) do
