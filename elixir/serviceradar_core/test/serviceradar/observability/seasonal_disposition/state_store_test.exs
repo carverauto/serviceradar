@@ -123,8 +123,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
 
     assert_received {:lookup, sql, ["cpu_seasonal", "svc/cpu/a", ^event_time]}
     assert sql =~ "expires_at > (now() AT TIME ZONE 'utc')"
-    assert sql =~ "last_bucket_started_at <= $3"
-    assert sql =~ "last_bucket_ended_at > $3"
+    assert sql =~ "last_bucket_started_at <= ($3::timestamptz AT TIME ZONE 'utc')"
+    assert sql =~ "last_bucket_ended_at > ($3::timestamptz AT TIME ZONE 'utc')"
     assert sql =~ "ORDER BY last_evaluated_at DESC NULLS LAST"
   end
 
