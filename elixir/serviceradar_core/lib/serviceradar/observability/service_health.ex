@@ -40,12 +40,15 @@ defmodule ServiceRadar.Observability.ServiceHealth do
   Computes the distinct service availability summary.
 
   Accepts:
+  - no argument or `nil` (queries `platform.service_state`)
   - a list of `ServiceState` structs or maps (computed in memory)
   - a keyword list of options (e.g. `[states: ...]` or `[scope: ...]`)
-  - a scope struct or map or `nil` (queries `platform.service_state`)
+  - a scope struct or map (queries `platform.service_state`)
   """
   @spec summary(list() | map() | keyword() | term()) :: summary()
-  def summary(target \\ [])
+  def summary(target \\ nil)
+
+  def summary(nil), do: summary_from_db([])
 
   def summary(states) when is_list(states) and states != [] do
     if Keyword.keyword?(states) do
