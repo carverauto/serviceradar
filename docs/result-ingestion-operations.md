@@ -91,15 +91,18 @@ late replay to forget an incomplete run and is deliberately absent.
 ## Telemetry and evidence
 
 The bounded publisher uses fixed ETS slots, one pending protobuf frame, and
-`metrics.core.result_ingestion` with a confirmed JetStream PubAck. Retried frames
+`metrics.ingestion_lanes` with a confirmed JetStream PubAck. Retried frames
 keep the same `Nats-Msg-Id`. Queue/byte/latency gauges report latest values;
-event and rejection-reason sums are cumulative with a process start-time anchor.
-No agent, device, or run becomes a label. `publish_failure` counts failed PubAcks;
-`coalesced_interval` counts cadence snapshots omitted behind the pending frame.
-Later event totals remain in ETS, while intervening gauge history is intentionally
-coalesced. Publisher restart loses volatile samples and resets the cumulative
-anchor. Publication cannot wait in an ingestion caller or recursively publish
-a failure immediately through the failed transport.
+event, rejection-reason, and terminal sums are deltas for the interval since
+the previous acknowledged frame, anchored at that frame's snapshot time.
+Internal ETS accounting stays cumulative with fixed cardinality; reporting
+watermarks advance only on PubAck. No agent, device, or run becomes a label.
+`publish_failure` counts failed PubAcks; `coalesced_interval` counts cadence
+snapshots omitted behind the pending frame. Later event totals remain in ETS,
+while intervening gauge history is intentionally coalesced. Publisher restart
+loses volatile samples and resets the reporting watermarks. Publication cannot
+wait in an ingestion caller or recursively publish a failure immediately
+through the failed transport.
 
 Core has an exact publish permission for this subject, and the METRICS stream
 covers `metrics.>`. EventWriter owns persistence, selecting StarRocks exclusively

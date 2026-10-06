@@ -300,9 +300,9 @@ spec:
                       # (FlowAttribution.PassMetrics), a metric envelope that
                       # EventWriter persists from the metrics stream.
                       "metrics.flow_attribution",
-                      # Bounded ingestion queue/latency envelopes from core.
+                      # Bounded ingestion lane envelopes from core.
                       # EventWriter owns persistence from the METRICS stream.
-                      "metrics.core.result_ingestion",
+                      "metrics.ingestion_lanes",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
