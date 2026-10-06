@@ -198,7 +198,11 @@ OAuth2 API bearer grants are enforced at the shared API boundary before
 JSON:API dispatch and before every `:api_key_auth` controller. A `read` grant
 permits `GET`, `HEAD`, and `OPTIONS` plus the audited read-only `POST`
 exceptions (`/api/query`, `/api/admin/topology/route-analysis`, and
-`/api/v1/identity/resolve` batch resolution); every other mutation requires
+`/api/v1/identity/resolve` batch resolution), except the FieldSurvey ingest
+upgrades (`GET /v1/field-survey/:session/rf-observations`, `pose-samples`,
+and `spectrum-observations`), which require `write` or `admin` because the
+upgrade claims a session and opens a stream (the `auth-check` probe stays a
+read); every other mutation requires
 `write` or `admin` as well as the credential owner's resource permissions.
 Empty grants and narrow CLI grants cannot inherit the owner's full authority
 on these routes. Through the UserAuth boundary, API bearer tokens are confined

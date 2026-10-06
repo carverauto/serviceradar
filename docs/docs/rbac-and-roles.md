@@ -53,6 +53,7 @@ The catalog covers these areas:
 | **Network Ops** | Triggering on-demand sweeps and discovery jobs. |
 | **CLI Sessions** | Approving CLI device authorizations; viewing and revoking your own (or any) CLI sessions; managing CLI auth policy. |
 | **Dashboards** | Publishing, enabling, and disabling dashboard packages via the API. |
+| **Field survey** | Opening ingest streams and uploading room artifacts for owned sessions. |
 
 As a rule of thumb:
 
