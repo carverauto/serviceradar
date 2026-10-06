@@ -84,10 +84,15 @@ impl Encoder for RFC3164Encoder {
 
         // Encode structured data is present, although not part of rfc3164
         if let Some(sd_vec) = record.sd {
-            for sd in &sd_vec {
-                res.push_str(&sd.to_string());
+            let data: String = sd_vec
+                .iter()
+                .filter(|sd| sd.sd_id.as_deref() != Some("serviceradar@1"))
+                .map(ToString::to_string)
+                .collect();
+            if !data.is_empty() {
+                res.push_str(&data);
+                res.push(' ');
             }
-            res.push(' ');
         }
 
         if let Some(msg) = record.msg {

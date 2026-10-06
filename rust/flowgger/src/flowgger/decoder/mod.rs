@@ -23,6 +23,8 @@ pub use self::rfc3164_decoder::{ClearPassDecoder, RFC3164Decoder};
 pub use self::rfc5424_decoder::RFC5424Decoder;
 
 use crate::flowgger::record::Record;
+#[cfg(feature = "rfc3164")]
+use crate::flowgger::record::{SDValue, StructuredData};
 
 pub trait CloneBoxedDecoder {
     fn clone_boxed<'a>(&self) -> Box<dyn Decoder + Send + 'a>
@@ -71,4 +73,22 @@ impl Decoder for RemoteAddrDecoder {
         record.remote_addr = Some(self.remote_addr.clone());
         Ok(record)
     }
+}
+
+#[cfg(feature = "rfc3164")]
+pub(super) fn mark_syslog(record: &mut Record, format: &str, fallback: bool) {
+    let mut metadata = StructuredData::new(Some("serviceradar@1"));
+    metadata.pairs.push((
+        "_syslog_format".to_owned(),
+        SDValue::String(format.to_owned()),
+    ));
+    if fallback {
+        metadata
+            .pairs
+            .push(("_syslog_parse_fallback".to_owned(), SDValue::Bool(true)));
+    }
+
+    let mut structured_data = record.sd.take().unwrap_or_default();
+    structured_data.push(metadata);
+    record.sd = Some(structured_data);
 }

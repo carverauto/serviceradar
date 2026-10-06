@@ -30,3 +30,50 @@ tests:
       - matchRegex:
           path: data["flowgger.toml"]
           pattern: '(?m)^nats_connect_attempts = 10\nnats_connect_initial_backoff_ms = 500\nnats_connect_max_backoff_ms = 30000$'
+
+  - it: defaults the UDP collector to UTC for timestamps without a zone
+    template: templates/log-collector.yaml
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-log-collector-config
+    asserts:
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^rfc3164_timezone = "UTC"$'
+
+  - it: applies the configured sender timezone to UDP
+    template: templates/log-collector.yaml
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-log-collector-config
+    set:
+      logCollector.rfc3164Timezone: America/New_York
+    asserts:
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^rfc3164_timezone = "America/New_York"$'
+
+  - it: applies the configured sender timezone to TCP
+    template: templates/log-collector-tcp.yaml
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-log-collector-tcp-config
+    set:
+      logCollector.tcpCollector.enabled: true
+      logCollector.rfc3164Timezone: America/New_York
+    asserts:
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^rfc3164_timezone = "America/New_York"$'
+
+  - it: defaults the TCP collector to UTC for timestamps without a zone
+    template: templates/log-collector-tcp.yaml
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-log-collector-tcp-config
+    set:
+      logCollector.tcpCollector.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^rfc3164_timezone = "UTC"$'

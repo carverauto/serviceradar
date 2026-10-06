@@ -261,6 +261,7 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `webNg.nativeAddonImport.autoSyncEnabled` | Import newly published first-party add-on releases automatically (staged, not approved); required for `track_latest_approved` profiles to see newer packages | `true` |
 | `webNg.nativeAddonImport.syncIntervalSeconds` | Seconds between add-on catalog syncs | `3600` |
 | `webNg.nativeAddonImport.autoApproveAddonIds` | Add-on ids whose imports are approved automatically; approval is the security boundary, so this is empty by default | `[]` |
+| `logCollector.rfc3164Timezone` | Assumed IANA time zone for RFC3164 messages without a zone, shared by UDP and TCP collectors | `UTC` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `3` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | unset (profile supplies it; 2 GiB in `small`) |
 | `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `3` |
@@ -389,3 +390,17 @@ core:
 - Only port 50052 (gRPC) needs to be accessible from edge networks
 - ERTS distribution ports (4369, 9100-9155) are not part of the ordinary ingress allowlist. When `networkPolicy.enabled=true`, they are allowed only from pods matching `networkPolicy.ingress.erts.podSelector` in the release namespace. Rotate `cluster-cookie` when changing cluster membership trust boundaries.
 - Edge agents do not need database or internal API access
+
+### RFC3164 sender time zones
+
+Set `logCollector.rfc3164Timezone` to an IANA zone such as `America/New_York`
+when syslog senders omit their time zone. Docker Compose uses the equivalent
+`input.rfc3164_timezone` setting in `docker/compose/flowgger.docker.toml`.
+Both default to UTC. Messages with an explicit zone retain that zone.
+
+EventWriter uses receive time when an RFC3164 timestamp differs from it by more
+than one hour in either direction. This also applies to delayed RFC3164 messages.
+The parsed timestamp is retained as `_syslog_original_timestamp` in log
+attributes, with `_syslog_timestamp_fallback=true`. RFC5424 timestamps and
+RFC3164 timestamps within one hour are unchanged. Existing stored rows are not
+rewritten.

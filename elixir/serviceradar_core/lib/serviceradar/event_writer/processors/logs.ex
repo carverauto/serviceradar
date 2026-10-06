@@ -195,10 +195,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     source_ip = normalize_source_ip(json)
 
     observed_timestamp = parse_observed_timestamp(json) || metadata[:received_at]
+    {timestamp, attributes} = syslog_timestamp(json, attributes, metadata[:received_at])
 
     %{
       id: log_id,
-      timestamp: parse_timestamp(json),
+      timestamp: timestamp,
       observed_timestamp: observed_timestamp,
       trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
       span_id: OtelId.normalize_span_id(FieldParser.get_field(json, "span_id", "spanId")),
@@ -546,6 +547,24 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       is_integer(time) and time > 0 -> FieldParser.parse_timestamp(time)
       is_integer(observed) and observed > 0 -> FieldParser.parse_timestamp(observed)
       true -> DateTime.utc_now()
+    end
+  end
+
+  # RFC3164 has no zone. A wrong assumed zone or sender clock must not hide
+  # fresh logs from event-time windows on either telemetry backend.
+  defp syslog_timestamp(json, attributes, received_at) do
+    timestamp = parse_timestamp(json)
+
+    if json["_syslog_format"] == "rfc3164" and match?(%DateTime{}, received_at) and
+         abs(DateTime.diff(timestamp, received_at, :microsecond)) > 3_600_000_000 do
+      attributes =
+        attributes
+        |> Map.put("_syslog_original_timestamp", DateTime.to_iso8601(timestamp))
+        |> Map.put("_syslog_timestamp_fallback", true)
+
+      {received_at, attributes}
+    else
+      {timestamp, attributes}
     end
   end
 

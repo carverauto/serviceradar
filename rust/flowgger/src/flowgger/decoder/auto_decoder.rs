@@ -1,6 +1,6 @@
-use super::{ClearPassDecoder, Decoder, RFC3164Decoder, RFC5424Decoder};
+use super::{ClearPassDecoder, Decoder, RFC3164Decoder, RFC5424Decoder, mark_syslog};
 use crate::flowgger::config::Config;
-use crate::flowgger::record::{Record, SDValue, StructuredData};
+use crate::flowgger::record::Record;
 use crate::flowgger::utils;
 use std::sync::atomic::{AtomicU64, Ordering};
 use time::OffsetDateTime;
@@ -23,23 +23,6 @@ impl AutoDecoder {
         }
     }
 
-    fn mark(record: &mut Record, format: &str, fallback: bool) {
-        let mut metadata = StructuredData::new(Some("serviceradar@1"));
-        metadata.pairs.push((
-            "_syslog_format".to_owned(),
-            SDValue::String(format.to_owned()),
-        ));
-        if fallback {
-            metadata
-                .pairs
-                .push(("_syslog_parse_fallback".to_owned(), SDValue::Bool(true)));
-        }
-
-        let mut structured_data = record.sd.take().unwrap_or_default();
-        structured_data.push(metadata);
-        record.sd = Some(structured_data);
-    }
-
     fn fallback(line: &str) -> Record {
         let (facility, severity) = parse_priority(line);
         let mut record = Record {
@@ -55,7 +38,7 @@ impl AutoDecoder {
             full_msg: Some(line.to_owned()),
             sd: None,
         };
-        Self::mark(&mut record, "unknown", true);
+        mark_syslog(&mut record, "unknown", true);
         record
     }
 }
@@ -63,17 +46,16 @@ impl AutoDecoder {
 impl Decoder for AutoDecoder {
     fn decode(&self, line: &str) -> Result<Record, &'static str> {
         if let Ok(mut record) = self.rfc5424.decode(line) {
-            Self::mark(&mut record, "rfc5424", false);
+            mark_syslog(&mut record, "rfc5424", false);
             return Ok(record);
         }
 
-        if let Ok(mut record) = self.rfc3164.decode(line) {
-            Self::mark(&mut record, "rfc3164", false);
+        if let Ok(record) = self.rfc3164.decode(line) {
             return Ok(record);
         }
 
         if let Ok(mut record) = self.clearpass.decode(line) {
-            Self::mark(&mut record, "clearpass", false);
+            mark_syslog(&mut record, "clearpass", false);
             return Ok(record);
         }
 
@@ -108,6 +90,7 @@ mod tests {
     use super::*;
     use crate::flowgger::decoder::Decoder;
     use crate::flowgger::decoder::RemoteAddrDecoder;
+    use crate::flowgger::record::SDValue;
 
     fn config() -> Config {
         Config::from_string("[input]\nrfc3164_timezone = \"UTC\"").unwrap()
@@ -149,8 +132,8 @@ mod tests {
         assert_eq!(
             record.msg.as_deref(),
             Some(
-                &line["<135>2020-01-01 00:00:00,000 192.0.2.34 CPPM_Session_Detail 7304 1 "
-                    .len()..]
+                &line
+                    ["<135>2020-01-01 00:00:00,000 192.0.2.34 CPPM_Session_Detail 7304 1 ".len()..]
             )
         );
     }
