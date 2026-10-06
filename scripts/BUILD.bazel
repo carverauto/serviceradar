@@ -99,7 +99,10 @@ sh_test(
     name = "verify_native_addon_publish_negative_test",
     timeout = "short",
     srcs = ["test-verify-native-addon-publish-negative.sh"],
-    data = ["verify-native-addon-publish.sh"],
+    data = [
+        "cosign_common.sh",
+        "verify-native-addon-publish.sh",
+    ],
 )
 
 sh_test(
