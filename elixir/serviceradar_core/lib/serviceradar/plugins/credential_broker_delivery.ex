@@ -279,7 +279,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
   end
 
   defp fresh_enough?(%DateTime{} = expires_at, now, margin) do
-    DateTime.after?(expires_at, DateTime.add(now, margin, :second))
+    DateTime.after?(expires_at, DateTime.shift(now, second: margin))
   end
 
   defp fresh_enough?(_expires_at, _now, _margin), do: false

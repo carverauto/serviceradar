@@ -42,7 +42,7 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleRaceTest do
 
     observed_at =
       DateTime.utc_now()
-      |> DateTime.add(-30, :second)
+      |> DateTime.shift(second: -30)
       |> DateTime.truncate(:microsecond)
 
     seed_service_state(status, observed_at,

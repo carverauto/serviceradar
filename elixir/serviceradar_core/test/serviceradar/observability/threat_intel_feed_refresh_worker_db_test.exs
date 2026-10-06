@@ -46,7 +46,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorkerDbTest do
     for row <- rows do
       assert DateTime.compare(row.first_seen_at, first_now) == :eq
       assert DateTime.compare(row.last_seen_at, later_now) == :eq
-      assert DateTime.compare(row.expires_at, DateTime.add(later_now, 3_600, :second)) == :eq
+      assert DateTime.compare(row.expires_at, DateTime.shift(later_now, hour: 1)) == :eq
     end
   end
 
@@ -61,7 +61,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorkerDbTest do
     ThreatIntelFeedRefreshWorker.ingest_feed_body(body, ctx.source,
       actor: ctx.actor,
       now: now,
-      expires_at: DateTime.add(now, 3_600, :second)
+      expires_at: DateTime.shift(now, hour: 1)
     )
   end
 

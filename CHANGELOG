@@ -1,3 +1,72 @@
+# ServiceRadar v1.4.83
+
+This release is mostly a burndown of reliability and scaling defects:
+singleton GenServer bottlenecks on the ingest and gateway paths, warehouse
+load amplification and retries, unbounded writes, and silent plugin and
+integration failures. It also adds a browser CLI login and DIRE block
+fingerprints.
+
+## Upgrade Notes
+
+- Public self-registration is gone: `POST /auth/register` now returns
+  404. Create accounts through an administrator, SSO provisioning, or
+  bootstrap.
+- Helm `core.migrations.expectedVersion` is `20261008040000`.
+  Migrations since 1.4.82 add sweep group version history, CLI
+  authorization codes, reconciliation block counters, Dgraph canonical
+  rebuild cursors, plugin repository last-sync summaries, HOT-friendly
+  SNMP fact storage, and retire K8s public-endpoint attribution rows.
+- Agent gateways answer PushStatus within the agent's 30s deadline.
+  Retained plugin results, flow attribution, endpoint inventory, and
+  OTLP are acknowledged only after core accepts them, and are retried by
+  the agent otherwise. Retained plugin results are admitted through the
+  retained-plugin lane by default.
+- First-party plugin import needs egress to the release index on
+  GitHub and the plugin OCI registry. Use the new "Test egress" check on
+  the plugins page after an upgrade if imports fail.
+
+## Whats New
+
+**1.4.83**
+- Gateway and ingest: PushStatus answers inside the agent deadline
+  (PR #5308); stale agents stay unroutable (PR #5307); command status
+  handling is sharded by command id (PR #5314); retained plugin results
+  use the admission lane by default (PR #5323); metric enqueue never
+  blocks or drops (PR #5325).
+- Warehouse: idempotent, bounded-backoff load retries (PR #5302),
+  bounded ingest loads and refresh cadence (PR #5304), MTR destination
+  refreshes aligned to trace event days (PR #5328), and interface
+  thresholds read from the metrics store on counter rates (PR #5331,
+  PR #5342).
+- Bounded writes: device sync writes stay under the bind-parameter
+  limit and stranded sync sources recover (PR #5344); vulnerability
+  matcher memory and queries are bounded (PR #5250); nist-nvd2 shards
+  stream in batches (PR #5233); SNMP facts and bumblebee catalog
+  refresh use bulk upserts (PR #5253, PR #5335).
+- Dgraph: separate bulk call slots, cancellation when the caller exits,
+  and a chunked, resumable canonical rebuild (PR #5312, PR #5334).
+- Camera relay chunks route through ETS instead of singleton mailboxes
+  (PR #5278). Runtime reloads run under a dedicated task supervisor and
+  survive crashes (PR #5296, PR #5303, PR #5340).
+- Plugins and integrations: import failures are named, sync outcomes
+  are recorded, and egress can be probed per host (PR #5338). Armis
+  northbound resolves credentials through the broker (PR #5322). Plugin
+  credential references are authorized (PR #5294).
+- Web: no queries in disconnected renders (PR #5249), Last Seen uses
+  the last successful sweep (PR #5265), browser CLI PKCE login
+  (PR #5301), and secrets are redacted from log copy payloads (PR #5326).
+- Sweep, validation, and discovery: scanner assignment history
+  (PR #5269), multi-agent assignments and partition scoping (PR #5297,
+  PR #5299), transactional inline facts with fail-closed probes
+  (PR #5275), and attested snapshot supersession (PR #5345).
+- DIRE: block fingerprints and population gauges (PR #5324).
+- Security: public self-registration (`POST /auth/register`) is
+  removed (PR #5355). SRQL entity authorization follows the parser's
+  tokenization (PR #5352). SFTP rename destination policy (PR #5311),
+  CLI browser URLs open without a shell (PR #5306), and tighter NATS
+  permissions for the Trivy sidecar and packaged collectors (PR #5305,
+  PR #5298).
+
 # ServiceRadar v1.4.82
 
 This release adds hosted edge connectivity: an opt-in NATS leafnode
@@ -62,7 +131,11 @@ IPFIX collection requires mutual TLS.
   PushStatus (PR #5216). Core process locations are cached instead of
   swept on every push (PR #5224).
 - Dgraph NIF calls run asynchronously so a stalled cluster does not pin
-  a scheduler (PR #5236).
+  a scheduler (PR #5236). Fix Mix-build regression from PR #5236: every
+  `use Rustler` NIF wrapper now passes
+  `env: [{"CARGO_PROFILE_RELEASE_PANIC", "unwind"}]` so Mix/Cargo
+  release-mode builds respect the workspace `panic = "abort"` profile
+  without aborting NIF compilation.
 - Add-ons: a newer approved candidate supersedes a paused rollout
   (PR #5235). Timer add-on health is re-evaluated on version activation
   (PR #5232). Deleting an assignment or profile keeps rollout history
@@ -79,6 +152,20 @@ IPFIX collection requires mutual TLS.
   presence probe (PR #5226). Device Anomaly and Capacity views show a
   loading skeleton (PR #4475). Add-on catalog details group assignments
   by agent (PR #4461).
+- Camera relay: viewer membership and session-to-pipeline mappings are
+  mirrored into protected ETS tables so `broadcast_chunk`, `viewer_count`,
+  `record_chunk`, and Membrane branch calls run in the caller rather than
+  through the ViewerRegistry or PipelineManager mailboxes; one camera's
+  slow branch call no longer stalls all others. Core session tracker
+  catches `:exit` in `current_viewer_count` so a crashing count source
+  cannot bring down the tracker and drop every relay session.
+  Agent-gateway tracker monitors ingress PIDs at session open and drops
+  sessions immediately on their death, replacing the per-sweep 1s
+  `:erpc` liveness probe for each remote ingress PID. Dashboard and
+  /cameras tiles subscribe once per relay session to `RelayPubSub` state
+  and refresh only the affected tile on `{:camera_relay_state, _}`;
+  the 1s per-tile database poll becomes a 15s fallback timer.
+  (issue #5203)
 
 # ServiceRadar v1.4.81
 

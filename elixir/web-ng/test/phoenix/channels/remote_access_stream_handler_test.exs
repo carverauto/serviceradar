@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
          requested_by: scope_value(opts, :session_owner_id, scope_user_id(opts)),
          rbac_decision: :allowed,
          status: :attached,
-         attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+         attach_expires_at: DateTime.shift(DateTime.utc_now(), minute: 1),
          idle_timeout_seconds: 30,
          absolute_timeout_seconds: 120,
          metadata: Map.put(scope_value(opts, :session_metadata, %{}), "test_pid", test_pid(opts)),
@@ -250,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       {:ok,
        %{
          certificate: "ssh-ed25519-cert-v01@openssh.com AAAATEST",
-         expires_at: DateTime.add(DateTime.utc_now(), 900, :second),
+         expires_at: DateTime.shift(DateTime.utc_now(), minute: 15),
          fingerprint: "SHA256:test-cert",
          serial: 42,
          ca_key_id: "test-ca"

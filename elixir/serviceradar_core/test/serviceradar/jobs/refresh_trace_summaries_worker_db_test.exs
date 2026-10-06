@@ -20,10 +20,52 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
   setup do
     # Drain only this test's jobs: the sandbox rolls these deletes back.
     Repo.delete_all(from(job in Oban.Job, where: job.queue == "maintenance"))
-    set_watermark!(DateTime.add(DateTime.utc_now(), -300, :second))
+    set_watermark!(DateTime.shift(DateTime.utc_now(), minute: -5))
     # No run has committed recently, which is what an orphan looks like.
     age_watermark_write!(3600)
     :ok
+  end
+
+  test "continuous warehouse enqueues and completion races cannot bypass the persisted interval" do
+    starrocks = ServiceRadar.Analytics.StarRocks
+    previous = Application.get_env(:serviceradar_core, starrocks, [])
+    Application.put_env(:serviceradar_core, starrocks, Keyword.put(previous, :enabled, true))
+    on_exit(fn -> Application.put_env(:serviceradar_core, starrocks, previous) end)
+    age_watermark_write!(0)
+
+    assert {:ok, %Oban.Job{id: id, state: "scheduled", scheduled_at: due}} = request_refresh()
+    assert DateTime.diff(due, DateTime.utc_now()) in 9..10
+
+    for _ <- 1..20 do
+      assert {:ok, %Oban.Job{conflict?: true, id: ^id}} = request_refresh()
+    end
+
+    # Direct execution represents cron/operator jobs and a completion-racing
+    # enqueue: they must snooze without issuing warehouse queries or advancing
+    # the ingest watermark. No warehouse transport is running in this fixture.
+    before =
+      SQL.query!(
+        Repo,
+        "SELECT watermark, updated_at FROM observability_watermarks WHERE key = $1",
+        [
+          RefreshTraceSummariesWorker.watermark_key()
+        ]
+      ).rows
+
+    for _ <- 1..3 do
+      assert {:snooze, seconds} = RefreshTraceSummariesWorker.perform(%Oban.Job{})
+      assert seconds in 1..10
+    end
+
+    assert SQL.query!(
+             Repo,
+             "SELECT watermark, updated_at FROM observability_watermarks WHERE key = $1",
+             [
+               RefreshTraceSummariesWorker.watermark_key()
+             ]
+           ).rows == before
+
+    assert [%Oban.Job{id: ^id}] = incomplete_jobs()
   end
 
   test "ingest enqueues during an executing refresh coalesce into the running job" do
@@ -44,11 +86,11 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
 
   test "a run that ends with spans past its watermark schedules one follow-up that summarizes them" do
     now = DateTime.utc_now()
-    early_trace = insert_span!(DateTime.add(now, -10, :second))
+    early_trace = insert_span!(DateTime.shift(now, second: -10))
 
     # A batch the run cannot cover: stamped after the run's upper bound, the way a span committed
     # while the refresh is executing is. The margin keeps a slow runner from reaching it.
-    late_trace = insert_span!(DateTime.add(now, 1, :hour))
+    late_trace = insert_span!(DateTime.shift(now, hour: 1))
 
     assert {:ok, %Oban.Job{id: job_id, conflict?: false}} = request_refresh()
 
@@ -82,7 +124,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
     # transaction back and released its lock. Every enqueue coalesces into the dead row, so
     # without a rescue nothing refreshes until the 240-minute age-based rescuers fire.
     test "is rescued when the refresh lock is free, and the refresh then runs" do
-      trace = insert_span!(DateTime.add(DateTime.utc_now(), -10, :second))
+      trace = insert_span!(DateTime.shift(DateTime.utc_now(), second: -10))
       orphan = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
 
       assert {:ok, [%{id: id}]} = RefreshTraceSummariesWorker.rescue_orphaned()
@@ -189,7 +231,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
   defp request_refresh, do: RefreshTraceSummariesWorker.enqueue()
 
   defp insert_executing!(opts) do
-    attempted_at = DateTime.add(DateTime.utc_now(), -Keyword.fetch!(opts, :attempted_seconds_ago))
+    attempted_at =
+      DateTime.shift(DateTime.utc_now(), second: -Keyword.fetch!(opts, :attempted_seconds_ago))
 
     %{}
     |> RefreshTraceSummariesWorker.new()

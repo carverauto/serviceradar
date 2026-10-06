@@ -1073,9 +1073,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/password-reset", AuthController, :new_reset_request)
     get("/password-reset/:token", AuthController, :show_reset_form)
 
-    # Registration (if enabled)
-    post("/register", AuthController, :register)
-
     # SSO initiation + non-callback metadata
     get("/oidc", OIDCController, :request)
     get("/saml/metadata", SAMLController, :metadata)
@@ -1414,7 +1411,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/users/update-password", UserSessionController, :update_password)
   end
 
-  # Public authentication pages (login, register)
+  # Public authentication pages
   scope "/", ServiceRadarWebNGWeb do
     pipe_through(:browser)
 
@@ -1425,6 +1422,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       # CLI device-code approval — handles its own redirect-to-log-in so
       # the user_code stays pinned through authentication.
       live("/cli/auth/device", CliDeviceAuthorizeLive)
+      # CLI PKCE consent. The path is the one `serviceradar-cli auth login --web`
+      # probes. Logged-out visits redirect to log-in and keep the query.
+      live("/api/v1/cli/auth/authorize", CliPkceAuthorizeLive)
     end
   end
 

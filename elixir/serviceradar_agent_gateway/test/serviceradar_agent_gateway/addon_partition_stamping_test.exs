@@ -18,9 +18,25 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadarAgentGateway.AgentGatewayServer
+  alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
 
   setup do
+    previous_config =
+      try do
+        {:ok, Config.get()}
+      rescue
+        ArgumentError -> :missing
+      end
+
+    Config.setup(gateway_id: "gateway-1", domain: "test", capabilities: [])
+    on_exit(fn -> restore_config(previous_config) end)
+
+    if !Process.whereis(StatusBuffer) do
+      start_supervised!(StatusBuffer)
+    end
+
     existing = Process.whereis(ServiceRadar.StatusHandler)
 
     if is_pid(existing) do
@@ -114,7 +130,7 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
       AgentGatewayServer.process_chunk_services([addon_service()], metadata())
     end)
 
-    assert_receive {:forwarded, status}
+    assert_receive {:forwarded, status}, 1_000
 
     assert status.partition == "cert-partition",
            "an add-on supplied its own partition and the gateway believed it"
@@ -134,7 +150,7 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
       AgentGatewayServer.process_chunk_services([service], metadata())
     end)
 
-    assert_receive {:forwarded, status}
+    assert_receive {:forwarded, status}, 1_000
     assert status.partition == "payload-spoofed-partition"
     assert status.authenticated_partition == "cert-partition"
   end
@@ -160,7 +176,7 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
         AgentGatewayServer.process_chunk_services([service], metadata)
       end)
 
-      assert_receive {:forwarded, status}
+      assert_receive {:forwarded, status}, 1_000
       assert status.partition == "payload-spoofed-partition"
       assert is_nil(status.authenticated_partition)
     end
@@ -182,7 +198,7 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
       AgentGatewayServer.process_chunk_services([service], metadata())
     end)
 
-    assert_receive {:forwarded, status}
+    assert_receive {:forwarded, status}, 1_000
     assert status.partition == "payload-spoofed-partition"
   end
 
@@ -203,4 +219,14 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
 
     assert log =~ "payload exceeds max size"
   end
+
+  defp restore_config({:ok, config}) do
+    Config.setup(
+      gateway_id: config.gateway_id,
+      domain: config.domain,
+      capabilities: config.capabilities
+    )
+  end
+
+  defp restore_config(:missing), do: :persistent_term.erase(Config)
 end

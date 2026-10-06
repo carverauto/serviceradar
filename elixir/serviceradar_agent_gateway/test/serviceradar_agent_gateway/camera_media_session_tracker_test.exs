@@ -371,6 +371,40 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     assert CameraMediaSessionTracker.fetch_session("relay-live-ingress-1")
   end
 
+  test "an ingress process that exits drops its session at once, without a sweep" do
+    ingress =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert {:ok, _} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-monitored-ingress-1",
+               media_ingest_id: "core-media-monitored-ingress-1",
+               agent_id: "agent-monitored-ingress-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-monitored-1",
+               stream_profile_id: "main",
+               lease_token: "lease-monitored-ingress-1",
+               lease_expires_at_unix: System.os_time(:second) + 120,
+               ingress_pid: ingress
+             })
+
+    assert CameraMediaSessionTracker.fetch_session("relay-monitored-ingress-1")
+
+    ref = Process.monitor(ingress)
+    send(ingress, :stop)
+    assert_receive {:DOWN, ^ref, :process, ^ingress, _}
+
+    # Sync with the tracker; no sweep is requested.
+    _ = :sys.get_state(CameraMediaSessionTracker)
+    assert CameraMediaSessionTracker.fetch_session("relay-monitored-ingress-1") == nil
+    assert Process.whereis(CameraMediaSessionTracker)
+  end
+
   defp clear_sessions(state) do
     Map.put(state, :sessions, %{})
   end

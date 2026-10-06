@@ -276,6 +276,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   def validate_oci_registry(@oci_registry), do: :ok
   def validate_oci_registry(_registry), do: {:error, :untrusted_oci_registry}
 
+  @doc """
+  The first-party plugin OCI registry host.
+
+  Public so diagnostics (egress connectivity checks, import failure messages)
+  name the exact host an operator must allow in the egress proxy ACL.
+  """
+  def oci_registry, do: @oci_registry
+
   def fetch_oci_manifest(repo, ref) do
     url = "https://#{ref.registry}/v2/#{ref.repository}/manifests/#{ref.reference}"
     headers = [{"accept", "application/vnd.oci.image.manifest.v1+json"} | asset_headers(repo, url)]

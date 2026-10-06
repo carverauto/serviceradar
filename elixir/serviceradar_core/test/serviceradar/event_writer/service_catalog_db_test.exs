@@ -43,7 +43,7 @@ defmodule ServiceRadar.EventWriter.ServiceCatalogDbTest do
     end
   end
 
-  defp at(seconds), do: DateTime.add(~U[2026-01-01 00:00:00.000000Z], seconds, :second)
+  defp at(seconds), do: DateTime.shift(~U[2026-01-01 00:00:00.000000Z], second: seconds)
 
   describe "record/3" do
     test "creates a service with only the reporting signal's column set" do

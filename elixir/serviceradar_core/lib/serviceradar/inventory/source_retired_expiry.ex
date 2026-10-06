@@ -73,7 +73,7 @@ defmodule ServiceRadar.Inventory.SourceRetiredExpiry do
   @spec deletes_after(DateTime.t(), pos_integer()) :: DateTime.t()
   def deletes_after(%DateTime{} = marked_at, grace_days)
       when is_integer(grace_days) and grace_days > 0,
-      do: DateTime.add(marked_at, grace_days * 86_400, :second)
+      do: DateTime.shift(marked_at, day: grace_days)
 
   @doc """
   Whether an open de-duplication task names the device, so that no grace pass deletes it:
@@ -104,7 +104,7 @@ defmodule ServiceRadar.Inventory.SourceRetiredExpiry do
     if Map.get(settings, :source_retirement_enabled) == true do
       grace_days = Map.get(settings, :source_retired_grace_days) || @default_grace_days
       now = Keyword.get(opts, :now, DateTime.utc_now())
-      cutoff = DateTime.add(now, -grace_days * 86_400, :second)
+      cutoff = DateTime.shift(now, day: -grace_days)
       batch_size = Map.get(settings, :batch_size) || @default_batch_size
 
       with :ok <- mass_deletion_guard(settings, cutoff, opts) do

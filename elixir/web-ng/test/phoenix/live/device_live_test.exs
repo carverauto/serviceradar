@@ -2701,8 +2701,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   } do
     unique = System.unique_integer([:positive])
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    grace_window_at = DateTime.add(now, -25 * 60 * 60, :second)
-    stale_at = DateTime.add(now, -27 * 60 * 60, :second)
+    grace_window_at = DateTime.shift(now, hour: -25)
+    stale_at = DateTime.shift(now, hour: -27)
 
     scenarios = [
       %{
@@ -4670,7 +4670,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       },
       %{
         id: trace_two_id,
-        time: DateTime.add(now, -60, :second),
+        time: DateTime.shift(now, minute: -1),
         agent_id: "agent-mtr-1",
         device_id: uid,
         target: "10.42.0.15",
@@ -4680,7 +4680,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         protocol: "icmp",
         ip_version: 4,
         error: "timeout",
-        created_at: DateTime.add(now, -60, :second)
+        created_at: DateTime.shift(now, minute: -1)
       }
     ])
 
@@ -4699,7 +4699,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       },
       %{
         id: uuid_binary(),
-        time: DateTime.add(now, -60, :second),
+        time: DateTime.shift(now, minute: -1),
         trace_id: trace_two_id,
         hop_number: 9,
         addr: "10.42.0.1",
@@ -4707,7 +4707,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         received: 2,
         loss_pct: 60.0,
         avg_us: 34_000,
-        created_at: DateTime.add(now, -60, :second)
+        created_at: DateTime.shift(now, minute: -1)
       }
     ])
 
@@ -4747,7 +4747,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       for offset <- 0..49 do
         %{
           id: uuid_binary(),
-          time: DateTime.add(now, -offset, :second),
+          time: DateTime.shift(now, second: -offset),
           agent_id: "agent-mtr-page-two",
           device_id: uid,
           target: target_ip,
@@ -4756,13 +4756,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           total_hops: 3,
           protocol: "icmp",
           ip_version: 4,
-          created_at: DateTime.add(now, -offset, :second)
+          created_at: DateTime.shift(now, second: -offset)
         }
       end
 
     oldest_trace = %{
       id: uuid_binary(),
-      time: DateTime.add(now, -51, :second),
+      time: DateTime.shift(now, second: -51),
       agent_id: "agent-mtr-page-two",
       device_id: uid,
       target: target_ip,
@@ -4772,7 +4772,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       protocol: "icmp",
       ip_version: 4,
       error: "timeout",
-      created_at: DateTime.add(now, -51, :second)
+      created_at: DateTime.shift(now, second: -51)
     }
 
     Repo.insert_all("mtr_traces", newest_traces ++ [oldest_trace])

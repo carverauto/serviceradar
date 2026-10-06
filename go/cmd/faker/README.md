@@ -130,7 +130,7 @@ Key config fields:
 - `simulation.bgp.gobgp_api_address` (example: `serviceradar-gobgp:50051` for external daemon control)
 - `simulation.bgp.local_asn` and `simulation.bgp.router_id`
 - `simulation.bgp.peers` (FRR-like defaults are included)
-- `simulation.bgp.advertised_prefixes` (defaults: `23.138.124.0/24`, `2602:f678::/48`)
+- `simulation.bgp.advertised_prefixes` (defaults: `198.51.100.0/24`, `2602:f678::/48`)
 - `simulation.bgp.publish_interval`, `outage_interval`, `outage_duration_min`, `outage_duration_max`
 
 Smoke test flow:

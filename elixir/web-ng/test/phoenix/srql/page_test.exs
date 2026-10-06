@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Catalog
   alias ServiceRadarWebNGWeb.SRQL.Page
+  alias ServiceRadarWebNGWeb.SRQL.PageTest.CursorSRQL
 
   @moduletag :db_free
 
@@ -227,11 +228,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
       Application.put_env(
         :serviceradar_web_ng,
         :srql_module,
-        ServiceRadarWebNGWeb.SRQL.PageTest.CursorSRQL
+        CursorSRQL
       )
 
       socket =
-        %Socket{}
+        connected_socket()
         |> Phoenix.Component.assign(:current_scope, parent)
         |> Page.init("logs", default_limit: 20)
         |> Page.load_list(
@@ -255,6 +256,50 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
       assert [%{"id" => "row-2"}] = socket.assigns.logs
       assert get_in(socket.assigns.srql, [:pagination, "next_cursor"]) == "c2"
       assert_received {:page_test_srql, "c1", 20}
+    after
+      if prev do
+        Application.put_env(:serviceradar_web_ng, :srql_module, prev)
+      else
+        Application.delete_env(:serviceradar_web_ng, :srql_module)
+      end
+    end
+  end
+
+  test "load_list runs no SRQL query on the disconnected render and loads once connected" do
+    parent = self()
+    prev = Application.get_env(:serviceradar_web_ng, :srql_module)
+
+    load = fn socket ->
+      socket
+      |> Phoenix.Component.assign(:current_scope, parent)
+      |> Page.init("logs", default_limit: 20)
+      |> Page.load_list(
+        %{"q" => "in:logs time:last_24h sort:timestamp:desc limit:20"},
+        "https://example.test/observability?tab=logs",
+        :logs,
+        default_limit: 20,
+        max_limit: 100
+      )
+    end
+
+    try do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :srql_module,
+        CursorSRQL
+      )
+
+      # The static render is discarded on connect, so it must not query.
+      static = load.(%Socket{})
+      refute_received {:page_test_srql, _, _}
+      assert static.assigns.logs == []
+      assert static.assigns.srql.loading
+      assert static.assigns.srql.query =~ "in:logs"
+
+      connected = load.(connected_socket())
+      assert_received {:page_test_srql, nil, 20}
+      assert [%{"id" => "row-2"}] = connected.assigns.logs
+      refute connected.assigns.srql.loading
     after
       if prev do
         Application.put_env(:serviceradar_web_ng, :srql_module, prev)
@@ -320,7 +365,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
              {"/devices/wifi", %{}}
 
     assert Page.route_target_for_query(
-             "in:public_endpoints ip:23.138.124.7",
+             "in:public_endpoints ip:198.51.100.7",
              "/devices"
            ) == {"/inventory/public-endpoints", %{}}
 
@@ -443,4 +488,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
     uri = URI.parse(to)
     {uri.path, URI.decode_query(uri.query || "")}
   end
+
+  # A socket whose transport is attached, as on the connected render.
+  defp connected_socket, do: %Socket{transport_pid: self()}
 end

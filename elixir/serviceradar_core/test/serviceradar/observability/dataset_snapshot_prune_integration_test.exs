@@ -19,8 +19,8 @@ defmodule ServiceRadar.Observability.DatasetSnapshotPruneIntegrationTest do
 
     now = DateTime.truncate(DateTime.utc_now(), :second)
     active_id = insert_snapshot(true, now, 2)
-    keep_id = insert_snapshot(false, DateTime.add(now, -12 * 3600, :second), 2)
-    doomed_id = insert_snapshot(false, DateTime.add(now, -5 * 24 * 3600, :second), 2)
+    keep_id = insert_snapshot(false, DateTime.shift(now, hour: -12), 2)
+    doomed_id = insert_snapshot(false, DateTime.shift(now, day: -5), 2)
 
     insert_cidr(active_id, "203.0.113.0/24")
     insert_cidr(active_id, "203.0.113.128/25")

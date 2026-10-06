@@ -432,6 +432,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     :flow_attribution_observations,
     :flow_attribution,
     :metrics,
+    :otel_metrics,
+    :otel_traces,
     :telemetry,
     :logs,
     :events,
@@ -474,7 +476,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     Enum.map(batchers, fn {name, opts} ->
       if name in @warehouse_batchers do
         max_ack_pending = batcher_max_ack_pending(config, name) || sizing.max_ack_pending
-        timeout = max(Keyword.fetch!(opts, :batch_timeout), sizing.max_age_ms)
+        timeout = sizing.max_age_ms
         size = batch_size_for(Keyword.fetch!(opts, :batch_size), max_ack_pending)
         rest = Keyword.drop(opts, [:batch_size, :batch_timeout])
         {name, [batch_size: size, batch_timeout: timeout] ++ rest}

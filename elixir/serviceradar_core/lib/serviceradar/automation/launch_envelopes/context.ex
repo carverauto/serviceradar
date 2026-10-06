@@ -273,7 +273,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.Context do
   end
 
   defp bounded_expiry(%DateTime{} = issued_at, %DateTime{} = expires_at) do
-    latest = DateTime.add(issued_at, @max_ttl_seconds, :second)
+    latest = DateTime.shift(issued_at, second: @max_ttl_seconds)
 
     if DateTime.after?(expires_at, issued_at) and
          DateTime.compare(expires_at, latest) in [:lt, :eq] do

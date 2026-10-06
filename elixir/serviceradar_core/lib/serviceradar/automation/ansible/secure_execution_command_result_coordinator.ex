@@ -359,11 +359,11 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
     # accepted just before the caller observed dispatch completion.
     reconcile_after =
       case bundle.attempt.inserted_at do
-        %DateTime{} = inserted_at -> DateTime.add(inserted_at, -300, :second)
+        %DateTime{} = inserted_at -> DateTime.shift(inserted_at, minute: -5)
         _missing -> bundle.attempt.dispatched_at || now
       end
 
-    deadline_at = DateTime.add(now, @launch_reconcile_seconds, :second)
+    deadline_at = DateTime.shift(now, second: @launch_reconcile_seconds)
 
     with {:ok, request} <- Contract.recent_jobs_request(bundle.execution, reconcile_after),
          {:ok, attrs} <-
@@ -765,7 +765,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
       )
 
     with {:ok, request} <- Contract.fetch_job_request(bundle.attempt.expected_job_id),
-         next_at = DateTime.add(now, poll_delay_seconds(poll_attempt), :second),
+         next_at = DateTime.shift(now, second: poll_delay_seconds(poll_attempt)),
          {:ok, attrs} <-
            next_attempt_attrs(bundle, request, now,
              stage: :fetch_job,
@@ -835,7 +835,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         Keyword.merge(opts, stage: :fetch_job, purpose: :scope_poll)
       )
 
-    next_at = DateTime.add(now, poll_delay_seconds(poll_attempt), :second)
+    next_at = DateTime.shift(now, second: poll_delay_seconds(poll_attempt))
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <- Contract.fetch_job_request(bundle.attempt.expected_job_id),
@@ -871,7 +871,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         Keyword.merge(opts, stage: :fetch_job, purpose: :terminal_poll)
       )
 
-    next_at = DateTime.add(now, poll_delay_seconds(poll_attempt), :second)
+    next_at = DateTime.shift(now, second: poll_delay_seconds(poll_attempt))
 
     with {:ok, request} <- Contract.fetch_job_request(bundle.attempt.expected_job_id),
          {:ok, attrs} <-
@@ -977,7 +977,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
   end
 
   defp schedule_recent_jobs_poll(bundle, request, token, digest, now, opts) do
-    next_at = DateTime.add(now, 1, :second)
+    next_at = DateTime.shift(now, second: 1)
 
     if DateTime.before?(next_at, bundle.attempt.deadline_at) do
       with {:ok, attrs} <-
@@ -1144,7 +1144,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
                  command_type: "awx.cancel_job",
                  expected_job_id: next_job_id,
                  candidate_job_ids: remaining,
-                 deadline_at: DateTime.add(now, 60, :second),
+                 deadline_at: DateTime.shift(now, minute: 1),
                  attempt_store: attempt_store(opts)
                ),
              {:ok, next} <-
@@ -1179,7 +1179,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
   end
 
   defp retry_unconfirmed_cancel(bundle, token, digest, now, opts) do
-    next_at = DateTime.add(now, 1, :second)
+    next_at = DateTime.shift(now, second: 1)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <- Contract.cancel_job_request(bundle.attempt.expected_job_id),
@@ -1294,7 +1294,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         command_type: "awx.cancel_job",
         expected_job_id: job_id,
         candidate_job_ids: remaining,
-        deadline_at: DateTime.add(now, 60, :second),
+        deadline_at: DateTime.shift(now, minute: 1),
         attempt_store: attempt_store(opts)
       )
     end
@@ -1480,7 +1480,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
         )
       )
 
-    next_at = DateTime.add(now, poll_delay_seconds(retry_attempt), :second)
+    next_at = DateTime.shift(now, second: poll_delay_seconds(retry_attempt))
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <- rebuild_request(bundle) do
@@ -1619,7 +1619,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
 
   defp claim_processing(attempt, now, opts) do
     token = Ecto.UUID.generate()
-    lease_expires_at = DateTime.add(now, @processing_lease_seconds, :second)
+    lease_expires_at = DateTime.shift(now, second: @processing_lease_seconds)
     claimer = Keyword.get(opts, :processing_claimer, &claim_processing_persisted/4)
 
     case claimer.(attempt, token, lease_expires_at, now) do
@@ -1652,7 +1652,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
       end
 
     base = value(bundle.execution, :started_at) || now
-    DateTime.add(base, seconds, :second)
+    DateTime.shift(base, second: seconds)
   end
 
   @doc false

@@ -114,7 +114,7 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
     end
 
     test "rejects a replay beyond the tolerance" do
-      replayed_at = DateTime.add(@now, Slack.tolerance_seconds() + 1, :second)
+      replayed_at = DateTime.shift(@now, second: Slack.tolerance_seconds() + 1)
 
       assert {:error, :stale_timestamp} =
                Slack.verify(@body, headers(), @secret, now: replayed_at)
@@ -123,13 +123,13 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
     test "rejects a future-dated timestamp beyond the tolerance" do
       # Clock drift runs both ways, and a one-sided check silently accepts a
       # replay presented from a fast clock.
-      early = DateTime.add(@now, -(Slack.tolerance_seconds() + 1), :second)
+      early = DateTime.shift(@now, second: -(Slack.tolerance_seconds() + 1))
 
       assert {:error, :stale_timestamp} = Slack.verify(@body, headers(), @secret, now: early)
     end
 
     test "accepts a timestamp at the edge of the tolerance" do
-      edge = DateTime.add(@now, Slack.tolerance_seconds(), :second)
+      edge = DateTime.shift(@now, second: Slack.tolerance_seconds())
 
       assert :ok = Slack.verify(@body, headers(), @secret, now: edge)
     end

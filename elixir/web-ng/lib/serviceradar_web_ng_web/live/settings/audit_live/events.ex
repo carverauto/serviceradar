@@ -278,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
     seconds = %{"last_1h" => 3600, "last_24h" => 86_400, "last_7d" => 604_800}[time]
 
     if seconds,
-      do: {:ok, DateTime.add(DateTime.utc_now(), -seconds, :second), nil},
+      do: {:ok, DateTime.shift(DateTime.utc_now(), second: -seconds), nil},
       else: {:error, :invalid_time}
   end
 

@@ -16,8 +16,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.CredentialCoverage
+  alias ServiceRadarWebNG.Plugins.EgressConnectivityCheck
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
+  alias ServiceRadarWebNG.Plugins.ImportFailureMessages
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Repositories
   alias ServiceRadarWebNG.Plugins.Storage
@@ -109,6 +111,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:repository_errors, [])
         |> assign(:editing_repository_id, nil)
         |> assign(:import_running?, false)
+        |> assign(:egress_check_running?, false)
+        |> assign(:egress_check, nil)
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
         |> assign(:create_form, default_create_form())
@@ -221,6 +225,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   @impl true
+  def handle_info({:plugin_egress_check, result}, socket) do
+    {:noreply,
+     socket
+     |> assign(:egress_check_running?, false)
+     |> assign(:egress_check, result)}
+  end
+
   def handle_info(:load_first_party_catalog, socket) do
     {:noreply, load_first_party_catalog(socket)}
   end
@@ -362,6 +373,31 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("sync_first_party_catalog", _params, socket) do
     {:noreply, load_first_party_catalog(socket)}
+  end
+
+  # Read-only probes through the same egress client the import uses; results
+  # name blocked hosts so an operator can fix the proxy ACL without logs.
+  def handle_event("test_plugin_egress", _params, %{assigns: %{egress_check_running?: true}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("test_plugin_egress", _params, socket) do
+    socket = assign(socket, :egress_check_running?, true)
+
+    if connected?(socket) do
+      parent = self()
+
+      # The probes are sequential HEADs with bounded timeouts; run them off the
+      # LiveView process so a slow host cannot stall the page.
+      Task.start(fn ->
+        result = EgressConnectivityCheck.run()
+        send(parent, {:plugin_egress_check, result})
+      end)
+
+      {:noreply, socket}
+    else
+      {:noreply, assign(socket, :egress_check_running?, false)}
+    end
   end
 
   def handle_event("select_first_party_release", %{"release_tag" => release_tag}, socket) do
@@ -620,7 +656,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, reason} ->
         {:noreply,
          socket
-         |> put_flash(:error, "First-party import failed: #{format_error(reason)}")
+         |> put_flash(:error, "First-party import failed: #{format_import_error(reason)}")
          |> load_first_party_catalog()}
     end
   end
@@ -1369,7 +1405,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:error, reason} ->
         {:noreply,
          socket
-         |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")
+         |> put_flash(:error, "First-party catalog import failed: #{format_import_error(reason)}")
          |> load_first_party_catalog()}
     end
   end
@@ -1378,7 +1414,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply,
      socket
      |> assign(:import_running?, false)
-     |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")}
+     |> put_flash(:error, "First-party catalog import failed: #{format_import_error(reason)}")}
   end
 
   @impl true
@@ -1652,6 +1688,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <.icon name="hero-arrow-path" class="size-4" /> Sync
               </.ui_button>
               <.ui_button
+                variant="ghost"
+                size="sm"
+                disabled={@egress_check_running?}
+                phx-click="test_plugin_egress"
+                title="Probe every host plugin sync needs through the egress proxy"
+              >
+                <span :if={@egress_check_running?} class="sr-ui-spinner sr-ui-spinner-xs"></span>
+                <.icon :if={not @egress_check_running?} name="hero-signal" class="size-4" />
+                Test egress
+              </.ui_button>
+              <.ui_button
                 :if={@can_stage_plugins}
                 variant="primary"
                 size="sm"
@@ -1674,6 +1721,35 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <%= if @first_party_catalog_status do %>
             <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-sr-muted">
               {@first_party_catalog_status}
+            </div>
+          <% end %>
+
+          <%= if @selected_repository do %>
+            <div class="rounded-xl border border-sr-line bg-sr-surface p-3 text-xs text-sr-muted">
+              {last_sync_label(@selected_repository)}
+            </div>
+          <% end %>
+
+          <%= if @egress_check do %>
+            <div class={"rounded-xl border p-3 text-xs " <> if(@egress_check.blocked == 0, do: "border-success/30 bg-success/5", else: "border-error/30 bg-error/5")}>
+              <div class="font-semibold text-sr-ink mb-2">
+                Egress check: {@egress_check.blocked} of {length(@egress_check.results)} hosts blocked
+              </div>
+              <ul class="space-y-1">
+                <li :for={result <- @egress_check.results} class="flex items-center gap-2">
+                  <span class={if result.reachable, do: "text-success", else: "text-error"}>
+                    <.icon
+                      name={if result.reachable, do: "hero-check-circle", else: "hero-x-circle"}
+                      class="size-4"
+                    />
+                  </span>
+                  <span class="font-medium text-sr-ink">{result.host}</span>
+                  <span class="text-sr-muted">({result.purpose})</span>
+                  <span :if={not result.reachable and result.detail} class="text-error">
+                    {result.detail}
+                  </span>
+                </li>
+              </ul>
             </div>
           <% end %>
 
@@ -3705,7 +3781,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> String.replace("_", " ")
   end
 
-  defp safe_import_failure_reason(_reason), do: "import was rejected"
+  defp safe_import_failure_reason(reason), do: ImportFailureMessages.reason_to_text(reason)
 
   # Repository state for the catalog picker. `first_party_repo_url` stays as the
   # assign name the template already uses, but it now comes from the selected
@@ -3727,6 +3803,42 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp repository_permission_message, do: "You don't have permission to manage plugin repositories."
+
+  # The last auto-sync run's outcome, straight off the repository record the
+  # sync worker stamps: status, counts, and why it failed when it did.
+  defp last_sync_label(repository) do
+    summary = Map.get(repository, :last_sync_summary) || %{}
+    at = repository.last_sync_at
+
+    cond do
+      is_nil(at) ->
+        "Last sync: never"
+
+      summary["status"] == "failed" ->
+        "Last sync: failed - #{summary["error"] || repository.last_sync_error || "unknown reason"}"
+
+      repository.last_sync_error ->
+        "Last sync: failed - #{repository.last_sync_error}"
+
+      summary["status"] == "partial" ->
+        first = summary["first_error"] || %{}
+
+        "Last sync: failed imports - " <>
+          "#{Map.get(summary, "failed_count", 0)} of " <>
+          "#{Map.get(summary, "imported", 0) + Map.get(summary, "failed_count", 0)} failed" <>
+          first_error_suffix(first)
+
+      true ->
+        "Last sync: ok - imported #{Map.get(summary, "imported", 0)}, " <>
+          "skipped #{Map.get(summary, "skipped", 0)}"
+    end
+  end
+
+  defp first_error_suffix(%{"plugin_id" => plugin_id} = first) when is_binary(plugin_id) do
+    " (first: #{plugin_id} #{Map.get(first, "version", "")} - #{Map.get(first, "reason", "unknown reason")})"
+  end
+
+  defp first_error_suffix(_first), do: ""
 
   defp scope_actor(%{user: user}) when not is_nil(user), do: user
   defp scope_actor(_scope), do: nil
@@ -5879,4 +5991,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp format_error(error) when is_atom(error), do: Atom.to_string(error)
   defp format_error(%Invalid{} = error), do: Exception.message(error)
   defp format_error(error), do: inspect(error)
+
+  # First-party import failures carry transport shapes (proxy rejections, TLS,
+  # DNS) that inspect/1 renders as opaque tuples; map them to actionable text.
+  defp format_import_error(reason), do: ImportFailureMessages.reason_to_text(reason)
 end

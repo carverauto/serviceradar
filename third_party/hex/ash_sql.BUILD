@@ -29,6 +29,7 @@ mix_app(
         "@hex_ash//:erlang_app",
         "@hex_ecto//:erlang_app",
         "@hex_ecto_sql//:erlang_app",
+        "@hex_jason//:erlang_app",
         "@rules_elixir//elixir",
     ],
 )

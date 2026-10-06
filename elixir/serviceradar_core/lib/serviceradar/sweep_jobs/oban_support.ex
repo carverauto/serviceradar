@@ -73,7 +73,7 @@ defmodule ServiceRadar.SweepJobs.ObanSupport do
       ) do
     cutoff =
       now
-      |> DateTime.add(-cutoff_seconds, :second)
+      |> DateTime.shift(second: -cutoff_seconds)
       |> DateTime.to_naive()
 
     query =

@@ -9,7 +9,11 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   ## Scheduling
 
   This worker runs every minute and checks all interfaces with metric_thresholds configured.
-  It queries the latest metric values and compares them against per-metric thresholds.
+  It reads a per-second rate for each configured counter from the store
+  `Readers.mode_for(:metrics)` selects. The rate is the shared counter rule in
+  `MetricConsumers.counter_rate_sql/1` over the two newest samples: a plausible
+  wrap counts, and a reset is skipped. Percentage thresholds compare that
+  rate with link speed (`rate * 8 / ifSpeed`).
 
   ## Threshold Configuration
 
@@ -45,6 +49,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.MetricConsumers
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
@@ -124,17 +130,20 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
     * `:now` - the wall-clock time the duration and cooldown checks use;
       defaults to `DateTime.utc_now/0` (tests)
+    * `:metric_query` - warehouse query function for the StarRocks latest-value
+      read; defaults to `ServiceRadar.Analytics.StarRocks.Query.execute/1` (tests)
   """
   @spec run(keyword()) :: :ok | {:error, term()}
   def run(opts \\ []) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
 
     with {:ok, settings} <- get_enabled_thresholds(),
-         {:ok, states} <- load_states() do
+         {:ok, states} <- load_states(),
+         {:ok, values} <- latest_metric_values(settings, states, now, opts) do
       log_evaluation_start(settings)
 
       settings
-      |> evaluate_settings(states, now)
+      |> evaluate_settings(states, values, now)
       |> persist_states(states, now)
     else
       {:error, reason} = error ->
@@ -174,14 +183,19 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   # returns the state each one holds after this run. A metric configured twice
   # on one interface (a legacy threshold on a metric that also has a per-metric
   # threshold) shares one state, evaluated in order, as before.
-  defp evaluate_settings(settings, states, now) do
+  defp evaluate_settings(settings, states, values, now) do
     Enum.reduce(settings, %{}, fn setting, acc ->
       setting
       |> threshold_checks()
       |> Enum.reduce(acc, fn {metric_name, config}, acc ->
         key = {setting.id, metric_name}
         state = Map.get(acc, key) || Map.get(states, key, @idle_state)
-        Map.put(acc, key, evaluate_metric_threshold(setting, metric_name, config, state, now))
+
+        Map.put(
+          acc,
+          key,
+          evaluate_metric_threshold(setting, metric_name, config, state, values, now)
+        )
       end)
     end)
   end
@@ -212,12 +226,12 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     )
   end
 
-  defp evaluate_metric_threshold(setting, metric_name, config, state, now) do
+  defp evaluate_metric_threshold(setting, metric_name, config, state, values, now) do
     if in_cooldown?(state, now) do
       log_cooldown_skip(setting, metric_name)
       state
     else
-      evaluate_threshold_value(setting, metric_name, config, state, now)
+      evaluate_threshold_value(setting, metric_name, config, state, values, now)
     end
   rescue
     error ->
@@ -231,8 +245,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
       state
   end
 
-  defp evaluate_threshold_value(setting, metric_name, config, state, now) do
-    case get_latest_metric_value(setting, metric_name) do
+  defp evaluate_threshold_value(setting, metric_name, config, state, values, now) do
+    case lookup_metric_value(values, setting, metric_name) do
       {:ok, metric_value} when not is_nil(metric_value) ->
         check_threshold(setting, metric_name, config, metric_value, state, now)
 
@@ -258,6 +272,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   end
 
   defp check_threshold(setting, metric_name, config, metric_value, state, now) do
+    metric_value = coerce_number(metric_value)
     comparison = config_value(config, :comparison)
     threshold_type = config_value(config, :threshold_type, "absolute")
     raw_threshold = parse_number(config_value(config, :value))
@@ -334,7 +349,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     {threshold, nil, nil}
   end
 
-  # Get interface speed (in bps) from the Interface resource
+  # Get interface speed (in bps) from the latest discovered_interfaces record
   defp get_interface_speed(setting) do
     if_index = get_if_index(setting)
 
@@ -343,7 +358,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     else
       # Query latest interface record for speed_bps or if_speed
       query =
-        from(i in "interfaces",
+        from(i in "discovered_interfaces",
           where: i.device_id == ^setting.device_id,
           where: i.if_index == ^if_index,
           order_by: [desc: i.timestamp],
@@ -352,22 +367,31 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         )
 
       case Repo.one(query) do
-        nil ->
-          {:ok, nil}
-
-        %{speed_bps: speed_bps} when is_number(speed_bps) and speed_bps > 0 ->
-          {:ok, speed_bps}
-
-        %{if_speed: if_speed} when is_number(if_speed) and if_speed > 0 ->
-          {:ok, if_speed}
-
-        _ ->
-          {:ok, nil}
+        nil -> {:ok, nil}
+        row -> {:ok, positive_speed(row)}
       end
     end
   rescue
     error -> {:error, error}
   end
+
+  defp positive_speed(%{speed_bps: speed_bps, if_speed: if_speed}) do
+    first_positive_speed([speed_bps, if_speed])
+  end
+
+  defp first_positive_speed([candidate | rest]) do
+    case coerce_number(candidate) do
+      speed when is_number(speed) and speed > 0 -> speed
+      _ -> first_positive_speed(rest)
+    end
+  end
+
+  defp first_positive_speed([]), do: nil
+
+  # `extract(epoch)` makes the CNPG rate numeric, which Postgrex returns as a
+  # Decimal. Term ordering would treat that struct as greater than any threshold.
+  defp coerce_number(%Decimal{} = number), do: Decimal.to_float(number)
+  defp coerce_number(number), do: number
 
   defp handle_violation(setting, metric_name, config, metric_value, state, now) do
     violation_started_at = state.violation_started_at || now
@@ -496,30 +520,113 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     end)
   end
 
-  defp get_latest_metric_value(setting, metric_name) do
-    if_index = get_if_index(setting)
+  # One lookup for the whole run. Metrics inside their cooldown are omitted:
+  # evaluation never reads them, and a per-metric query was the round trip
+  # this batch replaces. A failed read aborts the run before state is written,
+  # which is the same "keep the previous state" outcome as the old per-metric
+  # rescue, applied to every metric in the batch.
+  defp latest_metric_values(settings, states, now, opts) do
+    case metric_keys(settings, states, now) do
+      [] ->
+        {:ok, %{}}
 
-    if is_nil(if_index) do
-      {:error, :missing_if_index}
-    else
-      query =
-        from(m in "timeseries_metrics",
-          where: m.device_id == ^setting.device_id,
-          where: m.metric_name == ^metric_name,
-          where: m.if_index == ^if_index,
-          where: m.timestamp > ago(5, "minute"),
-          order_by: [desc: m.timestamp],
-          limit: 1,
-          select: m.value
-        )
-
-      case Repo.one(query) do
-        nil -> {:ok, nil}
-        value -> {:ok, value}
-      end
+      keys ->
+        Readers.fetch(:metrics, %{
+          cnpg: fn -> cnpg_latest_metric_values(keys) end,
+          starrocks: fn ->
+            MetricConsumers.latest_interface_rates(keys, warehouse_query_opts(opts))
+          end
+        })
     end
-  rescue
-    error -> {:error, error}
+  end
+
+  defp warehouse_query_opts(opts) do
+    case Keyword.fetch(opts, :metric_query) do
+      {:ok, query} when is_function(query, 1) -> [query: query]
+      _ -> []
+    end
+  end
+
+  defp metric_keys(settings, states, now) do
+    settings
+    |> Enum.flat_map(&metric_keys_for_setting(&1, states, now))
+    |> Enum.uniq()
+  end
+
+  defp metric_keys_for_setting(setting, states, now) do
+    case get_if_index(setting) do
+      nil -> []
+      if_index -> due_metric_keys(setting, if_index, states, now)
+    end
+  end
+
+  defp due_metric_keys(setting, if_index, states, now) do
+    setting
+    |> threshold_checks()
+    |> Enum.flat_map(fn {metric_name, _config} ->
+      state = Map.get(states, {setting.id, metric_name}, @idle_state)
+      metric_key_unless_cooldown(setting.device_id, if_index, metric_name, state, now)
+    end)
+  end
+
+  defp metric_key_unless_cooldown(device_id, if_index, metric_name, state, now) do
+    if in_cooldown?(state, now), do: [], else: [{device_id, if_index, metric_name}]
+  end
+
+  defp cnpg_latest_metric_values(keys) do
+    device_ids = Enum.map(keys, &elem(&1, 0))
+    if_indexes = Enum.map(keys, &elem(&1, 1))
+    metric_names = Enum.map(keys, &elem(&1, 2))
+
+    rate =
+      MetricConsumers.counter_rate_sql("extract(epoch FROM timestamp - previous_timestamp)")
+
+    sql = """
+    WITH samples AS (
+      SELECT m.device_id, m.if_index, m.metric_name, m.value, m.counter_width,
+        CAST(NULL AS double precision) AS max_rate_per_second,
+        m.timestamp,
+        lead(m.value) OVER w AS previous_value,
+        lead(m.timestamp) OVER w AS previous_timestamp,
+        row_number() OVER w AS sample_rank
+      FROM platform.timeseries_metrics m
+      JOIN unnest($1::text[], $2::int[], $3::text[]) AS k(device_id, if_index, metric_name)
+        ON m.device_id = k.device_id
+       AND m.if_index = k.if_index
+       AND m.metric_name = k.metric_name
+      WHERE m.timestamp > now() - interval '5 minutes'
+      WINDOW w AS (
+        PARTITION BY m.device_id, m.if_index, m.metric_name
+        ORDER BY m.timestamp DESC
+      )
+    )
+    SELECT device_id, if_index, metric_name, rate_value
+    FROM (
+      SELECT device_id, if_index, metric_name, #{rate} AS rate_value
+      FROM samples
+      WHERE sample_rank = 1
+        AND timestamp > previous_timestamp
+        AND previous_value >= 0
+        AND value >= 0
+    ) rated
+    WHERE rate_value IS NOT NULL
+    """
+
+    case Repo.query(sql, [device_ids, if_indexes, metric_names]) do
+      {:ok, %{rows: rows}} -> {:ok, Map.new(rows, &rate_row/1)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp rate_row([device_id, if_index, metric_name, value]) do
+    {{device_id, if_index, metric_name}, value}
+  end
+
+  defp lookup_metric_value(values, setting, metric_name) do
+    case get_if_index(setting) do
+      nil -> {:error, :missing_if_index}
+      if_index -> {:ok, Map.get(values, {setting.device_id, if_index, metric_name})}
+    end
   end
 
   defp get_if_index(setting) do

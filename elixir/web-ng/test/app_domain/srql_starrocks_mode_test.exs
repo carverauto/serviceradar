@@ -570,6 +570,9 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
     # Marks come back as the Frontend's text-protocol cells, not structs.
     fn
+      "SELECT IS_ACTIVE," <> _ ->
+        {:ok, %{rows: [["true", "SUCCESS", 15]]}}
+
       "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly" ->
         {:ok, postgrex_result(["max"], [[NaiveDateTime.to_string(mv_max)]])}
 

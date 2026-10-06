@@ -172,7 +172,32 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
       assert_received {:broadcast, %{command_id: "cmd-2"}}
     end
 
-    defp trace_message_for(trace_uuid, target, extra \\ %{}) do
+    test "normalizes earlier and later hop rows to their trace event time before loading" do
+      # Simulate an upstream row builder starting to retain hop-local times.
+      # The persistence boundary owns the invariant even if that builder drifts.
+      rows = fn payload, status ->
+        {:ok, built} = ServiceRadar.Observability.MtrMetricsIngestor.rows(payload, status)
+
+        hops =
+          built.hops
+          |> Enum.zip([-86_400, 86_400])
+          |> Enum.map(fn {hop, offset} ->
+            %{hop | time: DateTime.shift(hop.time, second: offset)}
+          end)
+
+        {:ok, %{built | hops: hops}}
+      end
+
+      assert {:ok, 1} = Mtr.process_batch([trace_message()], warehouse(rows: rows))
+      assert_received {:load, :mtr_traces, [trace]}
+      assert_received {:load, :mtr_hops, [first, second]}
+      assert first.time == DateTime.from_unix!(1_780_000_000)
+      assert second.time == first.time
+      assert first.trace_id == trace.id
+      assert second.trace_id == trace.id
+    end
+
+    defp trace_message_for(trace_uuid, target, extra) do
       result = %{
         "target" => target,
         "trace_uuid" => trace_uuid,

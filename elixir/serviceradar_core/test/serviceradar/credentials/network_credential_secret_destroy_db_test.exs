@@ -30,8 +30,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretDestroyDbTest do
     secret = secret_fixture(marker)
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
-    terminal = grant_fixture(secret, :consumed, DateTime.add(now, 3_600, :second))
-    expired = grant_fixture(secret, :issued, DateTime.add(now, -1, :second))
+    terminal = grant_fixture(secret, :consumed, DateTime.shift(now, hour: 1))
+    expired = grant_fixture(secret, :issued, DateTime.shift(now, second: -1))
 
     assert secret_ciphertext_present?(secret.id)
     assert secret_version_count(secret.id) > 0
@@ -106,7 +106,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretDestroyDbTest do
 
     granted_secret = secret_fixture("live-grant")
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    live_grant = grant_fixture(granted_secret, :issued, DateTime.add(now, 3_600, :second))
+    live_grant = grant_fixture(granted_secret, :issued, DateTime.shift(now, hour: 1))
 
     assert {:error, grant_error} = destroy_secret(granted_secret, granted_secret.id, @manager)
     assert Exception.message(grant_error) =~ "credential_in_use"
@@ -133,7 +133,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretDestroyDbTest do
   test "audit insertion failure rolls back grant pruning and the parent deletion" do
     secret = secret_fixture("audit-rollback")
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    grant = grant_fixture(secret, :consumed, DateTime.add(now, 3_600, :second))
+    grant = grant_fixture(secret, :consumed, DateTime.shift(now, hour: 1))
     secret_versions_before = secret_version_count(secret.id)
     grant_versions_before = grant_version_count(grant.id)
     constraint = "credential_delete_audit_failure_#{System.unique_integer([:positive])}"

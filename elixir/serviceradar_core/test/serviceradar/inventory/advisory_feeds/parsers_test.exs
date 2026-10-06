@@ -400,6 +400,112 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert record["cve"]["id"] == "CVE-2099-0001"
       File.rm_rf(dir)
     end
+
+    test "decodes a shard one object at a time across chunk boundaries" do
+      first = %{
+        "cve" => %{
+          "id" => "CVE-2099-0100",
+          "descriptions" => [
+            %{"lang" => "en", "value" => "synthetic {brace} \"quote\""}
+          ],
+          "configurations" => [
+            %{"nodes" => [%{"cpeMatch" => [%{"criteria" => "cpe:2.3:a:example:quartz:*"}]}]}
+          ]
+        }
+      }
+
+      second = %{"cve" => %{"id" => "CVE-2099-0101"}}
+      json = Jason.encode!(%{"resultsPerPage" => 2, "vulnerabilities" => [first, second]})
+      chunks = for <<byte <- json>>, do: <<byte>>
+
+      records =
+        chunks
+        |> StreamReader.decode_vulnerability_chunks()
+        |> Enum.map(fn {:ok, record} -> record["cve"]["id"] end)
+
+      assert records == ["CVE-2099-0100", "CVE-2099-0101"]
+    end
+
+    test "keeps a large synthetic shard resident set to one record" do
+      dir = Path.join(System.tmp_dir!(), "advisory-nvd-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      {json_bytes, count} = write_fat_nvd_shard(dir)
+
+      :erlang.garbage_collect()
+      baseline = resident_bytes()
+
+      {seen, peak, ids} =
+        dir
+        |> StreamReader.stream_nvd_shards()
+        |> Enum.reduce({0, baseline, []}, fn
+          {:ok, record}, {seen, peak, ids} ->
+            id = record["cve"]["id"]
+            :erlang.garbage_collect()
+            {seen + 1, max(peak, resident_bytes()), [id | ids]}
+
+          other, _acc ->
+            flunk("shard decode failed: #{inspect(other)}")
+        end)
+
+      assert seen == count
+      assert Enum.reverse(ids) == Enum.map(1..count, &fat_cve_id/1)
+      assert peak - baseline < 2_000_000
+      assert peak - baseline < div(json_bytes, 4)
+
+      File.rm_rf(dir)
+    end
+  end
+
+  defp write_fat_nvd_shard(dir) do
+    path = Path.join(dir, "nvdcve-2.0-2099.json.gz")
+    z = :zlib.open()
+    :ok = :zlib.deflateInit(z, :default, :deflated, 31, 8, :default)
+    {:ok, io} = File.open(path, [:write, :binary, :raw])
+
+    count = 80
+    pad = String.duplicate("a", 32_000)
+    total = deflate_write(io, z, ~s({"vulnerabilities":[))
+
+    total =
+      Enum.reduce(1..count, total, fn i, acc ->
+        record = %{
+          "cve" => %{
+            "id" => fat_cve_id(i),
+            "descriptions" => [
+              %{"lang" => "en", "value" => "synthetic {brace} \"quote\" " <> pad}
+            ],
+            "references" => [
+              %{"url" => "https://advisories.example.invalid/#{fat_cve_id(i)}"}
+            ]
+          }
+        }
+
+        prefix = if i == 1, do: "", else: ","
+        acc + deflate_write(io, z, prefix <> Jason.encode!(record))
+      end)
+
+    total = total + deflate_write(io, z, "]}")
+    :ok = IO.binwrite(io, :zlib.deflate(z, <<>>, :finish))
+    :ok = :zlib.deflateEnd(z)
+    :zlib.close(z)
+    :ok = File.close(io)
+    {total, count}
+  end
+
+  defp deflate_write(io, z, data) do
+    :ok = IO.binwrite(io, :zlib.deflate(z, data))
+    byte_size(data)
+  end
+
+  defp fat_cve_id(i) do
+    "CVE-2099-" <> String.pad_leading(Integer.to_string(i), 4, "0")
+  end
+
+  defp resident_bytes do
+    :erlang.garbage_collect()
+    {:memory, mem} = Process.info(self(), :memory)
+    {:binary, bins} = Process.info(self(), :binary)
+    mem + Enum.reduce(bins, 0, fn {_id, size, _refc}, acc -> acc + size end)
   end
 
   defp nvd_record do

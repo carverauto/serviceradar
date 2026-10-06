@@ -147,7 +147,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
                store: AutomationLaunchEnvelopeMemoryStore,
                store_context: store,
                encryption_key: :binary.copy(<<92>>, 32),
-               now: DateTime.add(@issued_at, 30, :second)
+               now: DateTime.shift(@issued_at, second: 30)
              )
 
     assert [%{state: :sealed}] = AutomationLaunchEnvelopeMemoryStore.records(store)
@@ -230,7 +230,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
       store: AutomationLaunchEnvelopeMemoryStore,
       store_context: store,
       encryption_key: @key,
-      now: DateTime.add(@issued_at, 30, :second)
+      now: DateTime.shift(@issued_at, second: 30)
     )
   end
 
@@ -253,7 +253,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
       callback_credential_type_id: 91,
       callback_credential_organization_id: 2,
       callback_credential_injector_sha256: String.duplicate("d", 64),
-      expires_at: DateTime.add(@issued_at, 300, :second)
+      expires_at: DateTime.shift(@issued_at, minute: 5)
     }
   end
 

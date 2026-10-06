@@ -159,7 +159,7 @@ defmodule ServiceRadar.Credentials.BrokerRetentionWorker do
   def cutoff_for(days, _now) when days <= 0, do: nil
 
   def cutoff_for(days, %DateTime{} = now) when is_integer(days) and days > 0 do
-    DateTime.add(now, -days * 86_400, :second)
+    DateTime.shift(now, day: -days)
   end
 
   ## Internals -----------------------------------------------------------------

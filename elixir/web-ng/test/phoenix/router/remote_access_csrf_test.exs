@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Router.RemoteAccessCSRFTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   @mutating_verbs [:delete, :patch, :post, :put]
   @router_path Path.expand("../../../lib/serviceradar_web_ng_web/router.ex", __DIR__)
 

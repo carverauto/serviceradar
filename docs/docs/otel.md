@@ -433,7 +433,7 @@ of the defaults below. Retention for tables that stay on CNPG is enforced by the
 | `logs` | OTLP logs and syslog/GELF, with `trace_id`/`span_id` when the SDK provides them | 30 days |
 | `otel_service_catalog` | One row per `service.name` with a last-seen time per signal. Feeds the observability service filter; kept best-effort by EventWriter after logs, traces and metrics persist, and pruned daily | 30 days since last seen |
 
-Successful nonempty span writes request an immediate Oban summary refresh. Pending
+Successful nonempty span writes request an Oban summary refresh - immediate on CNPG-only installs, coalesced behind the warehouse minimum interval when the warehouse is enabled (see `RefreshTraceSummariesWorker.refresh_interval_seconds/0`). Pending
 requests are coalesced, and ingest during an executing refresh can queue a follow-up.
 Refreshes are serialized with a transaction-scoped advisory lock; a competing worker
 snoozes and retries. After commit, changed summaries trigger a Live UI refresh.

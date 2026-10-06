@@ -152,7 +152,7 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
     test "deletes orphaned native add-on artifacts after grace" do
       old_created_at =
         DateTime.utc_now()
-        |> DateTime.add(-8, :day)
+        |> DateTime.shift(day: -8)
         |> DateTime.to_unix()
 
       plan =
@@ -175,7 +175,7 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
     test "deletes orphaned native add-on artifacts from datasvc object info after grace" do
       old_created_at =
         DateTime.utc_now()
-        |> DateTime.add(-8, :day)
+        |> DateTime.shift(day: -8)
         |> DateTime.to_unix()
 
       key = "native-addons/orphan-proto/0.1.0/linux/amd64/sha.tar.gz"
@@ -199,7 +199,7 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
     test "protects orphaned native add-on artifacts inside grace" do
       recent_created_at =
         DateTime.utc_now()
-        |> DateTime.add(-1, :hour)
+        |> DateTime.shift(hour: -1)
         |> DateTime.to_unix()
 
       plan =

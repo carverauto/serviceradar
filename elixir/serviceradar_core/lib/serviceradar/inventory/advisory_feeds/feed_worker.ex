@@ -397,7 +397,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     import Ecto.Query
 
     live = live_node_start_times()
-    cutoff = DateTime.add(DateTime.utc_now(), -@orphan_grace_seconds, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), second: -@orphan_grace_seconds)
 
     query =
       from(j in Oban.Job,
@@ -666,13 +666,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
         end)
 
       with {:ok, result} <-
-             Loader.load_and_finalize(records,
-               provider: provider,
-               feed_key: feed_key,
-               generation: generation,
-               existing_state: existing_state,
-               normalization_version: Keyword.get(opts, :normalization_version),
-               completeness: completeness
+             Loader.load_and_finalize(
+               records,
+               loader_options(opts,
+                 provider: provider,
+                 feed_key: feed_key,
+                 generation: generation,
+                 existing_state: existing_state,
+                 normalization_version: Keyword.get(opts, :normalization_version),
+                 completeness: completeness
+               )
              ) do
         {:ok, warn_if_guard_inert(feed_key, existing_count, result)}
       end
@@ -719,7 +722,21 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       opts
       |> Keyword.put(:normalization_version, Parsers.Nvd.normalization_version())
       |> Keyword.put(:required_tree, "vulnerabilities")
+      |> Keyword.put_new(:chunk_bytes, Loader.nvd_chunk_bytes())
     )
+  end
+
+  defp loader_options(opts, base) do
+    base
+    |> maybe_put_opt(:chunk_bytes, opts)
+    |> maybe_put_opt(:chunk_size, opts)
+  end
+
+  defp maybe_put_opt(base, key, opts) do
+    case Keyword.fetch(opts, key) do
+      {:ok, value} -> Keyword.put(base, key, value)
+      :error -> base
+    end
   end
 
   @doc false

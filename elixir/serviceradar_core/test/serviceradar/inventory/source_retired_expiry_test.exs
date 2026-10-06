@@ -116,7 +116,7 @@ defmodule ServiceRadar.Inventory.SourceRetiredExpiryTest do
 
       assert DateTime.diff(due, marked_at, :day) == 7
 
-      assert {:ok, %{deleted: 0}} = run(ctx, [a], @settings, now: DateTime.add(due, -1, :second))
+      assert {:ok, %{deleted: 0}} = run(ctx, [a], @settings, now: DateTime.shift(due, second: -1))
       assert %Device{deleted_at: nil} = reload(ctx, a)
 
       assert {:ok, %{deleted: 1}} = run(ctx, [a], @settings, now: due)
@@ -390,7 +390,7 @@ defmodule ServiceRadar.Inventory.SourceRetiredExpiryTest do
       ])
   end
 
-  defp days_ago(days), do: DateTime.add(DateTime.utc_now(), -days, :day)
+  defp days_ago(days), do: DateTime.shift(DateTime.utc_now(), day: -days)
 
   # open_for_decisions/1 returns :ok when the write fails too, so read the task back.
   defp open_task(ctx, a, b) do

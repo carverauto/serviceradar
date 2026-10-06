@@ -221,8 +221,12 @@ actions:
 
     # cpu also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
     # UNITS: `GB` HERE MEANS GiB, NOT 10^9.
+    # 40GB: at 36GB the runner VM ran at ~37.95/38.65GB (~98% of 36GiB,
+    # BuildBuddy low-memory warning). GB here means GiB and the workflows
+    # executors advertise the full 80Gi limit with max_runner_count 2, so two
+    # concurrent 40GB runs exactly fill 80GiB while each run gains ~4GiB headroom.
     resource_requests:
-      memory: "36GB"
+      memory: "40GB"
       disk: "40GB"
 
     steps:
@@ -235,22 +239,9 @@ actions:
       - run: >-
           bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
-      # Build the entire repo, INCLUDING the integration targets. The privileged
-      # loaded-object netprobe test is manual because this runner cannot grant its
-      # required Linux capabilities, so name it explicitly here to keep it compiled.
-      #
-      # `--//build:enable_integration_tests` here compiles nothing extra at runtime and starts no
-      # database -- it only flips requires_shared_fixture() so those targets are compatible and
-      # therefore actually get built. Without it they are incompatible, a wildcard SKIPS them,
-      # and a compile error in one survives every step until the database sweep selects it: that
-      # is how //integration_tests/srql reached CI missing a dep on //rust/integration-db and
-      # failed with `no external crate serviceradar_integration_db` twenty minutes in, after a
-      # fixture had been provisioned.
-      - run: >-
-          bazel build -c opt --config=ci --//build:enable_integration_tests //...
-          //rust/netprobe:loaded_tcp_attribution_test
-
-      # Runs all unit tests; exclude intgration and acceptance tests.
+      # The one full //... invocation. Unit tests run here. Integration and
+      # acceptance tests are filtered out of execution. Their compile happens
+      # later, inside the database step, before a clone.
       #
       # `--//build:enable_integration_tests` is here for CONFIGURATION and CACHE CONTINUITY
       - run: >-
@@ -480,6 +471,21 @@ actions:
           parse_prepare_json <<<"$READY_JSON" >/dev/null
           validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
           echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
+
+          # Compile integration tests before cloning a database, and before the
+          # measured clock. The same --//build:run_id keeps this analysis cache
+          # for the suite below. --build_tests_only and the tag filter select
+          # tests and leave packages and images out. requires_shared_fixture()
+          # targets stay incompatible unless --//build:enable_integration_tests
+          # is set, so a wildcard skips them and a compile error survives until
+          # the suite selects the target after a fixture is provisioned. That is
+          # how //integration_tests/srql failed with `no external crate
+          # serviceradar_integration_db`. //rust/netprobe:loaded_tcp_attribution_test
+          # is manual, so the wildcard does not select it; name it so it stays
+          # compiled. This runner cannot grant its Linux capabilities, so the
+          # suite does not execute it. Leave $FLAGS off this command: those
+          # options are test-only and bazel build rejects them.
+          bazel build -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //... //rust/netprobe:loaded_tcp_attribution_test
 
           START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &

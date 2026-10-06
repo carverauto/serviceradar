@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskReducer do
 
   import Ecto.Query
 
+  alias ServiceRadar.Inventory.Sync.ParameterChunking
   alias ServiceRadar.Repo
 
   @risk_levels [
@@ -39,25 +40,29 @@ defmodule ServiceRadar.Inventory.DeviceRiskReducer do
     if records == [] do
       :ok
     else
-      Repo.insert_all(
-        "device_risk_contributions",
-        records,
-        prefix: "platform",
-        on_conflict:
-          {:replace,
-           [
-             :score,
-             :risk_level_id,
-             :risk_level,
-             :reason,
-             :active,
-             :occurred_at,
-             :resolved_at,
-             :metadata,
-             :updated_at
-           ]},
-        conflict_target: [:device_uid, :source, :source_ref]
-      )
+      records
+      |> ParameterChunking.insert_all_chunks()
+      |> Enum.each(fn chunk ->
+        Repo.insert_all(
+          "device_risk_contributions",
+          chunk,
+          prefix: "platform",
+          on_conflict:
+            {:replace,
+             [
+               :score,
+               :risk_level_id,
+               :risk_level,
+               :reason,
+               :active,
+               :occurred_at,
+               :resolved_at,
+               :metadata,
+               :updated_at
+             ]},
+          conflict_target: [:device_uid, :source, :source_ref]
+        )
+      end)
 
       records
       |> Enum.map(& &1.device_uid)

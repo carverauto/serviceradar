@@ -19,11 +19,13 @@ defmodule ServiceRadar.PrefixTags.Loader do
   require Logger
 
   @pubsub_topic "prefix_tags:snapshot"
+  @status_key {__MODULE__, :status}
   @initial_load_retry_ms 5_000
   @initial_load_retry_max_ms 60_000
   # Re-emit snapshot age/freshness even when reloads fail so last-value gauges
   # age and sources without a durable timestamp remain observable.
   @snapshot_age_tick_ms 60_000
+  @default_task_supervisor ServiceRadar.Reload.TaskSupervisor
 
   @load_active_sql """
   SELECT DISTINCT source FROM platform.prefix_tag_snapshots WHERE is_active = TRUE ORDER BY source
@@ -104,11 +106,34 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   @doc "Current loader status (for ops/debug)."
-  @spec status() :: state() | {:error, term()}
-  def status do
-    GenServer.call(__MODULE__, :status)
+  @spec status(GenServer.server()) :: state() | {:error, term()}
+  def status(server \\ __MODULE__) do
+    if server == __MODULE__ do
+      case :persistent_term.get(@status_key, :not_found) do
+        :not_found ->
+          GenServer.call(server, :status)
+
+        state ->
+          state
+      end
+    else
+      GenServer.call(server, :status)
+    end
   catch
     :exit, reason -> {:error, reason}
+  end
+
+  @doc false
+  def put_status_for_test(status) when is_map(status) do
+    :persistent_term.put(@status_key, status)
+  end
+
+  @doc false
+  def clear_status_for_test do
+    :persistent_term.erase(@status_key)
+    :ok
+  rescue
+    ArgumentError -> :ok
   end
 
   # --- GenServer -------------------------------------------------------------
@@ -122,13 +147,32 @@ defmodule ServiceRadar.PrefixTags.Loader do
     _ = :net_kernel.monitor_nodes(true, [:nodedown_reason])
     schedule_snapshot_age_tick()
 
+    name = Keyword.get(opts, :name, __MODULE__)
+    reload_runner = Keyword.get(opts, :reload_runner, &execute_reload/2)
+
+    task_supervisor =
+      Keyword.get(opts, :task_supervisor) ||
+        Application.get_env(
+          :serviceradar_core,
+          :prefix_tags_loader_task_supervisor,
+          @default_task_supervisor
+        )
+
     state = %{
+      name: name,
+      reload_runner: reload_runner,
+      task_supervisor: task_supervisor,
       loaded_at: nil,
       sources: %{},
       last_error: nil,
       external_errors: %{},
-      initial_boot_complete?: false
+      initial_boot_complete?: false,
+      reload_task: nil,
+      reload_target: nil,
+      waiters: []
     }
+
+    publish_status(state)
 
     if Keyword.get(opts, :load_on_init, true) do
       {:ok, state, {:continue, :initial_load}}
@@ -142,35 +186,88 @@ defmodule ServiceRadar.PrefixTags.Loader do
     state = do_reload(state, :all)
     state = reload_all_external_sources(state)
     state = finalize_boot_state(state)
+    publish_status(state)
     state = maybe_schedule_initial_retry(state, @initial_load_retry_ms)
     {:noreply, state}
   end
 
   @impl true
-  def handle_call({:reload, :all}, _from, state) do
-    new_state = do_reload(state, :all)
-    new_state = reload_all_external_sources(new_state)
-    new_state = finalize_boot_state(new_state)
-    reply = reload_reply(new_state, :all)
-    {:reply, reply, new_state}
+  def handle_call({:reload, target}, from, state) do
+    {:noreply, start_reload_task(state, target, from)}
   end
 
-  def handle_call({:reload, source}, _from, state) when is_binary(source) do
-    {new_state, reply} =
-      if external_source?(source) do
-        {st, result} = reload_external_source(state, source)
-        {st, result}
-      else
-        st = do_reload(state, source)
-        {st, reload_reply(st, source)}
-      end
-
-    {:reply, reply, new_state}
+  def handle_call(:status, _from, state) do
+    clean_state = status_snapshot(state)
+    publish_status(state)
+    {:reply, clean_state, state}
   end
-
-  def handle_call(:status, _from, state), do: {:reply, state, state}
 
   @impl true
+  def handle_info({ref, {new_state, reply}}, %{reload_task: %Task{ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+
+    merged_state =
+      state
+      |> Map.put(:loaded_at, new_state.loaded_at)
+      |> Map.put(:sources, new_state.sources)
+      |> Map.put(:last_error, new_state.last_error)
+      |> Map.put(:external_errors, new_state.external_errors)
+      |> Map.put(:initial_boot_complete?, new_state.initial_boot_complete?)
+      |> publish_status()
+
+    completed_target = state.reload_target
+
+    {satisfied, remaining} =
+      if completed_target == :all do
+        {state.waiters, []}
+      else
+        Enum.split_with(state.waiters, fn {_from, target} -> target == completed_target end)
+      end
+
+    for {from, target} <- satisfied, not is_nil(from) do
+      GenServer.reply(from, reply_for_waiter(new_state, completed_target, target, reply))
+    end
+
+    state_after_reply = %{merged_state | reload_task: nil, reload_target: nil, waiters: remaining}
+
+    case remaining do
+      [] ->
+        {:noreply, state_after_reply}
+
+      [{next_from, next_target} | rest] ->
+        st = %{state_after_reply | waiters: rest}
+        {:noreply, start_reload_task(st, next_target, next_from)}
+    end
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{reload_task: %Task{ref: ref}} = state) do
+    Logger.warning("PrefixTags.Loader reload task died: #{inspect(reason)}")
+    merged_state = publish_status(%{state | last_error: inspect(reason)})
+    completed_target = state.reload_target
+
+    {satisfied, remaining} =
+      if completed_target == :all do
+        {state.waiters, []}
+      else
+        Enum.split_with(state.waiters, fn {_from, target} -> target == completed_target end)
+      end
+
+    for {from, _target} <- satisfied, not is_nil(from) do
+      GenServer.reply(from, {:error, reason})
+    end
+
+    state_after_reply = %{merged_state | reload_task: nil, reload_target: nil, waiters: remaining}
+
+    case remaining do
+      [] ->
+        {:noreply, state_after_reply}
+
+      [{next_from, next_target} | rest] ->
+        st = %{state_after_reply | waiters: rest}
+        {:noreply, start_reload_task(st, next_target, next_from)}
+    end
+  end
+
   def handle_info({:retry_initial_load, delay_ms}, state) when is_integer(delay_ms) do
     # Boot complete only when snapshot :all succeeded AND externals have no
     # pending errors. Targeted reloads must not cancel this loop.
@@ -178,9 +275,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
       {:noreply, state}
     else
       Logger.info("PrefixTags.Loader retrying initial load after failure")
-      state = do_reload(state, :all)
-      state = reload_all_external_sources(state)
-      state = finalize_boot_state(state)
+      state = start_reload_task(state, :all, nil)
       next_delay = min(delay_ms * 2, @initial_load_retry_max_ms)
       state = maybe_schedule_initial_retry(state, next_delay)
       {:noreply, state}
@@ -201,40 +296,25 @@ defmodule ServiceRadar.PrefixTags.Loader do
         source: inspect(source)
       )
 
-      cond do
-        is_binary(source) and external_source?(source) ->
-          {state, _} = reload_external_source(state, source)
-          {:noreply, state}
-
-        is_binary(source) and source != "" ->
-          {:noreply, do_reload(state, source)}
-
-        true ->
-          state = do_reload(state, :all)
-          state = reload_all_external_sources(state)
-          {:noreply, state}
+      if is_binary(source) and source != "" do
+        {:noreply, start_reload_task(state, source, nil)}
+      else
+        {:noreply, start_reload_task(state, :all, nil)}
       end
     end
   end
 
   def handle_info({:prefix_tags_snapshot_changed, _meta}, state) do
-    state = do_reload(state, :all)
-    state = reload_all_external_sources(state)
-    {:noreply, state}
+    {:noreply, start_reload_task(state, :all, nil)}
   end
 
   def handle_info({:nodeup, _node, _info}, state) do
     Logger.debug("PrefixTags.Loader re-checking active snapshots after nodeup")
-    # External sources are local, materialized views of their own durable data
-    # sets. A peer joining the BEAM cluster does not change any of those data
-    # sets, and rebuilding a large provider trie on every nodeup can make a
-    # crash loop self-amplifying. Boot and explicit source invalidations still
-    # reload external sources; nodeup only re-checks snapshot-backed sources.
-    {:noreply, do_reload(state, :all)}
+    {:noreply, start_reload_task(state, :snapshots_only, nil)}
   end
 
   def handle_info({:nodeup, _node}, state) do
-    {:noreply, do_reload(state, :all)}
+    {:noreply, start_reload_task(state, :snapshots_only, nil)}
   end
 
   def handle_info({:nodedown, _node, _info}, state), do: {:noreply, state}
@@ -248,6 +328,91 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
+
+  defp start_reload_task(%{reload_task: nil} = state, target, from) do
+    runner = state.reload_runner
+    task_input_state = Map.drop(state, [:reload_task, :reload_target, :waiters])
+
+    try do
+      task =
+        Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+          runner.(task_input_state, target)
+        end)
+
+      waiters = if from, do: [{from, target} | state.waiters], else: state.waiters
+      %{state | reload_task: task, reload_target: target, waiters: waiters}
+    rescue
+      error ->
+        failed = publish_status(%{state | last_error: Exception.message(error)})
+        if from, do: GenServer.reply(from, {:error, error})
+        failed
+    catch
+      :exit, reason ->
+        failed = publish_status(%{state | last_error: inspect(reason)})
+        if from, do: GenServer.reply(from, {:error, reason})
+        failed
+    end
+  end
+
+  defp start_reload_task(state, target, from) do
+    if is_nil(from) and
+         Enum.any?(state.waiters, fn {_queued_from, queued} -> queued == target end) do
+      state
+    else
+      %{state | waiters: [{from, target} | state.waiters]}
+    end
+  end
+
+  defp execute_reload(state, :all) do
+    new_state = do_reload(state, :all)
+    new_state = reload_all_external_sources(new_state)
+    new_state = finalize_boot_state(new_state)
+    reply = reload_reply(new_state, :all)
+    {new_state, reply}
+  end
+
+  defp execute_reload(state, :snapshots_only) do
+    new_state = do_reload(state, :all)
+    {new_state, :ok}
+  end
+
+  defp execute_reload(state, source) when is_binary(source) do
+    if external_source?(source) do
+      {st, result} = reload_external_source(state, source)
+      {st, result}
+    else
+      st = do_reload(state, source)
+      {st, reload_reply(st, source)}
+    end
+  end
+
+  defp reply_for_waiter(_new_state, completed, target, reply) when completed == target do
+    reply
+  end
+
+  defp reply_for_waiter(new_state, :all, target, _reply) when is_binary(target) do
+    reload_reply(new_state, target)
+  end
+
+  defp reply_for_waiter(_new_state, :all, :snapshots_only, _reply), do: :ok
+
+  defp publish_status(state) do
+    if Map.get(state, :name) == __MODULE__ do
+      :persistent_term.put(@status_key, status_snapshot(state))
+    end
+
+    state
+  end
+
+  defp status_snapshot(state) do
+    Map.take(state, [
+      :loaded_at,
+      :sources,
+      :last_error,
+      :external_errors,
+      :initial_boot_complete?
+    ])
+  end
 
   # --- load path -------------------------------------------------------------
 

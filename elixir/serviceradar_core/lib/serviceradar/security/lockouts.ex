@@ -122,7 +122,7 @@ defmodule ServiceRadar.Security.Lockouts do
 
   defp recent_failed_login_count(actor_id, window_seconds) do
     actor = SystemActor.system(:lockouts)
-    cutoff = DateTime.add(DateTime.utc_now(), -window_seconds, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), second: -window_seconds)
 
     case SecurityEvent
          |> Ash.Query.filter(
@@ -145,7 +145,7 @@ defmodule ServiceRadar.Security.Lockouts do
 
       nil ->
         actor = SystemActor.system(:lockouts)
-        expires_at = DateTime.add(DateTime.utc_now(), lock_seconds, :second)
+        expires_at = DateTime.shift(DateTime.utc_now(), second: lock_seconds)
 
         result =
           AuthLockout.lock_actor(

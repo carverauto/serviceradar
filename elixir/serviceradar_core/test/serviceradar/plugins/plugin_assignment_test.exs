@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
@@ -51,6 +52,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     actor: actor,
     unique_id: unique_id
   } do
+    system = SystemActor.system(:plugin_assignment_test)
     plugin_id = "duplicate-guard-#{unique_id}"
     agent_uid = "agent-duplicate-guard-#{unique_id}"
     register_control_session!(agent_uid, "farm01")
@@ -71,7 +73,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
                  timeout_seconds: 30,
                  params: %{}
                },
-               actor: actor
+               actor: system
              )
              |> Ash.create()
 
@@ -129,6 +131,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     actor: actor,
     unique_id: unique_id
   } do
+    system = SystemActor.system(:plugin_assignment_test)
     plugin_id = "single-enabled-assignment-#{unique_id}"
     agent_uid = "agent-single-enabled-assignment-#{unique_id}"
     register_control_session!(agent_uid, "farm01")
@@ -168,7 +171,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
                  timeout_seconds: 30,
                  params: %{}
                },
-               actor: actor
+               actor: system
              )
              |> Ash.create()
 
@@ -179,6 +182,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     actor: actor,
     unique_id: unique_id
   } do
+    system = SystemActor.system(:plugin_assignment_test)
     plugin_id = "disabled-duplicate-assignment-#{unique_id}"
     agent_uid = "agent-disabled-duplicate-assignment-#{unique_id}"
     register_control_session!(agent_uid, "farm01")
@@ -215,7 +219,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
                  timeout_seconds: 30,
                  params: %{}
                },
-               actor: actor
+               actor: system
              )
              |> Ash.create()
 
@@ -227,6 +231,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     actor: actor,
     unique_id: unique_id
   } do
+    system = SystemActor.system(:plugin_assignment_test)
     plugin_id = "policy-package-update-#{unique_id}"
     agent_uid = "agent-policy-package-update-#{unique_id}"
     register_control_session!(agent_uid, "farm01")
@@ -248,7 +253,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
           timeout_seconds: 30,
           params: %{}
         },
-        actor: actor
+        actor: system
       )
       |> Ash.create()
 
@@ -268,7 +273,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
              |> Ash.Changeset.for_update(
                :update,
                %{plugin_package_id: new_package.id},
-               actor: actor
+               actor: system
              )
              |> Ash.update()
 
@@ -279,6 +284,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     actor: actor,
     unique_id: unique_id
   } do
+    system = SystemActor.system(:plugin_assignment_test)
     plugin_id = "policy-adopts-manual-#{unique_id}"
     agent_uid = "agent-policy-adopts-manual-#{unique_id}"
     register_control_session!(agent_uid, "farm01")
@@ -325,7 +331,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
 
     assert {:ok, stats} =
              PolicyAssignmentReconciler.reconcile(policy, [],
-               actor: actor,
+               actor: system,
                resolver: SingleRowResolver,
                target_agent_uid: agent_uid,
                generated_at: "2026-07-05T00:00:00Z"
@@ -381,7 +387,9 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     assert {:ok, nil} = read_by_partition_source_key(actor, "other", source_key)
   end
 
-  defp create_policy_assignment(actor, package, agent_uid, source_key) do
+  defp create_policy_assignment(_actor, package, agent_uid, source_key) do
+    system = SystemActor.system(:plugin_assignment_test)
+
     PluginAssignment
     |> Ash.Changeset.for_create(
       :create,
@@ -396,7 +404,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
         timeout_seconds: 30,
         params: %{}
       },
-      actor: actor
+      actor: system
     )
     |> Ash.create()
   end

@@ -868,6 +868,23 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:dire_runs blocked_unchanged:>0",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                // Guard refusals are reported apart from errors, and the succession pass's
+                // counts are recorded rather than only logged.
+                let row = &body["results"][0];
+                assert_eq!(row["blocked_merges"], 2);
+                assert_eq!(row["blocked_unchanged"], 3);
+                assert_eq!(row["errors"], 1);
+                assert_eq!(row["succession_merges"], 1);
+                assert_eq!(row["succession_reviews"], 1);
+                assert_eq!(row["successions_skipped"], 0);
+                assert_eq!(row["successions_deferred"], 0);
+                assert_eq!(row["max_successions_configured"], 200);
+            })),
+        },
+        TestCase {
             query: "in:identity_decisions device:identity-comp-a",
             expected_count: 1,
             validator: Some(Box::new(|body| {

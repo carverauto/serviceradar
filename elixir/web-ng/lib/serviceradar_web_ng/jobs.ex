@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNG.Jobs do
       {:ok, expr} ->
         timezone = schedule.timezone || @default_timezone
         now_tz = now_in_zone(now, timezone)
-        base_time = schedule.last_enqueued_at || DateTime.add(now_tz, -60, :second)
+        base_time = schedule.last_enqueued_at || DateTime.shift(now_tz, minute: -1)
         base_time = shift_zone(base_time, timezone)
 
         case Expression.next_at(expr, base_time) do
@@ -231,7 +231,7 @@ defmodule ServiceRadarWebNG.Jobs do
            timezone = schedule.timezone || @default_timezone,
            job_def when is_map(job_def) <- job_definition(schedule.job_key),
            now_tz = now_in_zone(now, timezone),
-           base_time = schedule.last_enqueued_at || DateTime.add(now_tz, -60, :second),
+           base_time = schedule.last_enqueued_at || DateTime.shift(now_tz, minute: -1),
            base_time = shift_zone(base_time, timezone),
            %DateTime{} = next_at <- Expression.next_at(expr, base_time),
            true <- DateTime.compare(next_at, now_tz) in [:lt, :eq] do

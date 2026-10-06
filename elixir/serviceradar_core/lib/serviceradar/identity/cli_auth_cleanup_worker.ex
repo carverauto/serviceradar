@@ -64,7 +64,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorker do
     now = DateTime.utc_now()
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     retention_days = Keyword.get(config, :retention_days, @default_retention_days)
-    retention_cutoff = DateTime.add(now, -retention_days * 86_400, :second)
+    retention_cutoff = DateTime.shift(now, day: -retention_days)
 
     expire_pending_device_authorizations(now)
     expire_active_cli_sessions(now)

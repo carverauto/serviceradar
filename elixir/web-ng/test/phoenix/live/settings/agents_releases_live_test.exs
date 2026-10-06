@@ -383,7 +383,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
             version: version,
             signature: sign_manifest(manifest),
             manifest: manifest,
-            published_at: DateTime.add(base_time, index, :second)
+            published_at: DateTime.shift(base_time, second: index)
           },
           scope: scope
         )

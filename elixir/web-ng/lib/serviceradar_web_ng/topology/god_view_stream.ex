@@ -4920,7 +4920,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp interface_sparkline_map(pairs) do
     {device_ids, if_indexes} = Enum.unzip(pairs)
-    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -1)
 
     result =
       MetricConsumers.fetch(
@@ -5374,7 +5374,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp fetch_recent_routing_causal_events do
     cutoff =
       DateTime.utc_now()
-      |> DateTime.add(-causal_overlay_window_seconds(), :second)
+      |> DateTime.shift(second: -causal_overlay_window_seconds())
       |> DateTime.truncate(:second)
 
     source_limit = causal_overlay_source_limit()

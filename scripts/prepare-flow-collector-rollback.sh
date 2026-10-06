@@ -135,9 +135,8 @@ replicas="$($kubectl_bin --namespace "$namespace" get deployment "$deployment" -
 
 current_config="$($kubectl_bin --namespace "$namespace" get configmap "$configmap" -o "jsonpath={.data.${config_key//./\\.}}")"
 current_stream="$(printf '%s\n' "$current_config" | "$jq_bin" -r '.stream_name // empty')"
-ready_path="$(printf '%s\n' "$current_config" | "$jq_bin" -r '.ready_state_path // "/var/lib/serviceradar/flow-collector.ready"')"
-readiness_command="$($kubectl_bin --namespace "$namespace" get deployment "$deployment" -o 'jsonpath={.spec.template.spec.containers[?(@.name=="flow-collector")].readinessProbe.exec.command[*]}')"
-[[ "$readiness_command" == *"$ready_path"* ]] || fail "current readiness probe does not gate on $ready_path; refusing to trust old-image pgrep readiness"
+readiness_path="$($kubectl_bin --namespace "$namespace" get deployment "$deployment" -o 'jsonpath={.spec.template.spec.containers[?(@.name=="flow-collector")].readinessProbe.httpGet.path}')"
+[[ "$readiness_path" == "/readyz" ]] || fail "current readiness probe is not an httpGet of /readyz (got '${readiness_path}'); refusing to trust a probe that does not gate on the publisher marker"
 
 current_image="$($kubectl_bin --namespace "$namespace" get deployment "$deployment" -o 'jsonpath={.spec.template.spec.containers[?(@.name=="flow-collector")].image}')"
 printf 'Preparing flow ownership with current image %s in namespace %s.\n' "$current_image" "$namespace"

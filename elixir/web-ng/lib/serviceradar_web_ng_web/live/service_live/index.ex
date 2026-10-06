@@ -38,12 +38,18 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   def handle_params(params, uri, socket) do
     params = Data.ensure_default_query(params, @default_query)
 
-    socket =
-      socket
-      |> maybe_reconcile_plugin_assignments()
-      |> load_services(params, uri)
+    # Plugin reconciliation and the service-card state read run on the
+    # connected render only; the static render is discarded on connect.
+    if connected?(socket) do
+      socket =
+        socket
+        |> maybe_reconcile_plugin_assignments()
+        |> load_services(params, uri)
 
-    {:noreply, update_service_cards(socket)}
+      {:noreply, update_service_cards(socket)}
+    else
+      {:noreply, load_services(socket, params, uri)}
+    end
   end
 
   @impl true

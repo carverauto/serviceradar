@@ -441,7 +441,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       gateway_id: "gateway-1",
       status: :active,
       viewer_count: 2,
-      lease_expires_at: DateTime.add(DateTime.utc_now(), 30, :second),
+      lease_expires_at: DateTime.shift(DateTime.utc_now(), second: 30),
       updated_at: DateTime.utc_now()
     }
 
@@ -555,8 +555,8 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       status: :active,
       viewer_count: 1,
       media_ingest_id: "core-media-zombie",
-      lease_expires_at: DateTime.add(DateTime.utc_now(), -3600, :second),
-      updated_at: DateTime.add(DateTime.utc_now(), -86_400, :second)
+      lease_expires_at: DateTime.shift(DateTime.utc_now(), hour: -1),
+      updated_at: DateTime.shift(DateTime.utc_now(), day: -1)
     }
 
     assert {:ok, session} =
@@ -617,7 +617,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
       gateway_id: "gateway-old",
       status: :active,
       viewer_count: 1,
-      lease_expires_at: DateTime.add(DateTime.utc_now(), 30, :second)
+      lease_expires_at: DateTime.shift(DateTime.utc_now(), second: 30)
     }
 
     assert {:ok, session} =

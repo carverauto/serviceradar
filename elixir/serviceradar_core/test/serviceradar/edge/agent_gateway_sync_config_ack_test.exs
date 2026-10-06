@@ -154,10 +154,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
       :ok =
         AgentGatewaySync.record_config_push(uid, %{
           config_version: "v2",
-          pushed_at: DateTime.add(DateTime.utc_now(), -3600, :second)
+          pushed_at: DateTime.shift(DateTime.utc_now(), hour: -1)
         })
 
-      threshold = DateTime.add(DateTime.utc_now(), -1800, :second)
+      threshold = DateTime.shift(DateTime.utc_now(), minute: -30)
 
       :ok = StateMonitor.evaluate_agent_config_health(reload!(uid, actor), threshold, actor)
       assert reload!(uid, actor).config_health == :unhealthy
@@ -189,7 +189,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
           ]
         })
 
-      threshold = DateTime.add(DateTime.utc_now(), -1800, :second)
+      threshold = DateTime.shift(DateTime.utc_now(), minute: -30)
 
       :ok = StateMonitor.evaluate_agent_config_health(reload!(uid, actor), threshold, actor)
       assert reload!(uid, actor).config_health == :unhealthy

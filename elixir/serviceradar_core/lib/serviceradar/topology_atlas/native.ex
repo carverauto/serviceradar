@@ -3,7 +3,12 @@ defmodule ServiceRadar.TopologyAtlas.Native do
 
   use Rustler,
     otp_app: :serviceradar_core,
-    crate: "topology_atlas_nif"
+    crate: "topology_atlas_nif",
+    # Mix builds path dependencies in :prod, so Rustler compiles this crate in
+    # release mode, where the workspace profile sets panic = "abort". Scope
+    # unwinding to this Cargo invocation, as the Bazel build does with
+    # -Cpanic=unwind: the crate refuses to compile with panic=abort.
+    env: [{"CARGO_PROFILE_RELEASE_PANIC", "unwind"}]
 
   def algorithm_version, do: :erlang.nif_error(:nif_not_loaded)
 

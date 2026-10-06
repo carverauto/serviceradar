@@ -63,9 +63,15 @@ func registerFakeSyncDriver() {
 //	devices_per_page: updates emitted per page (default 1)
 //	fail_after_pages: fail after emitting this many pages (unset: never)
 //	raw_mac:          raw MAC value attached to the first update of page 0
+//	stall:            "true" blocks until the run context ends, like a hung API
 type fakeSyncDriver struct{}
 
-func (*fakeSyncDriver) Sync(_ context.Context, run syncsources.RunContext) (int, error) {
+func (*fakeSyncDriver) Sync(ctx context.Context, run syncsources.RunContext) (int, error) {
+	if run.Source.Credentials["stall"] == "true" {
+		<-ctx.Done()
+		return 0, ctx.Err()
+	}
+
 	pages := fakeDriverInt(run.Source.Credentials, "pages", 1)
 	perPage := fakeDriverInt(run.Source.Credentials, "devices_per_page", 1)
 	failAfter := fakeDriverInt(run.Source.Credentials, "fail_after_pages", -1)
@@ -198,6 +204,53 @@ func TestRunSourceOnceStreamsPagedDriverUpdatesAsGatewayResults(t *testing.T) {
 
 	if len(seen) != totalDevices {
 		t.Fatalf("streamed device count = %d, want %d", len(seen), totalDevices)
+	}
+}
+
+func TestExecuteRunEndsAStalledRunAtItsDeadlineSoTheNextRunProceeds(t *testing.T) {
+	registerFakeSyncDriver()
+
+	gateway := &fakeSyncGateway{}
+	runtime := newSyncTestRuntime(gateway)
+	runtime.runTimeout = 200 * time.Millisecond
+	runner := newFakeSourceRunner(map[string]string{"stall": "true"})
+
+	done := make(chan struct{})
+	go func() {
+		runtime.executeRun(context.Background(), runner, "discovery")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a stalled sync run never ended; the source would stop syncing")
+	}
+
+	// The source is free again: the next scheduled run executes and streams.
+	runner.config.Credentials = map[string]string{"pages": "1"}
+	runtime.executeRun(context.Background(), runner, "poll")
+
+	if streams := gateway.streamsSnapshot(); len(streams) == 0 {
+		t.Fatal("the run after a timed-out run streamed nothing")
+	}
+}
+
+func TestSyncRunTimeoutFollowsTheScheduleWithinBounds(t *testing.T) {
+	cases := []struct {
+		interval time.Duration
+		want     time.Duration
+	}{
+		{0, minSyncRunTimeout},
+		{time.Minute, minSyncRunTimeout},
+		{time.Hour, time.Hour},
+		{24 * time.Hour, maxSyncRunTimeout},
+	}
+	for _, tc := range cases {
+		source := models.SourceConfig{PollInterval: models.Duration(tc.interval)}
+		if got := syncRunTimeout(source); got != tc.want {
+			t.Fatalf("interval %s: timeout %s, want %s", tc.interval, got, tc.want)
+		}
 	}
 }
 

@@ -25,8 +25,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   describe "OnboardingPackage expire_packages trigger" do
     test "needs_expiration finds packages with expired tokens" do
       # Create a package with expired tokens
-      expired_download = DateTime.add(DateTime.utc_now(), -3600, :second)
-      expired_join = DateTime.add(DateTime.utc_now(), -3600, :second)
+      expired_download = DateTime.shift(DateTime.utc_now(), hour: -1)
+      expired_join = DateTime.shift(DateTime.utc_now(), hour: -1)
 
       {:ok, expired_package} =
         OnboardingPackage
@@ -55,7 +55,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.update()
 
       # Create a package with valid tokens (should NOT be returned)
-      valid_expiry = DateTime.add(DateTime.utc_now(), 3600, :second)
+      valid_expiry = DateTime.shift(DateTime.utc_now(), hour: 1)
 
       {:ok, valid_package} =
         OnboardingPackage
@@ -168,7 +168,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Create a check that was last checked 2 minutes ago with 60s interval
       past_time =
         DateTime.utc_now()
-        |> DateTime.add(-120, :second)
+        |> DateTime.shift(minute: -2)
         |> DateTime.truncate(:second)
 
       check =
@@ -247,7 +247,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   describe "PollingSchedule execute_schedules trigger" do
     test "due_for_execution finds enabled interval schedules past their interval" do
       # Create an interval schedule that was last executed 2 minutes ago with 60s interval
-      past_time = DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.truncate(:second)
+      past_time = DateTime.utc_now() |> DateTime.shift(minute: -2) |> DateTime.truncate(:second)
 
       {:ok, schedule} =
         PollingSchedule

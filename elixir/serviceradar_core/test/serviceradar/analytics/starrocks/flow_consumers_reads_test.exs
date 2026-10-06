@@ -37,6 +37,9 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersReadsTest do
       "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly" ->
         mark(mv_max)
 
+      "SELECT IS_ACTIVE," <> _ ->
+        {:ok, %{rows: [["true", "SUCCESS", 15]]}}
+
       sql ->
         send(parent, {:sql, sql})
         {:ok, %{rows: rows}}
@@ -112,7 +115,7 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersReadsTest do
 
   test "the scan starts no earlier than the buckets that can be drawn" do
     now = ~U[2025-04-01 12:07:30Z]
-    cutoff = DateTime.add(now, -90, :day)
+    cutoff = DateTime.shift(now, day: -90)
 
     assert {:ok, []} =
              FlowConsumers.traffic_rows(cutoff, 900, 96, query: recording([]), now: now)

@@ -150,6 +150,34 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
   def validate_secret_linkage(_schema, _params), do: :ok
 
+  @doc "Returns canonical network credential bindings from schema-declared secret fields."
+  @spec network_credential_secret_bindings(map(), map()) ::
+          MapSet.t({String.t(), String.t()})
+  def network_credential_secret_bindings(schema, params) when is_map(schema) and is_map(params) do
+    params = stringify_keys(params)
+
+    schema
+    |> secret_ref_fields()
+    |> referenced_network_credential_bindings(params)
+    |> MapSet.union(template_network_credential_bindings(schema, params))
+  end
+
+  def network_credential_secret_bindings(_schema, _params), do: MapSet.new()
+
+  @doc "Returns signed credential-grant bindings from schema-declared secret fields."
+  @spec network_credential_grant_bindings(map(), map()) ::
+          MapSet.t({String.t(), String.t()})
+  def network_credential_grant_bindings(schema, params) when is_map(schema) and is_map(params) do
+    params = stringify_keys(params)
+
+    schema
+    |> secret_ref_fields()
+    |> referenced_network_credential_grants(params)
+    |> MapSet.union(template_network_credential_grants(schema, params))
+  end
+
+  def network_credential_grant_bindings(_schema, _params), do: MapSet.new()
+
   @spec secret_ref_fields(map()) :: [String.t()]
   def secret_ref_fields(schema) when is_map(schema) do
     schema
@@ -525,6 +553,59 @@ defmodule ServiceRadar.Plugins.SecretRefs do
       |> Enum.map(&("template." <> &1))
     else
       []
+    end
+  end
+
+  defp referenced_network_credential_bindings(fields, params, path_prefix \\ "") do
+    Enum.reduce(fields, MapSet.new(), fn field, bindings ->
+      case network_credential_secret_id(secret_ref_value(params, field)) do
+        {:ok, secret_id} -> MapSet.put(bindings, {path_prefix <> field, secret_id})
+        {:error, _reason} -> bindings
+      end
+    end)
+  end
+
+  defp network_credential_secret_id(ref) when is_binary(ref),
+    do: network_credential_secret_ref_id(ref)
+
+  defp network_credential_secret_id(_ref),
+    do: {:error, "is not a stored network credential reference"}
+
+  defp template_network_credential_bindings(schema, params) do
+    template = Map.get(params, "template")
+
+    if plugin_inputs_payload?(params) and is_map(template) do
+      schema
+      |> secret_ref_fields()
+      |> referenced_network_credential_bindings(stringify_keys(template), "template.")
+    else
+      MapSet.new()
+    end
+  end
+
+  defp referenced_network_credential_grants(fields, params, path_prefix \\ "") do
+    Enum.reduce(fields, MapSet.new(), fn field, bindings ->
+      case secret_ref_value(params, field) do
+        ref when is_binary(ref) ->
+          if network_credential_grant_ref?(ref),
+            do: MapSet.put(bindings, {path_prefix <> field, ref}),
+            else: bindings
+
+        _ ->
+          bindings
+      end
+    end)
+  end
+
+  defp template_network_credential_grants(schema, params) do
+    template = Map.get(params, "template")
+
+    if plugin_inputs_payload?(params) and is_map(template) do
+      schema
+      |> secret_ref_fields()
+      |> referenced_network_credential_grants(stringify_keys(template), "template.")
+    else
+      MapSet.new()
     end
   end
 

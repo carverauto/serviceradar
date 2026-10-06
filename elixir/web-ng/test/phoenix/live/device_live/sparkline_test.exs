@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SparklineTest do
           %{
             "series" => @uid,
             "value" => value,
-            "timestamp" => ~U[2001-02-03 04:00:00Z] |> DateTime.add(index * 300) |> DateTime.to_iso8601()
+            "timestamp" => ~U[2001-02-03 04:00:00Z] |> DateTime.shift(minute: index * 5) |> DateTime.to_iso8601()
           }
         end)
 

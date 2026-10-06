@@ -210,7 +210,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   @spec safe_drop_point(String.t(), pos_integer(), keyword()) :: {:ok, DateTime.t()} | :hold
   def safe_drop_point(table_name, retention_days, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
-    retention_cutoff = DateTime.add(DateTime.utc_now(), -retention_days * 86_400, :second)
+    retention_cutoff = DateTime.shift(DateTime.utc_now(), day: -retention_days)
 
     if fenced?(table_name) do
       with {:ok, boundary} when not is_nil(boundary) <- acked_boundary(repo, table_name),
@@ -474,7 +474,7 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
     repo = Keyword.get(opts, :repo, Repo)
 
     Enum.flat_map(Registry.tables(), fn entry ->
-      cutoff = DateTime.add(DateTime.utc_now(), -Registry.hot_retention_days(entry) * 86_400)
+      cutoff = DateTime.shift(DateTime.utc_now(), day: -Registry.hot_retention_days(entry))
 
       sql = """
       SELECT count(*)

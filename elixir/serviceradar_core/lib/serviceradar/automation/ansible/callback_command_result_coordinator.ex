@@ -482,7 +482,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
 
   defp claim_processing(attempt, now, opts) do
     lease_token = Ecto.UUID.generate()
-    lease_expires_at = DateTime.add(now, @processing_lease_seconds, :second)
+    lease_expires_at = DateTime.shift(now, second: @processing_lease_seconds)
     claimer = Keyword.get(opts, :processing_claimer, &claim_processing_persisted/4)
 
     case claimer.(attempt, lease_token, lease_expires_at, now) do
@@ -1162,7 +1162,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
     do: {:error, :callback_command_stage_not_processable}
 
   defp activate_exact_scope(bundle, summaries, token, digest, now, opts) do
-    next_at = DateTime.add(now, @poll_seconds, :second)
+    next_at = DateTime.shift(now, second: @poll_seconds)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <-
@@ -1230,7 +1230,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp schedule_terminal_poll(bundle, token, digest, now) do
-    next_at = DateTime.add(now, @poll_seconds, :second)
+    next_at = DateTime.shift(now, second: @poll_seconds)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <-
@@ -1347,7 +1347,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp schedule_scope_poll(bundle, token, digest, now) do
-    next_at = DateTime.add(now, @poll_seconds, :second)
+    next_at = DateTime.shift(now, second: @poll_seconds)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <-
@@ -1375,7 +1375,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp schedule_credential_lookup_poll(bundle, token, digest, now) do
-    next_at = DateTime.add(now, @poll_seconds, :second)
+    next_at = DateTime.shift(now, second: @poll_seconds)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <-
@@ -1404,7 +1404,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp schedule_recent_jobs_poll(bundle, request, token, digest, now, opts) do
-    next_at = DateTime.add(now, @poll_seconds, :second)
+    next_at = DateTime.shift(now, second: @poll_seconds)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, next_attrs} <-
@@ -1450,7 +1450,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   defp reconciliation_attempt_attrs(%{attempt: %Attempt{stage: :launch_job}} = bundle, now) do
     reconcile_after =
       bundle.attempt.dispatched_at || bundle.attempt.inserted_at ||
-        DateTime.add(now, -60, :second)
+        DateTime.shift(now, minute: -1)
 
     with {:ok, request} <-
            CallbackCommandContract.recent_jobs_request(bundle.execution, reconcile_after),
@@ -1474,7 +1474,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
               :fetch_host_summaries,
               :cancel_job
             ] do
-    next_at = DateTime.add(now, @poll_seconds, :second)
+    next_at = DateTime.shift(now, second: @poll_seconds)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <- rebuild_request(bundle),
@@ -1579,7 +1579,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
 
   defp cleanup_reconcile_after(bundle, now) do
     bundle.attempt.reconcile_after || bundle.attempt.dispatched_at || bundle.attempt.inserted_at ||
-      DateTime.add(now, -60, :second)
+      DateTime.shift(now, minute: -1)
   end
 
   defp exact_create_result(bundle) do
@@ -1885,7 +1885,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   defp reconcile_cleanup_launch_candidates(bundle, token, digest, now, opts) do
     reconcile_after =
       bundle.attempt.reconcile_after || bundle.attempt.dispatched_at || bundle.attempt.inserted_at ||
-        DateTime.add(now, -60, :second)
+        DateTime.shift(now, minute: -1)
 
     with {:ok, request} <-
            CallbackCommandContract.recent_jobs_request(bundle.execution, reconcile_after) do
@@ -2000,7 +2000,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   defp contain_cleanup_candidates(bundle, [], false, token, digest, now, opts) do
     reconcile_after =
       bundle.attempt.reconcile_after || bundle.attempt.dispatched_at || bundle.attempt.inserted_at ||
-        DateTime.add(now, -60, :second)
+        DateTime.shift(now, minute: -1)
 
     with {:ok, request} <-
            CallbackCommandContract.recent_jobs_request(bundle.execution, reconcile_after) do
@@ -2114,7 +2114,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   # Building them cannot consult the elapsed launch/create deadline, otherwise
   # recovery would lose the only path that can discover and remove an orphan.
   defp cleanup_attempt_attrs(bundle, request, now, attempt_opts, opts) do
-    deadline_at = Keyword.get(attempt_opts, :deadline_at, DateTime.add(now, 60, :second))
+    deadline_at = Keyword.get(attempt_opts, :deadline_at, DateTime.shift(now, minute: 1))
     next_attempt_at = Keyword.get(attempt_opts, :next_attempt_at, now)
 
     number_opts =
@@ -2162,7 +2162,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
                  expected_credential_id: bundle.attempt.expected_credential_id,
                  expected_job_id: next_job_id,
                  candidate_job_ids: remaining,
-                 deadline_at: DateTime.add(now, 60, :second),
+                 deadline_at: DateTime.shift(now, minute: 1),
                  attempt_store: callback_attempt_store(opts)
                ),
              {:ok, next} <-
@@ -2194,7 +2194,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
   end
 
   defp retry_unconfirmed_cancel(bundle, token, digest, now, opts) do
-    next_at = DateTime.add(now, @poll_seconds, :second)
+    next_at = DateTime.shift(now, second: @poll_seconds)
 
     with :ok <- before_deadline(bundle.attempt, next_at),
          {:ok, request} <-
@@ -2402,7 +2402,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
         expected_credential_id: value(bundle.grant, :ephemeral_credential_id),
         expected_job_id: job_id,
         candidate_job_ids: remaining,
-        deadline_at: DateTime.add(now, 60, :second),
+        deadline_at: DateTime.shift(now, minute: 1),
         attempt_store: callback_attempt_store(opts)
       )
     end

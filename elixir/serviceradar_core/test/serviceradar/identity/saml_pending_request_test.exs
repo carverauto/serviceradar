@@ -27,7 +27,7 @@ defmodule ServiceRadar.Identity.SAMLPendingRequestTest do
   test "a RelayState is taken exactly once", %{actor: actor} do
     relay_state = relay_state()
     request_id = "_req-#{System.unique_integer([:positive])}"
-    expires_at = DateTime.add(DateTime.utc_now(), 600, :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), minute: 10)
     params = %{return_to: "/devices"}
 
     assert {:ok, _pending} =
@@ -43,7 +43,7 @@ defmodule ServiceRadar.Identity.SAMLPendingRequestTest do
   test "stores a hash of the RelayState, not the RelayState", %{actor: actor} do
     relay_state = relay_state()
     request_id = "_req-#{System.unique_integer([:positive])}"
-    expires_at = DateTime.add(DateTime.utc_now(), 600, :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), minute: 10)
 
     {:ok, _pending} = SAMLPendingRequest.open(relay_state, request_id, expires_at, actor: actor)
 
@@ -62,12 +62,12 @@ defmodule ServiceRadar.Identity.SAMLPendingRequestTest do
     live_id = "_req-live-#{System.unique_integer([:positive])}"
 
     {:ok, _} =
-      SAMLPendingRequest.open(relay_state(), expired_id, DateTime.add(now, -3_600, :second),
+      SAMLPendingRequest.open(relay_state(), expired_id, DateTime.shift(now, hour: -1),
         actor: actor
       )
 
     {:ok, _} =
-      SAMLPendingRequest.open(relay_state(), live_id, DateTime.add(now, 600, :second),
+      SAMLPendingRequest.open(relay_state(), live_id, DateTime.shift(now, minute: 10),
         actor: actor
       )
 

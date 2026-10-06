@@ -101,7 +101,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   @spec prune(pos_integer(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
   def prune(retention_days, opts \\ []) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-    cutoff = DateTime.add(now, -retention_days * 86_400, :second)
+    cutoff = DateTime.shift(now, day: -retention_days)
     sql = "DELETE FROM #{summaries()} WHERE `timestamp` < #{literal(cutoff)}"
 
     with {:ok, result} <- run(sql, opts), do: {:ok, result.num_rows || 0}
@@ -111,7 +111,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   @spec upsert_sql(DateTime.t(), DateTime.t(), pos_integer(), DateTime.t()) :: String.t()
   def upsert_sql(from, to, retention_days, now) do
     candidate_floor = day_floor(to)
-    retention_floor = DateTime.add(now, -retention_days * 86_400, :second)
+    retention_floor = DateTime.shift(now, day: -retention_days)
 
     """
     INSERT INTO #{summaries()} (
@@ -172,7 +172,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   defp summaries, do: Env.table("otel_trace_summaries")
 
   defp day_floor(%DateTime{} = instant),
-    do: DateTime.add(instant, -@candidate_floor_seconds, :second)
+    do: DateTime.shift(instant, second: -@candidate_floor_seconds)
 
   # A naive UTC DATETIME literal with microseconds.
   defp literal(%DateTime{} = instant) do

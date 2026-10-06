@@ -401,6 +401,30 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
                |> Loader.chunk_by_serialized_size(2, byte_cap)
                |> Enum.to_list()
     end
+
+    test "splits an nvd snapshot into byte-capped batches" do
+      payload = String.duplicate("x", 6_500_000)
+
+      records =
+        for i <- 1..3 do
+          %{
+            advisory: %{source_object_id: "CVE-2099-000#{i}", raw: payload},
+            coordinates: [],
+            assertions: []
+          }
+        end
+
+      chunks =
+        records
+        |> Loader.chunk_records("nvd")
+        |> Enum.to_list()
+
+      assert length(chunks) > 1
+
+      assert Enum.all?(chunks, fn chunk ->
+               :erlang.external_size(chunk) <= Loader.nvd_chunk_bytes()
+             end)
+    end
   end
 
   defp kev_record do

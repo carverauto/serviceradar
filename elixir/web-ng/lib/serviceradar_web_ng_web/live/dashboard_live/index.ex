@@ -16,7 +16,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   require Logger
 
   @camera_preview_limit 4
-  @camera_relay_poll_interval_ms 1_000
+  # `/dashboard?q=` renders its results as a paginated table: at most one page
+  # of rows lives in the assign. It used to allow 50_000 rows per load.
+  @query_results_limit 100
 
   @impl true
   def mount(params, _session, socket) do
@@ -25,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
       |> assign(:page_title, "Unified Operations Dashboard")
       |> assign(:current_path, "/dashboard")
       |> assign(:camera_preview_tiles, [])
+      |> assign(:camera_relay_subscriptions, MapSet.new())
       |> assign(:dashboard_package_instances, [])
       |> assign(:query_results, nil)
       |> assign(:srql, %{enabled: false})
@@ -48,7 +51,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     {:noreply,
      socket
      |> SRQLPage.init(entity)
-     |> SRQLPage.load_list(params, uri, :query_results, default_limit: 100, max_limit: 50_000)}
+     |> SRQLPage.load_list(params, uri, :query_results,
+       default_limit: @query_results_limit,
+       max_limit: @query_results_limit
+     )}
   end
 
   def handle_params(_params, _uri, socket) do
@@ -134,7 +140,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   def handle_async(:camera_previews_open, {:ok, tiles}, socket) when is_list(tiles) do
     Enum.each(tiles, &schedule_camera_preview_refresh/1)
 
-    {:noreply, assign(socket, :camera_preview_tiles, tiles)}
+    {:noreply,
+     socket
+     |> assign(:camera_preview_tiles, tiles)
+     |> subscribe_camera_previews(tiles)}
   end
 
   def handle_async(:camera_previews_open, {:ok, result}, socket) do
@@ -220,20 +229,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     {:noreply, socket}
   end
 
+  # Fallback timer for one preview tile: re-read it and re-arm.
   def handle_info({:refresh_dashboard_camera_relay_session, relay_session_id}, socket) do
-    tiles =
-      Enum.map(socket.assigns.camera_preview_tiles, fn tile ->
-        if CameraMultiview.session_id(tile) == relay_session_id do
-          refreshed = CameraMultiview.refresh_tile_session(socket.assigns.current_scope, tile)
-          schedule_camera_preview_refresh(refreshed)
-          refreshed
-        else
-          tile
-        end
-      end)
-
-    {:noreply, assign(socket, :camera_preview_tiles, tiles)}
+    {:noreply, refresh_camera_preview(socket, relay_session_id, rearm: true)}
   end
+
+  # The relay published a state change for a preview tile's session.
+  def handle_info({:camera_relay_state, %{relay_session_id: relay_session_id}}, socket)
+      when is_binary(relay_session_id) do
+    {:noreply, refresh_camera_preview(socket, relay_session_id, rearm: false)}
+  end
+
+  def handle_info({:camera_relay_state, _payload}, socket), do: {:noreply, socket}
 
   defp dashboard_package_instances(scope) do
     [scope: scope]
@@ -388,28 +395,44 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     end
   end
 
+  defp refresh_camera_preview(socket, relay_session_id, rearm: rearm?) do
+    tiles =
+      Enum.map(socket.assigns.camera_preview_tiles, fn tile ->
+        if CameraMultiview.session_id(tile) == relay_session_id do
+          refreshed = CameraMultiview.refresh_tile_session(socket.assigns.current_scope, tile)
+
+          if rearm? or CameraMultiview.session_id(refreshed) != relay_session_id,
+            do: schedule_camera_preview_refresh(refreshed)
+
+          refreshed
+        else
+          tile
+        end
+      end)
+
+    socket
+    |> assign(:camera_preview_tiles, tiles)
+    |> subscribe_camera_previews(tiles)
+  end
+
+  defp subscribe_camera_previews(socket, tiles) do
+    subscribed =
+      Enum.reduce(tiles, socket.assigns.camera_relay_subscriptions, &CameraMultiview.subscribe_relay_state(&2, &1))
+
+    assign(socket, :camera_relay_subscriptions, subscribed)
+  end
+
   defp schedule_camera_preview_refresh(tile) do
     case CameraMultiview.session_id(tile) do
       session_id when is_binary(session_id) ->
         Process.send_after(
           self(),
           {:refresh_dashboard_camera_relay_session, session_id},
-          camera_relay_poll_interval_ms()
+          CameraMultiview.fallback_refresh_ms()
         )
 
       _ ->
         :ok
-    end
-  end
-
-  defp camera_relay_poll_interval_ms do
-    case Application.get_env(
-           :serviceradar_web_ng,
-           :camera_relay_poll_interval_ms,
-           @camera_relay_poll_interval_ms
-         ) do
-      value when is_integer(value) and value > 0 -> value
-      _other -> @camera_relay_poll_interval_ms
     end
   end
 

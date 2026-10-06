@@ -42,10 +42,10 @@ This workflow scans the released Harbor images for a given tag and generates, fo
 
 It runs on:
 
-- tagged releases (`v*`)
-- manual dispatch with a tag
+- dispatch by release publication once the images and draft release exist
+- manual dispatch with a tag for retrying a failed scan without re-tagging
 
-For tagged releases, it uploads a bundled archive named:
+For releases, it uploads a bundled archive named:
 
 - `serviceradar-image-security-<tag>.tar.gz`
 

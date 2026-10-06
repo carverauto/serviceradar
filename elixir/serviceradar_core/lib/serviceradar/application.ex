@@ -69,10 +69,12 @@ defmodule ServiceRadar.Application do
         starrocks_schema_migrator_child(),
         starrocks_mysql_child(),
         starrocks_rollup_freshness_cache_child(),
+        ServiceRadar.Analytics.StarRocks.LoadSupervisor,
 
         # Supervise asynchronous config dependency notifications so shutdown and
         # database ownership boundaries can drain them deterministically.
         dependency_dispatcher_task_supervisor_child(),
+        reload_task_supervisor_child(),
 
         # Startup migrations (core-elx only, after repo)
         startup_migrations_child(),
@@ -86,9 +88,6 @@ defmodule ServiceRadar.Application do
         # Applies stored warehouse retention; subscribes to setting changes, so
         # it starts after PubSub.
         starrocks_retention_child(),
-
-        # AS Lookup cache for BGP routing (queries GeoIP/ipinfo enrichment caches)
-        as_lookup_child(),
 
         # Minimal HTTP client for background jobs (GeoLite downloads, optional ipinfo refresh)
         finch_child(),
@@ -127,9 +126,9 @@ defmodule ServiceRadar.Application do
         # Sync ingestion queue/coalescer
         sync_ingestor_queue_child(),
 
-        # Holds partial discovery snapshots and the per-scope supersession
-        # watermarks. Bounded three ways (TTL, set count, part count); a
-        # producer cannot grow it.
+        # Holds partial discovery snapshots and the per-producer per-scope
+        # supersession watermarks. Bounded three ways (TTL, set count, part
+        # count); a producer cannot grow it.
         ServiceRadar.Inventory.Discovery.Buffer,
 
         # Bounded endpoint inventory ingestion admission queue
@@ -238,13 +237,6 @@ defmodule ServiceRadar.Application do
     ServiceRadar.Analytics.StarRocks.Retention.child_spec([])
   end
 
-  defp as_lookup_child do
-    # Start AS lookup cache when repo is available (always enabled)
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
-      ServiceRadar.BGP.ASLookup
-    end
-  end
-
   defp finch_child do
     if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
       # CAStore, and no SERVICERADAR_EGRESS_PROXY hop: the pool connects
@@ -322,6 +314,10 @@ defmodule ServiceRadar.Application do
 
   defp dependency_dispatcher_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor}
+  end
+
+  defp reload_task_supervisor_child do
+    {Task.Supervisor, name: ServiceRadar.Reload.TaskSupervisor}
   end
 
   defp sync_ingestor_queue_child do

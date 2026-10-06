@@ -182,7 +182,7 @@ defmodule ServiceRadar.Plugins.RunOverrides do
          {:ok, starts_at} <- optional_datetime(operation, :starts_at, now),
          {:ok, requested_expiry} <- requested_expiry(operation, starts_at) do
       expires_at =
-        Enum.min([requested_expiry, DateTime.add(starts_at, max_seconds, :second)], DateTime)
+        Enum.min([requested_expiry, DateTime.shift(starts_at, second: max_seconds)], DateTime)
 
       attrs = %{
         plugin_assignment_id: assignment_id,
@@ -218,7 +218,7 @@ defmodule ServiceRadar.Plugins.RunOverrides do
   defp requested_expiry(operation, starts_at) do
     case {fetch(operation, :expires_at), fetch(operation, :duration_seconds)} do
       {nil, seconds} when is_integer(seconds) and seconds > 0 ->
-        {:ok, DateTime.add(starts_at, seconds, :second)}
+        {:ok, DateTime.shift(starts_at, second: seconds)}
 
       {value, _} when is_binary(value) ->
         case DateTime.from_iso8601(value) do

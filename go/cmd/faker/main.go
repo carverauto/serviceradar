@@ -532,7 +532,7 @@ func (c *Config) applyDefaults() {
 	c.Simulation.BGP.LocalASN = 401_642
 	c.Simulation.BGP.Peers = defaultBGPPeers()
 	c.Simulation.BGP.AdvertisedPrefixes = []string{
-		"23.138.124.0/24",
+		"198.51.100.0/24",
 		"2602:f678::/48",
 	}
 	c.Storage.DataDir = "/var/lib/serviceradar/faker"

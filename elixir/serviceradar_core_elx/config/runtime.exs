@@ -654,6 +654,11 @@ if config_env() == :prod do
       end
     end)
 
+  # Capability-retained plugin results are admitted by the bounded retained-plugin
+  # lane. "false" is the kill switch back to the previous synchronous path.
+  config :serviceradar_core, ServiceRadar.StatusHandler,
+    retained_plugin_admission_enabled: System.get_env("RETAINED_PLUGIN_ADMISSION_ENABLED", "true") in ~w(true 1 yes)
+
   config :serviceradar_core,
     env: :prod,
     cloak_key: cloak_key,
@@ -956,7 +961,7 @@ if config_env() == :prod do
   # above the slowest maintenance job rather than a tight timeout.
   oban_lifeline_rescue_after_ms =
     "OBAN_LIFELINE_RESCUE_AFTER_MS"
-    |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
+    |> System.get_env(Integer.to_string(to_timeout(hour: 4)))
     |> String.to_integer()
 
   # How long a stopping node waits for executing jobs before killing them. A job

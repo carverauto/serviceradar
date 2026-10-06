@@ -177,7 +177,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   end
 
   defp calculate_expected_time(last_run_at, interval_seconds, grace_period_seconds) do
-    DateTime.add(last_run_at, interval_seconds + grace_period_seconds, :second)
+    DateTime.shift(last_run_at, second: interval_seconds + grace_period_seconds)
   end
 
   @doc false

@@ -159,7 +159,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
           user_code: user_code,
           client_id: "serviceradar-cli",
           scope: "dashboard.publish",
-          expires_at: DateTime.add(DateTime.utc_now(), 900, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: 15),
           interval_seconds: 5
         },
         actor: actor
@@ -194,7 +194,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   end
 
   defp backdate_device_authorization!(id, expires_at_ago: seconds) do
-    past = DateTime.add(DateTime.utc_now(), -seconds, :second)
+    past = DateTime.shift(DateTime.utc_now(), second: -seconds)
 
     SQL.query!(
       ServiceRadar.Repo,
@@ -206,7 +206,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   end
 
   defp backdate_cli_session!(jti, expires_at_ago: seconds) do
-    past = DateTime.add(DateTime.utc_now(), -seconds, :second)
+    past = DateTime.shift(DateTime.utc_now(), second: -seconds)
 
     SQL.query!(
       ServiceRadar.Repo,
@@ -220,7 +220,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   defp mark_device_authorization!(id, opts) do
     status = opts |> Keyword.fetch!(:status) |> Atom.to_string()
     inserted_ago_days = Keyword.fetch!(opts, :inserted_ago_days)
-    inserted_at = DateTime.add(DateTime.utc_now(), -inserted_ago_days * 86_400, :second)
+    inserted_at = DateTime.shift(DateTime.utc_now(), day: -inserted_ago_days)
 
     SQL.query!(
       ServiceRadar.Repo,
@@ -234,7 +234,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorkerTest do
   defp mark_cli_session!(jti, opts) do
     status = opts |> Keyword.fetch!(:status) |> Atom.to_string()
     inserted_ago_days = Keyword.fetch!(opts, :inserted_ago_days)
-    inserted_at = DateTime.add(DateTime.utc_now(), -inserted_ago_days * 86_400, :second)
+    inserted_at = DateTime.shift(DateTime.utc_now(), day: -inserted_ago_days)
 
     SQL.query!(
       ServiceRadar.Repo,

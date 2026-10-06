@@ -51,6 +51,13 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   :refused]`. `source_retirement_guard_override` admits the next refused pass, and that pass
   clears it. The grace pass (`ServiceRadar.Inventory.SourceRetiredExpiry`) is bounded by the same
   fraction and admitted by the same override.
+
+  After each pass over every device of the instance, whether or not retirement is enabled,
+  `[:serviceradar, :inventory, :source_population]` reports `live_records`, the live records
+  holding an id of the instance's scope, `current_ids`, the ids its latest exact collection
+  reported present, and `live_to_current`, their ratio. A source that re-keys records whose old
+  ids never retire grows the ratio past 1. With no current ids the ratio is the live record
+  count, so it never reads as healthy. The gauge is best-effort and never fails the pass.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -218,6 +225,14 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     AND right(di.partition, char_length(CAST($2 AS text))) = CAST($2 AS text)
     AND (CAST($3 AS text[]) IS NULL OR di.device_id = ANY (CAST($3 AS text[])))
     AND #{@held_live}
+  """
+
+  # The ids the instance's latest exact collection reported present.
+  @current_ids_sql """
+  SELECT count(*) FROM platform.device_source_observations AS o
+  WHERE o.partition = CAST($1 AS text) AND o.source = CAST($2 AS text)
+    AND o.source_instance = CAST($3 AS text)
+    AND o.collection_id = CAST($4 AS text) AND o.present
   """
 
   # Whether the instance's latest activated collection is still the one the pass read.
@@ -408,21 +423,26 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   which limits the pass, and the live records the mass guard counts, to those devices.
 
   Returns `{:ok, stats}`, whose `:status` is `:completed`, `:disabled`, `:unscoped` or
-  `:no_exact_collection`, or `{:error, {:mass_retirement_refused, counts}}`.
+  `:no_exact_collection`, or `{:error, {:mass_retirement_refused, counts}}`. A pass without
+  `:uids` then emits the instance's population gauge.
   """
   @spec run(instance(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(%{partition: _, source: _, source_instance: _} = instance, opts) do
     settings = Keyword.fetch!(opts, :settings)
 
-    with :ok <- ensure_enabled(settings),
-         {:ok, ctx} <- context(instance, opts),
-         candidates = candidates(ctx),
-         :ok <- mass_retirement_guard(candidates, settings, ctx) do
-      {:ok, retire_candidates(candidates, ctx)}
-    else
-      {:skip, status} -> {:ok, %{status: status}}
-      {:error, _} = error -> error
-    end
+    result =
+      with :ok <- ensure_enabled(settings),
+           {:ok, ctx} <- context(instance, opts),
+           candidates = candidates(ctx),
+           :ok <- mass_retirement_guard(candidates, settings, ctx) do
+        {:ok, retire_candidates(candidates, ctx)}
+      else
+        {:skip, status} -> {:ok, %{status: status}}
+        {:error, _} = error -> error
+      end
+
+    if is_nil(Keyword.get(opts, :uids)), do: emit_population(instance, opts)
+    result
   end
 
   @doc """
@@ -451,7 +471,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
          cutoff:
            opts
            |> Keyword.get(:now, DateTime.utc_now())
-           |> DateTime.add(-settings.source_retirement_min_absence_hours * 3_600, :second),
+           |> DateTime.shift(hour: -settings.source_retirement_min_absence_hours),
          uids: Keyword.get(opts, :uids),
          actor: Keyword.get(opts, :actor, SystemActor.system(:source_retirement))
        }}
@@ -571,6 +591,46 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
       ])
 
     count
+  end
+
+  # After the pass, so the live records no longer count the ids it retired. An instance with no
+  # scope or no exact latest collection has no population to report.
+  defp emit_population(instance, opts) do
+    with {:ok, ctx} <- context(instance, opts) do
+      live = live_holders(ctx)
+
+      %{rows: [[current]]} =
+        Repo.query!(@current_ids_sql, [
+          instance.partition,
+          instance.source,
+          instance.source_instance,
+          ctx.collection.collection_id
+        ])
+
+      :telemetry.execute(
+        [:serviceradar, :inventory, :source_population],
+        %{live_records: live, current_ids: current, live_to_current: live / max(current, 1)},
+        %{
+          partition: instance.partition,
+          source: instance.source,
+          source_instance: instance.source_instance
+        }
+      )
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.warning(
+        "SourceRetirement: #{describe(instance)} population gauge not read: " <>
+          Exception.message(error)
+      )
+  catch
+    kind, reason ->
+      Logger.warning(
+        "SourceRetirement: #{describe(instance)} population gauge not read: " <>
+          inspect({kind, reason})
+      )
   end
 
   @doc """

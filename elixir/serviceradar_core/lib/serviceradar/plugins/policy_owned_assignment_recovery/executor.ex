@@ -245,7 +245,7 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecovery.Executor do
 
     if Lease.claimable?(status, request.lease_expires_at, now) do
       lease_token = Ecto.UUID.generate()
-      lease_expires_at = DateTime.add(now, @lease_seconds, :second)
+      lease_expires_at = DateTime.shift(now, second: @lease_seconds)
 
       case Lease.claim_current(request.id, lease_token, now, lease_expires_at, actor: @actor) do
         :ok ->

@@ -94,7 +94,7 @@ defmodule ServiceRadar.Notifications.ActionTokenTest do
     test "expires_at is measured from the supplied clock, and the clock is an input" do
       minted = mint!(:acknowledge, ttl_seconds: 60)
 
-      assert minted.expires_at == DateTime.add(@now, 60, :second)
+      assert minted.expires_at == DateTime.shift(@now, minute: 1)
       assert minted.attrs.expires_at == minted.expires_at
     end
   end
@@ -178,7 +178,7 @@ defmodule ServiceRadar.Notifications.ActionTokenTest do
   describe "TTL" do
     test "a capability past its expiry is refused" do
       minted = mint!(:acknowledge, ttl_seconds: 60)
-      later = DateTime.add(@now, 61, :second)
+      later = DateTime.shift(@now, second: 61)
 
       assert {:error, :token_expired} =
                ActionToken.verify_record(record(minted), minted.token, now: later)
@@ -189,12 +189,12 @@ defmodule ServiceRadar.Notifications.ActionTokenTest do
 
       assert {:error, :token_expired} =
                ActionToken.verify_record(record(minted), minted.token,
-                 now: DateTime.add(@now, 60, :second)
+                 now: DateTime.shift(@now, minute: 1)
                )
 
       assert {:ok, :active, _record} =
                ActionToken.verify_record(record(minted), minted.token,
-                 now: DateTime.add(@now, 59, :second)
+                 now: DateTime.shift(@now, second: 59)
                )
     end
 
@@ -211,13 +211,13 @@ defmodule ServiceRadar.Notifications.ActionTokenTest do
   describe "presenting a token twice" do
     test "a consumed capability reports what it did rather than failing" do
       minted = mint!(:acknowledge)
-      consumed_at = DateTime.add(@now, 30, :second)
+      consumed_at = DateTime.shift(@now, second: 30)
 
       assert {:ok, :already_consumed, returned} =
                ActionToken.verify_record(
                  record(minted, %{consumed_at: consumed_at}),
                  minted.token,
-                 now: DateTime.add(@now, 60, :second)
+                 now: DateTime.shift(@now, minute: 1)
                )
 
       assert returned.consumed_at == consumed_at
@@ -231,9 +231,9 @@ defmodule ServiceRadar.Notifications.ActionTokenTest do
 
       assert {:ok, :already_consumed, _record} =
                ActionToken.verify_record(
-                 record(minted, %{consumed_at: DateTime.add(@now, 10, :second)}),
+                 record(minted, %{consumed_at: DateTime.shift(@now, second: 10)}),
                  minted.token,
-                 now: DateTime.add(@now, 10_000, :second)
+                 now: DateTime.shift(@now, second: 10_000)
                )
     end
 

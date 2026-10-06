@@ -24,6 +24,10 @@ const ORDERABLE: &[(&str, &str)] = &[
     ("errors", "errors"),
     ("blocked_components", "blocked_components"),
     ("largest_blocked_component", "largest_blocked_component"),
+    ("blocked_merges", "blocked_merges"),
+    ("blocked_unchanged", "blocked_unchanged"),
+    ("succession_merges", "succession_merges"),
+    ("succession_reviews", "succession_reviews"),
 ];
 
 pub(in crate::query) async fn execute(
@@ -101,7 +105,10 @@ fn build_sql(plan: &QueryPlan) -> Result<BuiltSql> {
                   r.error_summary, r.duplicate_identifier_count, r.duplicate_components, \
                   r.mergeable_components, r.blocked_components, r.blocked_devices, \
                   r.largest_blocked_component, r.merges, r.errors, r.max_merges_configured, \
-                  r.merge_cap_reached, r.blocked_component_devices, r.trigger, r.job_schedule_id \
+                  r.merge_cap_reached, r.blocked_component_devices, r.blocked_merges, \
+                  r.blocked_unchanged, r.succession_merges, r.succession_reviews, \
+                  r.successions_skipped, r.successions_deferred, r.max_successions_configured, \
+                  r.trigger, r.job_schedule_id \
            FROM platform.identity_reconciliation_runs r\
            {where_sql} \
            ORDER BY {order_sql} \
@@ -131,6 +138,12 @@ fn filter_condition(filter: &Filter, binds: &mut Vec<BindParam>) -> Result<Strin
         "duplicate_identifier_count" => {
             numeric_condition("r.duplicate_identifier_count", filter, binds)
         }
+        "blocked_merges" => numeric_condition("r.blocked_merges", filter, binds),
+        "blocked_unchanged" => numeric_condition("r.blocked_unchanged", filter, binds),
+        "succession_merges" => numeric_condition("r.succession_merges", filter, binds),
+        "succession_reviews" => numeric_condition("r.succession_reviews", filter, binds),
+        "successions_skipped" => numeric_condition("r.successions_skipped", filter, binds),
+        "successions_deferred" => numeric_condition("r.successions_deferred", filter, binds),
         "duration_ms" => numeric_condition("r.duration_ms", filter, binds),
         "job_schedule_id" => numeric_condition("r.job_schedule_id", filter, binds),
         other => Err(ServiceError::InvalidRequest(format!(
@@ -152,6 +165,37 @@ mod tests {
         assert!(sql.contains("r.merge_cap_reached"), "{sql}");
         assert!(sql.contains("r.largest_blocked_component"), "{sql}");
         assert!(sql.contains("r.blocked_component_devices"), "{sql}");
+    }
+
+    #[test]
+    fn projects_the_blocked_and_succession_counters() {
+        let (sql, _) = to_sql_and_params(&plan_for("in:reconciliation_runs")).unwrap();
+        for column in [
+            "r.blocked_merges",
+            "r.blocked_unchanged",
+            "r.succession_merges",
+            "r.succession_reviews",
+            "r.successions_skipped",
+            "r.successions_deferred",
+            "r.max_successions_configured",
+        ] {
+            assert!(sql.contains(column), "{column} not projected: {sql}");
+        }
+    }
+
+    #[test]
+    fn runs_are_filterable_and_orderable_by_blocked_unchanged() {
+        let (sql, binds) = to_sql_and_params(&plan_for(
+            "in:reconciliation_runs blocked_unchanged:>0 sort:blocked_unchanged:desc",
+        ))
+        .unwrap();
+        assert!(sql.contains("r.blocked_unchanged > $"), "{sql}");
+        assert!(sql.contains("ORDER BY blocked_unchanged DESC"), "{sql}");
+        assert!(
+            binds
+                .iter()
+                .any(|b| matches!(b, BindParam::Float(v) if *v == 0.0))
+        );
     }
 
     #[test]

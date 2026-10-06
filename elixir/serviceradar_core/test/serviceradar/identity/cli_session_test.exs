@@ -59,7 +59,7 @@ defmodule ServiceRadar.Identity.CliSessionTest do
             client_id: "serviceradar-cli",
             scope: "dashboard.publish",
             issued_at: now,
-            expires_at: DateTime.add(now, 30 * 24 * 3600, :second)
+            expires_at: DateTime.shift(now, day: 30)
           }
         })
 
@@ -79,7 +79,7 @@ defmodule ServiceRadar.Identity.CliSessionTest do
         scope: "dashboard.publish",
         status: :active,
         issued_at: DateTime.utc_now(),
-        expires_at: DateTime.add(DateTime.utc_now(), 30 * 24 * 3600, :second)
+        expires_at: DateTime.shift(DateTime.utc_now(), day: 30)
       }
 
       changeset = Ash.Changeset.for_update(record, :revoke, %{revoked_by: "user-uuid"})
@@ -99,7 +99,7 @@ defmodule ServiceRadar.Identity.CliSessionTest do
         scope: "dashboard.publish",
         status: :active,
         issued_at: DateTime.utc_now(),
-        expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
+        expires_at: DateTime.shift(DateTime.utc_now(), second: -1)
       }
 
       changeset = Ash.Changeset.for_update(record, :mark_expired, %{})

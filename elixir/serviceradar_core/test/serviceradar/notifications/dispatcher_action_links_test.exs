@@ -287,7 +287,7 @@ defmodule ServiceRadar.Notifications.DispatcherActionLinksTest do
     create_route!(actor, policy)
 
     alert = create_alert!(actor)
-    now = DateTime.add(alert.triggered_at, 1, :second)
+    now = DateTime.shift(alert.triggered_at, second: 1)
 
     assert {:ok, %{planned: [id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
 

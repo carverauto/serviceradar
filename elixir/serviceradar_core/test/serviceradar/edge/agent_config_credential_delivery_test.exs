@@ -176,7 +176,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
             }
           }
         },
-        actor: admin
+        actor: system
       )
       |> create_without_notifications!()
 
@@ -392,7 +392,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
             "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id))
           }
         },
-        actor: admin
+        actor: system
       )
       |> create_without_notifications!()
 
@@ -448,7 +448,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
             ]
           }
         },
-        actor: admin
+        actor: system
       )
       |> create_without_notifications!()
 
@@ -561,7 +561,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
             "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id))
           }
         },
-        actor: admin
+        actor: system
       )
       |> create_without_notifications!()
 
@@ -643,7 +643,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
           }
         }
       },
-      actor: admin
+      actor: system
     )
     |> create_without_notifications!()
   end
@@ -967,7 +967,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
         agent_id: agent_uid,
         resolution_location: :agent,
         ttl_seconds: 300,
-        expires_at: DateTime.add(DateTime.utc_now(), -3600, :second)
+        expires_at: DateTime.shift(DateTime.utc_now(), hour: -1)
       }
       |> CredentialBrokerGrant.issue_attrs()
       |> CredentialBrokerGrant.issue_grant(actor: system)

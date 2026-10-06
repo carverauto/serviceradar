@@ -67,7 +67,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineSeasonalDispositionTest 
           status: "breach",
           score: 4.8,
           evaluated_at: time,
-          bucket_started_at: DateTime.add(time, -3600, :second),
+          bucket_started_at: DateTime.shift(time, hour: -1),
           bucket_ended_at: time
         }
       )

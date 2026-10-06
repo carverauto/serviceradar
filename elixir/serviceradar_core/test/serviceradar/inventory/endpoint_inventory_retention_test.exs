@@ -178,7 +178,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
   end
 
   defp insert_scan!(agent_id, scan_id, current?, age_days) do
-    timestamp = DateTime.add(DateTime.utc_now(), age_days * 86_400, :second)
+    timestamp = DateTime.shift(DateTime.utc_now(), day: age_days)
 
     {1, [%{id: id}]} =
       Repo.insert_all(

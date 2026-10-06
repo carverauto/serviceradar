@@ -69,16 +69,25 @@ defmodule ServiceRadar.Inventory.Identity.ReconciliationRunTest do
       assert run.duplicate_identifier_count == stats.duplicate_identifier_count
       assert run.blocked_components == stats.blocked_components
       assert run.largest_blocked_component == stats.largest_blocked_component
+      assert run.blocked_merges == stats.blocked_merges
+      assert run.blocked_unchanged == stats.blocked_unchanged
+      assert run.succession_merges == stats.succession_merges
+      assert run.succession_reviews == stats.succession_reviews
+      assert run.successions_skipped == stats.successions_skipped
+      assert run.successions_deferred == stats.successions_deferred
+      assert run.max_successions_configured == stats.max_successions_configured
       assert is_integer(run.duration_ms)
       assert run.trigger == :scheduled
     end
 
-    test "records the configured cap and that the run stayed under it" do
-      assert {:ok, stats} = DuplicateSweep.reconcile_duplicates(actor: actor(), max_merges: 5)
+    test "records the configured caps and that the run stayed under the merge cap" do
+      opts = [actor: actor(), max_merges: 5, max_successions: 3]
+      assert {:ok, stats} = DuplicateSweep.reconcile_duplicates(opts)
 
       [run | _] = runs()
       assert run.max_merges_configured == 5
       assert stats.max_merges_configured == 5
+      assert run.max_successions_configured == 3
       # An empty fixture performs no merges, so the cap cannot have been hit.
       refute run.merge_cap_reached
       refute stats.merge_cap_reached
@@ -141,8 +150,8 @@ defmodule ServiceRadar.Inventory.Identity.ReconciliationRunTest do
       old_id = Ash.UUID.generate()
       recent_id = Ash.UUID.generate()
 
-      insert_run(%{run_id: old_id, started_at: DateTime.add(DateTime.utc_now(), -90, :day)})
-      insert_run(%{run_id: recent_id, started_at: DateTime.add(DateTime.utc_now(), -1, :day)})
+      insert_run(%{run_id: old_id, started_at: DateTime.shift(DateTime.utc_now(), day: -90)})
+      insert_run(%{run_id: recent_id, started_at: DateTime.shift(DateTime.utc_now(), day: -1)})
 
       assert {:ok, _stats} = DuplicateSweep.reconcile_duplicates(actor: actor())
 

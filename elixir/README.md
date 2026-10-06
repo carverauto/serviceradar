@@ -274,16 +274,20 @@ explicitly; there is no separate `remote_push` profile.
 `//build:elixir_tests.bzl` generates one `ex_unit_test` per **top-level test directory**, plus
 a `test_suite` over them.
 
-Not one target per file, deliberately. `rules_erlang` stages the whole `ERL_LIBS` tree
-(~140 applications for `serviceradar_core`) separately for **every** target. At one target per
-file that is 595 x 140 staging actions before a single test runs, which never finished on a
-developer machine.
+Not one target per file, deliberately. Each target starts its own BEAM. At one target
+per file that is hundreds of VM startups before a single assertion, which never finished
+on a developer machine.
 
 Grouping by directory keeps what mattered: a group whose files did not change is a cache hit;
 `--test_output=errors` prints only the failing group and ExUnit names the file and line inside
 it; and groups run in parallel. A group over `max_group_size` (default 100) is split one level
 deeper, with children under `min_subgroup_size` (default 20) pooled into `<parent>_other` so
-each does not pay a full `ERL_LIBS` staging.
+each does not pay its own BEAM startup.
+
+A dependency whose `ebin` is already a directory is named on `ERL_LIBS` in place. Copying
+that closure into a private `<target>_deps` tree made every test shard a unique ~17k-file
+input, and a cache miss spent the unit-suite critical path uploading it. Dependencies that
+are still individual `.beam` files, or that need `include/` beside `ebin`, are staged.
 
 Group names come from the directory layout, so **a new test file needs no generator run and
 nothing kept in sync**.

@@ -20,6 +20,7 @@ defmodule ServiceRadar.Credentials.CredentialRuleConsumers do
   @type consumer :: %{
           agent_uid: String.t() | nil,
           plugin_id: String.t() | nil,
+          plugin_version: String.t() | nil,
           purpose: String.t() | nil,
           enabled: boolean(),
           last_materialized_at: DateTime.t() | nil
@@ -51,6 +52,7 @@ defmodule ServiceRadar.Credentials.CredentialRuleConsumers do
     PluginAssignment
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(source == :policy and like(policy_id, ^pattern))
+    |> Ash.Query.load(:plugin_package)
     |> Ash.read(actor: actor)
     |> case do
       {:ok, assignments} -> {:ok, summarize(prefix, assignments)}
@@ -64,9 +66,12 @@ defmodule ServiceRadar.Credentials.CredentialRuleConsumers do
     consumers =
       assignments
       |> Enum.map(fn assignment ->
+        pkg = field(assignment, :plugin_package)
+
         %{
           agent_uid: field(assignment, :agent_uid),
           plugin_id: field(assignment, :plugin_id),
+          plugin_version: pkg && (field(pkg, :version) || nil),
           purpose: purpose_from_policy_id(prefix, field(assignment, :policy_id)),
           enabled: field(assignment, :enabled) != false,
           last_materialized_at: field(assignment, :updated_at)

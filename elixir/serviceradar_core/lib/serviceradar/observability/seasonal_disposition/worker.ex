@@ -699,7 +699,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp bucket_ended_at(%DateTime{} = bucket_started_at),
-    do: DateTime.add(bucket_started_at, 3_600, :second)
+    do: DateTime.shift(bucket_started_at, hour: 1)
 
   defp bucket_ended_at(_bucket_started_at), do: nil
 

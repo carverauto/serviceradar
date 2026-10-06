@@ -22,6 +22,7 @@ go_test(
     name = "armis_test",
     srcs = [
         "client_test.go",
+        "client_timeout_test.go",
         "driver_test.go",
         "update_test.go",
     ],

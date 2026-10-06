@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentCommands.PersistenceWorker
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor
   alias ServiceRadar.AgentCommands.StatusHandler
@@ -36,6 +37,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          partition_id: opts[:partition_id],
          ack_before_reply?: Keyword.get(opts, :ack_before_reply?, false),
          auto_result?: Keyword.get(opts, :auto_result?, false),
+         reply_delay_ms: Keyword.get(opts, :reply_delay_ms, 0),
          marker: Keyword.get(opts, :marker)
        }}
     end
@@ -50,6 +52,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       maybe_ack_before_reply(command, state)
       maybe_broadcast_result(command, context, state)
+      if state.reply_delay_ms > 0, do: Process.sleep(state.reply_delay_ms)
       {:reply, {:ok, command.command_id}, state}
     end
 
@@ -557,6 +560,42 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert Enum.all?(cohort.results, &(&1.payload["match_count"] == 1))
     end
 
+    test "endpoint inventory cohort cache query reports a target whose dispatch outlives its bound",
+         %{
+           agent_id: agent_id
+         } do
+      slow_agent_id = "#{agent_id}-slow"
+
+      {_pid, _metadata} =
+        start_control_session(
+          agent_id,
+          self(),
+          %{partition_id: "default", capabilities: ["endpoint-inventory"]}
+        )
+
+      {_pid, _metadata} =
+        start_control_session(
+          slow_agent_id,
+          self(),
+          %{partition_id: "default", capabilities: ["endpoint-inventory"]},
+          reply_delay_ms: 3_000
+        )
+
+      assert {:ok, cohort} =
+               AgentCommandBus.dispatch_endpoint_inventory_cohort_cache_query(
+                 %{predicate: %{name: "nginx"}},
+                 agent_ids: [agent_id, slow_agent_id],
+                 dispatch_timeout_ms: 1_000,
+                 timeout_ms: 0,
+                 cohort_concurrency: 2
+               )
+
+      assert [%{status: :failed, reason: {:dispatch_exit, :timeout}}] =
+               Enum.filter(cohort.dispatches, &(&1.agent_id == slow_agent_id))
+
+      assert [%{status: :dispatched}] = Enum.filter(cohort.dispatches, &(&1.agent_id == agent_id))
+    end
+
     test "endpoint inventory cache query persists command result lifecycle", %{
       agent_id: agent_id,
       actor: actor
@@ -776,7 +815,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       result_payload = Jason.encode!(%{"completed_targets" => 4, "failed_targets" => 0})
 
       assert {:noreply, %{actor: ^actor}} =
-               StatusHandler.handle_info(
+               PersistenceWorker.handle_info(
                  {:command_progress,
                   %{
                     command_id: command_id,
@@ -793,7 +832,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       _command = wait_for_status(command_id, :running, actor)
 
       assert {:noreply, %{actor: ^actor}} =
-               StatusHandler.handle_info(
+               PersistenceWorker.handle_info(
                  {:command_result,
                   %{
                     command_id: command_id,
@@ -892,13 +931,13 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       _stale_one =
         create_mtr_command(actor, agent_id, "1.1.1.1",
-          expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
           status: :sent
         )
 
       _stale_two =
         create_mtr_command(actor, agent_id, "8.8.8.8",
-          expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
           status: :acknowledged
         )
 
@@ -1033,21 +1072,20 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
-      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :running, actor)
 
-      assert {:ok, %{rows: statuses}} =
-               ServiceRadar.Repo.query(
-                 """
-                 SELECT protocol, status
-                 FROM platform.mtr_bulk_job_targets
-                 WHERE command_id::text = $1 AND target = '192.0.2.1'
-                 ORDER BY protocol
-                 """,
-                 [uuid_text(command.id)]
-               )
+      expected_rows = [["icmp", "queued"], ["tcp", "completed"]]
 
-      assert statuses == [["icmp", "queued"], ["tcp", "completed"]]
+      assert wait_for_rows(
+               """
+               SELECT protocol, status
+               FROM platform.mtr_bulk_job_targets
+               WHERE command_id::text = $1 AND target = '192.0.2.1'
+               ORDER BY protocol
+               """,
+               [uuid_text(command.id)],
+               expected_rows
+             ) == expected_rows
     end
 
     test "multi-protocol bulk mtr to an agent without protocol-set support runs the first protocol",
@@ -1105,8 +1143,6 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
-      # Status rows are written before bulk target upserts.
-      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :running, actor)
 
       assert {:ok, %{rows: [["object"]]}} =
@@ -1119,21 +1155,19 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  [command_id]
                )
 
-      assert {:ok, %{rows: rows}} =
-               ServiceRadar.Repo.query(
-                 """
-                 SELECT target, status, result_payload
-                 FROM platform.mtr_bulk_job_targets
-                 WHERE command_id::text = $1
-                 ORDER BY target
-                 """,
-                 [command_id]
-               )
+      target_sql = """
+      SELECT target, status, result_payload
+      FROM platform.mtr_bulk_job_targets
+      WHERE command_id::text = $1
+      ORDER BY target
+      """
 
-      assert rows == [
-               ["1.1.1.1", "running", nil],
-               ["router-a", "completed", %{"summary" => "ok"}]
-             ]
+      expected_rows = [
+        ["1.1.1.1", "running", nil],
+        ["router-a", "completed", %{"summary" => "ok"}]
+      ]
+
+      assert wait_for_rows(target_sql, [command_id], expected_rows) == expected_rows
 
       send(
         StatusHandler,
@@ -1154,9 +1188,14 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
-      # Wait for the whole callback before the sandbox owner is released.
-      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :completed, actor)
+
+      # Command persistence and the MTR consumer have separate owners. Observe
+      # the consumer's durable rows before releasing the sandbox transaction.
+      completed_rows =
+        for [target, _status, payload] <- expected_rows, do: [target, "completed", payload]
+
+      assert wait_for_rows(target_sql, [command_id], completed_rows) == completed_rows
     end
 
     test "blocks bulk mtr dispatches while another bulk job is active", %{
@@ -1187,7 +1226,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         })
 
       create_bulk_mtr_command(actor, agent_id, ["1.1.1.1", "1.1.1.2"],
-        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        expires_at: DateTime.shift(DateTime.utc_now(), minute: -1),
         status: :sent
       )
 
@@ -1507,7 +1546,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           agent_id: agent_id,
           partition_id: metadata.partition_id
         ] ++
-          Keyword.take(opts, [:ack_before_reply?, :auto_result?, :marker])
+          Keyword.take(opts, [:ack_before_reply?, :auto_result?, :marker, :reply_delay_ms])
       )
 
     on_exit(fn ->
@@ -1553,7 +1592,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   defp create_mtr_command(actor, agent_id, target, opts) do
-    expires_at = Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 60, :second))
+    expires_at = Keyword.get(opts, :expires_at, DateTime.shift(DateTime.utc_now(), minute: 1))
     status = Keyword.get(opts, :status, :queued)
 
     {:ok, command} =
@@ -1585,7 +1624,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   defp create_bulk_mtr_command(actor, agent_id, targets, opts) do
-    expires_at = Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), 300, :second))
+    expires_at = Keyword.get(opts, :expires_at, DateTime.shift(DateTime.utc_now(), minute: 5))
     status = Keyword.get(opts, :status, :queued)
 
     {:ok, command} =
@@ -1627,6 +1666,19 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           {:cont, nil}
       end
     end) || flunk("Expected command #{command_id} to reach status #{inspect(expected_status)}")
+  end
+
+  defp wait_for_rows(sql, params, expected_rows) do
+    Enum.reduce_while(1..40, nil, fn _, _previous ->
+      assert {:ok, %{rows: rows}} = ServiceRadar.Repo.query(sql, params)
+
+      if rows == expected_rows do
+        {:halt, rows}
+      else
+        Process.sleep(25)
+        {:cont, rows}
+      end
+    end)
   end
 
   defp uuid_text(id) do

@@ -188,7 +188,7 @@ evidence.
 ## Migration Plan
 
 1. Land OpenSpec + implementation behind `k8sInventory.enabled=false`.
-2. Enable on demo via `values-demo.yaml`; verify `23.138.124.7` ownership.
+2. Enable on demo via `values-demo.yaml`; verify `198.51.100.7` ownership.
 3. Document IR runbook; no forced enable for tenants.
 4. Rollback: set `enabled: false`; inventory table retains last snapshot until TTL
    or manual purge (define retention in tasks).

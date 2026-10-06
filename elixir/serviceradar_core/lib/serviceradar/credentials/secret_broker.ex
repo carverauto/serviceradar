@@ -578,7 +578,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   defp default_external_lease(now),
-    do: DateTime.add(now, @default_external_lease_seconds, :second)
+    do: DateTime.shift(now, second: @default_external_lease_seconds)
 
   defp datetime_value(nil), do: {:ok, nil}
   defp datetime_value(%DateTime{} = value), do: {:ok, value}

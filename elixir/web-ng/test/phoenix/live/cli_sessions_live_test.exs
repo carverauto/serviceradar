@@ -120,7 +120,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLiveTest do
           user_code: user_code,
           client_id: "serviceradar-cli",
           scope: "dashboard.publish",
-          expires_at: DateTime.add(DateTime.utc_now(), 900, :second),
+          expires_at: DateTime.shift(DateTime.utc_now(), minute: 15),
           interval_seconds: 5
         },
         actor: actor

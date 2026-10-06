@@ -181,17 +181,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     if is_nil(socket.assigns[:availability_request_ref]) do
       scope = socket.assigns.current_scope
       request_ref = make_ref()
+      device_is_available = device_row_is_available(socket.assigns[:device_row])
 
       socket
       |> assign(:availability_request_ref, request_ref)
       |> assign(:availability_request_source, source)
       |> start_async({:device_availability, uid, request_ref}, fn ->
-        AvailabilityData.load_availability(srql_module, uid, scope, agent_id: agent_id)
+        AvailabilityData.load_availability(srql_module, uid, scope,
+          agent_id: agent_id,
+          device_is_available: device_is_available
+        )
       end)
     else
       socket
     end
   end
+
+  defp device_row_is_available(row) when is_map(row) do
+    Map.get(row, "is_available") || Map.get(row, :is_available)
+  end
+
+  defp device_row_is_available(_), do: nil
 
   def finish_availability_refresh(socket, uid, request_ref, result) do
     source = {uid, AvailabilityData.source_agent_id(socket.assigns[:device_row])}

@@ -397,7 +397,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     supplied_secret_id = value(attrs, :secret_id)
     secret_ref = value(attrs, :secret_ref) || secret_ref_for(supplied_secret_id)
     secret_id = supplied_secret_id || network_credential_secret_id_from_ref(secret_ref)
-    default_expires_at = now |> DateTime.add(ttl_seconds, :second) |> truncate_datetime()
+    default_expires_at = now |> DateTime.shift(second: ttl_seconds) |> truncate_datetime()
 
     @fields
     |> Enum.reduce(%{}, fn field, acc ->
@@ -443,7 +443,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       consumer_kind: value(attrs, :consumer_kind),
       consumer_id: value(attrs, :consumer_id),
       secret_id: value(attrs, :secret_id),
-      expires_after: DateTime.add(now, min_remaining_seconds, :second)
+      expires_after: DateTime.shift(now, second: min_remaining_seconds)
     }
 
     with true <- Enum.all?(Map.values(args), &(not is_nil(&1))),
@@ -640,7 +640,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     if value(grant_or_attrs, :id) do
       nil
     else
-      DateTime.add(utc_now(), int_value(grant_or_attrs, :ttl_seconds, 300), :second)
+      DateTime.shift(utc_now(), second: int_value(grant_or_attrs, :ttl_seconds, 300))
     end
   end
 

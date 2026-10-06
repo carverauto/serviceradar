@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNG.Topology.WorldHealth do
        dirty: MapSet.new(),
        dirty_bytes: 0,
        cursor: nil,
-       scan_due: 0,
+       scan_due: now(),
        scan_started_at: nil,
        last_reconciled_at: nil,
        last_read_at: nil,
@@ -211,7 +211,7 @@ defmodule ServiceRadarWebNG.Topology.WorldHealth do
       state
       | current: current,
         cursor: nil,
-        scan_due: 0,
+        scan_due: now(),
         rescan: true,
         prefer_scan: true,
         scan_started_at: nil,
@@ -236,6 +236,10 @@ defmodule ServiceRadarWebNG.Topology.WorldHealth do
   defp accept(state, {:dirty, _ids}, _result), do: %{state | last_read_at: DateTime.utc_now(), source_error: false}
 
   defp retry(state, {:dirty, ids}), do: state |> remember(ids) |> retry(:read)
+
+  # Starting a scan consumes rescan before its first page is read. Retain the
+  # obligation after failure, including rescans started before scan_due.
+  defp retry(state, {:scan, nil}), do: retry(%{state | rescan: true}, :read)
 
   defp retry(state, _work), do: schedule(%{state | source_error: true}, 1_000 + :rand.uniform(250))
 

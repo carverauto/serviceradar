@@ -229,6 +229,53 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     refute sql =~ "target_device_ip IN ()"
   end
 
+  test "latest interface rates use the shared counter rule", %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+    )
+
+    parent = self()
+
+    query = fn sql ->
+      send(parent, {:latest_sql, sql})
+      {:ok, %{rows: [["sr:host-alpha", 7, "ifInOctets", 900.0]]}}
+    end
+
+    assert {:ok, %{{"sr:host-alpha", 7, "ifInOctets"} => 900.0}} =
+             MetricConsumers.latest_interface_rates(
+               [{"sr:host-alpha", 7, "ifInOctets"}],
+               query: query
+             )
+
+    assert_received {:latest_sql, sql}
+    sql = String.replace(sql, ~r/\s+/, " ")
+    assert sql =~ "serviceradar.timeseries_metrics"
+    refute sql =~ "platform.timeseries_metrics"
+    assert sql =~ "DATE_ADD(NOW(), INTERVAL -5 MINUTE)"
+
+    assert sql =~
+             "(device_id = 'sr:host-alpha' AND if_index = 7 AND metric_name = 'ifInOctets')"
+
+    assert sql =~
+             "ROW_NUMBER() OVER (PARTITION BY device_id, if_index, metric_name ORDER BY `timestamp` DESC)"
+
+    assert sql =~ "sample_rank = 1"
+    assert sql =~ "previous_value"
+    assert sql =~ "4294967296"
+    assert sql =~ "18446744073709551616"
+    assert sql =~ "rate_value IS NOT NULL"
+
+    assert {:ok, %{}} = MetricConsumers.latest_interface_rates([])
+
+    assert {:ok, %{}} =
+             MetricConsumers.latest_interface_rates(
+               [{"not a device", 7, "ifInOctets"}],
+               query: fn _sql -> flunk("no valid key should reach the warehouse") end
+             )
+  end
+
   test "anomaly ingest silence uses StarRocks for the metrics-alive probe", %{prev: prev} do
     Application.put_env(
       :serviceradar_core,

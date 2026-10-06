@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Availability do
   defp blank_to_nil(_value), do: nil
 
   defp agent_availability_fresh?(row) do
-    cutoff = DateTime.add(DateTime.utc_now(), -@agent_availability_fresh_seconds, :second)
+    cutoff = DateTime.shift(DateTime.utc_now(), second: -@agent_availability_fresh_seconds)
 
     case Map.get(row, :checked_at) do
       %DateTime{} = observed_at -> DateTime.after?(observed_at, cutoff)

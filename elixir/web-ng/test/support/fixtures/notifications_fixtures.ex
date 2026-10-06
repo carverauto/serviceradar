@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNG.NotificationsFixtures do
       comment: "Maintenance window #{unique}",
       matchers: %{"all" => [%{"field" => "alert.severity", "equals" => "warning"}]},
       starts_at: now,
-      ends_at: DateTime.add(now, 3600, :second),
+      ends_at: DateTime.shift(now, hour: 1),
       created_by: "fixture"
     }
 

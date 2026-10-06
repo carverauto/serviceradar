@@ -17,7 +17,7 @@ defmodule ServiceRadar.Observability.FlowEndpointScan do
       when is_integer(window_seconds) and window_seconds > 0 and is_integer(page_size) and
              page_size > 0 do
     finish = DateTime.truncate(now, :second)
-    start = DateTime.add(finish, -window_seconds, :second)
+    start = DateTime.shift(finish, second: -window_seconds)
     range = "[#{DateTime.to_iso8601(start)},#{DateTime.to_iso8601(finish)}]"
 
     @fields

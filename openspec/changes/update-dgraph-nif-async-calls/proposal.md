@@ -29,8 +29,8 @@ replaces it.
   calls at 8. Excess calls wait as cheap futures, and that wait counts against
   the call deadline.
 - **Deadlines.** Connect is bounded at 10 s, single-item calls at 30 s, and
-  whole-graph reads, pruning and the canonical rebuild at 300 s. A timeout
-  returns `{:error, reason}`.
+  whole-graph reads and pruning at 300 s; canonical rebuild chunks use the
+  30 s item deadline. A timeout returns `{:error, reason}`.
 - **Cancellation without mailbox leaks.** `ServiceRadar.Dgraph.Call` waits
   with a selective `receive` for the deadline plus a margin. If no reply
   arrives it cancels the task through a resource handle. The task and the
@@ -41,9 +41,10 @@ replaces it.
   total. Transient means an unreachable cluster, a transport failure, an
   aborted transaction or a cluster still starting, classified from the
   client's typed errors through a new `TopologyError::Transient`.
-  `prune_stale`, `replace_hosted_edge`, `retire_hosted_edge`,
-  `rebuild_canonical` and reads are not retried. If the last attempt fails,
-  the caller gets `{:error, reason}`.
+  `prune_stale`, `replace_hosted_edge`, `retire_hosted_edge`, and reads are
+  not retried. Canonical rebuild chunks (`upsert_canonical_edges`,
+  `delete_canonical_edges`) are idempotent and are retried. If the last
+  attempt fails, the caller gets `{:error, reason}`.
 - **Telemetry.** New `:telemetry` events
   `[:serviceradar, :dgraph, :call, :stop | :timeout | :retry]` carry queue
   wait, latency, timeouts and retries.

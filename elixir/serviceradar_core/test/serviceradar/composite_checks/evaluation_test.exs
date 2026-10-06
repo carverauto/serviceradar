@@ -185,7 +185,7 @@ defmodule ServiceRadar.CompositeChecks.EvaluationTest do
   test "a stale availability row falls through to inconclusive", %{check: check} do
     now = DateTime.utc_now()
     availability("device-1", "agent-a", true, now)
-    availability("device-1", "agent-b", false, DateTime.add(now, -5_000))
+    availability("device-1", "agent-b", false, DateTime.shift(now, second: -5_000))
 
     assert {:ok, _} = run(check)
 

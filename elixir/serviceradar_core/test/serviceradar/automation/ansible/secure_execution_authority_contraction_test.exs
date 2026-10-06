@@ -120,7 +120,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContractionTes
         purpose: :terminal_poll,
         command_type: "awx.fetch_job",
         expected_job_id: 77,
-        deadline_at: DateTime.add(@now, 3_600, :second)
+        deadline_at: DateTime.shift(@now, hour: 1)
       )
 
     attempt =

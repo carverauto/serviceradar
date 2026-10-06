@@ -237,7 +237,7 @@ defmodule ServiceRadarGateway.RegistrationTest do
   describe "stale detection" do
     test "stale?/1 returns true for old heartbeats" do
       old_metadata = %{
-        last_heartbeat: DateTime.add(DateTime.utc_now(), -180, :second)
+        last_heartbeat: DateTime.shift(DateTime.utc_now(), minute: -3)
       }
 
       assert RegistrationWorker.stale?(old_metadata) == true

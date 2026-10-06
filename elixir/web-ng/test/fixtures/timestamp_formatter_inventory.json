@@ -1019,7 +1019,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/anomaly_capacity_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 3,
-    "fingerprint": "b4cf6599dc218233ea0847939110d7163eee6524d10f364de19541cd0b49d1f8",
+    "fingerprint": "64ee7334f6a4ccec9b6f1b47e6f6c3017b0fceae11f3d1daae2fa6372bc3c8e2",
     "classification": "canonical_machine",
     "reason": "Canonical seasonal bucket midpoint passed to metric query windows and chart overlays."
   },
@@ -1027,7 +1027,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "2288351a74832178aed9194490917af1d22b2b62c0a7954dce699bcd23f7d61e",
+    "fingerprint": "fee3d4b7e1785151fd710c624aa365c50263114f9b62e8942b525156837228fd",
     "classification": "canonical_machine",
     "reason": "ICMP availability window encoded as an SRQL time range"
   },
@@ -1035,7 +1035,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 2,
-    "fingerprint": "298b6dddfaf392ee6fce7b6c2f4f7916bf67f3e9dfca32abd6c6a56867b8f558",
+    "fingerprint": "244ab96ad4a97a7dd50d03f5232b66348ead655e4f79e01e9794a0e622e9f3e2",
     "classification": "canonical_machine",
     "reason": "ICMP availability window encoded as an SRQL time range"
   },
@@ -1046,6 +1046,14 @@
     "fingerprint": "888956ed48508add77a32aecc1362e96279466008f2c4b766d07d26964132365",
     "classification": "canonical_machine",
     "reason": "availability bucket identity encoded as canonical UTC"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 4,
+    "fingerprint": "846d08720b8de657346eb6004e983691da8d6552c6caac90decddcc668034e7f",
+    "classification": "canonical_machine",
+    "reason": "plugin-reported availability sample timestamp, parsed back into a bucket and never displayed"
   },
   {
     "path": "lib/serviceradar_web_ng_web/live/device_live/endpoint_inventory_components.ex",
@@ -1155,7 +1163,7 @@
     "path": "lib/serviceradar_web_ng_web/live/event_live/show.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "3b3099482621e2ed6bea4230ce50b033c67b00ff00ae868cbbf96b8c21121810",
+    "fingerprint": "ea91fefd06062a9629fb8831133e4267317847e3fa4999f6cc5b106c635fae62",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1163,7 +1171,7 @@
     "path": "lib/serviceradar_web_ng_web/live/event_live/show.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 2,
-    "fingerprint": "aee2d0dc1cb32d6a5e6106383b67afeedd7c1a499cb81bd6322b21ed3829ded9",
+    "fingerprint": "ba550ed2a9be0cd419a714f1b744367e5e94cfd93b24e265ec8fecfdeab07667",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1243,7 +1251,7 @@
     "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 10,
-    "fingerprint": "1d8daba798b02169aca877afbfe10cf196f611c18df4c80d1629f38d64cb5c2c",
+    "fingerprint": "8c6987272afec6974134f9d9586b4ea3ab1766f044a736da39a9f89ee0e81b78",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1251,7 +1259,7 @@
     "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 11,
-    "fingerprint": "9e742d141f389898b6309c48c64130d6232ded1a5038ccf308a6e6340b351219",
+    "fingerprint": "4b3230b524c3f84c53a3d9ada6d7926aa966bc6e04836e60ee2ddd051d4a822c",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1307,7 +1315,7 @@
     "path": "lib/serviceradar_web_ng_web/live/netflow_live/visualize/chart_data/overlays.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "611b8b3cc8b7542199de0a7cca901fd5226f5e97dac08a9d73826e591d2e9971",
+    "fingerprint": "69d7ad5c3be04d598138710ef3ea91889934586e4855140583d17d1bee9f229f",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1315,7 +1323,7 @@
     "path": "lib/serviceradar_web_ng_web/live/netflow_live/visualize/chart_data/overlays.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 2,
-    "fingerprint": "aa52bda758cc3d4c3b5dbee491d79646aabc1ca98682f96bccb5398ff4a87f1a",
+    "fingerprint": "76fdb46cda81ed1860cc8b08f3c98f00d17f84713f33c5cf90036e523521fac3",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1323,7 +1331,7 @@
     "path": "lib/serviceradar_web_ng_web/live/netflow_live/visualize/chart_data/overlays.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 3,
-    "fingerprint": "21ae0a1f026dc0d70fa7c43cadf0ff584e88239f4e84e9fdb165c1ec57a7ee32",
+    "fingerprint": "2e14f7d13ee6709c0aa96e974d8113dee2f037f35e0b76c4862cc1715544e853",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1331,7 +1339,7 @@
     "path": "lib/serviceradar_web_ng_web/live/netflow_live/visualize/chart_data/overlays.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 4,
-    "fingerprint": "e4908ce21415fdab9448564468dd9735d0e8a9bb28aacf943002ecc3d577b3a1",
+    "fingerprint": "1541651fda047b940d518d26e98e70377cfc03ac6974baf8f8d4aff444a336ef",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1339,7 +1347,7 @@
     "path": "lib/serviceradar_web_ng_web/live/netflow_live/visualize/chart_data/overlays.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 5,
-    "fingerprint": "4087bbefa56de00fc4e0018b39e25229b23522b9986f4514f146cc25e669c0d5",
+    "fingerprint": "677a8126f3ac2bf646ecada90769105921fa2067650b41973d3da8f4493c728b",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1347,7 +1355,7 @@
     "path": "lib/serviceradar_web_ng_web/live/netflow_live/visualize/chart_data/overlays.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 6,
-    "fingerprint": "8414e7a043cd744a611d199ca3e0541cdf0db0e43b67858e4b7cd1e5ee6e80d9",
+    "fingerprint": "8ea240e0b6d0eb36b55ee0bc05e6f1542f377f91210b390c653ada3805c80058",
     "classification": "canonical_machine",
     "reason": null
   },

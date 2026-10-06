@@ -510,7 +510,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
         hostname: hostname,
         discovery_sources: ["sweep"],
         metadata: %{},
-        last_seen_time: DateTime.add(DateTime.utc_now(), 300, :second)
+        last_seen_time: DateTime.shift(DateTime.utc_now(), minute: 5)
       })
 
     assert {:ok, %{reports: %{"proxmox-dups" => dry}}} =

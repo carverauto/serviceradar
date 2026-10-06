@@ -616,7 +616,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
          incident_correlation_id,
          source_agent_ids
        ) do
-    cooldown_until = DateTime.add(now, cooldown_seconds, :second)
+    cooldown_until = DateTime.shift(now, second: cooldown_seconds)
 
     sql = """
     INSERT INTO platform.mtr_dispatch_windows (

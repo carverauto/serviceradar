@@ -59,7 +59,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
   end
 
   test "expired embedded grant payload is re-minted before delivery" do
-    expired = DateTime.add(DateTime.utc_now(), -3600, :second)
+    expired = DateTime.shift(DateTime.utc_now(), hour: -1)
 
     params = %{
       "credential_broker" => grant_payload(expired, %{"auth_method" => "proxmox_api_token"}),
@@ -98,7 +98,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
   end
 
   test "fresh embedded grant is reused without re-minting" do
-    future = DateTime.add(DateTime.utc_now(), 600, :second)
+    future = DateTime.shift(DateTime.utc_now(), minute: 10)
     payload = grant_payload(future)
 
     loaded_grant = %{
@@ -124,7 +124,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
   end
 
   test "fresh payload whose persisted grant is missing or inactive is re-minted" do
-    future = DateTime.add(DateTime.utc_now(), 600, :second)
+    future = DateTime.shift(DateTime.utc_now(), minute: 10)
     params = %{"credential_broker" => grant_payload(future)}
 
     {refreshed, grant} =
@@ -140,7 +140,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
   end
 
   test "broker payload nested under a plugin-inputs template is refreshed in place" do
-    expired = DateTime.add(DateTime.utc_now(), -10, :second)
+    expired = DateTime.shift(DateTime.utc_now(), second: -10)
 
     params = %{
       "schema" => "serviceradar.plugin_inputs.v1",
@@ -165,7 +165,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
   end
 
   test "broker payloads nested under controllers are refreshed independently" do
-    expired = DateTime.add(DateTime.utc_now(), -10, :second)
+    expired = DateTime.shift(DateTime.utc_now(), second: -10)
 
     params = %{
       "controllers" => [
@@ -196,7 +196,7 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
   end
 
   test "grant issuer failure leaves params untouched and yields no grant" do
-    expired = DateTime.add(DateTime.utc_now(), -10, :second)
+    expired = DateTime.shift(DateTime.utc_now(), second: -10)
     params = %{"credential_broker" => grant_payload(expired)}
 
     assert {^params, nil} =

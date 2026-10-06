@@ -22,15 +22,15 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.port
           value: 50046
-  - it: falls back to the ready-file probe when metrics are off
+      - isNull:
+          path: spec.template.spec.containers[0].readinessProbe.exec
+  - it: requires metrics_addr so readiness can call /readyz
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
       analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       flowCollector.config.metrics_addr: null
-    documentSelector:
-      path: kind
-      value: Deployment
+    template: flow-collector.yaml
     asserts:
-      - isNotNull:
-          path: spec.template.spec.containers[0].readinessProbe.exec
+      - failedTemplate:
+          errorMessage: "flowCollector.config.metrics_addr is required so the readiness probe can call /readyz"

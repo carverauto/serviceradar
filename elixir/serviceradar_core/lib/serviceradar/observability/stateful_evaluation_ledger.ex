@@ -170,7 +170,7 @@ defmodule ServiceRadar.Observability.StatefulEvaluationLedger do
   @doc "Deletes rows older than the retention window."
   @spec prune(DateTime.t()) :: :ok | {:error, term()}
   def prune(now \\ DateTime.utc_now()) do
-    cutoff = DateTime.add(now, -@retention_days, :day)
+    cutoff = DateTime.shift(now, day: -@retention_days)
 
     __MODULE__
     |> Ash.Query.filter(evaluated_at < ^cutoff)

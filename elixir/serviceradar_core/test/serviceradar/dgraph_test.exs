@@ -191,6 +191,66 @@ defmodule ServiceRadar.DgraphTest do
       :ok
     end
 
+    test "stalled bulk calls cannot take the per-item call slots" do
+      Application.put_env(:serviceradar_core, Dgraph,
+        item_deadline_ms: 800,
+        reply_margin_ms: 1_000
+      )
+
+      {:ok, url} = Dgraph.url()
+
+      # More stalled whole-graph reads than there are in-flight slots.
+      bulk =
+        for _ <- 1..10 do
+          assert {:ok, _ref, handle} = Native.query_canonical_graph(url, 5_000)
+          handle
+        end
+
+      on_exit(fn -> Enum.each(bulk, &Native.cancel/1) end)
+
+      assert {:error, reason} = Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+      # The item call got a slot and failed on its own stalled connect, rather
+      # than waiting out its deadline behind the bulk calls.
+      refute reason =~ "waiting for an in-flight slot", reason
+      assert reason =~ "timed out"
+    end
+
+    test "a call whose caller dies releases its slot" do
+      Application.put_env(:serviceradar_core, Dgraph,
+        item_deadline_ms: 1_000,
+        reply_margin_ms: 1_000
+      )
+
+      {:ok, url} = Dgraph.url()
+      parent = self()
+
+      callers =
+        for _ <- 1..10 do
+          spawn(fn ->
+            {:ok, _ref, _handle} = Native.query_dql(url, "{ q(func: uid(0x1)) { uid } }", 10_000)
+            send(parent, {:submitted, self()})
+
+            receive do
+              :never -> :ok
+            end
+          end)
+        end
+
+      for caller <- callers, do: assert_receive({:submitted, ^caller}, 1_000)
+
+      for caller <- callers do
+        ref = Process.monitor(caller)
+        Process.exit(caller, :kill)
+        assert_receive {:DOWN, ^ref, :process, ^caller, :killed}
+      end
+
+      # Without cancellation the dead callers' calls would hold every slot for
+      # their full 10s deadline.
+      assert {:error, reason} = Dgraph.query("{ q(func: uid(0x1)) { uid } }")
+      refute reason =~ "waiting for an in-flight slot", reason
+      assert reason =~ "timed out"
+    end
+
     test "holds no dirty-IO scheduler, however many calls are stalled" do
       Application.put_env(:serviceradar_core, Dgraph,
         item_deadline_ms: 3_000,

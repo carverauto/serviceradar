@@ -7,6 +7,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
@@ -584,7 +585,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
             timeout_seconds: 20,
             params: %{}
           },
-          actor
+          SystemActor.system(:agent_config_generator_test)
         )
 
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
@@ -1311,7 +1312,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           )
 
         ProcessRegistry.update_value({:agent, agent_uid, stale_node}, fn metadata ->
-          %{metadata | last_heartbeat: DateTime.add(DateTime.utc_now(), -300, :second)}
+          %{metadata | last_heartbeat: DateTime.shift(DateTime.utc_now(), minute: -5)}
         end)
 
         {:ok, _stale_group} =

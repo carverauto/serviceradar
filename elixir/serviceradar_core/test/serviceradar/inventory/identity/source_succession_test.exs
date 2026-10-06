@@ -17,7 +17,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Deduplication
+  alias ServiceRadar.Inventory.Identity.DuplicateSweep
   alias ServiceRadar.Inventory.Identity.MergeEngine
+  alias ServiceRadar.Inventory.Identity.ReconciliationRun
   alias ServiceRadar.Inventory.Identity.SourceCorroboration
   alias ServiceRadar.Inventory.Identity.SourceSuccession
   alias ServiceRadar.Inventory.IdentityDecision
@@ -254,6 +256,24 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
 
     assert {:ok, %{merged: 0}} = SourceSuccession.run(actor: actor, max_successions: 10)
     assert device(world.successor, actor).deleted_at == nil
+  end
+
+  test "a run records its succession merges apart from its duplicate merges, and its cap",
+       %{actor: actor} do
+    world = rekeyed(actor)
+
+    # The duplicate pass is refused the pair, whose records hold two ids of one source; the
+    # succession pass merges it.
+    assert {:ok, stats} = DuplicateSweep.reconcile_duplicates(actor: actor, max_successions: 7)
+    assert %{merges: 0, succession_merges: 1, max_successions_configured: 7} = stats
+    assert device(world.successor, actor).deleted_at
+
+    [run | _] =
+      ReconciliationRun
+      |> Ash.Query.for_read(:recent, %{}, actor: actor)
+      |> Ash.read!()
+
+    assert %{merges: 0, succession_merges: 1, max_successions_configured: 7} = run
   end
 
   test "a cap of zero merges nothing and defers the pair", %{actor: actor} do

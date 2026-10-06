@@ -1506,15 +1506,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # address. Entries are handled in order, and an address created for one entry
   # is held for the entries after it, exactly as a fresh per-address lookup
   # would have found it.
-  @spec ensure_candidate_devices([{String.t(), String.t() | nil, String.t()}], term()) :: :ok
-  def ensure_candidate_devices(entries, actor) do
+  #
+  # `:alias_reader` replaces the batched alias read, so a test can make it fail
+  # and observe the per-address fallback.
+  @spec ensure_candidate_devices([{String.t(), String.t() | nil, String.t()}], term(), keyword()) ::
+          :ok
+  def ensure_candidate_devices(entries, actor, opts \\ []) do
+    alias_reader = Keyword.get(opts, :alias_reader, &alias_rows_by_ip/2)
+
     entries =
       Enum.filter(entries, fn {ip, _partition, _source} -> seedable_candidate_address?(ip) end)
 
     ips = entries |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
     held = ips |> lookup_device_uids_by_ip_chunked() |> Map.keys() |> MapSet.new()
     unheld_ips = Enum.reject(ips, &MapSet.member?(held, &1))
-    alias_rows = alias_rows_by_ip(unheld_ips, actor)
+    alias_rows = alias_reader.(unheld_ips, actor)
 
     _held =
       Enum.reduce(entries, held, fn {ip, partition, source_device_id}, held ->
@@ -2302,8 +2308,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       {:error, e}
   end
 
-  @doc false
-  def resolve_alias_device_uid(ip, partition, alias_rows, actor) do
+  defp resolve_alias_device_uid(ip, partition, alias_rows, actor) do
     cond do
       not AliasPolicy.valid_alias_ip?(ip) ->
         {:ok, nil}

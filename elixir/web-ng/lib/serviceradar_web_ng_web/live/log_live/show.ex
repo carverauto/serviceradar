@@ -137,8 +137,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   def handle_event("copy_json", _params, socket) do
     text =
       case socket.assigns.log do
-        %{} = log -> log |> Map.delete("source_device_uid") |> Jason.encode!(pretty: true)
-        _ -> ""
+        %{} = log ->
+          log
+          |> Map.delete("source_device_uid")
+          |> redact_secret_value()
+          |> Jason.encode!(pretty: true)
+
+        _ ->
+          ""
       end
 
     {:noreply, push_event(socket, "clipboard", %{text: text})}
@@ -147,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   def handle_event("copy_message", _params, socket) do
     text =
       case socket.assigns.log do
-        %{} = log -> log_message(log)
+        %{} = log -> log |> log_message() |> redact_secret_text()
         _ -> ""
       end
 
@@ -1778,7 +1784,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> redact_json_secret("password")
     |> redact_json_secret("secret")
     |> redact_json_secret("api_key")
-    |> redact_assignment_secret("authorization")
+    |> redact_json_secret("authorization")
+    |> redact_authorization_secret()
     |> redact_assignment_secret("token")
     |> redact_assignment_secret("password")
     |> redact_assignment_secret("secret")
@@ -1793,6 +1800,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp redact_json_secret(value, key) do
     Regex.replace(~r/("#{Regex.escape(key)}"\s*:\s*")[^"]*(")/i, value, "\\1#{@redacted}\\2")
+  end
+
+  defp redact_authorization_secret(value) do
+    Regex.replace(
+      ~r/(authorization\s*[=:]\s*)(?:"(?:Bearer\s+)?[^"]*"|'(?:Bearer\s+)?[^']*'|(?:Bearer\s+)?[^\s,}\]]+)/i,
+      value,
+      "\\1#{@redacted}"
+    )
   end
 
   defp redact_assignment_secret(value, key) do

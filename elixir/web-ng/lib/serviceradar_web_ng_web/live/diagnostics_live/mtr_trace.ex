@@ -417,7 +417,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       limit = max(length(addrs) * @sparkline_points * 4, 200)
 
       if MtrWarehouse.enabled?() do
-        since = DateTime.add(DateTime.utc_now(), -@sparkline_days, :day)
+        since = DateTime.shift(DateTime.utc_now(), day: -@sparkline_days)
 
         case MtrWarehouse.hop_latency_points(addrs, since, limit, opts) do
           {:ok, points} -> build_sparklines_from_hops(points)

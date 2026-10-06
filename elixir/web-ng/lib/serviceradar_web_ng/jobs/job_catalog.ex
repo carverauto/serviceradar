@@ -406,7 +406,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     args_filter = Keyword.get(opts, :args_filter)
 
     try do
-      since = DateTime.add(DateTime.utc_now(), -hours, :hour)
+      since = DateTime.shift(DateTime.utc_now(), hour: -hours)
 
       # Get all jobs in the time range
       jobs =
@@ -468,7 +468,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     args_filter = Keyword.get(opts, :args_filter)
 
     try do
-      since = DateTime.add(DateTime.utc_now(), -hours, :hour)
+      since = DateTime.shift(DateTime.utc_now(), hour: -hours)
 
       stats =
         Oban.Job

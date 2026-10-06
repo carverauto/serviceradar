@@ -236,7 +236,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions do
              stage: :launch_job,
              purpose: :accepted_job_proof,
              command_type: "awx.launch_job",
-             deadline_at: DateTime.add(now, 60, :second)
+             deadline_at: DateTime.shift(now, minute: 1)
            ),
          {:ok, attempt} <- Attempt.create_planned(attrs, actor: @actor) do
       {:ok, attempt}

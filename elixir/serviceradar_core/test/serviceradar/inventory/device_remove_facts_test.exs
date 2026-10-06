@@ -144,4 +144,38 @@ defmodule ServiceRadar.Inventory.DeviceRemoveFactsTest do
     assert updated.metadata["concurrent_key"] == "kept"
     refute Map.has_key?(updated.metadata, "example_fact")
   end
+
+  # `MergeDeviceFacts` refuses a new write at an identity-bearing key, but a fact written there
+  # before the key was reserved must stay removable by its writer.
+  test "removes a fact written before its key was reserved", %{device: device} do
+    {:ok, device} = write(device, %{"example_fact" => true})
+    source = device.metadata[DeviceMetadata.provenance_key()]["example_fact"]["source"]
+
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices
+      SET metadata = metadata
+        || jsonb_build_object('hostname', 'legacy-fact')
+        || jsonb_build_object(
+             CAST($2 AS text),
+             (metadata -> CAST($2 AS text))
+               || jsonb_build_object('hostname', jsonb_build_object('source', CAST($3 AS text)))
+           )
+      WHERE uid = $1
+      """,
+      [device.uid, DeviceMetadata.provenance_key(), source]
+    )
+
+    {:ok, device} = Device.get_by_uid(device.uid, false, actor: actor())
+    assert device.metadata["hostname"] == "legacy-fact"
+    assert {:error, _error} = write(device, %{"hostname" => "new-fact"})
+
+    assert {:ok, _updated} = remove(device, ["hostname"])
+
+    {:ok, stored} = Device.get_by_uid(device.uid, false, actor: actor())
+    refute Map.has_key?(stored.metadata, "hostname")
+    refute Map.has_key?(stored.metadata[DeviceMetadata.provenance_key()], "hostname")
+    assert stored.metadata["example_fact"] == true
+    assert stored.hostname == device.hostname
+  end
 end

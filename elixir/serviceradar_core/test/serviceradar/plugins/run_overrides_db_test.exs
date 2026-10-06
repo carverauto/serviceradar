@@ -140,8 +140,8 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
                  plugin_assignment_id: assignment_id,
                  override_id: "fault-1",
                  kind: "jam",
-                 starts_at: DateTime.add(now, -600),
-                 expires_at: DateTime.add(now, -60)
+                 starts_at: DateTime.shift(now, minute: -10),
+                 expires_at: DateTime.shift(now, minute: -1)
                },
                actor: system
              )
@@ -166,8 +166,8 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
     now = DateTime.utc_now()
 
     for {id, starts_at, expires_at} <- [
-          {"expired", DateTime.add(now, -600), DateTime.add(now, -60)},
-          {"active", DateTime.add(now, -60), DateTime.add(now, 600)}
+          {"expired", DateTime.shift(now, minute: -10), DateTime.shift(now, minute: -1)},
+          {"active", DateTime.shift(now, minute: -1), DateTime.shift(now, minute: 10)}
         ] do
       assert {:ok, _} =
                PluginRunOverride.record(

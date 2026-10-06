@@ -60,7 +60,7 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
          certificate_fingerprint: Map.fetch!(bundle, :certificate_fingerprint),
          component_id: component_id,
          partition_id: partition_id,
-         expires_at: DateTime.add(DateTime.utc_now(), validity_days(opts), :day),
+         expires_at: DateTime.shift(DateTime.utc_now(), day: validity_days(opts)),
          scope: scope,
          authorization_status: Keyword.get(opts, :authorization_status, :pending)
        }}

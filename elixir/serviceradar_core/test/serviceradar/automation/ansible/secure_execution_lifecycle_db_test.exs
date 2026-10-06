@@ -41,7 +41,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
         stage: :launch_job,
         purpose: :accepted_job_proof,
         command_type: "awx.launch_job",
-        deadline_at: DateTime.add(now, 60, :second)
+        deadline_at: DateTime.shift(now, minute: 1)
       )
 
     assert {:ok, attempt} = Attempt.create_planned(attrs, actor: @actor)
@@ -54,7 +54,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
             attempt,
             %{
               lease_token: token,
-              lease_expires_at: DateTime.add(now, 15, :second),
+              lease_expires_at: DateTime.shift(now, second: 15),
               now: now
             },
             actor: @actor

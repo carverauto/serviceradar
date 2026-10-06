@@ -44,7 +44,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   A running job blocks inserts too, so a batch committed while a run is
   executing cannot enqueue a refresh of its own. The run schedules it instead:
   after committing, it looks for spans ingested after the watermark it just
-  wrote and, if there are any, returns `{:snooze, 1}`. Snoozing reschedules
+  wrote and, if there are any, snoozes for the warehouse coalescing interval
+  (one second on CNPG). Snoozing reschedules
   this same row, so there is exactly one follow-up and later enqueues keep
   coalescing into it. The probe compares against the watermark rather than
   the run's upper bound because `created_at` is stamped before the batch
@@ -265,12 +266,17 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   SELECT watermark FROM observability_watermarks WHERE key = $1
   """
 
+  @refresh_delay_sql """
+  SELECT GREATEST(CEIL($2 - EXTRACT(EPOCH FROM (clock_timestamp() - updated_at))), 0)::int
+  FROM observability_watermarks WHERE key = $1
+  """
+
   @write_watermark_sql """
   INSERT INTO observability_watermarks (key, watermark, updated_at)
-  VALUES ($1, $2, NOW())
+  VALUES ($1, $2, clock_timestamp())
   ON CONFLICT (key) DO UPDATE SET
     watermark = EXCLUDED.watermark,
-    updated_at = NOW()
+    updated_at = clock_timestamp()
   """
 
   @max_ingested_at_sql """
@@ -385,7 +391,10 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   """
   @spec enqueue() :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue do
-    with {:ok, job} <- %{} |> new() |> ObanSupport.safe_insert() do
+    interval = refresh_interval_seconds()
+    opts = if interval > 0, do: [schedule_in: interval], else: []
+
+    with {:ok, job} <- %{} |> new(opts) |> ObanSupport.safe_insert() do
       maybe_rescue_conflict(job)
       {:ok, job}
     end
@@ -481,7 +490,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   def rescue_orphaned(opts \\ []) do
     grace_seconds = Keyword.get_lazy(opts, :grace_seconds, &orphan_grace_seconds/0)
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-    cutoff = DateTime.add(now, -grace_seconds, :second)
+    cutoff = DateTime.shift(now, second: -grace_seconds)
 
     result =
       Repo.transact(
@@ -587,7 +596,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       Repo.transact(
         fn ->
           case SQL.query!(Repo, @try_refresh_lock_sql, [@watermark_key]) do
-            %{rows: [[true]]} -> refresh_summaries()
+            %{rows: [[true]]} -> refresh_when_due()
             %{rows: [[false]]} -> {:error, :refresh_in_progress}
           end
         end,
@@ -595,11 +604,14 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       )
 
     case result do
+      {:ok, {:deferred, seconds}} ->
+        {:snooze, seconds}
+
       {:ok, %{changed: changed, watermark: watermark, window_end: window_end}} ->
         OtelPubSub.broadcast_trace_summaries(%{count: changed})
 
         if spans_ingested_after?(watermark, window_end) do
-          {:snooze, @trailing_refresh_delay_seconds}
+          {:snooze, max(refresh_interval_seconds(), @trailing_refresh_delay_seconds)}
         else
           :ok
         end
@@ -609,6 +621,30 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  @doc """
+  Warehouse refreshes coalesce for 10 seconds by default. This is a minimum
+  interval after the last watermark write, checked under the advisory lock;
+  enqueue/completion races, cron and operator jobs cannot bypass it. Ingest
+  freshness is this interval plus queue/query time. The two-minute cron remains
+  the repair bound for a commit racing the trailing probe. CNPG stays immediate.
+  """
+  def refresh_interval_seconds do
+    if warehouse?(), do: config_positive_integer(:warehouse_refresh_interval_seconds, 10), else: 0
+  end
+
+  defp refresh_when_due do
+    if warehouse?() do
+      case SQL.query!(Repo, @refresh_delay_sql, [@watermark_key, refresh_interval_seconds()],
+             timeout: watermark_timeout_ms()
+           ) do
+        %{rows: [[seconds]]} when seconds > 0 -> {:ok, {:deferred, seconds}}
+        _ -> refresh_summaries()
+      end
+    else
+      refresh_summaries()
     end
   end
 
@@ -624,7 +660,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp refresh_summaries do
     now = DateTime.utc_now()
     watermark = read_watermark(now)
-    window_start = DateTime.add(watermark, -@watermark_overlap_seconds, :second)
+    window_start = DateTime.shift(watermark, second: -@watermark_overlap_seconds)
 
     with {:ok, changed} <- run_chunked_upsert(window_start, now),
          {:ok, new_watermark} <- advance_watermark(window_start, now),
@@ -652,7 +688,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         DateTime.from_naive!(watermark, "Etc/UTC")
 
       _ ->
-        DateTime.add(now, -@initial_lookback_seconds, :second)
+        DateTime.shift(now, second: -@initial_lookback_seconds)
     end
   end
 
@@ -677,7 +713,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp clamp_end(cursor, bound) do
-    candidate = DateTime.add(cursor, @ingest_chunk_seconds, :second)
+    candidate = DateTime.shift(cursor, second: @ingest_chunk_seconds)
     if DateTime.after?(candidate, bound), do: bound, else: candidate
   end
 
