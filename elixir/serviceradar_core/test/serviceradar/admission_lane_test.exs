@@ -41,7 +41,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
         RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
         RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
-        assert table_size.() == 3
+        assert table_size.() == 4
 
         assert_receive {:metric_publish, publisher, "metrics.ingestion_lanes", frame1,
                         headers1},
@@ -75,7 +75,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
           RuntimeMetrics.record("invented-unbounded-label", :state, %{pending_count: 1})
         end
 
-        assert table_size.() == 3
+        assert table_size.() == 4
 
         lane = start_lane(fn _ -> :ok end)
         ref = admit(lane, status("agent01.example.com", "independent"))
@@ -272,7 +272,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
           send(parent, {:reserve_processed, status[:message]})
           :ok
         end,
-        queue_wait_ms: 2_000
+        queue_wait_ms: 2_000,
+        gateway_call_timeout_ms: 5_100
       )
 
     :ok = :sys.suspend(lane)
