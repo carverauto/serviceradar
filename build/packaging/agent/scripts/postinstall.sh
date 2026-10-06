@@ -17,6 +17,9 @@ mkdir -p /var/lib/serviceradar
 mkdir -p /var/lib/serviceradar/cache
 mkdir -p /var/lib/serviceradar/agent/versions
 mkdir -p /var/lib/serviceradar/agent/tmp
+mkdir -p /usr/lib/serviceradar/addons
+chmod 755 /usr/lib/serviceradar/addons
+chown root:root /usr/lib/serviceradar/addons
 # Endpoint-inventory state dirs: the agent writes its runtime profile here as the
 # serviceradar user. Create and own this subtree explicitly so a stale root-owned
 # directory cannot permanently defer the config-version ack (fj #4301).

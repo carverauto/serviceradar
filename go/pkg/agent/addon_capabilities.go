@@ -76,10 +76,11 @@ var (
 
 // AddonCapabilityRequest describes a privileged setcap of one staged add-on binary.
 type AddonCapabilityRequest struct {
-	RuntimeRoot  string   // agent release runtime root ("" -> package default)
-	AddonID      string   // add-on id (a single safe path segment)
-	BinaryName   string   // staged binary filename (a single safe path segment)
-	Capabilities []string // requested Linux capabilities (validated against the allowlist)
+	RuntimeRoot    string   // agent release runtime root ("" -> package default)
+	PrivilegedRoot string   // privileged add-on runtime root ("" -> /usr/lib/serviceradar/addons)
+	AddonID        string   // add-on id (a single safe path segment)
+	BinaryName     string   // staged binary filename (a single safe path segment)
+	Capabilities   []string // requested Linux capabilities (validated against the allowlist)
 }
 
 // normalizeAddonCapabilities lower-cases, trims, de-duplicates, and validates the
@@ -120,16 +121,46 @@ func setcapCapabilityString(caps []string) string {
 	return strings.Join(caps, ",") + addonCapabilityActionSuffix
 }
 
-// resolveStagedAddonBinaryForCapabilities resolves the absolute path of a staged
-// add-on binary (via its `current` symlink) under the controlled add-on staging root,
-// validating each control-plane-supplied segment and confirming the resolved real path
-// stays inside the add-on's own directory before any privileged operation touches it.
+// resolveStagedAddonBinaryForCapabilities resolves the absolute path of an add-on
+// binary (via its `current` symlink) under the privileged root or the controlled
+// add-on staging root, validating each control-plane-supplied segment and confirming
+// the resolved real path stays inside the add-on's own directory before any privileged
+// operation touches it.
 func resolveStagedAddonBinaryForCapabilities(req AddonCapabilityRequest) (string, error) {
 	if !safeAddonSegment(req.AddonID) {
 		return "", fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, req.AddonID)
 	}
 	if !safeAddonSegment(req.BinaryName) {
 		return "", fmt.Errorf("%w: binary %q", ErrAddonUnsafePath, req.BinaryName)
+	}
+
+	// Task 2.1: Resolve capability targets from the privileged tree when materialized there.
+	privRoot := resolvePrivilegedAddonRoot(req.PrivilegedRoot, req.RuntimeRoot)
+	privAddonDir := filepath.Join(privRoot, req.AddonID)
+	privCurrentBin := filepath.Join(privAddonDir, addonCurrentLink, req.BinaryName)
+	if _, err := os.Stat(privCurrentBin); err == nil {
+		real, err := filepath.EvalSymlinks(privCurrentBin)
+		if err != nil {
+			return "", fmt.Errorf("resolve privileged addon binary: %w", err)
+		}
+
+		privAddonDirReal, err := filepath.EvalSymlinks(privAddonDir)
+		if err != nil {
+			return "", fmt.Errorf("resolve privileged addon dir: %w", err)
+		}
+		if real != privAddonDirReal && !strings.HasPrefix(real, privAddonDirReal+string(os.PathSeparator)) {
+			return "", fmt.Errorf("%w: %s", ErrAddonCapabilityBinaryEscape, real)
+		}
+
+		info, err := os.Stat(real)
+		if err != nil {
+			return "", fmt.Errorf("stat privileged addon binary: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("%w: %s", ErrAddonBinaryNotRegular, real)
+		}
+
+		return real, nil
 	}
 
 	addonDir := filepath.Join(resolveAddonArtifactRoot(req.RuntimeRoot), req.AddonID)

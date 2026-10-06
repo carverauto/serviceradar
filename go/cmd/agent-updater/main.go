@@ -53,13 +53,20 @@ func run() error {
 		addonBin  = flag.String("addon-binary", "", "Staged add-on binary filename to apply capabilities to")
 		addonCaps = flag.String("addon-capabilities", "", "Comma-separated Linux file capabilities to apply (e.g. cap_net_raw,cap_bpf)")
 
-		// Add-on systemd supervision mode (delivery-models task 3.1): install/enable or
-		// uninstall the add-on's bundled systemd units.
+		// Add-on systemd supervision mode (delivery-models task 3.1 & harden-native-addon-privilege-boundary):
+		// install/enable or uninstall the add-on's bundled systemd units.
 		addonSystemdInstall     = flag.String("addon-systemd-install", "", "Comma-separated staged unit files to install (.service/.timer)")
 		addonSystemdEnable      = flag.String("addon-systemd-enable", "", "Unit to enable --now after install (must be one of --addon-systemd-install)")
 		addonSystemdUninstall   = flag.String("addon-systemd-uninstall", "", "Comma-separated installed unit files to disable + remove")
 		addonSystemdResources   = flag.String("addon-systemd-resources", "", "JSON resource limits applied to the enabled unit via a drop-in (cpu_max_percent, memory_max_bytes, ...)")
 		addonSystemdRunTimerNow = flag.Bool("addon-systemd-run-timer-now", false, "Reset the prior timer service failure and queue a fresh run of the staged candidate")
+
+		// Privileged add-on materialization flags (harden-native-addon-privilege-boundary tasks 1.2, 1.3).
+		addonVersion   = flag.String("addon-version", "", "Target staged add-on version for privileged materialization")
+		addonSHA256    = flag.String("addon-sha256", "", "Expected staged add-on artifact SHA256 digest")
+		addonSignature = flag.String("addon-signature", "", "Ed25519 signature of staged add-on artifact")
+		addonArtifact  = flag.String("addon-artifact", "", "Path to the staged add-on artifact archive")
+		privilegedRoot = flag.String("privileged-root", "", "Privileged add-on runtime root (default /usr/lib/serviceradar/addons)")
 	)
 	flag.Parse()
 
@@ -73,21 +80,28 @@ func run() error {
 		}
 
 		return agent.InstallAddonSystemdUnits(ctx, agent.AddonSystemdInstallRequest{
-			RuntimeRoot: *runtimeRoot,
-			AddonID:     *addonID,
-			Units:       splitCommaList(*addonSystemdInstall),
-			Enable:      *addonSystemdEnable,
-			Resources:   resources,
-			RunTimerNow: *addonSystemdRunTimerNow,
+			RuntimeRoot:    *runtimeRoot,
+			PrivilegedRoot: *privilegedRoot,
+			AddonID:        *addonID,
+			Version:        *addonVersion,
+			BinaryName:     *addonBin,
+			ArtifactPath:   *addonArtifact,
+			ArtifactSHA256: *addonSHA256,
+			Signature:      *addonSignature,
+			Units:          splitCommaList(*addonSystemdInstall),
+			Enable:         *addonSystemdEnable,
+			Resources:      resources,
+			RunTimerNow:    *addonSystemdRunTimerNow,
 		})
 	case *addonSystemdUninstall != "":
 		return agent.UninstallAddonSystemdUnits(ctx, splitCommaList(*addonSystemdUninstall))
 	case *addonCaps != "":
 		return agent.ApplyAddonCapabilities(ctx, agent.AddonCapabilityRequest{
-			RuntimeRoot:  *runtimeRoot,
-			AddonID:      *addonID,
-			BinaryName:   *addonBin,
-			Capabilities: splitCommaList(*addonCaps),
+			RuntimeRoot:    *runtimeRoot,
+			PrivilegedRoot: *privilegedRoot,
+			AddonID:        *addonID,
+			BinaryName:     *addonBin,
+			Capabilities:   splitCommaList(*addonCaps),
 		})
 	case *version != "":
 		return agent.ActivateStagedRelease(agent.ReleaseActivationConfig{

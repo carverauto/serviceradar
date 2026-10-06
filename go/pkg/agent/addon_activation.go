@@ -236,6 +236,15 @@ func stageAddonArtifactWithClient(
 		return "", fmt.Errorf("create addon version dir: %w", err)
 	}
 
+	// Retain the verified downloaded artifact as a bounded staging input (Task 1.1).
+	artifactName := "artifact.tar.gz"
+	if !isGzipArtifact(data) {
+		artifactName = "artifact.bin"
+	}
+	if err := writeAddonFileAtomic(filepath.Join(versionDir, artifactName), data, addonManifestMode); err != nil {
+		return "", fmt.Errorf("retain addon artifact: %w", err)
+	}
+
 	// A pushed artifact is either a bare executable (single-binary add-ons) or a gzip
 	// tarball bundling the binary plus its manifest/config and any systemd unit files.
 	// The sha256/signature above covered the raw artifact bytes either way; the tarball
@@ -370,6 +379,11 @@ func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentC
 		return fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
 	}
 
+	stateDir := addonStateDir(runtimeRoot, addonID)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return fmt.Errorf("create addon state dir: %w", err)
+	}
+
 	currentDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID, addonCurrentLink)
 	configName, err := selectStagedAddonRuntimeConfig(currentDir, addonID)
 	if err != nil {
@@ -380,7 +394,8 @@ func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentC
 	}
 
 	configPath := filepath.Join(currentDir, configName)
-	basePath := filepath.Join(currentDir, ".serviceradar-config-base-"+configName)
+	stateConfigPath := filepath.Join(stateDir, configName)
+	basePath := filepath.Join(stateDir, ".serviceradar-config-base-"+configName)
 
 	baseConfig, err := os.ReadFile(basePath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -400,11 +415,28 @@ func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentC
 		return err
 	}
 
-	if err := writeAddonFileAtomic(configPath, mergedConfig, addonManifestMode); err != nil {
+	// Write to writable state directory outside executable tree (Task 2.2).
+	if err := writeAddonFileAtomic(stateConfigPath, mergedConfig, addonManifestMode); err != nil {
 		return fmt.Errorf("write staged addon runtime config: %w", err)
 	}
 
+	// Also write to currentDir in agent staging area for consistency with local discovery/inspectors.
+	_ = writeAddonFileAtomic(configPath, mergedConfig, addonManifestMode)
+
 	return nil
+}
+
+// StagedAddonArtifactPath returns the path to the retained artifact archive in a version directory.
+func StagedAddonArtifactPath(versionDir string) string {
+	gz := filepath.Join(versionDir, "artifact.tar.gz")
+	if _, err := os.Stat(gz); err == nil {
+		return gz
+	}
+	bin := filepath.Join(versionDir, "artifact.bin")
+	if _, err := os.Stat(bin); err == nil {
+		return bin
+	}
+	return gz
 }
 
 func selectStagedAddonRuntimeConfig(dir, addonID string) (string, error) {

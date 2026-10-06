@@ -28,6 +28,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,10 +40,16 @@ import (
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
+	"github.com/carverauto/serviceradar/go/pkg/hashutil"
 )
 
+// defaultPrivilegedAddonRoot is the root-owned runtime tree where the privileged
+// updater materializes verified add-ons.
+const defaultPrivilegedAddonRoot = "/usr/lib/serviceradar/addons"
+
 // systemdUnitDir is where the root-owned updater installs add-on unit files.
-const systemdUnitDir = "/etc/systemd/system"
+// Can be overridden in unit tests.
+var systemdUnitDir = "/etc/systemd/system"
 
 // systemdUnitFileMode is the on-disk mode for an installed unit file (root:root 0644).
 const systemdUnitFileMode = 0o644
@@ -75,17 +82,28 @@ var (
 	// ErrAddonSystemdTimerRequiresTimer is returned when timer activation is
 	// requested without a timer primary unit.
 	ErrAddonSystemdTimerRequiresTimer = errors.New("timer activation requires a timer primary unit")
+	// ErrAddonSignatureRequired is returned when an unsigned artifact is requested
+	// for privileged systemd supervision.
+	ErrAddonSignatureRequired = errors.New("artifact signature is required for privileged systemd add-ons")
+	// ErrAddonArtifactMissing is returned when the staged artifact archive cannot be found.
+	ErrAddonArtifactMissing = errors.New("staged addon artifact is missing")
 )
 
 // AddonSystemdInstallRequest describes a privileged install + enable of an add-on's
-// systemd units, all of which ship inside the staged add-on bundle.
+// systemd units, materialized and verified by the root-owned updater.
 type AddonSystemdInstallRequest struct {
-	RuntimeRoot string               // agent release runtime root ("" -> package default)
-	AddonID     string               // add-on id (a single safe path segment)
-	Units       []string             // unit file names in the staged current/ dir (".service"/".timer")
-	Enable      string               // the unit to `enable --now` (must be one of Units)
-	Resources   agentaddon.Resources // manifest CPU/memory/task limits applied to Enable via a drop-in
-	RunTimerNow bool                 // clear prior scan failure and queue the newly installed timer service
+	RuntimeRoot    string               // agent release runtime root ("" -> package default)
+	PrivilegedRoot string               // privileged add-on runtime root ("" -> /usr/lib/serviceradar/addons)
+	AddonID        string               // add-on id (a single safe path segment)
+	Version        string               // target version (a single safe path segment)
+	BinaryName     string               // staged binary filename (a single safe path segment)
+	ArtifactPath   string               // path to the staged artifact archive ("" -> default staging location)
+	ArtifactSHA256 string               // expected artifact SHA256 digest
+	Signature      string               // Ed25519 signature of the artifact
+	Units          []string             // unit file names in the bundle (".service"/".timer")
+	Enable         string               // the unit to `enable --now` (must be one of Units)
+	Resources      agentaddon.Resources // manifest CPU/memory/task limits applied to Enable via a drop-in
+	RunTimerNow    bool                 // clear prior scan failure and queue the newly installed timer service
 }
 
 // validateAddonUnitName reports whether name is a safe single path segment naming a
@@ -156,45 +174,221 @@ func runSystemctl(ctx context.Context, args ...string) error {
 	return nil
 }
 
+// resolvePrivilegedAddonRoot returns the root-owned directory where the privileged
+// updater materializes verified add-ons.
+func resolvePrivilegedAddonRoot(privilegedRoot, runtimeRoot string) string {
+	if clean := strings.TrimSpace(privilegedRoot); clean != "" {
+		return clean
+	}
+	if clean := strings.TrimSpace(runtimeRoot); clean != "" && clean != defaultReleaseRuntimeRoot {
+		return filepath.Join(clean, "privileged-addons")
+	}
+	return defaultPrivilegedAddonRoot
+}
+
+// resolvePrivilegedAddonUnit resolves a unit file under the add-on's privileged
+// current/ dir, validating the name and confirming the resolved real path stays inside
+// the add-on's own directory before the updater copies it into the system unit dir.
+func resolvePrivilegedAddonUnit(privRoot, addonID, unitName string) (string, error) {
+	if !safeAddonSegment(addonID) {
+		return "", fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
+	}
+	if err := validateAddonUnitName(unitName); err != nil {
+		return "", err
+	}
+
+	addonDir := filepath.Join(privRoot, addonID)
+	staged := filepath.Join(addonDir, addonCurrentLink, unitName)
+
+	real, err := filepath.EvalSymlinks(staged)
+	if err != nil {
+		return "", fmt.Errorf("resolve privileged addon unit: %w", err)
+	}
+
+	addonDirReal, err := filepath.EvalSymlinks(addonDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve privileged addon dir: %w", err)
+	}
+	if real != addonDirReal && !strings.HasPrefix(real, addonDirReal+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%w: %s", ErrAddonUnitEscape, real)
+	}
+
+	info, err := os.Stat(real)
+	if err != nil {
+		return "", fmt.Errorf("stat privileged addon unit: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: %s", ErrAddonUnitNotRegular, real)
+	}
+
+	return real, nil
+}
+
+// relabelPrivilegedAddonExecutables sets SELinux type bin_t on privileged add-on
+// binaries so systemd (init_t) can exec them.
+func relabelPrivilegedAddonExecutables(privRoot, addonID string) {
+	if !safeAddonSegment(addonID) {
+		return
+	}
+	currentDir := filepath.Join(privRoot, addonID, addonCurrentLink)
+	entries, err := os.ReadDir(currentDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !isStagedAddonExecutable(entry.Name(), info.Mode()) {
+			continue
+		}
+		relabelPathAsBinT(filepath.Join(currentDir, entry.Name()))
+	}
+}
+
 // InstallAddonSystemdUnits is the privileged operation invoked inside the root-owned
-// agent-updater: it resolves each declared unit under the controlled add-on staging
-// root, copies them into the system unit dir, reloads systemd, and enables (--now) the
-// primary unit. On any failure it removes the units it copied and reloads, so the host
-// is never left with half-installed or orphaned add-on units (the agent additionally
-// rolls the `current` symlink back).
+// agent-updater: it verifies the signed artifact, materializes an immutable root-owned
+// runtime tree below /usr/lib/serviceradar/addons/<id>, switches the privileged current
+// symlink, copies units from that tree into the system unit dir, reloads systemd, and
+// enables (--now) the primary unit. On any failure it removes newly installed units,
+// drop-ins, and rolls the privileged current symlink back to its previous target.
 func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallRequest) error {
 	if len(req.Units) == 0 {
 		return ErrAddonSystemdNoUnits
 	}
-
+	if !safeAddonSegment(req.AddonID) {
+		return fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, req.AddonID)
+	}
 	enable := strings.TrimSpace(req.Enable)
 	if enable != "" && !containsString(req.Units, enable) {
 		return fmt.Errorf("%w: %q", ErrAddonSystemdEnableNotListed, enable)
 	}
-
-	// Resolve + validate every staged unit before touching the system unit dir, so a
-	// bad unit name aborts the install before anything is copied.
-	type stagedUnit struct{ name, src string }
-	resolved := make([]stagedUnit, 0, len(req.Units))
 	for _, name := range req.Units {
-		src, err := resolveStagedAddonUnit(req.RuntimeRoot, req.AddonID, name)
-		if err != nil {
+		if err := validateAddonUnitName(name); err != nil {
 			return err
 		}
-		resolved = append(resolved, stagedUnit{name: name, src: src})
+	}
+	if !safeAddonSegment(req.Version) {
+		return fmt.Errorf("%w: version %q", ErrAddonUnsafePath, req.Version)
+	}
+	if !safeAddonSegment(req.BinaryName) {
+		return fmt.Errorf("%w: binary %q", ErrAddonUnsafePath, req.BinaryName)
+	}
+	if strings.TrimSpace(req.Signature) == "" {
+		return ErrAddonSignatureRequired
+	}
+
+	// Read and verify the original artifact archive bytes directly.
+	artifactPath := req.ArtifactPath
+	if artifactPath == "" {
+		stagingVersionDir := filepath.Join(resolveAddonArtifactRoot(req.RuntimeRoot), req.AddonID, addonVersionsDir, req.Version)
+		artifactPath = StagedAddonArtifactPath(stagingVersionDir)
+	}
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrAddonArtifactMissing
+		}
+		return fmt.Errorf("read addon artifact %s: %w", artifactPath, err)
+	}
+
+	wantSHA := strings.ToLower(strings.TrimSpace(req.ArtifactSHA256))
+	if wantSHA != "" {
+		sum := sha256.Sum256(data)
+		if !hashutil.EqualSHA256(wantSHA, sum) {
+			return ErrAddonArtifactHashMismatch
+		}
+	}
+
+	if err := verifyAddonArtifactSignature(data, req.Signature); err != nil {
+		return err
+	}
+
+	// Materialize into root-owned privileged directory.
+	privRoot := resolvePrivilegedAddonRoot(req.PrivilegedRoot, req.RuntimeRoot)
+	privAddonDir := filepath.Join(privRoot, req.AddonID)
+	privVersionsDir := filepath.Join(privAddonDir, addonVersionsDir)
+	if err := os.MkdirAll(privVersionsDir, 0o755); err != nil {
+		return fmt.Errorf("create privileged addon versions dir: %w", err)
+	}
+
+	privVersionDir := filepath.Join(privVersionsDir, req.Version)
+	tmpDir, err := os.MkdirTemp(privVersionsDir, ".tmp-extract-*")
+	if err != nil {
+		return fmt.Errorf("create temporary extract dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	if isGzipArtifact(data) {
+		if err := extractAddonTarball(tmpDir, data, req.BinaryName); err != nil {
+			return err
+		}
+	} else {
+		if err := writeAddonBinaryAtomic(filepath.Join(tmpDir, req.BinaryName), data); err != nil {
+			return err
+		}
+	}
+
+	if err := writeAddonStageMetadata(tmpDir, addonStageMetadata{
+		AddonID:        req.AddonID,
+		Version:        req.Version,
+		BinaryName:     req.BinaryName,
+		ArtifactSHA256: wantSHA,
+		Signature:      strings.TrimSpace(req.Signature),
+	}); err != nil {
+		return err
+	}
+
+	_ = os.RemoveAll(privVersionDir)
+	if err := os.Rename(tmpDir, privVersionDir); err != nil {
+		return fmt.Errorf("publish privileged version dir: %w", err)
+	}
+
+	// Atomically manage the privileged current symlink and rollback target.
+	prevPrivTarget, hasPrevPriv := readAddonCurrentTarget(privAddonDir)
+	targetRel := filepath.Join(addonVersionsDir, req.Version)
+	if err := switchAddonCurrentSymlink(privAddonDir, targetRel); err != nil {
+		return err
+	}
+
+	rollbackPrivCurrent := func() {
+		if hasPrevPriv {
+			_ = switchAddonCurrentSymlink(privAddonDir, prevPrivTarget)
+		} else {
+			_ = os.Remove(filepath.Join(privAddonDir, addonCurrentLink))
+		}
+	}
+
+	// Relabel executables in the root-owned runtime tree.
+	relabelPrivilegedAddonExecutables(privRoot, req.AddonID)
+
+	// Resolve + validate every unit ONLY from the privileged tree.
+	type privUnit struct{ name, src string }
+	resolved := make([]privUnit, 0, len(req.Units))
+	for _, name := range req.Units {
+		src, err := resolvePrivilegedAddonUnit(privRoot, req.AddonID, name)
+		if err != nil {
+			rollbackPrivCurrent()
+			return err
+		}
+		resolved = append(resolved, privUnit{name: name, src: src})
 	}
 
 	timerService := ""
 	if req.RunTimerNow {
 		if !strings.HasSuffix(enable, ".timer") {
+			rollbackPrivCurrent()
 			return ErrAddonSystemdTimerRequiresTimer
 		}
-		src, err := resolveStagedAddonUnit(req.RuntimeRoot, req.AddonID, enable)
+		src, err := resolvePrivilegedAddonUnit(privRoot, req.AddonID, enable)
 		if err != nil {
+			rollbackPrivCurrent()
 			return err
 		}
 		timerService, err = stagedTimerService(src, enable, req.Units)
 		if err != nil {
+			rollbackPrivCurrent()
 			return err
 		}
 	}
@@ -203,8 +397,6 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 	// those, never a pre-existing unit file (e.g. a re-deploy over an already-running
 	// add-on), so a failed re-install cannot tear down the running add-on's units.
 	created := make([]string, 0, len(resolved))
-	// The drop-in dir this install newly created (removed on rollback so a failed
-	// re-install never leaves a half-applied limit on a running unit).
 	createdDropIn := ""
 	cleanup := func() {
 		if createdDropIn != "" {
@@ -214,12 +406,8 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 			_ = os.Remove(filepath.Join(systemdUnitDir, name))
 		}
 		_ = runSystemctl(ctx, "daemon-reload")
+		rollbackPrivCurrent()
 	}
-
-	// Staged binaries under /var/lib inherit SELinux var_lib_t; systemd cannot
-	// exec that label (203/EXEC). Relabel before enable --now so the first start
-	// is not doomed on Enforcing hosts. Missing chcon is ignored.
-	relabelStagedAddonExecutables(req.RuntimeRoot, req.AddonID)
 
 	for _, u := range resolved {
 		dest := filepath.Join(systemdUnitDir, u.name)
@@ -228,10 +416,10 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 			preExisted = true
 		}
 
-		data, err := os.ReadFile(u.src) //nolint:gosec // src is resolved under the controlled add-on staging root.
+		data, err := os.ReadFile(u.src)
 		if err != nil {
 			cleanup()
-			return fmt.Errorf("read staged unit %s: %w", u.name, err)
+			return fmt.Errorf("read privileged unit %s: %w", u.name, err)
 		}
 		if err := os.WriteFile(dest, data, systemdUnitFileMode); err != nil {
 			cleanup()
@@ -242,10 +430,7 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		}
 	}
 
-	// Apply the manifest resource limits to the enabled unit via a systemd drop-in
-	// (CPUQuota/MemoryMax/MemoryHigh/TasksMax/Slice) so manifest `resources` is the
-	// single source of truth for systemd-supervised add-ons too — the unit author
-	// does not hand-maintain limits. Unbounded (zero) resources write nothing.
+	// Apply the manifest resource limits to the enabled unit via a systemd drop-in.
 	if enable != "" && !req.Resources.IsZero() {
 		dir, err := writeSystemdResourceDropIn(enable, req.Resources)
 		if err != nil {
@@ -262,7 +447,6 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 
 	if enable != "" {
 		if err := activateAddonSystemdUnits(ctx, enable, timerService); err != nil {
-			// Disable best-effort, then remove the units we installed and reload.
 			_ = runSystemctl(ctx, "disable", "--now", enable)
 			cleanup()
 			return err
@@ -594,16 +778,25 @@ func pickPrimarySystemdUnit(units []string, supervision string) (string, error) 
 // installStagedAddonSystemdUnitsViaUpdater invokes the root-owned, package-owned
 // agent-updater to install the discovered units and enable the primary. The non-root
 // agent never installs units itself.
-func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, addonID string, units []string, enable string, resources agentaddon.Resources, runTimerNow bool) error {
-	if len(units) == 0 {
+func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSystemdInstallRequest) error {
+	if len(req.Units) == 0 {
 		return ErrAddonSystemdNoUnits
 	}
 
-	requiredFlags := []string{"addon-id", "addon-systemd-install", "addon-systemd-enable"}
-	if runTimerNow {
+	requiredFlags := []string{
+		"addon-id",
+		"addon-version",
+		"addon-bin",
+		"addon-sha256",
+		"addon-signature",
+		"addon-artifact",
+		"addon-systemd-install",
+		"addon-systemd-enable",
+	}
+	if req.RunTimerNow {
 		requiredFlags = append(requiredFlags, "addon-systemd-run-timer-now")
 	}
-	if !resources.IsZero() {
+	if !req.Resources.IsZero() {
 		requiredFlags = append(requiredFlags, "addon-systemd-resources")
 	}
 
@@ -613,19 +806,27 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, addonID strin
 	}
 
 	args := []string{
-		"--addon-id", addonID,
-		"--addon-systemd-install", strings.Join(units, ","),
-		"--addon-systemd-enable", enable,
+		"--addon-id", req.AddonID,
+		"--addon-version", req.Version,
+		"--addon-bin", req.BinaryName,
+		"--addon-sha256", req.ArtifactSHA256,
+		"--addon-signature", req.Signature,
+		"--addon-artifact", req.ArtifactPath,
+		"--addon-systemd-install", strings.Join(req.Units, ","),
+		"--addon-systemd-enable", req.Enable,
 	}
-	if runTimerNow {
+	if req.RunTimerNow {
 		args = append(args, "--addon-systemd-run-timer-now")
+	}
+	if req.PrivilegedRoot != "" {
+		args = append(args, "--privileged-root", req.PrivilegedRoot)
 	}
 
 	// Pass the manifest resource limits as JSON so the root-owned updater can write
 	// a systemd drop-in (CPUQuota/MemoryMax/...) for the enabled unit. Omitted when
 	// no limits are declared.
-	if !resources.IsZero() {
-		encoded, err := json.Marshal(resources)
+	if !req.Resources.IsZero() {
+		encoded, err := json.Marshal(req.Resources)
 		if err != nil {
 			return fmt.Errorf("encode add-on systemd resource limits: %w", err)
 		}

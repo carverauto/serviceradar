@@ -22,11 +22,11 @@ func TestNetprobeSystemdUnitStagedPathContract(t *testing.T) {
 		// Must equal the corresponding paths in ExecStart= of
 		// addons/netprobe/serviceradar-netprobe.service (the binary and the --ebpf-object,
 		// both shipped flat in the bundle and staged under current/).
-		wantStagedBinary = "/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe"
-		wantStagedEbpf   = "/var/lib/serviceradar/agent/addons/netprobe/current/netprobe_ebpf.o"
+		wantStagedBinary = "/usr/lib/serviceradar/addons/netprobe/current/serviceradar-netprobe"
+		wantStagedEbpf   = "/usr/lib/serviceradar/addons/netprobe/current/netprobe_ebpf.o"
 	)
 
-	currentDir := filepath.Join(resolveAddonArtifactRoot(""), netprobeAddonID, addonCurrentLink)
+	currentDir := filepath.Join(defaultPrivilegedAddonRoot, netprobeAddonID, addonCurrentLink)
 
 	if got := filepath.Join(currentDir, netprobeBinaryName); got != wantStagedBinary {
 		t.Fatalf(
@@ -57,7 +57,6 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 	mustContain := []string{
 		"Group=serviceradar",
 		"--drop-user serviceradar",
-		"ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe >/dev/null 2>&1 || true'",
 		"ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar/netprobe",
 		"ExecStartPre=+/usr/bin/install -d -o root -g root -m 0700 /sys/fs/bpf/serviceradar /sys/fs/bpf/serviceradar/netprobe",
 		"/sys/fs/bpf/flow_events",
@@ -73,6 +72,10 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 		if !strings.Contains(unit, want) {
 			t.Fatalf("netprobe unit missing %q", want)
 		}
+	}
+
+	if strings.Contains(unit, "chcon") {
+		t.Fatal("netprobe unit must not contain chcon ExecStartPre; privileged updater relabels root-owned runtime")
 	}
 
 	if strings.Contains(unit, "\nUser=serviceradar\n") {

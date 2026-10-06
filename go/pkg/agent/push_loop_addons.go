@@ -664,6 +664,14 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 	deliver deliverAddonArtifactFn,
 	install installUnitsFn,
 ) addonDeliveryDisposition {
+	if strings.TrimSpace(a.GetArtifactSignature()) == "" {
+		p.logger.Error().
+			Str("addon", a.GetAddonId()).
+			Msg("Privileged systemd add-on activation requires a signed artifact; rejecting unsigned assignment")
+		p.recordAddonDeliveryFailure(a, ErrAddonSignatureRequired, now)
+		return addonDeliveryPermanentFailure
+	}
+
 	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" &&
 		p.systemdAddonAssignmentCurrent(a, runtimeRoot) && runtimeReady(ctx, a, supervision) {
 		p.logger.Debug().
@@ -853,7 +861,7 @@ func systemdUnitActive(ctx context.Context, unit string) bool {
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
 // agent-updater. Indirected so reconcileStagedSystemdUnits's rollback paths are testable
 // without the updater.
-type installUnitsFn func(ctx context.Context, addonID string, units []string, enable string, resources agentaddon.Resources, runTimerNow bool) error
+type installUnitsFn func(ctx context.Context, req AddonSystemdInstallRequest) error
 
 // reconcileStagedSystemdUnits installs + enables the freshly staged add-on's systemd units
 // and, on any discovery/selection/install failure, rolls `current` back to priorTarget so a
@@ -892,29 +900,24 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		return false
 	}
 
-	// Relabel here, in the agent, and not only inside the root-owned updater.
-	//
-	// The agent self-updates (the packaged /usr/local/bin/serviceradar-agent is a shim
-	// that execs the staged release), but serviceradar-agent-updater is a setuid-root
-	// binary owned by the RPM and is NEVER replaced by a release activation. A host
-	// that has self-updated for months still runs whatever updater its original package
-	// shipped, so a privileged fix added to the updater simply never arrives: hosts in
-	// the field were still on the pre-1.4.39 updater, whose install path has no relabel
-	// at all, leaving every staged binary var_lib_t and every start at 203/EXEC.
-	//
-	// The agent's own uid owns the staged tree and can relabel it, so doing it here
-	// makes the fix travel with the component that actually updates. The updater still
-	// relabels too when it is new enough; chcon is idempotent and both calls are
-	// best-effort, so this is additive, never a regression on a host without SELinux.
-	relabel := p.relabelStagedAddonExecutables
-	if relabel == nil {
-		relabel = relabelStagedAddonExecutables
-	}
-	relabel(runtimeRoot, a.GetAddonId())
-
-	version := addonStagedVersion(a, strings.ToLower(strings.TrimSpace(a.GetArtifactSha256())))
+	wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256()))
+	version := addonStagedVersion(a, wantSHA)
+	versionDir := filepath.Join(root, a.GetAddonId(), addonVersionsDir, version)
 	runTimerNow := supervision == addonSupervisionSystemdTimer && filepath.Base(priorTarget) != version
-	if err := install(ctx, a.GetAddonId(), units, enable, addonResourcesFromProto(a.GetResources()), runTimerNow); err != nil {
+	req := AddonSystemdInstallRequest{
+		RuntimeRoot:    runtimeRoot,
+		AddonID:        a.GetAddonId(),
+		Version:        version,
+		BinaryName:     addonBinaryName(a),
+		ArtifactPath:   StagedAddonArtifactPath(versionDir),
+		ArtifactSHA256: wantSHA,
+		Signature:      strings.TrimSpace(a.GetArtifactSignature()),
+		Units:          units,
+		Enable:         enable,
+		Resources:      addonResourcesFromProto(a.GetResources()),
+		RunTimerNow:    runTimerNow,
+	}
+	if err := install(ctx, req); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
 		return false
 	}
