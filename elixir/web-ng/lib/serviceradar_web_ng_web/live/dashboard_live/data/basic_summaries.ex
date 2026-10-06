@@ -31,9 +31,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.BasicSummaries do
         _ -> empty_device_summary()
       end
 
-      defp services_summary(scope, time_window) do
-        if relation_exists?("platform.services_availability_5m") do
-          ServiceRadarWebNGWeb.Stats.services_availability(scope: scope, time: time_window)
+      defp services_summary(scope, _time_window \\ nil) do
+        if relation_exists?("platform.service_state") do
+          ServiceRadar.Observability.ServiceHealth.summary(scope)
         else
           empty_services_summary()
         end

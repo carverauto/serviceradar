@@ -14,6 +14,12 @@ defmodule ServiceRadar.Observability.ServiceState do
     schema "platform"
   end
 
+  @doc """
+  Computes the distinct active service health summary.
+  Delegates to `ServiceRadar.Observability.ServiceHealth.summary/1`.
+  """
+  defdelegate summary(target \\ []), to: ServiceRadar.Observability.ServiceHealth
+
   actions do
     defaults [:read]
 
