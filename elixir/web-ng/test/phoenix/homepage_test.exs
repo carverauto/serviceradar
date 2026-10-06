@@ -7,8 +7,8 @@ defmodule ServiceRadarWebNG.HomepageTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.PrivilegedMembership
   alias ServiceRadar.Identity.UserGroup
-  alias ServiceRadar.Identity.UserGroupMembership
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Homepage
@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNG.HomepageTest do
 
     {:ok, _settings} = AuthorizationSettings.save_default_homepage(%{"kind" => "dashboards_index"}, actor: admin)
     group = group!(system, admin, "homepage-precedence", 100, authored(dashboard))
-    member!(system, group, viewer)
+    member!(admin_scope, group, viewer)
     {:ok, viewer} = User.update_homepage_preference(viewer, %{"kind" => "overview"}, actor: viewer)
 
     assert redirected_to(UserAuth.log_in_user(conn, viewer, %{"return_to" => "/devices"})) == "/devices"
@@ -66,9 +66,17 @@ defmodule ServiceRadarWebNG.HomepageTest do
     beta_target = dashboard!(admin_scope, :public)
     alpha_target = dashboard!(admin_scope, :public)
 
-    member!(system, group!(system, admin, "homepage-first", 10, authored(private)), viewer)
-    member!(system, group!(system, admin, "beta-homepage", 50, authored(beta_target)), viewer)
-    member!(system, group!(system, admin, "Alpha-homepage", 50, authored(alpha_target)), viewer)
+    member!(admin_scope, group!(system, admin, "homepage-first", 10, authored(private)), viewer)
+    member!(
+      admin_scope,
+      group!(system, admin, "beta-homepage", 50, authored(beta_target)),
+      viewer
+    )
+    member!(
+      admin_scope,
+      group!(system, admin, "Alpha-homepage", 50, authored(alpha_target)),
+      viewer
+    )
 
     viewer_scope = Scope.for_user(viewer)
 
@@ -86,7 +94,11 @@ defmodule ServiceRadarWebNG.HomepageTest do
     own = dashboard!(admin_scope, :private)
     group_target = dashboard!(admin_scope, :private)
     {:ok, admin} = User.update_homepage_preference(admin, authored(own), actor: admin)
-    member!(system, group!(system, admin, "homepage-fallthrough", 100, authored(group_target)), admin)
+    member!(
+      admin_scope,
+      group!(system, admin, "homepage-fallthrough", 100, authored(group_target)),
+      admin
+    )
 
     {:ok, _archived} = Dashboards.archive_authored_dashboard(admin_scope, own)
     conn_after = UserAuth.log_in_user(conn, admin)
@@ -190,10 +202,12 @@ defmodule ServiceRadarWebNG.HomepageTest do
     |> Ash.update!()
   end
 
-  defp member!(system, group, user) do
-    UserGroupMembership
-    |> Ash.Changeset.for_create(:create_manual, %{group_id: group.id, user_id: user.id}, actor: system)
-    |> Ash.create!()
+  # Membership writes must cross the privilege mutation boundary with a
+  # scoped manager; direct :create_manual writes are rejected even for
+  # system actors (RequirePrivilegeBoundary).
+  defp member!(scope, group, user) do
+    {:ok, membership} = PrivilegedMembership.add(scope, group.id, user.id)
+    membership
   end
 
   defp authored(dashboard), do: %{"kind" => "dashboard", "target_type" => "authored", "target_id" => dashboard.id}

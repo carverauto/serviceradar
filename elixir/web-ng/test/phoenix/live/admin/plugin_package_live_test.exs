@@ -1661,11 +1661,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
                  permissions_override: %{},
                  resources_override: %{}
                },
-               actor: actor
+               actor: creation_actor(actor, source)
              )
 
     assignment
   end
+
+  # Policy-owned rows may only be written by a trusted system process
+  # (AssignmentParams). Fixtures for them are created as system through the
+  # same Assignments boundary; manual fixtures keep the caller's actor so
+  # negative authorization assertions stay meaningful.
+  defp creation_actor(_actor, source) when source in [:policy, "policy"], do: system_actor()
+  defp creation_actor(actor, _source), do: actor
 
   defp ensure_assignment_control_session!(agent_uid) do
     case AgentCommandBus.resolve_control_session_evidence(agent_uid) do
