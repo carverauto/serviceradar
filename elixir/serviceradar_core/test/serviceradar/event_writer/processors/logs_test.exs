@@ -486,6 +486,51 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.span_id == nil
     end
 
+    test "normalizes protobuf severity numbers and missing SDK text" do
+      cases = [
+        {:SEVERITY_NUMBER_WARN, "", "WARN", 13},
+        {:SEVERITY_NUMBER_TRACE, "", "TRACE", 1},
+        {:SEVERITY_NUMBER_DEBUG4, "", "DEBUG", 8},
+        {:SEVERITY_NUMBER_INFO, "", "INFO", 9},
+        {:SEVERITY_NUMBER_ERROR, "", "ERROR", 17},
+        {:SEVERITY_NUMBER_FATAL4, "", "FATAL", 24},
+        {:SEVERITY_NUMBER_WARN, "SEVERITY_NUMBER_WARN", "WARN", 13},
+        {:SEVERITY_NUMBER_ERROR, "SEVERITY_NUMBER_ERROR", "ERROR", 17},
+        {:SEVERITY_NUMBER_WARN, "warn", "warn", 13},
+        {:SEVERITY_NUMBER_ERROR, "error", "error", 17},
+        {:SEVERITY_NUMBER_ERROR3, "ERROR", "ERROR", 19},
+        {:SEVERITY_NUMBER_UNSPECIFIED, "", "", 0},
+        {25, "custom", "custom", 25}
+      ]
+
+      for {number, text, expected_text, expected_number} <- cases do
+        request = %ExportLogsServiceRequest{
+          resource_logs: [
+            %ResourceLogs{
+              scope_logs: [
+                %ScopeLogs{
+                  log_records: [
+                    %LogRecord{
+                      time_unix_nano: 1_705_315_800_000_000_000,
+                      severity_number: number,
+                      severity_text: text,
+                      body: %AnyValue{value: {:string_value, "synthetic severity example"}}
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+
+        [row] =
+          Logs.parse_message(%{data: ExportLogsServiceRequest.encode(request), metadata: %{}})
+
+        assert row.severity_text == expected_text
+        assert row.severity_number == expected_number
+      end
+    end
+
     test "parses protobuf ExportLogsServiceRequest" do
       trace_id = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>
       span_id = <<1, 2, 3, 4, 5, 6, 7, 8>>
