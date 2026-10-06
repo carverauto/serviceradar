@@ -7,18 +7,23 @@ pub(super) enum LogsStatsExpr {
 }
 
 impl LogsStatsExpr {
-    pub(super) fn to_sql_fragment(&self) -> String {
+    pub(super) fn alias(&self) -> &str {
         match self {
-            LogsStatsExpr::Count { alias } => {
-                format!("'{}', coalesce(COUNT(*), 0)", alias)
-            }
-            LogsStatsExpr::GroupUniqArray { alias, column } => {
-                format!(
-                    "'{}', coalesce(jsonb_agg(DISTINCT {column}) FILTER (WHERE {column} IS NOT NULL), '[]'::jsonb)",
-                    alias
-                )
-            }
+            Self::Count { alias } | Self::GroupUniqArray { alias, .. } => alias,
         }
+    }
+
+    pub(super) fn to_sql_value(&self) -> String {
+        match self {
+            Self::Count { .. } => "coalesce(COUNT(*), 0)".to_string(),
+            Self::GroupUniqArray { column, .. } => format!(
+                "coalesce(jsonb_agg(DISTINCT {column}) FILTER (WHERE {column} IS NOT NULL), '[]'::jsonb)"
+            ),
+        }
+    }
+
+    pub(super) fn to_sql_fragment(&self) -> String {
+        format!("'{}', {}", self.alias(), self.to_sql_value())
     }
 }
 
@@ -127,7 +132,7 @@ fn sanitize_alias(raw: String) -> Result<String> {
     Ok(alias)
 }
 
-fn resolve_group_field(field: &str) -> Result<&'static str> {
+pub(super) fn resolve_group_field(field: &str) -> Result<&'static str> {
     match field.trim().to_lowercase().as_str() {
         "service_name" | "service" | "name" => Ok("service_name"),
         "service_version" | "version" => Ok("service_version"),
@@ -141,7 +146,7 @@ fn resolve_group_field(field: &str) -> Result<&'static str> {
         "span_id" => Ok("span_id"),
         "body" | "message" => Ok("body"),
         other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported field '{other}' for group_uniq_array"
+            "unsupported field '{other}' for logs grouping"
         ))),
     }
 }

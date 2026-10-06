@@ -1,11 +1,11 @@
 use super::stats_clauses::{build_lowered_text_clause, build_numeric_clause, build_text_clause};
-use super::stats_expr::parse_stats_expressions;
+use super::stats_expr::{parse_stats_expressions, resolve_group_field};
 use super::time::log_timestamp_sql;
 use super::{RECOGNIZED_SEVERITY_TEXTS, severity_match_any};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
-    parser::{Filter, FilterOp},
+    parser::{Filter, FilterOp, OrderDirection, split_stats_group_by},
     query::{BindParam, QueryPlan},
     time::TimeRange,
 };
@@ -73,7 +73,17 @@ pub(super) fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>
         _ => return Ok(None),
     };
 
-    let expressions = parse_stats_expressions(stats_raw)?;
+    let (aggregate_raw, group_raw) = split_stats_group_by(stats_raw);
+    let expressions = parse_stats_expressions(&aggregate_raw)?;
+    let groups = group_raw
+        .as_deref()
+        .map(|raw| {
+            raw.split(',')
+                .map(resolve_group_field)
+                .collect::<Result<Vec<_>>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
     if expressions.is_empty() {
         return Err(ServiceError::InvalidRequest(
             "stats expression required for logs queries".into(),
@@ -116,8 +126,17 @@ pub(super) fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>
     }
 
     let mut parts = Vec::new();
-    for expr in expressions {
+    for expr in &expressions {
         parts.push(expr.to_sql_fragment());
+    }
+
+    for column in &groups {
+        if expressions.iter().any(|expr| expr.alias() == *column) {
+            return Err(ServiceError::InvalidRequest(
+                "stats alias conflicts with a group field".into(),
+            ));
+        }
+        parts.push(format!("'{column}', {column}"));
     }
 
     let mut sql = String::from("SELECT jsonb_build_object(");
@@ -126,6 +145,35 @@ pub(super) fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>
     if !clauses.is_empty() {
         sql.push_str("\nWHERE ");
         sql.push_str(&clauses.join(" AND "));
+    }
+
+    if !groups.is_empty() {
+        sql.push_str("\nGROUP BY ");
+        sql.push_str(&groups.join(", "));
+        let mut ordering = Vec::new();
+        for clause in &plan.order {
+            let value =
+                if let Some(expr) = expressions.iter().find(|expr| expr.alias() == clause.field) {
+                    expr.to_sql_value()
+                } else {
+                    let column = resolve_group_field(&clause.field)?;
+                    if !groups.contains(&column) {
+                        return Err(ServiceError::InvalidRequest(
+                            "stats sort must name an aggregate alias or group field".into(),
+                        ));
+                    }
+                    column.to_string()
+                };
+            let direction = match clause.direction {
+                OrderDirection::Asc => "ASC",
+                OrderDirection::Desc => "DESC",
+            };
+            ordering.push(format!("{value} {direction}"));
+        }
+        ordering.extend(groups.iter().map(|column| format!("{column} ASC")));
+        sql.push_str("\nORDER BY ");
+        sql.push_str(&ordering.join(", "));
+        sql.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
     }
 
     Ok(Some(LogsStatsSql { sql, binds }))
