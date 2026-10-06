@@ -46,7 +46,7 @@ defmodule ServiceRadar.Identity.RoleChangeAuditDbTest do
     assert event.actor_user_id == admin.id
     assert event.metadata["old_role"] == "viewer"
     assert event.metadata["new_role"] == "operator"
-    assert event.metadata["actor"] == admin.email
+    assert event.metadata["actor"] == to_string(admin.email)
   end
 
   test "updating to the same role does not write an audit event", %{

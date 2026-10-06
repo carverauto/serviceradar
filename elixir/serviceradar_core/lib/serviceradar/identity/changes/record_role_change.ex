@@ -117,19 +117,34 @@ defmodule ServiceRadar.Identity.Changes.RecordRoleChange do
     end
   end
 
-  defp format_actor(%User{email: email}) when is_binary(email) and email != "", do: email
+  defp format_actor(%User{email: email})
+       when (is_binary(email) and email != "") or is_struct(email, Ash.CiString),
+       do: to_string(email)
+
   defp format_actor(%User{id: id}), do: to_string(id)
-  defp format_actor(%{user: %User{email: email}}) when is_binary(email) and email != "", do: email
+
+  defp format_actor(%{user: %User{email: email}})
+       when (is_binary(email) and email != "") or is_struct(email, Ash.CiString),
+       do: to_string(email)
+
   defp format_actor(%{user: %User{id: id}}), do: to_string(id)
-  defp format_actor(%{user: %{email: email}}) when is_binary(email) and email != "", do: email
+
+  defp format_actor(%{user: %{email: email}})
+       when (is_binary(email) and email != "") or is_struct(email, Ash.CiString),
+       do: to_string(email)
+
   defp format_actor(%{user: %{id: id}}), do: to_string(id)
 
-  defp format_actor(%{role: :system, email: email}) when is_binary(email) and email != "",
-    do: email
+  defp format_actor(%{role: :system, email: email})
+       when (is_binary(email) and email != "") or is_struct(email, Ash.CiString),
+       do: to_string(email)
 
   defp format_actor(%{role: :system, id: id}) when is_binary(id) and id != "", do: id
 
-  defp format_actor(%{email: email}) when is_binary(email) and email != "", do: email
+  defp format_actor(%{email: email})
+       when (is_binary(email) and email != "") or is_struct(email, Ash.CiString),
+       do: to_string(email)
+
   defp format_actor(%{id: id}) when is_binary(id), do: id
   defp format_actor(nil), do: "system"
   defp format_actor(atom) when is_atom(atom), do: Atom.to_string(atom)
