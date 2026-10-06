@@ -6,9 +6,9 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
   CNPG computes `app` at query time (`FLOW_APP_EXPR` in
   `rust/srql/src/query/flows/expressions.rs`): a protocol/port baseline table,
   overridden by the best matching enabled row of
-  `platform.netflow_app_classification_rules`. The warehouse read
-  `dst_service_label` instead -- different case, different coverage, operator
-  rules never applied (parity deviation `flow_app_is_a_different_classifier`).
+  `platform.netflow_app_classification_rules`. Before issue #4851 the
+  warehouse read `dst_service_label` instead -- different case, different
+  coverage, operator rules never applied.
 
   This module ports the CNPG classification exactly, so the StarRocks writer
   stamps the same label CNPG would compute at query time. Rule changes affect
