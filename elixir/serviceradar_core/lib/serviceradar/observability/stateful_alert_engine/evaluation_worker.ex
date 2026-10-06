@@ -18,7 +18,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker do
     ]
 
   alias ServiceRadar.Observability.StatefulAlertEngine.Owner
+  alias ServiceRadar.Observability.StatefulAlertEngine.Rollout
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics
   alias ServiceRadar.SweepJobs.ObanSupport
+
+  require Logger
 
   @quantum 16
 
@@ -31,7 +35,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"rule_id" => rule_id}}) do
-    drain(rule_id, @quantum)
+    if Rollout.consumers_enabled?(), do: drain(rule_id, @quantum), else: {:snooze, 5}
   end
 
   defp drain(_rule_id, 0), do: {:snooze, 1}
@@ -51,10 +55,23 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker do
         {:snooze, seconds}
 
       {:error, {:evaluation_failed, work_id, reason}} ->
-        Owner.defer(rule_id, work_id, reason)
-        {:snooze, 2}
+        RuntimeMetrics.retry()
 
-      {:error, _reason} ->
+        case Owner.defer(rule_id, work_id, reason) do
+          {:ok, _} ->
+            {:snooze, 2}
+
+          {:error, retry_error} ->
+            Logger.error("Alert evaluator could not persist retry backoff",
+              reason: inspect(retry_error)
+            )
+
+            {:error, retry_error}
+        end
+
+      {:error, reason} ->
+        RuntimeMetrics.store_failure()
+        Logger.error("Alert evaluation store is unavailable", reason: inspect(reason))
         {:snooze, 5}
     end
   end

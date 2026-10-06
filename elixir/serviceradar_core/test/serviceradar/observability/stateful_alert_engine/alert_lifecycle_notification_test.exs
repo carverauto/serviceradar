@@ -88,6 +88,47 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
     assert length(routing_jobs(alert_id)) == before
   end
 
+  test "a stale continuation cannot renotify an incident after it resolves", %{actor: actor} do
+    now = DateTime.utc_now()
+    rule = create_rule!(actor)
+
+    assert {:ok, alert_id} =
+             AlertLifecycle.create_event_and_alert(rule, snapshot(rule), record(now), now)
+
+    assert :ok = AlertLifecycle.resolve_alert(alert_id, rule, snapshot(rule), now)
+    before = routing_jobs(alert_id)
+
+    assert :skipped =
+             AlertLifecycle.send_renotify(alert_id, nil, nil, DateTime.shift(now, hour: 2))
+
+    assert routing_jobs(alert_id) == before
+
+    assert {:ok, %{notification_count: 0, status: :resolved}} =
+             Alert.get_by_id(alert_id, actor: actor)
+  end
+
+  test "rechecking cadence under the rule fence prevents a duplicate continuation", %{
+    actor: actor
+  } do
+    now = DateTime.utc_now()
+    rule = create_rule!(actor)
+
+    assert {:ok, alert_id} =
+             AlertLifecycle.create_event_and_alert(rule, snapshot(rule), record(now), now)
+
+    Repo.query!("UPDATE platform.alerts SET last_notification_at = $1 WHERE id = $2", [
+      DateTime.shift(now, hour: -2),
+      Ecto.UUID.dump!(alert_id)
+    ])
+
+    assert :ok = AlertLifecycle.send_renotify(alert_id, nil, nil, now)
+    assert :skipped = AlertLifecycle.send_renotify(alert_id, nil, nil, now)
+    assert [fire, renotify] = routing_jobs(alert_id)
+    assert fire["args"]["lifecycle_reason"] == "fire"
+    assert renotify["args"]["lifecycle_reason"] == "renotify"
+    assert {:ok, %{notification_count: 1}} = Alert.get_by_id(alert_id, actor: actor)
+  end
+
   test "a failed :resolve enqueue rolls back the alert transition", %{actor: actor} do
     now = DateTime.utc_now()
     rule = create_rule!(actor)

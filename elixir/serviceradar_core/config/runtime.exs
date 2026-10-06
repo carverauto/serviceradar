@@ -95,6 +95,9 @@ config :serviceradar_core,
        :results_router_max_bytes,
        ingestion_positive_env.("SERVICERADAR_SERVICE_STATE_MAX_BYTES", 32 * 1_024 * 1_024)
 
+config :serviceradar_core,
+       ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
+
 if is_map(callback_deployment) do
   # Automation callback bearer verification is file-only: never accept HMAC
   # key material directly from an environment variable where process

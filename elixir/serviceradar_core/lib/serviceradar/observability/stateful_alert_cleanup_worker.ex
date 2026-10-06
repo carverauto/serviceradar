@@ -24,6 +24,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Jobs.SelfScheduling
+  alias ServiceRadar.Observability.StatefulAlertEngine.Owner
   alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -102,10 +103,10 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
 
     case Ash.read(query, actor: actor) do
       {:ok, %Ash.Page.Keyset{results: results}} ->
-        destroy_states(results, actor)
+        destroy_states(results, cutoff)
 
       {:ok, results} when is_list(results) ->
-        destroy_states(results, actor)
+        destroy_states(results, cutoff)
 
       {:error, reason} ->
         Logger.warning("Failed to load stale rule state",
@@ -116,11 +117,14 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
     end
   end
 
-  defp destroy_states(states, actor) do
+  defp destroy_states(states, cutoff) do
     Enum.reduce(states, 0, fn state, count ->
-      case Ash.destroy(state, actor: actor) do
-        {:ok, _} ->
+      case Owner.cleanup_snapshot(state.rule_id, state.id, cutoff) do
+        {:ok, :deleted} ->
           count + 1
+
+        {:ok, :kept} ->
+          count
 
         {:error, reason} ->
           Logger.warning("Failed to delete stale rule state",

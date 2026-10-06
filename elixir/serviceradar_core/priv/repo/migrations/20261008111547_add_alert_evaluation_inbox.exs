@@ -57,6 +57,8 @@ defmodule ServiceRadar.Repo.Migrations.AddAlertEvaluationInbox do
       )
     )
 
+    create(index(:alert_evaluation_receipts, [:completed_at], prefix: "platform"))
+
     execute("CREATE SCHEMA IF NOT EXISTS platform")
 
     create table(:alert_evaluation_work, primary_key: false, prefix: "platform") do
@@ -118,6 +120,8 @@ defmodule ServiceRadar.Repo.Migrations.AddAlertEvaluationInbox do
     )
 
     drop(table(:alert_evaluation_work, prefix: "platform"))
+
+    drop_if_exists(index(:alert_evaluation_receipts, [:completed_at], prefix: "platform"))
 
     drop_if_exists(
       unique_index(:alert_evaluation_receipts, [:rule_id, :source_key],

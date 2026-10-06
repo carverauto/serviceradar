@@ -100,10 +100,34 @@
   "base_filter": null,
   "check_constraints": [],
   "create_table_options": null,
-  "custom_indexes": [],
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "completed_at"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "completed_at"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": null,
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    }
+  ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "AB3EC6A50CDAA17B4CD03817100FAE2C5169A393C7EAEE9760551C416B428F6E",
+  "hash": "B3BE69EF0BAE2FBF51B1E46CA333CD308D4E64F1980E25C206265ECA967AC9A6",
   "identities": [
     {
       "all_tenants?": false,

@@ -87,6 +87,50 @@ defmodule ServiceRadar.TestSupport do
     :ok
   end
 
+  @doc "Drives accepted alert inputs through the real worker and checks their durable receipts."
+  def complete_alert_evaluations! do
+    %{rows: rows} =
+      ServiceRadar.Repo.query!(
+        "SELECT rule_id::text, source_key FROM platform.alert_evaluation_work ORDER BY rule_id, position"
+      )
+
+    keys = Enum.map(rows, fn [rule_id, source_key] -> {rule_id, source_key} end)
+    deadline = System.monotonic_time(:millisecond) + 30_000
+    complete_alert_rules!(Enum.uniq(Enum.map(keys, &elem(&1, 0))), deadline)
+
+    case ServiceRadar.Observability.StatefulAlertEngine.Completion.await(keys, 1_000) do
+      {:ok, _receipts} -> :ok
+      {:error, reason} -> raise "alert effects did not commit: #{inspect(reason)}"
+    end
+  end
+
+  defp complete_alert_rules!([], _deadline), do: :ok
+
+  defp complete_alert_rules!(rules, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline,
+      do: raise("accepted alert work did not drain")
+
+    Enum.each(rules, fn rule_id ->
+      case ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker.perform(%Oban.Job{
+             args: %{"rule_id" => rule_id}
+           }) do
+        :ok -> :ok
+        # bounded worker quantum; pending rows below prove more work
+        {:snooze, 1} -> :ok
+        other -> raise "alert worker did not complete: #{inspect(other)}"
+      end
+    end)
+
+    %{rows: remaining} =
+      ServiceRadar.Repo.query!(
+        "SELECT DISTINCT rule_id::text FROM platform.alert_evaluation_work WHERE rule_id::text = ANY($1::text[])",
+        [rules]
+      )
+
+    if remaining != [], do: Process.sleep(10)
+    complete_alert_rules!(Enum.map(remaining, &hd/1), deadline)
+  end
+
   @doc "Checks out a rollback-only database owner for the current test."
   def checkout_repo!(context \\ %{}) do
     reject_async_unboxed!(context)

@@ -9,8 +9,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker do
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
+  alias ServiceRadar.Observability.AlertEvaluationReceipt
   alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
+  alias ServiceRadar.Observability.StatefulAlertEngine.Rollout
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics
   alias ServiceRadar.Repo
+
+  require Logger
 
   @batch_size 100
   @ready_sql """
@@ -20,19 +25,43 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker do
     ORDER BY rule_id, position
   ) heads
   WHERE available_at <= timezone('utc', now())
+    AND NOT EXISTS (
+      SELECT 1 FROM platform.oban_jobs job
+      WHERE job.worker = $2 AND job.args->>'rule_id' = heads.rule_id::text
+        AND job.state IN ('available', 'scheduled', 'retryable')
+    )
   ORDER BY accepted_at, rule_id
   LIMIT $1
   """
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    with {:ok, %{rows: rows}} <- Repo.query(@ready_sql, [@batch_size]) do
-      Enum.reduce_while(rows, :ok, fn [raw_id], :ok ->
-        case EvaluationWorker.enqueue(Ecto.UUID.load!(raw_id)) do
-          {:ok, _job} -> {:cont, :ok}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
+    if Rollout.consumers_enabled?(), do: recover(), else: {:snooze, 5}
+  end
+
+  defp recover do
+    with {:ok, %{rows: rows}} <-
+           Repo.query(@ready_sql, [@batch_size, Oban.Worker.to_string(EvaluationWorker)]) do
+      result =
+        Enum.reduce_while(rows, :ok, fn [raw_id], :ok ->
+          case EvaluationWorker.enqueue(Ecto.UUID.load!(raw_id)) do
+            {:ok, _job} -> {:cont, :ok}
+            {:error, _reason} = error -> {:halt, error}
+          end
+        end)
+
+      # Retention and observability must not stop the recovery wake-ups.
+      case RuntimeMetrics.sample_health() do
+        :ok -> :ok
+        {:error, _} -> Logger.warning("Could not sample alert evaluation health")
+      end
+
+      case AlertEvaluationReceipt.prune() do
+        {:ok, :ok} -> :ok
+        {:error, _} -> Logger.warning("Could not prune expired alert evaluation receipts")
+      end
+
+      result
     end
   end
 end

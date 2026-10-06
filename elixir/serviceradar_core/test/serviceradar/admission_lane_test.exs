@@ -41,6 +41,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
         RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
         RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
+        RuntimeMetrics.record(:alert_event, :admitted, %{count: 2})
+        RuntimeMetrics.record(:alert_event, :state, %{oldest_pending_ms: 250, retrying_count: 1})
         seeded_slots = table_size.()
         assert seeded_slots > 0
 
@@ -58,6 +60,16 @@ defmodule ServiceRadar.AdmissionLaneTest do
         gauge1 = find_metric!(batch1, "result_ingestion_pending_count", "sweep")
         assert point!(gauge1).value == 2.0
         assert gauge1.temporality == :METRIC_TEMPORALITY_UNSPECIFIED
+
+        assert point!(find_metric!(batch1, "result_ingestion_events_admitted", "alert_event")).value ==
+                 2.0
+
+        alert_age = find_metric!(batch1, "result_ingestion_oldest_pending_ms", "alert_event")
+        assert alert_age.unit == "ms"
+        assert point!(alert_age).value == 250.0
+        retries = find_metric!(batch1, "result_ingestion_retrying_count", "alert_event")
+        assert retries.unit == "entries"
+        assert point!(retries).value == 1.0
 
         row1 =
           Enum.find(

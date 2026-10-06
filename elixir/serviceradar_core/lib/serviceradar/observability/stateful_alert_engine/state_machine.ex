@@ -349,26 +349,30 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
         state.table
       )
 
-    Enum.reduce(stale, 0, fn {key, snapshot}, acc ->
+    Enum.reduce_while(stale, 0, fn {key, snapshot}, acc ->
       if live_series?(snapshot, live_series_keys) do
         Logger.debug(
           "Skipping stale-anomaly resolve for #{inspect(key)}: anomaly episode still open"
         )
 
-        acc
+        {:cont, acc}
       else
         case handle_recovery(snapshot, rule, nil, now, state) do
-          {:error, _reason} ->
-            acc
+          {:error, reason} ->
+            sweep_failure(state, reason, acc)
 
           resolved ->
-            persist_snapshot(resolved, rule, state)
-            :ets.insert(state.table, {key, resolved})
-            acc + 1
+            case store_snapshot(resolved, rule, state, key) do
+              :ok -> {:cont, acc + 1}
+              {:error, reason} -> sweep_failure(state, reason, acc)
+            end
         end
       end
     end)
   end
+
+  defp sweep_failure(%{transactional?: true}, reason, _count), do: {:halt, {:error, reason}}
+  defp sweep_failure(_state, _reason, count), do: {:cont, count}
 
   defp live_series?(snapshot, live_series_keys) do
     case Map.get(snapshot, :group_values) do
@@ -398,6 +402,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
 
         {:error, reason} ->
           Logger.warning("Failed to renotify alert #{snapshot.alert_id}: #{inspect(reason)}")
+          snapshot
+
+        :skipped ->
           snapshot
       end
     else

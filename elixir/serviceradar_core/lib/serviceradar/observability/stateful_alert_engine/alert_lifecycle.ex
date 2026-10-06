@@ -40,9 +40,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
+  alias ServiceRadar.Notifications.Dedupe
   alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.Repo
@@ -268,13 +270,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
                :ok
            end
 
-           case renotify_in_transaction(alert_id, now) do
+           case renotify_in_transaction(alert_id, rule, now) do
              :ok -> :ok
+             :skipped -> :skipped
              {:error, reason} -> Repo.rollback(reason)
            end
          end) do
       {:ok, :ok} ->
         :ok
+
+      {:ok, :skipped} ->
+        :skipped
 
       {:error, reason} ->
         fail_in_transaction!(reason)
@@ -284,12 +290,43 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
   def send_renotify(_alert_id, _rule, _snapshot, _now), do: {:error, :missing_alert_id}
 
-  defp renotify_in_transaction(alert_id, now) do
+  defp renotify_in_transaction(alert_id, rule, now) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
 
     with {:ok, alert} <- Alert.get_by_id(alert_id, actor: actor),
-         :ok <- enqueue_routing_result(alert.id, :renotify),
+         {:ok, cadence_rule} <- renotify_rule(alert, rule, actor) do
+      if renotify_due?(alert, cadence_rule, now) do
+        enqueue_renotify(alert, now, actor)
+      else
+        :skipped
+      end
+    end
+  end
+
+  defp renotify_rule(_alert, %{id: _} = rule, _actor), do: {:ok, rule}
+
+  defp renotify_rule(alert, _rule, actor) do
+    case Ecto.UUID.cast((alert.metadata || %{})["incident_rule_id"]) do
+      {:ok, id} -> Ash.get(StatefulAlertRule, id, actor: actor)
+      :error -> {:ok, nil}
+    end
+  end
+
+  defp renotify_due?(alert, %{enabled: true, renotify_seconds: seconds}, now)
+       when is_integer(seconds) and seconds > 0 do
+    alert.status in [:pending, :escalated] and
+      (is_nil(alert.suppressed_until) or DateTime.before?(alert.suppressed_until, now)) and
+      (is_nil(alert.snooze_until) or DateTime.before?(alert.snooze_until, now)) and
+      Dedupe.renotify_due?(alert.last_notification_at || alert.triggered_at, seconds, now)
+  end
+
+  defp renotify_due?(_alert, _rule, _now), do: false
+
+  defp enqueue_renotify(alert, now, actor) do
+    alert_id = alert.id
+
+    with :ok <- enqueue_routing_result(alert.id, :renotify),
          {:ok, _alert} <-
            alert
            |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)

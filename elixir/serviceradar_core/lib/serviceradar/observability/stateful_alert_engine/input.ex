@@ -7,6 +7,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Input do
   the same ID keeps its identity even when its batch boundary changes.
   """
 
+  alias ServiceRadar.Observability.StatefulAlertEngine.Record
   alias ServiceRadar.Observability.StatefulAlertRule
 
   @rule_fields [
@@ -65,7 +66,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Input do
     :category_uid,
     :status_id,
     :status,
-    :count
+    :count,
+    :__stateful_alert_violation__,
+    :__stateful_alert_condition__
   ]
 
   def prepare(signal, record) when signal in [:log, :event, :metric] and is_map(record) do
@@ -104,6 +107,23 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Input do
 
   def revision(rule) do
     rule |> Map.take(@rule_fields) |> Jason.encode!() |> Jason.decode!()
+  end
+
+  @doc "Validates stored input before any lifecycle effect is attempted."
+  def decode(work) do
+    rule = restore_rule(work.rule_revision)
+    record = restore_record(work.payload)
+
+    if rule.id != work.rule_id or rule.signal != work.signal or
+         is_nil(
+           Record.record_datetime(record, :time) || Record.record_datetime(record, :timestamp)
+         ) do
+      {:error, :invalid_accepted_input}
+    else
+      {:ok, rule, record}
+    end
+  rescue
+    _error -> {:error, :invalid_accepted_input}
   end
 
   def restore_rule(revision) do
@@ -145,8 +165,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Input do
     end
   end
 
+  defp restore_value(field, nil) when field in [:time, :timestamp], do: nil
+
+  defp restore_value(field, _value) when field in [:time, :timestamp] do
+    raise ArgumentError, "accepted timestamp must be an ISO8601 string"
+  end
+
   defp restore_value(_field, value), do: value
 
-  defp normalize_id(<<_::128>> = raw), do: Ecto.UUID.load!(raw)
-  defp normalize_id(id) when is_binary(id) and byte_size(id) > 0, do: id
+  defp normalize_id(id) when is_binary(id) and byte_size(id) > 0,
+    do: Record.canonical_source_id(id)
 end
