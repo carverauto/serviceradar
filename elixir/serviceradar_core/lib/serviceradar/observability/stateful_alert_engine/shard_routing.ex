@@ -28,19 +28,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.ShardRouting do
   @type signal :: :log | :event | :metric
 
   @doc """
-  The shards owning an active rule for `signal`, or `:all` when the rules
-  cannot be read.
-  """
-  @spec shards_for(signal(), (term() -> non_neg_integer())) ::
-          {:ok, [non_neg_integer()]} | :all
-  def shards_for(signal, shard_for_rule_id) do
-    case snapshot_for(signal, shard_for_rule_id) do
-      {:ok, %{shards: shards}} -> {:ok, shards}
-      :all -> :all
-    end
-  end
-
-  @doc """
   One committed snapshot for a batch: the shards owning an active rule for
   `signal`, plus the selected full rules for each owning shard.
 
