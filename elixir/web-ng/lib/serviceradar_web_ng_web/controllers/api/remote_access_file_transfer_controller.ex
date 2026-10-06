@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferController do
   @download_permission "devices.remote_access.files.download"
   @upload_permission "devices.remote_access.files.upload"
   @manage_permission "devices.remote_access.files.manage"
+  @ssh_open_permission "devices.remote_access.ssh.open"
 
   @allowed_create_keys ~w(session_id operation direction path destination_path display_name)
   @read_operations ~w(list stat download)
@@ -55,6 +56,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferController do
     manager = remote_access_file_transfer_manager()
 
     with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @ssh_open_permission),
          {:ok, request} <- normalize_create_request(params),
          :ok <- require_permission(conn, permission_for_operation(request.operation)),
          {:ok, transfer} <-

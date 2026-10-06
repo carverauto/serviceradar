@@ -116,7 +116,8 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
       :remote_access_file_transfer_session,
       %{
         session_fixture(session_id)
-        | metadata: %{
+        | requested_by: actor_id,
+          metadata: %{
             "file_transfer_policy" => %{
               "allowed_operations" => ["download"],
               "allowed_path_rules" => ["/var/log"],
@@ -240,6 +241,56 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
                transfer_resource: TransferResourceStub,
                command_bus: CommandBusStub,
                required_gateway_node: self()
+             )
+
+    refute_receive {:create_transfer, _attrs}
+    refute_receive {:send_console_frame, _agent_id, _frame, _opts}
+  end
+
+  test "refuses a transfer through another user's SSH session" do
+    session_id = Ecto.UUID.generate()
+    owner_id = Ecto.UUID.generate()
+
+    Process.put(:remote_access_file_transfer_session, %{
+      session_fixture(session_id)
+      | requested_by: owner_id
+    })
+
+    assert {:error, :not_found} =
+             RemoteAccessFileTransfers.request_transfer(
+               session_id,
+               %{operation: "download", direction: "read", path: "/var/log/syslog"},
+               session_resource: SessionResourceStub,
+               transfer_resource: TransferResourceStub,
+               command_bus: CommandBusStub,
+               required_gateway_node: self(),
+               scope: %{user: %{id: Ecto.UUID.generate()}}
+             )
+
+    refute_receive {:create_transfer, _attrs}
+    refute_receive {:send_console_frame, _agent_id, _frame, _opts}
+  end
+
+  test "refuses file transfer on a non-SSH session" do
+    session_id = Ecto.UUID.generate()
+    actor_id = Ecto.UUID.generate()
+
+    Process.put(:remote_access_file_transfer_session, %{
+      session_fixture(session_id)
+      | requested_by: actor_id,
+        protocol: :rdp,
+        adapter: :rdp
+    })
+
+    assert {:error, :not_found} =
+             RemoteAccessFileTransfers.request_transfer(
+               session_id,
+               %{operation: "download", direction: "read", path: "/var/log/syslog"},
+               session_resource: SessionResourceStub,
+               transfer_resource: TransferResourceStub,
+               command_bus: CommandBusStub,
+               required_gateway_node: self(),
+               scope: %{user: %{id: actor_id}}
              )
 
     refute_receive {:create_transfer, _attrs}
@@ -561,16 +612,36 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
 
   test "lists transfer history through the Ash resource boundary" do
     session_id = Ecto.UUID.generate()
+    actor_id = Ecto.UUID.generate()
     transfer = transfer_fixture(session_id)
+    Process.put(:remote_access_file_transfer_session, %{
+      session_fixture(session_id)
+      | requested_by: actor_id
+    })
     Process.put(:remote_access_file_transfer_list, [transfer])
 
     assert {:ok, [^transfer]} =
              RemoteAccessFileTransfers.list_transfers(session_id,
+               session_resource: SessionResourceStub,
+               transfer_resource: TransferResourceStub,
+               scope: %{user: %{id: actor_id}}
+             )
+
+    assert_receive {:list_transfers, ^session_id}
+  end
+
+  test "conceals another user's transfer history" do
+    session_id = Ecto.UUID.generate()
+    Process.put(:remote_access_file_transfer_session, session_fixture(session_id))
+
+    assert {:error, :not_found} =
+             RemoteAccessFileTransfers.list_transfers(session_id,
+               session_resource: SessionResourceStub,
                transfer_resource: TransferResourceStub,
                scope: %{user: %{id: Ecto.UUID.generate()}}
              )
 
-    assert_receive {:list_transfers, ^session_id}
+    refute_receive {:list_transfers, ^session_id}
   end
 
   defp session_fixture(session_id) do

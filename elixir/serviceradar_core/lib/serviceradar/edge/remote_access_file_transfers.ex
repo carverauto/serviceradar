@@ -38,6 +38,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
 
     with {:ok, session_id} <- normalize_uuid(session_id),
          {:ok, %RemoteAccessSession{} = session} <- fetch_session(session_id, opts),
+         :ok <- authorize_transfer_session(session, opts),
          :ok <- ensure_transferable_session(session),
          :ok <- validate_transfer_paths(request),
          attrs = transfer_attrs(session, request, opts),
@@ -84,6 +85,8 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   @spec list_transfers(String.t(), keyword()) :: {:ok, list()} | {:error, term()}
   def list_transfers(session_id, opts \\ []) do
     with {:ok, session_id} <- normalize_uuid(session_id),
+         {:ok, %RemoteAccessSession{} = session} <- fetch_session(session_id, opts),
+         :ok <- authorize_transfer_session(session, opts),
          {:ok, transfers} <- transfer_resource(opts).list_by_session(session_id, ash_opts(opts)) do
       {:ok, page_results(transfers)}
     else
@@ -358,6 +361,39 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
        when status in @active_session_statuses, do: :ok
 
   defp ensure_transferable_session(_session), do: {:error, :remote_access_session_not_active}
+
+  defp authorize_transfer_session(
+         %RemoteAccessSession{protocol: protocol, adapter: adapter} = session,
+         opts
+       )
+       when protocol in [:ssh, "ssh"] and adapter in [:ssh, "ssh"] do
+    case authorization_actor(opts) do
+      %{role: role} when role in [:system, "system"] ->
+        :ok
+
+      %{id: actor_id} when not is_nil(actor_id) ->
+        if normalize_id(session.requested_by) == normalize_id(actor_id),
+          do: :ok,
+          else: {:error, :not_found}
+
+      _actor ->
+        {:error, :not_found}
+    end
+  end
+
+  defp authorize_transfer_session(_session, _opts), do: {:error, :not_found}
+
+  defp normalize_id(nil), do: nil
+  defp normalize_id(id) when is_binary(id), do: id
+  defp normalize_id(id), do: to_string(id)
+
+  defp authorization_actor(opts) do
+    case Keyword.fetch(opts, :scope) do
+      {:ok, %{user: user}} -> user
+      {:ok, _scope} -> nil
+      :error -> Keyword.get(opts, :actor, SystemActor.system(:remote_access_file_transfer))
+    end
+  end
 
   defp validate_transfer_paths(request) do
     with :ok <- validate_transfer_path(value(request, :path)) do
