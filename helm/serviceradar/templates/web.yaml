@@ -338,6 +338,8 @@ spec:
         ports:
         - containerPort: 4000
           name: http
+        - containerPort: {{ default 9090 $webNg.metricsPort }}
+          name: metrics
         {{- if $controlPlaneRuntimeEnabled }}
         # Pod-only machine endpoint. It is intentionally omitted from both
         # web-ng Services and every Gateway route.
@@ -352,6 +354,13 @@ spec:
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         - name: PORT
           value: "4000"
+        - name: SERVICERADAR_METRICS_PORT
+          value: {{ default 9090 $webNg.metricsPort | quote }}
+        - name: SERVICERADAR_METRICS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: web-ng-metrics-token
         - name: TMPDIR
           value: "/tmp"
         - name: ELIXIR_ERL_OPTIONS
@@ -1024,6 +1033,9 @@ spec:
   - name: http
     port: 4000
     targetPort: http
+  - name: metrics
+    port: {{ default 9090 $webNg.metricsPort }}
+    targetPort: metrics
 ---
 apiVersion: v1
 kind: Service

@@ -53,7 +53,8 @@ These ports are for internal service-to-service traffic and should not be reacha
 
 | Component | Port | Protocol | Notes |
 |---|---|---|---|
-| web-ng | 4000 | HTTP | Serve behind proxy/ingress only |
+| web-ng | 4000 | HTTP | Serve behind proxy/ingress only; unauthenticated public `/metrics` requests refused with 401 |
+| web-ng metrics | 9090 | HTTP | Internal Prometheus scrape endpoint (`/metrics`); omitted from Gateway and Ingress |
 | core-elx | 8090 | HTTP | Serve behind proxy/ingress only |
 | CNPG | 5432 | TCP | Database (use port-forward/VPN for admin access) |
 | NATS | 4222 | TCP | JetStream client port (internal) |

@@ -330,6 +330,7 @@ observability:
       targets:
         webNg:
           enabled: true
+          port: metrics
           path: /metrics
         core:
           enabled: true
@@ -1421,6 +1422,10 @@ webNg:
     port: 4001
     existingSecretName: serviceradar-control-plane-runtime-access
     tokenSecretKey: token
+  # Dedicated internal listener for Prometheus metrics scraping (/metrics).
+  # Kept on a separate port so in-cluster Prometheus scrapes port 9090 without
+  # exposing /metrics on public Ingress or Gateway listeners.
+  metricsPort: 9090
   # Resource requests/limits for web-ng.
   # Steady-state ~1.3–1.7Gi RSS; a 2Gi *limit* still OOMKilled hosted tenants
   # under cold-start spikes, so limit matches demo (4Gi). Keep the *request*
@@ -2678,6 +2683,8 @@ secrets:
   edgeOnboardingKey: ""
   # Base64-encoded 32-byte key for AshCloak (optional override).
   cloakKey: ""
+  # Optional bearer token for web-ng /metrics scrapes (leave empty to auto-generate).
+  webNgMetricsToken: ""
 
 # Exact reviewed AWX custom-credential contract used by callback-enabled
 # template bindings. Callback execution remains off until every field and an

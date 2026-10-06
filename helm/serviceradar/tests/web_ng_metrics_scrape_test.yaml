@@ -1,0 +1,105 @@
+suite: web-ng metrics internal port and scrape authentication
+templates:
+  - templates/web.yaml
+  - templates/serviceradar-servicemonitors.yaml
+release:
+  namespace: sr-test
+tests:
+  - it: renders internal metrics port and token secret in deployment and service
+    template: templates/web.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            containerPort: 9090
+            name: metrics
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_METRICS_PORT
+            value: "9090"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_METRICS_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: serviceradar-secrets
+                key: web-ng-metrics-token
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.ports
+          content:
+            name: metrics
+            port: 9090
+            targetPort: metrics
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web-ng
+
+  - it: renders servicemonitor scraping internal metrics port by default
+    template: templates/serviceradar-servicemonitors.yaml
+    set:
+      observability.enabled: true
+      observability.prometheus.serviceMonitors.enabled: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: "metrics"
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+      - equal:
+          path: spec.endpoints[0].path
+          value: "/metrics"
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+
+  - it: configures bearerTokenSecret when scraping public http port
+    template: templates/serviceradar-servicemonitors.yaml
+    set:
+      observability.enabled: true
+      observability.prometheus.serviceMonitors.enabled: true
+      observability.prometheus.serviceMonitors.targets.webNg.port: http
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: "http"
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret
+          value:
+            name: serviceradar-secrets
+            key: web-ng-metrics-token
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+
+  - it: uses custom bearerTokenSecret when specified
+    template: templates/serviceradar-servicemonitors.yaml
+    set:
+      observability.enabled: true
+      observability.prometheus.serviceMonitors.enabled: true
+      observability.prometheus.serviceMonitors.targets.webNg.bearerTokenSecret:
+        name: custom-metrics-token
+        key: token
+    asserts:
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret
+          value:
+            name: custom-metrics-token
+            key: token
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng

@@ -1308,6 +1308,8 @@ services:
       - SERVICERADAR_SECURITY_MODE=${SERVICERADAR_SECURITY_MODE:-mtls}
       - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
       - SECRET_KEY_BASE_FILE=/etc/serviceradar/admin/secret-key-base
+      - SERVICERADAR_METRICS_PORT=${SERVICERADAR_METRICS_PORT:-9090}
+      - SERVICERADAR_METRICS_TOKEN_FILE=/etc/serviceradar/admin/web-ng-metrics-token
       - PLUGIN_STORAGE_BACKEND=filesystem
       - PLUGIN_STORAGE_PATH=/var/lib/serviceradar/plugin-packages
       - PLUGIN_STORAGE_SIGNING_SECRET_FILE=/etc/serviceradar/admin/plugin-storage-signing-secret

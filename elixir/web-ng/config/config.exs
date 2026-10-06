@@ -437,4 +437,8 @@ if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true
 end
 
+config :serviceradar_web_ng, :metrics_listener,
+  enabled: false,
+  port: 9090
+
 import_config "#{config_env()}.exs"
