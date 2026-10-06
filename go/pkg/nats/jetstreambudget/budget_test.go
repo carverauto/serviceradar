@@ -125,7 +125,15 @@ func packagedUnits() map[string]string {
 		"flow-collector": "build/packaging/flow-collector/systemd/serviceradar-flow-collector.service",
 		"bmp-collector":  "build/packaging/bmp-collector/systemd/serviceradar-bmp-collector.service",
 		"core-elx":       "build/packaging/core-elx/systemd/serviceradar-core-elx.service",
-		"web-ng":         "build/packaging/web-ng/systemd/serviceradar-web-ng.service",
+	}
+}
+
+// unpackagedServices own inventory streams but ship only as container images
+// (Docker Compose and Helm), never as deb/rpm packages, so they have no
+// systemd unit. Their sizes are checked through the Compose presets instead.
+func unpackagedServices() map[string]string {
+	return map[string]string{
+		"web-ng": "container image only; the deb/rpm package was removed",
 	}
 }
 
@@ -976,6 +984,9 @@ func TestOldFixedAccountQuotaFailsPresets(t *testing.T) {
 
 func TestPackagedUnitsLoadSizesFile(t *testing.T) {
 	for _, service := range sizeOwningServices() {
+		if _, ok := unpackagedServices()[service]; ok {
+			continue
+		}
 		rel, ok := packagedUnits()[service]
 		if !ok {
 			t.Errorf("no packaged unit is mapped for size-owning service %s", service)

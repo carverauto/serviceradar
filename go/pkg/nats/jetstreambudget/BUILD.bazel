@@ -19,7 +19,6 @@ go_test(
         "//build/packaging/nats:config/jetstream-sizes.env",
         "//build/packaging/nats:config/nats-server.conf",
         "//build/packaging/nats:systemd/serviceradar-nats.service",
-        "//build/packaging/web-ng:systemd/serviceradar-web-ng.service",
         "//docker/compose:nats.docker.conf",
         "//docker/compose:profiles/large.env",
         "//docker/compose:profiles/medium.env",

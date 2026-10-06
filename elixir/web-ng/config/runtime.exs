@@ -1558,6 +1558,11 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
+  # Sessions and (unless TOKEN_SIGNING_SECRET is set) JWTs are signed with this
+  # secret. Refuse to boot with a placeholder or short value rather than run
+  # with a forgeable login.
+  secret_key_base = ServiceRadarWebNG.SigningSecret.validate!("SECRET_KEY_BASE", secret_key_base)
+
   host = System.get_env("PHX_HOST") || "localhost"
 
   dev_routes =
@@ -1610,7 +1615,11 @@ if config_env() == :prod do
   # Token signing secret for AshAuthentication JWT tokens
   # Falls back to SECRET_KEY_BASE if not explicitly set
   token_signing_secret =
-    System.get_env("TOKEN_SIGNING_SECRET") || secret_key_base
+    case System.get_env("TOKEN_SIGNING_SECRET") do
+      nil -> secret_key_base
+      "" -> secret_key_base
+      value -> ServiceRadarWebNG.SigningSecret.validate!("TOKEN_SIGNING_SECRET", value)
+    end
 
   session_idle_seconds =
     "SERVICERADAR_SESSION_IDLE_TIMEOUT_SECONDS"
