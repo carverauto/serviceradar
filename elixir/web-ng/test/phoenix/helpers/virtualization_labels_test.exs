@@ -45,7 +45,11 @@ defmodule ServiceRadarWebNGWeb.Helpers.VirtualizationLabelsTest do
 
     test "formats a single provider without count offset" do
       assert VirtualizationLabels.provider_summary([%{provider: "proxmox"}]) == "Proxmox"
-      assert VirtualizationLabels.provider_summary([%{provider: "proxmox"}, %{provider: "proxmox"}]) == "Proxmox"
+
+      assert VirtualizationLabels.provider_summary([
+               %{provider: "proxmox"},
+               %{provider: "proxmox"}
+             ]) == "Proxmox"
     end
   end
 end
