@@ -59,9 +59,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.ShardRouting do
       |> Ash.Query.for_read(:active, %{})
       |> Ash.read(actor: SystemActor.system(:alert_engine))
       |> case do
-        {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
+        {:ok, %{results: results}} when is_list(results) -> {:ok, results}
         {:ok, results} when is_list(results) -> {:ok, results}
         {:error, _error} -> :error
+        _other -> :error
       end
     else
       :error

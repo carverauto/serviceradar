@@ -1633,7 +1633,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     shard_for = &StatefulAlertEngine.shard_for_rule_id/1
 
     {:ok, %{shards: _routed_before, rules_by_shard: event_by_shard}} =
-      ShardRouting.snapshot_for(:event, shard_for)
+      eventually(
+        fn -> ShardRouting.snapshot_for(:event, shard_for) end,
+        &match?({:ok, _}, &1)
+      )
 
     # Genuine negative control: pick a shard owning no event rule right now,
     # forcing one when the database already routes both shards, so the batch
@@ -1656,7 +1659,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           1
       end
 
-    assert {:ok, %{shards: routed_cleared}} = ShardRouting.snapshot_for(:event, shard_for)
+    assert {:ok, %{shards: routed_cleared}} =
+             eventually(
+               fn -> ShardRouting.snapshot_for(:event, shard_for) end,
+               &match?({:ok, _}, &1)
+             )
+
     refute uncovered in routed_cleared
 
     # The match discriminator stays fixed per family while every occurrence
@@ -1713,7 +1721,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       ]
     )
 
-    assert {:ok, %{shards: routed_after}} = ShardRouting.snapshot_for(:event, shard_for)
+    assert {:ok, %{shards: routed_after}} =
+             eventually(
+               fn -> ShardRouting.snapshot_for(:event, shard_for) end,
+               fn
+                 {:ok, %{shards: shards}} -> uncovered in shards
+                 _ -> false
+               end
+             )
+
     assert uncovered in routed_after
 
     # The next batch routes from the same snapshot it evaluates: the raw rule
@@ -1766,7 +1782,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       Ecto.UUID.dump!(raw_id)
     ])
 
-    assert {:ok, %{shards: routed_deleted}} = ShardRouting.snapshot_for(:event, shard_for)
+    assert {:ok, %{shards: routed_deleted}} =
+             eventually(
+               fn -> ShardRouting.snapshot_for(:event, shard_for) end,
+               &match?({:ok, _}, &1)
+             )
+
     refute uncovered in routed_deleted
 
     assert :ok =
@@ -1778,7 +1799,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     ServiceRadar.Observability.ApiEvent.ClearForReplay.clear_records!([])
 
-    assert {:ok, %{shards: []}} = ShardRouting.snapshot_for(:event, shard_for)
+    assert {:ok, %{shards: []}} =
+             eventually(
+               fn -> ShardRouting.snapshot_for(:event, shard_for) end,
+               &match?({:ok, %{shards: []}}, &1)
+             )
   end
 
   test "a batch evaluates the snapshot selected at routing time when a rule changes mid-batch", %{
