@@ -4,8 +4,7 @@
 type = "udp"
 listen = "0.0.0.0:514"
 format = "auto"
-# RFC3164 timestamps do not include a timezone. Use an IANA name or "local".
-# IANA timezone assumed for senders without a zone; set this to their timezone.
+# RFC3164 timestamps do not include a timezone. Use an IANA name or "local"; the value is assumed for senders without a zone, so set this to their timezone.
 rfc3164_timezone = "UTC"
 
 [output]
