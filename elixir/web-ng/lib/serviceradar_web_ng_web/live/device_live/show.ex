@@ -215,6 +215,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, CameraRelayRuntime.refresh_session(socket, relay_session_id)}
   end
 
+  def handle_info({:flush_interface_metrics, token}, socket) do
+    {:noreply, InterfaceRuntime.flush_interface_metrics(socket, token, srql_module())}
+  end
+
   def handle_info(msg, socket) do
     Logger.debug(fn ->
       "[DeviceLive.Show] unhandled message summary: " <> inspect(summarize_unhandled_msg(msg))

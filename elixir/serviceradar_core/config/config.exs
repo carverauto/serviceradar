@@ -369,4 +369,11 @@ if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
 end
 
+config :serviceradar_core, :config_invalidation_debounce_ms, 1_000
+config :serviceradar_core, :config_invalidation_max_heap_words, 134_217_728
+
+# Config invalidation coalesces fleet rebuilds. Tests opt back into a
+# synchronous push so existing suites still observe the push before return.
+config :serviceradar_core, :config_invalidation_sync, false
+
 import_config "#{config_env()}.exs"

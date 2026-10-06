@@ -321,6 +321,9 @@ config :serviceradar_core,
        # break capture_log assertions. Flip to `:debug` locally when a test needs the SQL.
        |> Keyword.put(:log, false)
 
+# Keep config pushes inside the test process. Production coalesces them.
+config :serviceradar_core, :config_invalidation_sync, true
+
 # The :stub external secret provider returns plaintext from unencrypted
 # metadata. It is a test fixture only; every other environment leaves this
 # unset, which refuses :stub providers at write time and at resolution.

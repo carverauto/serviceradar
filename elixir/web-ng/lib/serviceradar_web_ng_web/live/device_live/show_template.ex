@@ -426,6 +426,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               northbound_actions_loading={@northbound_interface_actions_loading}
               can_launch_northbound={can_launch_northbound_actions?(@current_scope)}
               snmp_polling_source={@snmp_polling_source}
+              interface_metrics_busy={@interface_metrics_busy}
             />
           </div>
 
@@ -713,6 +714,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         :if={@show_interfaces_bulk_edit}
         form={@interfaces_bulk_edit_form}
         selected_count={MapSet.size(@selected_interfaces)}
+        interface_metrics_busy={@interface_metrics_busy}
       />
 
       <.northbound_action_modal

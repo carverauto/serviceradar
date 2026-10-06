@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
 
+  @metrics_flush_delay_ms 150
+
   def toggle_select(socket, uid) do
     selected = socket.assigns.selected_interfaces
 
@@ -147,29 +149,107 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
     end
   end
 
-  def toggle_metrics(socket, uid, srql_module) do
-    enabled = socket.assigns.metrics_enabled_interfaces
-    device_uid = socket.assigns.device_uid
-    scope = socket.assigns.current_scope
+  def toggle_metrics(socket, uid, _srql_module) when is_binary(uid) do
+    enabled = Map.get(socket.assigns, :metrics_enabled_interfaces, MapSet.new())
     enable? = not MapSet.member?(enabled, uid)
-    attrs = InterfaceData.metrics_update_attrs(scope, device_uid, uid, enable?)
+    pending = Map.get(socket.assigns, :interface_metrics_pending, %{})
+    pending = Map.put(pending, uid, enable?)
 
-    case InterfaceData.upsert_interface_setting(scope, device_uid, uid, attrs) do
-      {:ok, _setting} ->
-        socket
-        |> reload_settings_and_metrics(srql_module)
-        |> put_flash(
-          :info,
-          if(enable?,
-            do: "SNMP collection enabled for this interface",
-            else: "SNMP collection disabled for this interface"
+    enabled =
+      if enable? do
+        MapSet.put(enabled, uid)
+      else
+        MapSet.delete(enabled, uid)
+      end
+
+    socket
+    |> assign(:metrics_enabled_interfaces, enabled)
+    |> assign(:interface_metrics_pending, pending)
+    |> assign(:interface_metrics_busy, true)
+    |> put_interface_metrics_flag(uid, enable?)
+    |> schedule_metrics_flush()
+  end
+
+  def flush_interface_metrics(socket, token, srql_module) do
+    if Map.get(socket.assigns, :interface_metrics_flush_token) == token do
+      rows =
+        socket.assigns
+        |> Map.get(:interface_metrics_pending, %{})
+        |> Map.to_list()
+
+      count =
+        if rows == [] do
+          0
+        else
+          InterfaceData.persist_metrics_rows(
+            socket.assigns.current_scope,
+            socket.assigns.device_uid,
+            rows
           )
-        )
+        end
 
-      {:error, _reason} ->
-        put_flash(socket, :error, "Failed to update metrics collection")
+      socket =
+        socket
+        |> assign(:interface_metrics_pending, %{})
+        |> assign(:interface_metrics_flush_token, nil)
+        |> assign(:interface_metrics_flush_timer, nil)
+        |> assign(:interface_metrics_busy, false)
+
+      cond do
+        rows == [] ->
+          socket
+
+        count == 0 ->
+          socket
+          |> reload_settings_and_metrics(srql_module)
+          |> put_flash(:error, "Failed to update metrics collection")
+
+        true ->
+          socket
+          |> reload_settings_and_metrics(srql_module)
+          |> put_flash(:info, metrics_saved_message(rows, count))
+      end
+    else
+      socket
     end
   end
+
+  defp schedule_metrics_flush(socket) do
+    case Map.get(socket.assigns, :interface_metrics_flush_timer) do
+      timer when is_reference(timer) -> Process.cancel_timer(timer)
+      _ -> :ok
+    end
+
+    token = make_ref()
+
+    timer =
+      Process.send_after(self(), {:flush_interface_metrics, token}, @metrics_flush_delay_ms)
+
+    socket
+    |> assign(:interface_metrics_flush_token, token)
+    |> assign(:interface_metrics_flush_timer, timer)
+  end
+
+  defp put_interface_metrics_flag(socket, uid, enable?) do
+    interfaces =
+      socket.assigns
+      |> Map.get(:network_interfaces, [])
+      |> Enum.map(fn iface ->
+        if Map.get(iface, "interface_uid") == uid do
+          Map.put(iface, "metrics_enabled", enable?)
+        else
+          iface
+        end
+      end)
+
+    assign(socket, :network_interfaces, interfaces)
+  end
+
+  defp metrics_saved_message([{_uid, true}], _count), do: "SNMP collection enabled for this interface"
+
+  defp metrics_saved_message([{_uid, false}], _count), do: "SNMP collection disabled for this interface"
+
+  defp metrics_saved_message(_rows, count), do: "#{count} interface metric change(s) saved"
 
   def enable_favorited_metrics(socket, srql_module) do
     favorited = socket.assigns.favorited_interfaces
