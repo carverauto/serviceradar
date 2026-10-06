@@ -1449,6 +1449,22 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         }
       ]
+    },
+    %{
+      section: "field_survey",
+      label: "Field survey",
+      permissions: [
+        %{
+          key: "field_survey.ingest",
+          section: "field_survey",
+          resource: "field_survey",
+          action: "ingest",
+          label: "Ingest field surveys",
+          description:
+            "Open field-survey ingest streams and upload room artifacts for sessions owned by the caller",
+          default_roles: @operator_roles
+        }
+      ]
     }
   ]
 

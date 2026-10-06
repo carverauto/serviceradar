@@ -28,7 +28,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
   end
 
   test "read-only POST exceptions allow only the exact decoded route and method" do
-    opts = [read_only_post_paths: [["api", "query"], ["api", "admin", "topology", "route-analysis"]]]
+    opts = [
+      read_only_post_paths: [["api", "query"], ["api", "admin", "topology", "route-analysis"]]
+    ]
 
     for path <- ["/api/query", "/api/%71uery", "/api/admin/topology/route-analysis"] do
       refute run("POST", %{oauth_token_scope: "read"}, path, opts).halted
@@ -69,11 +71,17 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
     refute run("GET", %{oauth_token_scope: "read"}, "/%61pi/v2/event-rules", opts).halted
     assert run("GET", %{oauth_token_scope: "read"}, "/api%2Fv2/event-rules", opts).status == 403
 
-    for path <- ["/topology/snapshot/latest", "/topology/tiles/search", "/v1/stream/synthetic-session"] do
+    for path <- [
+          "/topology/snapshot/latest",
+          "/topology/tiles/search",
+          "/v1/stream/synthetic-session"
+        ] do
       refute run("GET", %{oauth_token_scope: "read"}, path, opts).halted
     end
 
-    assert run("POST", %{oauth_token_scope: "read"}, "/topology/tiles/relayout", opts).status == 403
+    assert run("POST", %{oauth_token_scope: "read"}, "/topology/tiles/relayout", opts).status ==
+             403
+
     refute run("POST", %{oauth_token_scope: "write"}, "/topology/tiles/relayout", opts).halted
 
     for path <- ["/topology-admin", "/v1/streaming", "/v1/stream%2Fsynthetic-session"] do
@@ -121,18 +129,33 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
     ]
 
     assert run("POST", %{oauth_token_scope: "read"}, "/api/v1/scans", opts).status == 403
-    assert run("POST", %{oauth_token_scope: "read"}, "/api/admin/edge-packages", opts).status == 403
+
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/admin/edge-packages", opts).status ==
+             403
+
     assert run("POST", %{oauth_token_scope: "read"}, "/api/admin/collectors", opts).status == 403
     assert run("POST", %{api_token_scope: "read"}, "/api/v1/scans", opts).status == 403
     refute run("GET", %{oauth_token_scope: "read"}, "/api/v1/scans/synthetic-id", opts).halted
     refute run("GET", %{oauth_token_scope: "read"}, "/api/admin/edge-packages", opts).halted
     refute run("GET", %{oauth_token_scope: "read"}, "/v1/field-survey/auth-check", opts).halted
     refute run("POST", %{oauth_token_scope: "read"}, "/api/v1/identity/resolve", opts).halted
-    assert run("POST", %{oauth_token_scope: "read"}, "/api/v1/identity/resolve/extra", opts).status == 403
+
+    assert run("POST", %{oauth_token_scope: "read"}, "/api/v1/identity/resolve/extra", opts).status ==
+             403
+
     refute run("POST", %{oauth_token_scope: "write"}, "/api/v1/scans", opts).halted
     refute run("POST", %{oauth_token_scope: "admin"}, "/api/admin/collectors", opts).halted
-    refute run("POST", %{oauth_token_scope: "plugins.manage"}, "/api/admin/plugin-assignments", opts).halted
-    assert run("POST", %{oauth_token_scope: "plugins.manage"}, "/api/v1/scans", opts).status == 403
+
+    refute run(
+             "POST",
+             %{oauth_token_scope: "plugins.manage"},
+             "/api/admin/plugin-assignments",
+             opts
+           ).halted
+
+    assert run("POST", %{oauth_token_scope: "plugins.manage"}, "/api/v1/scans", opts).status ==
+             403
+
     assert run("POST", %{oauth_token_scope: ""}, "/api/v1/scans", opts).status == 403
     assert run("POST", %{oauth_token_scope: "unknown.scope"}, "/api/v1/scans", opts).status == 403
     refute run("POST", %{}, "/api/v1/scans", opts).halted
@@ -165,6 +188,28 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScopeTest do
       assert conn.halted
       assert conn.status == 401
     end
+  end
+
+  test "a read token cannot open a field-survey ingest stream" do
+    opts = [allow_api_key_auth: true]
+    session_id = "survey-1"
+
+    for path <- [
+          "/v1/field-survey/#{session_id}/rf-observations",
+          "/v1/field-survey/#{session_id}/pose-samples",
+          "/v1/field-survey/#{session_id}/spectrum-observations"
+        ] do
+      for assigns <- [%{api_token_scope: "read"}, %{oauth_token_scope: "read"}] do
+        conn = run("GET", assigns, path, opts)
+        assert conn.halted
+        assert conn.status == 403
+        assert Jason.decode!(conn.resp_body)["error"] == "insufficient_scope"
+      end
+
+      refute run("GET", %{api_token_scope: "write"}, path, opts).halted
+    end
+
+    refute run("GET", %{oauth_token_scope: "read"}, "/v1/field-survey/auth-check", opts).halted
   end
 
   test "all credential and Ansible configuration routes mount the capability gate" do
