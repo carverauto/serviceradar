@@ -589,9 +589,8 @@ trace configuration ever sets it. Each alternative has a negative configuration:
   that has another source, and an agent check-in clear it.
 - The sweep action, `Sweep(p, d)`, matches the live holder of the address, or else a
   tombstone, and follows the code's rule: it restores (`SweepRestore`) a tombstone that has a
-  non-sweep discovery source, or (once D12 lands) an `expired` one. Otherwise it writes the
-  sighting (`SweepRefresh`): to a live record, and today to an unrestored tombstone as well.
-  Once D12 lands, an unrestored tombstone is left alone (`SweepSkip`).
+  non-sweep discovery source, or an `expired` one (D12). Otherwise it writes the sighting
+  (`SweepRefresh`) to a live record, or leaves an unrestored tombstone alone (`SweepSkip`, D12).
 - New actions, gated by a new constant, `RetirementEnabled`:
   - `Retire(u, R)` archives the ids `R` (D1), none of them a MAC, and marks the record when
     `R` is every other id it holds (D5), so it is also the design's `MarkRetired`. A constant,
