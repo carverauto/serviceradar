@@ -714,6 +714,6 @@ By default, `serviceradar-web-ng` serves metrics on a dedicated internal port (`
 On the public HTTP/HTTPS listener (port 4000), `/metrics` requires bearer token authentication:
 - Unauthenticated requests to port 4000 return `401 Unauthorized`.
 - Scrapes against port 4000 require an `Authorization: Bearer <token>` header.
-- The bearer token is auto-generated in `serviceradar-secrets` under the `web-ng-metrics-token` key, or can be specified via `secrets.webNgMetricsToken`.
+- The bearer token is auto-generated in `serviceradar-secrets` under the `web-ng-metrics-token` key.
 - If `observability.prometheus.serviceMonitors.targets.webNg.port` is changed to `http`, the chart automatically wires `bearerTokenSecret` to supply the token from `serviceradar-secrets`.
 

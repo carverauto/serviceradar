@@ -2683,8 +2683,6 @@ secrets:
   edgeOnboardingKey: ""
   # Base64-encoded 32-byte key for AshCloak (optional override).
   cloakKey: ""
-  # Optional bearer token for web-ng /metrics scrapes (leave empty to auto-generate).
-  webNgMetricsToken: ""
 
 # Exact reviewed AWX custom-credential contract used by callback-enabled
 # template bindings. Callback execution remains off until every field and an

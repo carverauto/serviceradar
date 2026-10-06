@@ -14,18 +14,12 @@ defmodule ServiceRadarWebNGWeb.MetricsRouter do
   plug(:dispatch)
 
   get "/metrics" do
-    reporter = ServiceRadarWebNGWeb.Telemetry.prometheus_reporter()
-
-    body =
-      if Process.whereis(reporter) do
-        TelemetryMetricsPrometheus.Core.scrape(reporter)
-      else
-        ""
-      end
-
     conn
     |> put_resp_header("content-type", @prometheus_content_type)
-    |> send_resp(200, body)
+    |> send_resp(
+      200,
+      TelemetryMetricsPrometheus.Core.scrape(ServiceRadarWebNGWeb.Telemetry.prometheus_reporter())
+    )
   end
 
   match _ do
