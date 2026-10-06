@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:northbound_actions_loading, :boolean, default: false)
   attr(:can_launch_northbound, :boolean, default: false)
   attr(:snmp_polling_source, :map, default: nil)
+  attr(:interface_metrics_busy, :boolean, default: false)
 
   def interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
@@ -87,6 +88,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       device_uid={@device_uid}
       timezone={@timezone}
       snmp_polling_source={@snmp_polling_source}
+      interface_metrics_busy={@interface_metrics_busy}
     />
 
     <div
@@ -269,9 +271,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       <% metrics_enabled = Map.get(iface, "metrics_enabled", false) %>
                       <.ui_button
                         :if={iface_uid}
+                        id={"interface-metrics-toggle-#{iface_uid}"}
                         type="button"
                         phx-click="toggle_interface_metrics"
                         phx-value-uid={iface_uid}
+                        phx-disable-with="Saving..."
+                        disabled={@interface_metrics_busy}
                         title={
                           if metrics_enabled,
                             do: "Disable SNMP collection for this interface",
@@ -346,6 +351,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:device_uid, :string, required: true)
   attr(:timezone, :string, required: true)
   attr(:snmp_polling_source, :map, default: nil)
+  attr(:interface_metrics_busy, :boolean, default: false)
 
   defp interface_metrics_section(assigns) do
     ~H"""
@@ -412,11 +418,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         </p>
         <.ui_button
           :if={Map.get(@metrics, :action) == :enable_favorited_metrics}
+          id="enable-favorited-interface-metrics"
           type="button"
           size="sm"
           variant="primary"
           class="mt-3"
           phx-click="enable_favorited_interface_metrics"
+          phx-disable-with="Saving..."
+          disabled={@interface_metrics_busy}
         >
           Enable collection
         </.ui_button>
@@ -457,6 +466,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   attr(:form, :any, required: true)
   attr(:selected_count, :integer, required: true)
+  attr(:interface_metrics_busy, :boolean, default: false)
 
   def interfaces_bulk_edit_modal(assigns) do
     ~H"""
@@ -596,7 +606,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
           <.ui_button type="button" phx-click="close_interfaces_bulk_edit" size="sm" variant="ghost">
             Cancel
           </.ui_button>
-          <.ui_button type="submit" size="sm" variant="primary">
+          <.ui_button
+            type="submit"
+            size="sm"
+            variant="primary"
+            phx-disable-with="Saving..."
+            disabled={@interface_metrics_busy}
+          >
             Apply
           </.ui_button>
         </div>

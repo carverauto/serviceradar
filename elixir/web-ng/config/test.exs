@@ -195,6 +195,9 @@ config :serviceradar_core,
            types: ServiceRadar.PostgresTypes
          ]
 
+# Keep config pushes inside the test process. Production coalesces them.
+config :serviceradar_core, :config_invalidation_sync, true
+
 # Avoid SQL sandbox ownership errors from delayed seeders that run on application start.
 config :serviceradar_core, :seeders_enabled, false
 

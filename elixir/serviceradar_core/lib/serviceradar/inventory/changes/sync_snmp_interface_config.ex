@@ -7,7 +7,6 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigServer
-  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.InterfaceSettings
@@ -21,13 +20,24 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   @impl true
   def change(changeset, _opts, _context) do
-    AfterAction.after_action(changeset, &sync/1)
+    Ash.Changeset.after_action(changeset, fn changeset, %InterfaceSettings{} = settings ->
+      sync(settings, skip_snmp_invalidation?(changeset.context))
+      {:ok, settings}
+    end)
   end
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
 
-  defp sync(%InterfaceSettings{} = settings) do
+  defp skip_snmp_invalidation?(context) when is_map(context) do
+    context[:skip_snmp_config_invalidation] == true or
+      get_in(context, [:private, :skip_snmp_config_invalidation]) == true or
+      get_in(context, [:shared, :skip_snmp_config_invalidation]) == true
+  end
+
+  defp skip_snmp_invalidation?(_context), do: false
+
+  defp sync(%InterfaceSettings{} = settings, skip_invalidation?) do
     actor = SystemActor.system(:snmp_interface_config_sync)
     opts = [actor: actor]
     selected = normalize_selected(settings.metrics_selected, settings.metrics_enabled)
@@ -51,7 +61,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
         end
       end
 
-    if match?({:error, _}, result) do
+    if match?({:error, _}, result) or skip_invalidation? do
       :ok
     else
       ConfigServer.invalidate(:snmp)

@@ -26,8 +26,14 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.AgentConfig.ConfigInstance
+  alias ServiceRadar.AgentConfig.ConfigInvalidator
+  alias ServiceRadar.Edge.AgentCommandBus
 
   require Logger
+
+  # Tests set this in the calling process to opt into the coalesced push
+  # without flipping the application env other tests still rely on.
+  @invalidation_mode_key :serviceradar_config_invalidation_mode
 
   # Client API
 
@@ -99,16 +105,49 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   end
 
   @doc """
-  Invalidates cached configs for a config type.
+  Drops cached configs for a config type and schedules a push.
 
-  Call this when source resources change.
+  The cache drop is synchronous. The fleet push is coalesced onto
+  `ConfigInvalidator` and finishes after this returns. When
+  `:config_invalidation_sync` is true, or the invalidator is not running,
+  the push still runs in the caller before this returns.
   """
   @spec invalidate(atom()) :: :ok
-  def invalidate(config_type) do
+  def invalidate(config_type) when is_atom(config_type) do
     ConfigCache.invalidate(config_type)
     Logger.debug("ConfigServer: invalidated cache for type=#{config_type}")
-    ServiceRadar.Edge.AgentCommandBus.push_config_for_type(config_type)
+    deliver_push(config_type)
     :ok
+  end
+
+  defp deliver_push(config_type) do
+    if sync_invalidation?() or not invalidator_up?() do
+      AgentCommandBus.push_config_for_type(config_type)
+    else
+      cast_invalidation(config_type)
+    end
+  end
+
+  defp cast_invalidation(config_type) do
+    ConfigInvalidator.request(config_type)
+  rescue
+    ArgumentError ->
+      AgentCommandBus.push_config_for_type(config_type)
+  catch
+    :exit, _reason ->
+      AgentCommandBus.push_config_for_type(config_type)
+  end
+
+  defp invalidator_up? do
+    is_pid(Process.whereis(ConfigInvalidator))
+  end
+
+  defp sync_invalidation? do
+    case Process.get(@invalidation_mode_key) do
+      :sync -> true
+      :async -> false
+      _ -> Application.get_env(:serviceradar_core, :config_invalidation_sync, false)
+    end
   end
 
   @doc """

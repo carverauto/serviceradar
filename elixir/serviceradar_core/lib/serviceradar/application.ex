@@ -314,6 +314,11 @@ defmodule ServiceRadar.Application do
     {Task.Supervisor, name: ServiceRadar.Reload.TaskSupervisor}
   end
 
+  defp config_invalidator_task_supervisor_child do
+    {Task.Supervisor,
+     name: ServiceRadar.AgentConfig.ConfigInvalidator.TaskSupervisor, max_children: 4}
+  end
+
   defp endpoint_inventory_ingestor_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.EndpointInventoryIngestor.TaskSupervisor}
   end
@@ -377,7 +382,11 @@ defmodule ServiceRadar.Application do
           # Recent catalog-driven agent config diagnostics
           ServiceRadar.AgentConfig.DependencyDiagnostics,
           # Agent config server (compilation orchestration)
-          ServiceRadar.AgentConfig.ConfigServer
+          ServiceRadar.AgentConfig.ConfigServer,
+          # Coalesced config rebuilds. The task supervisor caps concurrent
+          # compiles so a LiveView toggle storm cannot run them in-process.
+          config_invalidator_task_supervisor_child(),
+          ServiceRadar.AgentConfig.ConfigInvalidator
         ]
     else
       []

@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   @moduledoc false
 
+  alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Analytics.StarRocks.MetricConsumers
   alias ServiceRadar.Inventory.InterfaceMetrics
   alias ServiceRadar.Inventory.InterfaceSettings
@@ -160,8 +161,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   def upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
   def upsert_interface_setting(_scope, _device_uid, nil, _attrs), do: {:error, :no_interface}
 
-  def upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
-    InterfaceSettings.upsert(device_uid, interface_uid, attrs, scope: scope)
+  def upsert_interface_setting(scope, device_uid, interface_uid, attrs, opts \\ []) do
+    ash_opts = [scope: scope]
+
+    ash_opts =
+      if Keyword.get(opts, :skip_snmp_config_invalidation, false) do
+        Keyword.put(ash_opts, :context, %{skip_snmp_config_invalidation: true})
+      else
+        ash_opts
+      end
+
+    InterfaceSettings.upsert(device_uid, interface_uid, attrs, ash_opts)
   end
 
   def bulk_update_favorites(scope, device_uid, selected_uids, favorited, current_favorites) do
@@ -193,17 +203,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   def bulk_update_metrics(scope, device_uid, selected_uids, metrics_enabled) do
-    selected_uids
-    |> MapSet.to_list()
-    |> Enum.map(fn uid ->
-      attrs = metrics_update_attrs(scope, device_uid, uid, metrics_enabled)
+    rows = Enum.map(selected_uids, &{&1, metrics_enabled})
+    persist_metrics_rows(scope, device_uid, rows)
+  end
 
-      case upsert_interface_setting(scope, device_uid, uid, attrs) do
-        {:ok, _} -> :ok
-        {:error, _} -> :error
-      end
-    end)
-    |> Enum.count(&(&1 == :ok))
+  @doc """
+  Persists every interface metric change, then invalidates SNMP config once.
+
+  `persist` is `fun(scope, device_uid, interface_uid, enabled?)` and defaults to
+  the interface-settings upsert. Bulk enable and bulk edit both go through here
+  so a 50-interface save does not rebuild agent config once per row.
+  """
+  def persist_metrics_rows(scope, device_uid, rows, persist \\ &default_persist_metrics_row/4)
+      when is_function(persist, 4) do
+    count =
+      Enum.reduce(rows, 0, fn {interface_uid, enabled?}, acc ->
+        case persist.(scope, device_uid, interface_uid, enabled?) do
+          {:ok, _} -> acc + 1
+          _ -> acc
+        end
+      end)
+
+    if count > 0 do
+      ConfigServer.invalidate(:snmp)
+    end
+
+    count
+  end
+
+  defp default_persist_metrics_row(scope, device_uid, interface_uid, enabled?) do
+    attrs = metrics_update_attrs(scope, device_uid, interface_uid, enabled?)
+
+    upsert_interface_setting(scope, device_uid, interface_uid, attrs, skip_snmp_config_invalidation: true)
   end
 
   def metrics_update_attrs(scope, device_uid, interface_uid, true) do

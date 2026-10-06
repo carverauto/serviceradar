@@ -152,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         {:noreply,
          socket
          |> assign(:profiles, load_profiles(scope))
-         |> put_flash(:info, "Profile #{action}. Pushed config to connected agents.")
+         |> put_flash(:info, "Profile #{action}. Connected agents will receive the updated config.")
          |> push_navigate(to: ~p"/settings/sysmon")}
 
       {:error, ash_form} ->
@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
              |> assign(:profiles, load_profiles(scope))
              |> put_flash(
                :info,
-               "Profile #{if new_enabled, do: "enabled", else: "disabled"}. Pushed config to connected agents."
+               "Profile #{if new_enabled, do: "enabled", else: "disabled"}. Connected agents will receive the updated config."
              )}
 
           {:error, _} ->
@@ -207,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             {:noreply,
              socket
              |> assign(:profiles, load_profiles(scope))
-             |> put_flash(:info, "Profile deleted. Pushed config to connected agents.")}
+             |> put_flash(:info, "Profile deleted. Connected agents will receive the updated config.")}
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to delete profile")}
