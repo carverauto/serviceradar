@@ -186,4 +186,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Input do
 
   defp normalize_id(id) when is_binary(id) and byte_size(id) > 0,
     do: Record.canonical_source_id(id)
+
+  defp normalize_id(id) when not is_binary(id),
+    do: Record.canonical_source_id(id)
 end

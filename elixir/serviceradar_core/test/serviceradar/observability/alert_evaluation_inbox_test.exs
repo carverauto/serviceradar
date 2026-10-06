@@ -769,6 +769,32 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert admitted_wire_total(marker, 0, System.monotonic_time(:millisecond) + 2_000) == 3.0
   end
 
+  test "numeric source ids admit through the canonical contract and redeliver deduplicated", %{
+    rule: rule,
+    actor: actor
+  } do
+    first = event()
+    numeric = %{event() | id: 71_904}
+    assert {:ok, keys} = Inbox.admit(:event, [first, numeric])
+    assert length(keys) == 2
+    assert [%{position: 1}, %{position: 2}] = work(rule, actor)
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, receipts} = Completion.await(keys, 1_000)
+    assert Enum.all?(receipts, &(&1.disposition == :completed))
+    assert {:ok, replay_keys} = Inbox.admit(:event, [numeric])
+    assert replay_keys == [Enum.at(keys, 1)]
+    assert [] = work(rule, actor)
+    assert {:ok, [%{disposition: :completed}]} = Completion.await(replay_keys, 1_000)
+
+    assert [snapshot] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    assert "71904" in snapshot.diagnostics["source_event_ids"]
+  end
+
   test "fresh owners recover every count and diagnostics within one bucket", %{
     rule: rule,
     actor: actor
