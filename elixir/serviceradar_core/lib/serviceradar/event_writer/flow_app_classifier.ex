@@ -114,7 +114,7 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
     NetflowAppClassificationRule
     |> Ash.Query.for_read(:read, actor: actor)
     |> Ash.Query.filter(enabled == true)
-    |> Ash.read(authorize?: false, actor: actor)
+    |> Ash.read(actor: actor)
     |> case do
       {:ok, rules} when is_list(rules) ->
         rules
@@ -185,7 +185,7 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
   # The SQL matches `r.field IS NULL OR r.field = value`: a NULL rule field
   # is a wildcard; a non-NULL rule field must equal the flow value, and a
   # NULL flow value never equals it (`r.field = NULL` is not true).
-  defp field_matches?(rule, _field, nil), do: is_nil(Map.get(rule, _field))
+  defp field_matches?(rule, field, nil), do: is_nil(Map.get(rule, field))
 
   defp field_matches?(rule, field, value) do
     case Map.get(rule, field) do
@@ -194,7 +194,7 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
     end
   end
 
-  defp cidr_matches?(rule, _field, nil), do: is_nil(Map.get(rule, _field))
+  defp cidr_matches?(rule, field, nil), do: is_nil(Map.get(rule, field))
 
   defp cidr_matches?(rule, field, ip) do
     case Map.get(rule, field) do
