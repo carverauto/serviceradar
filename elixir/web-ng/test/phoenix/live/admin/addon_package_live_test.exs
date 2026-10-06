@@ -866,10 +866,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert html =~ "managed by profile"
     assert html =~ "Global Edge Profile"
     assert html =~ ~s(href="#profile-#{profile.id}")
+
     assert has_element?(
              lv,
              ~s(button[phx-click="delete_assignment"][phx-value-id="#{manual_assignment.id}"])
            )
+
     # The profile row legitimately carries its id on the policy toggle;
     # only manual rows may offer the delete_assignment event.
     assert has_element?(
