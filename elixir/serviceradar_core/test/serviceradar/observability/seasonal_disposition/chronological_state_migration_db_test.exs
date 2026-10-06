@@ -221,6 +221,56 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.ChronologicalStateMigra
     assert [%{"source" => "live_source"}] = rows_after_second
   end
 
+  test "expiry comparison behaves identically under non-UTC database session timezone" do
+    run_upgrade()
+
+    Repo.query!("SET LOCAL TIME ZONE 'America/Chicago'")
+
+    Repo.query!("""
+    INSERT INTO migration_chronological_states (
+      source, series_key, dow, hod, consecutive_anomalous,
+      last_disposition, last_status, last_score, last_evaluated_at,
+      last_bucket_started_at, last_bucket_ended_at, expires_at, inserted_at, updated_at
+    ) VALUES
+      ('tz_expired_source', 'series/tz_test', 2, 2, 0, 'normal', 'normal', 0.1,
+       (now() AT TIME ZONE 'UTC') - INTERVAL '3 hours',
+       (now() AT TIME ZONE 'UTC') - INTERVAL '3 hours',
+       (now() AT TIME ZONE 'UTC') - INTERVAL '2 hours',
+       (now() AT TIME ZONE 'UTC') - INTERVAL '1 hour',
+       (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC')),
+      ('tz_live_source', 'series/tz_test', 2, 3, 0, 'normal', 'normal', 0.1,
+       (now() AT TIME ZONE 'UTC') - INTERVAL '1 hour',
+       (now() AT TIME ZONE 'UTC') - INTERVAL '1 hour',
+       (now() AT TIME ZONE 'UTC') + INTERVAL '1 hour',
+       (now() AT TIME ZONE 'UTC') + INTERVAL '2 hours',
+       (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC'))
+    """)
+
+    assert {:ok, states} =
+             StateStore.load_many(
+               %Source{name: "tz_live_source"},
+               [{"series/tz_test", 2, 3}],
+               repo: TemporaryRepo
+             )
+
+    assert Map.has_key?(states, "series/tz_test")
+
+    assert {:ok, expired_states} =
+             StateStore.load_many(
+               %Source{name: "tz_expired_source"},
+               [{"series/tz_test", 2, 2}],
+               repo: TemporaryRepo
+             )
+
+    assert expired_states == %{}
+
+    assert {:ok, 1} = StateStore.cleanup_expired(repo: TemporaryRepo, batch_size: 10)
+
+    remaining_rows = read_rows("migration_chronological_states")
+    assert length(remaining_rows) == 1
+    assert [%{"source" => "tz_live_source"}] = remaining_rows
+  end
+
   defp run_upgrade, do: run_statements(Migration.upgrade_statements())
 
   defp run_statements(statements) do

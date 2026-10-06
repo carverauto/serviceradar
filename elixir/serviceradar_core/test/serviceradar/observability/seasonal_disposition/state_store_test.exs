@@ -94,7 +94,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
     assert sql =~ "series_key = ANY($2::text[])"
     assert sql =~ "ORDER BY series_key, last_bucket_started_at DESC"
     assert sql =~ "last_status IN ('breach', 'cleared', 'normal')"
-    assert sql =~ "expires_at > now()"
+    assert sql =~ "expires_at > (now() AT TIME ZONE 'utc')"
   end
 
   test "looks up a seasonal disposition by overlapping bucket window" do
@@ -122,8 +122,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
            }
 
     assert_received {:lookup, sql, ["cpu_seasonal", "svc/cpu/a", ^event_time]}
-    assert sql =~ "last_bucket_started_at <= $3"
-    assert sql =~ "last_bucket_ended_at > $3"
+    assert sql =~ "expires_at > (now() AT TIME ZONE 'utc')"
+    assert sql =~ "last_bucket_started_at <= ($3::timestamptz AT TIME ZONE 'utc')"
+    assert sql =~ "last_bucket_ended_at > ($3::timestamptz AT TIME ZONE 'utc')"
     assert sql =~ "ORDER BY last_evaluated_at DESC NULLS LAST"
   end
 
@@ -180,7 +181,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
     assert sql =~ "WITH doomed AS ("
     assert sql =~ "SELECT source, series_key, dow, hod"
     assert sql =~ "FROM platform.seasonal_disposition_chronological_states"
-    assert sql =~ "WHERE expires_at <= now()"
+    assert sql =~ "WHERE expires_at <= (now() AT TIME ZONE 'utc')"
     assert sql =~ "ORDER BY expires_at ASC"
     assert sql =~ "LIMIT $1"
     assert sql =~ "DELETE FROM platform.seasonal_disposition_chronological_states AS target"
