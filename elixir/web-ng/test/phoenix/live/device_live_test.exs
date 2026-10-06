@@ -4908,6 +4908,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Reached"
   end
 
+  test "device alerts tab lists alerts and links resolve to alert details", %{conn: conn} do
+    uid = "test-device-alerts-#{System.unique_integer([:positive])}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "alert-host",
+        is_available: true,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    old_time = DateTime.utc_now() |> DateTime.shift(day: -30) |> DateTime.truncate(:second)
+
+    alert =
+      AshTestHelpers.alert_fixture(%{
+        device_uid: uid,
+        title: "Historical Warning Alert",
+        severity: :warning,
+        triggered_at: old_time
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=alerts")
+    html = render_until(view, "Historical Warning Alert")
+
+    assert html =~ "Historical Warning Alert"
+    assert has_element?(view, ~s(a[href="/alerts/#{alert.id}"]))
+
+    {:ok, _alert_view, alert_html} = live(conn, ~p"/alerts/#{alert.id}")
+    refute alert_html =~ "Alert not found."
+    assert alert_html =~ "Historical Warning Alert"
+  end
+
   defp uuid_binary do
     Ecto.UUID.dump!(Ecto.UUID.generate())
   end

@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Observability.EventTitle
   alias ServiceRadarWebNG.AlertActions
   alias ServiceRadarWebNG.RBAC
@@ -50,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   @impl true
   def handle_params(%{"alert_id" => alert_id}, uri, socket) do
-    {alert, error} = load_alert(alert_id, socket.assigns.current_scope)
+    {alert, error} = load_alert(alert_id, socket.assigns.current_scope, connected?(socket))
     stream_query = stream_query_for_alert(alert)
     detail_query = detail_query_for_alert(alert_id)
 
@@ -410,7 +411,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   # -- data loading -----------------------------------------------------------
 
-  defp load_alert(alert_id, scope) do
+  defp load_alert(alert_id, scope, connected?) do
     query = detail_query_for_alert(alert_id) <> " limit:1"
 
     case srql_module().query(query, %{scope: scope}) do
@@ -418,21 +419,43 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
         {alert, nil}
 
       {:ok, %{"results" => []}} ->
-        {nil, "Alert not found."}
+        if connected? do
+          fallback_load_alert(alert_id, scope, "Alert not found.")
+        else
+          {nil, nil}
+        end
 
       {:ok, _} ->
-        {nil, "Unexpected response format"}
+        if connected? do
+          fallback_load_alert(alert_id, scope, "Unexpected response format")
+        else
+          {nil, nil}
+        end
 
       {:error, reason} ->
-        {nil, "Failed to load alert: #{format_error(reason)}"}
+        if connected? do
+          fallback_load_alert(alert_id, scope, "Failed to load alert: #{format_error(reason)}")
+        else
+          {nil, nil}
+        end
+    end
+  end
+
+  defp fallback_load_alert(alert_id, scope, fallback_error) do
+    case AlertActions.load(scope, alert_id) do
+      {:ok, %Alert{} = alert_record} ->
+        {alert_record_to_map(alert_record), nil}
+
+      _ ->
+        {nil, fallback_error}
     end
   end
 
   defp detail_query_for_alert(alert_id) when is_binary(alert_id) do
-    ~s|in:alerts id:"#{escape_value(alert_id)}" time:last_7d|
+    ~s|in:alerts id:"#{escape_value(alert_id)}"|
   end
 
-  defp detail_query_for_alert(_), do: "in:alerts time:last_7d"
+  defp detail_query_for_alert(_), do: "in:alerts"
 
   defp stream_query_for_alert(%{} = alert) do
     status = Map.get(alert, "status")
@@ -2217,6 +2240,49 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  defp alert_record_to_map(%Alert{} = record) do
+    %{
+      "id" => value_to_string(record.id),
+      "title" => record.title,
+      "description" => record.description,
+      "severity" => value_to_string(record.severity),
+      "status" => value_to_string(record.status),
+      "source_type" => value_to_string(record.source_type),
+      "source_id" => record.source_id,
+      "service_check_id" => value_to_string(record.service_check_id),
+      "device_uid" => record.device_uid,
+      "agent_uid" => record.agent_uid,
+      "event_id" => value_to_string(record.event_id),
+      "event_time" => record.event_time,
+      "metric_name" => record.metric_name,
+      "metric_value" => record.metric_value,
+      "threshold_value" => record.threshold_value,
+      "comparison" => record.comparison,
+      "triggered_at" => record.triggered_at,
+      "timestamp" => record.triggered_at || record.created_at,
+      "acknowledged_at" => record.acknowledged_at,
+      "acknowledged_by" => record.acknowledged_by,
+      "resolved_at" => record.resolved_at,
+      "resolved_by" => record.resolved_by,
+      "resolution_note" => record.resolution_note,
+      "escalated_at" => record.escalated_at,
+      "escalation_level" => record.escalation_level || 0,
+      "escalation_reason" => record.escalation_reason,
+      "notification_count" => record.notification_count || 0,
+      "last_notification_at" => record.last_notification_at,
+      "suppressed_until" => record.suppressed_until,
+      "metadata" => record.metadata || %{},
+      "tags" => record.tags || [],
+      "created_at" => record.created_at,
+      "updated_at" => record.updated_at
+    }
+  end
+
+  defp value_to_string(nil), do: nil
+  defp value_to_string(val) when is_binary(val), do: val
+  defp value_to_string(val) when is_atom(val), do: Atom.to_string(val)
+  defp value_to_string(val), do: to_string(val)
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

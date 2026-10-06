@@ -21,8 +21,11 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
   setup do
     previous = Application.get_env(:serviceradar_web_ng, :srql_module)
     Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.AlertShowSRQLStub)
+    Application.delete_env(:serviceradar_web_ng, :alert_stub_empty)
 
     on_exit(fn ->
+      Application.delete_env(:serviceradar_web_ng, :alert_stub_empty)
+
       if is_nil(previous) do
         Application.delete_env(:serviceradar_web_ng, :srql_module)
       else
@@ -421,6 +424,31 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
     end
   end
 
+  describe "alert detail resolution" do
+    test "detail query contains no time predicate", %{conn: conn} do
+      user = operator_user_fixture()
+      alert = alert_fixture()
+
+      {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/alerts/#{alert.id}")
+
+      assert has_element?(lv, ~s(#srql-search-input[value='in:alerts id:"#{alert.id}"']))
+      refute render(lv) =~ "time:last_7d"
+    end
+
+    test "falls back to database when SRQL returns no results", %{conn: conn} do
+      user = operator_user_fixture()
+      alert = alert_fixture(%{title: "Fallback Database Alert"})
+
+      Application.put_env(:serviceradar_web_ng, :alert_stub_empty, true)
+      on_exit(fn -> Application.delete_env(:serviceradar_web_ng, :alert_stub_empty) end)
+
+      {:ok, _lv, html} = live(log_in_user(conn, user), ~p"/alerts/#{alert.id}")
+
+      assert html =~ "Fallback Database Alert"
+      refute html =~ "Alert not found."
+    end
+  end
+
   # --- helpers --------------------------------------------------------------
 
   defp reload(alert) do
@@ -507,9 +535,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
 
     @impl true
     def query(query, _opts) when is_binary(query) do
-      case Regex.run(~r/id:"([^"]+)"/, query) do
-        [_, id] -> {:ok, %{"results" => [alert_row(id)], "pagination" => %{}, "error" => nil}}
-        _ -> {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
+      if Application.get_env(:serviceradar_web_ng, :alert_stub_empty, false) do
+        {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
+      else
+        case Regex.run(~r/id:"([^"]+)"/, query) do
+          [_, id] -> {:ok, %{"results" => [alert_row(id)], "pagination" => %{}, "error" => nil}}
+          _ -> {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
+        end
       end
     end
 
