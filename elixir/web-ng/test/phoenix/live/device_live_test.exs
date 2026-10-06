@@ -3681,7 +3681,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       {:ok, flows_view, _flows_html} = live(conn, redirect_to)
       render_async(flows_view, 10_000)
 
-      assert has_element?(flows_view, "[data-testid='netflow-chart-empty-query_error']", "starrocks_required")
+      assert has_element?(flows_view, "div", "SRQL error: :starrocks_required")
     end
 
     @tag :web_ng_shared_fixture_db
