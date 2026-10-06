@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
 
+  @moduletag :db_free
+
   describe "create_tarball/4 for falcosidekick" do
     test "does not bundle a second certificate set" do
       {:ok, tarball} =
@@ -84,19 +86,39 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
   end
 
   describe "create_tarball/4 for flowgger" do
-    test "defaults syslog input to auto detection and keeps timezone configuration" do
+    test "defaults syslog input to auto detection and UTC" do
       {:ok, tarball} =
         CollectorBundleGenerator.create_tarball(
           sample_flowgger_package(),
           sample_nats_creds(),
           sample_tls_key(),
-          nats_url: "nats://serviceradar-nats:4222"
+          nats_url: "nats://host01.example.com:4222"
         )
 
       flowgger_toml = tarball |> extract_files() |> find_file("flowgger.toml")
 
       assert flowgger_toml =~ ~s(format = "auto")
-      assert flowgger_toml =~ ~s(rfc3164_timezone = "local")
+      assert flowgger_toml =~ ~s(rfc3164_timezone = "UTC")
+    end
+
+    test "preserves explicit RFC3164 and legacy timezone overrides" do
+      for {input, timezone} <- [
+            {%{"rfc3164_timezone" => "local"}, "local"},
+            {%{"timezone" => "America/New_York"}, "America/New_York"},
+            {%{"rfc3164_timezone" => "UTC", "timezone" => "America/New_York"}, "UTC"}
+          ] do
+        {:ok, tarball} =
+          CollectorBundleGenerator.create_tarball(
+            sample_flowgger_package(%{"input" => input}),
+            sample_nats_creds(),
+            sample_tls_key(),
+            nats_url: "nats://host01.example.com:4222"
+          )
+
+        flowgger_toml = tarball |> extract_files() |> find_file("flowgger.toml")
+
+        assert flowgger_toml =~ ~s(rfc3164_timezone = "#{timezone}")
+      end
     end
   end
 
@@ -108,7 +130,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
             id: "12345678-abcd-efgh-ijkl-1234567890ab",
             collector_type: :flowgger
           },
-          "download-token",
+          "synthetic-download-secret",
           base_url: "https://demo.serviceradar.cloud"
         )
 
@@ -117,7 +139,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
       assert command =~ "-X POST"
       assert command =~ "x-serviceradar-download-token: ${SR_TOKEN}"
-      refute command =~ "download-token"
+      refute command =~ "synthetic-download-secret"
       assert command =~ "sudo ./update.sh"
       refute command =~ "/api/edge/collectors/"
     end
@@ -126,7 +148,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       command =
         CollectorBundleGenerator.update_command(
           sample_falcosidekick_package(),
-          "download-token",
+          "synthetic-download-secret",
           base_url: "https://demo.serviceradar.cloud"
         )
 
@@ -135,7 +157,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
       assert command =~ "-X POST"
       assert command =~ "x-serviceradar-download-token: ${SR_TOKEN}"
-      refute command =~ "download-token"
+      refute command =~ "synthetic-download-secret"
       assert command =~ "./deploy.sh"
       refute command =~ "sudo ./update.sh"
     end
@@ -196,13 +218,13 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
     }
   end
 
-  defp sample_flowgger_package do
+  defp sample_flowgger_package(config_overrides \\ %{}) do
     %CollectorPackage{
       id: "abcdef12-3456-7890-abcd-ef1234567890",
       collector_type: :flowgger,
-      site: "demo",
-      inserted_at: ~U[2026-03-08 12:00:00Z],
-      config_overrides: %{}
+      site: "SITE01",
+      inserted_at: ~U[2030-10-06 03:20:29Z],
+      config_overrides: config_overrides
     }
   end
 

@@ -175,7 +175,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     input_timezone =
       get_in(package.config_overrides, ["input", "rfc3164_timezone"]) ||
         get_in(package.config_overrides, ["input", "timezone"]) ||
-        "local"
+        "UTC"
 
     """
     # ServiceRadar Flowgger Configuration
