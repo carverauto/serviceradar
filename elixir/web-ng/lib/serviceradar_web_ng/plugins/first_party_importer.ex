@@ -165,8 +165,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          :ok <- verify_upload_signature(signature, manifest_map, content_hash, repo),
          {:ok, display_contracts} <- bundle_display_contracts(bundle),
          :ok <- verify_entry_identity(entry, manifest_struct),
-         config_schema = optional_bundle_json(bundle, "config.schema.json"),
-         :ok <- validate_bundle_config_schema(config_schema) do
+         :ok <- validate_bundle_config_schema(Map.get(bundle, "config.schema.json")),
+         config_schema = optional_bundle_json(bundle, "config.schema.json") do
       now = DateTime.truncate(DateTime.utc_now(), :second)
 
       {:ok,
