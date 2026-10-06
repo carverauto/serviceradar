@@ -21,6 +21,22 @@
 
 set -euo pipefail
 
+if ! command -v jq >/dev/null 2>&1 && [[ -n "${TEST_SRCDIR:-}" ]]; then
+  case "$(uname -m)" in
+    x86_64|amd64) jq_repository="jq_linux_amd64" ;;
+    aarch64|arm64) jq_repository="jq_linux_arm64" ;;
+    *) jq_repository="" ;;
+  esac
+  if [[ -n "${jq_repository}" ]]; then
+    jq_binary="$(find -L "${TEST_SRCDIR}" -type f -path "*${jq_repository}/*" -perm -111 -print -quit)"
+    if [[ -n "${jq_binary}" ]]; then
+      mkdir -p "${TEST_TMPDIR}/jq-bin"
+      ln -sf "${jq_binary}" "${TEST_TMPDIR}/jq-bin/jq"
+      export PATH="${TEST_TMPDIR}/jq-bin:${PATH}"
+    fi
+  fi
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/native-addon-verify-negative.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT

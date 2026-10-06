@@ -102,6 +102,8 @@ sh_test(
     data = [
         "cosign_common.sh",
         "verify-native-addon-publish.sh",
+        "@jq_linux_amd64//file",
+        "@jq_linux_arm64//file",
     ],
 )
 
