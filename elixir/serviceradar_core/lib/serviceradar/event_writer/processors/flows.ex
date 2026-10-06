@@ -31,6 +31,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   alias ServiceRadar.BGP.Ingestor
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.FlowAppClassifier
   alias ServiceRadar.EventWriter.FlowEnrichment
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Observability.FlowPubSub
@@ -188,6 +189,20 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       flow
       |> row_from_flow_message(metadata)
       |> Map.put(:partition, partition)
+      |> Map.put(
+        :app,
+        FlowAppClassifier.classify(
+          %{
+            protocol_num: zero_to_nil(flow.proto),
+            dst_port: zero_to_nil(flow.dst_port),
+            src_port: zero_to_nil(flow.src_port),
+            src_ip: ip_bytes_to_string(flow.src_addr),
+            dst_ip: ip_bytes_to_string(flow.dst_addr),
+            partition: partition
+          },
+          FlowAppClassifier.batch_rules()
+        )
+      )
       |> Map.update!(:ocsf_payload, fn payload ->
         payload
         |> Map.put("event_type", @attributed_flow_event_type)
@@ -286,11 +301,17 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   end
 
   defp insert_netflow_rows(rows) do
-    # DB connection's search_path determines the schema
+    # DB connection's search_path determines the schema. CNPG computes `app`
+    # at query time (FLOW_APP_EXPR); the ingest-time label is a warehouse
+    # column only, so it never reaches the CNPG insert's column set.
     {count, _} =
       BulkInsert.insert_all(
         table_name(),
-        Enum.map(rows, &Map.put(&1, :flow_uid, Identity.record_id(:flows, &1))),
+        Enum.map(rows, fn row ->
+          row
+          |> Map.delete(:app)
+          |> Map.put(:flow_uid, Identity.record_id(:flows, row))
+        end),
         on_conflict: :nothing,
         returning: false
       )
@@ -347,12 +368,17 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
         protocol_num: protocol_num,
         tcp_flags: json["tcp_flags"],
         dst_port: safe_int(flow.dst_port),
+        src_port: safe_int(flow.src_port),
         bytes_in: flow.bytes_in,
         bytes_out: flow.bytes_out,
         src_ip: flow.src_ip,
         dst_ip: flow.dst_ip,
         src_mac: flow.src_mac,
-        dst_mac: flow.dst_mac
+        dst_mac: flow.dst_mac,
+        # The app classification rules may be partition-scoped; the flat
+        # plain-flow row stores "default" (the attributed path reclassifies
+        # once its resolved partition is known).
+        partition: "default"
       })
 
     # Prefer version-specific label from collector JSON, fall back to NATS subject

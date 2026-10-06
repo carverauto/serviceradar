@@ -224,6 +224,7 @@ const FLOW_ROW_FIELDS: &[&str] = &[
     "direction_label",
     "sampler_address",
     "dst_service_label",
+    "app",
     "src_as_number",
     "dst_as_number",
     "tcp_flags",
@@ -1497,7 +1498,7 @@ fn group_alias(col: &str) -> String {
     match trimmed {
         "dst_port" => "dst_endpoint_port".to_string(),
         "src_port" => "src_endpoint_port".to_string(),
-        "app" => "app".to_string(),
+        "app" => "COALESCE(app, 'unknown')".to_string(),
         "tcp_flag" => "tcp_flags_label".to_string(),
         "duration" => "duration_bucket".to_string(),
         // `partition` is reserved in StarRocks and cannot stand as a bare alias.
@@ -2317,11 +2318,11 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             "dst_ip" => return Ok(column("dst_endpoint_ip")),
             "src_port" => return Ok(column("src_endpoint_port")),
             "dst_port" => return Ok(column("dst_endpoint_port")),
+            // The ingest-time classifier stamp (issue #4851): the same label
+            // CNPG computes at query time. Pre-migration rows are NULL and
+            // read as 'unknown'.
             "app" => {
-                return Ok(format!(
-                    "COALESCE({}, 'unknown')",
-                    column("dst_service_label")
-                ));
+                return Ok(format!("COALESCE({}, 'unknown')", column("app")));
             }
             "hostname" | "device_name" => return Ok("dev.hostname".into()),
             "in_if_name" => return Ok("COALESCE(in_if.if_name, 'Unknown')".into()),
@@ -2369,7 +2370,7 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     }
     let fields = match dataset.raw_table {
         "ocsf_network_activity" => {
-            "id device_uid time event_type src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port protocol_num protocol_name direction_label dst_service_label start_time end_time src_as_number dst_as_number tcp_flags partition input_snmp output_snmp src_mac dst_mac src_mac_vendor dst_mac_vendor src_hosting_provider dst_hosting_provider protocol_source direction_source dst_service_source src_prefix_tags dst_prefix_tags bytes_in bytes_out packets_in packets_out sampling_rate attribution_version sampler_address pid comm cmdline workload_identity"
+            "id device_uid time event_type src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port protocol_num protocol_name direction_label dst_service_label app start_time end_time src_as_number dst_as_number tcp_flags partition input_snmp output_snmp src_mac dst_mac src_mac_vendor dst_mac_vendor src_hosting_provider dst_hosting_provider protocol_source direction_source dst_service_source src_prefix_tags dst_prefix_tags bytes_in bytes_out packets_in packets_out sampling_rate attribution_version sampler_address pid comm cmdline workload_identity"
         }
         "timeseries_metrics" => {
             "timestamp gateway_id series_key agent_id metric_name metric_type device_id value unit if_index partition scale is_delta counter_width target_device_ip tags usage_percent"
@@ -6080,7 +6081,7 @@ mod tests {
         assert!(
             compiled
                 .sql
-                .contains("AND COALESCE(dst_service_label, 'unknown') NOT LIKE '%HTTP%'"),
+                .contains("AND COALESCE(app, 'unknown') NOT LIKE '%HTTP%'"),
             "{}",
             compiled.sql
         );

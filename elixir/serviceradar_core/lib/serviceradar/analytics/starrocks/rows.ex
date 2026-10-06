@@ -188,6 +188,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "protocol_name" => stringify(field(row, :protocol_name)),
       "direction_label" => stringify(field(row, :direction_label)),
       "dst_service_label" => stringify(field(row, :dst_service_label)),
+      "app" => stringify(field(row, :app)),
       "bytes_total" =>
         field(row, :bytes_total) || sum_pair(field(row, :bytes_in), field(row, :bytes_out)),
       "packets_total" =>

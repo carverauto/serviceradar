@@ -496,6 +496,11 @@ ex_unit_tests(
         # them if they are declared here.
         "//go/pkg/agent/netprobe:discovery_golden_fixtures",
         "//elixir/serviceradar_core_elx:runtime_config",
+        # Read at runtime by
+        # test/serviceradar/event_writer/flow_app_classifier_test.exs: the
+        # shared app-classifier lockstep cases (rules + flows + expected
+        # labels) the parity harness's seeded rules mirror.
+        "//integration_tests/srql_parity:app_classifier_cases.json",
         "//go/pkg/agent/netprobe:enrichment_golden_fixtures",
         # Read at runtime by
         # test/serviceradar/inventory/endpoint_inventory_package_set_hash_vectors_test.exs:

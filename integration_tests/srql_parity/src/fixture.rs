@@ -135,6 +135,171 @@ pub struct FlowRow {
     /// the destination port (`ServiceRadar.ReferenceData.ServicePorts`), restated for the
     /// fixture's four ports.
     pub dst_service_label: Option<&'static str>,
+    /// The ingest-time app classification stamp (issue #4851): the label
+    /// `FlowAppClassifier` computes and `ocsf_network_activity.app` stores.
+    /// CNPG computes it at query time from the seeded rules, so parity pins
+    /// this stamp against the SQL classifier.
+    pub app: &'static str,
+}
+
+/// The app classification rules the harness seeds into CNPG
+/// `netflow_app_classification_rules` (the shared lockstep cases file mirrors
+/// these). CNPG's query-time classifier reads them; the fixture stamps the
+/// warehouse column with the same result. Precedence: priority DESC, match
+/// specificity DESC (fields set), id ASC; the protocol/port baseline answers
+/// when no rule matches, 'unknown' otherwise.
+struct AppRule {
+    id: u32,
+    priority: i32,
+    protocol_num: Option<i32>,
+    dst_port: Option<i32>,
+    src_cidr: Option<&'static str>,
+    dst_cidr: Option<&'static str>,
+    app_label: &'static str,
+}
+
+const APP_RULES: [AppRule; 5] = [
+    AppRule {
+        id: 1,
+        priority: 100,
+        protocol_num: Some(17),
+        dst_port: Some(443),
+        src_cidr: None,
+        dst_cidr: None,
+        app_label: "quic",
+    },
+    AppRule {
+        id: 2,
+        priority: 50,
+        protocol_num: None,
+        dst_port: None,
+        src_cidr: Some("2001:db8::/32"),
+        dst_cidr: None,
+        app_label: "lab-v6",
+    },
+    AppRule {
+        id: 3,
+        priority: 50,
+        protocol_num: Some(6),
+        dst_port: None,
+        src_cidr: None,
+        dst_cidr: Some("203.0.113.0/24"),
+        app_label: "synth-egress",
+    },
+    AppRule {
+        id: 4,
+        priority: 10,
+        protocol_num: None,
+        dst_port: Some(22),
+        src_cidr: None,
+        dst_cidr: None,
+        app_label: "secure-shell",
+    },
+    AppRule {
+        id: 5,
+        priority: 5,
+        protocol_num: None,
+        dst_port: Some(8080),
+        src_cidr: None,
+        dst_cidr: None,
+        app_label: "http-alt",
+    },
+];
+
+fn app_label(protocol_num: i32, dst_port: i32, src_ip: &str, dst_ip: &str) -> &'static str {
+    let mut best: Option<(i32, usize, i64, &'static str)> = None;
+    for rule in APP_RULES {
+        let matches = rule.protocol_num.map_or(true, |p| p == protocol_num)
+            && rule.dst_port.map_or(true, |p| p == dst_port)
+            && rule.src_cidr.map_or(true, |c| cidr_contains(c, src_ip))
+            && rule.dst_cidr.map_or(true, |c| cidr_contains(c, dst_ip));
+        if !matches {
+            continue;
+        }
+        let specificity = [
+            rule.protocol_num.is_some(),
+            rule.dst_port.is_some(),
+            rule.src_cidr.is_some(),
+            rule.dst_cidr.is_some(),
+        ]
+        .iter()
+        .filter(|set| **set)
+        .count();
+        let rank = (rule.priority, specificity, -(rule.id as i64));
+        if best.map_or(true, |(_, _, best_rank, _)| rank > best_rank) {
+            best = Some((
+                rule.priority,
+                specificity,
+                -(rule.id as i64),
+                rule.app_label,
+            ));
+        }
+    }
+    match best {
+        Some((_, _, _, label)) => label,
+        None => baseline_app(protocol_num, dst_port).unwrap_or("unknown"),
+    }
+}
+
+/// The fixture's CIDR containment: IPv4 and IPv6, string forms only the
+/// seeded rules use (a /32 v6 and a /24 v4), so the first-component compare
+/// the rules need is exact without a full address parser.
+fn cidr_contains(cidr: &str, ip: &str) -> bool {
+    let (net, prefix) = cidr.split_once('/').expect("seeded cidrs carry a prefix");
+    let prefix: u32 = prefix.parse().expect("numeric prefix");
+    let net_family_v6 = net.contains(':');
+    let ip_family_v6 = ip.contains(':');
+    if net_family_v6 != ip_family_v6 {
+        return false;
+    }
+    match (net_family_v6, prefix) {
+        (false, 24) => {
+            let net_octets: Vec<u16> = net.split('.').map(|o| o.parse().unwrap()).collect();
+            let ip_octets: Vec<u16> = ip.split('.').map(|o| o.parse().unwrap()).collect();
+            net_octets[..3] == ip_octets[..3]
+        }
+        (true, 32) => {
+            // 2001:db8::/32: compare the first two hextets.
+            let net_parts: Vec<u16> = net
+                .split("::")
+                .next()
+                .unwrap_or(net)
+                .split(':')
+                .map(|h| u16::from_str_radix(h, 16).unwrap_or(0))
+                .collect();
+            let ip_parts: Vec<u16> = ip
+                .split("::")
+                .next()
+                .unwrap_or(ip)
+                .split(':')
+                .map(|h| u16::from_str_radix(h, 16).unwrap_or(0))
+                .collect();
+            net_parts == ip_parts
+        }
+        _ => false,
+    }
+}
+
+/// The FLOW_APP_EXPR baseline for the fixture's port set (the full table's
+/// entries for these ports; others fall to 'unknown').
+fn baseline_app(protocol_num: i32, dst_port: i32) -> Option<&'static str> {
+    match (protocol_num, dst_port) {
+        (6, 443) => Some("https"),
+        (6, 80) => Some("http"),
+        (_, 53) => Some("dns"),
+        (_, 123) => Some("ntp"),
+        (6, 25) | (6, 465) | (6, 587) => Some("smtp"),
+        (6, 143) | (6, 993) => Some("imap"),
+        (6, 110) | (6, 995) => Some("pop3"),
+        (6, 3389) => Some("rdp"),
+        (6, 5432) => Some("postgres"),
+        (6, 3306) => Some("mysql"),
+        (6, 6379) => Some("redis"),
+        (6, 27017) => Some("mongodb"),
+        (6, 9200) => Some("elasticsearch"),
+        (6, 22) => Some("ssh"),
+        _ => None,
+    }
 }
 
 fn service_label(protocol_num: i32, port: i32) -> Option<&'static str> {
@@ -543,6 +708,12 @@ fn flow(id: String, time: DateTime<Utc>, index: i64) -> FlowRow {
         sampling_rate: SAMPLING[pick(SAMPLING.len())],
         attributed: index % 7 == 3,
         dst_service_label: service_label(if udp { 17 } else { 6 }, PORTS[pick(PORTS.len())]),
+        app: app_label(
+            if udp { 17 } else { 6 },
+            PORTS[pick(PORTS.len())],
+            SOURCES[pick(SOURCES.len())],
+            DESTINATIONS[pick(DESTINATIONS.len())],
+        ),
     }
 }
 
@@ -702,6 +873,24 @@ pub fn metric_inserts(rows: &[MetricRow], backend: Backend, qualifier: &str) -> 
         .collect()
 }
 
+/// The `netflow_app_classification_rules` rows the harness seeds into CNPG.
+/// The fixture's warehouse `app` stamp mirrors exactly these rules (see
+/// `APP_RULES`), so CNPG's query-time classifier and the stamped column answer
+/// with one vocabulary. The rules table is read only by the CNPG dialect; the
+/// warehouse has no counterpart.
+pub fn app_rule_inserts() -> Vec<String> {
+    vec![
+        "INSERT INTO platform.netflow_app_classification_rules \
+         (id, partition, enabled, priority, protocol_num, dst_port, src_port, src_cidr, dst_cidr, app_label, notes, inserted_at, updated_at) VALUES
+         ('018f9b2c-0000-7000-8000-000000000001', NULL, true, 100, 17, 443, NULL, NULL, NULL, 'quic', 'parity seed', now(), now()),
+         ('018f9b2c-0000-7000-8000-000000000002', NULL, true, 50, NULL, NULL, NULL, '2001:db8::/32', NULL, 'lab-v6', 'parity seed', now(), now()),
+         ('018f9b2c-0000-7000-8000-000000000003', NULL, true, 50, 6, NULL, NULL, NULL, '203.0.113.0/24', 'synth-egress', 'parity seed', now(), now()),
+         ('018f9b2c-0000-7000-8000-000000000004', NULL, true, 10, NULL, 22, NULL, NULL, NULL, 'secure-shell', 'parity seed', now(), now()),
+         ('018f9b2c-0000-7000-8000-000000000005', 'default', true, 5, NULL, 8080, NULL, NULL, NULL, 'http-alt', 'parity seed', now(), now())"
+            .to_string(),
+    ]
+}
+
 pub(crate) fn json_literal(value: Option<&str>) -> String {
     value
         .map(|json| format!("{}::jsonb", text(json)))
@@ -717,7 +906,7 @@ pub fn flow_inserts(rows: &[FlowRow], backend: Backend, qualifier: &str) -> Vec<
     let columns = match backend {
         // `ocsf_payload` is NOT NULL on CNPG; `tcp_flags_labels` is what its label query reads.
         Backend::Cnpg => format!("\"time\", {shared}, tcp_flags_labels, ocsf_payload"),
-        Backend::StarRocks => format!("`time`, {shared}, id, device_uid, event_type"),
+        Backend::StarRocks => format!("`time`, {shared}, id, device_uid, event_type, app"),
     };
     rows.chunks(BATCH_ROWS)
         .map(|chunk| {
@@ -770,6 +959,7 @@ pub fn flow_inserts(rows: &[FlowRow], backend: Backend, qualifier: &str) -> Vec<
                             } else {
                                 "NULL".into()
                             });
+                            fields.push(text(row.app));
                         }
                     }
                     format!("({})", fields.join(", "))
