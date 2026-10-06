@@ -174,7 +174,7 @@ class ReleaseImageSecurityWorkflowTest(unittest.TestCase):
         dispatcher = jobs["image-security-dispatch"]
         self.assertEqual(dispatcher["needs"], "publish")
         self.assertEqual(set(jobs["finalize"]["needs"]), {"publish", "image-security-dispatch"})
-        self.assertEqual(dispatcher["permissions"], {"contents": "read", "actions": "write"})
+        self.assertEqual(dispatcher["permissions"], {"contents": "write", "actions": "write"})
         self.assertEqual(self.scan["jobs"]["image-security"]["steps"][0]["with"]["ref"], "${{ inputs.tag }}")
 
     def run_dispatch(self, *, assets=(), release_tag="v9.8.7", draft=True, fail_post=False):

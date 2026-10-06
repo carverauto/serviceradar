@@ -1072,7 +1072,11 @@ jobs:
     if: ${{ needs.publish.outputs.dry_run != 'true' }}
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      # The job reads the *draft* release (identity and asset check). Draft
+      # releases are only visible to tokens with contents: write; with
+      # contents: read the GET returns 403 "Resource not accessible by
+      # integration" and the release never finalizes (v1.4.83).
+      contents: write
       actions: write
     env:
       GH_TOKEN: ${{ github.token }}
