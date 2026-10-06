@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.ScriptedStatefulAlertEngine
@@ -94,6 +95,21 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     use_single_engine_shard()
     subject = ServiceRadar.NATS.Channels.build("logs.internal.k8s")
     create_queue_probe("node-ack", subject)
+    # Exercise acknowledgement/redelivery on a signal that is actually routed;
+    # an empty rule set correctly avoids calling any engine shard.
+    StatefulAlertRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "node-ack-stateful-#{Ash.UUID.generate()}",
+        signal: :event,
+        match: %{"always" => true},
+        threshold: 2
+      },
+      actor: %{id: "system", role: :admin}
+    )
+    |> Ash.create!()
+
     LogPromotion.invalidate_rules_cache()
     start_supervised!({AcknowledgingEngine, self()})
 

@@ -115,6 +115,7 @@ defmodule ServiceRadar.TestSupportSandboxTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -444,6 +445,21 @@ defmodule ServiceRadar.TestSupportSandboxTest do
       TestSupport.with_repo_owner(%{async: false}, fn ->
         actor = %{id: "system", role: :admin}
         subject = "logs.sandbox-lifecycle.#{System.unique_integer([:positive])}"
+
+        # Signal routing starts a shard only when it has an active rule. Keep
+        # the real rule below threshold so this remains a teardown test.
+        StatefulAlertRule
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "sandbox-stateful-lifecycle-#{Ash.UUID.generate()}",
+            signal: :event,
+            match: %{"always" => true},
+            threshold: 2
+          },
+          actor: actor
+        )
+        |> Ash.create!()
 
         {:ok, _rule} =
           EventRule
