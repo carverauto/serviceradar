@@ -257,7 +257,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorkerTest do
         ProvisionCollectorWorker.perform(build_job(package_id))
       end)
 
-    ServiceRadar.DataCase.allow_sandbox(task.pid)
+    # Serial tests run under a shared sandbox owner (DataCase, async: false), so every
+    # process already uses the test's connection and Sandbox.allow/3 reports :not_found.
+    # Only async (unshared) owners need DataCase.allow_sandbox/1 for test-owned children.
     send(task.pid, :go)
     task
   end
