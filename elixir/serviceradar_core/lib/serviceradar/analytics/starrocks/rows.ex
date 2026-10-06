@@ -188,6 +188,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "protocol_name" => stringify(field(row, :protocol_name)),
       "direction_label" => stringify(field(row, :direction_label)),
       "dst_service_label" => stringify(field(row, :dst_service_label)),
+      "app" => stringify(field(row, :app)),
       "bytes_total" =>
         field(row, :bytes_total) || sum_pair(field(row, :bytes_in), field(row, :bytes_out)),
       "packets_total" =>
@@ -349,20 +350,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     }
   end
 
-  # A wider value would make StarRocks FILTER the row out of the Stream Load
-  # batch; truncate UTF-8-safely instead so the event still lands.
-  defp bmp_bounded(nil, _max), do: nil
-
-  defp bmp_bounded(value, max) do
-    value = stringify(value)
-
-    if is_binary(value) and byte_size(value) > max do
-      value |> binary_part(0, max) |> trim_incomplete_utf8()
-    else
-      value
-    end
-  end
-
   defp encode_row(:mtr_traces, row) do
     row
     |> mtr_columns(@mtr_trace_text, @mtr_trace_values)
@@ -384,6 +371,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "mpls_labels" => json_document(value(row, :mpls_labels)),
       "created_at" => created_at(row)
     })
+  end
+
+  # A wider value would make StarRocks FILTER the row out of the Stream Load
+  # batch; truncate UTF-8-safely instead so the event still lands.
+  defp bmp_bounded(nil, _max), do: nil
+
+  defp bmp_bounded(value, max) do
+    value = stringify(value)
+
+    if is_binary(value) and byte_size(value) > max do
+      value |> binary_part(0, max) |> trim_incomplete_utf8()
+    else
+      value
+    end
   end
 
   # priv/starrocks/0018: the documents are VARCHAR(1048576), and a value wider

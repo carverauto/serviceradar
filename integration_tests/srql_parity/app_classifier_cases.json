@@ -1,0 +1,90 @@
+{
+  "_doc": "Shared lockstep cases for the flow app classifier (issue #4851). The Elixir unit test (ServiceRadar.EventWriter.FlowAppClassifierTest) reads this file and asserts classify/2 returns `expected` for every case; the same rules are seeded into the parity harness's CNPG so the SQL classifier (FLOW_APP_EXPR) must agree with these labels for parity to stay green. All addresses and labels are synthetic (RFC 5737 / RFC 3849). Semantics pinned: rule fields are wildcards when null; precedence is priority DESC, then match specificity (count of non-NULL protocol_num/dst_port/src_port/src_cidr/dst_cidr) DESC, then id ASC; the baseline table applies only when no rule matches; every miss is 'unknown'.",
+  "rules": [
+    {
+      "id": "018f9b2c-0000-7000-8000-000000000001",
+      "partition": null,
+      "priority": 100,
+      "protocol_num": 17,
+      "dst_port": 443,
+      "src_port": null,
+      "src_cidr": null,
+      "dst_cidr": null,
+      "app_label": "quic"
+    },
+    {
+      "id": "018f9b2c-0000-7000-8000-000000000002",
+      "partition": null,
+      "priority": 50,
+      "protocol_num": null,
+      "dst_port": null,
+      "src_port": null,
+      "src_cidr": "2001:db8::/32",
+      "dst_cidr": null,
+      "app_label": "lab-v6"
+    },
+    {
+      "id": "018f9b2c-0000-7000-8000-000000000003",
+      "partition": null,
+      "priority": 50,
+      "protocol_num": 6,
+      "dst_port": null,
+      "src_port": null,
+      "src_cidr": null,
+      "dst_cidr": "203.0.113.0/24",
+      "app_label": "synth-egress"
+    },
+    {
+      "id": "018f9b2c-0000-7000-8000-000000000004",
+      "partition": null,
+      "priority": 10,
+      "protocol_num": null,
+      "dst_port": 22,
+      "src_port": null,
+      "src_cidr": null,
+      "dst_cidr": null,
+      "app_label": "secure-shell"
+    },
+    {
+      "id": "018f9b2c-0000-7000-8000-000000000005",
+      "partition": "default",
+      "priority": 5,
+      "protocol_num": null,
+      "dst_port": 8080,
+      "src_port": null,
+      "src_cidr": null,
+      "dst_cidr": null,
+      "app_label": "http-alt"
+    },
+    {
+      "id": "018f9b2c-0000-7000-8000-000000000006",
+      "partition": "never-matches",
+      "priority": 1000,
+      "protocol_num": null,
+      "dst_port": null,
+      "src_port": null,
+      "src_cidr": null,
+      "dst_cidr": null,
+      "app_label": "wrong-partition"
+    }
+  ],
+  "cases": [
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 443, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "203.0.113.5"}, "expected": "synth-egress", "note": "priority tie broken by specificity: R3 (protocol+cidr, 2) beats R2"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 443, "src_port": 51000, "src_ip": "2001:db8::10", "dst_ip": "2001:db8:1::5"}, "expected": "lab-v6", "note": "IPv6 CIDR containment; only R2 matches"},
+    {"flow": {"partition": "default", "protocol_num": 17, "dst_port": 443, "src_port": 51000, "src_ip": "198.51.100.7", "dst_ip": "198.51.100.99"}, "expected": "quic", "note": "highest priority wins over baseline unknown"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 22, "src_port": 51000, "src_ip": "192.0.2.11", "dst_ip": "203.0.113.6"}, "expected": "synth-egress", "note": "priority 50 beats the port rule's 10"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 22, "src_port": 51000, "src_ip": "198.51.100.8", "dst_ip": "198.51.100.99"}, "expected": "secure-shell", "note": "port rule overrides the ssh baseline"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 22, "src_port": 51000, "src_ip": "2001:db8:0:1::20", "dst_ip": "198.51.100.99"}, "expected": "lab-v6", "note": "priority 50 cidr rule beats priority 10 port rule"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 8080, "src_port": 51000, "src_ip": "192.0.2.200", "dst_ip": "203.0.113.5"}, "expected": "synth-egress", "note": "R3 again; the 8080 partition rule has lower priority"},
+    {"flow": {"partition": "default", "protocol_num": 17, "dst_port": 8080, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "198.51.100.99"}, "expected": "http-alt", "note": "partition-scoped rule matches the flow's partition"},
+    {"flow": {"partition": "edge", "protocol_num": 17, "dst_port": 8080, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "198.51.100.99"}, "expected": "unknown", "note": "partition-scoped rule does not match another partition; baseline has no 8080 entry"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 53, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "203.0.113.5"}, "expected": "synth-egress", "note": "dns baseline never reached: a matching rule always wins"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 8080, "src_port": 51000, "src_ip": "2001:db8:ffff::1", "dst_ip": "2001:db8:1::6"}, "expected": "lab-v6", "note": "priority tie (R2 vs the partition rule's 5): R2's 50 wins"},
+    {"flow": {"partition": "default", "protocol_num": 17, "dst_port": 123, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "203.0.113.6"}, "expected": "ntp", "note": "udp to the egress cidr; R3 requires tcp so no rule matches and the ntp baseline answers"},
+    {"flow": {"partition": "default", "protocol_num": 17, "dst_port": 123, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "198.51.100.99"}, "expected": "ntp", "note": "baseline: ntp matches any protocol"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 5432, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "198.51.100.99"}, "expected": "postgres", "note": "baseline postgres"},
+    {"flow": {"partition": "default", "protocol_num": null, "dst_port": null, "src_port": null, "src_ip": null, "dst_ip": null}, "expected": "unknown", "note": "nulls never match rule fields; no dst_port means no baseline"},
+    {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 443, "src_port": 51000, "src_ip": "2001:db9::1", "dst_ip": "203.0.113.5"}, "expected": "synth-egress", "note": "IPv6 OUTSIDE 2001:db8::/32 does not match R2; R3 applies"},
+    {"flow": {"partition": "default", "protocol_num": 132, "dst_port": 443, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "198.51.100.99"}, "expected": "unknown", "note": "sctp 443: baseline requires tcp; udp rule requires 17; nothing matches"}
+  ]
+}

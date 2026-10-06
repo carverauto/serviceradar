@@ -46,6 +46,7 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 # unit test that drives the product's Elixir query builders
 # (elixir/web-ng/test/phoenix/srql/warehouse_query_inventory_test.exs).
 exports_files([
+    "app_classifier_cases.json",
     "inventory.json",
     "shape_examples.json",
 ])

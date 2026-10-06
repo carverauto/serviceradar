@@ -10,6 +10,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   """
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.EventWriter.FlowAppClassifier
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
   alias ServiceRadar.PrefixTags.ThreatIntelSource
@@ -59,6 +60,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @provider_lookup_fun_key {__MODULE__, :provider_lookup_fun}
   @active_snapshot_key {__MODULE__, :provider_active_snapshot_id}
   @prefix_tag_cache_key {__MODULE__, :prefix_tag_lookup_cache}
+  @app_rules_cache_key {FlowAppClassifier, :rules}
 
   @type enrichment_input :: %{
           optional(:protocol_num) => integer() | String.t() | nil,
@@ -81,10 +83,12 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     previous_lookup_fun = Process.get(@provider_lookup_fun_key, :__serviceradar_unset__)
     previous_snapshot = Process.get(@active_snapshot_key, :__serviceradar_unset__)
     previous_prefix_tag = Process.get(@prefix_tag_cache_key, :__serviceradar_unset__)
+    previous_app_rules = Process.get(@app_rules_cache_key, :__serviceradar_unset__)
 
     Process.put(@provider_cache_key, %{})
     # Memoize prefix-tag LPM lookups for the batch (src/dst IPs often repeat).
     Process.put(@prefix_tag_cache_key, %{})
+    FlowAppClassifier.clear_batch_cache()
 
     case Keyword.fetch(opts, :provider_lookup) do
       {:ok, lookup_fun} when is_function(lookup_fun, 1) ->
@@ -103,6 +107,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       restore_process_value(@provider_lookup_fun_key, previous_lookup_fun)
       restore_process_value(@active_snapshot_key, previous_snapshot)
       restore_process_value(@prefix_tag_cache_key, previous_prefix_tag)
+      restore_process_value(@app_rules_cache_key, previous_app_rules)
     end
   end
 
@@ -143,6 +148,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     dst_vendor = oui_vendor_for_mac(dst_mac)
     dst_service = service_lookup(protocol_num, dst_port)
 
+    app_label = FlowAppClassifier.classify(attrs, FlowAppClassifier.batch_rules())
+
     base = %{
       protocol_name: protocol_name,
       protocol_source: if(is_integer(protocol_num), do: "iana", else: "unknown"),
@@ -151,6 +158,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       tcp_flags_source: if(is_integer(tcp_flags), do: "iana", else: "unknown"),
       dst_service_label: label_from_service(dst_service),
       dst_service_source: source_from_service(dst_service),
+      app: app_label,
       direction_label: direction_label(bytes_in, bytes_out),
       direction_source: "heuristic",
       src_hosting_provider: src_ip_enrichment.provider,
