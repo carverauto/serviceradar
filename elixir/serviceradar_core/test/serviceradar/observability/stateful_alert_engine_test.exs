@@ -1633,10 +1633,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     shard_for = &StatefulAlertEngine.shard_for_rule_id/1
 
     {:ok, %{shards: _routed_before, rules_by_shard: event_by_shard}} =
-      eventually(
-        fn -> ShardRouting.snapshot_for(:event, shard_for) end,
-        &match?({:ok, _}, &1)
-      )
+      ShardRouting.snapshot_for(:event, shard_for)
 
     # Genuine negative control: pick a shard owning no event rule right now,
     # forcing one when the database already routes both shards, so the batch
@@ -1659,12 +1656,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           1
       end
 
-    assert {:ok, %{shards: routed_cleared}} =
-             eventually(
-               fn -> ShardRouting.snapshot_for(:event, shard_for) end,
-               &match?({:ok, _}, &1)
-             )
-
+    assert {:ok, %{shards: routed_cleared}} = ShardRouting.snapshot_for(:event, shard_for)
     refute uncovered in routed_cleared
 
     # The match discriminator stays fixed per family while every occurrence
@@ -1712,24 +1704,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       [
         Ecto.UUID.dump!(raw_id),
         "shard-fanout-#{unique}-raw",
-        Jason.encode!(%{"attribute_equals" => %{"routing_family" => "#{unique}"}}),
-        Jason.encode!(%{
+        %{"attribute_equals" => %{"routing_family" => "#{unique}"}},
+        %{
           "log_name" => "alert.test.shard_raw_writer",
           "message" => "Raw writer finding"
-        }),
-        Jason.encode!(%{"title" => title, "severity" => "warning"})
+        },
+        %{"title" => title, "severity" => "warning"}
       ]
     )
 
-    assert {:ok, %{shards: routed_after}} =
-             eventually(
-               fn -> ShardRouting.snapshot_for(:event, shard_for) end,
-               fn
-                 {:ok, %{shards: shards}} -> uncovered in shards
-                 _ -> false
-               end
-             )
-
+    assert {:ok, %{shards: routed_after}} = ShardRouting.snapshot_for(:event, shard_for)
     assert uncovered in routed_after
 
     # The next batch routes from the same snapshot it evaluates: the raw rule
@@ -1752,7 +1736,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       "UPDATE platform.stateful_alert_rules SET match = $2::jsonb WHERE id = $1::uuid",
       [
         Ecto.UUID.dump!(raw_id),
-        Jason.encode!(%{"attribute_equals" => %{"routing_family" => "updated-#{unique}"}})
+        %{"attribute_equals" => %{"routing_family" => "updated-#{unique}"}}
       ]
     )
 
@@ -1765,7 +1749,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
       [
         Ecto.UUID.dump!(raw_id),
-        Jason.encode!(%{"title" => updated_title, "severity" => "warning"})
+        %{"title" => updated_title, "severity" => "warning"}
       ]
     )
 
@@ -1782,12 +1766,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       Ecto.UUID.dump!(raw_id)
     ])
 
-    assert {:ok, %{shards: routed_deleted}} =
-             eventually(
-               fn -> ShardRouting.snapshot_for(:event, shard_for) end,
-               &match?({:ok, _}, &1)
-             )
-
+    assert {:ok, %{shards: routed_deleted}} = ShardRouting.snapshot_for(:event, shard_for)
     refute uncovered in routed_deleted
 
     assert :ok =
@@ -1799,11 +1778,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     ServiceRadar.Observability.ApiEvent.ClearForReplay.clear_records!([])
 
-    assert {:ok, %{shards: []}} =
-             eventually(
-               fn -> ShardRouting.snapshot_for(:event, shard_for) end,
-               &match?({:ok, %{shards: []}}, &1)
-             )
+    assert {:ok, %{shards: []}} = ShardRouting.snapshot_for(:event, shard_for)
   end
 
   test "a batch evaluates the snapshot selected at routing time when a rule changes mid-batch", %{
@@ -1910,7 +1885,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
       Repo.query!(
         "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
-        [Ecto.UUID.dump!(raw_id), Jason.encode!(%{"title" => title_v2, "severity" => "warning"})]
+        [Ecto.UUID.dump!(raw_id), %{"title" => title_v2, "severity" => "warning"}]
       )
 
       :ok = :sys.resume(owner_pid)

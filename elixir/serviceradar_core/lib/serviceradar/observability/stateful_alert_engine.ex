@@ -21,6 +21,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   use GenServer
 
+  alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.StatefulAlertEngine.Bucketing
   alias ServiceRadar.Observability.StatefulAlertEngine.Diagnostics
@@ -570,7 +571,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Ash.Query.for_read(:active, %{})
     |> Ash.read(state.ash_opts)
     |> case do
-      {:ok, %{results: results}} when is_list(results) -> {:ok, results}
+      {:ok, %Keyset{results: results}} -> {:ok, results}
       {:ok, results} when is_list(results) -> {:ok, results}
       {:error, error} -> {:error, error}
       other -> {:error, other}
@@ -635,10 +636,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Ash.Query.for_read(:read, %{})
     |> Ash.read(state.ash_opts)
     |> case do
-      {:ok, %{results: results}} when is_list(results) -> {:ok, results}
+      {:ok, %Keyset{results: results}} -> {:ok, results}
       {:ok, results} when is_list(results) -> {:ok, results}
       {:error, _} = error -> error
-      other -> {:error, other}
     end
   end
 
