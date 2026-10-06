@@ -6,6 +6,13 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
 
   @moduletag :db_free
 
+  test "entity extraction ignores in: text inside quoted and bracketed values" do
+    assert Readers.entity_for_query(~s(in:devices name:"synthetic in:logs value" limit:1)) ==
+             "devices"
+
+    assert Readers.entity_for_query("in:devices labels:[synthetic in:logs] limit:1") == "devices"
+  end
+
   test "ordinary installations keep CNPG as the serving authority" do
     assert Readers.mode_for(:metrics) == nil
     assert Readers.backend(:metrics) == :cnpg
