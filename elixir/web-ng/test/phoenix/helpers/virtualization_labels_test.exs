@@ -39,6 +39,13 @@ defmodule ServiceRadarWebNGWeb.Helpers.VirtualizationLabelsTest do
     test "returns empty label when no provider is present" do
       assert VirtualizationLabels.provider_summary([], "Empty") == "Empty"
       assert VirtualizationLabels.provider_summary([%{}], "Empty") == "Empty"
+      assert VirtualizationLabels.provider_summary([]) == "No hypervisor inventory"
+      assert VirtualizationLabels.provider_summary(nil) == "No hypervisor inventory"
+    end
+
+    test "formats a single provider without count offset" do
+      assert VirtualizationLabels.provider_summary([%{provider: "proxmox"}]) == "Proxmox"
+      assert VirtualizationLabels.provider_summary([%{provider: "proxmox"}, %{provider: "proxmox"}]) == "Proxmox"
     end
   end
 end

@@ -59,6 +59,33 @@ defmodule ServiceRadarWebNGWeb.AnomalySeriesKeyTest do
     assert AnomalySeriesKey.decode("v2:not-a-component") == nil
   end
 
+  test "extracts components and tags from decoded series key" do
+    key =
+      Enum.join(
+        [
+          "v2",
+          component("partition", "demo"),
+          component("identity", "sr:ns03"),
+          tag_component("core_id", "4")
+        ],
+        ":"
+      )
+
+    decoded = AnomalySeriesKey.decode(key)
+
+    assert AnomalySeriesKey.component(decoded, "partition") == "demo"
+    assert AnomalySeriesKey.component(decoded, "identity") == "sr:ns03"
+    assert AnomalySeriesKey.component(decoded, "missing") == nil
+    assert AnomalySeriesKey.component(nil, "partition") == nil
+
+    assert AnomalySeriesKey.tag(decoded, "core_id") == "4"
+    assert AnomalySeriesKey.tag(decoded, "missing") == nil
+    assert AnomalySeriesKey.tag(nil, "core_id") == nil
+
+    assert AnomalySeriesKey.tags(decoded) == %{"core_id" => "4"}
+    assert AnomalySeriesKey.tags(nil) == %{}
+  end
+
   defp component(name, value), do: "#{name}=#{hex(value)}"
   defp tag_component(name, value), do: "tag_#{hex(name)}=#{hex(value)}"
   defp hex(value), do: value |> to_string() |> Base.encode16(case: :lower)
