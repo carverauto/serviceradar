@@ -259,33 +259,86 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     refute_received {:sweep_processed, "held-sweep", _}
     refute_received {^stale_ref, _}
+    assert_empty(sweep)
+    assert_empty(mapper)
   end
 
-  test "a timed-out single-phase admission never completes, replies, or strands credits" do
+  test "a timed-out reserve never captures credits" do
+    parent = self()
+
     lane =
       start_lane(
-        fn _status ->
-          receive do
-            :release -> :ok
-          end
+        fn status ->
+          send(parent, {:reserve_processed, status[:message]})
+          :ok
         end,
-        max_items: 4,
-        max_items_per_agent: 4
+        queue_wait_ms: 2_000
       )
+
+    :ok = :sys.suspend(lane)
+
+    assert {:error, :admission_timeout} =
+             Lane.reserve(lane, Lane.descriptor(status("agent-a", "stale"), 10_000), self(), 50)
+
+    :ok = :sys.resume(lane)
+
+    fresh = status("agent-b", "fresh")
+    fresh_ref = make_ref()
+
+    assert {:ok, {_lane, fresh_id}} =
+             Lane.reserve(lane, Lane.descriptor(fresh, 10_000), self(), 500)
+
+    assert :ok = Lane.submit(lane, fresh_id, fresh, {self(), fresh_ref}, 500)
+    assert_receive {:reserve_processed, "fresh"}, 500
+    assert_receive {^fresh_ref, :ok}, 500
+    refute_received {:reserve_processed, "stale"}
+    assert_empty(lane)
+  end
+
+  test "a timed-out single-phase admission never invokes its processor" do
+    parent = self()
+
+    lane =
+      start_lane(fn status ->
+        send(parent, {:admit_processed, status[:message]})
+        :ok
+      end)
 
     :ok = :sys.suspend(lane)
     stale_ref = make_ref()
 
     assert {:error, :admission_timeout} =
-             Lane.admit(lane, status("agent-a", "stale"), {self(), stale_ref}, 50)
+             Lane.admit(lane, status("agent-a", "stale-admit"), {self(), stale_ref}, 50)
 
     :ok = :sys.resume(lane)
     fresh_ref = make_ref()
-    assert :ok = Lane.admit(lane, status("agent-b", "fresh"), {self(), fresh_ref}, 500)
-
-    jobs = lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values()
-    assert Enum.all?(jobs, fn job -> job[:reply_to] != {self(), stale_ref} end)
+    assert :ok = Lane.admit(lane, status("agent-b", "fresh-admit"), {self(), fresh_ref}, 500)
+    assert_receive {:admit_processed, "fresh-admit"}, 500
+    assert_receive {^fresh_ref, :ok}, 500
+    refute_received {:admit_processed, "stale-admit"}
     refute_received {^stale_ref, _}
+    assert_empty(lane)
+  end
+
+  test "a timed-out single-phase cast never invokes its processor" do
+    parent = self()
+
+    lane =
+      start_lane(fn status ->
+        send(parent, {:cast_processed, status[:message]})
+        :ok
+      end)
+
+    :ok = :sys.suspend(lane)
+
+    assert {:error, :admission_timeout} =
+             Lane.admit_cast(lane, status("agent-a", "stale-cast"), :test, 50)
+
+    :ok = :sys.resume(lane)
+    assert :ok = Lane.admit_cast(lane, status("agent-b", "fresh-cast"), :test, 500)
+    assert_receive {:cast_processed, "fresh-cast"}, 500
+    refute_received {:cast_processed, "stale-cast"}
+    assert_empty(lane)
   end
 
   test "legacy plugins cannot occupy the retained database reservation" do
