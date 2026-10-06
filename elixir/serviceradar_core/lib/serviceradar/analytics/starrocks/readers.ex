@@ -27,7 +27,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   def entity_for_query(query) when is_binary(query) do
     query
     |> String.trim()
-    |> String.split(~r/[\s|]+/, trim: true)
+    |> tokenize_query()
     |> Enum.reduce(nil, fn token, acc ->
       case String.split(token, ":", parts: 2) do
         [key, entity] when entity != "" ->
@@ -37,6 +37,66 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
           acc
       end
     end)
+  end
+
+  # Keep this boundary logic aligned with rust/srql/src/parser/tokens.rs.
+  # Authorization and backend routing must inspect the same token stream as
+  # the compiler, including quoted values and bracketed lists with spaces.
+  defp tokenize_query(query) do
+    {tokens, current, _quote, _depth, _escape} =
+      query
+      |> String.graphemes()
+      |> Enum.reduce({[], [], nil, 0, false}, &tokenize_grapheme/2)
+
+    tokens
+    |> push_token(current)
+    |> Enum.reverse()
+  end
+
+  defp tokenize_grapheme(grapheme, {tokens, current, quote, depth, true}) do
+    {tokens, [grapheme | current], quote, depth, false}
+  end
+
+  defp tokenize_grapheme("\\" = grapheme, {tokens, current, quote, depth, false})
+       when not is_nil(quote) do
+    {tokens, [grapheme | current], quote, depth, true}
+  end
+
+  defp tokenize_grapheme(grapheme, {tokens, current, grapheme, depth, false}) do
+    {tokens, [grapheme | current], nil, depth, false}
+  end
+
+  defp tokenize_grapheme(grapheme, {tokens, current, nil, depth, false})
+       when grapheme in ["\"", "'", "`"] do
+    {tokens, [grapheme | current], grapheme, depth, false}
+  end
+
+  defp tokenize_grapheme(grapheme, {tokens, current, nil, depth, false})
+       when grapheme in ["(", "["] do
+    {tokens, [grapheme | current], nil, depth + 1, false}
+  end
+
+  defp tokenize_grapheme(grapheme, {tokens, current, nil, depth, false})
+       when grapheme in [")", "]"] do
+    {tokens, [grapheme | current], nil, max(depth - 1, 0), false}
+  end
+
+  defp tokenize_grapheme(grapheme, {tokens, current, nil, 0, false}) do
+    if String.trim(grapheme) == "" do
+      {push_token(tokens, current), [], nil, 0, false}
+    else
+      {tokens, [grapheme | current], nil, 0, false}
+    end
+  end
+
+  defp tokenize_grapheme(grapheme, {tokens, current, quote, depth, false}) do
+    {tokens, [grapheme | current], quote, depth, false}
+  end
+
+  defp push_token(tokens, []), do: tokens
+
+  defp push_token(tokens, current) do
+    [current |> Enum.reverse() |> Enum.join() | tokens]
   end
 
   defp normalize_entity(entity) do
