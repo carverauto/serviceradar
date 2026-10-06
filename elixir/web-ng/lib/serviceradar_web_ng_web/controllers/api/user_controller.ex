@@ -204,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
   defp update_user(user, params, role, scope, conn) do
     display_name = params["display_name"]
     role_profile_id = normalize_profile_id(params["role_profile_id"])
-    both_provided? = role != nil and not is_nil(params["role_profile_id"])
+    both_provided? = role != nil and not is_nil(role_profile_id)
 
     [User]
     |> Ash.transaction(fn ->
