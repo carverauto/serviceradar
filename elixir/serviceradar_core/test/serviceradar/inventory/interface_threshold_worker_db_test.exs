@@ -319,7 +319,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
   end
 
   defp insert_speed!(device_id, speed_bps) do
-    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+    now = NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
     octet = :erlang.phash2(device_id, 254) + 1
 
     Repo.query!(
