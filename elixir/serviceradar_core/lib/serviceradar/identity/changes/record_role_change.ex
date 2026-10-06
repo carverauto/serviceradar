@@ -123,10 +123,10 @@ defmodule ServiceRadar.Identity.Changes.RecordRoleChange do
   defp format_actor(%{user: %User{id: id}}), do: to_string(id)
   defp format_actor(%{user: %{email: email}}) when is_binary(email) and email != "", do: email
   defp format_actor(%{user: %{id: id}}), do: to_string(id)
-  defp format_actor(%{role: :system, id: id}) when is_binary(id) and id != "", do: id
-
   defp format_actor(%{role: :system, email: email}) when is_binary(email) and email != "",
     do: email
+
+  defp format_actor(%{role: :system, id: id}) when is_binary(id) and id != "", do: id
 
   defp format_actor(%{email: email}) when is_binary(email) and email != "", do: email
   defp format_actor(%{id: id}) when is_binary(id), do: id
