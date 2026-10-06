@@ -725,6 +725,50 @@ func TestApplyStagedAddonRuntimeConfigMergesAssignmentConfig(t *testing.T) {
 	}
 }
 
+func TestApplyStagedAddonRuntimeConfigSeedsBundledConfigWithoutOverlay(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	bundled := []byte("{\n  \"enabled\": true\n}\n")
+	tgz := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-bumblebee-scan": []byte("#!/bin/sh\nexit 0\n"),
+		"bumblebee-scan.json":         bundled,
+	})
+	key := "addons/bumblebee/linux-amd64"
+	store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "bumblebee",
+		Version:           "0.1.7",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+		Delivery:          "pushed_artifact",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(tgz),
+	}
+
+	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	statePath := filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json")
+	got, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("state config missing: %v", err)
+	}
+	if string(got) != string(bundled) {
+		t.Fatalf("seeded config = %q, want bundled %q", got, bundled)
+	}
+
+	staged, err := os.ReadFile(filepath.Join(root, "bumblebee", addonCurrentLink, "bumblebee-scan.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(staged) != string(bundled) {
+		t.Fatalf("staging config was rewritten: %q", staged)
+	}
+}
+
 func TestStageAddonArtifactTarballMissingBinary(t *testing.T) {
 	root := t.TempDir()
 	tgz := makeAddonTarGz(t, map[string][]byte{

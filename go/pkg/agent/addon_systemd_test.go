@@ -121,29 +121,34 @@ func TestResolveStagedAddonUnitEscapeGuard(t *testing.T) {
 	}
 }
 
-func TestBundledUnitsContainNoAgentWritablePaths(t *testing.T) {
+func TestInstalledBundledUnitsExecuteFromPrivilegedRoot(t *testing.T) {
 	units := []struct {
 		name       string
+		addonID    string
 		relPath    string
 		wantBinary string
 	}{
 		{
 			name:       "netprobe",
+			addonID:    "netprobe",
 			relPath:    filepath.Join("..", "..", "..", "addons", "netprobe", "serviceradar-netprobe.service"),
 			wantBinary: "/usr/lib/serviceradar/addons/netprobe/current/serviceradar-netprobe",
 		},
 		{
 			name:       "bumblebee",
+			addonID:    "bumblebee",
 			relPath:    filepath.Join("..", "..", "..", "addons", "bumblebee-scan", "serviceradar-bumblebee-scan.service"),
 			wantBinary: "/usr/lib/serviceradar/addons/bumblebee/current/serviceradar-bumblebee-scan",
 		},
 		{
 			name:       "scalibr",
+			addonID:    "scalibr-endpoint-inventory",
 			relPath:    filepath.Join("..", "..", "..", "addons", "scalibr-endpoint-inventory", "serviceradar-scalibr-endpoint-inventory.service"),
 			wantBinary: "/usr/lib/serviceradar/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory",
 		},
 		{
 			name:       "workload-identity",
+			addonID:    "workload-identity",
 			relPath:    filepath.Join("..", "..", "..", "addons", "workload-identity", "serviceradar-workload-identity.service"),
 			wantBinary: "/usr/lib/serviceradar/addons/workload-identity/current/serviceradar-workload-identity",
 		},
@@ -151,31 +156,289 @@ func TestBundledUnitsContainNoAgentWritablePaths(t *testing.T) {
 
 	for _, tc := range units {
 		t.Run(tc.name, func(t *testing.T) {
-			content, err := os.ReadFile(tc.relPath)
+			bundled, err := os.ReadFile(tc.relPath)
 			if err != nil {
 				t.Fatalf("read unit file %s: %v", tc.relPath, err)
 			}
-			unitStr := string(content)
+			unitName := filepath.Base(tc.relPath)
+			binary := filepath.Base(tc.wantBinary)
+			root := t.TempDir()
+			unitDir := filepath.Join(root, "systemd")
+			if err := os.MkdirAll(unitDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			origUnitDir := systemdUnitDir
+			systemdUnitDir = unitDir
+			t.Cleanup(func() { systemdUnitDir = origUnitDir })
+			installMockSystemctl(t, t.TempDir())
 
-			if !strings.Contains(unitStr, "ExecStart="+tc.wantBinary) && !strings.Contains(unitStr, tc.wantBinary) {
-				t.Fatalf("unit %s does not execute from privileged binary %s", tc.name, tc.wantBinary)
+			artPath, sha, sig := createTestSignedAddonTarball(t, binary, map[string][]byte{
+				unitName: bundled,
+			})
+			err = InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+				RuntimeRoot:    root,
+				PrivilegedRoot: filepath.Join(root, "privileged"),
+				AddonID:        tc.addonID,
+				Version:        "1.0.0",
+				BinaryName:     binary,
+				ArtifactPath:   artPath,
+				ArtifactSHA256: sha,
+				Signature:      sig,
+				Units:          []string{unitName},
+				Enable:         unitName,
+			})
+			if err != nil {
+				t.Fatalf("install bundled unit: %v", err)
 			}
 
-			if strings.Contains(unitStr, "chcon") {
-				t.Fatalf("unit %s contains obsolete chcon workaround", tc.name)
+			installed, err := os.ReadFile(filepath.Join(unitDir, unitName))
+			if err != nil {
+				t.Fatalf("installed unit missing: %v", err)
 			}
-
-			for _, line := range strings.Split(unitStr, "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "ReadWritePaths=") {
-					for _, path := range strings.Fields(strings.TrimPrefix(line, "ReadWritePaths=")) {
-						if strings.HasPrefix(path, "/var/lib/serviceradar/agent") {
-							t.Fatalf("unit %s grants ReadWritePaths to agent-writable staging directory: %s", tc.name, path)
-						}
+			paths := systemdUnitCommandPaths(installed)
+			if len(paths) == 0 {
+				t.Fatal("installed unit has no executable command")
+			}
+			for _, path := range paths {
+				for _, writable := range writableAddonRoots("") {
+					if pathIsWithin(filepath.Clean(path), writable) {
+						t.Fatalf("installed command %s executes from the agent-writable tree", path)
 					}
 				}
 			}
+			var execStart string
+			for _, raw := range strings.Split(joinSystemdContinuations(string(installed)), "\n") {
+				line := strings.TrimSpace(raw)
+				key, value, ok := strings.Cut(line, "=")
+				if ok && strings.TrimSpace(key) == "ExecStart" {
+					execStart, _ = systemdCommandPath(value)
+					break
+				}
+			}
+			if execStart != tc.wantBinary {
+				t.Fatalf("installed ExecStart = %q, want %q", execStart, tc.wantBinary)
+			}
 		})
+	}
+}
+
+func TestInstallAddonSystemdUnitsRejectsAgentWritableExecPath(t *testing.T) {
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	installMockSystemctl(t, t.TempDir())
+
+	writableExec := filepath.Join(resolveAddonArtifactRoot(root), "np", addonCurrentLink, "serviceradar-np")
+	publishedExec := "/var/lib/serviceradar/agent/addons/np/current/serviceradar-np"
+	for _, execPath := range []string{writableExec, publishedExec} {
+		t.Run(execPath, func(t *testing.T) {
+			unit := "[Service]\nExecStartPre=+/usr/bin/install -d /run/serviceradar\nExecStartPre=" + execPath + "\nExecStart=" + execPath + "\n"
+			artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+				"serviceradar-np.service": []byte(unit),
+			})
+			err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+				RuntimeRoot:    root,
+				PrivilegedRoot: filepath.Join(root, "privileged"),
+				AddonID:        "np",
+				Version:        "1.0.0",
+				BinaryName:     "serviceradar-np",
+				ArtifactPath:   artPath,
+				ArtifactSHA256: sha,
+				Signature:      sig,
+				Units:          []string{"serviceradar-np.service"},
+				Enable:         "serviceradar-np.service",
+			})
+			if !errors.Is(err, ErrAddonUnitExecPathUnsafe) {
+				t.Fatalf("want ErrAddonUnitExecPathUnsafe, got %v", err)
+			}
+			if _, statErr := os.Stat(filepath.Join(unitDir, "serviceradar-np.service")); !os.IsNotExist(statErr) {
+				t.Fatalf("rejected unit was installed: %v", statErr)
+			}
+		})
+	}
+
+	preOnly := "[Service]\nExecStartPre=" + publishedExec + "\nExecStart=/bin/true\n"
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte(preOnly),
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: filepath.Join(root, "privileged"),
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	})
+	if !errors.Is(err, ErrAddonUnitExecPathUnsafe) {
+		t.Fatalf("ExecStartPre writable path: want ErrAddonUnitExecPathUnsafe, got %v", err)
+	}
+}
+
+func TestInstallAddonSystemdUnitsRequiresDigestBeforeExtract(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	artPath, _, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	})
+	if !errors.Is(err, ErrAddonArtifactIncomplete) {
+		t.Fatalf("want ErrAddonArtifactIncomplete, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(priv, "np")); !os.IsNotExist(statErr) {
+		t.Fatalf("artifact extracted without a digest: %v", statErr)
+	}
+}
+
+func TestInstallAddonSystemdUnitsRestoresPreviousUnitWhenActivationFails(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+
+	logPath := filepath.Join(root, "systemctl.log")
+	failOnce := filepath.Join(root, "fail-once")
+	mockDir := t.TempDir()
+	script := "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\ncmd=\"${1:-}\"\nif [ \"$cmd\" = \"enable\" ] && [ ! -f \"$SYSTEMCTL_FAIL_ONCE\" ]; then\n  touch \"$SYSTEMCTL_FAIL_ONCE\"\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SYSTEMCTL_LOG", logPath)
+	t.Setenv("SYSTEMCTL_FAIL_ONCE", failOnce)
+
+	previous := []byte("[Service]\nExecStart=/usr/lib/serviceradar/addons/np/current/serviceradar-np\n")
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), previous, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	replacement := []byte("[Service]\nExecStart=/usr/lib/serviceradar/addons/np/current/serviceradar-np-v2\n")
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": replacement,
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "2.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+	})
+	if err == nil {
+		t.Fatal("expected activation to fail")
+	}
+	got, readErr := os.ReadFile(filepath.Join(unitDir, "serviceradar-np.service"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != string(previous) {
+		t.Fatalf("previous unit was not restored: %q", got)
+	}
+	if _, statErr := os.Lstat(filepath.Join(priv, "np", addonCurrentLink)); !os.IsNotExist(statErr) {
+		t.Fatalf("failed first privileged activation left current in place: %v", statErr)
+	}
+	log, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	disabled := false
+	reenabled := false
+	for _, line := range strings.Split(strings.TrimSpace(string(log)), "\n") {
+		if strings.HasPrefix(line, "disable --now") {
+			disabled = true
+		}
+		if disabled && strings.HasPrefix(line, "enable --now") {
+			reenabled = true
+		}
+	}
+	if !reenabled {
+		t.Fatalf("prior service was not re-enabled after activation failure: %s", log)
+	}
+}
+
+func TestInstallAddonSystemdUnitsSetcapTargetsPrivilegedBinary(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	installMockSystemctl(t, t.TempDir())
+
+	setcapLog := filepath.Join(root, "setcap.log")
+	setcapDir := t.TempDir()
+	setcapScript := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SETCAP_LOG\"\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(setcapDir, "setcap"), []byte(setcapScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", setcapDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SETCAP_LOG", setcapLog)
+
+	writableBin := filepath.Join(resolveAddonArtifactRoot(root), "np", addonCurrentLink, "serviceradar-np")
+	if err := os.MkdirAll(filepath.Dir(writableBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(writableBin, []byte("replaced"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+		Capabilities:   []string{"CAP_NET_RAW"},
+	})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	log, readErr := os.ReadFile(setcapLog)
+	if readErr != nil {
+		t.Fatalf("setcap was not invoked: %v", readErr)
+	}
+	if !strings.Contains(string(log), priv) {
+		t.Fatalf("setcap did not target the privileged tree: %s", log)
+	}
+	if strings.Contains(string(log), writableBin) {
+		t.Fatalf("setcap targeted the agent-writable binary: %s", log)
 	}
 }
 

@@ -133,12 +133,11 @@ func (p *PushLoop) pruneAddonCache(keep map[string]bool) {
 }
 
 // stageAndCapability stages a pushed-artifact add-on (fetch + verify + versioned stage +
-// atomic current symlink) and applies its declared Linux file capabilities to the staged
-// binary via the root-owned agent-updater, rolling `current` back to the prior version if
-// capability application fails. It returns the resolved binary path; for non-pushed
-// delivery it returns the assignment's binary_path unchanged. A non-nil error means the
-// add-on must not be (re)activated this round; the caller decides the fallback for its
-// supervision model.
+// atomic current symlink). File capabilities are applied later, only to the verified
+// root-owned copy, by InstallAddonSystemdUnits. It returns the resolved binary path; for
+// non-pushed delivery it returns the assignment's binary_path unchanged. A non-nil error
+// means the add-on must not be (re)activated this round; the caller decides the fallback
+// for its supervision model.
 func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) (string, error) {
 	// compiled_in / os_package rely on binary_path already being present on the host.
 	if delivery != addonDeliveryPushedArtifact || a.GetArtifactObjectKey() == "" {
@@ -157,11 +156,6 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 	httpClient := p.gatewayAddonHTTPClient(a)
 
 	root := resolveAddonArtifactRoot("")
-	addonDir := filepath.Join(root, a.GetAddonId())
-	// Capture the currently-active version before staging so a failed capability
-	// application can roll `current` back to it.
-	priorTarget, _ := readAddonCurrentTarget(addonDir)
-
 	resolved, err := stageAddonArtifactWithClient(ctx, store, httpClient, root, a)
 	if err != nil {
 		return "", err
@@ -171,21 +165,6 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 		p.logger.Warn().
 			Str("addon", a.GetAddonId()).
 			Msg("Pushed-artifact add-on activated without a signature (artifact signing pending build pipeline)")
-	}
-
-	// Apply the manifest's declared Linux file capabilities to the freshly staged binary
-	// via the root-owned agent-updater (the non-root agent never applies them itself).
-	if caps := a.GetOsCapabilities(); len(caps) > 0 {
-		if capErr := applyStagedAddonCapabilitiesViaUpdater(ctx, a.GetAddonId(), addonBinaryName(a), caps); capErr != nil {
-			if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
-				p.logger.Error().
-					Err(rbErr).
-					Str("addon", a.GetAddonId()).
-					Msg("Failed to roll back add-on after capability application failure")
-			}
-
-			return "", capErr
-		}
 	}
 
 	return resolved, nil
@@ -915,6 +894,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		Units:          units,
 		Enable:         enable,
 		Resources:      addonResourcesFromProto(a.GetResources()),
+		Capabilities:   a.GetOsCapabilities(),
 		RunTimerNow:    runTimerNow,
 	}
 	if err := install(ctx, req); err != nil {

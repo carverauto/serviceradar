@@ -87,6 +87,9 @@ var (
 	ErrAddonSignatureRequired = errors.New("artifact signature is required for privileged systemd add-ons")
 	// ErrAddonArtifactMissing is returned when the staged artifact archive cannot be found.
 	ErrAddonArtifactMissing = errors.New("staged addon artifact is missing")
+	// ErrAddonUnitExecPathUnsafe is returned when a unit would execute a command from
+	// the agent-writable add-on tree.
+	ErrAddonUnitExecPathUnsafe = errors.New("addon systemd unit executes from the agent-writable tree")
 )
 
 // AddonSystemdInstallRequest describes a privileged install + enable of an add-on's
@@ -103,6 +106,7 @@ type AddonSystemdInstallRequest struct {
 	Units          []string             // unit file names in the bundle (".service"/".timer")
 	Enable         string               // the unit to `enable --now` (must be one of Units)
 	Resources      agentaddon.Resources // manifest CPU/memory/task limits applied to Enable via a drop-in
+	Capabilities   []string             // file capabilities applied to the verified privileged binary
 	RunTimerNow    bool                 // clear prior scan failure and queue the newly installed timer service
 }
 
@@ -294,11 +298,12 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 	}
 
 	wantSHA := strings.ToLower(strings.TrimSpace(req.ArtifactSHA256))
-	if wantSHA != "" {
-		sum := sha256.Sum256(data)
-		if !hashutil.EqualSHA256(wantSHA, sum) {
-			return ErrAddonArtifactHashMismatch
-		}
+	if wantSHA == "" {
+		return ErrAddonArtifactIncomplete
+	}
+	sum := sha256.Sum256(data)
+	if !hashutil.EqualSHA256(wantSHA, sum) {
+		return ErrAddonArtifactHashMismatch
 	}
 
 	if err := verifyAddonArtifactSignature(data, req.Signature); err != nil {
@@ -393,40 +398,94 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		}
 	}
 
-	// Track only the unit files this install NEWLY creates. On failure we remove only
-	// those, never a pre-existing unit file (e.g. a re-deploy over an already-running
-	// add-on), so a failed re-install cannot tear down the running add-on's units.
-	created := make([]string, 0, len(resolved))
+	type stagedUnit struct {
+		name string
+		data []byte
+	}
+	staged := make([]stagedUnit, 0, len(resolved))
+	for _, u := range resolved {
+		data, err := os.ReadFile(u.src)
+		if err != nil {
+			rollbackPrivCurrent()
+			return fmt.Errorf("read privileged unit %s: %w", u.name, err)
+		}
+		if err := rejectAgentWritableUnitExecPaths(data, req.RuntimeRoot); err != nil {
+			rollbackPrivCurrent()
+			return err
+		}
+		staged = append(staged, stagedUnit{name: u.name, data: data})
+	}
+
+	if len(req.Capabilities) > 0 {
+		if err := ApplyAddonCapabilities(ctx, AddonCapabilityRequest{
+			RuntimeRoot:    req.RuntimeRoot,
+			PrivilegedRoot: privRoot,
+			AddonID:        req.AddonID,
+			BinaryName:     req.BinaryName,
+			Capabilities:   req.Capabilities,
+		}); err != nil {
+			rollbackPrivCurrent()
+			return err
+		}
+	}
+
+	// Snapshot every unit this install will replace. A failed activation must put the
+	// previous unit bytes back; deleting only newly created files leaves a migration's
+	// overwritten unit pointing at a privileged current that rollback just removed.
+	type unitSnapshot struct {
+		name    string
+		existed bool
+		data    []byte
+	}
+	snapshots := make([]unitSnapshot, 0, len(staged))
+	for _, u := range staged {
+		dest := filepath.Join(systemdUnitDir, u.name)
+		snap := unitSnapshot{name: u.name}
+		prev, err := os.ReadFile(dest)
+		switch {
+		case err == nil:
+			snap.existed = true
+			snap.data = prev
+		case errors.Is(err, os.ErrNotExist):
+		default:
+			rollbackPrivCurrent()
+			return fmt.Errorf("read existing unit %s: %w", u.name, err)
+		}
+		snapshots = append(snapshots, snap)
+	}
+
+	priorEnabled := false
+	if enable != "" {
+		for _, snap := range snapshots {
+			if snap.name == enable && snap.existed {
+				priorEnabled = runSystemctl(ctx, "is-enabled", "--quiet", enable) == nil
+				break
+			}
+		}
+	}
+
 	createdDropIn := ""
 	cleanup := func() {
 		if createdDropIn != "" {
 			_ = os.RemoveAll(createdDropIn)
 		}
-		for _, name := range created {
-			_ = os.Remove(filepath.Join(systemdUnitDir, name))
+		for _, snap := range snapshots {
+			dest := filepath.Join(systemdUnitDir, snap.name)
+			if snap.existed {
+				_ = os.WriteFile(dest, snap.data, systemdUnitFileMode)
+			} else {
+				_ = os.Remove(dest)
+			}
 		}
 		_ = runSystemctl(ctx, "daemon-reload")
 		rollbackPrivCurrent()
 	}
 
-	for _, u := range resolved {
+	for _, u := range staged {
 		dest := filepath.Join(systemdUnitDir, u.name)
-		preExisted := false
-		if _, statErr := os.Stat(dest); statErr == nil {
-			preExisted = true
-		}
-
-		data, err := os.ReadFile(u.src)
-		if err != nil {
-			cleanup()
-			return fmt.Errorf("read privileged unit %s: %w", u.name, err)
-		}
-		if err := os.WriteFile(dest, data, systemdUnitFileMode); err != nil {
+		if err := os.WriteFile(dest, u.data, systemdUnitFileMode); err != nil {
 			cleanup()
 			return fmt.Errorf("install unit %s: %w", u.name, err)
-		}
-		if !preExisted {
-			created = append(created, u.name)
 		}
 	}
 
@@ -449,6 +508,9 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		if err := activateAddonSystemdUnits(ctx, enable, timerService); err != nil {
 			_ = runSystemctl(ctx, "disable", "--now", enable)
 			cleanup()
+			if priorEnabled {
+				_ = runSystemctl(ctx, "enable", "--now", enable)
+			}
 			return err
 		}
 	}
@@ -669,6 +731,117 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
+func pathIsWithin(path, root string) bool {
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	if path == root {
+		return true
+	}
+	return strings.HasPrefix(path, root+string(os.PathSeparator))
+}
+
+// rejectAgentWritableUnitExecPaths fails closed when a unit's ExecStart or
+// ExecStartPre command path is under the agent-writable add-on tree. Helper
+// commands such as /usr/bin/install are outside that tree and remain allowed.
+func rejectAgentWritableUnitExecPaths(unit []byte, runtimeRoot string) error {
+	for _, path := range systemdUnitCommandPaths(unit) {
+		cleaned := filepath.Clean(path)
+		if !filepath.IsAbs(cleaned) {
+			continue
+		}
+		for _, root := range writableAddonRoots(runtimeRoot) {
+			if pathIsWithin(cleaned, root) {
+				return fmt.Errorf("%w: %s", ErrAddonUnitExecPathUnsafe, path)
+			}
+		}
+	}
+	return nil
+}
+
+func systemdUnitCommandPaths(unit []byte) []string {
+	text := joinSystemdContinuations(string(unit))
+	var paths []string
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || !systemdExecDirective(strings.TrimSpace(key)) {
+			continue
+		}
+		path, ok := systemdCommandPath(value)
+		if !ok {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func systemdExecDirective(key string) bool {
+	switch key {
+	case "ExecStart", "ExecStartPre", "ExecStartPost", "ExecStop", "ExecStopPost", "ExecReload", "ExecCondition":
+		return true
+	default:
+		return false
+	}
+}
+
+func joinSystemdContinuations(text string) string {
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	var b strings.Builder
+	for _, line := range lines {
+		if strings.HasSuffix(line, "\\") {
+			b.WriteString(strings.TrimSuffix(line, "\\"))
+			b.WriteByte(' ')
+			continue
+		}
+		b.WriteString(line)
+		out = append(out, b.String())
+		b.Reset()
+	}
+	if b.Len() > 0 {
+		out = append(out, b.String())
+	}
+	return strings.Join(out, "\n")
+}
+
+func systemdCommandPath(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	for len(value) > 0 {
+		switch value[0] {
+		case '-', '+', '@', '!':
+			value = value[1:]
+			continue
+		}
+		break
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	if value[0] == '"' || value[0] == '\'' {
+		quote := value[0]
+		rest := value[1:]
+		end := strings.IndexByte(rest, quote)
+		if end < 0 {
+			return "", false
+		}
+		return rest[:end], true
+	}
+	field, _, _ := strings.Cut(value, " ")
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return "", false
+	}
+	return field, true
+}
+
 // discoverStagedAddonUnits lists the systemd unit files (.service/.timer) shipped in an
 // add-on's staged current/ dir. The unit files ride inside the signed bundle, so the
 // agent enumerates them (reading its own staging area) to tell the root-owned updater
@@ -799,6 +972,9 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSyst
 	if !req.Resources.IsZero() {
 		requiredFlags = append(requiredFlags, "addon-systemd-resources")
 	}
+	if len(req.Capabilities) > 0 {
+		requiredFlags = append(requiredFlags, "addon-capabilities")
+	}
 
 	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath(requiredFlags...)
 	if err != nil {
@@ -817,6 +993,13 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSyst
 	}
 	if req.RunTimerNow {
 		args = append(args, "--addon-systemd-run-timer-now")
+	}
+	if len(req.Capabilities) > 0 {
+		normalized, err := normalizeAddonCapabilities(req.Capabilities)
+		if err != nil {
+			return err
+		}
+		args = append(args, "--addon-capabilities", strings.Join(normalized, ","))
 	}
 	if req.PrivilegedRoot != "" {
 		args = append(args, "--privileged-root", req.PrivilegedRoot)

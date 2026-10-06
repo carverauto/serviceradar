@@ -369,14 +369,22 @@ func addonAssignmentConfigSHA256(configJSON []byte) string {
 }
 
 func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentConfig) error {
-	configJSON := bytes.TrimSpace(a.GetConfigJson())
-	if len(configJSON) == 0 {
-		return nil
-	}
-
 	addonID := strings.TrimSpace(a.GetAddonId())
 	if !safeAddonSegment(addonID) {
 		return fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
+	}
+
+	configJSON := bytes.TrimSpace(a.GetConfigJson())
+	currentDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID, addonCurrentLink)
+	configName, err := selectStagedAddonRuntimeConfig(currentDir, addonID)
+	if err != nil {
+		if len(configJSON) == 0 && errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if configName == "" {
+		return nil
 	}
 
 	stateDir := addonStateDir(runtimeRoot, addonID)
@@ -384,17 +392,24 @@ func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentC
 		return fmt.Errorf("create addon state dir: %w", err)
 	}
 
-	currentDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID, addonCurrentLink)
-	configName, err := selectStagedAddonRuntimeConfig(currentDir, addonID)
-	if err != nil {
-		return err
-	}
-	if configName == "" {
+	configPath := filepath.Join(currentDir, configName)
+	stateConfigPath := filepath.Join(stateDir, configName)
+	if len(configJSON) == 0 {
+		if _, err := os.Stat(stateConfigPath); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat addon state config: %w", err)
+		}
+		bundled, err := os.ReadFile(configPath)
+		if err != nil {
+			return fmt.Errorf("read staged addon config: %w", err)
+		}
+		if err := writeAddonFileAtomic(stateConfigPath, bundled, addonManifestMode); err != nil {
+			return fmt.Errorf("seed staged addon runtime config: %w", err)
+		}
 		return nil
 	}
 
-	configPath := filepath.Join(currentDir, configName)
-	stateConfigPath := filepath.Join(stateDir, configName)
 	basePath := filepath.Join(stateDir, ".serviceradar-config-base-"+configName)
 
 	baseConfig, err := os.ReadFile(basePath)

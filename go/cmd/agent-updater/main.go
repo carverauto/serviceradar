@@ -46,12 +46,11 @@ func run() error {
 		commandType      = flag.String("command-type", "agent.update_release", "Command type for activation result reporting")
 		rollbackDeadline = flag.Duration("rollback-deadline", 3*time.Minute, "Rollback deadline after activation")
 
-		// Add-on file-capability application mode (delivery-models task 2.2). When
-		// --addon-id is set the updater applies the requested Linux capabilities to the
-		// staged add-on binary via setcap instead of activating an agent release.
-		addonID   = flag.String("addon-id", "", "Add-on id (capability + systemd modes)")
-		addonBin  = flag.String("addon-binary", "", "Staged add-on binary filename to apply capabilities to")
-		addonCaps = flag.String("addon-capabilities", "", "Comma-separated Linux file capabilities to apply (e.g. cap_net_raw,cap_bpf)")
+		// Add-on file capabilities are applied only while installing a signature-verified
+		// systemd unit, and only to the root-owned binary that install materializes.
+		addonID   = flag.String("addon-id", "", "Add-on id (systemd install mode)")
+		addonBin  = flag.String("addon-binary", "", "Add-on binary filename inside the verified artifact")
+		addonCaps = flag.String("addon-capabilities", "", "Comma-separated Linux file capabilities to apply to the verified privileged binary (e.g. cap_net_raw,cap_bpf)")
 
 		// Add-on systemd supervision mode (delivery-models task 3.1 & harden-native-addon-privilege-boundary):
 		// install/enable or uninstall the add-on's bundled systemd units.
@@ -91,18 +90,11 @@ func run() error {
 			Units:          splitCommaList(*addonSystemdInstall),
 			Enable:         *addonSystemdEnable,
 			Resources:      resources,
+			Capabilities:   splitCommaList(*addonCaps),
 			RunTimerNow:    *addonSystemdRunTimerNow,
 		})
 	case *addonSystemdUninstall != "":
 		return agent.UninstallAddonSystemdUnits(ctx, splitCommaList(*addonSystemdUninstall))
-	case *addonCaps != "":
-		return agent.ApplyAddonCapabilities(ctx, agent.AddonCapabilityRequest{
-			RuntimeRoot:    *runtimeRoot,
-			PrivilegedRoot: *privilegedRoot,
-			AddonID:        *addonID,
-			BinaryName:     *addonBin,
-			Capabilities:   splitCommaList(*addonCaps),
-		})
 	case *version != "":
 		return agent.ActivateStagedRelease(agent.ReleaseActivationConfig{
 			RuntimeRoot:      *runtimeRoot,

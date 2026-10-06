@@ -74,10 +74,6 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 		}
 	}
 
-	if strings.Contains(unit, "chcon") {
-		t.Fatal("netprobe unit must not contain chcon ExecStartPre; privileged updater relabels root-owned runtime")
-	}
-
 	if strings.Contains(unit, "\nUser=serviceradar\n") {
 		t.Fatal("netprobe unit must not start directly as User=serviceradar; it must load eBPF as root and then --drop-user")
 	}
