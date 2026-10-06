@@ -121,11 +121,14 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   # so it stays restorable until then. A failed expiry pass does not stop the purge.
   defp expire_ephemeral_devices(settings, actor) do
     case EphemeralDeviceExpiry.run(Map.from_struct(settings), actor) do
-      {:ok, %{expired: expired, candidates: candidates, excluded: excluded}} ->
+      {:ok, counts} ->
         Logger.info("DeviceCleanupWorker: ephemeral expiry pass complete",
-          expired: expired,
-          candidates: candidates,
-          excluded: excluded
+          candidates: counts.candidates,
+          kept_by_evidence: counts.kept_by_evidence,
+          kept_by_exclusion: counts.kept_by_exclusion,
+          eligible: counts.eligible,
+          expired: counts.expired,
+          skipped_at_delete: counts.skipped_at_delete
         )
 
       {:error, reason} ->

@@ -161,20 +161,6 @@ tlc_test(
     ],
 )
 
-# The defect switch today's sweep has violates the property its fix (D12) restores.
-tlc_test(
-    name = "lifecycle_witness_sweep_refreshes_expired_tombstone_test",
-    size = "medium",
-    cfg = "lifecycle_witness_sweep_refreshes_expired_tombstone.cfg",
-    expect = "violation:ExpiredDeviceReturns",
-    spec = "MCDireLifecycle.tla",
-    workers = 8,
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-    ],
-)
-
 # ---- Resolution model ----
 
 tlc_test(
@@ -673,17 +659,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "trace_expired_sweep_only_returns__knockout_test",
-    cfg = "traces/Trace_expired_sweep_only_returns__knockout.cfg",
-    spec = "traces/Trace_expired_sweep_only_returns.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-        "DireLifecycleTrace.tla",
-    ],
-)
-
-tlc_test(
     name = "trace_gateway_sync_revival_test",
     cfg = "traces/Trace_gateway_sync_revival.cfg",
     expect = "violation:TraceIncomplete",
@@ -712,6 +687,18 @@ tlc_test(
     cfg = "traces/Trace_purge_recreate.cfg",
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_purge_recreate.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_purged_seed_sweep_test",
+    cfg = "traces/Trace_purged_seed_sweep.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_purged_seed_sweep.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",
@@ -855,17 +842,6 @@ tlc_test(
     name = "trace_sweep_restores_merged_test",
     cfg = "traces/Trace_sweep_restores_merged.cfg",
     expect = "violation:TraceIncomplete",
-    spec = "traces/Trace_sweep_restores_merged.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-        "DireLifecycleTrace.tla",
-    ],
-)
-
-tlc_test(
-    name = "trace_sweep_restores_merged__knockout_test",
-    cfg = "traces/Trace_sweep_restores_merged__knockout.cfg",
     spec = "traces/Trace_sweep_restores_merged.tla",
     deps = [
         "CurrentBugs.tla",

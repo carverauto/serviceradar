@@ -10,6 +10,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
+  alias ServiceRadar.Inventory.EphemeralDeviceExpiry
+  alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.MergeEngine
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.MapperPromotion
@@ -899,6 +905,127 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert host_result.open_ports == [8291]
   end
 
+  # add-source-id-succession task 9.7: a seed is named by its address, so once a seed merged into
+  # a survivor is purged, a sweep of its address derives the merged-away uid again. Creating it
+  # would take the uid out of the redirect to its survivor. The sweep seeds the host under the
+  # next uid of the chain instead, and again when that seed is merged away and purged in turn.
+  test "a sweep never re-creates a purged merged-away seed", %{actor: actor, agent_id: agent_id} do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("purged-seed-#{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Purged Seed #{unique_id}")
+
+    first = sweep_seed!(actor, group, agent_id, ip)
+    assert first.uid == address_seed_uid(ip)
+    first_survivor = merge_survivor!(actor, "purged-seed-a-#{unique_id}")
+    merge_and_purge!(actor, first.uid, first_survivor.uid)
+
+    second = sweep_seed!(actor, group, agent_id, ip)
+    assert second.uid == Ids.reseeded_device_id(first.uid)
+
+    assert IdentityReconciler.resolve_canonical_device_id(first.uid, actor) ==
+             {:ok, first_survivor.uid}
+
+    second_survivor = merge_survivor!(actor, "purged-seed-b-#{unique_id}")
+    merge_and_purge!(actor, second.uid, second_survivor.uid)
+
+    third = sweep_seed!(actor, group, agent_id, ip)
+    assert third.uid == Ids.reseeded_device_id(second.uid)
+
+    assert IdentityReconciler.resolve_canonical_device_id(first.uid, actor) ==
+             {:ok, first_survivor.uid}
+
+    assert IdentityReconciler.resolve_canonical_device_id(second.uid, actor) ==
+             {:ok, second_survivor.uid}
+  end
+
+  # A merge an unmerge reversed redirects nothing, so once the seed is deleted for another
+  # reason and purged, its own uid is free and the next sweep seeds it again.
+  test "a sweep re-seeds a purged seed whose merge was reversed under its own uid", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("unmerged-seed-#{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Unmerged Seed #{unique_id}")
+
+    seed = sweep_seed!(actor, group, agent_id, ip)
+    survivor = merge_survivor!(actor, "unmerged-seed-#{unique_id}")
+
+    assert :ok =
+             MergeEngine.merge_devices(seed.uid, survivor.uid,
+               actor: actor,
+               reason: "identity_resolution"
+             )
+
+    assert :ok = MergeEngine.unmerge_device(seed.uid, actor: actor)
+
+    assert {:ok, _deleted} =
+             actor
+             |> reload_device!(seed.uid)
+             |> Ash.Changeset.for_update(
+               :soft_delete,
+               %{deleted_reason: "test", deleted_by: "sweep_results_flow_e2e"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    purge!(seed.uid)
+
+    assert sweep_seed!(actor, group, agent_id, ip).uid == seed.uid
+    assert IdentityReconciler.resolve_canonical_device_id(seed.uid, actor) == {:ok, seed.uid}
+  end
+
+  # The chain is bounded (@max_seed_uid_attempts): a host whose every uid within the bound
+  # redirects is left unseeded, and the sweep logs it. The merge rows are written directly,
+  # as the purge of every seed of such a chain would leave them.
+  test "a sweep leaves a host unseeded when every uid of its chain redirects", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("redirected-chain-#{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Redirected Chain #{unique_id}")
+    survivor = merge_survivor!(actor, "redirected-chain-#{unique_id}")
+    chain = ip |> address_seed_uid() |> Stream.iterate(&Ids.reseeded_device_id/1) |> Enum.take(9)
+
+    for uid <- Enum.take(chain, 8), do: record_merge!(actor, uid, survivor.uid)
+
+    log =
+      CaptureLog.capture_log(fn ->
+        assert {:ok, stats} = ingest_seed(actor, group, agent_id, ip)
+        assert stats.devices_created == 0
+      end)
+
+    assert log =~ "No free seed uid for #{ip} within 8 uids, the last #{Enum.at(chain, 7)} "
+    assert devices_with_uids(actor, chain) == []
+  end
+
+  # A uid whose redirect cannot be followed is not seeded either: an unanswered resolution is
+  # never read as a free uid. The merge rows form a cycle, which MergeEngine never writes, so
+  # the resolver runs out of depth.
+  test "a sweep leaves a host unseeded when its uid cannot be resolved", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("unresolved-seed-#{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Unresolved Seed #{unique_id}")
+    uid = address_seed_uid(ip)
+    other = "sr:" <> Ash.UUID.generate()
+
+    record_merge!(actor, uid, other)
+    record_merge!(actor, other, uid)
+
+    log =
+      CaptureLog.capture_log(fn ->
+        assert {:ok, stats} = ingest_seed(actor, group, agent_id, ip)
+        assert stats.devices_created == 0
+      end)
+
+    assert log =~ "Could not resolve seed uid #{uid} for #{ip}"
+    assert devices_with_uids(actor, [uid, Ids.reseeded_device_id(uid)]) == []
+  end
+
   test "ingest results resolves active device when cache contains stale duplicate IP record", %{
     actor: actor,
     agent_id: agent_id
@@ -1044,7 +1171,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   end
 
   # #4617: the IP lookup falls back to a tombstone, so a sweep of a merged-away device's old
-  # address reaches it; the sweep must leave it deleted and record the skip.
+  # address reaches it; the sweep must leave it deleted and record the skip, and
+  # (add-source-id-succession D12) write nothing to it.
   test "ingest results never restores a merged-away device resolved by IP", %{
     actor: actor,
     agent_id: agent_id
@@ -1101,6 +1229,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
+    before_sweep = row_state(actor, device.uid)
+
     assert {:ok, _stats} =
              SweepResultsIngestor.ingest_results(
                [%{"host_ip" => ip, "hostname" => "revived-#{unique_id}", "available" => true}],
@@ -1127,12 +1257,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert after_sweep.deleted_at == tombstone.deleted_at
     assert after_sweep.deleted_reason == "merged"
     assert after_sweep.identity_revision == tombstone.identity_revision
+    assert row_state(actor, device.uid) == before_sweep
   end
 
   # Nor a retained tombstone (Device.retained_reasons/0), which only an operator restore or the
   # return of a retired source id revives. The grace pass releases the address of a record it
   # deletes, so each tombstone here is soft-deleted directly with its address kept: the
-  # sweep's refusal must not rest on that release.
+  # sweep's refusal must not rest on that release. Nor does it write to one (D12).
   test "ingest results never restores a retained tombstone resolved by IP", %{
     actor: actor,
     agent_id: agent_id
@@ -1190,6 +1321,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
+      before_sweep = row_state(actor, device.uid)
+
       assert {:ok, _stats} =
                SweepResultsIngestor.ingest_results(
                  [%{"host_ip" => ip, "hostname" => "revived-#{unique_id}", "available" => true}],
@@ -1209,7 +1342,112 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       assert after_sweep.deleted_at == tombstone.deleted_at
       assert after_sweep.deleted_reason == reason
       assert after_sweep.identity_revision == tombstone.identity_revision
+      assert row_state(actor, uid) == before_sweep
     end
+  end
+
+  # add-source-id-succession D12: expiry judged the device gone, and an answer on its address
+  # disproves that, so the sweep restores it whatever its discovery sources. The restore runs
+  # through :restore, which bumps the revision and leaves a revival audit row, and before the
+  # sighting is written, so the restored record takes it.
+  test "a sweep restores an expired sweep-only device that answers", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("expired-returns-#{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Expired Returns #{unique_id}")
+    expired = expired_device!(actor, "returns-#{unique_id}", ip, ["sweep"])
+
+    assert {:ok, stats} = ingest_report(actor, group.id, agent_id, available_result(ip))
+    assert stats.devices_created == 0
+
+    restored = include_deleted_device!(actor, expired.uid)
+    assert is_nil(restored.deleted_at)
+    assert is_nil(restored.deleted_by)
+    assert is_nil(restored.deleted_reason)
+    assert restored.identity_revision == expired.identity_revision + 1
+    assert restored.discovery_sources == ["sweep"]
+    assert restored.is_available
+    assert restored.metadata["sweep_last_available_at"]
+
+    assert revival_audit_rows(expired.uid) == [
+             ["system:ephemeral_device_expiry", EphemeralDeviceExpiry.deleted_reason()]
+           ]
+
+    assert [%{uid: uid}] = devices_at(actor, ip)
+    assert uid == expired.uid
+  end
+
+  # Only an answer disproves expiry: a sweep that finds the address down leaves the device
+  # deleted, whatever its sources, and writes nothing to it, the hysteresis count included.
+  test "a sweep that finds an expired device down leaves it deleted and unchanged", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    for sources <- [["sweep"], ["mapper"]] do
+      unique_id = Ash.UUID.generate()
+      ip = unique_ip("expired-down-#{unique_id}")
+      group = seed_sweep_group!(actor, "Sweep Expired Down #{unique_id}")
+      expired = expired_device!(actor, "down-#{unique_id}", ip, sources)
+      before_sweep = row_state(actor, expired.uid)
+
+      assert {:ok, stats} = ingest_report(actor, group.id, agent_id, unavailable_result(ip))
+      assert stats.devices_created == 0
+
+      assert row_state(actor, expired.uid) == before_sweep,
+             "a down report changed an expired device with sources #{inspect(sources)}"
+
+      assert revival_audit_rows(expired.uid) == []
+    end
+  end
+
+  # A sweep-only device an operator deleted stays deleted, as before D12: a sweep is evidence,
+  # and evidence reviving an operator's deletion is the failure the tombstone rule records. The
+  # sweep's sighting, either way, does not land on the tombstone.
+  test "a sweep leaves an operator-deleted sweep-only device deleted and unchanged", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("operator-deleted-#{unique_id}")
+    group = seed_sweep_group!(actor, "Sweep Operator Deleted #{unique_id}")
+
+    assert {:ok, device} =
+             Device
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 uid: "device-operator-deleted-#{unique_id}",
+                 ip: ip,
+                 hostname: "operator-deleted-#{unique_id}",
+                 discovery_sources: ["sweep"],
+                 is_available: false
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    assert {:ok, _deleted} =
+             device
+             |> Ash.Changeset.for_update(
+               :soft_delete,
+               %{deleted_reason: "test", deleted_by: "sweep_results_flow_e2e"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    before_sweep = row_state(actor, device.uid)
+
+    for result <- [available_result(ip), unavailable_result(ip)] do
+      assert {:ok, stats} = ingest_report(actor, group.id, agent_id, result)
+      assert stats.devices_created == 0
+
+      assert row_state(actor, device.uid) == before_sweep,
+             "a sweep reporting #{inspect(result["available"])} changed the tombstone"
+    end
+
+    assert revival_audit_rows(device.uid) == []
   end
 
   # A marked record (`source_retired_at`) stays live until the grace pass deletes it, and a
@@ -3608,8 +3846,199 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     device
   end
 
+  # Everything a sweep could write to a device row, and the row's version, which moves on any
+  # write, including one that rewrites equal values. The test's sandbox runs every write in one
+  # transaction, so xmin alone can stay the same; the tuple's position (ctid) moves.
+  defp row_state(actor, uid) do
+    device = include_deleted_device!(actor, uid)
+
+    %{rows: [version]} =
+      Repo.query!(
+        "SELECT xmin::text, ctid::text FROM platform.ocsf_devices WHERE uid = $1",
+        [uid]
+      )
+
+    device
+    |> Map.take([
+      :deleted_at,
+      :deleted_by,
+      :deleted_reason,
+      :discovery_sources,
+      :hostname,
+      :identity_revision,
+      :is_available,
+      :last_seen_time,
+      :metadata,
+      :modified_time
+    ])
+    |> Map.put(:version, version)
+  end
+
+  # A device no source but `sources` found, last seen down, then expired by
+  # EphemeralDeviceExpiry with a reference time past its window.
+  defp expired_device!(actor, suffix, ip, sources) do
+    assert {:ok, device} =
+             Device
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 uid: "device-expired-#{suffix}",
+                 ip: ip,
+                 hostname: "expired-#{suffix}",
+                 discovery_sources: sources,
+                 is_available: false
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    settings = %{
+      ephemeral_expiry_enabled: true,
+      ephemeral_expiry_days: 1,
+      ephemeral_expiry_max_fraction: 1.0,
+      batch_size: 10
+    }
+
+    assert {:ok, %{expired: 1}} =
+             EphemeralDeviceExpiry.run(settings, actor,
+               uids: [device.uid],
+               now: DateTime.shift(DateTime.utc_now(), day: 2)
+             )
+
+    expired = include_deleted_device!(actor, device.uid)
+    assert expired.deleted_reason == EphemeralDeviceExpiry.deleted_reason()
+    expired
+  end
+
+  defp revival_audit_rows(uid) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT previous_deleted_by, previous_deleted_reason
+        FROM platform.device_revival_audit
+        WHERE device_uid = $1
+        ORDER BY event_id
+        """,
+        [uid]
+      )
+
+    rows
+  end
+
+  defp devices_at(actor, ip) do
+    assert {:ok, page} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(ip == ^ip and partition == "default")
+             |> Ash.read(actor: actor)
+
+    results_from(page)
+  end
+
   defp single_result([result]), do: result
   defp single_result(result), do: result
+
+  defp seed_sweep_group!(actor, name) do
+    assert {:ok, group} =
+             SweepGroup
+             |> Ash.Changeset.for_create(
+               :create,
+               %{name: name, partition: "default", agent_ids: []},
+               actor: actor
+             )
+             |> Ash.create()
+
+    group
+  end
+
+  defp ingest_seed(actor, group, agent_id, ip) do
+    ingest_report(actor, group.id, agent_id, %{"host_ip" => ip, "available" => true})
+  end
+
+  # Sweeps an address no row holds and returns the seed it creates.
+  defp sweep_seed!(actor, group, agent_id, ip) do
+    assert {:ok, stats} = ingest_seed(actor, group, agent_id, ip)
+    assert stats.devices_created == 1
+
+    assert {:ok, page} =
+             Device
+             |> Ash.Query.filter(ip == ^ip)
+             |> Ash.read(actor: actor)
+
+    [seed] = results_from(page)
+    assert seed.discovery_sources == ["sweep"]
+    seed
+  end
+
+  defp address_seed_uid(ip) do
+    IdentityReconciler.generate_deterministic_device_id(%{
+      agent_id: nil,
+      armis_id: nil,
+      integration_id: nil,
+      netbox_id: nil,
+      mac: nil,
+      ip: ip,
+      partition: "default"
+    })
+  end
+
+  defp merge_survivor!(actor, suffix) do
+    assert {:ok, survivor} =
+             Device
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 uid: "device-survivor-#{suffix}",
+                 ip: unique_ip("survivor-#{suffix}"),
+                 hostname: "survivor-#{suffix}",
+                 discovery_sources: ["armis"],
+                 is_available: true
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    survivor
+  end
+
+  defp merge_and_purge!(actor, from_uid, to_uid) do
+    assert :ok =
+             MergeEngine.merge_devices(from_uid, to_uid,
+               actor: actor,
+               reason: "identity_resolution"
+             )
+
+    assert include_deleted_device!(actor, from_uid).deleted_reason == "merged"
+    purge!(from_uid)
+  end
+
+  defp purge!(uid) do
+    assert {_stats, 1} =
+             DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])
+  end
+
+  defp record_merge!(actor, from_uid, to_uid) do
+    assert {:ok, _merge} =
+             MergeAudit.record(
+               %{
+                 from_device_id: from_uid,
+                 to_device_id: to_uid,
+                 reason: "identity_resolution",
+                 source: "sweep_results_flow_e2e"
+               },
+               actor: actor
+             )
+  end
+
+  defp devices_with_uids(actor, uids) do
+    assert {:ok, page} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid in ^uids)
+             |> Ash.read(actor: actor)
+
+    results_from(page)
+  end
 
   defp execution_snapshot(execution_id) do
     execution = Repo.get!(SweepGroupExecution, execution_id)

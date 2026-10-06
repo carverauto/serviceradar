@@ -215,28 +215,36 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 ## 9. Sweep restore and expiry (D12, D13, D14)
 
-- [ ] 9.1 `SweepResultsIngestor`: restore a matched `stale_ephemeral` tombstone whatever its
+- [x] 9.1 `SweepResultsIngestor`: restore a matched `stale_ephemeral` tombstone whatever its
       discovery sources; keep `restore_eligible?/1` for every other permitted reason; never
-      restore `merged`, `source_retired` or `seed_released`.
-- [ ] 9.2 Add `deleted_at IS NULL` to the availability and unavailability updates, and run the
-      restore before them.
-- [ ] 9.3 Correct the `EphemeralDeviceExpiry` module documentation and the Inventory Cleanup
+      restore `merged`, `source_retired` or `seed_released`. PR 7 restores an expired
+      tombstone only when the sweep found its address answering.
+- [x] 9.2 Add `deleted_at IS NULL` to the availability and unavailability updates, and run the
+      restore before them. PR 7 also adds it to the hysteresis update and the discovery-source
+      append, so a sweep writes nothing to a tombstone it does not restore.
+- [x] 9.3 Correct the `EphemeralDeviceExpiry` module documentation and the Inventory Cleanup
       settings-page text so they say which tombstones a sighting restores.
-- [ ] 9.4 Migration: redefine `platform.device_holds_strong_identifier/1` (or add a companion
+- [x] 9.4 Migration: redefine `platform.device_holds_strong_identifier/1` (or add a companion
       applied by both the candidate read and the delete) to hold a device whose metadata
       carries a non-empty `agent_id`, `armis_device_id`, `netbox_device_id` or
       `integration_id`, string or number. Bump the Helm expected migration version (2.4).
-- [ ] 9.5 `EphemeralDeviceExpiry`: judge the guard on the eligible count from a read-only
+      PR 7 redefines the function.
+- [x] 9.5 `EphemeralDeviceExpiry`: judge the guard on the eligible count from a read-only
       pre-pass; report `candidates`, `kept_by_evidence`, `kept_by_exclusion`, `eligible`,
       `expired` and `skipped_at_delete` in the result, the `DeviceCleanupWorker` log line and
       telemetry; make the refusal message print the eligible and live counts and say the
-      override stays set until cleared.
-- [ ] 9.6 Update callers, dashboards and docs that read the old `excluded` counter.
-- [ ] 9.7 Confirm against the code whether a sweep re-creates a purged merged-away seed. The
+      override stays set until cleared. The override skips the pre-pass.
+- [x] 9.6 Update callers, dashboards and docs that read the old `excluded` counter. The
+      `DeviceCleanupWorker` log line and the DIRE identity model page read it; no dashboard
+      does.
+- [x] 9.7 Confirm against the code whether a sweep re-creates a purged merged-away seed. The
       seed's uid derives from its address (`create_available_unknown_device/3`), so a sweep at
       that address after the purge may write a row under the merged-away uid, outside the
       redirect #4620 follows. If it does, add a switch and witness to the lifecycle model first
-      (`SweepCreate` creates only a row that never existed), then fix it here.
+      (`SweepCreate` creates only a row that never existed), then fix it here. It did: PR 7
+      adds the switch `sweep_recreates_purged_seed`, its witness and the trace
+      `purged_seed_sweep`, then seeds such an address under the next free uid of a bounded
+      chain instead.
 
 ## 10. Blocked-component accounting (D9)
 
@@ -272,9 +280,16 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       variable only the second needed. PR 5 removes no switch, since D3 and D4 had none; it
       tightens the model's `Review` to what D4 records, adds its rivals, and adds the traces
       `src_rekey_new_first_seen`, `src_rekey_no_macs` and `src_rekey_shared_mac_rival`. PR 6
-      removes no switch, since D9 and section 11 had none.
-- [ ] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
-      and both negative configurations still report `violation:NoFalseMerge`.
+      removes no switch, since D9 and section 11 had none. PR 7 adds `sweep_recreates_purged_seed`
+      (9.7) with its witness and the trace `purged_seed_sweep`, and removes it with the fix,
+      keeping the regenerated trace; it removes `sweep_refreshes_expired_tombstone` (D12) and
+      regenerates `sweep_restores_merged` and `expired_sweep_only_returns`. D13 and D14 had no
+      switch.
+- [x] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
+      and both negative configurations still report `violation:NoFalseMerge`. Done in PR 7: both
+      models' `KnownBugs`, `ResolutionBugs` and `LifecycleBugs` are empty, and the negative
+      configurations, three since `resolution_unsafe_overlapping_hostname_corroborates` joined
+      them, report `violation:NoFalseMerge`.
 
 ## 13. Remediation (D11)
 
@@ -309,12 +324,14 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       update whose hostname fails D3's time guard.
 - [x] 14.6 Address claims: a retired holder yields; a sweep refresh does not make a holder
       newer; a released seed is tombstoned; a seed with an identifier row stays live.
-- [ ] 14.7 Sweep restore: an expired sweep-only device returns with an audit row; an
+- [x] 14.7 Sweep restore: an expired sweep-only device returns with an audit row; an
       operator-deleted sweep-only device stays deleted and unchanged; a `source_retired` or
-      `merged` tombstone is not restored.
-- [ ] 14.8 Expiry: a metadata-only and a numeric metadata source id hold the device inside the
+      `merged` tombstone is not restored. PR 7 also tests that an expired device a sweep finds
+      down stays deleted and unchanged.
+- [x] 14.8 Expiry: a metadata-only and a numeric metadata source id hold the device inside the
       delete statement itself; the guard judges eligible devices; each counter carries its
-      own value.
+      own value. PR 7 writes the source ids between the read and the delete through a test
+      seam, and calls the SQL function on each key and value type.
 - [x] 14.9 Blocked accounting: an unchanged component is skipped, a retirement re-opens it, a
       rule-version change re-checks everything once, and blocks are not errors.
 - [ ] 14.10 Remediation: dry run writes nothing; execute writes the manifest; each rollback
@@ -323,10 +340,10 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 - [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
       Done for PR 2, PR 3, PR 4 and the alias pull request. #5171 removed the counts; from PR 5
-      on, a new test file gets its disposition row and its lane entry instead; done for PR 5
-      and PR 6.
+      on, a new test file gets its disposition row and its lane entry instead; done for PR 5,
+      PR 6 and PR 7.
 - [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run. Done for PR 2, PR 3, PR 4, the alias pull request, PR 5 and PR 6.
+      check not run. Done for PR 2, PR 3, PR 4, the alias pull request, PR 5, PR 6 and PR 7.
 
 ## 15. Alias rows (D16)
 

@@ -445,6 +445,16 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     )
   end
 
+  @doc """
+  The uid a sweep seed takes when the uid its address derives redirects to a merge survivor
+  (change `add-source-id-succession`, task 9.7): creating the derived uid would bring the
+  merged-away record back. It is deterministic in that uid, so every sweep of the address
+  derives the same one, and applying it again gives the next uid of the chain.
+  """
+  @spec reseeded_device_id(String.t()) :: String.t()
+  def reseeded_device_id(uid) when is_binary(uid),
+    do: uuid_from_hash(:crypto.hash(:sha256, "serviceradar-device-v3:reseeded:#{uid}"))
+
   defp maybe_add_seed(acc, _prefix, nil), do: acc
   defp maybe_add_seed(acc, prefix, value), do: acc ++ ["#{prefix}:#{value}"]
 

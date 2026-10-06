@@ -130,6 +130,36 @@ A merge a merge guard refuses SHALL be counted as a blocked merge and SHALL NOT 
 - **THEN** the run record SHALL count the succession merge apart from the duplicate merges
 - **AND** the run record SHALL carry the configured per-run succession cap
 
+### Requirement: Merge Stability and Oscillation Protection
+The system SHALL prevent merge oscillation: weak or medium evidence (including confirmed IP aliases) MUST NOT merge two devices that hold distinct strong identities (e.g. different `agent_id` identifiers); a device pair that has merged in either direction within a configurable cooldown window MUST NOT be re-merged automatically (the attempt is blocked, audited, and alerted); merged-away device IDs MUST NOT be recreated by deterministic UID generation or identifier registration (canonical-alias lookup precedes creation).
+A sweep seed is named by its address, so it SHALL NOT be created under the ID its address
+derives when that ID redirects to a survivor; it SHALL take another ID.
+
+#### Scenario: IP alias cannot override agent identity
+- **GIVEN** device A holds `agent_id` identifier `agent-host02` and device B holds `agent_id` identifier `agent-host01`
+- **AND** an IP of device A is recorded as a confirmed alias of device B
+- **WHEN** an update for device A is processed
+- **THEN** devices A and B are NOT merged
+- **AND** the conflicting alias state is flagged for invalidation
+
+#### Scenario: Merge cooldown breaks ping-pong loops
+- **GIVEN** devices X and Y were merged within the cooldown window
+- **WHEN** a subsequent update would merge them again (in either direction)
+- **THEN** the merge is blocked and an oscillation alert is emitted with the pair history
+
+#### Scenario: Tombstoned device is not resurrected
+- **GIVEN** device F was merged into device T
+- **WHEN** a later update or agent hello produces device F's deterministic UID or one of its former identifiers
+- **THEN** resolution returns canonical device T
+- **AND** no new device record with F's ID is created
+
+#### Scenario: A sweep does not re-create a purged merged-away seed
+- **GIVEN** a sweep seeded device F at address `192.0.2.30`, F was merged into device T, and F's tombstone was purged after retention
+- **AND** no device holds `192.0.2.30`
+- **WHEN** a sweep finds `192.0.2.30` answering
+- **THEN** the sweep SHALL seed a new device whose ID is not F's
+- **AND** F's ID SHALL still resolve to device T
+
 ## ADDED Requirements
 
 ### Requirement: Source Identifiers Retire On Sustained Absence

@@ -3,12 +3,10 @@
 \* scenario. Regenerate with DIRE_TRACE_WRITE=1; do not edit by hand.
 EXTENDS DireLifecycleTrace, CurrentBugs
 
-KnockoutBugs == LifecycleBugs \ {"sweep_refreshes_expired_tombstone"}
-
 TheLog == <<
   [status |-> ("d1" :> "absent"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> NoIp), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {}, act |-> [name |-> "Init", u |-> NoDev, v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {}]],
   [status |-> ("d1" :> "live"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {"d1"}, act |-> [name |-> "SweepCreate", u |-> "d1", v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]],
   [status |-> ("d1" :> "tomb"), reason |-> ("d1" :> "expired"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {"d1"}, act |-> [name |-> "Expire", u |-> "d1", v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]],
-  [status |-> ("d1" :> "tomb"), reason |-> ("d1" :> "expired"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {"d1"}, act |-> [name |-> "SweepRefresh", u |-> "d1", v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {}]]
+  [status |-> ("d1" :> "live"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> "p1"), audit |-> <<>>, work |-> {}, marked |-> {}, arch |-> ("i1" :> {}), sweepOnly |-> {"d1"}, act |-> [name |-> "SweepRestore", u |-> "d1", v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {"d1"}]]
 >>
 ====

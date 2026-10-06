@@ -43,7 +43,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AvailabilityEvents
   alias ServiceRadar.SweepJobs.MapperPromotion
@@ -63,6 +65,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
   @merged_restore_skipped_event [:serviceradar, :sweep, :restore, :merged_skipped]
   @retained_restore_skipped_event [:serviceradar, :sweep, :restore, :retained_skipped]
+  # How many uids of a seed's chain are tried before the host is left unseeded.
+  @max_seed_uid_attempts 8
   @banner_grab_counter_dropped_event [
     :serviceradar,
     :sweep,
@@ -813,7 +817,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       hosts_to_create
       |> Map.values()
-      |> Enum.each(&create_available_unknown_device(&1, partition, actor))
+      |> seed_uids(partition, actor)
+      |> Enum.each(fn {result, uid} ->
+        create_available_unknown_device(result, uid, partition, actor)
+      end)
 
       DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
         actor: actor,
@@ -824,21 +831,89 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp create_available_unknown_device(result, partition, actor) do
-    ip = extract_ip(result)
-    hostname = normalize_hostname(result["hostname"])
+  # A seed is named by its address, so a sweep of the address of a seed that was merged away and
+  # then purged derives the merged-away uid again. Creating it would take the uid out of the
+  # redirect to its survivor (Resolver), and a source still carrying it would land on the new
+  # seed. A uid that a merge names is resolved first, and one that redirects gives way to the
+  # next uid of the chain Ids.reseeded_device_id/1 derives (add-source-id-succession task 9.7).
+  defp seed_uids([], _partition, _actor), do: []
 
-    ids = %{
+  defp seed_uids(results, partition, actor) do
+    seeds = Enum.map(results, &{&1, address_seed_uid(&1, partition)})
+
+    case merged_away_uids(Enum.map(seeds, &elem(&1, 1)), actor) do
+      {:ok, merged_away} ->
+        Enum.flat_map(seeds, fn {result, uid} = seed ->
+          if MapSet.member?(merged_away, uid), do: free_seed_uid(result, uid, actor), else: [seed]
+        end)
+
+      {:error, reason} ->
+        Logger.warning(
+          "SweepResultsIngestor: Could not read the merge rows of #{length(seeds)} new sweep " <>
+            "seeds; seeding none: #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp address_seed_uid(result, partition) do
+    IdentityReconciler.generate_deterministic_device_id(%{
       agent_id: nil,
       armis_id: nil,
       integration_id: nil,
       netbox_id: nil,
       mac: nil,
-      ip: ip,
+      ip: extract_ip(result),
       partition: partition
-    }
+    })
+  end
 
-    uid = IdentityReconciler.generate_deterministic_device_id(ids)
+  # The uids a merge, not an unmerge, names as merged away.
+  defp merged_away_uids(uids, actor) do
+    MergeAudit
+    |> Ash.Query.filter(from_device_id in ^uids and (is_nil(reason) or reason != "unmerge"))
+    |> Ash.Query.select([:from_device_id])
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, rows} -> {:ok, MapSet.new(rows, & &1.from_device_id)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # The first uid of the seed's chain that resolves to itself: one an unmerge gave back, or one
+  # no merge names. A host whose chain has none within the bound, or whose uid cannot be
+  # resolved, is not seeded.
+  defp free_seed_uid(result, uid, actor, attempts \\ @max_seed_uid_attempts) do
+    case IdentityReconciler.resolve_canonical_device_id(uid, actor) do
+      {:ok, ^uid} ->
+        [{result, uid}]
+
+      {:ok, _survivor} when attempts > 1 ->
+        free_seed_uid(result, Ids.reseeded_device_id(uid), actor, attempts - 1)
+
+      {:ok, survivor} ->
+        Logger.warning(
+          "SweepResultsIngestor: No free seed uid for #{extract_ip(result)} within " <>
+            "#{@max_seed_uid_attempts} uids, the last #{uid} redirecting to #{survivor}; " <>
+            "not seeding it"
+        )
+
+        []
+
+      {:error, reason} ->
+        Logger.warning(
+          "SweepResultsIngestor: Could not resolve seed uid #{uid} for #{extract_ip(result)}; " <>
+            "not seeding it: #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp create_available_unknown_device(result, uid, partition, actor) do
+    ip = extract_ip(result)
+    hostname = normalize_hostname(result["hostname"])
 
     attrs = %{
       uid: uid,
@@ -1293,7 +1368,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       available_uids = Enum.filter(available_uids, &MapSet.member?(changed_uid_set, &1))
       unavailable_uids = Enum.filter(unavailable_uids, &MapSet.member?(changed_uid_set, &1))
 
-      restore_deleted_devices(changed_uids, actor)
+      # Before the status updates, which write only live records: a restored device takes the
+      # sighting, and an unrestored tombstone is left exactly as it was.
+      restore_deleted_devices(changed_uids, MapSet.new(available_uids), actor)
 
       recovered_rows =
         update_device_statuses_available(
@@ -1522,13 +1599,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp valid_uuid_or_nil(_value), do: nil
 
-  defp restore_deleted_devices([], _actor), do: :ok
+  defp restore_deleted_devices([], _answered, _actor), do: :ok
 
-  defp restore_deleted_devices(device_uids, actor) do
+  defp restore_deleted_devices(device_uids, answered, actor) do
     case load_deleted_devices(device_uids, actor) do
       {:ok, devices} ->
         devices
-        |> eligible_restore_uids()
+        |> eligible_restore_uids(answered)
         |> restore_eligible_devices(actor)
 
       {:error, reason} ->
@@ -1551,16 +1628,25 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     exception -> {:error, exception}
   end
 
-  defp eligible_restore_uids(devices) do
+  defp eligible_restore_uids(devices, answered) do
     {merged, others} = Enum.split_with(devices, &merged_away?/1)
     {retained, others} = Enum.split_with(others, &Device.retained_tombstone?/1)
     record_restore_skips(merged, "merged-away", @merged_restore_skipped_event)
     record_restore_skips(retained, "retained", @retained_restore_skipped_event)
 
     others
-    |> Enum.filter(&restore_eligible?/1)
+    |> Enum.filter(&sweep_restorable?(&1, answered))
     |> Enum.map(& &1.uid)
   end
+
+  # An expired device (EphemeralDeviceExpiry) returns once its address answers, whatever its
+  # discovery sources (add-source-id-succession D12): expiry judged it gone, and the answer
+  # disproves that. A sweep that finds it down disproves nothing, so it stays deleted. Every
+  # other tombstone keeps restore_eligible?/1's rule.
+  defp sweep_restorable?(%{deleted_reason: "stale_ephemeral", uid: uid}, answered),
+    do: MapSet.member?(answered, uid)
+
+  defp sweep_restorable?(device, _answered), do: restore_eligible?(device)
 
   # A device merged into another is never restored by a sweep (#4617). The address lookup
   # falls back to a tombstone when no live device holds the address, so a sweep that
@@ -1705,6 +1791,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       WHERE uid = ANY($1)
     ) old
     WHERE d.uid = old.uid
+      AND d.deleted_at IS NULL
       AND (
         (
           NULLIF(BTRIM(d.availability_source_agent_id), '') IS NOT NULL
@@ -1787,6 +1874,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       WHERE uid = ANY($1)
     ) old
     WHERE d.uid = old.uid
+      AND d.deleted_at IS NULL
       -- "Available wins" - skip devices recently marked available by another sweep
       -- This prevents multi-agent flapping when one agent can reach device and another can't
       AND NOT (
@@ -1905,6 +1993,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       'sweep'
     )
     WHERE uid = ANY($1)
+    AND deleted_at IS NULL
     AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
     """
 

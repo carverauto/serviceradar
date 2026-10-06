@@ -523,7 +523,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
     * `SweepCreate`: no row held `p`, and the sweep seeded one;
     * `SweepRestore`: it restored the tombstone it found at `p`;
-    * `SweepRefresh`: it wrote the sighting to the one record it found, live or tombstoned;
+    * `SweepRefresh`: it wrote the sighting to the one record it found;
     * `SweepSkip`: it wrote nothing, and the only row at `p` is a tombstone.
 
   A sighting stamps timestamps of one-second precision, which an earlier step can already have

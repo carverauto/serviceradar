@@ -73,12 +73,9 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!()
   end
 
-  # #4617 (fixed): a sweep that finds a merged-away device's old address leaves it deleted.
-  # The sweep still writes its sighting to the tombstone (SweepRefresh), which the defect
-  # switch sweep_refreshes_expired_tombstone allows until add-source-id-succession D12 lands; a
-  # regression that restores the device again would log SweepRestore and fail the comparison.
-  # The knockout checks the trace without the switch, under which the model leaves the
-  # tombstone alone (SweepSkip), and requires TLC to reject it.
+  # #4617 (fixed): a sweep that finds a merged-away device's old address leaves it deleted, and
+  # (add-source-id-succession D12, fixed) writes nothing to the tombstone (SweepSkip). Kept as a
+  # regression trace.
   test "sweep_restores_merged", %{actor: actor} do
     "sweep_restores_merged"
     |> Trace.start(world(["d1", "d2"], %{"i1" => :src, "i2" => :mac}, ["p1", "p2"]), actor)
@@ -86,7 +83,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.census("i2", "p2")
     |> Trace.merge("d1", "d2", :auto)
     |> Trace.sweep("p1")
-    |> Trace.assert_golden!(demonstrates: "sweep_refreshes_expired_tombstone")
+    |> Trace.assert_golden!()
   end
 
   # #4615 (fixed): an agent check-in restores its soft-deleted device, and the restore bumps
@@ -113,6 +110,23 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!()
   end
 
+  # add-source-id-succession task 9.7 (fixed): a sweep seeds a host, the seed is merged into a
+  # census device found at another address, and the merged-away seed is purged. The next sweep
+  # of the seed's address finds no row there, and the uid the address derives redirects to the
+  # survivor, so the sweep seeds a new record under the next uid of the chain, and a source
+  # still carrying the purged uid lands on the survivor. Kept as a regression trace.
+  test "purged_seed_sweep", %{actor: actor} do
+    "purged_seed_sweep"
+    |> Trace.start(world(["d1", "d2", "d3"], %{"i1" => :mac}, ["p1", "p2", "p3"]), actor)
+    |> Trace.sweep("p1")
+    |> Trace.census("i1", "p2")
+    |> Trace.merge("d1", "d2", :auto)
+    |> Trace.purge("d1")
+    |> Trace.sweep("p1")
+    |> Trace.by_uid("d1", "p3")
+    |> Trace.assert_golden!()
+  end
+
   # #4603: a device the resolver seeded from its address alone holds no strong identifier, so
   # it expires once unseen past the window (the model's Expire, whose ExpiryKeepsStrongIdentity
   # property forbids expiring a device that owns an identifier). A sweep that finds it again
@@ -127,19 +141,18 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!()
   end
 
-  # add-source-id-succession D12: a host only a sweep knows is seeded from its address, expires
-  # once unseen past the window, and then answers a sweep again. The sweep finds its tombstone,
-  # does not restore it (restore_eligible?/1 wants a discovery source other than the sweep) and
-  # writes the sighting to it, so the host stays deleted. The knockout checks the trace without
-  # the switch, under which the model restores the device, and requires TLC to reject it. The
-  # identifier is never reported: the seed must not own one.
+  # add-source-id-succession D12 (fixed): a host only a sweep knows is seeded from its address,
+  # expires once unseen past the window, and then answers a sweep again. The sweep restores its
+  # tombstone through :restore, which bumps its revision, although no source but the sweep ever
+  # found it. Kept as a regression trace. The identifier is never reported: the seed must not
+  # own one.
   test "expired_sweep_only_returns", %{actor: actor} do
     "expired_sweep_only_returns"
     |> Trace.start(world(["d1"], %{"i1" => :mac}, ["p1"]), actor)
     |> Trace.sweep("p1")
     |> Trace.expire("d1")
     |> Trace.sweep("p1")
-    |> Trace.assert_golden!(demonstrates: "sweep_refreshes_expired_tombstone")
+    |> Trace.assert_golden!()
   end
 
   # add-source-id-succession D5/D6: a source stops reporting an id of a record that also holds a

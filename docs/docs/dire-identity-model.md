@@ -194,7 +194,12 @@ blank partition on the check-in is `default`, for the device and the lookup.
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
 `Identity.BatchResolver`), including after the tombstone row has been purged,
-unless an unmerge reversed that merge.
+unless an unmerge reversed that merge. Sweep seeding follows the same mapping:
+before creating a batch of seeds, `SweepResultsIngestor` checks the merge rows
+of the uids the addresses derive; a uid that redirects to a survivor takes the
+next free uid from a bounded chain (`Ids.reseeded_device_id/1`) rather than the
+merged-away uid, so a purged seed whose address the sweep revisits never lands
+back under its old id.
 
 A strong match in `Identity.Resolver` considers every record that owns one of
 the update's globally-unique MACs, not only the owner of the first MAC found.
@@ -348,11 +353,22 @@ for dry-run review, execution gates, and device/source allowlists.
 - Ephemeral device expiry (`EphemeralDeviceExpiry`, run by `DeviceCleanupWorker`; off by
   default, Settings -> Networks -> Inventory Cleanup): a live device holding no strong
   identifier -- no agent, source-authoritative id, hardware serial or globally-unique MAC --
-  and unseen past the window (default 30 days) is soft-deleted as `stale_ephemeral`.
-  Operator-created devices and devices matching the exclusion SRQL query never expire; a pass
-  that would expire more than `ephemeral_expiry_max_fraction` of live devices is refused
-  unless the override is set. Telemetry: `[:serviceradar, :inventory, :ephemeral_expiry,
-  :run]`, `:refused` and `:failed` (a raised pass, which never stops the purge). A returning device is restored with a revival audit row.
+  and unseen past the window (default 30 days) is soft-deleted as `stale_ephemeral`. A source
+  id held only in a device's metadata, as a string or a number, holds it in the delete
+  statement as well as in the candidate read. Operator-created devices and devices matching
+  the exclusion SRQL query never expire. A pass that would expire more than
+  `ephemeral_expiry_max_fraction` of live devices is refused unless
+  `ephemeral_expiry_guard_override` is set; the guard judges the devices the pass would
+  actually expire, and the override stays set, lifting the guard for every later pass, until
+  it is cleared. The pass counts `candidates`, `kept_by_evidence`, `kept_by_exclusion`,
+  `eligible`, `expired` and `skipped_at_delete` (eligible devices the delete did not expire)
+  alike in its result, its log line and the `[:serviceradar, :inventory, :ephemeral_expiry,
+  :run]` event; a refused pass emits `:refused` with the counts up to `eligible` and
+  `live_devices`, and a raised pass `:failed`, which never stops the purge. A returning device
+  is restored with a revival audit row: a sweep that finds its address answering restores it
+  whatever its discovery sources, and so does a sync that reports it again; a sweep that finds
+  the address down leaves it deleted. A sweep never writes its sighting to a tombstone it does
+  not restore.
 - Scheduled duplicate reconciliation (`Identity.DuplicateSweep`) is
   bounded (DB-side duplicate grouping, capped merges per run) and obeys
   the same merge policy as ingest; schedule health is monitored so a
