@@ -858,6 +858,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     refute Enum.any?(drain_srql_calls(), &String.starts_with?(&1.query, "in:traces "))
   end
 
+  @tag :web_ng_shared_fixture_db
   test "default traces tab falls back to raw spans when summaries are stale", %{conn: conn} do
     :persistent_term.put({__MODULE__, :empty_trace_summaries?}, true)
 

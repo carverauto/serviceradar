@@ -1080,6 +1080,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ marked_uid
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders missing-row state instead of crashing for unknown device uid", %{conn: conn} do
     uid = "missing-device-#{System.unique_integer([:positive])}"
 

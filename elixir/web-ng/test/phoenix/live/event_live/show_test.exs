@@ -150,6 +150,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     refute has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "related netflows link omits ephemeral source port and includes endpoints and dst port", %{
     conn: conn
   } do

@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.CliPkceAuthorizeLiveTest do
   alias ServiceRadarWebNG.AccountsFixtures
 
   @moduletag :integration
+  @moduletag :web_ng_shared_fixture_db
 
   @loopback "http://127.0.0.1:4317/cli/auth/callback"
 
