@@ -102,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   # one seam away.
   setup_all do
     sr_env = starrocks_env!()
+    validate_fixture_database!(sr_env.database)
     cnpg_env = cnpg_env!()
 
     prev_database = System.get_env("SERVICERADAR_STARROCKS_DATABASE")
@@ -117,16 +118,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
 
     starrocks = start_starrocks!(sr_env)
 
-    # Registered before schema/seeding so a setup failure still removes only
-    # this suite's rows from the shared warehouse database. The callback
-    # reconnects with its own pool: the setup-owned pool may be gone by the
-    # time on_exit runs, and every error fails loudly.
+    assert warehouse_objects!(starrocks, sr_env.database) == [],
+           "reader fixture warehouse is occupied; refusing to modify another run's objects"
+
+    # The initially empty fixture makes schema ownership explicit. Register
+    # before DDL so partial setup failures also remove this run's objects.
     on_exit(fn ->
       cleanup_starrocks_owned!(sr_env)
     end)
 
     apply_starrocks_schema!(starrocks, sr_env.database)
-    empty_owned_starrocks!(starrocks, sr_env.database)
 
     run_database = "srql_parity_mtr_readers_#{random_suffix()}"
 
@@ -393,13 +394,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
                  timeout: 120_000
                )
 
-      assert {:ok, %{rows: [["SUCCESS", encoded]]}} =
-               MySQL.query(
-                 "SELECT STATE, EXTRA_MESSAGE FROM information_schema.task_runs WHERE QUERY_ID = #{quote_sr(query_id)}",
-                 conn: conn
-               )
-
-      metadata = Jason.decode!(encoded)
+      metadata = refresh_metadata!(conn, query_id, System.monotonic_time(:millisecond) + 30_000)
       day = Calendar.strftime(before_midnight.time, "%Y%m%d")
       next_day = before_midnight.time |> DateTime.shift(day: 1) |> Calendar.strftime("%Y%m%d")
       partition = "p#{day}"
@@ -635,6 +630,32 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     case MySQL.query(sql, conn: conn, timeout: 60_000) do
       {:ok, %{rows: rows}} -> rows != []
       {:error, _reason} -> false
+    end
+  end
+
+  # The synchronous refresh can return before task_runs publishes its final
+  # state. Wait for this exact task, keeping failed tasks and timeouts fatal.
+  defp refresh_metadata!(conn, query_id, deadline) do
+    assert {:ok, %{rows: rows}} =
+             MySQL.query(
+               "SELECT STATE, EXTRA_MESSAGE FROM information_schema.task_runs WHERE QUERY_ID = #{quote_sr(query_id)}",
+               conn: conn,
+               timeout: 5_000
+             )
+
+    case rows do
+      [["SUCCESS", encoded]] ->
+        Jason.decode!(encoded)
+
+      pending when pending == [] or hd(hd(pending)) in ["PENDING", "RUNNING"] ->
+        assert System.monotonic_time(:millisecond) < deadline,
+               "refresh #{query_id} did not publish success within 30 seconds: #{inspect(rows)}"
+
+        Process.sleep(200)
+        refresh_metadata!(conn, query_id, deadline)
+
+      terminal ->
+        flunk("refresh #{query_id} failed or returned unexpected task metadata: #{inspect(terminal)}")
     end
   end
 
@@ -1068,18 +1089,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   end
 
   defp random_suffix do
-    4 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
+    8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
   end
 
-  # Device ids owned by this suite's synthetic fixture; warehouse cleanup
-  # deletes and counts only these rows so concurrent suites sharing the
-  # fixed database keep theirs.
-  @owned_devices "('sr:parity-dev-a', 'sr:parity-dev-b', 'sr:parity-dev-c')"
+  defp validate_fixture_database!(database) do
+    assert Schema.valid_database?(database) and
+             String.starts_with?(database, "srql_parity_") and
+             database != "srql_parity_" and
+             not Regex.match?(~r/^srql_parity_[0-9]{14}_[0-9]+$/, database),
+           "reader parity requires a fixed srql_parity_* fixture database"
+  end
 
-  # Reconnects with an owned pool, removes only this suite's rows, asserts
-  # same-backend zero counts, and closes the owned pool. Every error fails;
-  # tables/views that were never created are skipped only after an explicit
-  # information_schema check proves they are absent.
+  # Reconnect because ExUnit stops setup-owned pools before on_exit. Remove
+  # views before their base tables, then re-list the same backend to prove
+  # absence. A subsequent Rust parity run must see an empty fixture schema.
   defp cleanup_starrocks_owned!(env) do
     name = MtrReaderParityStarRocksCleanup
     if pid = Process.whereis(name), do: GenServer.stop(pid)
@@ -1087,61 +1110,56 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
     {:ok, _} = MyXQL.start_link(starrocks_connect_opts(env, name))
 
     try do
-      empty_owned_starrocks!(name, env.database)
+      objects = warehouse_objects!(name, env.database)
+      declared = declared_warehouse_objects(env.database)
+
+      assert Enum.all?(objects, fn {object, _kind} -> MapSet.member?(declared, object) end),
+             "unexpected fixture schema objects; refusing to delete objects this suite did not create"
+
+      for {object, kind} <- Enum.sort_by(objects, fn {object, kind} -> {kind == "BASE TABLE", object} end) do
+        assert Schema.valid_database?(object), "invalid fixture object identifier"
+        operation = if kind == "BASE TABLE", do: "TABLE", else: "MATERIALIZED VIEW"
+
+        sr!(
+          MySQL.query("DROP #{operation} IF EXISTS #{env.database}.#{object}",
+            conn: name,
+            timeout: 120_000
+          )
+        )
+      end
+
+      assert warehouse_objects!(name, env.database) == [],
+             "reader fixture schema objects survived cleanup"
     after
       if pid = Process.whereis(name), do: GenServer.stop(pid)
     end
   end
 
-  defp starrocks_table_exists?(conn, database, table) do
-    sql = """
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = '#{database}' AND table_name = '#{table}' LIMIT 1
-    """
+  defp warehouse_objects!(conn, database) do
+    validate_fixture_database!(database)
 
-    case MySQL.query(sql, conn: conn, timeout: 60_000) do
-      {:ok, %{rows: rows}} -> rows != []
-      {:error, reason} -> raise("StarRocks statement failed: #{inspect(reason)}")
-    end
+    assert {:ok, %{rows: rows}} =
+             MySQL.query(
+               "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.tables WHERE TABLE_SCHEMA = '#{database}'",
+               conn: conn,
+               timeout: 60_000
+             )
+
+    Enum.map(rows, fn [object, kind] -> {object, kind} end)
   end
 
-  defp empty_owned_starrocks!(conn, database) do
-    traces? = starrocks_table_exists?(conn, database, "mtr_traces")
-    hops? = starrocks_table_exists?(conn, database, "mtr_hops")
+  defp declared_warehouse_objects(database) do
+    for migration <- Schema.migrations(), statement <- migration.statements, reduce: MapSet.new() do
+      objects ->
+        statement = Schema.retarget(statement, database, 1)
 
-    for {table, present} <- [{"mtr_hops", hops?}, {"mtr_traces", traces?}], present do
-      sr!(
-        MySQL.query(
-          "DELETE FROM #{database}.#{table} WHERE device_id IN #{@owned_devices}",
-          conn: conn,
-          timeout: 120_000
-        )
-      )
-
-      case MySQL.query(
-             "SELECT COUNT(*) FROM #{database}.#{table} WHERE device_id IN #{@owned_devices}",
-             conn: conn,
-             timeout: 60_000
-           ) do
-        {:ok, %{rows: [[0]]}} -> :ok
-        {:ok, %{rows: [[n]]}} -> flunk("#{table} still holds #{n} owned rows after cleanup")
-        {:error, reason} -> raise("StarRocks statement failed: #{inspect(reason)}")
-      end
-    end
-
-    # The views only exist once the schema ran, which also creates both
-    # base tables; when either table is absent the schema never ran and
-    # there is nothing to refresh. When both exist the views must exist
-    # too, so refresh unconditionally and fail every error.
-    if traces? and hops? do
-      for view <- @mtr_views do
-        sr!(
-          MySQL.query("REFRESH MATERIALIZED VIEW #{database}.#{view} WITH SYNC MODE",
-            conn: conn,
-            timeout: 120_000
-          )
-        )
-      end
+        case Regex.run(
+               ~r/^CREATE\s+(?:TABLE|MATERIALIZED\s+VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)/i,
+               statement
+             ) do
+          [_, ^database, object] -> MapSet.put(objects, object)
+          _ -> objects
+        end
     end
   end
 
@@ -1271,6 +1289,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
   defp values_equal?(l, r) when is_binary(l) and is_binary(r), do: l == r
   defp values_equal?(l, r) when is_boolean(l) and is_boolean(r), do: l == r
   defp values_equal?(nil, nil), do: true
+  defp values_equal?(l, r) when is_atom(l) and is_atom(r), do: l == r
 
   defp values_equal?(%DateTime{} = _l, _r), do: false
   defp values_equal?(_l, _r), do: false
