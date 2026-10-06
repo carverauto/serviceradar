@@ -319,6 +319,19 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorkerDBTest do
   end
 
   defp insert_speed!(device_id, speed_bps) do
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+    octet = :erlang.phash2(device_id, 254) + 1
+
+    Repo.query!(
+      """
+      INSERT INTO platform.ocsf_devices
+        (uid, ip, type_id, first_seen_time, last_seen_time)
+      VALUES ($1, $2, 0, $3, $3)
+      ON CONFLICT (uid) DO NOTHING
+      """,
+      [device_id, "203.0.113.#{octet}", now]
+    )
+
     Repo.query!(
       """
       INSERT INTO platform.discovered_interfaces
