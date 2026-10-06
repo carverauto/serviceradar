@@ -769,6 +769,71 @@ func TestApplyStagedAddonRuntimeConfigSeedsBundledConfigWithoutOverlay(t *testin
 	}
 }
 
+func TestApplyStagedAddonRuntimeConfigRefreshesStateWhenBundleChanges(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	stage := func(version string, config []byte) {
+		t.Helper()
+		tgz := makeAddonTarGz(t, map[string][]byte{
+			"serviceradar-bumblebee-scan": []byte("#!/bin/sh\nexit 0\n"),
+			"bumblebee-scan.json":         config,
+		})
+		key := "addons/bumblebee/" + version
+		store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+		a := &proto.AddonAssignmentConfig{
+			AddonId:           "bumblebee",
+			Version:           version,
+			BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+			Delivery:          "pushed_artifact",
+			ArtifactObjectKey: key,
+			ArtifactSha256:    sha256Hex(tgz),
+		}
+		if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+			t.Fatalf("stage %s: %v", version, err)
+		}
+	}
+
+	v1 := []byte("{\n  \"enabled\": true,\n  \"mode\": \"v1\"\n}\n")
+	v2 := []byte("{\n  \"enabled\": true,\n  \"mode\": \"v2\",\n  \"added\": true\n}\n")
+	stage("0.1.0", v1)
+	a := &proto.AddonAssignmentConfig{AddonId: "bumblebee", Version: "0.1.0"}
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatal(err)
+	}
+
+	stage("0.2.0", v2)
+	a.Version = "0.2.0"
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json")
+	state := readJSONMap(t, statePath)
+	if state["mode"] != "v2" || state["added"] != true {
+		t.Fatalf("empty upgrade kept the previous bundle: %#v", state)
+	}
+
+	a.ConfigJson = []byte(`{"mode":"custom"}`)
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatal(err)
+	}
+	state = readJSONMap(t, statePath)
+	if state["mode"] != "custom" || state["added"] != true {
+		t.Fatalf("overlay upgrade dropped the new bundle: %#v", state)
+	}
+
+	v3 := []byte("{\n  \"enabled\": true,\n  \"mode\": \"v3\"\n}\n")
+	stage("0.3.0", v3)
+	a.Version = "0.3.0"
+	a.ConfigJson = []byte(`{"enabled":false}`)
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatal(err)
+	}
+	state = readJSONMap(t, statePath)
+	if state["mode"] != "v3" || state["enabled"] != false || state["added"] != nil {
+		t.Fatalf("removed override did not fall back to the new bundle: %#v", state)
+	}
+}
+
 func TestStageAddonArtifactTarballMissingBinary(t *testing.T) {
 	root := t.TempDir()
 	tgz := makeAddonTarGz(t, map[string][]byte{

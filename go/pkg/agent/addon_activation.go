@@ -394,15 +394,26 @@ func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentC
 
 	configPath := filepath.Join(currentDir, configName)
 	stateConfigPath := filepath.Join(stateDir, configName)
-	if len(configJSON) == 0 {
-		if _, err := os.Stat(stateConfigPath); err == nil {
-			return nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("stat addon state config: %w", err)
+	basePath := filepath.Join(stateDir, ".serviceradar-config-base-"+configName)
+
+	// Read the staged bundle before any merge is written back over current/.
+	bundled, bundleChanged, err := loadAddonConfigBundle(configPath, basePath, stateConfigPath)
+	if err != nil {
+		return err
+	}
+	if bundleChanged {
+		if err := writeAddonFileAtomic(basePath, bundled, addonManifestMode); err != nil {
+			return fmt.Errorf("preserve staged addon config base: %w", err)
 		}
-		bundled, err := os.ReadFile(configPath)
-		if err != nil {
-			return fmt.Errorf("read staged addon config: %w", err)
+	}
+
+	if len(configJSON) == 0 {
+		if !bundleChanged {
+			if _, err := os.Stat(stateConfigPath); err == nil {
+				return nil
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat addon state config: %w", err)
+			}
 		}
 		if err := writeAddonFileAtomic(stateConfigPath, bundled, addonManifestMode); err != nil {
 			return fmt.Errorf("seed staged addon runtime config: %w", err)
@@ -410,22 +421,7 @@ func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentC
 		return nil
 	}
 
-	basePath := filepath.Join(stateDir, ".serviceradar-config-base-"+configName)
-
-	baseConfig, err := os.ReadFile(basePath)
-	if errors.Is(err, os.ErrNotExist) {
-		baseConfig, err = os.ReadFile(configPath)
-		if err != nil {
-			return fmt.Errorf("read staged addon config: %w", err)
-		}
-		if err := writeAddonFileAtomic(basePath, baseConfig, addonManifestMode); err != nil {
-			return fmt.Errorf("preserve staged addon config base: %w", err)
-		}
-	} else if err != nil {
-		return fmt.Errorf("read staged addon config base: %w", err)
-	}
-
-	mergedConfig, err := mergeAddonRuntimeConfig(baseConfig, configJSON)
+	mergedConfig, err := mergeAddonRuntimeConfig(bundled, configJSON)
 	if err != nil {
 		return err
 	}
@@ -439,6 +435,35 @@ func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentC
 	_ = writeAddonFileAtomic(configPath, mergedConfig, addonManifestMode)
 
 	return nil
+}
+
+// loadAddonConfigBundle reads the staged bundle before it is overwritten with a
+// merged runtime config. A later call sees that overwrite in current/; the saved
+// base remains the bundle until a new version's bytes differ from both the base
+// and the last written state.
+func loadAddonConfigBundle(configPath, basePath, statePath string) ([]byte, bool, error) {
+	current, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("read staged addon config: %w", err)
+	}
+	saved, err := os.ReadFile(basePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return current, true, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read staged addon config base: %w", err)
+	}
+	if bytes.Equal(saved, current) {
+		return saved, false, nil
+	}
+	state, stateErr := os.ReadFile(statePath)
+	if stateErr != nil && !errors.Is(stateErr, os.ErrNotExist) {
+		return nil, false, fmt.Errorf("read addon state config: %w", stateErr)
+	}
+	if stateErr == nil && bytes.Equal(current, state) {
+		return saved, false, nil
+	}
+	return current, true, nil
 }
 
 // StagedAddonArtifactPath returns the path to the retained artifact archive in a version directory.
