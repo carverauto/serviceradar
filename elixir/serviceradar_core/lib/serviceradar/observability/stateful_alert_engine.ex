@@ -206,8 +206,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp dispatch_shard(shard, message_tag, records, snapshot_rules \\ :reload) do
     with {:ok, pid} <- ensure_started(shard) do
       case snapshot_rules do
-        :reload -> call(shard, pid, {message_tag, records})
-        rules when is_list(rules) -> call(shard, pid, {message_tag, records, {:snapshot_rules, rules}})
+        :reload ->
+          call(shard, pid, {message_tag, records})
+
+        rules when is_list(rules) ->
+          call(shard, pid, {message_tag, records, {:snapshot_rules, rules}})
       end
     end
   end
@@ -477,9 +480,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
         result =
           case signal do
-            :log -> process_records(records, &StateMachine.process_log_rules(&1, rules, state))
-            :event -> process_records(records, &StateMachine.process_event_rules(&1, rules, state))
-            :metric -> process_records(records, &StateMachine.process_metric_rules(&1, rules, state))
+            :log ->
+              process_records(records, &StateMachine.process_log_rules(&1, rules, state))
+
+            :event ->
+              process_records(records, &StateMachine.process_event_rules(&1, rules, state))
+
+            :metric ->
+              process_records(records, &StateMachine.process_metric_rules(&1, rules, state))
           end
 
         {:reply, result, state}

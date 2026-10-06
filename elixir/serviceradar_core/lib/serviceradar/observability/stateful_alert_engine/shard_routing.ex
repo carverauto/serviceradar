@@ -45,7 +45,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.ShardRouting do
           |> Enum.filter(&(&1.signal == signal))
           |> Enum.group_by(&shard_for_rule_id.(&1.id))
 
-        {:ok, %{shards: rules_by_shard |> Map.keys() |> Enum.sort(), rules_by_shard: rules_by_shard}}
+        {:ok,
+         %{shards: rules_by_shard |> Map.keys() |> Enum.sort(), rules_by_shard: rules_by_shard}}
 
       :error ->
         :all

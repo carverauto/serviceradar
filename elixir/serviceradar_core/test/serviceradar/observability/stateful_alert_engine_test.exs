@@ -1614,7 +1614,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.count(active_alerts, &(&1.title == title)) == 1
   end
 
-  test "routing evaluates raw-writer rule changes and replay truncates from one snapshot", %{actor: actor} do
+  test "routing evaluates raw-writer rule changes and replay truncates from one snapshot", %{
+    actor: actor
+  } do
     previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
     Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
     reset_engine()
@@ -1629,6 +1631,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end)
 
     shard_for = &StatefulAlertEngine.shard_for_rule_id/1
+
     {:ok, %{shards: _routed_before, rules_by_shard: event_by_shard}} =
       ShardRouting.snapshot_for(:event, shard_for)
 
@@ -1637,8 +1640,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     # below proves the raw insert (not a pre-existing rule) fires the alert.
     uncovered =
       cond do
-        Map.get(event_by_shard, 0, []) == [] -> 0
-        Map.get(event_by_shard, 1, []) == [] -> 1
+        Map.get(event_by_shard, 0, []) == [] ->
+          0
+
+        Map.get(event_by_shard, 1, []) == [] ->
+          1
+
         true ->
           for rule <- Map.get(event_by_shard, 1, []) do
             Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [rule.id])
@@ -1682,7 +1689,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     # Warm both shards so the raw writes below must be visible to the very
     # next routing read, not just to a cold start.
-    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("warm-#{unique}", "warm-#{unique}-1")])
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               raw_event.("warm-#{unique}", "warm-#{unique}-1")
+             ])
 
     title = "Shard raw writer #{unique}"
     raw_id = rule_id_for_shard(uncovered)
@@ -1693,7 +1703,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         raw_id,
         "shard-fanout-#{unique}-raw",
         Jason.encode!(%{"attribute_equals" => %{"routing_family" => "#{unique}"}}),
-        Jason.encode!(%{"log_name" => "alert.test.shard_raw_writer", "message" => "Raw writer finding"}),
+        Jason.encode!(%{
+          "log_name" => "alert.test.shard_raw_writer",
+          "message" => "Raw writer finding"
+        }),
         Jason.encode!(%{"title" => title, "severity" => "warning"})
       ]
     )
@@ -1705,7 +1718,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     # fires a persisted alert, while an unrelated family still fires nothing.
     assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("#{unique}", "#{unique}-1")])
     assert count_alerts.(title) == 1
-    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("other-#{unique}", "other-#{unique}-1")])
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               raw_event.("other-#{unique}", "other-#{unique}-1")
+             ])
+
     assert count_alerts.(title) == 1
 
     # A raw update is visible to the next batch: the old family stops matching
@@ -1727,7 +1745,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       [raw_id, Jason.encode!(%{"title" => updated_title, "severity" => "warning"})]
     )
 
-    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("updated-#{unique}", "updated-#{unique}-1")])
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               raw_event.("updated-#{unique}", "updated-#{unique}-1")
+             ])
+
     assert count_alerts.(updated_title) == 1
 
     # A raw delete is visible to the next batch: nothing more fires, even with
@@ -1736,7 +1758,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     assert {:ok, %{shards: routed_deleted}} = ShardRouting.snapshot_for(:event, shard_for)
     refute uncovered in routed_deleted
-    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("updated-#{unique}", "updated-#{unique}-2")])
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               raw_event.("updated-#{unique}", "updated-#{unique}-2")
+             ])
+
     assert count_alerts.(updated_title) == 1
 
     ServiceRadar.Observability.ApiEvent.ClearForReplay.clear_records!([])

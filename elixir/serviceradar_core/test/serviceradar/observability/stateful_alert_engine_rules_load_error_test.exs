@@ -188,7 +188,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
     end)
   end
 
-  test "failed restoration rejects recovery and retries before resolving", %{pid: pid} do
+  test "failed restoration rejects recovery and retries before resolving", %{pid: pid, mode: mode} do
     rule_id = rule_id_for_shard(3)
     now = ~U[2026-09-05 12:00:00Z]
     {:ok, snapshots} = Agent.start_link(fn -> {:error, :read_unavailable} end)
@@ -202,6 +202,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
       match: %{"subject_prefix" => "test.down", "recovery" => %{"subject_prefix" => "test.ready"}},
       bucket_seconds: 60
     }
+
+    # The engine reads committed rules on every batch (no rule cache), so the
+    # rule under test must come through the reader; state alone is overwritten.
+    Agent.update(mode, fn _ -> {:ok, [rule]} end)
 
     :sys.replace_state(pid, fn state ->
       state
