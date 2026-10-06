@@ -834,6 +834,83 @@ func TestApplyStagedAddonRuntimeConfigRefreshesStateWhenBundleChanges(t *testing
 	}
 }
 
+func TestApplyStagedAddonRuntimeConfigUsesLegacyBaseNotMergedCurrent(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	versionDir := filepath.Join(root, "bumblebee", addonVersionsDir, "0.1.0")
+	if err := os.MkdirAll(versionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	merged := []byte("{\n  \"keep\": \"merged\",\n  \"mode\": \"custom\"\n}\n")
+	legacy := []byte("{\n  \"keep\": \"artifact\",\n  \"mode\": \"v1\"\n}\n")
+	if err := os.WriteFile(filepath.Join(versionDir, "bumblebee-scan.json"), merged, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, ".serviceradar-config-base-bumblebee-scan.json"), legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(addonVersionsDir, "0.1.0"), filepath.Join(root, "bumblebee", addonCurrentLink)); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:    "bumblebee",
+		ConfigJson: []byte(`{"mode":"next"}`),
+	}
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatal(err)
+	}
+	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
+	if state["keep"] != "artifact" || state["mode"] != "next" {
+		t.Fatalf("merge used the overwritten current file: %#v", state)
+	}
+}
+
+func TestApplyStagedAddonRuntimeConfigAdoptsArtifactEqualToState(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	bundle := []byte("{\n  \"from\": \"artifact\",\n  \"mode\": \"new\"\n}\n")
+	tgz := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-bumblebee-scan": []byte("#!/bin/sh\nexit 0\n"),
+		"bumblebee-scan.json":         bundle,
+	})
+	versionDir := filepath.Join(root, "bumblebee", addonVersionsDir, "0.2.0")
+	if err := os.MkdirAll(versionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "artifact.tar.gz"), tgz, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "bumblebee-scan.json"), bundle, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(addonVersionsDir, "0.2.0"), filepath.Join(root, "bumblebee", addonCurrentLink)); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := addonStateDir(runtimeRoot, "bumblebee")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "bumblebee-scan.json"), bundle, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldBase := []byte("{\n  \"from\": \"base\",\n  \"mode\": \"old\"\n}\n")
+	if err := os.WriteFile(filepath.Join(stateDir, ".serviceradar-config-base-bumblebee-scan.json"), oldBase, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, &proto.AddonAssignmentConfig{
+		AddonId:    "bumblebee",
+		ConfigJson: []byte(`{"flag":true}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state := readJSONMap(t, filepath.Join(stateDir, "bumblebee-scan.json"))
+	if state["from"] != "artifact" || state["mode"] != "new" || state["flag"] != true {
+		t.Fatalf("artifact matching state was not adopted: %#v", state)
+	}
+}
+
 func TestStageAddonArtifactTarballMissingBinary(t *testing.T) {
 	root := t.TempDir()
 	tgz := makeAddonTarGz(t, map[string][]byte{

@@ -672,7 +672,14 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 		return disposition
 	}
 
+	stateSnap, snapErr := snapshotAddonStateDir(runtimeRoot, a.GetAddonId())
+	if snapErr != nil {
+		p.logSidecarDeliveryFailure(a, snapErr, addonDeliveryTransientFailure,
+			"Systemd add-on state snapshot failed; leaving current state unchanged")
+		return addonDeliveryTransientFailure
+	}
 	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		stateSnap.restore()
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on config write failure")
 		}
@@ -691,6 +698,9 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 	if !p.reconcileStagedSystemdUnits(ctx, a, supervision, runtimeRoot, priorTarget, install) {
 		// Unit discovery/install failure: treat as transient (the agent-updater may be
 		// momentarily unavailable) so the ack defers and the install is retried promptly.
+		// The previous unit is re-enabled against the previous state config, not the
+		// candidate's.
+		stateSnap.restore()
 		return addonDeliveryTransientFailure
 	}
 

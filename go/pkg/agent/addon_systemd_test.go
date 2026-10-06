@@ -703,7 +703,8 @@ func TestInstallAddonSystemdUnitsLifecycle(t *testing.T) {
 
 	// Step 2: Re-configuration writes to state/ without modifying privRoot
 	stageTestAddonFiles(t, resolveAddonArtifactRoot(root), "np", map[string]string{
-		"np.json": `{"mode":"prod"}`,
+		"np.json":                           `{"mode":"prod"}`,
+		".serviceradar-config-base-np.json": `{"mode":"prod"}`,
 	})
 	cfgAssignment := &proto.AddonAssignmentConfig{
 		AddonId:    "np",

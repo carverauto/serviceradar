@@ -69,6 +69,70 @@ func newSystemdAddonPushLoop(t *testing.T) *PushLoop {
 	return NewPushLoop(&Server{config: &ServerConfig{}}, nil, 30*time.Second, logger.NewTestLogger())
 }
 
+func TestFailedSystemdActivationRestoresPreviousStateConfig(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	stage := func(version string, config []byte) {
+		t.Helper()
+		tgz := makeAddonTarGz(t, map[string][]byte{
+			"serviceradar-bumblebee-scan":         []byte("#!/bin/sh\nexit 0\n"),
+			"bumblebee-scan.json":                 config,
+			"serviceradar-bumblebee-scan.service": []byte("[Service]\nExecStart=/bin/true\n"),
+		})
+		key := "addons/bumblebee/" + version
+		store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+		a := &proto.AddonAssignmentConfig{
+			AddonId:           "bumblebee",
+			Version:           version,
+			BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+			ArtifactObjectKey: key,
+			ArtifactSha256:    sha256Hex(tgz),
+		}
+		if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+			t.Fatalf("stage %s: %v", version, err)
+		}
+	}
+	v1 := []byte("{\n  \"mode\": \"v1\"\n}\n")
+	stage("0.1.0", v1)
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, &proto.AddonAssignmentConfig{
+		AddonId: "bumblebee",
+		Version: "0.1.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pl := newSystemdAddonPushLoop(t)
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "bumblebee",
+		Version:           "0.2.0",
+		ArtifactSignature: "sig",
+		ConfigJson:        []byte(`{"mode":"v2"}`),
+	}
+	disposition := pl.applySystemdAddonAtRoot(
+		context.Background(),
+		a,
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		time.Now(),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool { return false },
+		func(context.Context, *proto.AddonAssignmentConfig, string, time.Time) (string, addonDeliveryDisposition, error) {
+			stage("0.2.0", []byte("{\n  \"mode\": \"v2\"\n}\n"))
+			return "", addonDeliverySucceeded, nil
+		},
+		func(context.Context, AddonSystemdInstallRequest) error {
+			return errAgentUpdaterUnavailable
+		},
+	)
+	if disposition != addonDeliveryTransientFailure {
+		t.Fatalf("disposition = %v, want transient failure", disposition)
+	}
+	state := readJSONMap(t, filepath.Join(addonStateDir(runtimeRoot, "bumblebee"), "bumblebee-scan.json"))
+	if state["mode"] != "v1" {
+		t.Fatalf("failed activation left the new state config in place: %#v", state)
+	}
+}
+
 func TestTimerActivationIsRequestedOnlyForANewVersion(t *testing.T) {
 	timer := "serviceradar-netprobe.timer"
 	for _, tc := range []struct {
