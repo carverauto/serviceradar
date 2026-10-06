@@ -41,6 +41,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     credential_mode
     credentials
     desktop_allowed_principals
+    file_transfer_policy
+    file_transfer_quota
     host_header
     http_headers
     max_request_bytes
