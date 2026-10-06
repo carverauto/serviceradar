@@ -340,6 +340,17 @@ read_secret_env = fn env_name, file_env_name ->
   end
 end
 
+validate_signing_secret! = fn value, env_name ->
+  if byte_size(String.trim(value)) < 64 do
+    raise """
+    environment variable #{env_name} must contain at least 64 bytes of random data.
+    Generate a value with: openssl rand -base64 64
+    """
+  end
+
+  value
+end
+
 plugin_storage_signing_secret =
   read_secret_env.("PLUGIN_STORAGE_SIGNING_SECRET", "PLUGIN_STORAGE_SIGNING_SECRET_FILE")
 
@@ -1555,8 +1566,10 @@ if config_env() == :prod do
     read_secret_env.("SECRET_KEY_BASE", "SECRET_KEY_BASE_FILE") ||
       raise """
       environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
+      Generate a value with: openssl rand -base64 64
       """
+
+  secret_key_base = validate_signing_secret!.(secret_key_base, "SECRET_KEY_BASE")
 
   host = System.get_env("PHX_HOST") || "localhost"
 
@@ -1610,7 +1623,11 @@ if config_env() == :prod do
   # Token signing secret for AshAuthentication JWT tokens
   # Falls back to SECRET_KEY_BASE if not explicitly set
   token_signing_secret =
-    System.get_env("TOKEN_SIGNING_SECRET") || secret_key_base
+    case System.get_env("TOKEN_SIGNING_SECRET") do
+      nil -> secret_key_base
+      "" -> secret_key_base
+      value -> validate_signing_secret!.(value, "TOKEN_SIGNING_SECRET")
+    end
 
   session_idle_seconds =
     "SERVICERADAR_SESSION_IDLE_TIMEOUT_SECONDS"

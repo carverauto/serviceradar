@@ -44,7 +44,7 @@ PACKAGES = {
             {
                 "src": "config/web-ng.env",
                 "dest": "/etc/serviceradar/web-ng.env",
-                "mode": "0644",
+                "mode": "0600",
                 "rpm_filetag": "config(noreplace)",
             },
         ],
