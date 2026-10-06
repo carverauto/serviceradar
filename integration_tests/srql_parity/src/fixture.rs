@@ -226,7 +226,11 @@ fn app_label(protocol_num: i32, dst_port: i32, src_ip: &str, dst_ip: &str) -> &'
         .filter(|set| **set)
         .count();
         let rank = (rule.priority, specificity, -(rule.id as i64));
-        if best.map_or(true, |(_, _, best_rank, _)| rank > best_rank) {
+        if best.map_or(true, |(bp, bs, bid, _)| {
+            rank.0 > bp
+                || (rank.0 == bp && rank.1 > bs)
+                || (rank.0 == bp && rank.1 == bs && rank.2 > bid)
+        }) {
             best = Some((
                 rule.priority,
                 specificity,
