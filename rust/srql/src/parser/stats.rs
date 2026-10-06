@@ -15,7 +15,7 @@ pub(crate) fn strip_matching_quotes(raw: &str) -> &str {
     raw
 }
 
-fn split_stats_group_by(expr: &str) -> (String, Option<String>) {
+pub(crate) fn split_stats_group_by(expr: &str) -> (String, Option<String>) {
     let trimmed = expr.trim();
     let lower = trimmed.to_lowercase();
 

@@ -2498,3 +2498,106 @@ fn security_events_refuses_unsupported_queries() {
         assert!(translate_request(&config, request).is_err(), "{query}");
     }
 }
+
+#[test]
+fn log_cookbook_grouped_stats_translate_on_both_backends() {
+    for mode in [None, Some("starrocks".to_string())] {
+        for (groups, group_sql) in [
+            ("severity_text", "GROUP BY severity_text"),
+            ("service_name", "GROUP BY service_name"),
+            (
+                "service_name,severity_text",
+                "GROUP BY service_name, severity_text",
+            ),
+        ] {
+            let query = format!("in:logs time:last_24h stats:count() as total by {groups}");
+            let ast = parser::parse(&query).unwrap();
+            assert_eq!(ast.stats.as_ref().unwrap().aggregations[0].alias, "total");
+            let mut request = request_for(&query);
+            request.mode = mode.clone();
+            let response = translate_request(&test_config(), request).expect("grouped logs stats");
+            assert!(response.sql.contains(group_sql), "{}", response.sql);
+            assert!(
+                response.sql.to_lowercase().contains("count(*)"),
+                "{}",
+                response.sql
+            );
+            for field in groups.split(',') {
+                assert!(response.sql.contains(field), "{}", response.sql);
+            }
+            if mode.is_none() {
+                assert_eq!(max_dollar_placeholder(&response.sql), response.params.len());
+            } else {
+                assert!(!response.sql.contains('$'), "{}", response.sql);
+            }
+        }
+    }
+}
+
+#[test]
+fn log_cookbook_body_wildcards_translate_on_both_backends() {
+    for mode in [None, Some("starrocks".to_string())] {
+        for field in ["body", "message"] {
+            for suffix in ["", " stats:count() as total"] {
+                let mut request =
+                    request_for(&format!("in:logs {field}:%gateway% time:last_24h{suffix}"));
+                request.mode = mode.clone();
+                let response = translate_request(&test_config(), request).expect("body wildcard");
+                assert!(
+                    response.sql.to_lowercase().contains("body")
+                        && response.sql.to_lowercase().contains("like"),
+                    "{}",
+                    response.sql
+                );
+                if mode.is_none() {
+                    assert!(
+                        response
+                            .params
+                            .iter()
+                            .any(|p| matches!(p, BindParam::Text(v) if v == "%gateway%"))
+                    );
+                } else {
+                    assert!(
+                        response.sql.contains("LIKE '%gateway%'"),
+                        "{}",
+                        response.sql
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn grouped_log_stats_sort_and_bound_groups() {
+    let response = translate_request(
+        &test_config(),
+        request_for(
+            "in:logs time:last_24h stats:count() as total by severity_text sort:total:desc limit:7",
+        ),
+    )
+    .unwrap();
+    assert!(
+        response
+            .sql
+            .contains("ORDER BY coalesce(COUNT(*), 0) DESC, severity_text ASC"),
+        "{}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("LIMIT 7 OFFSET 0"),
+        "{}",
+        response.sql
+    );
+    for query in [
+        "in:logs stats:count() as total by unsupported",
+        "in:logs stats:count() as total by severity_text,",
+        "in:logs stats:count() as severity_text by severity_text",
+        "in:logs stats:count() as total by severity_text sort:service_name:desc",
+    ] {
+        assert!(
+            translate_request(&test_config(), request_for(query)).is_err(),
+            "{query}"
+        );
+    }
+}

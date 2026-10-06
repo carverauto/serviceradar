@@ -2276,6 +2276,11 @@ pub(super) fn validate_identifier(value: &str) -> Result<()> {
 
 fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     let dataset = dataset_for(&plan.entity).unwrap();
+    let field = if matches!(plan.entity, Entity::Logs) && field == "message" {
+        "body"
+    } else {
+        field
+    };
     let flow = matches!(plan.entity, Entity::Flows | Entity::AttributedFlows);
     let qualified = flow
         && (plan_mentions(plan, &["direction"])
