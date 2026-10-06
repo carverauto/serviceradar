@@ -102,7 +102,19 @@ snapshots omitted behind the pending frame. Later event totals remain in ETS,
 while intervening gauge history is intentionally coalesced. Publisher restart
 loses volatile samples and resets the reporting watermarks. Publication cannot
 wait in an ingestion caller or recursively publish a failure immediately
-through the failed transport.
+through the failed transport. A failed publish is still logged directly: the
+first failure of an outage warns, a reminder follows every sixtieth
+consecutive failure, and recovery is logged once. Log fields carry only the
+subject, a reason class, and a count.
+
+Interval negatively-acknowledged counts are the
+`result_ingestion_terminals_not_accepted` completion outcomes: worker errors,
+timeouts, and persistence failures surfaced as not-accepted replies. Admission
+refusals (`result_ingestion_rejections_*`) are caller-side rejections, never
+agent NACKs. `result_ingestion_events_incomplete_run` (lane `sync`) counts
+final validation attempts that found the ledger incomplete: one per activation
+attempt, not distinct runs, so a replayed run that is still incomplete counts
+again.
 
 Core has an exact publish permission for this subject, and the METRICS stream
 covers `metrics.>`. EventWriter owns persistence, selecting StarRocks exclusively

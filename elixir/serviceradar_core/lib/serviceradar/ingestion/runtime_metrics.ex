@@ -11,6 +11,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   """
   use GenServer
 
+  require Logger
+
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
   alias Serviceradar.Metric.V1.MetricBatch
@@ -21,6 +23,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
 
   @table __MODULE__
   @subject "metrics.ingestion_lanes"
+  @publish_outage_reminder_every 60
   @lanes [
     :flow_attribution,
     :retained_plugin_result,
@@ -47,6 +50,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :worker_crash,
     :caller_down,
     :coordinator_restart,
+    :incomplete_run,
     :cancellation,
     :delivery,
     :publish_failure,
@@ -155,7 +159,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
        publish_opts: Keyword.get(opts, :publish_opts, []),
        pending: nil,
        reported: %{},
-       interval_start: System.system_time(:nanosecond)
+       interval_start: System.system_time(:nanosecond),
+       outage_failures: 0
      }}
   end
 
@@ -171,26 +176,54 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
       state.pending ||
         frame(:ets.tab2list(@table), state.reported, state.interval_start, now)
 
-    {pending, reported, interval_start} =
+    {pending, reported, interval_start, outage_failures} =
       case frame do
         nil ->
-          {nil, state.reported, state.interval_start}
+          {nil, state.reported, state.interval_start, state.outage_failures}
 
         {body, id, counters, frame_start} ->
           opts = Keyword.merge(state.publish_opts, timeout: 1_000, msg_id: id)
 
           case publish(body, opts) do
             :ok ->
-              {nil, counters, frame_start}
+              if state.outage_failures > 0 do
+                Logger.info(
+                  "Ingestion lane metrics publish recovered",
+                  subject: @subject,
+                  failures: state.outage_failures
+                )
+              end
 
-            {:error, _} ->
+              {nil, counters, frame_start, 0}
+
+            {:error, reason} ->
+              failures = state.outage_failures + 1
+
+              if failures == 1 or rem(failures, @publish_outage_reminder_every) == 0 do
+                Logger.warning(
+                  "Ingestion lane metrics publish failing; buffering one frame",
+                  subject: @subject,
+                  failures: failures,
+                  reason: publish_error_class(reason)
+                )
+              end
+
               record(:service_state, :publish_failure, %{})
-              {{body, id, counters, frame_start}, state.reported, state.interval_start}
+              held = {body, id, counters, frame_start}
+              {held, state.reported, state.interval_start, failures}
           end
       end
 
     Process.send_after(self(), :publish, state.interval)
-    {:noreply, %{state | pending: pending, reported: reported, interval_start: interval_start}}
+
+    {:noreply,
+     %{
+       state
+       | pending: pending,
+         reported: reported,
+         interval_start: interval_start,
+         outage_failures: outage_failures
+     }}
   end
 
   defp frame([], _reported, _interval_start, _now), do: nil
@@ -256,7 +289,13 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   end
 
   defp delta(value, :gauge, _lane, _name, _reported), do: value
-  defp delta(value, kind, lane, name, reported), do: value - Map.get(reported, {kind, lane, name}, 0)
+
+  defp delta(value, kind, lane, name, reported),
+    do: value - Map.get(reported, {kind, lane, name}, 0)
+
+  defp publish_error_class({tag, _detail}) when is_atom(tag), do: Atom.to_string(tag)
+  defp publish_error_class(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp publish_error_class(_reason), do: "unknown"
 
   defp publish(body, opts) do
     JetStreamPublish.publish(@subject, body, opts)

@@ -699,9 +699,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp maybe_activate_source_snapshot(:ok, updates, %{is_final: true} = sync_meta, actor) do
     case ArmisSourceSnapshot.activate(updates, sync_meta, actor: actor) do
-      :ok -> :ok
-      {:error, :not_armis_source} -> :ok
-      {:error, reason} -> {:error, {:source_snapshot_activation_failed, reason}}
+      :ok ->
+        :ok
+
+      {:error, :not_armis_source} ->
+        :ok
+
+      {:error, :sync_run_incomplete} ->
+        RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
+        {:error, {:source_snapshot_activation_failed, :sync_run_incomplete}}
+
+      {:error, reason} ->
+        {:error, {:source_snapshot_activation_failed, reason}}
     end
   end
 
