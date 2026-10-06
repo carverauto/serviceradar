@@ -614,6 +614,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert has_element?(lv, "#alerts-live-status", "Off")
   end
 
+  test "alerts tab clamps requested limit to 100 rows", %{conn: conn} do
+    {:ok, _lv, _html} =
+      live(
+        conn,
+        ~p"/observability/alerts?#{%{q: "in:alerts time:last_24h sort:triggered_at:desc limit:200"}}"
+      )
+
+    calls = drain_srql_calls()
+    alert_call = Enum.find(calls, fn c -> String.starts_with?(c.query, "in:alerts") end)
+
+    assert alert_call != nil, "expected an in:alerts SRQL call"
+    assert alert_call.limit == 100
+  end
+
+  test "netflows tab clamps requested limit to 100 rows", %{conn: conn} do
+    {:ok, _lv, _html} =
+      live(
+        conn,
+        ~p"/observability/netflows?#{%{q: "in:flows time:last_1h sort:timestamp:desc limit:200"}}"
+      )
+
+    calls = drain_srql_calls()
+    netflow_call = Enum.find(calls, fn c -> String.starts_with?(c.query, "in:flows") end)
+
+    assert netflow_call != nil, "expected an in:flows SRQL call"
+    assert netflow_call.limit == 100
+  end
+
   test "netflows keep the shared observability shell visible", %{conn: conn} do
     {:ok, _lv, html} =
       live(conn, ~p"/observability?#{%{tab: "netflows", q: "in:flows time:last_1h sort:timestamp:desc", limit: 20}}")
