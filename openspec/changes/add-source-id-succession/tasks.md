@@ -126,9 +126,9 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       `source_retirement_guard_override`, `source_retired_grace_days` (default 7) and
       `max_successions_per_run` (default 200). Seed the defaults in the settings seeder.
 - [x] 2.3 Add the new fields to the Inventory Cleanup settings page in web-ng.
-- [ ] 2.4 Bump `core.migrations.expectedVersion` in `helm/serviceradar/values.yaml` to the
+- [x] 2.4 Bump `core.migrations.expectedVersion` in `helm/serviceradar/values.yaml` to the
       newest migration this change adds, in the same pull request as each migration. Done for
-      PR 2's, PR 3's and PR 6's migrations; 9.4's bumps it again.
+      PR 2's, PR 3's and PR 6's migrations, and for 9.4's in PR 7. PR 8 adds no migration.
 
 ## 3. Retirement (D1)
 
@@ -268,7 +268,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 ## 12. Promote the model as each fix lands
 
-- [ ] 12.1 In each fix pull request, remove its switch from `KnownBugs` and `CurrentBugs.tla`,
+- [x] 12.1 In each fix pull request, remove its switch from `KnownBugs` and `CurrentBugs.tla`,
       delete its witness configuration and the knockout and trace witness configurations of the
       traces that demonstrate it, regenerate the affected traces with `DIRE_TRACE_WRITE=1`,
       model-check them, and make the property must-pass. Done in PR 2 for
@@ -284,7 +284,7 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       (9.7) with its witness and the trace `purged_seed_sweep`, and removes it with the fix,
       keeping the regenerated trace; it removes `sweep_refreshes_expired_tombstone` (D12) and
       regenerates `sweep_restores_merged` and `expired_sweep_only_returns`. D13 and D14 had no
-      switch.
+      switch. PR 8 removes no switch, since D11 had none.
 - [x] 12.2 After the last fix, `KnownBugs` and `CurrentBugs` hold none of this change's switches,
       and both negative configurations still report `violation:NoFalseMerge`. Done in PR 7: both
       models' `KnownBugs`, `ResolutionBugs` and `LifecycleBugs` are empty, and the negative
@@ -293,17 +293,17 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
 
 ## 13. Remediation (D11)
 
-- [ ] 13.1 Add the steps `source-id-retire`, `source-succession` and `released-seed-shells` to
+- [x] 13.1 Add the steps `source-id-retire`, `source-succession` and `released-seed-shells` to
       `DireRemediation`: dry-run by default with per-class counts (classes 1-8), `--execute` to
       write, batches of 500 by default, and the NDJSON manifest of archive row ids, merge audit
       ids, marked uids and tombstoned uids.
-- [ ] 13.2 Rollback from the manifest, per action: `unarchive`, unmerge with a distinct
+- [x] 13.2 Rollback from the manifest, per action: `unarchive`, unmerge with a distinct
       assertion, clear the mark, `Device :restore`.
-- [ ] 13.3 Verification checks V1-V8 as read-only queries run between batches. Show each one
+- [x] 13.3 Verification checks V1-V8 as read-only queries run between batches. Show each one
       failing on a synthetic fixture built in the pre-fix state before trusting it.
-- [ ] 13.4 Write the runbook under `docs/` (not `docs/docs/`), in ASCII: preconditions (the fix
+- [x] 13.4 Write the runbook under `docs/` (not `docs/docs/`), in ASCII: preconditions (the fix
       deployed), order, batches, checks, rollback, and confirming that every run started after
-      the rollout finished.
+      the rollout finished. PR 8 adds `docs/source-id-remediation-runbook.md`.
 
 ## 14. Tests
 
@@ -334,16 +334,17 @@ goal property in 1.1-1.6, stop and revise `design.md` before writing code.
       seam, and calls the SQL function on each key and value type.
 - [x] 14.9 Blocked accounting: an unchanged component is skipped, a retirement re-opens it, a
       rule-version change re-checks everything once, and blocks are not errors.
-- [ ] 14.10 Remediation: dry run writes nothing; execute writes the manifest; each rollback
+- [x] 14.10 Remediation: dry run writes nothing; execute writes the manifest; each rollback
       restores the pre-run state; every verification check fails on the pre-fix fixture.
-- [ ] 14.11 Extend the `add-hermetic-armis-dire-e2e` harness with the re-key scenarios.
-- [ ] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
+- [x] 14.11 Extend the `add-hermetic-armis-dire-e2e` harness with the re-key scenarios.
+- [x] 14.12 Bump the selected-test counts in `build/integration_test_dispositions.bzl` for every
       integration test added to an existing file, and keep the web-ng DB lane counts in step.
       Done for PR 2, PR 3, PR 4 and the alias pull request. #5171 removed the counts; from PR 5
       on, a new test file gets its disposition row and its lane entry instead; done for PR 5,
-      PR 6 and PR 7.
-- [ ] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
-      check not run. Done for PR 2, PR 3, PR 4, the alias pull request, PR 5, PR 6 and PR 7.
+      PR 6, PR 7 and PR 8.
+- [x] 14.13 Run `make test` (all TLC targets) and the affected integration lanes, and report any
+      check not run. Done for PR 2, PR 3, PR 4, the alias pull request, PR 5, PR 6, PR 7 and
+      PR 8.
 
 ## 15. Alias rows (D16)
 

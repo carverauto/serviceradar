@@ -50,6 +50,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
   @last_seen ~U[2026-02-01 00:00:00Z]
   @later ~U[2026-02-02 00:00:00Z]
 
+  @doc false
+  def write_after_lock(_event, _measurements, %{query: query}, {parent, write}) do
+    if self() == parent and not Process.get(:written_after_lock, false) and
+         String.contains?(query, "FOR NO KEY UPDATE") do
+      Process.put(:written_after_lock, true)
+      write.()
+    end
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -433,6 +442,96 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
                reason: "source_succession",
                succession: %{succession | partitions: ["elsewhere"]}
              )
+  end
+
+  test "a pair that went stale after the plan is skipped as stale, not failed", %{actor: actor} do
+    world = rekeyed(actor)
+    assert %{successive: [pair]} = SourceSuccession.plan(actor: actor)
+    [pair] = SourceSuccession.with_collections([pair])
+
+    # The successor lost its current id after the plan, so the pair is no longer successive;
+    # only the check under the locks reads that.
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "DELETE FROM platform.device_identifiers " <>
+                 "WHERE device_id = $1 AND identifier_type = 'armis_device_id'",
+               [world.successor]
+             )
+
+    assert {:error, :stale, {:succession_stale, :not_successive}} =
+             SourceSuccession.merge_pair(pair, actor)
+
+    assert device(world.predecessor, actor).deleted_at == nil
+    assert device(world.successor, actor).deleted_at == nil
+    assert {:ok, []} = MergeAudit.get_merged_to(pair.merged, actor: actor)
+  end
+
+  test "a source conflict the locked guard finds blocks the merge and is recorded",
+       %{actor: actor} do
+    source_id = Ecto.UUID.generate()
+    survivor = create_record!(actor)
+    merged = create_record!(actor)
+    register_armis_id!(actor, survivor.uid, source_id)
+
+    # A sync gives the merged record an id of the same source after the unlocked guard passed.
+    after_lock(fn -> register_armis_id!(actor, merged.uid, source_id) end)
+
+    assert {:error, {:source_authority_conflict, conflict}} =
+             MergeEngine.merge_devices(merged.uid, survivor.uid,
+               actor: actor,
+               reason: "duplicate"
+             )
+
+    assert Process.get(:written_after_lock)
+    assert conflict.device_ids == Enum.sort([merged.uid, survivor.uid])
+    assert device(merged.uid, actor).deleted_at == nil
+    assert {:ok, []} = MergeAudit.get_merged_to(merged.uid, actor: actor)
+
+    assert [_decision] =
+             IdentityDecision
+             |> Ash.Query.filter(
+               decision_kind == :source_block and reason == "source_authority_conflict"
+             )
+             |> Ash.read!(actor: actor)
+             |> Enum.filter(&(Enum.sort(&1.device_uids) == conflict.device_ids))
+  end
+
+  # Runs `write` once, in the test process, right after the merge transaction locks the records.
+  defp after_lock(write) do
+    id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        id,
+        [:service_radar, :repo, :query],
+        &__MODULE__.write_after_lock/4,
+        {self(), write}
+      )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+  end
+
+  defp create_record!(actor) do
+    Device
+    |> Ash.Changeset.for_create(:create, %{
+      uid: "sr:" <> Ecto.UUID.generate(),
+      hostname: "source-succession-test",
+      ip: TestSupport.unique_device_ip()
+    })
+    |> Ash.create!(actor: actor)
+  end
+
+  defp register_armis_id!(actor, device_uid, source_id) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:register, %{
+      device_id: device_uid,
+      identifier_type: :armis_device_id,
+      identifier_value: Integer.to_string(System.unique_integer([:positive])),
+      partition: "default",
+      source: "armis",
+      metadata: %{"sync_service_id" => source_id}
+    })
+    |> Ash.create!(actor: actor)
   end
 
   describe "classify/1" do

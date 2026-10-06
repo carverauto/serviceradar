@@ -24,6 +24,25 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     8. `armis-dups`   — collapse Armis rows onto their armis_device_id owner
        (DISABLED by default — see `@armis_dups_step` below)
 
+  The source id remediation (OpenSpec add-source-id-succession, design D11)
+  runs after `proxmox-dups`, in this order:
+
+    * `source-id-retire` — retire the stale source ids, and mark the records
+      already left holding only retired ids (`SourceIdRetire`)
+    * `source-succession` — merge each retired-only predecessor into its
+      successor, and record the reviews of the weaker pairs
+      (`SourceSuccessionMerge`)
+    * `released-seed-shells` — soft-delete the shells a seed release left
+      (`ReleasedSeedShells`)
+    * `source-id-verify` — explicit-only, read-only checks V1-V8
+      (`SourceIdVerification`), refused under execute
+    * `source-id-rollback` — explicit-only: reverses the three steps from the
+      manifests `:rollback_manifests` names (`SourceIdRollback`); it runs alone
+
+  A step whose report carries `halted` (a harm check that failed between its
+  batches, or a manifest entry it could not write) stops the run: the steps
+  after it report `not_run`.
+
   ## `armis-dups` is disabled by default
 
   `armis-dups` collapses every device sharing one `armis_device_id` onto a
@@ -69,6 +88,11 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Inventory.Remediation.NetprobeAliasDebris
   alias ServiceRadar.Inventory.Remediation.ProxmoxDups
   alias ServiceRadar.Inventory.Remediation.ProxmoxUnfuse
+  alias ServiceRadar.Inventory.Remediation.ReleasedSeedShells
+  alias ServiceRadar.Inventory.Remediation.SourceIdRetire
+  alias ServiceRadar.Inventory.Remediation.SourceIdRollback
+  alias ServiceRadar.Inventory.Remediation.SourceIdVerification
+  alias ServiceRadar.Inventory.Remediation.SourceSuccessionMerge
   alias ServiceRadar.Inventory.Remediation.StaleAgentDevices
   alias ServiceRadar.Inventory.Remediation.TestDebris
 
@@ -98,6 +122,14 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   # mutate live devices and each has its own execute gate below.
   @explicit_only_steps [@armis_unmerge_step, @proxmox_unfuse_step]
 
+  # The source id remediation's checks and its rollback run only when named: the
+  # checks never write, and the rollback reverses the runs its manifests name,
+  # alone.
+  @source_id_verify_step "source-id-verify"
+  @source_id_rollback_step "source-id-rollback"
+  @read_only_steps [@source_id_verify_step]
+  @named_only_steps [@source_id_verify_step, @source_id_rollback_step]
+
   @step_order [
     "blob-purge",
     "test-debris",
@@ -107,17 +139,24 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",
+    # Retirement makes the predecessors the succession step merges.
+    "source-id-retire",
+    "source-succession",
+    "released-seed-shells",
     @proxmox_unfuse_step,
     @armis_unmerge_step,
-    @armis_dups_step
+    @armis_dups_step,
+    @source_id_verify_step,
+    @source_id_rollback_step
   ]
 
   @doc """
   Ordered list of steps included by a default `all` run.
 
-  Split-disposition steps (`armis-unmerge`, `proxmox-unfuse`) are always
-  omitted. `armis-dups` is omitted unless explicitly re-enabled via config
-  (it is the armis-overmerge re-collapse vector — see the moduledoc).
+  Split-disposition steps (`armis-unmerge`, `proxmox-unfuse`),
+  `source-id-verify` and `source-id-rollback` are always omitted. `armis-dups`
+  is omitted unless explicitly re-enabled via config (it is the
+  armis-overmerge re-collapse vector — see the moduledoc).
   """
   @spec steps() :: [String.t()]
   def steps, do: default_steps()
@@ -136,7 +175,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   def available_steps(:execute) do
     Enum.reject(configured_steps(), fn step ->
-      step in @explicit_only_steps and not split_execute_enabled?(step)
+      step in @read_only_steps or
+        (step in @explicit_only_steps and not split_execute_enabled?(step))
     end)
   end
 
@@ -145,7 +185,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   # are explicit-request-only (dormant) until live scoping confirms the
   # population.
   defp default_steps do
-    configured_steps() -- @explicit_only_steps
+    configured_steps() -- (@explicit_only_steps ++ @named_only_steps)
   end
 
   defp configured_steps do
@@ -199,6 +239,13 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
       `:armis_unmerge_live_source_ids`, `:proxmox_unfuse_candidate_limit`,
       `:proxmox_unfuse_plan_sample_limit`, `:proxmox_unfuse_include_live`,
       `:proxmox_unfuse_live_device_uids`, `:proxmox_unfuse_live_source_ids`
+    * source id remediation options: `:source_batch_size` (records per batch
+      of the retire, succession and shell steps; default 500),
+      `:reviewed_source_ids` (class 8 values already reviewed, for
+      `source-succession` and `source-id-verify`), `:verify_manifests` (the
+      manifests of the runs `source-id-verify` judges) and
+      `:rollback_manifests` (the manifests `source-id-rollback` reverses,
+      required by it)
 
   Returns `{:ok, result}` when all selected steps complete without reported
   failures. If any report contains a positive `errors` or `*_failures` count,
@@ -210,19 +257,20 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     mode = Keyword.get(opts, :mode, :dry_run)
     actor = Keyword.get(opts, :actor) || SystemActor.system(:dire_remediation)
 
-    with {:ok, steps} <- resolve_steps(Keyword.get(opts, :steps, ["all"]), mode) do
+    with {:ok, steps} <- resolve_steps(Keyword.get(opts, :steps, ["all"]), mode),
+         :ok <- validate_rollback(steps, opts) do
       {manifest, manifest_path} = maybe_open_manifest(mode, opts, steps)
 
       try do
-        reports =
-          Enum.reduce(steps, %{}, fn step, reports ->
-            Logger.info("DireRemediation: running step #{step} (#{mode})")
+        {reports, _halted} =
+          Enum.reduce(steps, {%{}, nil}, fn
+            step, {reports, nil} ->
+              Logger.info("DireRemediation: running step #{step} (#{mode})")
+              report = run_step(step, mode, runtime_step_opts(step, opts), manifest, actor)
+              {Map.put(reports, step, report), halted_by(step, report)}
 
-            Map.put(
-              reports,
-              step,
-              run_step(step, mode, runtime_step_opts(step, opts), manifest, actor)
-            )
+            step, {reports, halted} ->
+              {Map.put(reports, step, %{not_run: halted}), halted}
           end)
 
         result = %{mode: mode, manifest_path: manifest_path, reports: reports}
@@ -272,6 +320,17 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp failure_value?(key, value), do: failure_counter?(key) and is_integer(value) and value > 0
 
+  # A step that stopped part way, at a harm check or a manifest entry, stops the
+  # run: the steps after it would act on a state it left unchecked.
+  defp halted_by(step, %{halted: check}) when not is_nil(check), do: "halted by #{step}: #{check}"
+  defp halted_by(_step, _report), do: nil
+
+  defp validate_rollback(steps, opts) do
+    if @source_id_rollback_step in steps and Keyword.get(opts, :rollback_manifests, []) == [],
+      do: {:error, :rollback_manifest_required},
+      else: :ok
+  end
+
   defp resolve_steps(steps, mode) when is_list(steps) do
     steps = Enum.map(steps, &to_string/1)
     runnable = default_steps()
@@ -300,6 +359,14 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
       mode == :execute and @proxmox_unfuse_step in steps and
           not split_execute_enabled?(@proxmox_unfuse_step) ->
         {:error, {:execute_disabled, [@proxmox_unfuse_step]}}
+
+      mode == :execute and Enum.any?(steps, &(&1 in @read_only_steps)) ->
+        {:error, {:read_only_steps, Enum.filter(@read_only_steps, &(&1 in steps))}}
+
+      # The rollback reverses what the manifests name, against the state other
+      # steps would change under it.
+      @source_id_rollback_step in steps and Enum.uniq(steps) != [@source_id_rollback_step] ->
+        {:error, {:rollback_not_alone, steps}}
 
       Enum.all?(steps, &(&1 in @step_order)) ->
         {:ok, Enum.filter(@step_order, &(&1 in steps))}
@@ -370,4 +437,19 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("armis-dups", mode, opts, manifest, actor),
     do: ArmisDups.run(mode, opts, manifest, actor)
+
+  defp run_step("source-id-retire", mode, opts, manifest, actor),
+    do: SourceIdRetire.run(mode, opts, manifest, actor)
+
+  defp run_step("source-succession", mode, opts, manifest, actor),
+    do: SourceSuccessionMerge.run(mode, opts, manifest, actor)
+
+  defp run_step("released-seed-shells", mode, opts, manifest, actor),
+    do: ReleasedSeedShells.run(mode, opts, manifest, actor)
+
+  defp run_step(@source_id_verify_step, mode, opts, manifest, actor),
+    do: SourceIdVerification.run(mode, opts, manifest, actor)
+
+  defp run_step(@source_id_rollback_step, mode, opts, manifest, actor),
+    do: SourceIdRollback.run(mode, opts, manifest, actor)
 end

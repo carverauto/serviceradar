@@ -3,7 +3,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
   @moduledoc """
   Production data remediation for the device identity reconciliation engine
-  (OpenSpec `refactor-device-identity-reconciliation`, tasks 4.1-4.4).
+  (OpenSpec `refactor-device-identity-reconciliation`, tasks 4.1-4.4), and the
+  source id remediation (OpenSpec `add-source-id-succession`, design D11; the
+  procedure is `docs/source-id-remediation-runbook.md`).
 
   This is intentionally an operator-invoked mix task, NOT an auto-run Ecto
   migration: it must only run after the phase-1 merge guards are verified
@@ -23,9 +25,14 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     * `--execute` — apply changes (default: dry run)
     * `--step <name>` — run a single step (repeatable). One of:
       `blob-purge`, `test-debris`, `stale-agent-devices`, `agent-links`,
-      `proxmox-dups`, `proxmox-unfuse`, `armis-unmerge`, `armis-dups`,
-      `all` (default `all`).
+      `proxmox-dups`, `source-id-retire`, `source-succession`,
+      `released-seed-shells`, `proxmox-unfuse`, `armis-unmerge`, `armis-dups`,
+      `source-id-verify`, `source-id-rollback`, `all` (default `all`).
       `all` cannot be combined with another step.
+      `source-id-verify` is explicit-only and read-only: it is refused with
+      `--execute`.
+      `source-id-rollback` is explicit-only and runs alone, with at least one
+      `--rollback-manifest`.
       `armis-unmerge` is explicit-only: dry-run is available for live scoping,
       while execute is disabled until the runtime signoff gate is enabled.
       `proxmox-unfuse` is explicit-only: dry-run reports fused devices with
@@ -79,6 +86,16 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       Every v2/MAC identifier row that would move must come from a permitted
       source; a row with missing or foreign provenance excludes its candidate.
       Known faker-backed sources remain ineligible inside the remediation step.
+    * `--source-batch-size <n>` — records per batch of `source-id-retire`,
+      `source-succession` and `released-seed-shells` (1..10000; default 500);
+      the harm checks run after each batch
+    * `--reviewed-source-id <value>` — a class 8 source id an operator has
+      reviewed, left out of the counts and of V3 (repeatable; with
+      `source-succession` or `source-id-verify`)
+    * `--verify-manifest <path>` — the manifest of a run `source-id-verify`
+      judges (repeatable; requires `--step source-id-verify`)
+    * `--rollback-manifest <path>` — a manifest `source-id-rollback` reverses,
+      newest run first (repeatable; requires `--step source-id-rollback`)
 
   Every `--armis-unmerge-*` option requires an explicit
   `--step armis-unmerge` selection. Every `--proxmox-unfuse-*` option
@@ -137,6 +154,19 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       # Execute the test-debris cleanup with a manifest path
       mix serviceradar.dire_remediation --step test-debris --execute \\
           --manifest /var/tmp/dire_remediation.ndjson
+
+      # Source id remediation: count the classes, then retire
+      mix serviceradar.dire_remediation --step source-id-retire \\
+          --step source-succession --step released-seed-shells
+      mix serviceradar.dire_remediation --step source-id-retire --execute \\
+          --manifest /var/tmp/source_id_retire.ndjson
+
+      # Judge a run, and reverse it
+      mix serviceradar.dire_remediation --step source-id-verify \\
+          --verify-manifest /var/tmp/source_id_retire.ndjson
+      mix serviceradar.dire_remediation --step source-id-rollback --execute \\
+          --rollback-manifest /var/tmp/source_id_retire.ndjson \\
+          --manifest /var/tmp/source_id_rollback.ndjson
   """
 
   use Mix.Task
@@ -147,6 +177,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
   @max_armis_unmerge_plan_sample_limit 5_000
   @max_proxmox_unfuse_candidate_limit 5_000
   @max_proxmox_unfuse_plan_sample_limit 5_000
+  @max_source_batch_size 10_000
 
   @armis_unmerge_switches [
     :armis_unmerge_candidate_limit,
@@ -170,9 +201,14 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",
+    "source-id-retire",
+    "source-succession",
+    "released-seed-shells",
     "proxmox-unfuse",
     "armis-unmerge",
-    "armis-dups"
+    "armis-dups",
+    "source-id-verify",
+    "source-id-rollback"
   ]
 
   @switches [
@@ -201,7 +237,11 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     proxmox_unfuse_candidate_limit: :integer,
     proxmox_unfuse_plan_sample_limit: :integer,
     proxmox_unfuse_live_device: :keep,
-    proxmox_unfuse_live_source: :keep
+    proxmox_unfuse_live_source: :keep,
+    source_batch_size: :integer,
+    reviewed_source_id: :keep,
+    verify_manifest: :keep,
+    rollback_manifest: :keep
   ]
 
   @impl true
@@ -224,6 +264,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     validate_step_selection!(opts)
     validate_armis_unmerge_selection!(opts)
     validate_proxmox_unfuse_selection!(opts)
+    validate_source_id_selection!(opts)
 
     engine_opts = build_engine_opts(opts)
     mode = Keyword.fetch!(engine_opts, :mode)
@@ -267,6 +308,15 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
       {:error, {:disabled_steps, disabled}} ->
         Mix.raise("Disabled step(s): #{Enum.join(disabled, ", ")}")
+
+      {:error, {:read_only_steps, steps}} ->
+        Mix.raise("#{Enum.join(steps, ", ")} is read-only: run it without --execute")
+
+      {:error, {:rollback_not_alone, _steps}} ->
+        Mix.raise("--step source-id-rollback runs alone: drop the other --step values")
+
+      {:error, :rollback_manifest_required} ->
+        Mix.raise("--step source-id-rollback requires at least one --rollback-manifest")
 
       {:error, error} ->
         Mix.raise("Remediation failed: #{inspect(error)}")
@@ -335,6 +385,13 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       )
     )
     |> put_proxmox_unfuse_live_scope(opts)
+    |> put_if(
+      :source_batch_size,
+      validate_range(opts[:source_batch_size], "--source-batch-size", 1, @max_source_batch_size)
+    )
+    |> put_if_nonempty(:reviewed_source_ids, validate_nonempty_values(opts, :reviewed_source_id))
+    |> put_if_nonempty(:verify_manifests, validate_nonempty_values(opts, :verify_manifest))
+    |> put_if_nonempty(:rollback_manifests, validate_nonempty_values(opts, :rollback_manifest))
   end
 
   defp values_or(opts, key, default) do
@@ -368,6 +425,27 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     if unfuse_opts? and not unfuse_step? do
       Mix.raise("Proxmox unfuse options require an explicit --step proxmox-unfuse selection")
     end
+  end
+
+  # Each source id option belongs to the steps that read it; elsewhere it would be
+  # ignored without a word.
+  defp validate_source_id_selection!(opts) do
+    steps = Keyword.get_values(opts, :step)
+
+    for {switch, flag, allowed} <- [
+          {:rollback_manifest, "--rollback-manifest", ["source-id-rollback"]},
+          {:verify_manifest, "--verify-manifest", ["source-id-verify"]},
+          {:reviewed_source_id, "--reviewed-source-id", ["source-succession", "source-id-verify"]}
+        ],
+        Keyword.has_key?(opts, switch),
+        not Enum.any?(allowed, &(&1 in steps)) do
+      Mix.raise(
+        "#{flag} requires an explicit " <>
+          Enum.map_join(allowed, " or ", &"--step #{&1}") <> " selection"
+      )
+    end
+
+    :ok
   end
 
   defp put_if(opts, _key, nil), do: opts
@@ -507,7 +585,15 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
         :sample_extractions,
         :split_plan,
         :execution_split_plan,
-        :skipped_device_sample
+        :skipped_device_sample,
+        :checks,
+        :instance_plans,
+        :merge_sample,
+        :review_sample,
+        :retire_sample,
+        :class_5_sample,
+        :class_7_sample,
+        :class_8_sample
       ])
 
     counts
@@ -526,6 +612,11 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
   defp format_value(value) when is_list(value) do
     Enum.map_join(value, ", ", &format_value/1)
   end
+
+  defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp format_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp format_value(%Date{} = value), do: Date.to_iso8601(value)
+  defp format_value(value) when is_struct(value) or is_tuple(value), do: inspect(value)
 
   defp format_value(value) when is_map(value) do
     value

@@ -9,6 +9,8 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
 
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Ingestion.ResultIngestor
@@ -18,9 +20,14 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Mac
+  alias ServiceRadar.Inventory.Identity.SourceCorroboration
+  alias ServiceRadar.Inventory.Identity.SourceRetirementWorker
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
+  alias ServiceRadar.Inventory.Remediation.DireRemediation
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
@@ -474,6 +481,259 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
     })
   end
 
+  # Design D11 and task 14.11, end to end. The faker re-keys nothing, so the test re-keys a
+  # slice of the fixture's run-0 devices itself. Each of seven devices is the predecessor of a
+  # scenario: in three later collections its id is gone, and a successor under a new id reports
+  # its MAC and, by scenario, its hostname and first-seen time. The remediation retires the
+  # stale ids, merges the corroborated successions, sends the others to review and leaves the
+  # orphan marked; a second pass over the settled state changes nothing.
+  @rekey_devices 100
+  # A documentation MAC and address the fixture does not report, for the successors that must
+  # not share the predecessor's.
+  @rekey_mac "00:00:5e:00:53:01"
+  @rekey_ip "198.51.100.5"
+
+  @tag timeout: 1_800_000
+  test "retires re-keyed ids and merges only corroborated successions", %{
+    actor: actor,
+    fixture: fixture,
+    source: source
+  } do
+    put_cleanup_settings!(actor)
+    pages = fixture_pages!(fixture)
+    rekey_mac = Mac.normalize_mac(@rekey_mac)
+
+    refute Enum.any?(Enum.flat_map(pages, & &1["updates"]), fn update ->
+             update["ip"] == @rekey_ip or rekey_mac in update_macs(update)
+           end)
+
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    devices = rekey_devices(pages, source.id, now)
+    [p1, p2, p3, p4, p5, p6, p7] = picks = rekey_picks!(devices, pages)
+    last_seen = &seen(&1, "last_seen_time", 0)
+    first_seen = &seen(&1, "first_seen_time", 0)
+
+    scenarios = [
+      # Class 2: the MAC, and the hostname, first seen when the predecessor was last seen.
+      %{predecessor: p1, outcome: :merged, successors: [rekeyed(p1, source.id, last_seen.(p1))]},
+      # Class 3: the MAC, and the same first-seen time under another hostname.
+      %{
+        predecessor: p2,
+        outcome: :merged,
+        successors: [rekeyed(p2, source.id, first_seen.(p2), renamed: true)]
+      },
+      # The MAC alone.
+      %{
+        predecessor: p3,
+        outcome: "mac_only",
+        successors: [rekeyed(p3, source.id, seen(p3, "last_seen_time", 3_600), renamed: true)]
+      },
+      # The MAC and the hostname, but first seen while the predecessor was still reported.
+      %{
+        predecessor: p4,
+        outcome: "overlapping_hostname",
+        successors: [rekeyed(p4, source.id, seen(p4, "last_seen_time", -86_400))]
+      },
+      # Two successors report the MAC.
+      %{
+        predecessor: p5,
+        outcome: "shared_mac",
+        successors: [
+          rekeyed(p5, source.id, seen(p5, "last_seen_time", 7_200), renamed: true),
+          rekeyed(p5, source.id, seen(p5, "last_seen_time", 10_800),
+            offset: 2_000_000,
+            renamed: true,
+            ip: @rekey_ip
+          )
+        ]
+      },
+      # The hostname and the first-seen time under another MAC.
+      %{
+        predecessor: p6,
+        outcome: "corroborated_without_mac",
+        successors: [rekeyed(p6, source.id, first_seen.(p6), mac: @rekey_mac)]
+      },
+      # No successor.
+      %{predecessor: p7, outcome: :retired, successors: []}
+    ]
+
+    old_ids = Enum.map(picks, &armis_id/1)
+    successors = Enum.flat_map(scenarios, & &1.successors)
+    later = Enum.reject(devices, &(armis_id(&1) in old_ids)) ++ successors
+
+    ingest_run!(devices, source.id, days_ago(now, 4))
+
+    predecessors = typed_device_map!()
+    assert map_size(predecessors) == @rekey_devices
+    assert live_devices!() == @rekey_devices
+    uid = &Map.fetch!(predecessors, armis_id(&1))
+
+    # A record's created_time has whole seconds, and the record created first survives a
+    # succession merge: the successors are created in a later second than their predecessors.
+    Process.sleep(1_100)
+
+    for days <- [3, 2, 1], do: ingest_run!(later, source.id, days_ago(now, days))
+
+    # Each successor is on a record of its own, apart from its predecessor's.
+    records = typed_device_map!()
+    successor_uid = &Map.fetch!(records, armis_id(&1))
+    successor_uids = Enum.map(successors, successor_uid)
+    assert live_devices!() == @rekey_devices + length(successors)
+    assert length(Enum.uniq(successor_uids)) == length(successors)
+    refute Enum.any?(successor_uids, &(&1 in Map.values(predecessors)))
+
+    # An identifier's last_seen is the clock time of its ingest. The collections stand for four
+    # days, so the stale ids are dated to the first of them.
+    assert %{num_rows: 7} =
+             Repo.query!(
+               """
+               UPDATE platform.device_identifiers
+               SET last_seen = timezone('utc', now()) - interval '4 days'
+               WHERE identifier_type = 'armis_device_id' AND identifier_value = ANY($1)
+               """,
+               [old_ids]
+             )
+
+    # Each activation enqueued the instance's retirement pass; one job stands for them all.
+    worker = Oban.Worker.to_string(SourceRetirementWorker)
+    assert [job] = Repo.all(from(job in Oban.Job, where: job.worker == ^worker))
+    assert job.args["source_instance"] == to_string(source.id)
+
+    assert {:ok, %{reports: %{"source-id-retire" => retire}}} =
+             DireRemediation.run(steps: ["source-id-retire"], actor: actor)
+
+    assert %{
+             would_retire_ids: 7,
+             would_retire_records: 7,
+             class_1_records: 0,
+             would_leave_retired_only: 7,
+             guard_would_refuse: 0,
+             class_5_records: 0
+           } = retire
+
+    assert Enum.sort(Enum.map(retire.retire_sample, & &1.value)) == Enum.sort(old_ids)
+
+    assert :ok = SourceRetirementWorker.perform(%Oban.Job{args: job.args})
+
+    assert Map.new(
+             rows!("""
+             SELECT identifier_value, device_id
+             FROM platform.device_identifier_archive
+             WHERE identifier_type = 'armis_device_id' AND archive_reason = 'source_absent'
+             """),
+             &List.to_tuple/1
+           ) == Map.new(picks, &{armis_id(&1), uid.(&1)})
+
+    assert retired_marks!() == Enum.sort(Enum.map(picks, uid))
+    assert Map.take(typed_device_map!(), old_ids) == %{}
+
+    assert {:ok, %{reports: %{"source-succession" => succession}}} =
+             DireRemediation.run(steps: ["source-succession"], actor: actor)
+
+    assert %{
+             class_2_pairs: 1,
+             class_3_pairs: 1,
+             class_4_reviews: 3,
+             class_6_reviews: 1,
+             class_8_groups: 0
+           } = succession
+
+    assert succession.review_reasons == %{
+             mac_only: 1,
+             overlapping_hostname: 1,
+             shared_mac: 1,
+             corroborated_without_mac: 1
+           }
+
+    reconciler = SystemActor.system(:identity_reconciliation)
+    assert {:ok, stats} = IdentityReconciler.reconcile_duplicates(actor: reconciler)
+    assert %{merges: 0, errors: 0, succession_merges: 2, succession_reviews: 4} = stats
+
+    merged = Enum.filter(scenarios, &(&1.outcome == :merged))
+
+    assert rows!("SELECT from_device_id, to_device_id, reason FROM platform.merge_audit") ==
+             Enum.sort(
+               for %{predecessor: p, successors: [s]} <- merged,
+                   do: [successor_uid.(s), uid.(p), "source_succession"]
+             )
+
+    assert succession_reviews!() ==
+             Enum.sort(
+               for %{predecessor: p, successors: s, outcome: reason} <- scenarios,
+                   is_binary(reason),
+                   do: [reason, Enum.sort([uid.(p) | Enum.map(s, successor_uid)])]
+             )
+
+    # The survivor holds the new id and is no longer marked; the successor's record is gone.
+    held = typed_device_map!()
+
+    for %{predecessor: p, successors: [s]} <- merged do
+      assert Map.fetch!(held, armis_id(s)) == uid.(p)
+    end
+
+    assert rows!("SELECT uid FROM platform.ocsf_devices WHERE deleted_reason = 'merged'") ==
+             Enum.sort(for %{successors: [s]} <- merged, do: [successor_uid.(s)])
+
+    unmerged = Enum.reject(scenarios, &(&1.outcome == :merged))
+    assert retired_marks!() == Enum.sort(Enum.map(unmerged, &uid.(&1.predecessor)))
+    assert live_devices!() == @rekey_devices + length(successors) - length(merged)
+
+    assert scalar!("""
+           SELECT count(*) FROM platform.ocsf_devices
+           WHERE deleted_at IS NULL AND source_retired_at IS NULL
+           """) == @rekey_devices
+
+    # A second pass over the settled state: another collection, the retirement pass and the
+    # reconciler change nothing.
+    settled = settled_state!()
+    ingest_run!(later, source.id, now)
+    assert :ok = SourceRetirementWorker.perform(%Oban.Job{args: job.args})
+    assert {:ok, again} = IdentityReconciler.reconcile_duplicates(actor: reconciler)
+    assert %{merges: 0, errors: 0, succession_merges: 0} = again
+    assert settled_state!() == settled
+
+    assert {:ok, %{reports: %{"source-id-verify" => verify}}} =
+             DireRemediation.run(steps: ["source-id-verify"], actor: actor)
+
+    checks = Map.new(verify.checks, &{&1.check, &1.result})
+
+    assert checks == %{
+             "V1" => :pass,
+             "V2" => :pass,
+             "V3" => :pass,
+             "V4" => :pass,
+             "V5" => :not_run,
+             "V6" => :not_run,
+             "V7" => :pass,
+             "V8" => :pass
+           }
+
+    assert %{merges: 2, joined_present: 0} = Enum.find(verify.checks, &(&1.check == "V8")).details
+
+    write_debug_artifact!("source-rekey.json", %{
+      "devices" => @rekey_devices,
+      "successors" => length(successors),
+      "retire" =>
+        Map.take(retire, [
+          :would_retire_ids,
+          :would_retire_records,
+          :class_1_records,
+          :would_leave_retired_only,
+          :class_5_records
+        ]),
+      "succession" =>
+        Map.take(succession, [
+          :class_2_pairs,
+          :class_3_pairs,
+          :class_4_reviews,
+          :class_6_reviews,
+          :class_8_groups
+        ]),
+      "reconcile" => Map.take(stats, [:merges, :errors, :succession_merges, :succession_reviews]),
+      "checks" => checks
+    })
+  end
+
   defp create_source!(actor, endpoint, agent_id) do
     IntegrationSource
     |> Ash.Changeset.new()
@@ -511,25 +771,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   # ingested one at a time, and then the run's collection activates with exact accounting, as
   # SyncIngestorQueue activates a run after its final chunk.
   defp ingest_collection!(_actor, source_id, devices) do
-    count = length(devices)
-
-    sync_meta = %{
-      "sync_service_id" => source_id,
-      "sync_run_id" => Ash.UUID.generate(),
-      "chunk_index" => 0,
-      "total_chunks" => 1,
-      "total_devices" => count,
-      "is_final" => true,
-      "population" => %{
-        "raw_rows" => count,
-        "excluded_rows" => 0,
-        "invalid_rows" => 0,
-        "valid_occurrences" => count,
-        "distinct_source_ids" => count,
-        "duplicate_occurrences" => 0,
-        "conflicting_duplicate_ids" => 0
-      }
-    }
+    sync_meta = collection_meta(source_id, length(devices))
 
     updates =
       Enum.map(devices, fn {ip, armis_id} ->
@@ -556,6 +798,28 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
         else: updates
 
     :ok = ServiceRadar.Inventory.SyncIngestorQueue.ingest_sync_results(Jason.encode!(updates))
+  end
+
+  # The sync_meta of a one-chunk sync run of the source reporting `count` distinct ids, with
+  # the exact accounting a collection needs to activate.
+  defp collection_meta(source_id, count) do
+    %{
+      "sync_service_id" => source_id,
+      "sync_run_id" => Ash.UUID.generate(),
+      "chunk_index" => 0,
+      "total_chunks" => 1,
+      "total_devices" => count,
+      "is_final" => true,
+      "population" => %{
+        "raw_rows" => count,
+        "excluded_rows" => 0,
+        "invalid_rows" => 0,
+        "valid_occurrences" => count,
+        "distinct_source_ids" => count,
+        "duplicate_occurrences" => 0,
+        "conflicting_duplicate_ids" => 0
+      }
+    }
   end
 
   defp eligible_ids(population), do: MapSet.new(population.eligible, & &1.source_object_id)
@@ -764,12 +1028,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
     pages
     |> Enum.flat_map(& &1["updates"])
     |> Enum.flat_map(fn update ->
-      metadata = update["metadata"] || %{}
-
-      Enum.map(
-        Mac.normalize_mac_list(update["mac"]) ++ Mac.normalize_mac_list(metadata["mac_addresses"]),
-        &{mac_station(&1), metadata["armis_device_id"]}
-      )
+      Enum.map(update_macs(update), &{mac_station(&1), update["metadata"]["armis_device_id"]})
     end)
     |> Enum.uniq()
     |> Enum.frequencies_by(&elem(&1, 0))
@@ -807,6 +1066,184 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
         :ok
     end
   end
+
+  # Retirement on with N = 3 collections and T = 24 hours, a mass guard the re-key does not
+  # trip, and the succession pass free to merge.
+  defp put_cleanup_settings!(actor) do
+    attrs = %{
+      source_retirement_enabled: true,
+      source_retirement_absent_collections: 3,
+      source_retirement_min_absence_hours: 24,
+      source_retirement_max_fraction: 0.5,
+      source_retirement_guard_override: false,
+      source_retired_grace_days: 7,
+      max_successions_per_run: 200
+    }
+
+    case DeviceCleanupSettings.get_settings(actor: actor) do
+      {:ok, %DeviceCleanupSettings{} = settings} ->
+        {:ok, _settings} = DeviceCleanupSettings.update_settings(settings, attrs, actor: actor)
+
+      _missing ->
+        {:ok, _settings} = DeviceCleanupSettings.create_settings(attrs, actor: actor)
+    end
+  end
+
+  # The first @rekey_devices updates of the fixture's run 0 by id, rebound to the source. Their
+  # first- and last-seen times are a minute apart, so no two devices share either.
+  defp rekey_devices(pages, source_id, now) do
+    devices =
+      pages
+      |> Enum.filter(&(&1["run"] == 0))
+      |> Enum.flat_map(&rebind_page(&1, source_id)["updates"])
+      |> Enum.uniq_by(&armis_id/1)
+      |> Enum.sort_by(&String.to_integer(armis_id(&1)))
+      |> Enum.take(@rekey_devices)
+      |> Enum.with_index(fn update, index ->
+        Map.merge(update, %{
+          "first_seen_time" => iso(DateTime.shift(days_ago(now, 60), minute: index)),
+          "last_seen_time" => iso(DateTime.shift(days_ago(now, 5), minute: index))
+        })
+      end)
+
+    assert length(devices) == @rekey_devices
+
+    hostnames = Enum.map(devices, &SourceCorroboration.normalize_hostname(&1["hostname"]))
+    assert length(Enum.uniq(hostnames)) == @rekey_devices
+    devices
+  end
+
+  # Seven devices to re-key, each reporting a hostname and one hardware MAC that no other
+  # fixture device reports.
+  defp rekey_picks!(devices, pages) do
+    contested = contested_mac_stations(pages)
+
+    picks =
+      devices
+      |> Enum.filter(fn update ->
+        macs = update_macs(update)
+
+        match?([_], macs) and MapSet.size(SourceCorroboration.hardware_macs(macs)) == 1 and
+          not MapSet.member?(contested, mac_station(hd(macs))) and
+          SourceCorroboration.normalize_hostname(update["hostname"]) != nil
+      end)
+      |> Enum.take(7)
+
+    assert length(picks) == 7
+    picks
+  end
+
+  defp update_macs(update) do
+    Enum.uniq(
+      Mac.normalize_mac_list(update["mac"]) ++
+        Mac.normalize_mac_list(update["metadata"]["mac_addresses"])
+    )
+  end
+
+  defp armis_id(update), do: update["metadata"]["armis_device_id"]
+
+  # A successor of `update` under an id `:offset` (1,000,000 unless given) higher, first seen at
+  # `first_seen` and last seen an hour after that or the predecessor's last-seen time, whichever
+  # is later. `renamed: true` gives it a hostname of its own, `mac:` and `ip:` a MAC and an
+  # address of their own.
+  defp rekeyed(update, source_id, first_seen, opts \\ []) do
+    {offset, opts} = Keyword.pop(opts, :offset, 1_000_000)
+    id = to_string(String.to_integer(armis_id(update)) + offset)
+    last_seen = Enum.max([first_seen, seen(update, "last_seen_time", 0)], DateTime)
+
+    metadata =
+      Map.merge(update["metadata"], %{
+        "armis_device_id" => id,
+        "source_device_id" => id,
+        "integration_id" => IntegrationIdentity.scoped_device_id("armis", source_id, id)
+      })
+
+    successor =
+      Map.merge(update, %{
+        "metadata" => metadata,
+        "first_seen_time" => iso(first_seen),
+        "last_seen_time" => iso(DateTime.shift(last_seen, hour: 1))
+      })
+
+    Enum.reduce(opts, successor, fn
+      {:renamed, true}, successor ->
+        Map.put(successor, "hostname", "rekeyed-#{id}")
+
+      {:mac, mac}, successor ->
+        successor
+        |> Map.put("mac", mac)
+        |> put_in(["metadata", "mac_addresses"], Mac.normalize_mac(mac))
+
+      {:ip, ip}, successor ->
+        Map.merge(successor, %{"ip" => ip, "device_id" => "#{successor["partition"]}:#{ip}"})
+    end)
+  end
+
+  defp seen(update, key, seconds) do
+    {:ok, at, 0} = DateTime.from_iso8601(Map.fetch!(update, key))
+    DateTime.shift(at, second: seconds)
+  end
+
+  defp days_ago(now, days), do: DateTime.shift(now, day: -days)
+
+  defp iso(at), do: DateTime.to_iso8601(at)
+
+  # One sync run of the source reporting `updates`, observed at `at`, in a single chunk.
+  defp ingest_run!(updates, source_id, at) do
+    sync_meta = collection_meta(source_id, length(updates))
+
+    ingest_sync_pages!([
+      %{
+        "updates" =>
+          Enum.map(updates, &Map.merge(&1, %{"sync_meta" => sync_meta, "timestamp" => iso(at)}))
+      }
+    ])
+  end
+
+  defp live_devices! do
+    scalar!("SELECT count(*) FROM platform.ocsf_devices WHERE deleted_at IS NULL")
+  end
+
+  defp retired_marks! do
+    "SELECT uid FROM platform.ocsf_devices WHERE source_retired_at IS NOT NULL"
+    |> rows!()
+    |> Enum.map(&hd/1)
+  end
+
+  defp succession_reviews! do
+    """
+    SELECT reason, device_uids FROM platform.identity_decisions
+    WHERE decision_kind = 'succession_review'
+    """
+    |> rows!()
+    |> Enum.map(fn [reason, uids] -> [reason, Enum.sort(uids)] end)
+    |> Enum.sort()
+  end
+
+  # The records, identifiers, archive, merges and reviews a second pass must leave as they are.
+  defp settled_state! do
+    %{
+      records:
+        rows!("""
+        SELECT uid, deleted_at IS NOT NULL, deleted_reason, source_retired_at IS NOT NULL
+        FROM platform.ocsf_devices
+        """),
+      held:
+        rows!("""
+        SELECT identifier_value, device_id FROM platform.device_identifiers
+        WHERE identifier_type = 'armis_device_id'
+        """),
+      archived:
+        rows!("""
+        SELECT identifier_type, identifier_value, device_id, archive_reason
+        FROM platform.device_identifier_archive
+        """),
+      merges: rows!("SELECT from_device_id, to_device_id, reason FROM platform.merge_audit"),
+      reviews: succession_reviews!()
+    }
+  end
+
+  defp rows!(sql), do: sql |> Repo.query!() |> Map.fetch!(:rows) |> Enum.sort()
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)

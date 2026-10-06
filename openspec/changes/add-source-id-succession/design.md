@@ -789,7 +789,7 @@ Rules:
   | V7 | the reconciler's next runs report no errors from blocks and no failed runs |
   | V8 | no `source_succession` merge joined two ids that are both present in the latest collection |
 
-A runbook under `docs/` covers the preconditions, the order, batches, checks and rollback.
+[`docs/source-id-remediation-runbook.md`](../../../docs/source-id-remediation-runbook.md) covers the preconditions, the order, batches, checks and rollback.
 
 ### D12. A sweep restores an expired sweep-only device, and never writes to a tombstone
 

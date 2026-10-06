@@ -205,12 +205,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
           successor: String.t()
         }
 
+  # `hostname_shared`: the pair shares a hostname as well as the MAC (design D11 counts these
+  # apart from pairs a first-seen time corroborates alone).
   @type pair :: %{
           predecessor: String.t(),
           successor: String.t(),
           partitions: [String.t()],
           survivor: String.t(),
           merged: String.t(),
+          hostname_shared: boolean(),
           evidence: map()
         }
 
@@ -444,17 +447,33 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
   end
 
   defp merge(pair, counts, actor) do
+    case merge_pair(pair, actor) do
+      :ok -> Map.update!(counts, :merged, &(&1 + 1))
+      {:error, _reason, _error} -> Map.update!(counts, :skipped, &(&1 + 1))
+    end
+  end
+
+  @doc false
+  # Merges one successive pair of `plan/1`, its evidence read by `with_collections/1`, as a
+  # pass does. The remediation (design D11) merges through here. `opts`: `:on_merged`, passed
+  # to `MergeEngine.merge_devices/3`. Returns `:ok` or `{:error, skip_reason, error}`.
+  @spec merge_pair(pair(), term(), keyword()) :: :ok | {:error, atom(), term()}
+  def merge_pair(pair, actor, opts \\ []) do
     result =
-      MergeEngine.merge_devices(pair.merged, pair.survivor,
-        actor: actor,
-        reason: @merge_reason,
-        succession: %{
-          identifier_type: @identifier_type,
-          partitions: pair.partitions,
-          predecessor: pair.predecessor,
-          successor: pair.successor
-        },
-        details: pair.evidence
+      MergeEngine.merge_devices(
+        pair.merged,
+        pair.survivor,
+        [
+          actor: actor,
+          reason: @merge_reason,
+          succession: %{
+            identifier_type: @identifier_type,
+            partitions: pair.partitions,
+            predecessor: pair.predecessor,
+            successor: pair.successor
+          },
+          details: pair.evidence
+        ] ++ Keyword.take(opts, [:on_merged])
       )
 
     case result do
@@ -467,7 +486,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
             "(predecessor #{pair.predecessor}, successor #{pair.successor})"
         )
 
-        Map.update!(counts, :merged, &(&1 + 1))
+        :ok
 
       {:error, error} ->
         reason = skip_reason(error)
@@ -480,7 +499,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
         end
 
         emit(:skipped, pair, %{reason: reason})
-        Map.update!(counts, :skipped, &(&1 + 1))
+        {:error, reason, error}
     end
   end
 
@@ -516,11 +535,13 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
     )
   end
 
+  @doc false
   # The collection ids that proved each retirement, from its `source_id_retired` decision; read
   # for the pairs that merge only.
-  defp with_collections([]), do: []
+  @spec with_collections([pair()]) :: [pair()]
+  def with_collections([]), do: []
 
-  defp with_collections(pairs) do
+  def with_collections(pairs) do
     ids =
       pairs
       |> Enum.flat_map(&Map.get(&1.evidence, "retired_ids", []))
@@ -1103,6 +1124,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
       partitions: entry.partitions,
       survivor: survivor.uid,
       merged: merged.uid,
+      hostname_shared: entry.names_overlap,
       evidence: %{
         "source" => "scheduled_reconciliation",
         "identifier_type" => type_name(),

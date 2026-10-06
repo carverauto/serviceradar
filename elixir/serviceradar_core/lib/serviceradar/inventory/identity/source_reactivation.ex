@@ -1034,8 +1034,11 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
   A row is skipped, and stays archived, when it is not archived (`:not_archived`), is not a
   source-authoritative identifier (`:not_source_identifier`), its holder is gone
   (`:holder_missing`) or merged away (`:merged_holder`), the holder already holds it
-  (`:already_held`), another record holds it (`:claimed`), the holder holds another identifier
-  of the type in its scope (`:ineligible`), or it moved meanwhile (`:archive_changed`).
+  (`:already_held`), another record holds it (`:claimed`), or it moved meanwhile
+  (`:archive_changed`). Unlike a reactivation, a row returns to a holder that holds another
+  identifier of the type in its scope: a record that held a stale id beside a current one held
+  both before the stale one retired (class 1), and a merge survivor would have held both had
+  the id not retired before the merge.
 
   Options: `:actor` (default the `:source_reactivation` system actor) and `:source`, the
   decision source.
@@ -1088,7 +1091,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
     with {:ok, device} <- lock_holder(holder, actor),
          :ok <- lock_identifier_owner(holder),
          :unheld <- key_holder(row.key, holder),
-         :ok <- holds_no_type(holder, type, partition),
          {:ok, archive_ids} <- lock_archive_rows(row, armis_scope(row.key)),
          {:ok, returned} <- return_rows(holder, archive_ids),
          {:ok, _device} <- bump_revision(device, actor),
@@ -1118,7 +1120,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
       :merged -> {:skipped, :merged_holder}
       {:already, _holder} -> {:skipped, :already_held}
       :claimed -> {:skipped, :claimed}
-      :ineligible -> {:skipped, :ineligible}
       :archive_changed -> {:skipped, :archive_changed}
       {:error, _} = error -> error
     end

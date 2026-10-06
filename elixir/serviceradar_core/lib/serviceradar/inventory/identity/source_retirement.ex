@@ -32,7 +32,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   `source_retired_grace_days` unless an identifier registered on it first clears the mark. Each
   `source_id_retired` decision records whether its retirement marked the record. Marking
   happens only here, when an id of the record's own retires: a record an operator restores is
-  not marked again until another of its ids retires.
+  not marked again until another of its ids retires. The one exception is the remediation's
+  class 5 (design D11, `mark_unmarked_retired/2`): a retired-only record whose ids retired under
+  a release that did not mark, which is marked once unless it was revived since.
 
   Absence is counted when an exact collection activates (`record_collection/1`, inside the
   activation transaction). Each identifier of the instance's scope that a live record holds
@@ -328,20 +330,76 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     )
   """
 
-  # Marks the record source_retired when the retirement leaves it retired-only (design D5): no
-  # source-authoritative or agent identifier of any type left, no agent claiming it, no recent
-  # identity-bearing observation, and not created by an operator.
-  @mark_sql """
-  UPDATE platform.ocsf_devices AS d
-  SET source_retired_at = CAST($2 AS timestamp)
-  WHERE d.uid = CAST($1 AS text) AND d.deleted_at IS NULL AND d.source_retired_at IS NULL
+  # The record `d` is retired-only (design D5): live and unmarked, no source-authoritative or
+  # agent identifier of any type left, no agent claiming it, no identity-bearing observation
+  # after the cutoff $1, and not created by an operator ($2, the operator sources). $3 is the
+  # marking identifier types.
+  @retired_only """
+  d.deleted_at IS NULL AND d.source_retired_at IS NULL
     AND NULLIF(btrim(COALESCE(d.agent_id, '')), '') IS NULL
-    AND (d.identity_observed_at IS NULL OR d.identity_observed_at <= CAST($3 AS timestamp))
-    AND NOT (COALESCE(d.discovery_sources, ARRAY[]::text[]) && CAST($4 AS text[]))
+    AND (d.identity_observed_at IS NULL OR d.identity_observed_at <= CAST($1 AS timestamp))
+    AND NOT (COALESCE(d.discovery_sources, ARRAY[]::text[]) && CAST($2 AS text[]))
     AND NOT EXISTS (
       SELECT 1 FROM platform.device_identifiers AS di
-      WHERE di.device_id = CAST($1 AS text) AND di.identifier_type = ANY (CAST($5 AS text[]))
+      WHERE di.device_id = d.uid AND di.identifier_type = ANY (CAST($3 AS text[]))
     )
+  """
+
+  # Marks the record $4 source_retired at $5 when it is retired-only.
+  @mark_sql """
+  UPDATE platform.ocsf_devices AS d
+  SET source_retired_at = CAST($5 AS timestamp)
+  WHERE d.uid = CAST($4 AS text) AND #{@retired_only}
+  RETURNING d.source_retired_at
+  """
+
+  # The retired-only records holding an id of the scope that retired for absence ($4 the type,
+  # $5 the archive reason, $6 the partition suffix) and left unmarked: design D11's class 5,
+  # retired by a release that did not mark. A record revived since its newest such id retired
+  # was restored by an operator, and one held for review waits for the review. $7 limits the
+  # records, NULL for all.
+  @unmarked_retired_sql """
+  SELECT d.uid
+  FROM (
+    SELECT a.device_id, max(a.archived_at) AS archived_at
+    FROM platform.device_identifier_archive AS a
+    WHERE a.identifier_type = CAST($4 AS text) AND a.archive_reason = CAST($5 AS text)
+      AND right(a.partition, char_length(CAST($6 AS text))) = CAST($6 AS text)
+      AND (CAST($7 AS text[]) IS NULL OR a.device_id = ANY (CAST($7 AS text[])))
+    GROUP BY a.device_id
+  ) AS r
+  JOIN platform.ocsf_devices AS d ON d.uid = r.device_id
+  WHERE #{@retired_only}
+    AND NOT EXISTS (
+      SELECT 1 FROM platform.device_revival_audit AS v
+      WHERE v.device_uid = d.uid AND v.revived_at >= (r.archived_at AT TIME ZONE 'UTC')
+    )
+    AND NOT platform.device_held_for_review(d.uid)
+  ORDER BY d.uid
+  """
+
+  # Clears the mark set at $2 on the live record $1, putting back the identity state $3 it
+  # replaced (NULL: the database drops the source_retired state).
+  @clear_mark_sql """
+  UPDATE platform.ocsf_devices AS d
+  SET source_retired_at = NULL,
+      metadata =
+        CASE WHEN CAST($3 AS text) IS NULL THEN d.metadata
+          ELSE COALESCE(d.metadata, '{}'::jsonb) || jsonb_build_object('identity_state', CAST($3 AS text))
+        END
+  WHERE d.uid = CAST($1 AS text) AND d.deleted_at IS NULL
+    AND d.source_retired_at = CAST($2 AS timestamp)
+  RETURNING d.uid
+  """
+
+  # Puts back the identity state $2 a mark replaced on the live, unmarked record $1, once the
+  # mark is gone and no state has been set since.
+  @restore_identity_state_sql """
+  UPDATE platform.ocsf_devices AS d
+  SET metadata = COALESCE(d.metadata, '{}'::jsonb) || jsonb_build_object('identity_state', CAST($2 AS text))
+  WHERE d.uid = CAST($1 AS text) AND d.deleted_at IS NULL AND d.source_retired_at IS NULL
+    AND NOT (COALESCE(d.metadata, '{}'::jsonb) ? 'identity_state')
+  RETURNING d.uid
   """
 
   @owner_lock_sql """
@@ -448,7 +506,10 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   @doc """
   The context a retirement pass for a source instance runs under, whether or not retirement is
   enabled: the scope, the latest exact collection and its query hash, N, T, the cutoff T
-  implies, and the devices the pass is limited to. Takes the options of `run/2`.
+  implies, and the devices the pass is limited to. Takes the options of `run/2`, and two the
+  remediation passes (`ServiceRadar.Inventory.Remediation.SourceIdRetire`): `:on_retired` and
+  `:on_marked`, each called with one record's retirement or mark inside its transaction. A call
+  that returns `{:error, _}` rolls that record's transaction back.
 
   Returns `{:skip, :unscoped}` for a source with no exact collections or a scope that does not
   map to exactly one source instance, and `{:skip, :no_exact_collection}` when the instance's
@@ -473,7 +534,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
            |> Keyword.get(:now, DateTime.utc_now())
            |> DateTime.shift(hour: -settings.source_retirement_min_absence_hours),
          uids: Keyword.get(opts, :uids),
-         actor: Keyword.get(opts, :actor, SystemActor.system(:source_retirement))
+         actor: Keyword.get(opts, :actor, SystemActor.system(:source_retirement)),
+         on_retired: Keyword.get(opts, :on_retired),
+         on_marked: Keyword.get(opts, :on_marked)
        }}
     end
   end
@@ -486,6 +549,134 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   """
   @spec retirable(map(), [String.t()] | nil) :: [map()]
   def retirable(ctx, uids), do: candidates(%{ctx | uids: uids})
+
+  # The remediation (design D11) applies the rule through the functions below, so that it
+  # retires and marks exactly as a pass does, under the same guard, locks and rechecks.
+
+  @doc false
+  # The mass guard's verdict on retiring `candidates` in a `context/2`, without consuming the
+  # override.
+  @spec guard([map()], map(), map()) :: {:allow, map()} | {:refuse, atom(), map()}
+  def guard(candidates, settings, ctx) do
+    devices = candidates |> Enum.map(& &1.device_id) |> Enum.uniq() |> length()
+    live = live_holders(ctx)
+    max_fraction = settings.source_retirement_max_fraction
+    counts = %{candidates: devices, live: live, max_fraction: max_fraction}
+
+    case CanonicalRebuild.prune_guard_check(devices, live, max_fraction, false) do
+      :allow -> {:allow, counts}
+      {:refuse, reason} -> {:refuse, reason, counts}
+    end
+  end
+
+  @doc false
+  # The mass guard as a pass applies it: a refused pass proceeds only by consuming the
+  # override. Returns `:ok` or `{:error, {:mass_retirement_refused, counts}}`.
+  @spec admit([map()], map(), map()) :: :ok | {:error, term()}
+  def admit(candidates, settings, ctx), do: mass_retirement_guard(candidates, settings, ctx)
+
+  @doc false
+  # Retires `candidates` (`retirable/2`) as a pass does, one transaction per device, and
+  # returns the pass's counts.
+  @spec retire([map()], map()) :: map()
+  def retire(candidates, ctx), do: retire_candidates(candidates, ctx)
+
+  @doc false
+  # The records of class 5 in a `context/2` (see `@unmarked_retired_sql`), of the devices
+  # `uids` (`nil` for every device).
+  @spec unmarked_retired(map(), [String.t()] | nil) :: [String.t()]
+  def unmarked_retired(ctx, uids) do
+    %{rows: rows} =
+      Repo.query!(
+        @unmarked_retired_sql,
+        retired_only_params(ctx.cutoff) ++
+          [
+            Atom.to_string(ctx.scope.identifier_type),
+            @archive_reason,
+            ctx.scope.partition_suffix,
+            uids
+          ]
+      )
+
+    Enum.map(rows, &hd/1)
+  end
+
+  @doc false
+  # Marks a record of class 5 `source_retired`, under the locks a retirement takes, after
+  # reading the rule again under them. Calls `ctx.on_marked` with the mark inside the
+  # transaction. Returns `{:ok, %{marked_at:, prior_identity_state:}}`, `{:ok, :not_marked}` or
+  # `{:error, term}`.
+  @spec mark_unmarked_retired(String.t(), map()) :: {:ok, map() | :not_marked} | {:error, term()}
+  def mark_unmarked_retired(device_id, ctx) do
+    Device
+    |> Ash.transact(fn ->
+      with {:ok, device} <- lock_live_device(device_id, ctx.actor),
+           :ok <- lock_identifier_owner(device_id),
+           [^device_id] <- unmarked_retired(ctx, [device_id]),
+           %NaiveDateTime{} = marked_at <- mark(device_id, ctx.cutoff, DateTime.utc_now()),
+           mark = %{
+             device_id: device_id,
+             instance: ctx.instance,
+             marked_at: marked_at,
+             prior_identity_state: identity_state(device)
+           },
+           :ok <- notify(ctx, :on_marked, mark) do
+        {:ok, Map.take(mark, [:marked_at, :prior_identity_state])}
+      else
+        {:error, _} = error -> error
+        _not_marked -> {:ok, :not_marked}
+      end
+    end)
+    |> case do
+      {:ok, {:ok, result}} -> {:ok, result}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc false
+  # Rollback of a mark the remediation set at `marked_at`: clears it, putting back the
+  # identity state it replaced, unless the record has changed since. Returns whether it did.
+  @spec clear_mark(String.t(), NaiveDateTime.t(), String.t() | nil) :: boolean()
+  def clear_mark(device_id, %NaiveDateTime{} = marked_at, prior_identity_state) do
+    %{num_rows: cleared} =
+      Repo.query!(@clear_mark_sql, [device_id, marked_at, prior_identity_state])
+
+    cleared == 1
+  end
+
+  @doc false
+  # Rollback of a retirement that marked the record: once the restored id has cleared the mark,
+  # puts back the identity state the mark replaced. Returns whether it did.
+  @spec restore_identity_state(String.t(), String.t()) :: boolean()
+  def restore_identity_state(device_id, prior_identity_state)
+      when is_binary(prior_identity_state) do
+    %{num_rows: restored} =
+      Repo.query!(@restore_identity_state_sql, [device_id, prior_identity_state])
+
+    restored == 1
+  end
+
+  @doc false
+  # Rollback of a merge that cleared a record's mark: marks it again as of `marked_at`, under
+  # the locks a retirement takes, if it is still retired-only with no identity-bearing
+  # observation since. Returns `{:ok, boolean}` or `{:error, term}`.
+  @spec restore_mark(String.t(), NaiveDateTime.t(), term()) :: {:ok, boolean()} | {:error, term()}
+  def restore_mark(device_id, %NaiveDateTime{} = marked_at, actor) do
+    Device
+    |> Ash.transact(fn ->
+      with {:ok, _device} <- lock_live_device(device_id, actor),
+           :ok <- lock_identifier_owner(device_id) do
+        {:ok, not is_nil(mark(device_id, marked_at, marked_at))}
+      else
+        {:error, _} = error -> error
+        :not_live -> {:ok, false}
+      end
+    end)
+    |> case do
+      {:ok, {:ok, restored}} -> {:ok, restored}
+      {:error, _} = error -> error
+    end
+  end
 
   defp ensure_enabled(%{source_retirement_enabled: true}), do: :ok
   defp ensure_enabled(_settings), do: {:skip, :disabled}
@@ -559,15 +750,11 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   end
 
   defp mass_retirement_guard(candidates, settings, ctx) do
-    devices = candidates |> Enum.map(& &1.device_id) |> Enum.uniq() |> length()
-    live = live_holders(ctx)
-    max_fraction = settings.source_retirement_max_fraction
-
-    case CanonicalRebuild.prune_guard_check(devices, live, max_fraction, false) do
-      :allow ->
+    case guard(candidates, settings, ctx) do
+      {:allow, _counts} ->
         :ok
 
-      {:refuse, reason} ->
+      {:refuse, reason, %{candidates: devices, live: live, max_fraction: max_fraction}} ->
         if settings.source_retirement_guard_override == true and consume_guard_override() do
           Logger.warning(
             "SourceRetirement: #{describe(ctx.instance)} pass over the guard admitted by " <>
@@ -593,19 +780,28 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     count
   end
 
+  @doc false
+  # The population the instance's gauge reports, in a `context/2`: the live records holding an
+  # id of the scope, and the ids the latest exact collection reported present. The remediation's
+  # check V1 reads it.
+  @spec population(map()) :: %{live_records: non_neg_integer(), current_ids: non_neg_integer()}
+  def population(%{instance: instance} = ctx) do
+    %{rows: [[current]]} =
+      Repo.query!(@current_ids_sql, [
+        instance.partition,
+        instance.source,
+        instance.source_instance,
+        ctx.collection.collection_id
+      ])
+
+    %{live_records: live_holders(ctx), current_ids: current}
+  end
+
   # After the pass, so the live records no longer count the ids it retired. An instance with no
   # scope or no exact latest collection has no population to report.
   defp emit_population(instance, opts) do
     with {:ok, ctx} <- context(instance, opts) do
-      live = live_holders(ctx)
-
-      %{rows: [[current]]} =
-        Repo.query!(@current_ids_sql, [
-          instance.partition,
-          instance.source,
-          instance.source_instance,
-          ctx.collection.collection_id
-        ])
+      %{live_records: live, current_ids: current} = population(ctx)
 
       :telemetry.execute(
         [:serviceradar, :inventory, :source_population],
@@ -828,9 +1024,19 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
         ])
 
       with {:ok, _device} <- Device.bump_identity_revision(device, actor: ctx.actor),
-           marked = mark(device_id, ctx),
+           marked_at = mark(device_id, ctx.cutoff, DateTime.utc_now()),
+           marked = not is_nil(marked_at),
            :ok <-
-             DecisionLog.record_many_strict(Enum.map(rows, &retired_decision(&1, marked, ctx))) do
+             DecisionLog.record_many_strict(Enum.map(rows, &retired_decision(&1, marked, ctx))),
+           :ok <-
+             notify(ctx, :on_retired, %{
+               device_id: device_id,
+               instance: instance,
+               rows: rows,
+               marked: marked,
+               marked_at: marked_at,
+               prior_identity_state: identity_state(device)
+             }) do
         {:ok, %{rows: rows, marked: marked}}
       end
     else
@@ -839,18 +1045,26 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   end
 
   # Runs after the archive, so the identifiers this retirement moved no longer count. The T of
-  # the identity-bearing observation is the pass's own minimum absence.
-  defp mark(device_id, ctx) do
-    %{num_rows: marked} =
-      Repo.query!(@mark_sql, [
-        device_id,
-        DateTime.utc_now(),
-        ctx.cutoff,
-        @operator_sources,
-        Enum.map(marking_identifier_types(), &Atom.to_string/1)
-      ])
+  # the identity-bearing observation is the pass's own minimum absence. Returns the time of the
+  # mark, or nil when the record is not retired-only.
+  defp mark(device_id, cutoff, at) do
+    case Repo.query!(@mark_sql, retired_only_params(cutoff) ++ [device_id, at]) do
+      %{rows: [[marked_at]]} -> marked_at
+      %{rows: []} -> nil
+    end
+  end
 
-    marked == 1
+  defp retired_only_params(cutoff) do
+    [cutoff, @operator_sources, Enum.map(marking_identifier_types(), &Atom.to_string/1)]
+  end
+
+  defp identity_state(device), do: Map.get(device.metadata || %{}, "identity_state")
+
+  defp notify(ctx, callback, event) do
+    case Map.get(ctx, callback) do
+      nil -> :ok
+      fun when is_function(fun, 1) -> fun.(event)
+    end
   end
 
   @doc """

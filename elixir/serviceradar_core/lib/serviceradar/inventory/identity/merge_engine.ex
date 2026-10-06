@@ -134,6 +134,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   `fingerprint:` is the evidence fingerprint of the pair (`BlockFingerprint`). A guard block
   records it in its decision, so the next scheduled run can skip the pair while the evidence is
   unchanged (`block_decision_keys/2`).
+
+  `on_merged:` is called with the merge's `MergeAudit` record as the last step of the merge
+  transaction; a call that returns `{:error, _}` rolls the merge back. The remediation (design
+  D11) writes its rollback manifest entry there, so that no merge commits unrecorded.
   """
   @spec merge_devices(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def merge_devices(from_device_id, to_device_id, opts \\ []) do
@@ -142,6 +146,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     details = Keyword.get(opts, :details, %{})
     succession = Keyword.get(opts, :succession)
     fingerprint = Keyword.get(opts, :fingerprint)
+    on_merged = Keyword.get(opts, :on_merged, fn _merge -> :ok end)
 
     cond do
       from_device_id == to_device_id ->
@@ -169,7 +174,15 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         {:error, {:merge_blocked, merge_guard_blocked}}
 
       true ->
-        do_merge_devices(from_device_id, to_device_id, reason, details, succession, actor)
+        do_merge_devices(
+          from_device_id,
+          to_device_id,
+          reason,
+          details,
+          succession,
+          actor,
+          on_merged
+        )
     end
   end
 
@@ -403,7 +416,15 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     )
   end
 
-  defp do_merge_devices(from_device_id, to_device_id, reason, details, succession, actor) do
+  defp do_merge_devices(
+         from_device_id,
+         to_device_id,
+         reason,
+         details,
+         succession,
+         actor,
+         on_merged
+       ) do
     resources = [
       Device,
       DeviceIdentifier,
@@ -436,13 +457,9 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
              Device.get_by_uid(from_device_id, false, actor: actor),
            {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
            :ok <-
-             source_authority_transaction_guard(
-               from_device_id,
-               to_device_id,
-               reason,
-               succession,
-               actor
-             ),
+             from_device_id
+             |> source_authority_transaction_guard(to_device_id, reason, succession, actor)
+             |> transaction_refusal(),
            # Read before the reassignment moves them: these are the identifiers
            # an unmerge must give back, and nothing else records them.
            {:ok, source_identifiers} <- source_identifiers(from_device_id, actor),
@@ -471,7 +488,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                from_device_id,
                to_device_id
              ),
-           {:ok, _merge} <-
+           {:ok, merge} <-
              MergeAudit.record(
                %{
                  from_device_id: from_device_id,
@@ -498,7 +515,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            # The source needs no bump here -- tombstone_merged_device/2 goes
            # through :soft_delete, which carries one.
            {:ok, _} <- Device.bump_identity_revision(to_device, actor: actor) do
-        :ok
+        on_merged.(merge)
       end
     end)
     |> case do
@@ -506,7 +523,13 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         emit_merge_executed_telemetry(reason, from_device_id, to_device_id)
         :ok
 
-      # With transact a returned {:error, _} arrives here as {:error, _}, having
+      # The guard under the locks refused, before anything was written.
+      {:ok, {:refused, error}} ->
+        maybe_record_transaction_source_conflict(error, reason, details)
+        emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error)
+        error
+
+      # With transact a returned {:error, _} arrives here as an Ash error, having
       # rolled back. {:ok, other} is retained for a `with` clause that fails with
       # some other shape, which does NOT trigger a rollback.
       {:ok, other} ->
@@ -514,7 +537,6 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         other
 
       {:error, _} = error ->
-        maybe_record_transaction_source_conflict(error, reason, details)
         emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error)
         error
     end
@@ -542,6 +564,16 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       {:error, _} = error -> error
     end
   end
+
+  # The guard's refusal under the locks, before the merge has written anything, is a value, and
+  # the transaction commits nothing: an error returned through Ash.transact/3 arrives as an Ash
+  # error, which would hide the reason (a source-authority conflict, a stale succession) from
+  # the caller and from the blocked-merge record.
+  defp transaction_refusal({:error, {tag, _detail}} = error)
+       when tag in [:source_authority_conflict, :succession_stale],
+       do: {:refused, error}
+
+  defp transaction_refusal(result), do: result
 
   defp source_authority_transaction_guard(from_device_id, to_device_id, reason, nil, _actor) do
     if manual_override_merge_reason?(reason) or reason == "unmerge" do
@@ -828,33 +860,84 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   Uses the `merge_audit` trail to identify what was merged.
   Records an unmerge audit entry for traceability.
+
+  `opts`: `:actor`; `:unmerged_by`, recorded in the unmerge audit entry (default `"admin"`);
+  and `:event_id`, which reverses exactly that merge of the device instead of its latest one.
+  With `:event_id` the unmerge is refused as `:already_unmerged` once the merge was reversed,
+  as `:merge_superseded` when the device merged again since, and as `:not_merged` unless the
+  device is still the merge's tombstone, so that a rollback replayed over a changed inventory
+  does nothing.
   """
   @spec unmerge_device(String.t(), keyword()) :: :ok | {:error, term()}
   def unmerge_device(from_device_id, opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:device_unmerge))
+    unmerge = %{unmerged_by: Keyword.get(opts, :unmerged_by, "admin"), require_merged: false}
 
-    # Find the merge audit entry for this from_device_id
-    case MergeAudit.get_merged_to(from_device_id, actor: actor) do
-      {:ok, [audit | _]} ->
-        do_unmerge(from_device_id, audit.to_device_id, audit, actor)
+    case Keyword.get(opts, :event_id) do
+      nil ->
+        # Find the merge audit entry for this from_device_id
+        case MergeAudit.get_merged_to(from_device_id, actor: actor) do
+          {:ok, [audit | _]} ->
+            do_unmerge(from_device_id, audit.to_device_id, audit, actor, unmerge)
 
-      {:ok, []} ->
-        {:error, :no_merge_audit_found}
+          {:ok, []} ->
+            {:error, :no_merge_audit_found}
 
-      {:error, _} = error ->
-        error
+          {:error, _} = error ->
+            error
+        end
+
+      event_id ->
+        with {:ok, audit} <- merge_event(from_device_id, event_id, actor) do
+          do_unmerge(from_device_id, audit.to_device_id, audit, actor, %{
+            unmerge
+            | require_merged: true
+          })
+        end
     end
   end
 
-  defp do_unmerge(from_device_id, to_device_id, audit, actor) do
+  defp merge_event(from_device_id, event_id, actor) do
+    with {:ok, audits} <- MergeAudit.get_by_device(from_device_id, actor: actor) do
+      case Enum.find(audits, &merge_of?(&1, from_device_id, event_id)) do
+        nil ->
+          {:error, :no_merge_audit_found}
+
+        audit ->
+          cond do
+            Enum.any?(audits, &unmerge_of?(&1, event_id)) -> {:error, :already_unmerged}
+            Enum.any?(audits, &later_merge?(&1, audit)) -> {:error, :merge_superseded}
+            true -> {:ok, audit}
+          end
+      end
+    end
+  end
+
+  defp merge_of?(%MergeAudit{} = audit, from_device_id, event_id) do
+    audit.event_id == event_id and audit.from_device_id == from_device_id and
+      audit.reason != "unmerge"
+  end
+
+  defp unmerge_of?(%MergeAudit{reason: "unmerge", details: %{} = details}, event_id),
+    do: details["original_merge_event_id"] == event_id
+
+  defp unmerge_of?(_audit, _event_id), do: false
+
+  defp later_merge?(%MergeAudit{} = other, %MergeAudit{} = audit) do
+    other.event_id != audit.event_id and other.from_device_id == audit.from_device_id and
+      other.reason != "unmerge" and DateTime.compare(other.created_at, audit.created_at) != :lt
+  end
+
+  defp do_unmerge(from_device_id, to_device_id, audit, actor, unmerge) do
     resources = [Device, DeviceIdentifier, MergeAudit, DistinctDeviceAssertion]
 
-    # See do_merge_devices/5: must be transact, not transaction, or an unmerge
+    # See do_merge_devices/7: must be transact, not transaction, or an unmerge
     # that fails partway commits a half-reversed merge.
     resources
     |> Ash.transact(fn ->
       # Recreate the from-device
       with :ok <- lock_device_rows([from_device_id, to_device_id], actor),
+           :ok <- check_merged(from_device_id, unmerge, actor),
            # Before the restore, which reclaims the merged record's address when it is free.
            :ok <- revert_succession(audit, to_device_id, actor),
            {:ok, _device} <- recreate_device(from_device_id, audit, actor),
@@ -872,7 +955,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                  details: %{
                    original_merge_event_id: audit.event_id,
                    original_merge_reason: audit.reason,
-                   unmerged_by: "admin",
+                   unmerged_by: unmerge.unmerged_by,
                    restored_identifiers: Enum.sort_by(restored.restored, &{&1.type, &1.value}),
                    restored_identifiers_source: restored.provenance,
                    restored_archived_identifiers: restored_archived
@@ -901,8 +984,22 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     end)
     |> case do
       {:ok, :ok} -> :ok
+      {:ok, {:refused, reason}} -> {:error, reason}
       {:ok, other} -> other
       {:error, _} = error -> error
+    end
+  end
+
+  # Under the device locks: an unmerge of one named merge needs the device to be its tombstone
+  # still. The refusal is a value, not an error: nothing has changed yet, and an error returned
+  # through Ash.transact/3 arrives as an Ash error, which would hide the reason from the caller.
+  defp check_merged(_from_device_id, %{require_merged: false}, _actor), do: :ok
+
+  defp check_merged(from_device_id, %{require_merged: true}, actor) do
+    case Device.get_by_uid(from_device_id, true, actor: actor) do
+      {:ok, %Device{deleted_at: %_{}, deleted_reason: "merged"}} -> :ok
+      {:error, _} = error -> error
+      _other -> {:refused, :not_merged}
     end
   end
 
