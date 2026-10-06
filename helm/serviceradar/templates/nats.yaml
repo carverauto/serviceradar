@@ -303,6 +303,11 @@ spec:
                       # Bounded ingestion lane envelopes from core.
                       # EventWriter owns persistence from the METRICS stream.
                       "metrics.ingestion_lanes",
+                      # Warehouse load-failure counters
+                      # (Analytics.StarRocks.LoadHealth). The publish waits for
+                      # a PubAck, so a missing entry denies every sample and
+                      # the broker logs a permissions violation.
+                      "metrics.event_writer.warehouse",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
