@@ -7,8 +7,8 @@ defmodule ServiceRadar.Identity.Changes.RecordRoleChange do
   """
   use Ash.Resource.Change
 
-  alias ServiceRadar.AshContext
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AshContext
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserAuthEvent
 
