@@ -43,8 +43,18 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifierTest do
 
   test "uuid string ids tie-break deterministically without raising" do
     rules = [
-      %{id: "018f9b2c-0000-7000-8000-000000000002", priority: 5, dst_port: 8080, app_label: "second"},
-      %{id: "018f9b2c-0000-7000-8000-000000000001", priority: 5, dst_port: 8080, app_label: "first"}
+      %{
+        id: "018f9b2c-0000-7000-8000-000000000002",
+        priority: 5,
+        dst_port: 8080,
+        app_label: "second"
+      },
+      %{
+        id: "018f9b2c-0000-7000-8000-000000000001",
+        priority: 5,
+        dst_port: 8080,
+        app_label: "first"
+      }
     ]
 
     flow = %{partition: "default", protocol_num: 6, dst_port: 8080}
