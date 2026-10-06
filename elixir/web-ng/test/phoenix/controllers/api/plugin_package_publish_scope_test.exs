@@ -62,6 +62,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
         |> post(~p"/api/admin/plugin-packages", create_params())
 
       assert conn.status == 403
+
       assert %{"error" => "insufficient_scope", "required" => "plugin.publish"} =
                json_response(conn, 403)
     end
