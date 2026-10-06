@@ -9,9 +9,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.Inventory.SyncRunLedger
+  alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
-  alias Serviceradar.Metric.V1.MetricBatch
 
   @moduletag :integration
 
