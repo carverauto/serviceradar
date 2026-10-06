@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.ServiceLiveModulesTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Observability.ServiceState
   alias ServiceRadarWebNGWeb.ServiceLive.Index.Data
   alias ServiceRadarWebNGWeb.ServiceLive.Service
   alias ServiceRadarWebNGWeb.ServiceLive.Show.Query
@@ -114,6 +115,106 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveModulesTest do
 
       assert %{"service_id" => "latest"} =
                Query.pick_service(services, %{"timestamp" => "not-a-timestamp"})
+    end
+  end
+
+  describe "distinct service health summaries" do
+    test "deduplicates service instances by logical identity and computes availability parity" do
+      now = ~U[2026-10-06 02:00:00Z]
+      older = ~U[2026-10-06 01:55:00Z]
+
+      # 3 rows representing 2 distinct services:
+      # - Service A on agent-1: two gateway variants (older unavailable, newer available)
+      # - Service B on agent-1: unavailable
+      states = [
+        %ServiceState{
+          agent_id: "agent-1",
+          gateway_id: "gw-1",
+          partition: "default",
+          service_type: "plugin",
+          service_name: "Service A",
+          available: true,
+          state: "active",
+          last_observed_at: now
+        },
+        %ServiceState{
+          agent_id: "agent-1",
+          gateway_id: "gw-2",
+          partition: "default",
+          service_type: "plugin",
+          service_name: "Service A",
+          available: false,
+          state: "active",
+          last_observed_at: older
+        },
+        %ServiceState{
+          agent_id: "agent-1",
+          gateway_id: "gw-1",
+          partition: "default",
+          service_type: "plugin",
+          service_name: "Service B",
+          available: false,
+          state: "active",
+          last_observed_at: now
+        }
+      ]
+
+      summary = Data.summary(states, [])
+
+      # Total must be exactly 2 distinct services, NOT 3
+      assert summary.total == 2
+      assert summary.available == 1
+      assert summary.unavailable == 1
+      assert summary.available + summary.unavailable == summary.total
+      assert summary.availability_pct == 50.0
+      assert summary.last_updated == now
+    end
+
+    test "empty states fall back to empty summary" do
+      summary = Data.summary([], [])
+
+      assert summary.total == 0
+      assert summary.available == 0
+      assert summary.unavailable == 0
+      assert summary.availability_pct == 0.0
+      assert summary.last_updated == nil
+    end
+
+    test "fallback services calculate distinct plugin count" do
+      services = [
+        %{
+          "agent_id" => "agent-1",
+          "partition" => "default",
+          "service_type" => "plugin",
+          "service_name" => "Svc 1",
+          "available" => true,
+          "timestamp" => "2026-10-06T02:00:00Z"
+        },
+        %{
+          "agent_id" => "agent-1",
+          "partition" => "default",
+          "service_type" => "plugin",
+          "service_name" => "Svc 1",
+          "available" => true,
+          "timestamp" => "2026-10-06T01:55:00Z"
+        },
+        %{
+          "agent_id" => "agent-2",
+          "partition" => "default",
+          "service_type" => "plugin",
+          "service_name" => "Svc 2",
+          "available" => false,
+          "timestamp" => "2026-10-06T02:00:00Z"
+        }
+      ]
+
+      summary = Data.summary([], services)
+
+      assert summary.total == 2
+      assert summary.available == 1
+      assert summary.unavailable == 1
+      assert summary.available + summary.unavailable == summary.total
+      assert summary.availability_pct == 50.0
     end
   end
 end

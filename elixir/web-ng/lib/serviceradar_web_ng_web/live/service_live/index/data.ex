@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
   @moduledoc false
 
+  alias ServiceRadar.Observability.ServiceHealth
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
-  alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadarWebNGWeb.ServiceLive.Display
   alias ServiceRadarWebNGWeb.ServiceLive.Service
 
@@ -27,19 +27,25 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
     |> Ash.Query.for_read(:active_plugin_cards, %{})
     |> Ash.read(scope: scope)
     |> case do
-      {:ok, states} when is_list(states) -> dedupe_states(states)
+      {:ok, states} when is_list(states) -> ServiceHealth.dedupe_states(states)
       _ -> []
     end
   end
 
-  def summary(plugin_states, _services) when is_list(plugin_states) and plugin_states != [] do
-    compute_state_summary(plugin_states)
+  def summary(plugin_states, services \\ [])
+
+  def summary(plugin_states, services) when is_list(plugin_states) and plugin_states != [] do
+    ServiceHealth.summary(plugin_states, services: services)
   end
 
-  def summary(_plugin_states, services) do
+  def summary(_plugin_states, services) when is_list(services) and services != [] do
     services
     |> filter_plugin_services()
     |> compute_summary()
+  end
+
+  def summary(_plugin_states, _services) do
+    ServiceHealth.empty_summary()
   end
 
   def cards(plugin_states, _services, scope) when is_list(plugin_states) and plugin_states != [] do
@@ -54,48 +60,19 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
 
   def cards(_plugin_states, _services, _scope), do: []
 
-  defp dedupe_states(states) do
-    states
-    |> Enum.filter(&match?(%ServiceState{}, &1))
-    |> Enum.sort_by(&state_sort_key/1, :desc)
-    |> Enum.reduce(%{}, fn state, acc ->
-      Map.put_new(acc, state_identity_key(state), state)
-    end)
-    |> Map.values()
-  end
-
-  defp state_sort_key(%ServiceState{} = state), do: PluginStateContract.state_rank(state)
-
-  defp state_identity_key(%ServiceState{} = state) do
-    agent_id = state.agent_id || ""
-    partition = state.partition || ""
-    service_type = state.service_type || ""
-    service_name = state.service_name || ""
-
-    "#{agent_id}:#{partition}:#{service_type}:#{service_name}"
-  end
-
   defp compute_summary(services) when is_list(services) do
     unique_services = dedupe_services(services)
     initial = base_summary(length(services), latest_timestamp(services))
-    Enum.reduce(unique_services, initial, &accumulate_service/2)
-  end
+    summary = Enum.reduce(unique_services, initial, &accumulate_service/2)
 
-  defp compute_state_summary(states) do
-    initial = base_summary(length(states), latest_state_timestamp(states))
+    availability_pct =
+      if summary.total > 0 do
+        Float.round(summary.available / summary.total * 100.0, 1)
+      else
+        0.0
+      end
 
-    Enum.reduce(states, initial, fn state, acc ->
-      available? = state.available == true
-      check_name = normalize_service_name(state.service_name)
-
-      %{
-        acc
-        | total: acc.total + 1,
-          available: acc.available + if(available?, do: 1, else: 0),
-          unavailable: acc.unavailable + if(available?, do: 0, else: 1),
-          by_check: update_by_check(acc.by_check, check_name, available?)
-      }
-    end)
+    Map.put(summary, :availability_pct, availability_pct)
   end
 
   defp base_summary(check_count, last_updated) do
@@ -133,19 +110,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
       else
         Map.update!(counts, :unavailable, &(&1 + 1))
       end
-    end)
-  end
-
-  defp latest_state_timestamp(states) do
-    Enum.reduce(states, nil, fn
-      %ServiceState{last_observed_at: %DateTime{} = datetime}, nil ->
-        datetime
-
-      %ServiceState{last_observed_at: %DateTime{} = datetime}, current ->
-        max_datetime(datetime, current)
-
-      _, current ->
-        current
     end)
   end
 

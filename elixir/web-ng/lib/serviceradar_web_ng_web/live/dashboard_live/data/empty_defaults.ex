@@ -4,7 +4,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.EmptyDefaults do
   defmacro __using__(_opts) do
     quote do
       defp empty_device_summary, do: %{total: 0, available: 0, unavailable: 0}
-      defp empty_services_summary, do: %{total: 0, available: 0, unavailable: 0, availability_pct: 0.0}
+
+      defp empty_services_summary,
+        do: %{total: 0, available: 0, unavailable: 0, availability_pct: 0.0, last_updated: nil, check_count: 0}
+
       defp empty_flow_summary, do: %{bytes_total: 0, packets_total: 0, flow_count: 0, bps: 0.0, pps: 0.0, link_count: 0}
 
       defp empty_mtr_summary,
