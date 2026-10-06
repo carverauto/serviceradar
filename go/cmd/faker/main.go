@@ -533,7 +533,7 @@ func (c *Config) applyDefaults() {
 	c.Simulation.BGP.Peers = defaultBGPPeers()
 	c.Simulation.BGP.AdvertisedPrefixes = []string{
 		"198.51.100.0/24",
-		"2602:f678::/48",
+		"2001:db8::/48",
 	}
 	c.Storage.DataDir = "/var/lib/serviceradar/faker"
 	c.Storage.DevicesFile = "fake_armis_devices.json"

@@ -35,14 +35,10 @@ var (
 	ErrCoreAddressNotFound = errors.New("core_address not found in metadata")
 	// ErrCoreSPIFFEIDNotFound is returned when core_spiffe_id is missing from metadata.
 	ErrCoreSPIFFEIDNotFound = errors.New("core_spiffe_id not found in metadata")
-	// ErrSPIREUpstreamAddressNotFound is returned when spire_upstream_address is missing from metadata.
-	ErrSPIREUpstreamAddressNotFound = errors.New("spire_upstream_address not found in metadata")
 	// ErrSPIREParentIDNotFound is returned when spire_parent_id is missing from metadata.
 	ErrSPIREParentIDNotFound = errors.New("spire_parent_id not found in metadata")
 	// ErrAgentSPIFFEIDNotFound is returned when agent_spiffe_id is missing from metadata.
 	ErrAgentSPIFFEIDNotFound = errors.New("agent_spiffe_id not found in metadata")
-	// ErrSPIREUpstreamPortNotFound is returned when spire_upstream_port is missing from metadata.
-	ErrSPIREUpstreamPortNotFound = errors.New("spire_upstream_port not found in metadata")
 	// ErrGatewayIDNotFound is returned when gateway_id is missing from metadata.
 	ErrGatewayIDNotFound = errors.New("gateway_id not found in metadata")
 	// ErrKVAddressNotFound is returned when kv_address is missing from metadata.
@@ -57,8 +53,8 @@ var (
 
 // generateServiceConfig generates configuration files for the service based on:
 // - Component type (gateway, agent, checker; sync packages map to agent bootstrap config)
-	// - Deployment type (docker, kubernetes, bare-metal)
-	// - Package metadata (contains service-specific config from KV)
+// - Deployment type (docker, kubernetes, bare-metal)
+// - Package metadata (contains service-specific config from KV)
 func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
 	b.logger.Info().
 		Str("component_type", string(b.pkg.ComponentType)).
@@ -119,11 +115,6 @@ func (b *Bootstrapper) generateGatewayConfig(ctx context.Context, metadata map[s
 		return ErrCoreSPIFFEIDNotFound
 	}
 
-	spireUpstreamAddr, ok := metadata["spire_upstream_address"].(string)
-	if !ok || spireUpstreamAddr == "" {
-		return ErrSPIREUpstreamAddressNotFound
-	}
-
 	spireParentID, ok := metadata["spire_parent_id"].(string)
 	if !ok || spireParentID == "" {
 		return ErrSPIREParentIDNotFound
@@ -146,7 +137,7 @@ func (b *Bootstrapper) generateGatewayConfig(ctx context.Context, metadata map[s
 
 	// Generate gateway config JSON
 	config := map[string]interface{}{
-		"gateway_id":    b.pkg.ComponentID,
+		"gateway_id":   b.pkg.ComponentID,
 		"label":        b.pkg.Label,
 		"component_id": b.pkg.ComponentID,
 
@@ -159,12 +150,11 @@ func (b *Bootstrapper) generateGatewayConfig(ctx context.Context, metadata map[s
 
 		// SPIFFE configuration
 		"gateway_spiffe_id": b.pkg.DownstreamSPIFFEID,
-		"core_spiffe_id":   coreSPIFFEID,
-		"agent_spiffe_id":  agentSPIFFEID,
+		"core_spiffe_id":    coreSPIFFEID,
+		"agent_spiffe_id":   agentSPIFFEID,
 
 		// SPIRE nested server configuration
-		"spire_upstream_address": spireUpstreamAddr,
-		"spire_parent_id":        spireParentID,
+		"spire_parent_id": spireParentID,
 
 		// Storage paths
 		"data_dir":   filepath.Join(b.cfg.StoragePath, "gateway"),

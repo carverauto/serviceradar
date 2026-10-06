@@ -91,10 +91,9 @@ func TestDownloadPackageFromArchive(t *testing.T) {
 		CreatedAt:          now,
 		UpdatedAt:          now,
 		Metadata: map[string]interface{}{
-			"core_address":           "core:50052",
-			"kv_address":             "kv:50057",
-			"datasvc_endpoint":       "kv:50057",
-			"spire_upstream_address": "spire-server:8081",
+			"core_address":     "core:50052",
+			"kv_address":       "kv:50057",
+			"datasvc_endpoint": "kv:50057",
 		},
 	}
 	archivePath := writeTestArchive(t, meta, "offline-token\n", "offline-bundle\n")
