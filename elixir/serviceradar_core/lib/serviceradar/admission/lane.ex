@@ -39,37 +39,62 @@ defmodule ServiceRadar.Admission.Lane do
     :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
   end
 
-  def submit(server, id, status, reply_to) do
-    GenServer.call(server, {:submit, id, status, {:reply_to, reply_to}}, :infinity)
+  def submit(server, id, status, reply_to, timeout \\ 1_000) do
+    GenServer.call(server, {:submit, id, status, {:reply_to, reply_to}, timeout}, timeout)
   catch
-    :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
+    :exit, reason ->
+      cancel(server, id)
+      map_call_error(reason)
+  end
+
+  def cancel(server, id) do
+    GenServer.cast(server, {:cancel, id})
+  catch
+    :exit, _ -> :ok
+  end
+
+  def cancel_ref(server, call_ref) do
+    GenServer.cast(server, {:cancel_ref, call_ref})
+  catch
+    :exit, _ -> :ok
   end
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
 
-  def admit(server, status, reply_to) do
-    # There is deliberately no client-side timeout here. The coordinator never
-    # executes handlers or database work, and timing out a call whose message is
-    # already in its mailbox could produce an immediate rejection followed by a
-    # second, late reply to the original caller after admission succeeds.
-    GenServer.call(server, {:admit, status, reply_to}, :infinity)
-  catch
-    :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
-  end
+  def admit(server, status, reply_to, timeout \\ 1_000) do
+    call_ref = make_ref()
 
-  def admit_cast(server, status, lane) do
-    GenServer.call(server, {:admit_cast, status}, :infinity)
+    GenServer.call(server, {:admit, status, reply_to, call_ref}, timeout)
   catch
     :exit, reason ->
+      cancel_ref(server, call_ref)
+      map_call_error(reason)
+  end
+
+  def admit_cast(server, status, lane, timeout \\ 1_000) do
+    call_ref = make_ref()
+
+    GenServer.call(server, {:admit_cast, status, call_ref}, timeout)
+  catch
+    :exit, reason ->
+      cancel_ref(server, call_ref)
+      mapped = map_call_error(reason)
+
       emit(
         lane,
         :rejected,
         %{count: 1, payload_bytes: payload_bytes(status)},
-        %{reason: :lane_unavailable}
+        %{reason: call_error_reason(mapped)}
       )
 
-      {:error, {:admission_lane_unavailable, reason}}
+      mapped
   end
+
+  defp map_call_error({:timeout, _}), do: {:error, :admission_timeout}
+  defp map_call_error(:timeout), do: {:error, :admission_timeout}
+  defp map_call_error(reason), do: {:error, {:admission_lane_unavailable, reason}}
+
+  defp call_error_reason({:error, reason}), do: reason
 
   def validate_config(config, gateway_max_ms) do
     keys = [:max_items, :max_bytes, :max_items_per_agent, :queue_wait_ms, :worker_timeout_ms]
@@ -159,9 +184,10 @@ defmodule ServiceRadar.Admission.Lane do
     end
   end
 
-  def handle_call({:submit, id, status, mode}, from, state)
-      when mode in [:wait, :best_effort] or
-             (is_tuple(mode) and tuple_size(mode) == 2 and elem(mode, 0) == :reply_to) do
+  def handle_call({:submit, id, status, mode, submit_timeout}, from, state)
+      when (mode in [:wait, :best_effort] or
+              (is_tuple(mode) and tuple_size(mode) == 2 and elem(mode, 0) == :reply_to)) and
+             is_integer(submit_timeout) and submit_timeout > 0 do
     reply_to =
       case mode do
         :wait -> from
@@ -169,28 +195,45 @@ defmodule ServiceRadar.Admission.Lane do
         {:reply_to, target} -> target
       end
 
-    case attach_payload(state, id, status, reply_to) do
+    case attach_payload(state, id, status, reply_to, submit_timeout) do
       {:ok, next_state} when mode == :wait -> {:noreply, dispatch(next_state)}
       {:ok, next_state} -> {:reply, :ok, dispatch(next_state)}
       {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
     end
   end
 
-  def handle_call({:submit, _id, _status, _mode}, _from, state),
+  def handle_call({:submit, _id, _status, _mode, _timeout}, _from, state),
     do: {:reply, {:error, :invalid_admission_mode}, state}
 
-  def handle_call({:admit, status, reply_to}, _from, state) do
-    case do_admit(status, reply_to, state) do
+  def handle_call({:admit, status, reply_to, call_ref}, _from, state) do
+    case do_admit(status, reply_to, state, call_ref) do
       {:ok, next_state} -> {:reply, :ok, dispatch(next_state)}
       {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
     end
   end
 
   @impl true
-  def handle_call({:admit_cast, status}, _from, state) do
-    case do_admit(status, nil, state) do
+  def handle_call({:admit_cast, status, call_ref}, _from, state) do
+    case do_admit(status, nil, state, call_ref) do
       {:ok, next_state} -> {:reply, :ok, dispatch(next_state)}
       {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+    end
+  end
+
+  @impl true
+  def handle_cast({:cancel, id}, state) do
+    case Map.get(state.jobs, id) do
+      nil -> {:noreply, state}
+      job -> {:noreply, abandon_job(state, job, nil)}
+    end
+  end
+
+  def handle_cast({:cancel_ref, call_ref}, state) do
+    job = Enum.find(Map.values(state.jobs), &(&1[:client_ref] == call_ref))
+
+    case job do
+      nil -> {:noreply, state}
+      job -> {:noreply, abandon_job(state, job, nil)}
     end
   end
 
@@ -318,40 +361,47 @@ defmodule ServiceRadar.Admission.Lane do
       nil ->
         {:noreply, %{state | monitors: Map.delete(state.monitors, ref)}}
 
-      %{phase: :reserved} = job ->
-        {:noreply, state |> remove_job(job) |> dispatch()}
-
-      %{phase: :queued} = job ->
-        Process.exit(job.lease, :kill)
-        {:noreply, state |> remove_job(job) |> dispatch()}
-
-      %{phase: phase} = job when phase in [:running, :delivering] ->
-        if is_reference(Map.get(job, :execution_timer)) do
-          Process.cancel_timer(job.execution_timer)
-        end
-
-        Process.exit(job.lease, :kill)
-
-        if is_pid(Map.get(job, :worker)) and Process.alive?(job.worker) do
-          Process.exit(job.worker, :kill)
-        end
-
-        terminating =
-          job
-          |> Map.put(:phase, :terminating)
-          |> Map.put(:reply_to, nil)
-
-        next_state = drop_monitor(state, ref)
-
-        if Map.get(job, :worker_down, false) do
-          {:noreply, next_state |> remove_job(terminating) |> dispatch()}
-        else
-          {:noreply, put_job(next_state, terminating)}
-        end
-
-      %{phase: :terminating} ->
-        {:noreply, drop_monitor(state, ref)}
+      job ->
+        {:noreply, abandon_job(state, job, ref)}
     end
+  end
+
+  defp abandon_job(state, %{phase: :reserved} = job, _ref) do
+    state |> remove_job(job) |> dispatch()
+  end
+
+  defp abandon_job(state, %{phase: :queued} = job, _ref) do
+    Process.exit(job.lease, :kill)
+    state |> remove_job(job) |> dispatch()
+  end
+
+  defp abandon_job(state, %{phase: phase} = job, ref) when phase in [:running, :delivering] do
+    if is_reference(Map.get(job, :execution_timer)) do
+      Process.cancel_timer(job.execution_timer)
+    end
+
+    Process.exit(job.lease, :kill)
+
+    if is_pid(Map.get(job, :worker)) and Process.alive?(job.worker) do
+      Process.exit(job.worker, :kill)
+    end
+
+    terminating =
+      job
+      |> Map.put(:phase, :terminating)
+      |> Map.put(:reply_to, nil)
+
+    next_state = drop_monitor(state, ref)
+
+    if Map.get(job, :worker_down, false) do
+      next_state |> remove_job(terminating) |> dispatch()
+    else
+      put_job(next_state, terminating)
+    end
+  end
+
+  defp abandon_job(state, %{phase: :terminating}, ref) do
+    drop_monitor(state, ref)
   end
 
   defp handle_worker_exit(state, id, ref, reason) do
@@ -536,13 +586,15 @@ defmodule ServiceRadar.Admission.Lane do
 
   defp validate_descriptor(_), do: {:error, :invalid_admission_descriptor}
 
-  defp attach_payload(state, id, status, reply_to) do
+  defp attach_payload(state, id, status, reply_to, submit_timeout) do
     case Map.get(state.jobs, id) do
       %{phase: :reserved} = job ->
         actual = descriptor(status, 1)
+        now = now_ms()
 
         cond do
-          now_ms() >= job.deadline - @deadline_reserve_ms ->
+          now >= job.deadline - @deadline_reserve_ms or
+              now >= job.admitted_at + submit_timeout ->
             {:error, :admission_timeout, remove_job(state, job)}
 
           actual.headers != job.headers or actual.retained_bytes != job.retained_bytes ->
@@ -587,7 +639,7 @@ defmodule ServiceRadar.Admission.Lane do
     end
   end
 
-  defp do_admit(status, reply_to, state) do
+  defp do_admit(status, reply_to, state, call_ref) do
     payload_bytes = payload_bytes(status)
     retained_bytes = :erlang.external_size(status) + @envelope_overhead_bytes
     agent_id = agent_id(status)
@@ -603,6 +655,7 @@ defmodule ServiceRadar.Admission.Lane do
 
       job = %{
         id: id,
+        client_ref: call_ref,
         status: status,
         reply_to: reply_to,
         lease: lease,

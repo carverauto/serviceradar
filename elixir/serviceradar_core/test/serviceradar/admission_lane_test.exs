@@ -49,13 +49,14 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
         batch1 = MetricBatch.decode(frame1)
         admitted1 = find_metric!(batch1, "result_ingestion_events_admitted", "sweep")
-        assert admitted1.value == 1.0
+        admitted1_point = point!(admitted1)
+        assert admitted1_point.value == 1.0
         assert admitted1.temporality == :METRIC_TEMPORALITY_DELTA
-        assert admitted1.start_time_unix_nano > 0
-        assert admitted1.start_time_unix_nano <= admitted1.observed_at_unix_nano
+        assert admitted1_point.start_time_unix_nano > 0
+        assert admitted1_point.start_time_unix_nano <= admitted1_point.observed_at_unix_nano
 
         gauge1 = find_metric!(batch1, "result_ingestion_pending_count", "sweep")
-        assert gauge1.value == 2.0
+        assert point!(gauge1).value == 2.0
         assert gauge1.temporality == :METRIC_TEMPORALITY_UNSPECIFIED
 
         row1 =
@@ -117,13 +118,14 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
         batch2 = MetricBatch.decode(frame2)
         admitted2 = find_metric!(batch2, "result_ingestion_events_admitted", "sweep")
-        assert admitted2.value == 1_007.0
-        assert admitted2.start_time_unix_nano == admitted1.observed_at_unix_nano
+        admitted2_point = point!(admitted2)
+        assert admitted2_point.value == 1_007.0
+        assert admitted2_point.start_time_unix_nano == admitted1_point.observed_at_unix_nano
 
         failure2 =
           find_metric!(batch2, "result_ingestion_events_publish_failure", "service_state")
 
-        assert failure2.value == 2.0
+        assert point!(failure2).value == 2.0
         assert failure2.is_monotonic == true
 
         coalesced2 =
@@ -133,7 +135,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
             "service_state"
           )
 
-        assert coalesced2.value == 2.0
+        assert point!(coalesced2).value == 2.0
 
         RuntimeMetrics.record(:sweep, :state, %{pending_count: 0, pending_bytes: 0})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 2})}}})
@@ -145,7 +147,10 @@ defmodule ServiceRadar.AdmissionLaneTest do
         assert counter_value(frame3, "result_ingestion_events_admitted", "sweep") == 0.0
 
         batch3 = MetricBatch.decode(frame3)
-        admitted3 = find_metric!(batch3, "result_ingestion_events_admitted", "sweep")
+        admitted3_point =
+          batch3
+          |> find_metric!("result_ingestion_events_admitted", "sweep")
+          |> point!()
 
         # Records landing while a succeeding frame is in flight appear next,
         # exactly once: the ack advances to that frame's snapshot, not to the
@@ -164,8 +169,9 @@ defmodule ServiceRadar.AdmissionLaneTest do
             "sweep"
           )
 
-        assert admitted4.value == 5.0
-        assert admitted4.start_time_unix_nano == admitted3.observed_at_unix_nano
+        admitted4_point = point!(admitted4)
+        assert admitted4_point.value == 5.0
+        assert admitted4_point.start_time_unix_nano == admitted3_point.observed_at_unix_nano
 
         for _ <- 1..3, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
         send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 4})}}})
@@ -203,6 +209,83 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert log =~ "Ingestion lane metrics publish failing"
     assert count_occurrences(log, "Ingestion lane metrics publish failing") == 1
     assert log =~ "Ingestion lane metrics publish recovered"
+  end
+
+  test "a timed-out submit never dispatches while an independent lane stays responsive" do
+    parent = self()
+
+    sweep =
+      start_lane(fn status ->
+        send(parent, {:sweep_processed, status[:message], self()})
+
+        receive do
+          :release_sweep -> :ok
+        end
+      end)
+
+    mapper = start_lane(fn _status -> :ok end)
+
+    sweep_status = status("agent-sweep", "held-sweep")
+
+    assert {:ok, {^sweep, sweep_id}} =
+             Lane.reserve(sweep, Lane.descriptor(sweep_status, 10_000), self(), 1_000)
+
+    :ok = :sys.suspend(sweep)
+
+    mapper_ref = make_ref()
+
+    assert :ok =
+             Lane.admit(mapper, status("agent-mapper", "live-mapper"), {self(), mapper_ref}, 500)
+
+    assert_receive {^mapper_ref, :ok}, 500
+
+    stale_ref = make_ref()
+
+    assert {:error, :admission_timeout} =
+             Lane.submit(sweep, sweep_id, sweep_status, {self(), stale_ref}, 50)
+
+    :ok = :sys.resume(sweep)
+
+    fresh_status = status("agent-sweep", "fresh-sweep")
+    fresh_ref = make_ref()
+
+    assert {:ok, {^sweep, fresh_id}} =
+             Lane.reserve(sweep, Lane.descriptor(fresh_status, 10_000), self(), 1_000)
+
+    assert :ok = Lane.submit(sweep, fresh_id, fresh_status, {self(), fresh_ref}, 500)
+    assert_receive {:sweep_processed, "fresh-sweep", worker}, 500
+    send(worker, :release_sweep)
+    assert_receive {^fresh_ref, :ok}, 500
+
+    refute_received {:sweep_processed, "held-sweep", _}
+    refute_received {^stale_ref, _}
+  end
+
+  test "a timed-out single-phase admission never completes, replies, or strands credits" do
+    lane =
+      start_lane(
+        fn _status ->
+          receive do
+            :release -> :ok
+          end
+        end,
+        max_items: 4,
+        max_items_per_agent: 4
+      )
+
+    :ok = :sys.suspend(lane)
+    stale_ref = make_ref()
+
+    assert {:error, :admission_timeout} =
+             Lane.admit(lane, status("agent-a", "stale"), {self(), stale_ref}, 50)
+
+    :ok = :sys.resume(lane)
+    fresh_ref = make_ref()
+    assert :ok = Lane.admit(lane, status("agent-b", "fresh"), {self(), fresh_ref}, 500)
+
+    jobs = lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values()
+    assert Enum.all?(jobs, fn job -> job[:reply_to] != {self(), stale_ref} end)
+    refute_received {^stale_ref, _}
   end
 
   test "legacy plugins cannot occupy the retained database reservation" do
@@ -1134,8 +1217,10 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   defp counter_value(body, name, lane) do
-    body |> MetricBatch.decode() |> find_metric!(name, lane) |> then(&hd(&1.points).value)
+    body |> MetricBatch.decode() |> find_metric!(name, lane) |> point!() |> Map.fetch!(:value)
   end
+
+  defp point!(metric), do: hd(metric.points)
 
   defp decode_rows!(body) do
     Metrics.parse_message(%{data: body, metadata: %{subject: "metrics.ingestion_lanes"}})

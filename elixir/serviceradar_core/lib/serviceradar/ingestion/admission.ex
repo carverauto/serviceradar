@@ -45,7 +45,7 @@ defmodule ServiceRadar.Ingestion.Admission do
 
   def reserve(_descriptor, _owner, _timeout), do: {:error, :invalid_admission_descriptor}
 
-  def admit(status, reply_to) do
+  def admit(status, reply_to, timeout \\ 1_000) do
     descriptor = Lane.descriptor(status, @core_budget_ms)
 
     owner =
@@ -54,8 +54,8 @@ defmodule ServiceRadar.Ingestion.Admission do
         _ -> self()
       end
 
-    with {:ok, {lane, id}} <- reserve(descriptor, owner, 1_000) do
-      Lane.submit(lane, id, status, reply_to)
+    with {:ok, {lane, id}} <- reserve(descriptor, owner, timeout) do
+      Lane.submit(lane, id, status, reply_to, timeout)
     end
   end
 
