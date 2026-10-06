@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   describe "POST /api/admin/plugin-packages" do
     test "an API key with plugins.stage is refused", %{conn: conn} do
       admin = admin_user_fixture()
-      {_token, raw_token} = api_token_with_raw_fixture(admin, %{})
+      {_token, raw_token} = api_token_with_raw_fixture(admin, %{scope: :admin})
 
       conn =
         conn

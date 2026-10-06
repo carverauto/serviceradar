@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   describe "POST /api/v1/dashboard-packages — defense in depth" do
     test "API key cannot use its owner's RBAC as a publish scope", %{conn: conn} do
       admin = AccountsFixtures.user_fixture(%{role: :admin})
-      {_token, raw_token} = api_token_with_raw_fixture(admin, %{scope: :full_access})
+      {_token, raw_token} = api_token_with_raw_fixture(admin, %{scope: :admin})
 
       conn =
         conn
