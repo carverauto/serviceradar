@@ -916,7 +916,8 @@ The change:
   - `kept_by_exclusion`, kept by the exclusion query;
   - `eligible`;
   - `expired`;
-  - `skipped_at_delete`, eligible devices the `UPDATE`'s re-check refused.
+  - `skipped_at_delete`, eligible devices the `UPDATE` did not expire: its re-check refused
+    them, or it failed, which is logged.
 - **The refusal message** prints the eligible and live counts and says that
   `ephemeral_expiry_guard_override` stays set until it is cleared.
 

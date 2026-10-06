@@ -9,6 +9,8 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
 
   use ServiceRadar.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
@@ -29,6 +31,15 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
     ephemeral_expiry_max_fraction: 1.0,
     batch_size: 100
   }
+
+  @source_id_keys ["agent_id", "armis_device_id", "integration_id", "netbox_device_id"]
+
+  @doc false
+  # Runs in the process that emits the event; a test hears only its own pass, though async
+  # tests in other modules may run expiry passes of their own at the same time.
+  def forward_event([_, _, _, kind], measurements, _metadata, parent) do
+    if self() == parent, do: send(parent, {:ephemeral_expiry, kind, measurements})
+  end
 
   setup_all do
     TestSupport.start_core!()
@@ -69,7 +80,15 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
       Enum.each(kept, &backdate!(&1.uid, 60))
       Enum.each(ephemeral, &backdate!(&1.uid, 31))
 
-      assert {:ok, %{expired: 3, candidates: 6, excluded: 3}} =
+      assert {:ok,
+              %{
+                candidates: 6,
+                kept_by_evidence: 3,
+                kept_by_exclusion: 0,
+                eligible: 3,
+                expired: 3,
+                skipped_at_delete: 0
+              }} =
                EphemeralDeviceExpiry.run(%{@settings | batch_size: 2}, actor,
                  uids: Enum.map(all, & &1.uid)
                )
@@ -158,7 +177,17 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
       device = create_device!(actor, %{metadata: %{"armis_device_id" => "9#{unique()}"}})
       backdate!(device.uid, 3000)
 
-      assert {:ok, %{expired: 0}} = run(actor, [device.uid])
+      # Held by the SQL rule, so it is not even a candidate.
+      assert {:ok, %{candidates: 0, expired: 0}} = run(actor, [device.uid])
+      assert live?(actor, device.uid)
+    end
+
+    test "a numeric source id in metadata keeps a device", %{actor: actor} do
+      device = create_device!(actor, %{metadata: %{"armis_device_id" => 9_000 + unique()}})
+      backdate!(device.uid, 3000)
+      assert metadata_type(device.uid, "armis_device_id") == "number"
+
+      assert {:ok, %{candidates: 0, expired: 0}} = run(actor, [device.uid])
       assert live?(actor, device.uid)
     end
 
@@ -189,7 +218,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
       settings =
         Map.put(@settings, :ephemeral_expiry_exclusion_query, "in:devices tags.keep:true")
 
-      assert {:ok, %{expired: 0, excluded: 1}} =
+      assert {:ok, %{kept_by_exclusion: 1, kept_by_evidence: 0, eligible: 0, expired: 0}} =
                EphemeralDeviceExpiry.run(settings, actor,
                  uids: [device.uid],
                  query_page: query_page
@@ -238,9 +267,23 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
 
       settings = %{@settings | ephemeral_expiry_max_fraction: 0.5}
 
-      assert {:error, {:mass_expiry_refused, %{candidates: 3, live: 4}}} =
-               EphemeralDeviceExpiry.run(settings, actor, uids: uids)
+      {result, log} =
+        with_log(fn ->
+          with_expiry_events(fn -> EphemeralDeviceExpiry.run(settings, actor, uids: uids) end)
+        end)
 
+      assert {:error,
+              {:mass_expiry_refused,
+               %{candidates: 3, eligible: 3, live: 4, max_fraction: 0.5} = counts}} = result
+
+      refute Map.has_key?(counts, :expired)
+      assert log =~ "pass refused (mass_deletion): it would expire 3 of 4 live devices"
+      assert log =~ "stays set, lifting this guard for every later pass, until it is cleared"
+
+      assert_received {:ephemeral_expiry, :refused,
+                       %{candidates: 3, eligible: 3, live_devices: 4}}
+
+      refute_received {:ephemeral_expiry, :run, _measurements}
       assert Enum.all?(stale, &live?(actor, &1.uid)), "a refused pass expires nothing"
 
       assert {:ok, %{expired: 3}} =
@@ -251,6 +294,145 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
                )
 
       assert live?(actor, fresh.uid)
+    end
+
+    test "the guard judges the devices a pass would expire, not its candidates",
+         %{actor: actor} do
+      # Three candidates the attribute check keeps; one pass would expire one device of five.
+      kept = for _ <- 1..3, do: create_device!(actor, %{mac: global_mac()})
+      ephemeral = create_device!(actor)
+      fresh = create_device!(actor)
+      Enum.each([ephemeral | kept], &backdate!(&1.uid, 31))
+      uids = Enum.map([fresh, ephemeral | kept], & &1.uid)
+
+      assert {:ok,
+              %{candidates: 4, kept_by_evidence: 3, kept_by_exclusion: 0, eligible: 1, expired: 1}} =
+               EphemeralDeviceExpiry.run(
+                 %{@settings | ephemeral_expiry_max_fraction: 0.5},
+                 actor,
+                 uids: uids
+               )
+
+      refute live?(actor, ephemeral.uid)
+      assert Enum.all?([fresh | kept], &live?(actor, &1.uid))
+    end
+  end
+
+  describe "the delete statement" do
+    test "a source id that reaches the metadata after the read holds the device", %{actor: actor} do
+      by_string = create_device!(actor)
+      by_number = create_device!(actor)
+      uids = [by_string.uid, by_number.uid]
+      Enum.each(uids, &backdate!(&1, 31))
+
+      late = %{
+        by_string.uid => %{"armis_device_id" => "9#{unique()}"},
+        by_number.uid => %{"netbox_device_id" => 9_000 + unique()}
+      }
+
+      before_delete = fn eligible ->
+        send(self(), {:before_delete, Enum.sort(eligible)})
+        Enum.each(eligible, &merge_metadata!(&1, Map.fetch!(late, &1)))
+      end
+
+      assert {:ok, %{candidates: 2, eligible: 2, expired: 0, skipped_at_delete: 2}} =
+               EphemeralDeviceExpiry.run(@settings, actor,
+                 uids: uids,
+                 before_delete: before_delete
+               )
+
+      assert_received {:before_delete, eligible}
+      assert eligible == Enum.sort(uids)
+      assert metadata_type(by_number.uid, "netbox_device_id") == "number"
+      assert Enum.all?(uids, &live?(actor, &1))
+    end
+
+    test "the strong-identifier function holds every source id key, as a string or a number",
+         %{actor: actor} do
+      device = create_device!(actor)
+
+      for key <- @source_id_keys, value <- ["x#{unique()}", "  x  ", 42, 4.2] do
+        set_metadata!(device.uid, %{key => value})
+
+        assert holds_strong_identifier?(device.uid),
+               "#{key} => #{inspect(value)} should hold the device"
+      end
+    end
+
+    test "the strong-identifier function holds nothing for an empty or non-scalar value",
+         %{actor: actor} do
+      device = create_device!(actor)
+
+      for key <- @source_id_keys,
+          value <- ["", "   ", "\t\n", nil, true, false, %{"id" => "x"}, ["x"]] do
+        set_metadata!(device.uid, %{key => value})
+
+        refute holds_strong_identifier?(device.uid),
+               "#{key} => #{inspect(value)} should not hold the device"
+      end
+
+      for metadata <- [%{}, %{"integration_type" => "armis"}, %{"source_id" => "x"}] do
+        set_metadata!(device.uid, metadata)
+
+        refute holds_strong_identifier?(device.uid),
+               "#{inspect(metadata)} should not hold the device"
+      end
+    end
+  end
+
+  describe "the counters" do
+    test "each counter counts its own devices, alike in the result and the telemetry",
+         %{actor: actor} do
+      by_evidence = for _ <- 1..3, do: create_device!(actor, %{mac: global_mac()})
+      # A device the exclusion query matches counts there even when its evidence would keep it.
+      by_exclusion = [create_device!(actor), create_device!(actor, %{mac: global_mac()})]
+      skipped = for _ <- 1..4, do: create_device!(actor)
+      expiring = create_device!(actor)
+      all = by_evidence ++ by_exclusion ++ skipped ++ [expiring]
+      uids = Enum.map(all, & &1.uid)
+      Enum.each(uids, &backdate!(&1, 31))
+
+      excluded = Enum.map(by_exclusion, &%{"uid" => &1.uid})
+
+      query_page = fn "in:devices tags.keep:true", _opts ->
+        {:ok, %{rows: excluded, next_cursor: nil}}
+      end
+
+      skipped_uids = MapSet.new(skipped, & &1.uid)
+
+      before_delete = fn eligible ->
+        eligible
+        |> Enum.filter(&MapSet.member?(skipped_uids, &1))
+        |> Enum.each(&merge_metadata!(&1, %{"integration_id" => "late-#{unique()}"}))
+      end
+
+      settings =
+        Map.merge(@settings, %{
+          ephemeral_expiry_exclusion_query: "in:devices tags.keep:true",
+          batch_size: 3
+        })
+
+      assert {:ok, counts} =
+               with_expiry_events(fn ->
+                 EphemeralDeviceExpiry.run(settings, actor,
+                   uids: uids,
+                   query_page: query_page,
+                   before_delete: before_delete
+                 )
+               end)
+
+      assert counts == %{
+               candidates: 10,
+               kept_by_evidence: 3,
+               kept_by_exclusion: 2,
+               eligible: 5,
+               expired: 1,
+               skipped_at_delete: 4
+             }
+
+      assert_received {:ephemeral_expiry, :run, ^counts}
+      refute live?(actor, expiring.uid)
+      assert Enum.all?(by_evidence ++ by_exclusion ++ skipped, &live?(actor, &1.uid))
     end
   end
 
@@ -298,6 +480,60 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
   end
 
   defp live?(actor, uid), do: is_nil(reload(actor, uid).deleted_at)
+
+  defp holds_strong_identifier?(uid) do
+    %{rows: [[held]]} =
+      Repo.query!("SELECT platform.device_holds_strong_identifier($1)", [uid])
+
+    held
+  end
+
+  defp set_metadata!(uid, metadata) do
+    Repo.query!("UPDATE platform.ocsf_devices SET metadata = $2::jsonb WHERE uid = $1", [
+      uid,
+      metadata
+    ])
+  end
+
+  defp merge_metadata!(uid, patch) do
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb " <>
+        "WHERE uid = $1",
+      [uid, patch]
+    )
+  end
+
+  defp metadata_type(uid, key) do
+    %{rows: [[type]]} =
+      Repo.query!(
+        "SELECT jsonb_typeof(metadata -> $2::text) FROM platform.ocsf_devices WHERE uid = $1",
+        [uid, key]
+      )
+
+    type
+  end
+
+  # Runs `fun` with the expiry events forwarded to this process, and detaches before it returns.
+  defp with_expiry_events(fun) do
+    handler_id = "ephemeral-expiry-events-#{unique()}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [
+          [:serviceradar, :inventory, :ephemeral_expiry, :run],
+          [:serviceradar, :inventory, :ephemeral_expiry, :refused]
+        ],
+        &__MODULE__.forward_event/4,
+        self()
+      )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
 
   defp revival_audit_reason(uid) do
     %{rows: rows} =

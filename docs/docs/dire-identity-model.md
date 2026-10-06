@@ -348,15 +348,22 @@ for dry-run review, execution gates, and device/source allowlists.
 - Ephemeral device expiry (`EphemeralDeviceExpiry`, run by `DeviceCleanupWorker`; off by
   default, Settings -> Networks -> Inventory Cleanup): a live device holding no strong
   identifier -- no agent, source-authoritative id, hardware serial or globally-unique MAC --
-  and unseen past the window (default 30 days) is soft-deleted as `stale_ephemeral`.
-  Operator-created devices and devices matching the exclusion SRQL query never expire; a pass
-  that would expire more than `ephemeral_expiry_max_fraction` of live devices is refused
-  unless the override is set. Telemetry: `[:serviceradar, :inventory, :ephemeral_expiry,
-  :run]`, `:refused` and `:failed` (a raised pass, which never stops the purge). A returning
-  device is restored with a revival audit row: a sweep that finds its address answering
-  restores it whatever its discovery sources, and so does a sync that reports it again; a
-  sweep that finds the address down leaves it deleted. A sweep never writes its sighting to a
-  tombstone it does not restore.
+  and unseen past the window (default 30 days) is soft-deleted as `stale_ephemeral`. A source
+  id held only in a device's metadata, as a string or a number, holds it in the delete
+  statement as well as in the candidate read. Operator-created devices and devices matching
+  the exclusion SRQL query never expire. A pass that would expire more than
+  `ephemeral_expiry_max_fraction` of live devices is refused unless
+  `ephemeral_expiry_guard_override` is set; the guard judges the devices the pass would
+  actually expire, and the override stays set, lifting the guard for every later pass, until
+  it is cleared. The pass counts `candidates`, `kept_by_evidence`, `kept_by_exclusion`,
+  `eligible`, `expired` and `skipped_at_delete` (eligible devices the delete did not expire)
+  alike in its result, its log line and the `[:serviceradar, :inventory, :ephemeral_expiry,
+  :run]` event; a refused pass emits `:refused` with the counts up to `eligible` and
+  `live_devices`, and a raised pass `:failed`, which never stops the purge. A returning device
+  is restored with a revival audit row: a sweep that finds its address answering restores it
+  whatever its discovery sources, and so does a sync that reports it again; a sweep that finds
+  the address down leaves it deleted. A sweep never writes its sighting to a tombstone it does
+  not restore.
 - Scheduled duplicate reconciliation (`Identity.DuplicateSweep`) is
   bounded (DB-side duplicate grouping, capped merges per run) and obeys
   the same merge policy as ingest; schedule health is monitored so a

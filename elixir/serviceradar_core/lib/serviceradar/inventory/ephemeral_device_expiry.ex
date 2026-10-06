@@ -14,7 +14,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
   Eligibility is by identity strength, never by source. A device is NEVER expired when it
   holds any of:
 
-    * an agent (`agent_id` identifier or attribute);
+    * an agent (`agent_id` identifier, attribute or metadata);
     * a source-authoritative identifier (`armis_device_id`, `integration_id`,
       `netbox_device_id`), in `device_identifiers` or in its metadata;
     * a hardware serial;
@@ -23,9 +23,11 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
       to twelve hex digits is treated as globally unique, so a value this module cannot read
       keeps the device.
 
-  The identifier-table part of that rule is the SQL function
-  `platform.device_holds_strong_identifier/1`, so the candidate read and the delete apply one
-  definition.
+  The SQL function `platform.device_holds_strong_identifier/1` holds a device by its
+  identifier rows, its own-interface MACs and the agent and source ids in its metadata (a
+  string or a number, without the admission rules the identity code applies), so the
+  candidate read and the delete apply one definition. The in-memory check
+  (`strong_attributes?/1`) adds the `mac` attribute and the rest of the metadata evidence.
 
   Devices an operator created (`discovery_sources` contains `"manual"`) and devices matched by
   the configured SRQL exclusion query are never expired either. If the exclusion query cannot
@@ -66,122 +68,179 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
           optional(:batch_size) => pos_integer()
         }
 
+  @type counts :: %{
+          candidates: non_neg_integer(),
+          kept_by_evidence: non_neg_integer(),
+          kept_by_exclusion: non_neg_integer(),
+          eligible: non_neg_integer(),
+          expired: non_neg_integer(),
+          skipped_at_delete: non_neg_integer()
+        }
+
+  @no_counts %{
+    candidates: 0,
+    kept_by_evidence: 0,
+    kept_by_exclusion: 0,
+    eligible: 0,
+    expired: 0,
+    skipped_at_delete: 0
+  }
+
+  # What the guard judges, and what its refusal reports.
+  @judged_counts [:candidates, :kept_by_evidence, :kept_by_exclusion, :eligible]
+
   @doc "The `deleted_reason` an expired device carries."
   @spec deleted_reason() :: String.t()
   def deleted_reason, do: @deleted_reason
 
   @doc """
-  Runs one expiry pass. Returns `%{expired: n, candidates: n, excluded: n}` or
-  `{:error, reason}`; nothing is expired on error.
+  Runs one expiry pass. Returns `{:ok, counts}` or `{:error, reason}`; nothing is expired on
+  error. The counts, which the `DeviceCleanupWorker` log line and the `:run` telemetry event
+  carry too:
+
+    * `candidates` - live devices unseen since the cutoff, with no agent, not operator-created
+      and holding no strong identifier by `platform.device_holds_strong_identifier/1`;
+    * `kept_by_evidence` - candidates the exclusion query did not match whose `mac` attribute
+      or metadata carry evidence the identifier tables do not (`strong_attributes?/1`);
+    * `kept_by_exclusion` - candidates the exclusion query matched, whatever their evidence;
+    * `eligible` - the candidates neither kept;
+    * `expired` - the eligible devices soft-deleted;
+    * `skipped_at_delete` - the eligible devices the delete did not expire: its re-check
+      refused them (they gained a strong identifier, were seen again or were deleted after the
+      read), or it failed, which is logged.
 
   A pass that would expire more than `ephemeral_expiry_max_fraction` of the live devices in
-  scope is refused (`{:error, {:mass_expiry_refused, counts}}`) unless
-  `ephemeral_expiry_guard_override` is set -- the same guard, on the same terms, as the
-  canonical topology prune (`CanonicalRebuild.prune_guard_check/4`). The candidate count it
-  judges is taken before the attribute and exclusion-query checks, so it can only over-count,
-  which errs toward refusing.
+  scope is refused (`{:error, {:mass_expiry_refused, counts}}`, the counts up to `eligible`
+  with `live` and `max_fraction`) unless `ephemeral_expiry_guard_override` is set -- the same
+  guard, on the same terms, as the canonical topology prune
+  (`CanonicalRebuild.prune_guard_check/4`). It judges the `eligible` count, which a read-only
+  walk over the same pages takes before any delete; the override skips that walk.
 
   `opts`:
     * `:now` - the reference time (default `DateTime.utc_now/0`);
     * `:uids` - restrict the pass to these device uids (used by the DIRE lifecycle trace, which
       must not expire devices outside its own world);
-    * `:query_page` - the SRQL page function (tests).
+    * `:query_page` - the SRQL page function (tests);
+    * `:before_delete` - called with each page's eligible uids just before their delete
+      (tests: a device that changes between the read and the delete).
   """
-  @spec run(settings(), term(), keyword()) ::
-          {:ok,
-           %{
-             expired: non_neg_integer(),
-             candidates: non_neg_integer(),
-             excluded: non_neg_integer()
-           }}
-          | {:error, term()}
+  @spec run(settings(), term(), keyword()) :: {:ok, counts()} | {:error, term()}
   def run(settings, actor, opts \\ []) do
     if Map.get(settings, :ephemeral_expiry_enabled, false) do
       now = Keyword.get(opts, :now, DateTime.utc_now())
       days = Map.get(settings, :ephemeral_expiry_days) || @default_days
-      cutoff = now |> DateTime.shift(day: -days) |> DateTime.truncate(:second)
-      batch_size = Map.get(settings, :batch_size) || 1_000
 
       with {:ok, excluded} <-
              excluded_uids(Map.get(settings, :ephemeral_expiry_exclusion_query), opts),
-           :ok <- mass_expiry_guard(settings, cutoff, opts) do
-        expire_batches(cutoff, batch_size, excluded, actor, opts, nil, %{
-          expired: 0,
-          candidates: 0,
-          excluded: 0
-        })
+           pass = %{
+             cutoff: now |> DateTime.shift(day: -days) |> DateTime.truncate(:second),
+             batch_size: Map.get(settings, :batch_size) || 1_000,
+             excluded: excluded,
+             opts: opts
+           },
+           :ok <- mass_expiry_guard(settings, pass) do
+        counts = expire(pass, actor)
+        emit(counts)
+        {:ok, counts}
       end
     else
-      {:ok, %{expired: 0, candidates: 0, excluded: 0}}
+      {:ok, @no_counts}
     end
   end
 
-  defp expire_batches(cutoff, batch_size, excluded, actor, opts, after_key, stats) do
-    candidates = candidates(cutoff, batch_size, after_key, opts)
-    {kept, eligible} = Enum.split_with(candidates, &keep?(&1, excluded))
+  defp expire(pass, actor) do
+    before_delete = Keyword.get(pass.opts, :before_delete, fn _uids -> :ok end)
 
-    expired =
-      case eligible do
-        [] -> []
-        eligible -> soft_delete(Enum.map(eligible, & &1.uid), cutoff, actor)
+    walk(pass, nil, @no_counts, fn page, counts ->
+      case judge(page, counts, pass.excluded) do
+        {counts, []} ->
+          counts
+
+        {counts, eligible} ->
+          before_delete.(eligible)
+          expired = soft_delete(eligible, pass.cutoff, actor)
+
+          %{
+            counts
+            | expired: counts.expired + length(expired),
+              skipped_at_delete: counts.skipped_at_delete + length(eligible) - length(expired)
+          }
       end
+    end)
+  end
 
-    stats = %{
-      stats
-      | expired: stats.expired + length(expired),
-        candidates: stats.candidates + length(candidates),
-        excluded: stats.excluded + length(kept)
+  # Keyset pagination on (last_seen_time, uid): each page starts after the last device the
+  # previous one judged, so a kept device is never read twice in a walk.
+  defp walk(pass, after_key, acc, fun) do
+    page = candidates(pass.cutoff, pass.batch_size, after_key, pass.opts)
+    acc = fun.(page, acc)
+
+    if length(page) == pass.batch_size do
+      last = List.last(page)
+      walk(pass, {last.last_seen_time, last.uid}, acc, fun)
+    else
+      acc
+    end
+  end
+
+  # Stage 2 on one page of candidates: the exclusion query, then the evidence the identifier
+  # tables may not carry (an identifier row can be garbage-collected while the device row
+  # still names its hardware MAC or source id). A device both would keep counts as kept by the
+  # exclusion query.
+  defp judge(page, counts, excluded) do
+    {by_exclusion, rest} = Enum.split_with(page, &MapSet.member?(excluded, &1.uid))
+    {by_evidence, eligible} = Enum.split_with(rest, &strong_attributes?/1)
+
+    counts = %{
+      counts
+      | candidates: counts.candidates + length(page),
+        kept_by_evidence: counts.kept_by_evidence + length(by_evidence),
+        kept_by_exclusion: counts.kept_by_exclusion + length(by_exclusion),
+        eligible: counts.eligible + length(eligible)
     }
 
-    # Keyset pagination on (last_seen_time, uid): each batch starts after the last device the
-    # previous one judged, so a kept device is never read twice in a pass.
-    if length(candidates) == batch_size do
-      last = List.last(candidates)
-
-      expire_batches(
-        cutoff,
-        batch_size,
-        excluded,
-        actor,
-        opts,
-        {last.last_seen_time, last.uid},
-        stats
-      )
-    else
-      emit(stats)
-      {:ok, stats}
-    end
+    {counts, Enum.map(eligible, & &1.uid)}
   end
 
-  defp mass_expiry_guard(settings, cutoff, opts) do
-    max_fraction = Map.get(settings, :ephemeral_expiry_max_fraction) || @default_max_fraction
-    override? = Map.get(settings, :ephemeral_expiry_guard_override, false) == true
-    candidates = cutoff |> candidate_query(nil, opts) |> count()
-    live = live_count(opts)
+  # The override lifts the guard, so the read-only walk is skipped.
+  defp mass_expiry_guard(%{ephemeral_expiry_guard_override: true}, _pass), do: :ok
 
-    case CanonicalRebuild.prune_guard_check(candidates, live, max_fraction, override?) do
+  defp mass_expiry_guard(settings, pass) do
+    max_fraction = Map.get(settings, :ephemeral_expiry_max_fraction) || @default_max_fraction
+
+    counts =
+      pass
+      |> walk(nil, @no_counts, fn page, counts ->
+        page |> judge(counts, pass.excluded) |> elem(0)
+      end)
+      |> Map.take(@judged_counts)
+
+    live = live_count(pass.opts)
+
+    case CanonicalRebuild.prune_guard_check(counts.eligible, live, max_fraction, false) do
       :allow ->
         :ok
 
       {:refuse, reason} ->
         :telemetry.execute(
           [:serviceradar, :inventory, :ephemeral_expiry, :refused],
-          %{candidates: candidates, live_devices: live},
+          Map.put(counts, :live_devices, live),
           %{reason: reason, max_fraction: max_fraction}
         )
 
         Logger.error(
-          "EphemeralDeviceExpiry: pass refused (#{reason}): would expire up to #{candidates} " <>
-            "of #{live} live devices in one pass (max fraction #{max_fraction}); set " <>
-            "ephemeral_expiry_guard_override in the device cleanup settings to force"
+          "EphemeralDeviceExpiry: pass refused (#{reason}): it would expire " <>
+            "#{counts.eligible} of #{live} live devices (max fraction #{max_fraction}; " <>
+            "#{counts.candidates} unseen past the window, #{counts.kept_by_evidence} kept " <>
+            "by evidence, #{counts.kept_by_exclusion} by the exclusion query). " <>
+            "ephemeral_expiry_guard_override in the device cleanup settings forces it, and " <>
+            "stays set, lifting this guard for every later pass, until it is cleared"
         )
 
         {:error,
-         {:mass_expiry_refused, %{candidates: candidates, live: live, max_fraction: max_fraction}}}
+         {:mass_expiry_refused, Map.merge(counts, %{live: live, max_fraction: max_fraction})}}
     end
   end
-
-  defp count(query), do: query |> exclude(:order_by) |> select([d], count()) |> Repo.one()
 
   defp live_count(opts) do
     query = from(d in "ocsf_devices", prefix: "platform", where: is_nil(d.deleted_at))
@@ -240,12 +299,6 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
       nil -> query
       uids -> where(query, [d], d.uid in ^uids)
     end
-  end
-
-  # Attribute and metadata evidence the identifier tables may not carry (an identifier row can
-  # be garbage-collected while the device row still names its hardware MAC or source id).
-  defp keep?(candidate, excluded) do
-    MapSet.member?(excluded, candidate.uid) or strong_attributes?(candidate)
   end
 
   @doc false
@@ -315,10 +368,10 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
     )
   end
 
-  defp emit(stats) do
+  defp emit(counts) do
     :telemetry.execute(
       [:serviceradar, :inventory, :ephemeral_expiry, :run],
-      %{expired: stats.expired, candidates: stats.candidates, excluded: stats.excluded},
+      counts,
       %{deleted_reason: @deleted_reason}
     )
   end
