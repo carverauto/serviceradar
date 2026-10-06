@@ -6597,6 +6597,8 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-nats",
+ "chrono",
+ "chrono-tz",
  "clap 4.6.6",
  "flate2",
  "glob",

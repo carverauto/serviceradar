@@ -239,6 +239,48 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.body == "SNMP trap 1.3.6.1.6.3.1.1.5.1 from 192.168.2.55"
     end
 
+    test "uses receive time for RFC3164 clock skew and preserves the parsed time" do
+      received_at = ~U[2030-10-06 03:20:29Z]
+
+      for timestamp <- ["2030-10-05T22:20:29Z", "2030-10-06T08:20:29Z"] do
+        row =
+          Logs.parse_message(%{
+            data:
+              Jason.encode!(%{
+                "timestamp" => timestamp,
+                "host" => "host01.example.com",
+                "short_message" => "app[100]: synthetic example",
+                "_syslog_format" => "rfc3164"
+              }),
+            metadata: %{subject: "logs.syslog", received_at: received_at}
+          })
+
+        assert row.timestamp == received_at
+        assert row.observed_timestamp == received_at
+        assert row.attributes["_syslog_original_timestamp"] == timestamp
+        assert row.attributes["_syslog_timestamp_fallback"] == true
+      end
+    end
+
+    test "preserves recent RFC3164 time and explicitly zoned syslog time" do
+      received_at = ~U[2030-10-06 03:20:29Z]
+
+      for {format, timestamp} <- [
+            {"rfc3164", "2030-10-06T02:20:29Z"},
+            {"rfc3164", "2030-10-06T04:20:29Z"},
+            {"rfc5424", "2030-10-05T22:20:29Z"}
+          ] do
+        row =
+          Logs.parse_message(%{
+            data: Jason.encode!(%{"timestamp" => timestamp, "_syslog_format" => format}),
+            metadata: %{subject: "logs.syslog", received_at: received_at}
+          })
+
+        assert DateTime.to_iso8601(row.timestamp) == timestamp
+        refute Map.has_key?(row.attributes, "_syslog_original_timestamp")
+      end
+    end
+
     test "uses syslog host as service fallback" do
       result =
         Logs.parse_message(%{
@@ -484,6 +526,51 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       assert row.trace_id == nil
       assert row.span_id == nil
+    end
+
+    test "normalizes protobuf severity numbers and missing SDK text" do
+      cases = [
+        {:SEVERITY_NUMBER_WARN, "", "WARN", 13},
+        {:SEVERITY_NUMBER_TRACE, "", "TRACE", 1},
+        {:SEVERITY_NUMBER_DEBUG4, "", "DEBUG", 8},
+        {:SEVERITY_NUMBER_INFO, "", "INFO", 9},
+        {:SEVERITY_NUMBER_ERROR, "", "ERROR", 17},
+        {:SEVERITY_NUMBER_FATAL4, "", "FATAL", 24},
+        {:SEVERITY_NUMBER_WARN, "SEVERITY_NUMBER_WARN", "WARN", 13},
+        {:SEVERITY_NUMBER_ERROR, "SEVERITY_NUMBER_ERROR", "ERROR", 17},
+        {:SEVERITY_NUMBER_WARN, "warn", "warn", 13},
+        {:SEVERITY_NUMBER_ERROR, "error", "error", 17},
+        {:SEVERITY_NUMBER_ERROR3, "ERROR", "ERROR", 19},
+        {:SEVERITY_NUMBER_UNSPECIFIED, "", "", 0},
+        {25, "custom", "custom", 25}
+      ]
+
+      for {number, text, expected_text, expected_number} <- cases do
+        request = %ExportLogsServiceRequest{
+          resource_logs: [
+            %ResourceLogs{
+              scope_logs: [
+                %ScopeLogs{
+                  log_records: [
+                    %LogRecord{
+                      time_unix_nano: 1_705_315_800_000_000_000,
+                      severity_number: number,
+                      severity_text: text,
+                      body: %AnyValue{value: {:string_value, "synthetic severity example"}}
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+
+        [row] =
+          Logs.parse_message(%{data: ExportLogsServiceRequest.encode(request), metadata: %{}})
+
+        assert row.severity_text == expected_text
+        assert row.severity_number == expected_number
+      end
     end
 
     test "parses protobuf ExportLogsServiceRequest" do

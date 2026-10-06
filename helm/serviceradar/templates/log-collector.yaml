@@ -36,6 +36,7 @@ data:
 
   flowgger.toml: |
     [input]
+    rfc3164_timezone = {{ default "UTC" .Values.logCollector.rfc3164Timezone | quote }}
     type = "udp"
     listen = "0.0.0.0:514"
     format = "auto"

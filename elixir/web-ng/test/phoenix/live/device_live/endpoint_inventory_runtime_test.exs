@@ -1,7 +1,10 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Identity.RBAC.Catalog
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.Show
 
   @moduletag :db_free
 
@@ -90,6 +93,84 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
     assert opts[:agent_ids] == ["agent-1", "agent-2"]
     assert socket.assigns.endpoint_inventory_cohort_query_result.coverage.answered == 1
     assert socket.assigns.endpoint_inventory_cohort_query_result.coverage.offline == 1
+  end
+
+  test "a permitted device query ignores a caller-supplied agent id" do
+    socket =
+      socket()
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> EndpointInventoryRuntime.dispatch_device_query(
+        %{"name" => "nginx", "agent_id" => "agent-other"},
+        command_bus: StubCommandBus
+      )
+
+    assert_receive {:cache_query, "agent-1", _payload, _opts}
+    refute_received {:cache_query, "agent-other", _payload, _opts}
+    assert socket.assigns.endpoint_inventory_query_running == true
+  end
+
+  test "a viewer cannot dispatch a device query to an arbitrary agent" do
+    socket =
+      viewer_socket()
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> EndpointInventoryRuntime.dispatch_device_query(
+        %{"name" => "nginx", "agent_id" => "agent-other"},
+        command_bus: StubCommandBus
+      )
+
+    refute_received {:cache_query, _, _, _}
+    assert socket.assigns.endpoint_inventory_query_running == false
+
+    assert socket.assigns.endpoint_inventory_command_error ==
+             "You do not have permission to query endpoint inventory"
+  end
+
+  test "a viewer cannot dispatch a cohort query" do
+    socket =
+      viewer_socket()
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> EndpointInventoryRuntime.dispatch_cohort_query(
+        %{"name" => "nginx", "cohort" => "custom", "agent_ids" => "agent-other"},
+        command_bus: StubCommandBus
+      )
+
+    refute_received {:cohort_query, _, _}
+    assert socket.assigns.endpoint_inventory_cohort_running == false
+
+    assert socket.assigns.endpoint_inventory_command_error ==
+             "You do not have permission to query endpoint inventory"
+  end
+
+  test "device query and cohort events refuse a viewer before dispatch" do
+    socket = EndpointInventoryRuntime.assign_defaults(viewer_socket())
+
+    assert {:noreply, query_socket} =
+             Show.handle_event(
+               "endpoint_inventory_query",
+               %{"endpoint_inventory_query" => %{"name" => "nginx", "agent_id" => "agent-other"}},
+               socket
+             )
+
+    assert {:noreply, cohort_socket} =
+             Show.handle_event(
+               "endpoint_inventory_cohort_query",
+               %{
+                 "endpoint_inventory_cohort_query" => %{
+                   "name" => "nginx",
+                   "cohort" => "custom",
+                   "agent_ids" => "agent-other"
+                 }
+               },
+               socket
+             )
+
+    refute_received {:cache_query, _, _, _}
+    refute_received {:cohort_query, _, _}
+
+    for denied <- [query_socket, cohort_socket] do
+      assert denied.assigns.endpoint_inventory_command_error ==
+               "You do not have permission to query endpoint inventory"
+    end
   end
 
   test "package filter form change resets to first page" do
@@ -275,12 +356,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
     refute MapSet.member?(socket.assigns.endpoint_inventory_pending_command_ids, "cmd-1")
   end
 
-  defp socket do
+  defp socket, do: build_socket(:operator)
+
+  defp viewer_socket, do: build_socket(:viewer)
+
+  defp build_socket(role) do
     %Phoenix.LiveView.Socket{
       assigns: %{
         __changed__: %{},
         flash: %{},
-        current_scope: %{user: %{id: "user-1"}},
+        current_scope: %Scope{
+          user: %{id: "user-1", role: role, status: :active},
+          permissions: Catalog.permissions_for_role(role)
+        },
         device_uid: "sr:test-device",
         device_row: %{"partition_id" => "default", "agent_id" => "agent-1"},
         endpoint_inventory_scan: %{agent_id: "agent-1"},

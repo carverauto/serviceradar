@@ -94,6 +94,7 @@ fn supports_implicit_like(field: &str) -> bool {
             | "attributes"
             | "authority"
             | "binary_package"
+            | "body"
             | "category"
             | "check_name"
             | "classification"

@@ -164,14 +164,16 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          content_hash = Storage.sha256(wasm),
          :ok <- verify_upload_signature(signature, manifest_map, content_hash, repo),
          {:ok, display_contracts} <- bundle_display_contracts(bundle),
-         :ok <- verify_entry_identity(entry, manifest_struct) do
+         :ok <- verify_entry_identity(entry, manifest_struct),
+         :ok <- validate_bundle_config_schema(Map.get(bundle, "config.schema.json")) do
+      config_schema = optional_bundle_json(bundle, "config.schema.json")
       now = DateTime.truncate(DateTime.utc_now(), :second)
 
       {:ok,
        %{
          manifest: manifest_map,
          manifest_struct: manifest_struct,
-         config_schema: optional_bundle_json(bundle, "config.schema.json"),
+         config_schema: config_schema,
          display_contract:
            optional_bundle_json(bundle, "display_contract.json") ||
              Map.get(manifest_map, "display_contract") ||
@@ -700,5 +702,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
         |> Keyword.get(:trusted_upload_signing_keys, %{})
         |> UploadSignature.normalize_trusted_keys()
     }
+  end
+
+  defp validate_bundle_config_schema(schema) do
+    case Manifest.validate_config_schema(schema) do
+      :ok -> :ok
+      {:error, errors} -> {:error, {:invalid_config_schema, errors}}
+    end
   end
 end

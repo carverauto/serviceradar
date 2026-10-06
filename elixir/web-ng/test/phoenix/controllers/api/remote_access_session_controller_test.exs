@@ -950,6 +950,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           "metadata" => %{
             "safe" => "kept",
             "ssh_host_key_policy" => "known_hosts",
+            "file_transfer_policy" => %{
+              "allowed_operations" => ["download"],
+              "allowed_path_rules" => ["/"]
+            },
+            "file_transfer_quota" => %{"max_bytes" => 9_999_999},
             "accounts" => [%{"name" => "root", "principals" => ["client-controlled"]}],
             "ssh_accounts" => [%{"name" => "root", "principals" => ["client-controlled"]}],
             "ssh_allowed_principals" => ["root"],
@@ -989,6 +994,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
             ssh_certificate_ttl_seconds
             credential_mode
             credential_custody_mode
+            file_transfer_policy
+            file_transfer_quota
             ssh
             ssh_certificate
             certificate_envelope

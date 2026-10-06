@@ -22,7 +22,7 @@ pub use ast::{
 pub(crate) use duration::parse_bucket_seconds as parse_group_bucket_seconds;
 #[cfg(test)]
 pub(crate) use stats::TWO_ARG_AGGREGATES;
-pub(crate) use stats::{split_top_level_commas, strip_matching_quotes};
+pub(crate) use stats::{split_stats_group_by, split_top_level_commas, strip_matching_quotes};
 
 use crate::{
     error::{Result, ServiceError},

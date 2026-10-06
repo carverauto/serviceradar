@@ -11,6 +11,9 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
   require Logger
 
   @max_frame_size 8 * 1024 * 1024
+  # A long walk at 10 Hz stays under this. The socket stops instead of
+  # accepting frames for the life of the connection.
+  @max_frames 100_000
 
   @impl true
   def init(options) do
@@ -33,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
         bulk_insert_pose: Keyword.get(options, :bulk_insert_pose, &bulk_insert_pose/2),
         bulk_insert_spectrum: Keyword.get(options, :bulk_insert_spectrum, &bulk_insert_spectrum/2),
         archive_frame: Keyword.get(options, :archive_frame, &archive_frame/2),
+        max_frames: Keyword.get(options, :max_frames, @max_frames),
         message_count: 0,
         bytes_received: 0,
         rows_received: 0,
@@ -42,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
     case state.acquire_stream.(to_string(user_id), session_id) do
       {:ok, limiter_token} ->
         Logger.info("FieldSurvey #{stream_type} stream initialized [session: #{session_id}, user: #{user_id}]")
+
         {:ok, %{state | limiter_token: limiter_token}}
 
       {:error, reason} ->
@@ -60,6 +65,15 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
     )
 
     {:stop, :normal, {1009, "FieldSurvey frame too large"}, state}
+  end
+
+  def handle_in({_data, [opcode: :binary]}, %{message_count: count, max_frames: max_frames} = state)
+      when count >= max_frames do
+    Logger.warning(
+      "FieldSurvey #{state.stream_type} frame budget reached [session: #{state.session_id}, frames: #{count}]"
+    )
+
+    {:stop, :normal, {1008, "FieldSurvey frame limit reached"}, state}
   end
 
   def handle_in({data, [opcode: :binary]}, state) do
@@ -172,6 +186,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
   defp ingest_frame(_data, %{stream_type: stream_type}), do: {:error, {:unsupported_stream_type, stream_type}}
 
   defp decode_rf_payload(data), do: decode_payload(data, &Native.decode_fieldsurvey_rf_payload/1)
+
   defp decode_pose_payload(data), do: decode_payload(data, &Native.decode_fieldsurvey_pose_payload/1)
 
   defp decode_spectrum_payload(data), do: decode_payload(data, &Native.decode_fieldsurvey_spectrum_payload/1)
@@ -194,7 +209,10 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
 
   defp bulk_insert_rf(session_id, observations) do
     ServiceRadar.Spatial.SurveyRfObservation
-    |> Ash.ActionInput.for_action(:bulk_insert, %{session_id: session_id, observations: observations})
+    |> Ash.ActionInput.for_action(:bulk_insert, %{
+      session_id: session_id,
+      observations: observations
+    })
     |> Ash.run_action!(domain: ServiceRadar.Spatial)
   end
 
@@ -210,7 +228,10 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
 
   defp bulk_insert_spectrum(session_id, observations) do
     ServiceRadar.Spatial.SurveySpectrumObservation
-    |> Ash.ActionInput.for_action(:bulk_insert, %{session_id: session_id, observations: observations})
+    |> Ash.ActionInput.for_action(:bulk_insert, %{
+      session_id: session_id,
+      observations: observations
+    })
     |> Ash.run_action!(domain: ServiceRadar.Spatial)
   end
 

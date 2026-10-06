@@ -4,7 +4,8 @@
 type = "udp"
 listen = "0.0.0.0:514"
 format = "auto"
-rfc3164_timezone = "local"
+# IANA timezone assumed for senders without a zone; set this to their timezone.
+rfc3164_timezone = "UTC"
 
 [output]
 type = "nats"

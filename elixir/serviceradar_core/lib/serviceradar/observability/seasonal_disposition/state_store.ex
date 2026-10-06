@@ -58,7 +58,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
         FROM #{@prefix}.#{@table}
         WHERE source = $1
           AND series_key = ANY($2::text[])
-          AND expires_at > now()
+          AND expires_at > (now() AT TIME ZONE 'utc')
           AND last_bucket_started_at IS NOT NULL
         ORDER BY series_key, last_bucket_started_at DESC,
                  last_evaluated_at DESC NULLS LAST
@@ -68,7 +68,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
         FROM #{@prefix}.#{@table}
         WHERE source = state.source
           AND series_key = state.series_key
-          AND expires_at > now()
+          AND expires_at > (now() AT TIME ZONE 'utc')
           AND last_bucket_started_at IS NOT NULL
           AND last_status IN ('breach', 'cleared', 'normal')
         ORDER BY last_bucket_started_at DESC, last_evaluated_at DESC NULLS LAST
@@ -174,7 +174,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
     WITH doomed AS (
       SELECT source, series_key, dow, hod
       FROM #{table}
-      WHERE expires_at <= now()
+      WHERE expires_at <= (now() AT TIME ZONE 'utc')
       ORDER BY expires_at ASC
       LIMIT $1
     )
@@ -224,11 +224,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
     FROM #{@prefix}.#{@table}
     WHERE source = $1
       AND series_key = $2
-      AND expires_at > now()
+      AND expires_at > (now() AT TIME ZONE 'utc')
       AND last_bucket_started_at IS NOT NULL
       AND last_bucket_ended_at IS NOT NULL
-      AND last_bucket_started_at <= $3
-      AND last_bucket_ended_at > $3
+      AND last_bucket_started_at <= ($3::timestamptz AT TIME ZONE 'utc')
+      AND last_bucket_ended_at > ($3::timestamptz AT TIME ZONE 'utc')
     ORDER BY last_evaluated_at DESC NULLS LAST, updated_at DESC
     LIMIT 1
     """

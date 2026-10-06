@@ -401,6 +401,16 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "endpoint_inventory.query",
+          section: "devices",
+          resource: "endpoint_inventory",
+          action: "query",
+          label: "Query endpoint inventory",
+          description:
+            "Dispatch device and cohort endpoint-inventory cache queries through the agent command bus",
+          default_roles: @operator_roles
+        },
+        %{
           key: "endpoint_inventory.force_fresh_scan",
           section: "devices",
           resource: "endpoint_inventory",
@@ -1436,6 +1446,22 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           description:
             "Subscribe to the authenticated notification firehose over the " <>
               "stream provider topic.",
+          default_roles: @operator_roles
+        }
+      ]
+    },
+    %{
+      section: "field_survey",
+      label: "Field survey",
+      permissions: [
+        %{
+          key: "field_survey.ingest",
+          section: "field_survey",
+          resource: "field_survey",
+          action: "ingest",
+          label: "Ingest field surveys",
+          description:
+            "Open field-survey ingest streams and upload room artifacts for sessions owned by the caller",
           default_roles: @operator_roles
         }
       ]

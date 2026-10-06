@@ -104,6 +104,7 @@ INTEGRATION_RUNTIME_DATA = glob(
     "//go/cmd/wasm-plugins/opentext-nom:srcs",
     "//go/cmd/wasm-plugins/proxmox:srcs",
     "//go/cmd/wasm-plugins/sample-northbound:srcs",
+    "//go/cmd/wasm-plugins/starlink:srcs",
     "//go/cmd/wasm-plugins/unifi-protect:srcs",
     # Read at RUNTIME by ServiceRadar.Edge.AddonConfigContractFixturesTest through
     # ServiceRadar.Plugins.AddonConfigContractFixtures.{fixture_dir,schema}/1, which
@@ -161,6 +162,7 @@ INTEGRATION_SELECTION_DATA = glob(
     "//go/cmd/wasm-plugins/opentext-nom:srcs",
     "//go/cmd/wasm-plugins/proxmox:srcs",
     "//go/cmd/wasm-plugins/sample-northbound:srcs",
+    "//go/cmd/wasm-plugins/starlink:srcs",
     "//go/cmd/wasm-plugins/unifi-protect:srcs",
 ]
 
@@ -518,6 +520,7 @@ ex_unit_tests(
         "//go/cmd/wasm-plugins/opentext-nom:srcs",
         "//go/cmd/wasm-plugins/proxmox:srcs",
         "//go/cmd/wasm-plugins/sample-northbound:srcs",
+        "//go/cmd/wasm-plugins/starlink:srcs",
         "//go/cmd/wasm-plugins/unifi-protect:srcs",
         # Read at runtime by test/serviceradar/plugins/display_contract_test.exs.
         # The three Wasm-plugin display contracts above arrive through their

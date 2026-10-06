@@ -23,6 +23,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Logs.V1.LogRecord
   alias Opentelemetry.Proto.Logs.V1.ResourceLogs
   alias Opentelemetry.Proto.Logs.V1.ScopeLogs
+  alias Opentelemetry.Proto.Logs.V1.SeverityNumber
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
@@ -195,10 +196,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     source_ip = normalize_source_ip(json)
 
     observed_timestamp = parse_observed_timestamp(json) || metadata[:received_at]
+    {timestamp, attributes} = syslog_timestamp(json, attributes, metadata[:received_at])
 
     %{
       id: log_id,
-      timestamp: parse_timestamp(json),
+      timestamp: timestamp,
       observed_timestamp: observed_timestamp,
       trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
       span_id: OtelId.normalize_span_id(FieldParser.get_field(json, "span_id", "spanId")),
@@ -505,6 +507,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       log_attributes = attach_ingest_metadata(log_attributes, metadata)
       log_id = generated_uuid()
       source = source_kind(metadata[:subject])
+      {severity_text, severity_number} = protobuf_log_severity(log_record)
 
       [
         %{
@@ -512,8 +515,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
           timestamp: parse_otel_timestamp(log_record),
           trace_id: OtelId.normalize_trace_id(log_record.trace_id),
           span_id: OtelId.normalize_span_id(log_record.span_id),
-          severity_text: log_record.severity_text,
-          severity_number: FieldParser.safe_bigint(log_record.severity_number),
+          severity_text: severity_text,
+          severity_number: severity_number,
           body: any_value_to_body(log_record.body),
           source: source,
           service_name: service_name,
@@ -538,6 +541,23 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          _metadata
        ), do: []
 
+  # Normalizes OTLP protobuf severity. The protobuf decoder yields SeverityNumber
+  # enum atoms (which would otherwise persist as NULL numbers), and OTel SDKs emit
+  # the raw enum name (e.g. "SEVERITY_NUMBER_WARN") or no text at all -- in those
+  # cases derive the canonical TRACE/DEBUG/INFO/WARN/ERROR/FATAL text from the
+  # 1..24 numeric range. Explicit text from other producers (Go agent lowercase,
+  # syslog) is preserved verbatim.
+  defp protobuf_log_severity(%LogRecord{severity_number: severity, severity_text: text}) do
+    number = if is_atom(severity), do: SeverityNumber.value(severity), else: severity
+    enum_text = if is_atom(severity), do: Atom.to_string(severity)
+
+    if number in 1..24 and text in [nil, "", enum_text] do
+      {Enum.at(~w(TRACE DEBUG INFO WARN ERROR FATAL), div(number - 1, 4)), number}
+    else
+      {text, number}
+    end
+  end
+
   defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
   defp parse_scope(_), do: {nil, nil}
 
@@ -546,6 +566,24 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       is_integer(time) and time > 0 -> FieldParser.parse_timestamp(time)
       is_integer(observed) and observed > 0 -> FieldParser.parse_timestamp(observed)
       true -> DateTime.utc_now()
+    end
+  end
+
+  # RFC3164 has no zone. A wrong assumed zone or sender clock must not hide
+  # fresh logs from event-time windows on either telemetry backend.
+  defp syslog_timestamp(json, attributes, received_at) do
+    timestamp = parse_timestamp(json)
+
+    if json["_syslog_format"] == "rfc3164" and match?(%DateTime{}, received_at) and
+         abs(DateTime.diff(timestamp, received_at, :microsecond)) > 3_600_000_000 do
+      attributes =
+        attributes
+        |> Map.put("_syslog_original_timestamp", DateTime.to_iso8601(timestamp))
+        |> Map.put("_syslog_timestamp_fallback", true)
+
+      {received_at, attributes}
+    else
+      {timestamp, attributes}
     end
   end
 

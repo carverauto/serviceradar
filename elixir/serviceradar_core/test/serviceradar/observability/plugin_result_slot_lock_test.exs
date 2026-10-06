@@ -50,6 +50,51 @@ defmodule ServiceRadar.Observability.PluginResultSlotLockTest do
     {:ok, payload: payload, status: status, observed_at: observed_at}
   end
 
+  test "an ingest takes a bounded number of advisory-lock statements", context do
+    %{payload: payload, status: status} = context
+
+    # The whole ingest runs three lock sequences (the reported-status insert's
+    # identity probe, its bucket try, and the handler marker's identity plus
+    # bucket sequence), each exactly one statement regardless of how many
+    # buckets the window spans -- previously five to thirteen statements per
+    # result.
+    count =
+      count_lock_statements(fn -> assert :ok = PluginResultIngestor.ingest(payload, status) end)
+
+    assert count in 1..3
+  end
+
+  defp count_lock_statements(fun) do
+    test_pid = self()
+    handler_id = {:lock_statement_count, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:service_radar, :repo, :query],
+      fn _event, _measurements, %{query: query}, _config ->
+        if self() == test_pid and String.contains?(query, "pg_advisory") do
+          send(test_pid, :advisory_statement)
+        end
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+      drain_advisory_statements(0)
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp drain_advisory_statements(n) do
+    receive do
+      :advisory_statement -> drain_advisory_statements(n + 1)
+    after
+      0 -> n
+    end
+  end
+
   test "new writers remain serialized with the legacy global slot lock", context do
     %{payload: payload, status: status} = context
     parent = self()

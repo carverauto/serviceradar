@@ -381,7 +381,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     case srql_module().query(strip_embedded_limit(query), opts) do
       {:ok, %{"results" => results} = resp} when is_list(results) ->
-        entries = results |> Enum.with_index() |> Enum.map(fn {row, idx} -> stream_entry(row, idx) end)
+        entries =
+          results |> Enum.with_index() |> Enum.map(fn {row, idx} -> stream_entry(row, idx) end)
 
         entries =
           if is_nil(cursor) and is_map(log) do
@@ -517,9 +518,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   # -- detail header / meta ---------------------------------------------------
 
-  attr :log, :map, required: true
-  attr :log_id, :string, required: true
-  attr :can_create_rules?, :boolean, default: false
+  attr(:log, :map, required: true)
+  attr(:log_id, :string, required: true)
+  attr(:can_create_rules?, :boolean, default: false)
 
   defp log_detail_header(assigns) do
     body = log_message(assigns.log)
@@ -581,17 +582,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     """
   end
 
-  attr :log, :map, required: true
-  attr :timezone, :string, required: true
+  attr(:log, :map, required: true)
+  attr(:timezone, :string, required: true)
 
-  defp log_meta_strip(assigns) do
+  def log_meta_strip(assigns) do
     attrs = parse_attributes(Map.get(assigns.log, "attributes")) || %{}
     service = Map.get(assigns.log, "service_name")
     source_ip = Map.get(assigns.log, "source_ip")
     timestamp = timestamp_meta(assigns.log)
     target = scalar_attr(attrs, ["target_name", "target"])
     agent = log_agent_identity(assigns.log, attrs)
-    error = scalar_attr(attrs, ["error", "err"])
+    # Promoted error/err values skip the attribute panel, which is the path
+    # that already redacts. Redact them here before the meta strip renders.
+    error = attrs |> scalar_attr(["error", "err"]) |> redact_secret_value()
 
     facts =
       Enum.reject(
@@ -704,8 +707,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   # -- message hero -----------------------------------------------------------
 
-  attr :log, :map, required: true
-  attr :body_mode, :string, required: true
+  attr(:log, :map, required: true)
+  attr(:body_mode, :string, required: true)
 
   defp log_message_hero(assigns) do
     body = redact_secret_text(log_message(assigns.log))
@@ -829,7 +832,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     """
   end
 
-  attr :log, :map, required: true
+  attr(:log, :map, required: true)
 
   defp log_attributes_panel(assigns) do
     attrs = parse_attributes(Map.get(assigns.log, "attributes")) || %{}
@@ -890,9 +893,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     """
   end
 
-  attr :title, :string, required: true
-  attr :pairs, :list, required: true
-  attr :source_device_uid, :string, default: ""
+  attr(:title, :string, required: true)
+  attr(:pairs, :list, required: true)
+  attr(:source_device_uid, :string, default: "")
 
   defp log_kv_section(assigns) do
     ~H"""
@@ -930,6 +933,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   # -- message helpers --------------------------------------------------------
 
   defp log_message(log) when is_map(log), do: Map.get(log, "body") || Map.get(log, "message") || ""
+
   defp log_message(_), do: ""
 
   defp message_is_json?(body) when is_binary(body) do
@@ -1470,6 +1474,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp kv_pair_from_scan(_), do: []
 
   defp value_looks_like_ip?(v) when is_binary(v), do: Regex.match?(~r/^(?:\d{1,3}\.){3}\d{1,3}$/, v)
+
   defp value_looks_like_ip?(_), do: false
 
   defp entry_id(log, idx) do
@@ -1723,7 +1728,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp parse_attributes(_), do: nil
 
   defp normalize_metadata_value(value) when is_map(value) do
-    Map.new(value, fn {key, nested_value} -> {key, normalize_metadata_value(key, nested_value)} end)
+    Map.new(value, fn {key, nested_value} ->
+      {key, normalize_metadata_value(key, nested_value)}
+    end)
   end
 
   defp normalize_metadata_value(value) when is_list(value), do: normalize_metadata_list(value)
@@ -1905,7 +1912,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp format_mfa(value), do: Enum.map(value, &normalize_metadata_value/1)
 
-  attr :value, :any, default: nil
+  attr(:value, :any, default: nil)
 
   defp severity_badge(assigns) do
     variant = severity_variant(assigns.value)

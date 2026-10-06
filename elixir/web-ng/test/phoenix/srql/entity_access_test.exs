@@ -27,7 +27,10 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       assert {:ok, _ast} = Native.parse_ast("in:#{entity} sort:category:asc")
     end
 
-    for {entity, canonical} <- [{"addon_fleets", "addon_fleet"}, {"addon_status", "addon_statuses"}] do
+    for {entity, canonical} <- [
+          {"addon_fleets", "addon_fleet"},
+          {"addon_status", "addon_statuses"}
+        ] do
       assert :ok = EntityAccess.authorize("in:#{entity}", devices)
       assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity}", plugins)
       assert Catalog.entity(entity).id == canonical
@@ -71,7 +74,10 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       matching = %{field => timestamp}
 
       assert [^matching] =
-               FleetQuery.apply_plan([%{field => nil}, %{field => DateTime.shift(timestamp, second: -1)}, matching], plan)
+               FleetQuery.apply_plan(
+                 [%{field => nil}, %{field => DateTime.shift(timestamp, second: -1)}, matching],
+                 plan
+               )
     end
   end
 
@@ -111,7 +117,13 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
           {"version", "1.2.3"},
           {"arch", "amd64"}
         ],
-        op <- [Catalog.default_filter_op(entity, field), "contains", "not_contains", "equals", "not_equals"] do
+        op <- [
+          Catalog.default_filter_op(entity, field),
+          "contains",
+          "not_contains",
+          "equals",
+          "not_equals"
+        ] do
       query =
         entity
         |> Builder.default_state()
@@ -131,7 +143,10 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
         end
 
       assert {:ok, json} = Native.translate(query, nil, nil, nil, "legacy")
-      assert %{"sql" => sql, "params" => [%{"t" => "text", "v" => ^expected_value} | _]} = Jason.decode!(json)
+
+      assert %{"sql" => sql, "params" => [%{"t" => "text", "v" => ^expected_value} | _]} =
+               Jason.decode!(json)
+
       assert sql =~ ~s("#{field}" #{operator} $1)
     end
   end
@@ -179,11 +194,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
   end
 
   # The parser accepting `in:merge_audit` is not the same thing as the gate
-  # knowing about it. `permission_for_query/1` returns `:passthrough` for
-  # unknown entities so the SRQL compiler stays the source of that error -- which
-  # means an alias the Rust parser accepts but this map omits is an UNGATED
-  # entity on the HTTP and MCP paths, and it fails open silently. Enumerate every
-  # alias rather than spot-checking one per entity.
+  # knowing about it. An alias the Rust parser accepts but this map omits is
+  # forbidden, same as any other unknown name. Enumerate every alias rather
+  # than spot-checking one per entity.
   @identity_diagnostic_aliases [
     {"merge_audit", ~w(merge_audit device_merges merges)},
     {"device_revival_audit", ~w(device_revival_audit device_revivals revivals)},
@@ -281,7 +294,11 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert {:ok, "observability.logs.view"} = EntityAccess.permission_for_entity("logs")
     assert {:ok, "services.view"} = EntityAccess.permission_for_entity("services")
     assert :passthrough = EntityAccess.permission_for_entity("dashboards")
-    assert :passthrough = EntityAccess.permission_for_entity("not_a_real_entity_zzz")
+    assert :unknown = EntityAccess.permission_for_entity("not_a_real_entity_zzz")
+
+    for alias <- ~w(source_fact_disagreements source_fact_disagreement fact_disagreements) do
+      assert {:ok, "devices.view"} = EntityAccess.permission_for_entity(alias)
+    end
   end
 
   test "extract_entity reads in: tokens and quoted aliases" do
@@ -299,7 +316,21 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert {:error, :forbidden} = EntityAccess.authorize("in:devices", scope)
     assert :ok = EntityAccess.authorize("in:logs", scope)
     assert :ok = EntityAccess.authorize("in:dashboards", scope)
-    assert :ok = EntityAccess.authorize("in:not_a_real_entity_zzz", scope)
+    assert {:error, :forbidden} = EntityAccess.authorize("in:not_a_real_entity_zzz", scope)
+  end
+
+  test "a quoted in: decodes backslash escapes before the gate" do
+    logs_only = %Scope{user: nil, permissions: MapSet.new(["observability.logs.view"])}
+    devices = %Scope{user: nil, permissions: MapSet.new(["devices.view"])}
+    escaped = ~S(in:"dev\ices" limit:1)
+
+    assert EntityAccess.extract_entity(escaped) == "devices"
+    assert {:error, :forbidden} = EntityAccess.authorize(escaped, logs_only)
+    assert :ok = EntityAccess.authorize(escaped, devices)
+    assert {:error, :forbidden} = ServiceRadarWebNG.SRQL.query(escaped, %{scope: logs_only})
+
+    assert {:error, :forbidden} =
+             ServiceRadarWebNG.SRQL.query("in:not_a_real_entity_zzz", %{scope: devices})
   end
 
   test "authorize without optional_scope forbids a missing scope" do
@@ -446,9 +477,13 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
 
       for {permissions, signals} <- cases do
         assert {:ok, ^signals} =
-                 EntityAccess.authorize_signals("in:otel_services limit:5", signals_scope(permissions))
+                 EntityAccess.authorize_signals(
+                   "in:otel_services limit:5",
+                   signals_scope(permissions)
+                 )
 
-        assert :ok = EntityAccess.authorize("in:otel_services limit:5", signals_scope(permissions))
+        assert :ok =
+                 EntityAccess.authorize("in:otel_services limit:5", signals_scope(permissions))
       end
     end
 
@@ -461,7 +496,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
 
     test "a missing scope is forbidden, and optional_scope admits it with no permitted set" do
       assert {:error, :forbidden} = EntityAccess.authorize_signals("in:otel_services", nil)
-      assert {:ok, nil} = EntityAccess.authorize_signals("in:otel_services", nil, optional_scope: true)
+
+      assert {:ok, nil} =
+               EntityAccess.authorize_signals("in:otel_services", nil, optional_scope: true)
     end
 
     test "single-permission entities carry no permitted set" do

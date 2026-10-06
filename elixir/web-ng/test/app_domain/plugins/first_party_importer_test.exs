@@ -486,6 +486,44 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert Enum.any?(errors, &String.contains?(&1, "display/event_log_activity.display.json"))
   end
 
+  test "rejects a bundle whose config schema is malformed JSON" do
+    Process.put(
+      :first_party_bundle,
+      bundle_with_entries([
+        {~c"config.schema.json", "{invalid"}
+      ])
+    )
+
+    assert {:error, {:invalid_config_schema, errors}} =
+             FirstPartyImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.2.3",
+               "plugin_id" => "hello-wasm",
+               "version" => "1.2.3"
+             })
+
+    assert Enum.any?(errors, &String.contains?(&1, "invalid config schema JSON"))
+  end
+
+  test "rejects a bundle whose config schema is not a JSON object" do
+    Process.put(
+      :first_party_bundle,
+      bundle_with_entries([
+        {~c"config.schema.json", "[1,2]"}
+      ])
+    )
+
+    assert {:error, {:invalid_config_schema, errors}} =
+             FirstPartyImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.2.3",
+               "plugin_id" => "hello-wasm",
+               "version" => "1.2.3"
+             })
+
+    assert errors == ["config schema must be a JSON object"]
+  end
+
   test "rejects malformed first-party import index assets" do
     Process.put(:first_party_index_body, "[not-an-object]")
 

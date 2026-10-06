@@ -13,6 +13,12 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     assert Readers.entity_for_query("in:devices labels:[synthetic in:logs] limit:1") == "devices"
   end
 
+  test "a quoted in: decodes a backslash escape and an unquoted one keeps it" do
+    assert Readers.entity_for_query(~S(in:"dev\ices" limit:1)) == "devices"
+    assert Readers.entity_for_query(~S(in:dev\ices limit:1)) == ~S(dev\ices)
+    assert Readers.entity_for_query(~S(in:"logs" limit:1)) == "logs"
+  end
+
   test "ordinary installations keep CNPG as the serving authority" do
     assert Readers.mode_for(:metrics) == nil
     assert Readers.backend(:metrics) == :cnpg

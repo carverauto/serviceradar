@@ -180,7 +180,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
           {:ok, summary} ->
             Logger.info(
               "Wasm plugin sync completed for #{repository.repo_url}: discovered=#{summary.discovered} " <>
-                "import_ready=#{summary.import_ready} imported=#{summary.imported} failed=#{length(summary.failed)}"
+                "import_ready=#{summary.import_ready} imported=#{summary.imported} skipped=#{summary.skipped} failed=#{length(summary.failed)}"
             )
 
             log_import_failures(summary.failed)
@@ -471,8 +471,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   defp log_import_failures(failures) do
     Enum.each(failures, fn failure ->
-      Logger.warning("First-party Wasm plugin import failed",
-        plugin_id: Map.get(failure, :plugin_id),
+      plugin_id = Map.get(failure, :plugin_id)
+      reason_text = ImportFailureMessages.reason_to_text(Map.get(failure, :error))
+
+      Logger.warning("First-party Wasm plugin import failed for #{plugin_id}: #{reason_text}",
+        plugin_id: plugin_id,
         version: Map.get(failure, :version),
         release_tag: Map.get(failure, :release_tag),
         reason: inspect(Map.get(failure, :error), limit: 20, printable_limit: 1_000)

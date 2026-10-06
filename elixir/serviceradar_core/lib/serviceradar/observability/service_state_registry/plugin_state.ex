@@ -3,6 +3,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
 
   import Ash.Query
 
+  alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStatePubSub
   alias ServiceRadar.Observability.ServiceStateRegistry.Queries
@@ -20,6 +21,31 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
   @doc false
   @spec acquire_lock(map()) :: :ok | {:error, term()}
   def acquire_lock(identity) when is_map(identity) do
+    case lock_sequence(identity) do
+      {:ok, locks} ->
+        AdvisoryLocks.acquire_ordered!(locks)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    reason -> {:error, {:plugin_state_lock_acquire_failed, reason}}
+  end
+
+  def acquire_lock(_identity), do: {:error, :invalid_plugin_state_identity}
+
+  @doc """
+  The ordered transaction-scoped lock sequence protecting a logical plugin
+  identity's state transition: the reconciler's shared lock first (a running
+  reconciliation must not observe a half-applied transition), then the
+  identity's exclusive lock. Public so a caller already batching its own lock
+  sequence (the plugin result ingestor) can splice these two locks in at
+  their required position instead of taking them in a separate statement.
+  """
+  @spec lock_sequence(map()) ::
+          {:ok, [AdvisoryLocks.lock()]} | {:error, term()}
+  def lock_sequence(identity) when is_map(identity) do
     lock_identity =
       identity
       |> StatusNormalizer.logical_plugin_identity()
@@ -33,16 +59,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
         ])
       end)
 
-    with :ok <- acquire_reconcile_shared_lock() do
-      case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lock_identity]) do
-        {:ok, _result} -> :ok
-        {:error, reason} -> {:error, {:plugin_state_lock_acquire_failed, reason}}
-        other -> {:error, {:unexpected_plugin_state_lock_result, other}}
-      end
-    end
+    {:ok, [{:shared, @plugin_state_reconcile_lock}, {:exclusive, lock_identity}]}
   end
-
-  def acquire_lock(_identity), do: {:error, :invalid_plugin_state_identity}
 
   @doc false
   def acquire_reconciliation_lock do
@@ -50,16 +68,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
       other -> {:error, {:unexpected_plugin_state_lock_result, other}}
-    end
-  end
-
-  defp acquire_reconcile_shared_lock do
-    case Repo.query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [
-           @plugin_state_reconcile_lock
-         ]) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> {:error, {:plugin_state_reconcile_lock_acquire_failed, reason}}
-      other -> {:error, {:unexpected_plugin_state_reconcile_lock_result, other}}
     end
   end
 

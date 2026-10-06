@@ -80,11 +80,7 @@
     {"flow": {"partition": "edge", "protocol_num": 17, "dst_port": 8080, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "198.51.100.99"}, "expected": "unknown", "note": "partition-scoped rule does not match another partition; baseline has no 8080 entry"},
     {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 53, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "203.0.113.5"}, "expected": "synth-egress", "note": "dns baseline never reached: a matching rule always wins"},
     {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 8080, "src_port": 51000, "src_ip": "2001:db8:ffff::1", "dst_ip": "2001:db8:1::6"}, "expected": "lab-v6", "note": "priority tie (R2 vs the partition rule's 5): R2's 50 wins"},
-<<<<<<< HEAD
     {"flow": {"partition": "default", "protocol_num": 17, "dst_port": 123, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "203.0.113.6"}, "expected": "ntp", "note": "udp to the egress cidr; R3 requires tcp so no rule matches and the ntp baseline answers"},
-=======
-    {"flow": {"partition": "default", "protocol_num": 17, "dst_port": 123, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "203.0.113.6"}, "expected": "synth-egress", "note": "udp to the egress cidr; ntp baseline shadowed by R3"},
->>>>>>> 730b3c49f1
     {"flow": {"partition": "default", "protocol_num": 17, "dst_port": 123, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "198.51.100.99"}, "expected": "ntp", "note": "baseline: ntp matches any protocol"},
     {"flow": {"partition": "default", "protocol_num": 6, "dst_port": 5432, "src_port": 51000, "src_ip": "192.0.2.10", "dst_ip": "198.51.100.99"}, "expected": "postgres", "note": "baseline postgres"},
     {"flow": {"partition": "default", "protocol_num": null, "dst_port": null, "src_port": null, "src_ip": null, "dst_ip": null}, "expected": "unknown", "note": "nulls never match rule fields; no dst_port means no baseline"},

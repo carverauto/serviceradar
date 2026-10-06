@@ -248,6 +248,26 @@ fn app_label(protocol_num: i32, dst_port: i32, src_ip: &str, dst_ip: &str) -> &'
 /// The fixture's CIDR containment: IPv4 and IPv6, string forms only the
 /// seeded rules use (a /32 v6 and a /24 v4), so the first-component compare
 /// the rules need is exact without a full address parser.
+fn expand_v6(addr: &str) -> Vec<u16> {
+    let parse_side = |side: &str| -> Vec<u16> {
+        if side.is_empty() {
+            Vec::new()
+        } else {
+            side.split(':')
+                .map(|h| u16::from_str_radix(h, 16).unwrap_or(0))
+                .collect()
+        }
+    };
+    if let Some((left, right)) = addr.split_once("::") {
+        let l = parse_side(left);
+        let r = parse_side(right);
+        let zeros = 8usize.saturating_sub(l.len() + r.len());
+        [l, vec![0; zeros], r].concat()
+    } else {
+        parse_side(addr)
+    }
+}
+
 fn cidr_contains(cidr: &str, ip: &str) -> bool {
     let (net, prefix) = cidr.split_once('/').expect("seeded cidrs carry a prefix");
     let prefix: u32 = prefix.parse().expect("numeric prefix");
@@ -263,22 +283,11 @@ fn cidr_contains(cidr: &str, ip: &str) -> bool {
             net_octets[..3] == ip_octets[..3]
         }
         (true, 32) => {
-            // 2001:db8::/32: compare the first two hextets.
-            let net_parts: Vec<u16> = net
-                .split("::")
-                .next()
-                .unwrap_or(net)
-                .split(':')
-                .map(|h| u16::from_str_radix(h, 16).unwrap_or(0))
-                .collect();
-            let ip_parts: Vec<u16> = ip
-                .split("::")
-                .next()
-                .unwrap_or(ip)
-                .split(':')
-                .map(|h| u16::from_str_radix(h, 16).unwrap_or(0))
-                .collect();
-            net_parts == ip_parts
+            // 2001:db8::/32: compare the first prefix/16 hextets.
+            let net_full = expand_v6(net);
+            let ip_full = expand_v6(ip);
+            let hextets = (prefix / 16) as usize;
+            net_full[..hextets] == ip_full[..hextets]
         }
         _ => false,
     }

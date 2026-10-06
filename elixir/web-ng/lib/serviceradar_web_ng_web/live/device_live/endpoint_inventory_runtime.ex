@@ -4,12 +4,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
   import Phoenix.Component, only: [assign: 3, to_form: 2]
 
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryMatchGroups
 
   @cache_query_type "endpoint_inventory.cache_query"
   @force_fresh_type "endpoint_inventory.force_fresh_scan"
   @cohort_query_type "endpoint_inventory.cohort_cache_query"
+  @query_permission "endpoint_inventory.query"
+  @query_denied "You do not have permission to query endpoint inventory"
 
   def assign_defaults(socket) do
     socket
@@ -40,10 +43,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> assign(:endpoint_inventory_selected_match_group, nil)
   end
 
+  def query_permitted?(socket) do
+    RBAC.can?(socket.assigns[:current_scope], @query_permission)
+  end
+
+  def deny_query(socket), do: put_command_error(socket, @query_denied)
+
   def dispatch_device_query(socket, params, opts \\ []) when is_map(params) do
     params = normalize_params(params)
 
-    with {:ok, agent_id} <- selected_agent_id(socket, params),
+    with :ok <- authorize_query(socket),
+         {:ok, agent_id} <- selected_agent_id(socket),
          {:ok, payload} <- query_payload(params, "exists") do
       case command_bus(opts).dispatch_endpoint_inventory_cache_query(agent_id, payload,
              actor: actor(socket),
@@ -79,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
   def dispatch_force_refresh(socket, params, opts \\ []) when is_map(params) do
     params = normalize_params(params)
 
-    with {:ok, agent_id} <- selected_agent_id(socket, params),
+    with {:ok, agent_id} <- selected_agent_id(socket),
          {:ok, payload} <- force_refresh_payload(params) do
       case command_bus(opts).dispatch_endpoint_inventory_force_fresh_scan(agent_id, payload,
              actor: actor(socket),
@@ -107,7 +117,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
   def dispatch_cohort_query(socket, params, opts \\ []) when is_map(params) do
     params = normalize_params(params)
 
-    with {:ok, payload} <- query_payload(params, "count"),
+    with :ok <- authorize_query(socket),
+         {:ok, payload} <- query_payload(params, "count"),
          {:ok, agent_ids} <- cohort_agent_ids(params) do
       bus_opts =
         Keyword.merge(
@@ -277,7 +288,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
       group ->
         scope = Map.get(socket.assigns, :current_scope)
 
-        supporting_matches = EndpointInventoryData.load_supporting_matches(scope, group.assessments)
+        supporting_matches =
+          EndpointInventoryData.load_supporting_matches(scope, group.assessments)
 
         selected_group =
           group.assessments
@@ -520,9 +532,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> Map.new()
   end
 
-  defp selected_agent_id(socket, params) do
+  defp authorize_query(socket) do
+    if query_permitted?(socket), do: :ok, else: {:error, @query_denied}
+  end
+
+  # The device's recorded agent is the only target. A caller-supplied agent id
+  # used to win over that record and dispatch the query somewhere else.
+  defp selected_agent_id(socket) do
     [
-      clean(params["agent_id"]),
       scan_field(socket.assigns[:endpoint_inventory_scan], :agent_id),
       device_field(socket.assigns[:device_row], "agent_id"),
       device_field(List.first(socket.assigns[:results] || []), "agent_id")

@@ -18,6 +18,9 @@
 
 ## 2. Logs and events: warehouse readers to parity
 
+- [x] 2.0 Route the StarRocks `profile_hour_of_week[_peak]` route onto `timeseries_metrics_hourly` (issue #5209).
+  - FE audit attribution (read-only, one FE's full day): the raw `timeseries_metrics` SELECT load is dominated by the scheduled seasonal/anomaly profiles - dimensions-only filters (`metric_type`, `metric_name`) at hour grain over month-long windows - with the rest legitimately raw (topology counter rates need consecutive samples, sysmon process reads carry per-process identity the view lacks, sub-hourly buckets are below the rollup grain). A profile whose filters are all view dimensions now reads the stored hourly cells (`max_value`/`avg_value`, no GROUP BY) through the freshness-gated entry point; `translate_raw` and any raw-only-column filter keep the raw scan. Window bounds stay widened to whole hours on both branches, matching `hourly_cagg_*_bound_clause`. Parity: the existing profile example plus a new fleet-wide (no `series:`) shape run CNPG-raw against StarRocks-rollup on synthetic data.
+
 - [ ] 2.1 Day-partitioned async MVs for log severity counts and event anomaly-finding counts; `rollup_stats:severity` and `rollup_stats:anomaly_findings` compile to them, with `RollupFreshness` fallback to raw.
 - [x] 2.2 Logs filter vocabulary on StarRocks: `severity`, `level`, `severity_match`, `device_id`.
   - `dataset_filter_sql` compiles `severity_text`/`severity`/`level` to the bucket the cards group by (recognized text authoritative, the number speaking only for a row whose text is absent or unrecognized) and `device_id`/`uid` to the device identity arms. `severity_match:any` is not a plain OR of the two lists: `filter_predicates` folds it, the text filter and the number filter into the one predicate `query/logs/filters.rs` writes for CNPG. A log field with no warehouse column stays refused.

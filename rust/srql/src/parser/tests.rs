@@ -76,6 +76,24 @@ fn implicitly_promotes_wildcard_text_filters_to_like() {
     assert!(matches!(ast.filters[0].op, FilterOp::Like));
 }
 
+#[test]
+fn log_cookbook_body_wildcards_use_like() {
+    for (field, negated, op) in [
+        ("body", "", FilterOp::Like),
+        ("body", "!", FilterOp::NotLike),
+        ("message", "", FilterOp::Like),
+    ] {
+        let ast = parse(&format!("in:logs {negated}{field}:%gateway% time:last_24h")).unwrap();
+        assert!(matches!(
+            (&ast.filters[0].op, &op),
+            (FilterOp::Like, FilterOp::Like) | (FilterOp::NotLike, FilterOp::NotLike)
+        ));
+        assert_eq!(ast.filters[0].value.as_scalar().unwrap(), "%gateway%");
+    }
+    let ast = parse(r#"in:logs body:"synthetic timeout""#).unwrap();
+    assert!(matches!(ast.filters[0].op, FilterOp::Eq));
+}
+
 fn assert_implicit_wildcard_filter_is_like(field: &str) {
     // Filter parsing is entity-independent. Use an existing entity here so a
     // missing mtr_traces registration cannot mask a missing text-field rule.

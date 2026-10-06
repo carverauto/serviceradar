@@ -1,4 +1,4 @@
-use super::Decoder;
+use super::{Decoder, mark_syslog};
 use crate::flowgger::config::Config;
 use crate::flowgger::record::Record;
 use crate::flowgger::utils;
@@ -6,8 +6,8 @@ use std::env;
 use std::fs;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, PrimitiveDateTime, format_description};
-use time_tz::PrimitiveDateTimeExt;
 use time_tz::timezones::get_by_name;
+use time_tz::{PrimitiveDateTimeExt, TimeZone};
 
 #[derive(Clone)]
 pub struct RFC3164Decoder {
@@ -38,18 +38,10 @@ impl Decoder for RFC3164Decoder {
         let (pri, _msg) = parse_strip_pri(line)?;
 
         let default_timezone = self.default_timezone.as_deref();
-        let mut res = decode_rfc_standard(&pri, _msg, line, default_timezone);
-        if let Ok(record) = res {
-            return Ok(record);
-        }
-
-        // Specific implementation
-        res = decode_rfc_custom(&pri, _msg, line, default_timezone);
-        if let Ok(record) = res {
-            return Ok(record);
-        }
-
-        res
+        let mut record = decode_rfc_standard(&pri, _msg, line, default_timezone)
+            .or_else(|_| decode_rfc_custom(&pri, _msg, line, default_timezone))?;
+        mark_syslog(&mut record, "rfc3164", false);
+        Ok(record)
     }
 }
 
@@ -306,8 +298,7 @@ fn parse_date<'a>(
             if ts_tokens.len() > idx
                 && let Some(tz) = get_by_name(ts_tokens[idx])
             {
-                let dt = primitive_date.assume_timezone(tz);
-                ts = Some(utils::PreciseTimestamp::from_offset_datetime(dt).as_f64());
+                ts = Some(assume_rfc3164_timezone(primitive_date, tz.name())?);
                 idx += 1;
             }
 
@@ -315,8 +306,7 @@ fn parse_date<'a>(
                 && let Some(default_tz) = default_timezone
                 && let Some(tz) = get_by_name(default_tz)
             {
-                let dt = primitive_date.assume_timezone(tz);
-                ts = Some(utils::PreciseTimestamp::from_offset_datetime(dt).as_f64());
+                ts = Some(assume_rfc3164_timezone(primitive_date, tz.name())?);
             }
 
             let ts = ts.unwrap_or_else(|| {
@@ -327,6 +317,26 @@ fn parse_date<'a>(
         }
         Err(_) => Err("Unable to parse the date in RFC3164 decoder"),
     }
+}
+
+// The legacy time-tz offset conversion drops DST. Use the workspace's
+// chrono-tz database for local wall times, including ambiguous/missing times.
+fn assume_rfc3164_timezone(date: PrimitiveDateTime, zone: &str) -> Result<f64, &'static str> {
+    use chrono::{NaiveDate, TimeZone};
+    let zone: chrono_tz::Tz = zone.parse().map_err(|_| "Unknown RFC3164 timezone")?;
+    let local = NaiveDate::from_ymd_opt(date.year(), date.month() as u32, date.day() as u32)
+        .and_then(|day| {
+            day.and_hms_opt(
+                date.hour() as u32,
+                date.minute() as u32,
+                date.second() as u32,
+            )
+        })
+        .ok_or("Invalid RFC3164 local timestamp")?;
+    zone.from_local_datetime(&local)
+        .earliest()
+        .map(|date| date.timestamp() as f64)
+        .ok_or("RFC3164 local timestamp falls in a DST gap")
 }
 
 fn rfc3339_to_unix(rfc3339: &str) -> Result<f64, &'static str> {
@@ -437,7 +447,6 @@ fn test_rfc3164_decode_nopri() {
     assert_eq!(res.msgid, None);
     assert_eq!(res.msg, Some(r#"appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#.to_string()));
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -460,7 +469,6 @@ fn test_rfc3164_decode_with_pri() {
     assert_eq!(res.msgid, None);
     assert_eq!(res.msg, Some(r#"appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#.to_string()));
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -483,7 +491,6 @@ fn test_rfc3164_decode_with_pri_year() {
     assert_eq!(res.msgid, None);
     assert_eq!(res.msg, Some(r#"appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#.to_string()));
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -506,7 +513,6 @@ fn test_rfc3164_decode_with_pri_year_tz() {
     assert_eq!(res.msgid, None);
     assert_eq!(res.msg, Some(r#"appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#.to_string()));
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -529,7 +535,6 @@ fn test_rfc3164_decode_tz_no_year() {
     assert_eq!(res.msgid, None);
     assert_eq!(res.msg, Some(r#"appname 69 42 [origin@123 software="te\st sc\"ript" swVersion="0.0.1"] test message"#.to_string()));
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -581,7 +586,6 @@ fn test_rfc3164_decode_custom_with_year() {
         Some(r#"appname 69 42 some test message"#.to_string())
     );
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -604,7 +608,6 @@ fn test_rfc3164_decode_custom_with_year_notz() {
     assert_eq!(res.msgid, None);
     assert_eq!(res.msg, Some(r#"appname: a test message"#.to_string()));
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -627,7 +630,6 @@ fn test_rfc3164_decode_custom_with_pri() {
     assert_eq!(res.msgid, None);
     assert_eq!(res.msg, Some(r#"appname: test message"#.to_string()));
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -652,7 +654,6 @@ fn test_rfc3164_decode_custom_trimed() {
         res.full_msg,
         Some("<13>testhostname: 2019 Mar 27 12:09:39 UTC: appname: test message".to_string())
     );
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -675,7 +676,6 @@ fn test_rfc3164_decode_rfc3339_timestamp_prefix() {
         Some("audit[1]: action:create, resource:serviceradar/serviceradar-web".to_string())
     );
     assert_eq!(res.full_msg, Some(msg.to_string()));
-    assert!(res.sd.is_none());
 }
 
 #[test]
@@ -688,4 +688,24 @@ fn test_rfc3164_does_not_decode_rfc5424_in_strict_mode() {
 
     let decoder = RFC3164Decoder::new(&cfg);
     assert!(decoder.decode(msg).is_err());
+}
+
+#[test]
+fn rfc3164_records_identify_the_format_for_durable_clock_skew_guard() {
+    let config = Config::from_string("[input]\nrfc3164_timezone = \"America/New_York\"\n").unwrap();
+    let decoder = RFC3164Decoder::new(&config);
+    let record = decoder
+        .decode("<11>Oct  5 22:20:29 host01.example.com app[100]: synthetic example")
+        .unwrap();
+    let year = OffsetDateTime::now_utc().year();
+    let expected = time::Date::from_calendar_date(year, time::Month::October, 6)
+        .unwrap()
+        .with_hms(2, 20, 29)
+        .unwrap()
+        .assume_utc()
+        .unix_timestamp() as f64;
+    assert_eq!(record.ts, expected);
+    assert!(record.sd.as_ref().is_some_and(|data| data.iter().any(|sd| sd.pairs.iter().any(|(key, value)| {
+        key == "_syslog_format" && matches!(value, crate::flowgger::record::SDValue::String(format) if format == "rfc3164")
+    }))));
 }

@@ -1634,6 +1634,9 @@ datasvc:
     size: 5Gi
     storageClassName: ""
 logCollector:
+  # IANA timezone assumed for RFC3164 senders that omit their zone (UDP and TCP).
+  # EventWriter falls back to receive time for RFC3164 skew greater than one hour.
+  rfc3164Timezone: "UTC"
   replicaCount: 3
   # Shared "events" stream replica count for OTEL/syslog writers.
   streamReplicas: 3
