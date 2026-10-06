@@ -46,6 +46,15 @@ defmodule ServiceRadarWebNG.McpRunnerUnitTest do
              Runner.execute_srql(input, context)
   end
 
+  test "execute_srql refuses an unknown entity and a quoted escape of a gated one" do
+    context = %{context: %{scope: %{permissions: MapSet.new(["observability.logs.view"])}}}
+
+    for query <- ["in:not_a_real_entity_zzz", ~S(in:"dev\ices" limit:1)] do
+      assert {:error, %Ash.Error.Action.InvalidArgument{message: "forbidden"}} =
+               Runner.execute_srql(%{arguments: %{query: query}}, context)
+    end
+  end
+
   defp restore_srql_module(nil), do: Application.delete_env(:serviceradar_web_ng, :srql_module)
 
   defp restore_srql_module(module), do: Application.put_env(:serviceradar_web_ng, :srql_module, module)
