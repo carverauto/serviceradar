@@ -1638,10 +1638,7 @@ fn profile_sql(
     // dimensions-only profile over the metrics table may read the view.
     let rollup_source = allow_rollup
         && dataset.raw_table == "timeseries_metrics"
-        && plan
-            .filters
-            .iter()
-            .all(|filter| profile_filter_is_dimension(filter));
+        && plan.filters.iter().all(profile_filter_is_dimension);
 
     // On the view the sample cell already exists as one row per (bucket,
     // device_id, metric_type, metric_name) with `max_value`/`avg_value`
