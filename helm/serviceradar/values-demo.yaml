@@ -245,8 +245,8 @@ logCollector:
     enabled: true
     type: LoadBalancer
     annotations:
-      metallb.universe.tf/address-pool: k3s-pool
-    loadBalancerIP: "23.138.124.23"
+      metallb.universe.tf/address-pool: k3s-lan-pool
+    loadBalancerIP: "192.168.6.88"
     externalTrafficPolicy: Local
   tcpCollector:
     enabled: true
@@ -284,13 +284,17 @@ logCollector:
       tlsEnabled: false
     service:
       enabled: true
-      type: ClusterIP
+      type: LoadBalancer
+      annotations:
+        metallb.universe.tf/address-pool: k3s-lan-pool
+      loadBalancerIP: "192.168.6.93"
+      externalTrafficPolicy: Local
       http:
         enabled: true
+    # Public otlp-demo HTTPRoute/TLSRoute removed (unauthenticated ingest was
+    # internet-reachable). OTLP is LAN-only on 192.168.6.93.
     gateway:
-      enabled: true
-      httpHostname: "otlp-demo.serviceradar.cloud"
-      grpcHostname: "otlp-demo.grpc.serviceradar.cloud"
+      enabled: false
 
 agentGateway:
   enabled: true
@@ -365,7 +369,9 @@ gatewayApi:
     secretName: ""
     clusterIssuer: ""
   syslog:
-    enabled: true
+    # Public syslog UDPRoute removed; syslog is LAN-only via the collector's
+    # k3s-lan-pool LoadBalancer.
+    enabled: false
     parentRefs:
       - group: gateway.networking.k8s.io
         kind: Gateway
@@ -928,16 +934,16 @@ trapd:
   externalService:
     enabled: true
     annotations:
-      metallb.universe.tf/address-pool: k3s-pool
-    loadBalancerIP: "23.138.124.26"
+      metallb.universe.tf/address-pool: k3s-lan-pool
+    loadBalancerIP: "192.168.6.89"
     externalTrafficPolicy: Local
 
 flowgger:
   externalService:
     enabled: true
     annotations:
-      metallb.universe.tf/address-pool: k3s-pool
-    loadBalancerIP: "23.138.124.24"
+      metallb.universe.tf/address-pool: k3s-lan-pool
+    loadBalancerIP: "192.168.6.90"
     externalTrafficPolicy: Local
 
 flowCollector:
@@ -965,8 +971,8 @@ flowCollector:
   service:
     type: LoadBalancer
     annotations:
-      metallb.universe.tf/address-pool: k3s-pool
-    loadBalancerIP: "23.138.124.25"
+      metallb.universe.tf/address-pool: k3s-lan-pool
+    loadBalancerIP: "192.168.6.91"
     externalTrafficPolicy: Local
     sessionAffinity: ClientIP
     sessionAffinityConfig:
@@ -1045,8 +1051,8 @@ bmpCollector:
   service:
     type: LoadBalancer
     annotations:
-      metallb.universe.tf/address-pool: k3s-pool
-    loadBalancerIP: "23.138.124.27"
+      metallb.universe.tf/address-pool: k3s-lan-pool
+    loadBalancerIP: "192.168.6.92"
     externalTrafficPolicy: Local
 nats:
   replicas: 3
