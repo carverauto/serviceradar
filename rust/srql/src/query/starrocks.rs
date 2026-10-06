@@ -1286,6 +1286,11 @@ const EVENT_TEXT_FILTER_FIELDS: &[&str] = &[
 /// the field is an ordinary column and the generic comparison applies.
 fn dataset_filter_sql(dataset: Dataset, filter: &Filter) -> Result<Option<String>> {
     let field = filter.field.as_str();
+    let field = if dataset.raw_table == "logs" && field == "message" {
+        "body"
+    } else {
+        field
+    };
     Ok(Some(match (dataset.raw_table, field) {
         ("logs", "severity_text" | "severity" | "level") => logs_severity_text_filter_sql(filter)?,
         ("logs", "device_id" | "uid") => logs_device_identity_filter_sql(filter)?,

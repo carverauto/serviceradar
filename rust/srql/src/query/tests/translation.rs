@@ -2538,30 +2538,42 @@ fn log_cookbook_grouped_stats_translate_on_both_backends() {
 fn log_cookbook_body_wildcards_translate_on_both_backends() {
     for mode in [None, Some("starrocks".to_string())] {
         for field in ["body", "message"] {
-            for suffix in ["", " stats:count() as total"] {
-                let mut request =
-                    request_for(&format!("in:logs {field}:%gateway% time:last_24h{suffix}"));
-                request.mode = mode.clone();
-                let response = translate_request(&test_config(), request).expect("body wildcard");
-                assert!(
-                    response.sql.to_lowercase().contains("body")
-                        && response.sql.to_lowercase().contains("like"),
-                    "{}",
-                    response.sql
-                );
-                if mode.is_none() {
-                    assert!(
-                        response
-                            .params
-                            .iter()
-                            .any(|p| matches!(p, BindParam::Text(v) if v == "%gateway%"))
-                    );
-                } else {
-                    assert!(
-                        response.sql.contains("LIKE '%gateway%'"),
-                        "{}",
-                        response.sql
-                    );
+            for (prefix, negated) in [("", false), ("!", true)] {
+                for suffix in ["", " stats:count() as total"] {
+                    let mut request = request_for(&format!(
+                        "in:logs {prefix}{field}:%GATEWAY% time:last_24h{suffix}"
+                    ));
+                    request.mode = mode.clone();
+                    let response =
+                        translate_request(&test_config(), request).expect("body wildcard");
+                    if mode.is_none() {
+                        assert!(
+                            response.sql.contains(if negated {
+                                "body NOT ILIKE"
+                            } else {
+                                "body ILIKE"
+                            }),
+                            "{}",
+                            response.sql
+                        );
+                        assert!(
+                            response
+                                .params
+                                .iter()
+                                .any(|p| matches!(p, BindParam::Text(v) if v == "%GATEWAY%"))
+                        );
+                    } else {
+                        assert!(
+                            response.sql.contains(if negated {
+                                "LOWER(body) NOT LIKE '%gateway%'"
+                            } else {
+                                "LOWER(body) LIKE '%gateway%'"
+                            }),
+                            "{}",
+                            response.sql
+                        );
+                        assert!(!response.sql.contains('$'), "{}", response.sql);
+                    }
                 }
             }
         }
