@@ -155,6 +155,16 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     end
   end
 
+  test "endpoint inventory cache queries are an operator permission viewers do not hold" do
+    keys = Catalog.permission_keys()
+
+    assert "endpoint_inventory.query" in keys
+    assert MapSet.member?(Catalog.permissions_for_role(:admin), "endpoint_inventory.query")
+    assert MapSet.member?(Catalog.permissions_for_role(:operator), "endpoint_inventory.query")
+    refute MapSet.member?(Catalog.permissions_for_role(:helpdesk), "endpoint_inventory.query")
+    refute MapSet.member?(Catalog.permissions_for_role(:viewer), "endpoint_inventory.query")
+  end
+
   test "prefix tag manage permission is an operator+ catalog key" do
     keys = Catalog.permission_keys()
     admin_permissions = Catalog.permissions_for_role(:admin)

@@ -292,7 +292,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_async({:device_interfaces, device_uid, request_ref}, {:ok, assigns}, socket) do
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interfaces_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.interfaces_request_ref do
       interfaces = Map.get(assigns, :network_interfaces, [])
       error = Map.get(assigns, :interfaces_error)
 
@@ -330,10 +331,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_async({:device_interfaces, device_uid, request_ref}, {:exit, reason}, socket) do
     Logger.warning("Device interfaces task failed for #{device_uid}: #{inspect(reason)}")
 
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interfaces_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.interfaces_request_ref do
       {:noreply,
        socket
-       |> assign(:interfaces_error, "Interface availability could not be confirmed. Retry this tab.")
+       |> assign(
+         :interfaces_error,
+         "Interface availability could not be confirmed. Retry this tab."
+       )
        |> assign(:interfaces_loading, false)
        |> assign(:interfaces_request_ref, nil)
        |> assign(:interface_availability, :unknown)
@@ -354,7 +359,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_async({:interface_metrics, device_uid, request_ref}, {:exit, reason}, socket) do
     Logger.warning("Interface metrics task failed for #{device_uid}: #{inspect(reason)}")
 
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interface_metrics_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.interface_metrics_request_ref do
       {:noreply,
        socket
        |> assign(:interface_metrics, %{
@@ -491,7 +497,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_async({:device_events, device_uid, request_ref}, {:ok, result}, socket) do
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.events_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.events_request_ref do
       {events, error} =
         case result do
           {:ok, events} -> {events, nil}
@@ -512,7 +519,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_async({:device_events, device_uid, request_ref}, {:exit, reason}, socket) do
     Logger.warning("Device events task failed for #{device_uid}: #{inspect(reason)}")
 
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.events_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.events_request_ref do
       {:noreply,
        socket
        |> assign(:device_events, [])
@@ -525,7 +533,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_async({:device_alerts, device_uid, request_ref}, {:ok, result}, socket) do
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.alerts_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.alerts_request_ref do
       {alerts, error} =
         case result do
           {:ok, alerts} -> {alerts, nil}
@@ -546,7 +555,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_async({:device_alerts, device_uid, request_ref}, {:exit, reason}, socket) do
     Logger.warning("Device alerts task failed for #{device_uid}: #{inspect(reason)}")
 
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.alerts_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.alerts_request_ref do
       {:noreply,
        socket
        |> assign(:device_alerts, [])
@@ -644,9 +654,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       supplemental_assigns
       |> Map.put(:network_interfaces, current)
       |> Map.put(:has_ifaces, true)
-      |> Map.put(:interface_availability, Map.get(socket.assigns, :interface_availability, :available))
+      |> Map.put(
+        :interface_availability,
+        Map.get(socket.assigns, :interface_availability, :available)
+      )
       |> Map.put(:interfaces_error, Map.get(socket.assigns, :interfaces_error))
-      |> Map.put(:favorited_interfaces, Map.get(socket.assigns, :favorited_interfaces, MapSet.new()))
+      |> Map.put(
+        :favorited_interfaces,
+        Map.get(socket.assigns, :favorited_interfaces, MapSet.new())
+      )
       |> Map.put(
         :metrics_enabled_interfaces,
         Map.get(socket.assigns, :metrics_enabled_interfaces, MapSet.new())
@@ -688,7 +704,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     params = Map.get(assigns, :__params__, %{})
 
     supplemental_assigns =
-      Map.drop(assigns, [:__requested_tab__, :__device_row__, :__srql_module__, :__scope__, :__params__])
+      Map.drop(assigns, [
+        :__requested_tab__,
+        :__device_row__,
+        :__srql_module__,
+        :__scope__,
+        :__params__
+      ])
 
     {requested_tab, device_row, srql_module, scope, params, supplemental_assigns}
   end
@@ -717,7 +739,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> DeviceTabRuntime.authorize_active_tab(device_row, scope)
 
     srql =
-      QueryData.srql_for_tab_if_needed(active_tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
+      QueryData.srql_for_tab_if_needed(
+        active_tab,
+        socket.assigns.device_uid,
+        socket.assigns.limit,
+        socket.assigns.srql
+      )
 
     socket
     |> assign(:active_tab, active_tab)
@@ -764,7 +791,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_leave_unavailable_tab(socket, _tab, _availability), do: socket
 
   defp apply_device_metrics_assigns(socket, assigns) do
-    assigns = annotate_metric_section_assigns(assigns, Map.get(socket.assigns, :anomaly_capacity_detail))
+    assigns =
+      annotate_metric_section_assigns(assigns, Map.get(socket.assigns, :anomaly_capacity_detail))
 
     socket
     |> assign(assigns)
@@ -791,11 +819,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp annotate_metric_section_assigns(assigns, _selected_detail), do: assigns
 
   defp selected_anomaly_row(%{kind: kind, row: %{} = row}) when kind in ["anomaly", "capacity_notice"], do: row
+
   defp selected_anomaly_row(_), do: nil
 
   defp apply_flow_stats_bundle(socket, stats_bundle) do
     {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_peers_json, top_ports_json, top_protocols_json, facets} = stats_bundle
+     top_peers_json, top_ports_json, top_protocols_json, facets} =
+      stats_bundle
 
     socket
     |> assign(:flow_stats, flow_stats)
@@ -928,7 +958,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp device_refresh_cooldown_ms do
-    Application.get_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, @device_refresh_cooldown_ms)
+    Application.get_env(
+      :serviceradar_web_ng,
+      :device_refresh_cooldown_ms,
+      @device_refresh_cooldown_ms
+    )
   end
 
   defp begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity, scope) do
@@ -1208,7 +1242,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:endpoint_inventory_packages, [])
     |> assign(:endpoint_inventory_package_total, 0)
     |> assign(:endpoint_inventory_artifacts, [])
-    |> assign(:endpoint_inventory_vulnerability_assessments, EndpointInventoryData.empty_assessment_pages())
+    |> assign(
+      :endpoint_inventory_vulnerability_assessments,
+      EndpointInventoryData.empty_assessment_pages()
+    )
     |> assign(:endpoint_inventory_cpe_catalog_current, true)
     |> assign(:endpoint_inventory_error, nil)
     |> assign(:has_software_inventory, false)
@@ -1337,9 +1374,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:endpoint_inventory_artifacts, Map.get(inventory, :artifacts, []))
     |> assign(
       :endpoint_inventory_vulnerability_assessments,
-      Map.get(inventory, :vulnerability_assessments, EndpointInventoryData.empty_assessment_pages())
+      Map.get(
+        inventory,
+        :vulnerability_assessments,
+        EndpointInventoryData.empty_assessment_pages()
+      )
     )
-    |> assign(:endpoint_inventory_cpe_catalog_current, Map.get(inventory, :cpe_catalog_current, true))
+    |> assign(
+      :endpoint_inventory_cpe_catalog_current,
+      Map.get(inventory, :cpe_catalog_current, true)
+    )
     |> assign(:endpoint_inventory_error, Map.get(inventory, :error))
     |> assign(:has_software_inventory, Map.get(inventory, :has_inventory, false))
     |> assign(:endpoint_inventory_loading, false)
@@ -1385,7 +1429,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       CameraData.load_sources(scope, uid, device_row, &DeviceActionRuntime.format_ash_error/1)
 
     timeout_ms =
-      if requested_tab == "details", do: @details_supplemental_timeout_ms, else: @tab_supplemental_timeout_ms
+      if requested_tab == "details",
+        do: @details_supplemental_timeout_ms,
+        else: @tab_supplemental_timeout_ms
 
     load_context =
       context
@@ -1649,9 +1695,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("endpoint_inventory_query", %{"endpoint_inventory_query" => params} = event, socket) do
     socket =
-      case Map.get(event, "action") do
-        "force_refresh" -> EndpointInventoryRuntime.dispatch_force_refresh(socket, params)
-        _ -> EndpointInventoryRuntime.dispatch_device_query(socket, params)
+      if EndpointInventoryRuntime.query_permitted?(socket) do
+        case Map.get(event, "action") do
+          "force_refresh" -> EndpointInventoryRuntime.dispatch_force_refresh(socket, params)
+          _ -> EndpointInventoryRuntime.dispatch_device_query(socket, params)
+        end
+      else
+        EndpointInventoryRuntime.deny_query(socket)
       end
 
     {:noreply, socket}
@@ -1662,7 +1712,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("endpoint_inventory_cohort_query", %{"endpoint_inventory_cohort_query" => params}, socket) do
-    {:noreply, EndpointInventoryRuntime.dispatch_cohort_query(socket, params)}
+    socket =
+      if EndpointInventoryRuntime.query_permitted?(socket) do
+        EndpointInventoryRuntime.dispatch_cohort_query(socket, params)
+      else
+        EndpointInventoryRuntime.deny_query(socket)
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("endpoint_inventory_package_filter", %{"endpoint_inventory_filter" => params}, socket) do
@@ -1738,7 +1795,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("open_anomaly_capacity_detail", %{"kind" => kind, "index" => raw_index}, socket) do
     with {index, ""} <- Integer.parse(raw_index),
-         rows when is_list(rows) <- anomaly_capacity_detail_rows(socket.assigns.anomaly_capacity, kind),
+         rows when is_list(rows) <-
+           anomaly_capacity_detail_rows(socket.assigns.anomaly_capacity, kind),
          %{} = row <- Enum.at(rows, index) do
       detail = %{kind: kind, row: row}
       detail_metric_sections = load_anomaly_capacity_detail_metric_sections(socket, detail)
@@ -1922,7 +1980,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         srql_module(),
         identity,
         socket.assigns.current_scope,
-        anomaly_load_opts(Map.get(socket.assigns, :anomaly_capacity_filters, %{}), anomaly_cursor: cursor)
+        anomaly_load_opts(Map.get(socket.assigns, :anomaly_capacity_filters, %{}),
+          anomaly_cursor: cursor
+        )
       )
 
     page =
@@ -1971,9 +2031,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp normalize_anomaly_filters(filters) when is_map(filters) do
     %{
-      "severity" => normalize_anomaly_filter_value(Map.get(filters, "severity"), ~w(all critical high medium low), "all"),
-      "status" => normalize_anomaly_filter_value(Map.get(filters, "status"), ~w(all open pending cleared), "all"),
-      "sort" => normalize_anomaly_filter_value(Map.get(filters, "sort"), ~w(newest oldest severity), "newest")
+      "severity" =>
+        normalize_anomaly_filter_value(
+          Map.get(filters, "severity"),
+          ~w(all critical high medium low),
+          "all"
+        ),
+      "status" =>
+        normalize_anomaly_filter_value(
+          Map.get(filters, "status"),
+          ~w(all open pending cleared),
+          "all"
+        ),
+      "sort" =>
+        normalize_anomaly_filter_value(
+          Map.get(filters, "sort"),
+          ~w(newest oldest severity),
+          "newest"
+        )
     }
   end
 
@@ -2013,10 +2088,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp load_anomaly_capacity_detail_metric_sections(_socket, _detail), do: []
 
   defp load_anomaly_capacity_detail_sysmon_sections(socket, row, detail) do
-    with identity when is_map(identity) <- Map.get(socket.assigns.anomaly_capacity || %{}, :identity),
+    with identity when is_map(identity) <-
+           Map.get(socket.assigns.anomaly_capacity || %{}, :identity),
          time_range when is_binary(time_range) <- detail_time_range(row),
          sysmon_filters =
-           SysmonMetrics.resolve_sysmon_filter_tokens(srql_module(), identity, socket.assigns.current_scope),
+           SysmonMetrics.resolve_sysmon_filter_tokens(
+             srql_module(),
+             identity,
+             socket.assigns.current_scope
+           ),
          true <- sysmon_filters != [] do
       srql_module()
       |> SysmonMetrics.load_metric_sections(sysmon_filters, socket.assigns.current_scope,
@@ -2027,7 +2107,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         cpu_metrics_limit: 20_000,
         disk_metrics_limit: 500
       )
-      |> SysmonMetrics.annotate_metric_sections(socket.assigns.anomaly_capacity, selected_anomaly_row(detail))
+      |> SysmonMetrics.annotate_metric_sections(
+        socket.assigns.anomaly_capacity,
+        selected_anomaly_row(detail)
+      )
       |> put_detail_section_subtitle_time(row)
     else
       _ -> []
@@ -2075,7 +2158,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.map_join(" ", &to_string/1)
       |> String.downcase()
 
-    String.contains?(text, "snmp") or String.contains?(text, "interface") or String.contains?(text, "if_")
+    String.contains?(text, "snmp") or String.contains?(text, "interface") or
+      String.contains?(text, "if_")
   end
 
   defp detail_time_range(row) do
@@ -2107,7 +2191,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp detail_window_bounds(row, center) do
-    start_dt = parse_detail_datetime(Map.get(row, "triggered_at") || Map.get(row, "window_started_at"))
+    start_dt =
+      parse_detail_datetime(Map.get(row, "triggered_at") || Map.get(row, "window_started_at"))
+
     end_dt = parse_detail_datetime(Map.get(row, "cleared_at") || Map.get(row, "window_ended_at"))
 
     {start_dt, end_dt} =
@@ -2118,6 +2204,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         }
       else
         half_window = div(@detail_metric_min_window_seconds, 2)
+
         {DateTime.shift(center, second: -half_window), DateTime.shift(center, second: half_window)}
       end
 
