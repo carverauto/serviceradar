@@ -6,8 +6,8 @@ defmodule ServiceRadarWebNG.HomepageTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
-  alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.PrivilegedMembership
+  alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Dashboards
@@ -67,11 +67,13 @@ defmodule ServiceRadarWebNG.HomepageTest do
     alpha_target = dashboard!(admin_scope, :public)
 
     member!(admin_scope, group!(system, admin, "homepage-first", 10, authored(private)), viewer)
+
     member!(
       admin_scope,
       group!(system, admin, "beta-homepage", 50, authored(beta_target)),
       viewer
     )
+
     member!(
       admin_scope,
       group!(system, admin, "Alpha-homepage", 50, authored(alpha_target)),
@@ -94,6 +96,7 @@ defmodule ServiceRadarWebNG.HomepageTest do
     own = dashboard!(admin_scope, :private)
     group_target = dashboard!(admin_scope, :private)
     {:ok, admin} = User.update_homepage_preference(admin, authored(own), actor: admin)
+
     member!(
       admin_scope,
       group!(system, admin, "homepage-fallthrough", 100, authored(group_target)),
