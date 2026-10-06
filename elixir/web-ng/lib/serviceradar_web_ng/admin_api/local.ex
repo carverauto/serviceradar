@@ -56,11 +56,13 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
     role_profile_id = role_profile_id_from_attrs(attrs)
     display_name = Map.get(attrs, :display_name) || Map.get(attrs, "display_name")
 
+    both_provided? = role != nil and role_profile_id != @not_provided
+
     [User]
     |> Ash.transaction(fn ->
       with {:ok, user} <- Ash.get(User, id, scope: scope),
-           {:ok, user} <- maybe_update_role(user, role, scope),
-           {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope),
+           {:ok, user} <- maybe_update_role(user, role, scope, role_profile_id, both_provided?),
+           {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope, both_provided?),
            {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
         user
       else
@@ -201,17 +203,31 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
     |> Ash.update(scope: scope)
   end
 
-  defp maybe_update_role(user, nil, _scope), do: {:ok, user}
+  defp maybe_update_role(user, nil, _scope, _profile_id, _both?), do: {:ok, user}
 
-  defp maybe_update_role(user, role, scope) do
+  defp maybe_update_role(user, role, scope, profile_id, true) do
+    user
+    |> Ash.Changeset.for_update(:update_role, %{role: role}, scope: scope)
+    |> Ash.Changeset.set_context(%{new_role_profile_id: profile_id})
+    |> Ash.update(scope: scope)
+  end
+
+  defp maybe_update_role(user, role, scope, _profile_id, false) do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: role}, scope: scope)
     |> Ash.update(scope: scope)
   end
 
-  defp maybe_update_role_profile(user, @not_provided, _scope), do: {:ok, user}
+  defp maybe_update_role_profile(user, @not_provided, _scope, _both?), do: {:ok, user}
 
-  defp maybe_update_role_profile(user, role_profile_id, scope) do
+  defp maybe_update_role_profile(user, role_profile_id, scope, true) do
+    user
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id}, scope: scope)
+    |> Ash.Changeset.set_context(%{skip_role_change_audit: true})
+    |> Ash.update(scope: scope)
+  end
+
+  defp maybe_update_role_profile(user, role_profile_id, scope, false) do
     user
     |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id}, scope: scope)
     |> Ash.update(scope: scope)
