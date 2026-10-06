@@ -74,8 +74,18 @@ defmodule ServiceRadar.Dgraph.Native do
   @spec prune_stale(url(), String.t(), [String.t()], deadline_ms()) :: submission()
   def prune_stale(_url, _cutoff, _kinds, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
 
-  @spec rebuild_canonical(url(), [map()], deadline_ms()) :: submission()
-  def rebuild_canonical(_url, _edges, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+  @doc "Upsert one chunk of canonical edges in a single transaction (idempotent)."
+  @spec upsert_canonical_edges(url(), [map()], deadline_ms()) :: submission()
+  def upsert_canonical_edges(_url, _edges, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Link keys of stored canonical edges outside `edges` (a whole-graph read)."
+  @spec stale_canonical_keys(url(), [map()], deadline_ms()) :: submission()
+  def stale_canonical_keys(_url, _edges, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Delete one chunk of canonical edges by link key in a single transaction (idempotent)."
+  @spec delete_canonical_edges(url(), [String.t()], deadline_ms()) :: submission()
+  def delete_canonical_edges(_url, _link_keys, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @spec query_canonical_edges(url(), deadline_ms()) :: submission()
   def query_canonical_edges(_url, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)

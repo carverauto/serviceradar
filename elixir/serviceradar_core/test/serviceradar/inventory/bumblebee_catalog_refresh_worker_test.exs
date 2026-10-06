@@ -4,6 +4,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.BumblebeeCatalogEntry
   alias ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Inventory.BumblebeeCatalogSource
@@ -204,6 +205,210 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert refresh_job_states() == expected
   end
 
+  test "catalog entries are written in chunked bulk upserts scaling with chunks, not entries", %{
+    actor: actor,
+    insert_job: insert_job
+  } do
+    unique = System.unique_integer([:positive])
+    entry_count = 600
+
+    entries =
+      for i <- 1..entry_count do
+        %{
+          "id" => "pkg-scale-#{unique}-#{i}",
+          "ecosystem" => "npm",
+          "package_name" => "package-#{i}",
+          "severity" => "medium",
+          "affected_versions" => ["1.0.0"]
+        }
+      end
+
+    catalog_body =
+      Jason.encode!(%{
+        "catalog_version" => "catalog-scale-#{unique}",
+        "schema_version" => "serviceradar.bumblebee.catalog.v1",
+        "entries" => entries
+      })
+
+    # Test 1: Single chunk of 1000 holds all 600 entries -> exactly 1 batched INSERT.
+    Application.put_env(:serviceradar_core, BumblebeeCatalogRefreshWorker,
+      enabled: true,
+      timeout_ms: 50,
+      upsert_batch_size: 1_000,
+      failure_reschedule_seconds: 900,
+      download_source: fn _url, _timeout -> {:ok, catalog_body} end,
+      materialize_catalog: fn snapshot_ref, entries, metadata ->
+        {:ok,
+         %{
+           "object_key" => "bumblebee/catalogs/#{snapshot_ref}/catalog.json",
+           "content_sha256" => "sha-scale-1-#{unique}",
+           "object_size_bytes" => length(entries) + map_size(metadata),
+           "entry_count" => length(entries)
+         }}
+      end,
+      push_config: fn :bumblebee -> :ok end,
+      insert_job: insert_job
+    )
+
+    source =
+      create_source!(actor,
+        enabled: true,
+        url: "https://catalog.example.invalid/scale-1.json"
+      )
+
+    {res1, inserts1} =
+      counting_catalog_entry_inserts(fn ->
+        BumblebeeCatalogRefreshWorker.perform(%Oban.Job{args: %{"force" => true}})
+      end)
+
+    assert res1 == :ok
+    assert inserts1 in 1..2, "expected a single batched INSERT for 600 entries, got #{inserts1}"
+
+    active_snapshot =
+      BumblebeeCatalogSnapshot
+      |> Ash.Query.filter(source_id == ^source.id and status == "active")
+      |> Ash.read_one!(actor: actor)
+
+    stored_entries =
+      BumblebeeCatalogEntry
+      |> Ash.Query.filter(snapshot_id == ^active_snapshot.id)
+      |> Ash.read!(actor: actor)
+
+    assert length(stored_entries) == entry_count
+
+    # Test 2: Chunk size 250 -> 600 entries produces ceil(600/250) = 3 batched INSERTs.
+    # A perform refreshes every enabled source, so disable the first source first:
+    # otherwise its 600 entries are re-inserted in 3 more batches and the count doubles to 6.
+    source
+    |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    unique2 = System.unique_integer([:positive])
+
+    catalog_body2 =
+      Jason.encode!(%{
+        "catalog_version" => "catalog-scale-#{unique2}",
+        "schema_version" => "serviceradar.bumblebee.catalog.v1",
+        "entries" => entries
+      })
+
+    Application.put_env(:serviceradar_core, BumblebeeCatalogRefreshWorker,
+      enabled: true,
+      timeout_ms: 50,
+      upsert_batch_size: 250,
+      failure_reschedule_seconds: 900,
+      download_source: fn _url, _timeout -> {:ok, catalog_body2} end,
+      materialize_catalog: fn snapshot_ref, entries, metadata ->
+        {:ok,
+         %{
+           "object_key" => "bumblebee/catalogs/#{snapshot_ref}/catalog.json",
+           "content_sha256" => "sha-scale-2-#{unique2}",
+           "object_size_bytes" => length(entries) + map_size(metadata),
+           "entry_count" => length(entries)
+         }}
+      end,
+      push_config: fn :bumblebee -> :ok end,
+      insert_job: insert_job
+    )
+
+    source2 =
+      create_source!(actor,
+        enabled: true,
+        url: "https://catalog.example.invalid/scale-2.json"
+      )
+
+    {res2, inserts2} =
+      counting_catalog_entry_inserts(fn ->
+        BumblebeeCatalogRefreshWorker.perform(%Oban.Job{args: %{"force" => true}})
+      end)
+
+    assert res2 == :ok
+
+    assert inserts2 in 2..4,
+           "expected ~3 batched INSERTs for 600 entries in batches of 250, got #{inserts2}"
+
+    active_snapshot2 =
+      BumblebeeCatalogSnapshot
+      |> Ash.Query.filter(source_id == ^source2.id and status == "active")
+      |> Ash.read_one!(actor: actor)
+
+    stored_entries2 =
+      BumblebeeCatalogEntry
+      |> Ash.Query.filter(snapshot_id == ^active_snapshot2.id)
+      |> Ash.read!(actor: actor)
+
+    assert length(stored_entries2) == entry_count
+  end
+
+  test "duplicate entries for the same catalog_id within a batch are deduplicated", %{
+    actor: actor,
+    insert_job: insert_job
+  } do
+    unique = System.unique_integer([:positive])
+
+    entries = [
+      %{
+        "id" => "pkg-dup-#{unique}",
+        "ecosystem" => "npm",
+        "package_name" => "dup-package",
+        "severity" => "low",
+        "affected_versions" => ["1.0.0"]
+      },
+      %{
+        "id" => "pkg-dup-#{unique}",
+        "ecosystem" => "npm",
+        "package_name" => "dup-package",
+        "severity" => "critical",
+        "affected_versions" => ["2.0.0"]
+      }
+    ]
+
+    catalog_body =
+      Jason.encode!(%{
+        "catalog_version" => "catalog-dup-#{unique}",
+        "schema_version" => "serviceradar.bumblebee.catalog.v1",
+        "entries" => entries
+      })
+
+    Application.put_env(:serviceradar_core, BumblebeeCatalogRefreshWorker,
+      enabled: true,
+      timeout_ms: 50,
+      failure_reschedule_seconds: 900,
+      download_source: fn _url, _timeout -> {:ok, catalog_body} end,
+      materialize_catalog: fn snapshot_ref, entries, metadata ->
+        {:ok,
+         %{
+           "object_key" => "bumblebee/catalogs/#{snapshot_ref}/catalog.json",
+           "content_sha256" => "sha-dup-#{unique}",
+           "object_size_bytes" => length(entries) + map_size(metadata),
+           "entry_count" => length(entries)
+         }}
+      end,
+      push_config: fn :bumblebee -> :ok end,
+      insert_job: insert_job
+    )
+
+    source =
+      create_source!(actor,
+        enabled: true,
+        url: "https://catalog.example.invalid/dup.json"
+      )
+
+    assert :ok = BumblebeeCatalogRefreshWorker.perform(%Oban.Job{args: %{"force" => true}})
+
+    active_snapshot =
+      BumblebeeCatalogSnapshot
+      |> Ash.Query.filter(source_id == ^source.id and status == "active")
+      |> Ash.read_one!(actor: actor)
+
+    stored =
+      BumblebeeCatalogEntry
+      |> Ash.Query.filter(snapshot_id == ^active_snapshot.id)
+      |> Ash.read!(actor: actor)
+
+    assert length(stored) == 1
+  end
+
   defp insert_scheduled_refresh_job!(schedule_in, args) do
     args
     |> BumblebeeCatalogRefreshWorker.new(schedule_in: schedule_in)
@@ -309,5 +514,39 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
         event.status_code == status_code and
         get_in(event.unmapped || %{}, ["source_id"]) == to_string(source_id)
     end)
+  end
+
+  defp counting_catalog_entry_inserts(fun) do
+    handler_id = "bumblebee-catalog-entry-insert-count-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:service_radar, :repo, :query],
+        fn _event, _measurements, %{query: query}, _config ->
+          if self() == test_pid and
+               String.starts_with?(query, ~s(INSERT INTO "platform"."bumblebee_catalog_entries")) do
+            send(test_pid, :catalog_entry_insert)
+          end
+        end,
+        nil
+      )
+
+    try do
+      result = fun.()
+      inserts = drain_inserts()
+      {result, inserts}
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp drain_inserts(acc \\ 0) do
+    receive do
+      :catalog_entry_insert -> drain_inserts(acc + 1)
+    after
+      0 -> acc
+    end
   end
 end

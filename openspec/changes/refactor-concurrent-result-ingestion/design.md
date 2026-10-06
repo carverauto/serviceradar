@@ -5,8 +5,8 @@ The earlier proposal is #5266. None of its implementation tasks is complete.
 
 StatusHandler's retained_plugin_result_status?/1 now checks plugin-result source,
 the plugin-result-retained:v1 capability, and retained_plugin_admission_enabled.
-The last setting defaults to false. The issue's original hard-coded-false claim
-is stale; the disabled-by-default routing remains real. Other statuses must not
+The last setting now defaults to true (PR #5322 — task 3a.2); the kill switch
+RETAINED_PLUGIN_ADMISSION_ENABLED=false restores the previous path. Other statuses must not
 be misclassified as retained results, including strings/atoms at supported
 normalization boundaries.
 
@@ -67,6 +67,37 @@ Gateway #5308 is merged. A metadata-only reservation handshake precedes the full
 payload handoff in the gateway/core pairing introduced by this implementation.
 Older gateways may use the bounded compatibility dispatcher, but do not provide
 the new pre-mailbox byte bound; retained default enablement requires the new pair.
+
+- **Decision: telemetry follows the admission-lane convention.** Every queue
+  emits `[:serviceradar, :result_ingestion, ...]` events mirroring
+  `[:serviceradar, :admission_lane, ...]` (pending/in-flight count and bytes,
+  admission wait, execution duration, completion result, rejection reason,
+  timeout, crash), with bounded-cardinality `class` tags, exported by the
+  existing `Telemetry.Metrics` reporter.
+
+- **Decision (user, resolved open question): lane metrics are also published on
+  JetStream.** In addition to `:telemetry`, a periodic aggregator publishes one
+  `serviceradar.metric.v1` MetricBatch per interval on `metrics.ingestion_lanes`
+  through `ServiceRadar.NATS.JetStreamPublish`, exactly as
+  `ServiceRadar.FlowAttribution.PassMetrics` publishes `metrics.flow_attribution`.
+  The batch carries per lane or class: queue depth and bytes, admitted, rejected
+  (by reason), NACKed, timed-out counts for the interval, and incomplete sync
+  runs. EventWriter's existing METRICS stream and `Metrics` processor persist it
+  to whichever telemetry backend is active, so no new consumer and no direct
+  database write. The subject does not collide with `metrics.ingest` or
+  `metrics.batch`. Publication is per interval, never per message, so it does not
+  add load to the path it measures; a failed publish is logged and never affects
+  ingestion. The metrics become queryable through `timeseries_metrics`.
+
+- **Decision (user): lane metrics are visible on three surfaces**, delivered as
+  the last PR of this change once the lanes exist: (1) Grafana, by registering the
+  lane `:telemetry` events as `Telemetry.Metrics` in core-elx's Prometheus
+  scrape and adding panels to the chart's ingestion dashboards; (2) a seeded
+  ServiceRadar dashboard charting the JetStream-persisted lane metrics from
+  `timeseries_metrics` via SRQL; (3) an "Ingestion" card on Settings -> Cluster
+  Status showing current per-lane depth and capacity and recent rejects/NACKs
+  from a cheap lane-stats call (no database query), linking to the dashboard.
+  No alert consumes these metrics in this change.
 
 ### 2. Use independent bounded keyed workers
 
@@ -158,7 +189,7 @@ interleaved rejected run followed by a complete run need regression coverage.
 Each queue and existing acknowledged lane reports pending/in-flight items and
 bytes, admission latency, execution duration, completions, rejections by reason,
 timeouts, crashes, and cancellation. Emit canonical protobuf metric envelopes
-through a bounded supervised metrics publisher on metrics.core.result_ingestion,
+through a bounded supervised metrics publisher on metrics.ingestion_lanes,
 confirm PubAck, and persist only through EventWriter in the configured telemetry
 backend. Audit NATS stream/permission coverage before rollout. Local :telemetry
 and Prometheus are supplementary, not the durable platform metric path.
@@ -180,6 +211,12 @@ More concurrent ingestion exposes row-lock contention: reserve database capacity
 audit shared writers, and measure retries rather than claiming linear scaling
 regardless of bottleneck. Reject-newest best-effort work makes overload loss
 visible; it does not upgrade the legacy gateway/agent delivery guarantee.
+
+- Should the cast-path classes eventually become acknowledged (gateway call) so
+  overflow can be retried by the agent instead of counted as loss? That is a
+  gateway and agent contract change and is not proposed here.
+- Resolved: queue metrics are also published to JetStream (see Decisions). An
+  alert or SLO on them is not part of this change and may be added later.
 
 ## Verification and load evidence
 

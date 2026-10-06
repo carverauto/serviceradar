@@ -40,6 +40,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   # or the agent sees DeadlineExceeded and cannot tell acceptance from a drop.
   @core_call_timeout_ms 20_000
   @flow_attribution_core_call_timeout_ms 20_000
+  # Budget = call timeout + overhead so the delivery task always has time to
+  # handle the inner call timeout and emit metrics before being killed.
+  @acceptance_budget_overhead_ms 500
   @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
 
   @doc """
@@ -197,7 +200,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   @doc false
   @spec acceptance_budget_ms(map()) :: pos_integer()
-  def acceptance_budget_ms(status) when is_map(status), do: core_call_timeout_ms(status)
+  def acceptance_budget_ms(status) when is_map(status), do: core_call_timeout_ms(status) + @acceptance_budget_overhead_ms
 
   # Flow attribution, retained plugin results, and endpoint-inventory results
   # are acknowledged only after core accepts them. OTLP relay frames are the

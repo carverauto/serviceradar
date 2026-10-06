@@ -61,13 +61,6 @@ ingestion_config =
     end
   )
 
-retained_admission =
-  case System.get_env("SERVICERADAR_RETAINED_PLUGIN_ADMISSION_ENABLED", "true") do
-    "true" -> true
-    "false" -> false
-    _ -> raise ArgumentError, "invalid retained plugin admission flag"
-  end
-
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
     enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
@@ -97,14 +90,6 @@ config :serviceradar_core,
 
 config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
   max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
-config :serviceradar_core,
-       ServiceRadar.StatusHandler,
-       Keyword.put(
-         Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler, []),
-         :retained_plugin_admission_enabled,
-         retained_admission
-       )
 
 config :serviceradar_core,
        :results_router_max_bytes,
@@ -1296,6 +1281,13 @@ if config_env() == :prod do
     # prune (e.g. after a deliberate topology cutover), then unset.
     canonical_prune_guard_override:
       parse_bool.("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", false)
+
+  # Capability-retained plugin results are admitted by the bounded retained-plugin
+  # lane. "false" is the kill switch back to the previous synchronous path.
+  # Mirrored in serviceradar_core_elx/config/runtime.exs, the one a release reads.
+  config :serviceradar_core, ServiceRadar.StatusHandler,
+    retained_plugin_admission_enabled:
+      System.get_env("RETAINED_PLUGIN_ADMISSION_ENABLED", "true") in ~w(true 1 yes)
 
   # Change-detection skip-guard for workload-identity snapshot upserts (fj #33).
   # persist_snapshot/1 runs once per agent status; on a stable cluster the

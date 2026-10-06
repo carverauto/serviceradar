@@ -2,11 +2,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.Processors.Metrics
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Ingestion.WorkerBudget
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.Inventory.SyncRunLedger
+  alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -45,6 +48,21 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
   test "a rejected middle chunk cannot activate or retire an earlier collection", %{
     source: source
   } do
+    test_pid = self()
+
+    request = fn subject, body, opts ->
+      send(test_pid, {:metric_publish, self(), subject, body, opts})
+
+      receive do
+        {:puback, response} -> response
+      after
+        2_000 -> {:error, :timeout}
+      end
+    end
+
+    publisher =
+      start_supervised!({RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: request]})
+
     previous_run = "previous-#{Ecto.UUID.generate()}"
 
     update = %{
@@ -112,7 +130,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
     Enum.each(holders, &send(&1, :release))
     assert_eventually(fn -> :sys.get_state(queue).bytes == 0 end)
 
-    assert {:error, :sync_run_incomplete} = SyncIngestorQueue.ingest_sync_results(control(final))
+    assert {:error, {:source_snapshot_activation_failed, :sync_run_incomplete}} =
+             SyncIngestorQueue.ingest_sync_results(control(final))
+
     assert snapshot_count(source.id, run) == 0
     assert snapshot_count(source.id, previous_run) == 1
     assert present_count(source.id) == 1
@@ -127,6 +147,31 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
 
     assert snapshot_count(source.id, recovered) == 1
     assert present_count(source.id) == 0
+
+    send(publisher, :publish)
+
+    assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame, _opts},
+                   1_000
+
+    send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
+
+    incomplete =
+      frame
+      |> MetricBatch.decode()
+      |> Map.fetch!(:metrics)
+      |> Enum.find(&(&1.name == "result_ingestion_events_incomplete_run"))
+
+    assert %{points: [%{value: 1.0}], temporality: :METRIC_TEMPORALITY_DELTA} =
+             incomplete
+
+    incomplete_row =
+      frame
+      |> decode_ingestion_rows!()
+      |> Enum.find(&(&1.metric_name == "result_ingestion_events_incomplete_run"))
+
+    assert incomplete_row.value == 1.0
+    assert incomplete_row.is_delta == true
+    assert incomplete_row.metadata["temporality"] == "delta"
   end
 
   test "receipt replay does not clear rejection and a missing index fails closed", %{
@@ -170,6 +215,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
       duplicate_occurrences: 0,
       conflicting_duplicate_ids: 0
     }
+  end
+
+  defp decode_ingestion_rows!(body) do
+    Metrics.parse_message(%{data: body, metadata: %{subject: "metrics.ingestion_lanes"}})
   end
 
   defp control(meta),

@@ -83,3 +83,24 @@ The system SHALL compile every NIF with the unwind panic strategy, and SHALL fai
 #### Scenario: Abort strategy selected
 - **WHEN** a NIF crate is compiled with `panic=abort`
 - **THEN** compilation fails
+
+### Requirement: Chunked resumable canonical rebuild
+The system SHALL rebuild Dgraph's canonical edges as a sequence of bounded chunk calls with no deadline over the whole rebuild, SHALL persist rebuild progress in control-plane state so an interrupted rebuild resumes instead of starting over, and SHALL enqueue reconciliation only after every phase succeeds.
+
+#### Scenario: Large graph
+- **WHEN** the desired canonical set and the stale set are both larger than one chunk
+- **THEN** edges are upserted and stale edges deleted in chunks of at most 200 per Dgraph transaction, each chunk under its own deadline
+- **AND** every stale edge is deleted
+
+#### Scenario: Interrupted rebuild
+- **WHEN** a rebuild fails after some upsert chunks completed
+- **THEN** the next rebuild of the same desired set resumes at the first incomplete chunk
+- **AND** completed chunks are not rewritten
+
+#### Scenario: Desired set changed
+- **WHEN** a rebuild runs for a desired set that differs from the one the persisted progress belongs to
+- **THEN** the progress is discarded and the rebuild starts from the first chunk
+
+#### Scenario: Completed rebuild
+- **WHEN** every upsert and delete chunk succeeded
+- **THEN** the persisted progress is removed and reconciliation is enqueued

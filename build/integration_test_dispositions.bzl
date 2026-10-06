@@ -212,6 +212,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/credentials/plugin_integration_provisioner_store_db_test.exs": 1,
     "test/serviceradar/credentials/stub_provider_gate_db_test.exs": 1,
     "test/serviceradar/data_service/client_test.exs": 1,
+    "test/serviceradar/dgraph/canonical_rebuild_db_test.exs": 1,
     "test/serviceradar/edge/agent_command_bus_test.exs": 1,
     "test/serviceradar/edge/agent_config_credential_delivery_test.exs": 1,
     "test/serviceradar/edge/agent_config_generator_test.exs": 1,

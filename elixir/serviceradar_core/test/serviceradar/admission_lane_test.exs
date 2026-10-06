@@ -13,12 +13,14 @@ defmodule ServiceRadar.AdmissionLaneTest do
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Cluster.CoordinatorChildren
+  alias ServiceRadar.EventWriter.Processors.Metrics
   alias ServiceRadar.Ingestion.LaneSupervisor
   alias ServiceRadar.Ingestion.LeaseSupervisor
   alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Ingestion.WorkerBudget
+  alias Serviceradar.Metric.V1.MetricBatch
 
-  test "JetStream metrics retry an identical frame and cannot hold up ingestion" do
+  test "JetStream metrics publish interval deltas with PubAck-gated watermarks" do
     parent = self()
 
     request = fn subject, body, opts ->
@@ -31,56 +33,307 @@ defmodule ServiceRadar.AdmissionLaneTest do
       end
     end
 
-    start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
-    RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
+        table_size = fn -> :ets.info(RuntimeMetrics, :size) end
+        assert table_size.() == 0
 
-    assert_receive {:metric_publish, publisher, "metrics.core.result_ingestion", body, opts},
-                   1_000
+        RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
+        seeded_slots = table_size.()
+        assert seeded_slots > 0
 
-    for _ <- 1..1_000 do
-      RuntimeMetrics.record(:sweep, :state, %{pending_count: 0, pending_bytes: 0})
-      RuntimeMetrics.record("invented-unbounded-label", :state, %{pending_count: 1})
-    end
+        assert_receive {:metric_publish, publisher, "metrics.ingestion_lanes", frame1, headers1},
+                       1_000
 
-    lane = start_lane(fn _ -> :ok end)
-    ref = admit(lane, status("agent01.example.com", "independent"))
-    assert_receive {^ref, :ok}, 250
+        batch1 = MetricBatch.decode(frame1)
+        admitted1 = find_metric!(batch1, "result_ingestion_events_admitted", "sweep")
+        admitted1_point = point!(admitted1)
+        assert admitted1_point.value == 1.0
+        assert admitted1.temporality == :METRIC_TEMPORALITY_DELTA
+        assert admitted1_point.start_time_unix_nano > 0
+        assert admitted1_point.start_time_unix_nano <= admitted1_point.observed_at_unix_nano
+
+        gauge1 = find_metric!(batch1, "result_ingestion_pending_count", "sweep")
+        assert point!(gauge1).value == 2.0
+        assert gauge1.temporality == :METRIC_TEMPORALITY_UNSPECIFIED
+
+        row1 =
+          Enum.find(
+            decode_rows!(frame1),
+            &(&1.metric_name == "result_ingestion_events_admitted")
+          )
+
+        assert row1.is_delta == true
+        assert row1.metadata["temporality"] == "delta"
+
+        # While the first frame waits for its PubAck, a thousand events land
+        # and unknown labels are rejected without growing ETS.
+        for _ <- 1..1_000 do
+          RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+          RuntimeMetrics.record("invented-unbounded-label", :state, %{pending_count: 1})
+        end
+
+        assert table_size.() == seeded_slots
+
+        lane = start_lane(fn _ -> :ok end)
+        ref = admit(lane, status("agent01.example.com", "independent"))
+        assert_receive {^ref, :ok}, 250
+        assert_empty(lane)
+
+        # Two consecutive transport failures: the retried frame stays
+        # byte-identical and omits everything recorded while blocked.
+        send(publisher, {:puback, {:ok, %{body: "{}"}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry1, headers2},
+                       1_000
+
+        assert retry1 == frame1
+        assert headers2 == headers1
+        assert counter_value(retry1, "result_ingestion_events_admitted", "sweep") == 1.0
+
+        send(publisher, {:puback, {:error, :timeout}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry2, headers3},
+                       1_000
+
+        assert retry2 == frame1
+        assert headers3 == headers1
+
+        assert Enum.any?(headers1[:headers], fn {key, id} ->
+                 key == "Nats-Msg-Id" and is_binary(id)
+               end)
+
+        # Records landing between the snapshot and its PubAck are covered by
+        # the ack only up to the snapshot; they surface in the next interval.
+        for _ <- 1..7, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame2, _headers},
+                       1_000
+
+        batch2 = MetricBatch.decode(frame2)
+        admitted2 = find_metric!(batch2, "result_ingestion_events_admitted", "sweep")
+        admitted2_point = point!(admitted2)
+        assert admitted2_point.value == 1_007.0
+        assert admitted2_point.start_time_unix_nano == admitted1_point.observed_at_unix_nano
+
+        failure2 =
+          find_metric!(batch2, "result_ingestion_events_publish_failure", "service_state")
+
+        assert point!(failure2).value == 2.0
+        assert failure2.is_monotonic == true
+
+        coalesced2 =
+          find_metric!(
+            batch2,
+            "result_ingestion_events_coalesced_interval",
+            "service_state"
+          )
+
+        assert point!(coalesced2).value == 2.0
+
+        RuntimeMetrics.record(:sweep, :state, %{pending_count: 0, pending_bytes: 0})
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 2})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame3, _headers},
+                       1_000
+
+        assert counter_value(frame3, "result_ingestion_events_admitted", "sweep") == 0.0
+
+        batch3 = MetricBatch.decode(frame3)
+
+        admitted3_point =
+          batch3
+          |> find_metric!("result_ingestion_events_admitted", "sweep")
+          |> point!()
+
+        # Records landing while a succeeding frame is in flight appear next,
+        # exactly once: the ack advances to that frame's snapshot, not to the
+        # live ETS totals.
+        for _ <- 1..5, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 3})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame4, _headers},
+                       1_000
+
+        admitted4 =
+          find_metric!(
+            MetricBatch.decode(frame4),
+            "result_ingestion_events_admitted",
+            "sweep"
+          )
+
+        admitted4_point = point!(admitted4)
+        assert admitted4_point.value == 5.0
+        assert admitted4_point.start_time_unix_nano == admitted3_point.observed_at_unix_nano
+
+        for _ <- 1..3, do: RuntimeMetrics.record(:sweep, :admitted, %{count: 1})
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 4})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame5, _headers},
+                       1_000
+
+        assert counter_value(frame5, "result_ingestion_events_admitted", "sweep") == 3.0
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 5})}}})
+
+        assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", frame6, _headers},
+                       1_000
+
+        assert counter_value(frame6, "result_ingestion_events_admitted", "sweep") == 0.0
+
+        rows =
+          Metrics.parse_message(%{
+            data: frame6,
+            metadata: %{subject: "metrics.ingestion_lanes"}
+          })
+
+        depth = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_count"))
+        bytes = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_bytes"))
+        assert depth.value == 0
+        assert bytes.value == 0
+        assert depth.tags["lane"] == "sweep"
+        assert depth.is_delta == false
+        assert Enum.all?(rows, &(&1.metric_type == "core.result_ingestion"))
+        refute Enum.any?(rows, &(&1.tags["lane"] == "invented-unbounded-label"))
+        send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 6})}}})
+      end)
+
+    assert log =~ "Ingestion lane metrics publish failing"
+    assert count_occurrences(log, "Ingestion lane metrics publish failing") == 1
+    assert log =~ "Ingestion lane metrics publish recovered"
+  end
+
+  test "a timed-out submit never dispatches while an independent lane stays responsive" do
+    parent = self()
+
+    sweep =
+      start_lane(fn status ->
+        send(parent, {:sweep_processed, status[:message], self()})
+
+        receive do
+          :release_sweep -> :ok
+        end
+      end)
+
+    mapper = start_lane(fn _status -> :ok end)
+
+    sweep_status = status("agent-sweep", "held-sweep")
+
+    assert {:ok, {^sweep, sweep_id}} =
+             Lane.reserve(sweep, Lane.descriptor(sweep_status, 10_000), self(), 1_000)
+
+    :ok = :sys.suspend(sweep)
+
+    mapper_ref = make_ref()
+
+    assert :ok =
+             Lane.admit(mapper, status("agent-mapper", "live-mapper"), {self(), mapper_ref}, 500)
+
+    assert_receive {^mapper_ref, :ok}, 500
+
+    stale_ref = make_ref()
+
+    assert {:error, :admission_timeout} =
+             Lane.submit(sweep, sweep_id, sweep_status, {self(), stale_ref}, 50)
+
+    :ok = :sys.resume(sweep)
+
+    fresh_status = status("agent-sweep", "fresh-sweep")
+    fresh_ref = make_ref()
+
+    assert {:ok, {^sweep, fresh_id}} =
+             Lane.reserve(sweep, Lane.descriptor(fresh_status, 10_000), self(), 1_000)
+
+    assert :ok = Lane.submit(sweep, fresh_id, fresh_status, {self(), fresh_ref}, 500)
+    assert_receive {:sweep_processed, "fresh-sweep", worker}, 500
+    send(worker, :release_sweep)
+    assert_receive {^fresh_ref, :ok}, 500
+
+    refute_received {:sweep_processed, "held-sweep", _}
+    refute_received {^stale_ref, _}
+    assert_empty(sweep)
+    assert_empty(mapper)
+  end
+
+  test "a timed-out reserve never captures credits" do
+    parent = self()
+
+    lane =
+      start_lane(
+        fn status ->
+          send(parent, {:reserve_processed, status[:message]})
+          :ok
+        end,
+        queue_wait_ms: 2_000,
+        gateway_call_timeout_ms: 5_100
+      )
+
+    :ok = :sys.suspend(lane)
+
+    assert {:error, :admission_timeout} =
+             Lane.reserve(lane, Lane.descriptor(status("agent-a", "stale"), 10_000), self(), 50)
+
+    :ok = :sys.resume(lane)
+
+    fresh = status("agent-b", "fresh")
+    fresh_ref = make_ref()
+
+    assert {:ok, {_lane, fresh_id}} =
+             Lane.reserve(lane, Lane.descriptor(fresh, 10_000), self(), 500)
+
+    assert :ok = Lane.submit(lane, fresh_id, fresh, {self(), fresh_ref}, 500)
+    assert_receive {:reserve_processed, "fresh"}, 500
+    assert_receive {^fresh_ref, :ok}, 500
+    refute_received {:reserve_processed, "stale"}
     assert_empty(lane)
+  end
 
-    # A plain NATS success without a storage PubAck is insufficient.
-    send(publisher, {:puback, {:ok, %{body: "{}"}}})
+  test "a timed-out single-phase admission never invokes its processor" do
+    parent = self()
 
-    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", retry,
-                    retry_opts},
-                   1_000
+    lane =
+      start_lane(fn status ->
+        send(parent, {:admit_processed, status[:message]})
+        :ok
+      end)
 
-    assert retry == body
-    assert retry_opts[:headers] == opts[:headers]
-    assert Enum.any?(opts[:headers], fn {key, id} -> key == "Nats-Msg-Id" and is_binary(id) end)
-    send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
+    :ok = :sys.suspend(lane)
+    stale_ref = make_ref()
 
-    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", drained, _opts},
-                   1_000
+    assert {:error, :admission_timeout} =
+             Lane.admit(lane, status("agent-a", "stale-admit"), {self(), stale_ref}, 50)
 
-    rows =
-      ServiceRadar.EventWriter.Processors.Metrics.parse_message(%{
-        data: drained,
-        metadata: %{subject: "metrics.core.result_ingestion"}
-      })
+    :ok = :sys.resume(lane)
+    fresh_ref = make_ref()
+    assert :ok = Lane.admit(lane, status("agent-b", "fresh-admit"), {self(), fresh_ref}, 500)
+    assert_receive {:admit_processed, "fresh-admit"}, 500
+    assert_receive {^fresh_ref, :ok}, 500
+    refute_received {:admit_processed, "stale-admit"}
+    refute_received {^stale_ref, _}
+    assert_empty(lane)
+  end
 
-    depth = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_count"))
-    bytes = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_bytes"))
-    failure = Enum.find(rows, &(&1.metric_name == "result_ingestion_events_publish_failure"))
-    assert depth.value == 0
-    assert bytes.value == 0
-    assert depth.tags["lane"] == "sweep"
-    assert failure.value >= 1
-    coalesced = Enum.find(rows, &(&1.metric_name == "result_ingestion_events_coalesced_interval"))
-    assert coalesced.value >= 1
-    assert failure.metadata["is_monotonic"] == true
-    assert Enum.all?(rows, &(&1.metric_type == "core.result_ingestion"))
-    refute Enum.any?(rows, &(&1.tags["lane"] == "invented-unbounded-label"))
-    send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 2})}}})
+  test "a timed-out single-phase cast never invokes its processor" do
+    parent = self()
+
+    lane =
+      start_lane(fn status ->
+        send(parent, {:cast_processed, status[:message]})
+        :ok
+      end)
+
+    :ok = :sys.suspend(lane)
+
+    assert {:error, :admission_timeout} =
+             Lane.admit_cast(lane, status("agent-a", "stale-cast"), :test, 50)
+
+    :ok = :sys.resume(lane)
+    assert :ok = Lane.admit_cast(lane, status("agent-b", "fresh-cast"), :test, 500)
+    assert_receive {:cast_processed, "fresh-cast"}, 500
+    refute_received {:cast_processed, "stale-cast"}
+    assert_empty(lane)
   end
 
   test "legacy plugins cannot occupy the retained database reservation" do
@@ -1002,6 +1255,27 @@ defmodule ServiceRadar.AdmissionLaneTest do
     }
 
     start_supervised!(topology)
+  end
+
+  defp find_metric!(batch, name, lane) do
+    Enum.find(batch.metrics, fn metric ->
+      metric.name == name and
+        Enum.any?(metric.tags, &(&1.key == "lane" and &1.value == lane))
+    end) || flunk("metric #{name} for lane #{lane} missing from published batch")
+  end
+
+  defp counter_value(body, name, lane) do
+    body |> MetricBatch.decode() |> find_metric!(name, lane) |> point!() |> Map.fetch!(:value)
+  end
+
+  defp point!(metric), do: hd(metric.points)
+
+  defp decode_rows!(body) do
+    Metrics.parse_message(%{data: body, metadata: %{subject: "metrics.ingestion_lanes"}})
+  end
+
+  defp count_occurrences(log, phrase) do
+    length(String.split(log, phrase)) - 1
   end
 
   defp held_processor(parent) do

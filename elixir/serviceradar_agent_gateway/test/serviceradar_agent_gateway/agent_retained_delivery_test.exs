@@ -602,10 +602,10 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
       restore_env(:core_call_timeout_ms, previous_core)
     end)
 
-    assert StatusProcessor.acceptance_budget_ms(%{source: "flow-attribution"}) <= 20_000
+    assert StatusProcessor.acceptance_budget_ms(%{source: "flow-attribution"}) <= 20_500
 
     assert StatusProcessor.acceptance_budget_ms(%{source: "results", service_type: "endpoint_inventory"}) <=
-             20_000
+             20_500
   end
 
   test "stream RPC rejects a chunk after final before forwarding", context do

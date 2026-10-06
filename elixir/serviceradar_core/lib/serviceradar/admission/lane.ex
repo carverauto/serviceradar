@@ -8,6 +8,7 @@ defmodule ServiceRadar.Admission.Lane do
   @max_worker_timeout_ms 20_000
   @deadline_reserve_ms 3_000
   @max_descriptor_bytes 4_096
+  @compat_admit_budget_ms 15_000
 
   # Called in the producer, before transferring the payload to any coordinator.
   # Include headers in the retained-byte charge; a message-only charge permits
@@ -33,43 +34,80 @@ defmodule ServiceRadar.Admission.Lane do
   def reserve(server, descriptor, owner, timeout) do
     with :ok <- validate_descriptor(descriptor),
          {:ok, target} <- reservation_target(server) do
-      GenServer.call(target, {:reserve, descriptor, owner}, timeout)
+      reserve_call(target, descriptor, owner, timeout, make_ref())
     end
-  catch
-    :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
   end
 
-  def submit(server, id, status, reply_to) do
-    GenServer.call(server, {:submit, id, status, {:reply_to, reply_to}}, :infinity)
+  defp reserve_call(target, descriptor, owner, timeout, call_ref) do
+    GenServer.call(target, {:reserve, descriptor, owner, timeout, call_ref}, timeout)
   catch
-    :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
+    :exit, reason ->
+      cancel_ref(target, call_ref)
+      map_call_error(reason)
+  end
+
+  def submit(server, id, status, reply_to, timeout \\ 1_000) do
+    submit_call(server, id, status, reply_to, timeout)
+  end
+
+  defp submit_call(server, id, status, reply_to, timeout) do
+    GenServer.call(server, {:submit, id, status, {:reply_to, reply_to}, timeout}, timeout)
+  catch
+    :exit, reason ->
+      cancel(server, id)
+      map_call_error(reason)
+  end
+
+  def cancel(server, id) do
+    GenServer.cast(server, {:cancel, id})
+  catch
+    :exit, _ -> :ok
+  end
+
+  def cancel_ref(server, call_ref) do
+    GenServer.cast(server, {:cancel_ref, call_ref})
+  catch
+    :exit, _ -> :ok
   end
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
 
-  def admit(server, status, reply_to) do
-    # There is deliberately no client-side timeout here. The coordinator never
-    # executes handlers or database work, and timing out a call whose message is
-    # already in its mailbox could produce an immediate rejection followed by a
-    # second, late reply to the original caller after admission succeeds.
-    GenServer.call(server, {:admit, status, reply_to}, :infinity)
-  catch
-    :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
+  def admit(server, status, reply_to, timeout \\ 1_000) do
+    owner =
+      case reply_to do
+        {pid, _} -> pid
+        _ -> self()
+      end
+
+    with {:ok, {_lane, id}} <-
+           reserve(server, descriptor(status, @compat_admit_budget_ms), owner, timeout) do
+      submit(server, id, status, reply_to, timeout)
+    end
   end
 
-  def admit_cast(server, status, lane) do
-    GenServer.call(server, {:admit_cast, status}, :infinity)
-  catch
-    :exit, reason ->
-      emit(
-        lane,
-        :rejected,
-        %{count: 1, payload_bytes: payload_bytes(status)},
-        %{reason: :lane_unavailable}
-      )
+  def admit_cast(server, status, lane, timeout \\ 1_000) do
+    case admit(server, status, nil, timeout) do
+      :ok ->
+        :ok
 
-      {:error, {:admission_lane_unavailable, reason}}
+      {:error, {:admission_lane_unavailable, _}} = error ->
+        emit(
+          lane,
+          :rejected,
+          %{count: 1, payload_bytes: payload_bytes(status)},
+          %{reason: :lane_unavailable}
+        )
+
+        error
+
+      {:error, _} = error ->
+        error
+    end
   end
+
+  defp map_call_error({:timeout, _}), do: {:error, :admission_timeout}
+  defp map_call_error(:timeout), do: {:error, :admission_timeout}
+  defp map_call_error(reason), do: {:error, {:admission_lane_unavailable, reason}}
 
   def validate_config(config, gateway_max_ms) do
     keys = [:max_items, :max_bytes, :max_items_per_agent, :queue_wait_ms, :worker_timeout_ms]
@@ -152,8 +190,8 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   @impl true
-  def handle_call({:reserve, descriptor, owner}, _from, state) do
-    case do_reserve(descriptor, owner, state) do
+  def handle_call({:reserve, descriptor, owner, timeout, call_ref}, _from, state) do
+    case do_reserve(descriptor, owner, state, call_ref) do
       {:ok, id, next_state} -> {:reply, {:ok, {self(), id}}, next_state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
@@ -162,14 +200,18 @@ defmodule ServiceRadar.Admission.Lane do
   def handle_call({:submit, id, status, mode}, from, state)
       when mode in [:wait, :best_effort] or
              (is_tuple(mode) and tuple_size(mode) == 2 and elem(mode, 0) == :reply_to) do
-    reply_to =
-      case mode do
-        :wait -> from
-        :best_effort -> nil
-        {:reply_to, target} -> target
-      end
+    case attach_payload(state, id, status, reply_to(mode, from), :infinity) do
+      {:ok, next_state} when mode == :wait -> {:noreply, dispatch(next_state)}
+      {:ok, next_state} -> {:reply, :ok, dispatch(next_state)}
+      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+    end
+  end
 
-    case attach_payload(state, id, status, reply_to) do
+  def handle_call({:submit, id, status, mode, submit_timeout}, from, state)
+      when (mode in [:wait, :best_effort] or
+              (is_tuple(mode) and tuple_size(mode) == 2 and elem(mode, 0) == :reply_to)) and
+             is_integer(submit_timeout) and submit_timeout > 0 do
+    case attach_payload(state, id, status, reply_to(mode, from), submit_timeout) do
       {:ok, next_state} when mode == :wait -> {:noreply, dispatch(next_state)}
       {:ok, next_state} -> {:reply, :ok, dispatch(next_state)}
       {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
@@ -179,18 +221,27 @@ defmodule ServiceRadar.Admission.Lane do
   def handle_call({:submit, _id, _status, _mode}, _from, state),
     do: {:reply, {:error, :invalid_admission_mode}, state}
 
-  def handle_call({:admit, status, reply_to}, _from, state) do
-    case do_admit(status, reply_to, state) do
-      {:ok, next_state} -> {:reply, :ok, dispatch(next_state)}
-      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+  def handle_call({:submit, _id, _status, _mode, _timeout}, _from, state),
+    do: {:reply, {:error, :invalid_admission_mode}, state}
+
+  defp reply_to(:wait, from), do: from
+  defp reply_to(:best_effort, _from), do: nil
+  defp reply_to({:reply_to, target}, _from), do: target
+
+  @impl true
+  def handle_cast({:cancel, id}, state) do
+    case Map.get(state.jobs, id) do
+      nil -> {:noreply, state}
+      job -> {:noreply, abandon_job(state, job, nil)}
     end
   end
 
-  @impl true
-  def handle_call({:admit_cast, status}, _from, state) do
-    case do_admit(status, nil, state) do
-      {:ok, next_state} -> {:reply, :ok, dispatch(next_state)}
-      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+  def handle_cast({:cancel_ref, call_ref}, state) do
+    job = Enum.find(Map.values(state.jobs), &(&1[:client_ref] == call_ref))
+
+    case job do
+      nil -> {:noreply, state}
+      job -> {:noreply, abandon_job(state, job, nil)}
     end
   end
 
@@ -318,40 +369,47 @@ defmodule ServiceRadar.Admission.Lane do
       nil ->
         {:noreply, %{state | monitors: Map.delete(state.monitors, ref)}}
 
-      %{phase: :reserved} = job ->
-        {:noreply, state |> remove_job(job) |> dispatch()}
-
-      %{phase: :queued} = job ->
-        Process.exit(job.lease, :kill)
-        {:noreply, state |> remove_job(job) |> dispatch()}
-
-      %{phase: phase} = job when phase in [:running, :delivering] ->
-        if is_reference(Map.get(job, :execution_timer)) do
-          Process.cancel_timer(job.execution_timer)
-        end
-
-        Process.exit(job.lease, :kill)
-
-        if is_pid(Map.get(job, :worker)) and Process.alive?(job.worker) do
-          Process.exit(job.worker, :kill)
-        end
-
-        terminating =
-          job
-          |> Map.put(:phase, :terminating)
-          |> Map.put(:reply_to, nil)
-
-        next_state = drop_monitor(state, ref)
-
-        if Map.get(job, :worker_down, false) do
-          {:noreply, next_state |> remove_job(terminating) |> dispatch()}
-        else
-          {:noreply, put_job(next_state, terminating)}
-        end
-
-      %{phase: :terminating} ->
-        {:noreply, drop_monitor(state, ref)}
+      job ->
+        {:noreply, abandon_job(state, job, ref)}
     end
+  end
+
+  defp abandon_job(state, %{phase: :reserved} = job, _ref) do
+    state |> remove_job(job) |> dispatch()
+  end
+
+  defp abandon_job(state, %{phase: :queued} = job, _ref) do
+    Process.exit(job.lease, :kill)
+    state |> remove_job(job) |> dispatch()
+  end
+
+  defp abandon_job(state, %{phase: phase} = job, ref) when phase in [:running, :delivering] do
+    if is_reference(Map.get(job, :execution_timer)) do
+      Process.cancel_timer(job.execution_timer)
+    end
+
+    Process.exit(job.lease, :kill)
+
+    if is_pid(Map.get(job, :worker)) and Process.alive?(job.worker) do
+      Process.exit(job.worker, :kill)
+    end
+
+    terminating =
+      job
+      |> Map.put(:phase, :terminating)
+      |> Map.put(:reply_to, nil)
+
+    next_state = drop_monitor(state, ref)
+
+    if Map.get(job, :worker_down, false) do
+      next_state |> remove_job(terminating) |> dispatch()
+    else
+      put_job(next_state, terminating)
+    end
+  end
+
+  defp abandon_job(state, %{phase: :terminating}, ref) do
+    drop_monitor(state, ref)
   end
 
   defp handle_worker_exit(state, id, ref, reason) do
@@ -462,7 +520,7 @@ defmodule ServiceRadar.Admission.Lane do
 
   defp drop_monitor(state, ref), do: %{state | monitors: Map.delete(state.monitors, ref)}
 
-  defp do_reserve(descriptor, owner, state) do
+  defp do_reserve(descriptor, owner, state, call_ref) do
     with :ok <- validate_descriptor(descriptor),
          %{
            headers: headers,
@@ -480,6 +538,7 @@ defmodule ServiceRadar.Admission.Lane do
 
       job = %{
         id: id,
+        client_ref: call_ref,
         phase: :reserved,
         status: nil,
         headers: headers,
@@ -536,13 +595,14 @@ defmodule ServiceRadar.Admission.Lane do
 
   defp validate_descriptor(_), do: {:error, :invalid_admission_descriptor}
 
-  defp attach_payload(state, id, status, reply_to) do
+  defp attach_payload(state, id, status, reply_to, submit_timeout) do
     case Map.get(state.jobs, id) do
       %{phase: :reserved} = job ->
         actual = descriptor(status, 1)
+        now = now_ms()
 
         cond do
-          now_ms() >= job.deadline - @deadline_reserve_ms ->
+          now >= job.deadline - @deadline_reserve_ms or stale_submit?(now, job, submit_timeout) ->
             {:error, :admission_timeout, remove_job(state, job)}
 
           actual.headers != job.headers or actual.retained_bytes != job.retained_bytes ->
@@ -587,59 +647,8 @@ defmodule ServiceRadar.Admission.Lane do
     end
   end
 
-  defp do_admit(status, reply_to, state) do
-    payload_bytes = payload_bytes(status)
-    retained_bytes = :erlang.external_size(status) + @envelope_overhead_bytes
-    agent_id = agent_id(status)
-
-    with :ok <- validate_source_size(payload_bytes, state.source_max_bytes),
-         :ok <- validate_capacity(state, retained_bytes, agent_id),
-         {:ok, lease} <- start_lease(state, reply_to) do
-      id = make_ref()
-      lease_ref = Process.monitor(lease)
-      caller_ref = monitor_caller(reply_to)
-      admitted_at = now_ms()
-      queue_timer = Process.send_after(self(), {:queue_timeout, id}, state.config[:queue_wait_ms])
-
-      job = %{
-        id: id,
-        status: status,
-        reply_to: reply_to,
-        lease: lease,
-        lease_ref: lease_ref,
-        caller_ref: caller_ref,
-        agent_id: agent_id,
-        ordering_key: ordering_key(status),
-        payload_bytes: payload_bytes,
-        retained_bytes: retained_bytes,
-        admitted_at: admitted_at,
-        deadline: admitted_at + state.config[:gateway_call_timeout_ms],
-        queue_timer: queue_timer,
-        phase: :queued
-      }
-
-      send(lease, {:lease_id, id})
-
-      next_state = %{
-        state
-        | queue: :queue.in(id, state.queue),
-          jobs: Map.put(state.jobs, id, job),
-          monitors:
-            state.monitors
-            |> Map.put(lease_ref, {:lease, id})
-            |> maybe_put_monitor(caller_ref, {:caller, id}),
-          admitted_bytes: state.admitted_bytes + retained_bytes,
-          admitted_per_agent: Map.update(state.admitted_per_agent, agent_id, 1, &(&1 + 1))
-      }
-
-      emit_state(next_state)
-      {:ok, next_state}
-    else
-      {:error, reason} ->
-        emit(state.lane, :rejected, %{count: 1, payload_bytes: payload_bytes}, %{reason: reason})
-        {:error, reason, state}
-    end
-  end
+  defp stale_submit?(_now, _job, :infinity), do: false
+  defp stale_submit?(now, job, submit_timeout), do: now >= job.admitted_at + submit_timeout
 
   defp start_lease(state, reply_to) do
     coordinator = self()

@@ -49,13 +49,6 @@ ingestion_config =
     end
   )
 
-retained_admission =
-  case System.get_env("SERVICERADAR_RETAINED_PLUGIN_ADMISSION_ENABLED", "true") do
-    "true" -> true
-    "false" -> false
-    _ -> raise ArgumentError, "invalid retained plugin admission flag"
-  end
-
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
     enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
@@ -85,14 +78,6 @@ config :serviceradar_core,
 
 config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
   max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
-
-config :serviceradar_core,
-       ServiceRadar.StatusHandler,
-       Keyword.put(
-         Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler, []),
-         :retained_plugin_admission_enabled,
-         retained_admission
-       )
 
 # This release hosts callback result coordination and recovery from
 # serviceradar_core. Those internal continuations use persisted authority and
@@ -715,6 +700,11 @@ if config_env() == :prod do
           end
       end
     end)
+
+  # Capability-retained plugin results are admitted by the bounded retained-plugin
+  # lane. "false" is the kill switch back to the previous synchronous path.
+  config :serviceradar_core, ServiceRadar.StatusHandler,
+    retained_plugin_admission_enabled: System.get_env("RETAINED_PLUGIN_ADMISSION_ENABLED", "true") in ~w(true 1 yes)
 
   config :serviceradar_core,
     env: :prod,

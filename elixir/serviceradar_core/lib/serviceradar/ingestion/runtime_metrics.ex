@@ -1,10 +1,13 @@
 defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   @moduledoc """
-  Publishes bounded ingestion gauges through JetStream for EventWriter persistence.
+  Publishes bounded ingestion lane metrics through JetStream for EventWriter
+  persistence.
 
   Producers update a fixed set of ETS slots; they never enqueue a metric message
-  or wait for NATS. During an outage, gauges coalesce and cumulative event counts
-  remain available. No agent, device, run, or payload identifier becomes a label.
+  or wait for NATS. During an outage, gauges coalesce and event counts
+  accumulate. Each frame reports gauges at their latest values and counters as
+  deltas since the previous acknowledged frame; reporting watermarks advance
+  only on PubAck. No agent, device, run, or payload identifier becomes a label.
   """
   use GenServer
 
@@ -16,8 +19,11 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadar.NATS.JetStreamPublish
 
+  require Logger
+
   @table __MODULE__
-  @subject "metrics.core.result_ingestion"
+  @subject "metrics.ingestion_lanes"
+  @publish_outage_reminder_every 60
   @lanes [
     :flow_attribution,
     :retained_plugin_result,
@@ -44,6 +50,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :worker_crash,
     :caller_down,
     :coordinator_restart,
+    :incomplete_run,
     :cancellation,
     :delivery,
     :publish_failure,
@@ -151,7 +158,9 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
        interval: interval,
        publish_opts: Keyword.get(opts, :publish_opts, []),
        pending: nil,
-       started_at: System.system_time(:nanosecond)
+       reported: %{},
+       interval_start: System.system_time(:nanosecond),
+       outage_failures: 0
      }}
   end
 
@@ -160,35 +169,66 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     # While the PubAck-bound frame is pending, later cadence snapshots are
     # intentionally coalesced into latest gauges and cumulative counters.
     if state.pending, do: record(:service_state, :coalesced_interval, %{})
-    frame = state.pending || frame(:ets.tab2list(@table), state.started_at)
 
-    pending =
+    now = System.system_time(:nanosecond)
+
+    frame =
+      state.pending ||
+        frame(:ets.tab2list(@table), state.reported, state.interval_start, now)
+
+    {pending, reported, interval_start, outage_failures} =
       case frame do
         nil ->
-          nil
+          {nil, state.reported, state.interval_start, state.outage_failures}
 
-        {body, id} ->
+        {body, id, counters, frame_start} ->
           opts = Keyword.merge(state.publish_opts, timeout: 1_000, msg_id: id)
 
           case publish(body, opts) do
             :ok ->
-              nil
+              if state.outage_failures > 0 do
+                Logger.info(
+                  "Ingestion lane metrics publish recovered",
+                  subject: @subject,
+                  failures: state.outage_failures
+                )
+              end
 
-            {:error, _} ->
+              {nil, counters, frame_start, 0}
+
+            {:error, reason} ->
+              failures = state.outage_failures + 1
+
+              if failures == 1 or rem(failures, @publish_outage_reminder_every) == 0 do
+                Logger.warning(
+                  "Ingestion lane metrics publish failing; buffering one frame",
+                  subject: @subject,
+                  failures: failures,
+                  reason: publish_error_class(reason)
+                )
+              end
+
               record(:service_state, :publish_failure, %{})
-              frame
+              held = {body, id, counters, frame_start}
+              {held, state.reported, state.interval_start, failures}
           end
       end
 
     Process.send_after(self(), :publish, state.interval)
-    {:noreply, %{state | pending: pending}}
+
+    {:noreply,
+     %{
+       state
+       | pending: pending,
+         reported: reported,
+         interval_start: interval_start,
+         outage_failures: outage_failures
+     }}
   end
 
-  defp frame([], _started_at), do: nil
+  defp frame([], _reported, _interval_start, _now), do: nil
 
-  defp frame(samples, started_at) do
-    now = System.system_time(:nanosecond)
-
+  defp frame(samples, reported, interval_start, now) do
     metrics =
       Enum.map(samples, fn {{kind, lane, name}, value} ->
         prefix =
@@ -199,23 +239,25 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
             :gauge -> "result_ingestion_"
           end
 
+        gauge? = kind == :gauge
+
         %Metric{
           name: prefix <> Atom.to_string(name),
           metric_type: "core.result_ingestion",
-          kind: if(kind == :gauge, do: :METRIC_KIND_GAUGE, else: :METRIC_KIND_SUM),
+          kind: if(gauge?, do: :METRIC_KIND_GAUGE, else: :METRIC_KIND_SUM),
           temporality:
-            if(kind == :gauge,
+            if(gauge?,
               do: :METRIC_TEMPORALITY_UNSPECIFIED,
-              else: :METRIC_TEMPORALITY_CUMULATIVE
+              else: :METRIC_TEMPORALITY_DELTA
             ),
-          is_monotonic: kind != :gauge,
+          is_monotonic: not gauge?,
           unit: unit(kind, name),
           tags: [%StringMapEntry{key: "lane", value: Atom.to_string(lane)}],
           points: [
             %MetricPoint{
-              value: value * 1.0,
+              value: delta(value, kind, lane, name, reported) * 1.0,
               observed_at_unix_nano: now,
-              start_time_unix_nano: if(kind == :gauge, do: 0, else: started_at)
+              start_time_unix_nano: if(gauge?, do: 0, else: interval_start)
             }
           ]
         }
@@ -238,8 +280,22 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
         metrics: metrics
       })
 
-    {body, Ecto.UUID.generate()}
+    counters =
+      samples
+      |> Enum.reject(fn {{kind, _lane, _name}, _value} -> kind == :gauge end)
+      |> Map.new(fn {{kind, lane, name}, value} -> {{kind, lane, name}, value} end)
+
+    {body, Ecto.UUID.generate(), counters, now}
   end
+
+  defp delta(value, :gauge, _lane, _name, _reported), do: value
+
+  defp delta(value, kind, lane, name, reported),
+    do: value - Map.get(reported, {kind, lane, name}, 0)
+
+  defp publish_error_class({tag, _detail}) when is_atom(tag), do: Atom.to_string(tag)
+  defp publish_error_class(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp publish_error_class(_reason), do: "unknown"
 
   defp publish(body, opts) do
     JetStreamPublish.publish(@subject, body, opts)

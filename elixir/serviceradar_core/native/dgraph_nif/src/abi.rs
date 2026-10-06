@@ -26,6 +26,13 @@ pub enum CountResult {
     Error(String),
 }
 
+/// Elixir `{:ok, [link_key]}` / `{:error, reason}`.
+#[derive(Clone, Debug, NifTaggedEnum)]
+pub enum KeysResult {
+    Ok(Vec<String>),
+    Error(String),
+}
+
 /// Elixir `{:ok, json}` / `{:error, reason}`.
 #[derive(Clone, Debug, NifTaggedEnum)]
 pub enum JsonResult {

@@ -8,7 +8,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
   setup do
     AnomalyConfigRuntime.clear_cache_for_test()
 
-    task_sup = ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor
+    task_sup = ServiceRadar.Reload.TaskSupervisor
 
     case Process.whereis(task_sup) do
       nil ->

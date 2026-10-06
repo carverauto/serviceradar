@@ -210,9 +210,10 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
     RuntimeMetrics.record(:mapper, :state, %{pending_count: 3})
+    RuntimeMetrics.record(:mapper, :admitted, %{count: 4})
     assert_receive {:ingestion_metric_wire, body}, 1_000
     stop_supervised!(RuntimeMetrics)
-    message = %{data: body, metadata: %{subject: "metrics.core.result_ingestion"}}
+    message = %{data: body, metadata: %{subject: "metrics.ingestion_lanes"}}
     key = ServiceRadar.Analytics.StarRocks
     previous = Application.get_env(:serviceradar_core, key, [])
     on_exit(fn -> Application.put_env(:serviceradar_core, key, previous) end)
@@ -220,10 +221,16 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert {:ok, count} = Metrics.process_batch([message])
     assert count > 0
 
-    assert %{rows: [[3.0]]} =
+    assert %{rows: [[3.0, false]]} =
              ServiceRadar.Repo.query!(
-               "SELECT value FROM platform.timeseries_metrics WHERE metric_type = $1 AND metric_name = $2",
+               "SELECT value, is_delta FROM platform.timeseries_metrics WHERE metric_type = $1 AND metric_name = $2",
                ["core.result_ingestion", "result_ingestion_pending_count"]
+             )
+
+    assert %{rows: [[4.0, true]]} =
+             ServiceRadar.Repo.query!(
+               "SELECT value, is_delta FROM platform.timeseries_metrics WHERE metric_type = $1 AND metric_name = $2",
+               ["core.result_ingestion", "result_ingestion_events_admitted"]
              )
 
     # Remove this test's points before the warehouse pass. A duplicate CNPG
@@ -300,6 +307,18 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert_receive {:warehouse_ingestion_metrics, request_line, rows}, 1_000
     assert String.contains?(request_line, "/timeseries_metrics/_stream_load")
     assert Enum.all?(rows, &(&1["metric_type"] == "core.result_ingestion"))
+
+    admitted_row =
+      Enum.find(rows, &(&1["metric_name"] == "result_ingestion_events_admitted"))
+
+    assert admitted_row["value"] == 4.0
+    assert admitted_row["is_delta"] == true
+
+    gauge_row =
+      Enum.find(rows, &(&1["metric_name"] == "result_ingestion_pending_count"))
+
+    assert gauge_row["value"] == 3.0
+    assert gauge_row["is_delta"] == false
 
     assert %{rows: [[0]]} =
              ServiceRadar.Repo.query!(
