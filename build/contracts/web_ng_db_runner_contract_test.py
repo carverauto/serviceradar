@@ -55,7 +55,6 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/auth/sso_provisioning_test.exs",
     "test/phoenix/auth/token_revocation_test.exs",
     "test/phoenix/channels/dashboard_frame_channel_live_db_test.exs",
-    "test/phoenix/channels/dashboard_frame_channel_test.exs",
     "test/phoenix/channels/topology_tile_channel_live_db_test.exs",
     "test/phoenix/controllers/api/addon_fleet_controller_test.exs",
     "test/phoenix/controllers/api/addon_package_controller_test.exs",
