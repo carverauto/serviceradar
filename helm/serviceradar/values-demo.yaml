@@ -287,6 +287,10 @@ logCollector:
       type: LoadBalancer
       annotations:
         metallb.universe.tf/address-pool: k3s-lan-pool
+        # Keeps the existing name, now pointing at the LAN-only VIP:
+        #   OTLP/HTTP http://otlp-demo.serviceradar.cloud:4318/v1/{traces,logs,metrics}
+        #   OTLP/gRPC otlp-demo.serviceradar.cloud:4317
+        external-dns.alpha.kubernetes.io/hostname: "otlp-demo.serviceradar.cloud."
       loadBalancerIP: "192.168.6.93"
       externalTrafficPolicy: Local
       http:
