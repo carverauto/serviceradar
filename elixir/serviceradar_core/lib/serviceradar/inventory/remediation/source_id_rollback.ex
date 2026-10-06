@@ -246,12 +246,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
              unmerged_by: @unmerged_by,
              event_id: List.first(ids(entry))
            ) do
-        :ok ->
-          case restore_predecessor_mark(entry, actor) do
-            {:ok, _} = ok -> ok
-            {:error, _} = error -> {:refused, error}
-          end
-
+        :ok -> restore_predecessor_mark(entry, actor)
         {:error, reason} when reason in @unmerge_skips -> {:ok, {:skipped, reason}}
         {:error, _} = error -> error
       end
@@ -329,7 +324,6 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRollback do
     end)
     |> case do
       {:ok, {:ok, outcome}} -> {:ok, outcome}
-      {:ok, {:refused, {:error, _} = error}} -> error
       {:error, _} = error -> error
     end
   end
