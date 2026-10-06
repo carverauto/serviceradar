@@ -2,6 +2,8 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ingestion.RuntimeMetrics, as: MetricPublisher
+  alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadar.Observability.AlertEvaluationLane
   alias ServiceRadar.Observability.AlertEvaluationReceipt
   alias ServiceRadar.Observability.AlertEvaluationWork
@@ -10,6 +12,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
   alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulAlertEngine.Owner
+  alias ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.Repo
@@ -97,6 +100,73 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     end
 
     {:ok, rule: rule, actor: actor}
+  end
+
+  @tag sandbox: :unboxed
+  test "recovery replaces discarded, missing and abandoned wake-ups without losing accepted input",
+       %{
+         rule: rule,
+         actor: actor
+       } do
+    worker = Oban.Worker.to_string(EvaluationWorker)
+
+    for loss <- [:discarded, :missing, :executing] do
+      input = event()
+      assert {:ok, keys} = Inbox.admit(:event, [input])
+
+      assert [[hint_id]] =
+               Repo.query!(
+                 "SELECT id FROM platform.oban_jobs WHERE worker = $1 AND args->>'rule_id' = $2 AND state = 'available'",
+                 [worker, rule.id]
+               ).rows
+
+      case loss do
+        :discarded ->
+          Repo.query!(
+            "UPDATE platform.oban_jobs SET state = 'discarded', discarded_at = timezone('utc', now()) WHERE id = $1",
+            [hint_id]
+          )
+
+        :missing ->
+          Repo.query!("DELETE FROM platform.oban_jobs WHERE id = $1", [hint_id])
+
+        :executing ->
+          Repo.query!(
+            "UPDATE platform.oban_jobs SET state = 'executing', attempt = 1, attempted_at = timezone('utc', now()) WHERE id = $1",
+            [hint_id]
+          )
+      end
+
+      assert [_] = work(rule, actor)
+      assert {:error, :evaluation_completion_timeout} = Completion.await(keys, 25)
+      assert :ok = RecoveryWorker.perform(%Oban.Job{})
+
+      assert [[replacement_id]] =
+               Repo.query!(
+                 "SELECT id FROM platform.oban_jobs WHERE worker = $1 AND args->>'rule_id' = $2 AND state = 'available'",
+                 [worker, rule.id]
+               ).rows
+
+      refute replacement_id == hint_id
+      assert :ok = RecoveryWorker.perform(%Oban.Job{})
+
+      assert [[replacement_id]] ==
+               Repo.query!(
+                 "SELECT id FROM platform.oban_jobs WHERE worker = $1 AND args->>'rule_id' = $2 AND state = 'available'",
+                 [worker, rule.id]
+               ).rows
+
+      assert %{failure: 0} = Oban.drain_queue(queue: :alerts, with_recursion: true)
+      assert {:ok, [%{disposition: :completed}]} = Completion.await(keys, 1_000)
+      assert [] = work(rule, actor)
+      assert {:ok, ^keys} = Inbox.admit(:event, [input])
+      assert [] = work(rule, actor)
+    end
+
+    assert [%{bucket_counts: %{"1767225600" => 3}}] =
+             StatefulAlertRuleState
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
   end
 
   @tag sandbox: :unboxed
@@ -650,6 +720,15 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     rule: rule,
     actor: actor
   } do
+    parent = self()
+
+    request = fn "metrics.ingestion_lanes", body, _opts ->
+      send(parent, {:alert_metric_frame, body})
+      {:ok, %{body: Jason.encode!(%{stream: "SYNTHETIC_METRICS", seq: 1})}}
+    end
+
+    start_supervised!({MetricPublisher, interval_ms: 20, publish_opts: [request: request]})
+
     first = event()
     second = event()
     third = event()
@@ -681,6 +760,13 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert {:ok, mixed_receipts} = Completion.await(mixed, 1_000)
     assert Enum.all?(mixed_receipts, &(&1.disposition == :completed))
     assert [] = work(rule, actor)
+
+    # Observe deltas through the real publisher, including any frames emitted
+    # during the DB calls. The final gauge identifies the last observation.
+    marker = 4_242
+    MetricPublisher.record(:alert_event, :state, %{payload_bytes: marker})
+
+    assert admitted_wire_total(marker, 0, System.monotonic_time(:millisecond) + 2_000) == 3.0
   end
 
   test "fresh owners recover every count and diagnostics within one bucket", %{
@@ -791,6 +877,45 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
              |> Ash.read!(actor: actor)
 
     assert [] = work(rule, actor)
+  end
+
+  defp admitted_wire_total(marker, total, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:alert_metric_frame, body} ->
+        metrics =
+          body
+          |> MetricBatch.decode()
+          |> Map.fetch!(:metrics)
+          |> Enum.filter(fn metric ->
+            Enum.any?(metric.tags, &(&1.key == "lane" and &1.value == "alert_event"))
+          end)
+
+        total =
+          Enum.reduce(metrics, total, fn
+            %{name: "result_ingestion_events_admitted", points: [%{value: count} | _]}, sum ->
+              sum + count
+
+            _, sum ->
+              sum
+          end)
+
+        if Enum.any?(metrics, fn
+             %{name: "result_ingestion_payload_bytes", points: [%{value: value} | _]}
+             when value == marker ->
+               true
+
+             _ ->
+               false
+           end) do
+          total
+        else
+          admitted_wire_total(marker, total, deadline)
+        end
+    after
+      remaining -> flunk("admission metric never reached the final JetStream observation")
+    end
   end
 
   defp work(rule, actor) do

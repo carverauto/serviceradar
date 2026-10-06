@@ -71,7 +71,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   @doc "Appends a stale-resolution ordering barrier behind all previously accepted rule input."
   def admit_maintenance(rule_name, cutoff, now, live_series_keys) do
     with :ok <- Rollout.admission_ready(),
-         {:ok, {keys, _admitted}} <- admit_maintenance_ready(rule_name, cutoff, now, live_series_keys) do
+         {:ok, {keys, _admitted}} <-
+           admit_maintenance_ready(rule_name, cutoff, now, live_series_keys) do
       {:ok, keys}
     end
   end
