@@ -228,7 +228,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     # The lock statement count must scale with chunks, not rows: one batch,
     # one statement, however many assessments it carries.
     assert {1, {:ok, 5}} =
-             {count_lock_statements(fn -> AnalyticsSignals.process_batch(messages) end), {:ok, 5}}
+             count_lock_statements(fn -> AnalyticsSignals.process_batch(messages) end)
   end
 
   defp count_lock_statements(fun) do
