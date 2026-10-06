@@ -110,14 +110,15 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 	core, coreErrs := pki.connectTracked(t, srv, coreSubject)
 
 	const (
-		allowedScan  = "scans.results.run01"
-		allowedMTR   = "mtr.results.ingest"
-		allowedEvent = "events.example"
-		denied       = "zz.not.allowed"
+		allowedScan      = "scans.results.run01"
+		allowedMTR       = "mtr.results.ingest"
+		allowedEvent     = "events.example"
+		allowedWarehouse = "metrics.event_writer.warehouse"
+		denied           = "zz.not.allowed"
 	)
 
 	received := make(map[string]chan struct{})
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, denied} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, denied} {
 		ch := make(chan struct{}, 1)
 		received[subject] = ch
 
@@ -130,7 +131,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("flush subscriptions: %v", err)
 	}
 
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, denied} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, denied} {
 		if err := core.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
 			t.Fatalf("publish %s: %v", subject, err)
 		}
@@ -146,7 +147,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("expected a permissions violation for %s, got %v", denied, coreErrs.all())
 	}
 
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse} {
 		select {
 		case <-received[subject]:
 		case <-time.After(5 * time.Second):
