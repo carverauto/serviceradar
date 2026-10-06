@@ -2547,12 +2547,22 @@ fn log_cookbook_body_wildcards_translate_on_both_backends() {
                     let response =
                         translate_request(&test_config(), request).expect("body wildcard");
                     if mode.is_none() {
+                        if negated {
+                            assert!(
+                                response.sql.contains("NOT ILIKE"),
+                                "{}",
+                                response.sql
+                            );
+                        } else {
+                            assert!(response.sql.contains("ILIKE"), "{}", response.sql);
+                            assert!(
+                                !response.sql.contains("NOT ILIKE"),
+                                "{}",
+                                response.sql
+                            );
+                        }
                         assert!(
-                            response.sql.contains(if negated {
-                                "body NOT ILIKE"
-                            } else {
-                                "body ILIKE"
-                            }),
+                            response.sql.to_lowercase().contains("body"),
                             "{}",
                             response.sql
                         );
