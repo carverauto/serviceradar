@@ -18,14 +18,8 @@ package edgeonboarding
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
-)
-
-var (
-	// ErrSPIREAddressResolutionNotImplemented is returned when SPIRE address resolution is attempted.
-	ErrSPIREAddressResolutionNotImplemented = errors.New("not implemented: SPIRE address resolution")
 )
 
 // detectDeploymentType determines the deployment environment.
@@ -142,15 +136,4 @@ func (b *Bootstrapper) getAddressForDeployment(serviceName, defaultAddr string) 
 	}
 
 	return defaultAddr
-}
-
-// getSPIREAddressesForDeployment returns SPIRE server addresses based on deployment type.
-func (b *Bootstrapper) getSPIREAddressesForDeployment() (address string, port string, err error) {
-	// TODO: Extract SPIRE addresses from package metadata
-	// For Docker: Use LoadBalancer IP
-	// For Kubernetes: Use service DNS
-	// For Bare-metal: Use configured address
-
-	// For now, return placeholder
-	return "", "", ErrSPIREAddressResolutionNotImplemented
 }

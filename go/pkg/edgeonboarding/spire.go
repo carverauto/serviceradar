@@ -30,7 +30,7 @@ import (
 var errBootstrapperPackageNotInitialized = errors.New("bootstrapper package is not initialized")
 
 // configureSPIRE sets up SPIRE credentials for the service.
-// For gateways: Configures nested SPIRE server
+// For gateways: Writes join token and nested SPIRE agent config
 // For agents/checkers: Configures SPIRE agent workload API access
 func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 	b.logger.Info().
@@ -69,12 +69,12 @@ func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 	}
 }
 
-// configureGatewaySPIRE configures nested SPIRE server for edge gateways.
-// Gateways run their own SPIRE server that attests to the upstream (k8s) SPIRE server.
+// configureGatewaySPIRE configures SPIRE credentials for edge gateways.
+// Gateways write the join token and nested SPIRE agent config.
 func (b *Bootstrapper) configureGatewaySPIRE(ctx context.Context, spireDir string) error {
 	_ = ctx
 
-	b.logger.Debug().Msg("Configuring nested SPIRE server for gateway")
+	b.logger.Debug().Msg("Configuring gateway SPIRE join token and nested agent")
 
 	// Write join token (one-time use for initial attestation)
 	tokenPath := filepath.Join(spireDir, "upstream-join-token")
@@ -85,26 +85,6 @@ func (b *Bootstrapper) configureGatewaySPIRE(ctx context.Context, spireDir strin
 	b.logger.Debug().
 		Str("token_path", tokenPath).
 		Msg("Wrote SPIRE join token")
-
-	// Get SPIRE server address based on deployment type
-	spireAddr, spirePort, err := b.getSPIREAddressesForDeployment()
-	if err != nil {
-		return fmt.Errorf("get SPIRE addresses: %w", err)
-	}
-
-	// Generate nested SPIRE server configuration
-	serverConfig, err := b.generateNestedSPIREServerConfig(spireDir, spireAddr, spirePort)
-	if err != nil {
-		return fmt.Errorf("generate SPIRE server config: %w", err)
-	}
-
-	// Store config for later use
-	b.generatedConfigs["spire-server.conf"] = serverConfig
-
-	b.logger.Debug().
-		Str("spire_address", spireAddr).
-		Str("spire_port", spirePort).
-		Msg("Generated nested SPIRE server configuration")
 
 	// Generate nested SPIRE agent configuration (local agent for gateway itself)
 	agentConfig, err := b.generateNestedSPIREAgentConfig(spireDir)
@@ -120,7 +100,7 @@ func (b *Bootstrapper) configureGatewaySPIRE(ctx context.Context, spireDir strin
 }
 
 // configureAgentSPIRE configures SPIRE agent workload API access for agents.
-// Agents connect to their parent gateway's nested SPIRE server.
+// Agents connect to their parent gateway's nested SPIRE agent.
 func (b *Bootstrapper) configureAgentSPIRE(ctx context.Context, spireDir string) error {
 	_ = ctx
 
@@ -157,56 +137,6 @@ func (b *Bootstrapper) configureCheckerSPIRE(ctx context.Context, spireDir strin
 		Msg("Configured SPIRE workload API access for checker")
 
 	return nil
-}
-
-// generateNestedSPIREServerConfig generates the SPIRE server configuration for nested server.
-func (b *Bootstrapper) generateNestedSPIREServerConfig(spireDir, upstreamAddr, upstreamPort string) ([]byte, error) {
-	if upstreamAddr == "" {
-		return nil, ErrSPIREUpstreamAddressNotFound
-	}
-	if upstreamPort == "" {
-		return nil, ErrSPIREUpstreamPortNotFound
-	}
-	// TODO: Generate actual SPIRE server config
-	// This will be a HCL configuration file for SPIRE server
-	// Key settings:
-	// - Trust domain
-	// - Upstream SPIRE server address
-	// - Join token path
-	// - Bundle path
-	// - Data directory
-	// - Socket path
-
-	config := fmt.Sprintf(`# Generated SPIRE server configuration for nested server
-# Component: %s
-# SPIFFE ID: %s
-
-server {
-	bind_address = "0.0.0.0"
-	bind_port = "8081"
-	trust_domain = "%s"
-	data_dir = "%s"
-	socket_path = "%s"
-	upstream_address = "%s"
-	upstream_port = "%s"
-}
-
-# TODO: Add plugins configuration
-# - DataStore (sqlite)
-# - NodeAttestor (join_token)
-# - KeyManager
-# - UpstreamAuthority
-`,
-		b.pkg.ComponentID,
-		b.pkg.DownstreamSPIFFEID,
-		extractTrustDomain(b.pkg.DownstreamSPIFFEID),
-		filepath.Join(spireDir, "server-data"),
-		filepath.Join(spireDir, "server.sock"),
-		upstreamAddr,
-		upstreamPort,
-	)
-
-	return []byte(config), nil
 }
 
 // generateNestedSPIREAgentConfig generates the SPIRE agent configuration.
