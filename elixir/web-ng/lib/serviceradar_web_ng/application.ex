@@ -170,7 +170,10 @@ defmodule ServiceRadarWebNG.Application do
       children ++
         [
           ServiceRadarWebNG.Plugins.FirstPartySyncScheduler,
-          {Task, fn -> ServiceRadarWebNG.Plugins.FirstPartySyncWorker.enqueue_if_version_changed() end}
+          Supervisor.child_spec(
+            {Task, fn -> ServiceRadarWebNG.Plugins.FirstPartySyncWorker.enqueue_if_version_changed() end},
+            id: :first_party_plugin_version_sync
+          )
         ]
     else
       children
@@ -205,11 +208,14 @@ defmodule ServiceRadarWebNG.Application do
     if enabled? do
       children ++
         [
-          {Task,
-           fn ->
-             _ = ServiceRadar.Observability.GeoLiteMmdbDownloadWorker.sync_missing_files()
-             _ = ServiceRadar.Observability.IpinfoMmdbDownloadWorker.sync_missing_files()
-           end}
+          Supervisor.child_spec(
+            {Task,
+             fn ->
+               _ = ServiceRadar.Observability.GeoLiteMmdbDownloadWorker.sync_missing_files()
+               _ = ServiceRadar.Observability.IpinfoMmdbDownloadWorker.sync_missing_files()
+             end},
+            id: :geoip_bootstrap
+          )
         ]
     else
       children
