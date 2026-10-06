@@ -699,6 +699,116 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("ocsf_network_activity", @rows, http: http)
   end
 
+  test "a follower's 307 to the FE leader is followed when reconciling the label state" do
+    label = StreamLoad.load_label("ocsf_network_activity", @rows)
+    parent = self()
+
+    http = fn
+      %{method: :put} ->
+        {:ok, %{status: 200, body: Jason.encode!(%{"Status" => "Label Already Exists"})}}
+
+      %{method: :get, url: url} ->
+        cond do
+          String.contains?(url, "follower-fe") ->
+            send(parent, {:follower_queried, url})
+
+            {:ok,
+             %{
+               status: 307,
+               headers: [{"location", "http://leader-fe:8030#{state_path(label)}"}],
+               body: ""
+             }}
+
+          String.contains?(url, "leader-fe") ->
+            send(parent, {:leader_queried, url})
+            {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
+
+          true ->
+            flunk("unexpected state request to #{url}")
+        end
+    end
+
+    assert {:ok, %{loaded: 2, reconciled: true, label: ^label}} =
+             StreamLoad.persist("ocsf_network_activity", @rows,
+               http: http,
+               label: label,
+               config: %{fe_http: "http://follower-fe:8030", database: "serviceradar"}
+             )
+
+    assert_received {:follower_queried, _}
+    assert_received {:leader_queried, url}
+    assert url =~ "leader-fe:8030/api/serviceradar/get_load_state?label=#{label}"
+  end
+
+  test "a state redirect off the FE port is not followed" do
+    label = StreamLoad.load_label("ocsf_network_activity", @rows)
+    parent = self()
+
+    http = fn
+      %{method: :put} ->
+        {:ok, %{status: 200, body: Jason.encode!(%{"Status" => "Label Already Exists"})}}
+
+      %{method: :get, url: url} ->
+        send(parent, {:state_request, url})
+
+        {:ok,
+         %{
+           status: 307,
+           headers: [{"location", "http://elsewhere.example.com:9990#{state_path(label)}"}],
+           body: ""
+         }}
+    end
+
+    # Every reconcile attempt lands on the configured FE and refuses the
+    # off-port redirect: the load stays unresolved (bounded retries, then the
+    # caller's NAK path) instead of steered anywhere with credentials.
+    assert {:error, {:unresolved_label, ^label, "ocsf_network_activity"}} =
+             StreamLoad.persist("ocsf_network_activity", @rows,
+               http: http,
+               label: label,
+               config: %{fe_http: "http://follower-fe:8030", database: "serviceradar"},
+               http_timeout: 50
+             )
+
+    assert_received {:state_request, _}
+  end
+
+  test "an aborted label retries the load under a disambiguated label" do
+    parent = self()
+
+    http = fn
+      %{method: :put, headers: headers} = request ->
+        label = header_value(headers, "label")
+        send(parent, {:load_attempt, label})
+
+        if String.contains?(label, "-a") do
+          {:ok,
+           %{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "Status" => "Success",
+                 "Label" => label,
+                 "NumberLoadedRows" => 2,
+                 "NumberFilteredRows" => 0
+               })
+           }}
+        else
+          {:ok, %{status: 200, body: Jason.encode!(%{"Status" => "Label Already Exists"})}}
+        end
+
+      %{method: :get} ->
+        {:ok, %{status: 200, body: load_state_body("ABORTED")}}
+    end
+
+    assert {:ok, %{loaded: 2}} =
+             StreamLoad.persist("ocsf_network_activity", @rows, http: http)
+
+    assert_received {:load_attempt, first}
+    assert_received {:load_attempt, retry}
+    assert retry == "#{first}-a2"
+  end
+
   test "follows FE 307 redirect to the Stream Load coordinator" do
     parent = self()
 
@@ -893,6 +1003,15 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
 
     assert {:error, {:unresolved_label, _label, "ocsf_network_activity"}} =
              StreamLoad.persist("ocsf_network_activity", @rows, http: http)
+  end
+
+  defp state_path(label), do: "/api/serviceradar/get_load_state?label=#{label}"
+
+  defp header_value(headers, name) do
+    Enum.find_value(headers, fn
+      {key, value} -> if String.downcase(key) == name, do: value
+      _ -> nil
+    end)
   end
 
   # Shape of a real `/api/<db>/get_load_state` answer, as returned by the
