@@ -227,8 +227,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
       AND expires_at > (now() AT TIME ZONE 'utc')
       AND last_bucket_started_at IS NOT NULL
       AND last_bucket_ended_at IS NOT NULL
-      AND last_bucket_started_at <= $3
-      AND last_bucket_ended_at > $3
+      AND last_bucket_started_at <= ($3::timestamptz AT TIME ZONE 'utc')
+      AND last_bucket_ended_at > ($3::timestamptz AT TIME ZONE 'utc')
     ORDER BY last_evaluated_at DESC NULLS LAST, updated_at DESC
     LIMIT 1
     """
