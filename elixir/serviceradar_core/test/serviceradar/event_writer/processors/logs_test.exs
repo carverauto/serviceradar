@@ -239,6 +239,48 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.body == "SNMP trap 1.3.6.1.6.3.1.1.5.1 from 192.168.2.55"
     end
 
+    test "uses receive time for RFC3164 clock skew and preserves the parsed time" do
+      received_at = ~U[2030-10-06 03:20:29Z]
+
+      for timestamp <- ["2030-10-05T22:20:29Z", "2030-10-06T08:20:29Z"] do
+        row =
+          Logs.parse_message(%{
+            data:
+              Jason.encode!(%{
+                "timestamp" => timestamp,
+                "host" => "host01.example.com",
+                "short_message" => "app[100]: synthetic example",
+                "_syslog_format" => "rfc3164"
+              }),
+            metadata: %{subject: "logs.syslog", received_at: received_at}
+          })
+
+        assert row.timestamp == received_at
+        assert row.observed_timestamp == received_at
+        assert row.attributes["_syslog_original_timestamp"] == timestamp
+        assert row.attributes["_syslog_timestamp_fallback"] == true
+      end
+    end
+
+    test "preserves recent RFC3164 time and explicitly zoned syslog time" do
+      received_at = ~U[2030-10-06 03:20:29Z]
+
+      for {format, timestamp} <- [
+            {"rfc3164", "2030-10-06T02:20:29Z"},
+            {"rfc3164", "2030-10-06T04:20:29Z"},
+            {"rfc5424", "2030-10-05T22:20:29Z"}
+          ] do
+        row =
+          Logs.parse_message(%{
+            data: Jason.encode!(%{"timestamp" => timestamp, "_syslog_format" => format}),
+            metadata: %{subject: "logs.syslog", received_at: received_at}
+          })
+
+        assert DateTime.to_iso8601(row.timestamp) == timestamp
+        refute Map.has_key?(row.attributes, "_syslog_original_timestamp")
+      end
+    end
+
     test "uses syslog host as service fallback" do
       result =
         Logs.parse_message(%{
