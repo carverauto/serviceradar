@@ -374,6 +374,10 @@ defmodule ServiceRadar.Application do
           ServiceRadar.Identity.IdentityCache,
           # Agent config cache (ETS-based)
           ServiceRadar.AgentConfig.ConfigCache,
+          # Bounded workers for coalesced config pushes (ConfigInvalidator)
+          {Task.Supervisor, name: ServiceRadar.AgentConfig.ConfigInvalidator.TaskSupervisor},
+          # Coalescing owner of fleet-wide config pushes (#5341)
+          ServiceRadar.AgentConfig.ConfigInvalidator,
           # Recent catalog-driven agent config diagnostics
           ServiceRadar.AgentConfig.DependencyDiagnostics,
           # Agent config server (compilation orchestration)

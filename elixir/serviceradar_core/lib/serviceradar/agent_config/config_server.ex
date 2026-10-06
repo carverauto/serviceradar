@@ -26,6 +26,7 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.AgentConfig.ConfigInstance
+  alias ServiceRadar.AgentConfig.ConfigInvalidator
 
   require Logger
 
@@ -101,13 +102,18 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   @doc """
   Invalidates cached configs for a config type.
 
-  Call this when source resources change.
+  Call this when source resources change. The cache drop is synchronous, so
+  any compile after the change sees fresh source; the fleet-wide push to
+  agents is coalesced and moved off this process by
+  `ConfigInvalidator.invalidate/1` -- repeated invalidates (an interface
+  toggle storm, a bulk enable) collapse into one supervised rebuild instead
+  of stacking synchronous pushes in the caller (#5341).
   """
   @spec invalidate(atom()) :: :ok
   def invalidate(config_type) do
     ConfigCache.invalidate(config_type)
     Logger.debug("ConfigServer: invalidated cache for type=#{config_type}")
-    ServiceRadar.Edge.AgentCommandBus.push_config_for_type(config_type)
+    ConfigInvalidator.invalidate(config_type)
     :ok
   end
 
