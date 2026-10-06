@@ -473,6 +473,20 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
                SourceReactivation.unarchive([armis_row.id], actor: ctx.actor)
     end
 
+    test "returns a row to a holder that holds another id of the type", ctx do
+      {_a, b} = retire_second(ctx)
+      [armis_row, _integration_row] = archived(ctx, b.source_id)
+      current_id = armis_id(ctx, 9)
+      register(ctx, b, :armis_device_id, current_id)
+
+      assert [{armis_row.id, {:ok, b.uid}}] ==
+               SourceReactivation.unarchive([armis_row.id], actor: ctx.actor)
+
+      assert held?(ctx, b)
+      assert typed_id_holder(:armis_device_id, current_id, ctx.id_partition) == b.uid
+      assert archived(ctx, b.source_id) == []
+    end
+
     test "skips a row another record holds, and does not restore a tombstone", ctx do
       {_a, b} = retire_second(ctx)
       [armis_row, _integration_row] = archived(ctx, b.source_id)

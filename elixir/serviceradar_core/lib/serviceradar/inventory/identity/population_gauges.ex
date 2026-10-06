@@ -51,10 +51,10 @@ defmodule ServiceRadar.Inventory.Identity.PopulationGauges do
   """
 
   # The seed `DeviceWrites` soft-deletes when it releases its address (D8), after the release:
-  # sweep-only, no identifier row current or archived, and no address left.
-  @released_seed_shells_sql """
-  SELECT count(*) FROM platform.ocsf_devices AS d
-  WHERE d.deleted_at IS NULL
+  # sweep-only, no identifier row current or archived, and no address left. The remediation
+  # deletes the shells an earlier release left (`released_seed_shell/0`).
+  @released_seed_shell """
+  d.deleted_at IS NULL
     AND NULLIF(btrim(COALESCE(d.ip, '')), '') IS NULL
     AND EXISTS (SELECT 1 FROM unnest(d.discovery_sources) AS src WHERE lower(btrim(src)) = 'sweep')
     AND NOT EXISTS (
@@ -70,6 +70,11 @@ defmodule ServiceRadar.Inventory.Identity.PopulationGauges do
       WHERE s.device_id = d.uid AND s.alias_type IN ('ip', 'interface_ip')
         AND s.state IN ('detected', 'confirmed', 'updated')
     )
+  """
+
+  @released_seed_shells_sql """
+  SELECT count(*) FROM platform.ocsf_devices AS d
+  WHERE #{@released_seed_shell}
   """
 
   @type inventory :: %{
@@ -104,6 +109,12 @@ defmodule ServiceRadar.Inventory.Identity.PopulationGauges do
     kind, reason ->
       Logger.warning("PopulationGauges: inventory gauges not read: #{inspect({kind, reason})}")
   end
+
+  @doc false
+  # The condition the record `d` meets when it is a released-seed shell, for the remediation's
+  # `released-seed-shells` step (design D11, class 7), so that it deletes what the gauge counts.
+  @spec released_seed_shell() :: String.t()
+  def released_seed_shell, do: @released_seed_shell
 
   defp count(sql, params) do
     %{rows: [[count]]} = Repo.query!(sql, params)

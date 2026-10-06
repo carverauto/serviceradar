@@ -4,7 +4,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
   step order: `armis-dups` (the re-collapse vector that merges every device
   sharing one armis_device_id onto a single canonical) is excluded from the
   default run order and is refused even via an explicit `steps:` request,
-  unless config opts it back in.
+  unless config opts it back in. It also covers the order and the gates of the
+  source id remediation steps.
   """
 
   use ExUnit.Case, async: false
@@ -128,6 +129,60 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
 
     assert "armis-unmerge" in DireRemediation.available_steps(:execute)
     refute "armis-unmerge" in DireRemediation.steps()
+  end
+
+  test "retirement runs before succession, and succession before the shells" do
+    Application.delete_env(:serviceradar_core, DireRemediation)
+    steps = DireRemediation.steps()
+    index = fn name -> Enum.find_index(steps, &(&1 == name)) end
+
+    assert is_integer(index.("source-id-retire"))
+    assert index.("proxmox-dups") < index.("source-id-retire")
+    assert index.("source-id-retire") < index.("source-succession")
+    assert index.("source-succession") < index.("released-seed-shells")
+  end
+
+  test "the source id checks and rollback run only when named" do
+    Application.delete_env(:serviceradar_core, DireRemediation)
+
+    for step <- ["source-id-verify", "source-id-rollback"] do
+      refute step in DireRemediation.steps()
+      assert step in DireRemediation.available_steps(:dry_run)
+    end
+
+    refute "source-id-verify" in DireRemediation.available_steps(:execute)
+    assert "source-id-rollback" in DireRemediation.available_steps(:execute)
+  end
+
+  test "source-id-verify is refused under execute before a manifest is opened" do
+    manifest_path =
+      Path.join(
+        System.tmp_dir!(),
+        "blocked_source_id_verify_#{System.unique_integer([:positive])}.ndjson"
+      )
+
+    assert {:error, {:read_only_steps, ["source-id-verify"]}} =
+             DireRemediation.run(
+               steps: ["source-id-verify"],
+               mode: :execute,
+               manifest_path: manifest_path
+             )
+
+    refute File.exists?(manifest_path)
+  end
+
+  test "source-id-rollback runs alone, and only with the manifests it reverses" do
+    assert {:error, {:rollback_not_alone, ["source-id-retire", "source-id-rollback"]}} =
+             DireRemediation.run(
+               steps: ["source-id-retire", "source-id-rollback"],
+               mode: :dry_run,
+               rollback_manifests: ["unread.ndjson"]
+             )
+
+    for opts <- [[], [rollback_manifests: []]] do
+      assert {:error, :rollback_manifest_required} =
+               DireRemediation.run([steps: ["source-id-rollback"], mode: :execute] ++ opts)
+    end
   end
 
   test "failure reports identify positive counters and execution blocks" do

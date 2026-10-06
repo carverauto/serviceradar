@@ -226,6 +226,174 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
     assert output =~ "split_failures: 1"
   end
 
+  test "source id options are forwarded to the engine, de-duplicated" do
+    test_process = self()
+
+    runner = fn opts ->
+      send(test_process, {:engine_opts, opts})
+      {:ok, %{reports: %{"source-id-verify" => %{verification_failures: 0}}, manifest_path: nil}}
+    end
+
+    assert :ok =
+             DireRemediationTask.run_with(
+               [
+                 "--step",
+                 "source-id-verify",
+                 "--source-batch-size",
+                 "25",
+                 "--reviewed-source-id",
+                 "101",
+                 "--reviewed-source-id",
+                 " 101 ",
+                 "--reviewed-source-id",
+                 "102",
+                 "--verify-manifest",
+                 "/tmp/one.ndjson",
+                 "--verify-manifest",
+                 "/tmp/two.ndjson"
+               ],
+               runner,
+               fn -> :ok end
+             )
+
+    assert_receive {:engine_opts, opts}
+    assert opts[:mode] == :dry_run
+    assert opts[:steps] == ["source-id-verify"]
+    assert opts[:source_batch_size] == 25
+    assert opts[:reviewed_source_ids] == ["101", "102"]
+    assert opts[:verify_manifests] == ["/tmp/one.ndjson", "/tmp/two.ndjson"]
+    refute Keyword.has_key?(opts, :rollback_manifests)
+    assert shell_output() =~ "verification_failures: 0"
+  end
+
+  test "rollback manifests are forwarded, newest first as given" do
+    test_process = self()
+
+    runner = fn opts ->
+      send(test_process, {:engine_opts, opts})
+      {:ok, %{reports: %{"source-id-rollback" => %{}}, manifest_path: "/tmp/rollback.ndjson"}}
+    end
+
+    assert :ok =
+             DireRemediationTask.run_with(
+               [
+                 "--step",
+                 "source-id-rollback",
+                 "--execute",
+                 "--rollback-manifest",
+                 "/tmp/second.ndjson",
+                 "--rollback-manifest",
+                 "/tmp/first.ndjson"
+               ],
+               runner,
+               fn -> :ok end
+             )
+
+    assert_receive {:engine_opts, opts}
+    assert opts[:mode] == :execute
+    assert opts[:rollback_manifests] == ["/tmp/second.ndjson", "/tmp/first.ndjson"]
+  end
+
+  test "source id options require a step that reads them before app start" do
+    app_starter = fn -> flunk("app must not start for a misplaced source id option") end
+    runner = fn _opts -> flunk("remediation must not run for a misplaced source id option") end
+
+    cases = [
+      {["--rollback-manifest", "/tmp/m.ndjson"],
+       ~r/--rollback-manifest requires an explicit --step source-id-rollback selection/},
+      {["--step", "source-id-retire", "--verify-manifest", "/tmp/m.ndjson"],
+       ~r/--verify-manifest requires an explicit --step source-id-verify selection/},
+      {["--step", "source-id-retire", "--reviewed-source-id", "101"],
+       ~r/--reviewed-source-id requires an explicit --step source-succession or --step source-id-verify selection/}
+    ]
+
+    for {args, message} <- cases do
+      assert_raise Mix.Error, message, fn ->
+        DireRemediationTask.run_with(args, runner, app_starter)
+      end
+    end
+  end
+
+  test "source batch size is bounded and source id values cannot be empty before app start" do
+    app_starter = fn -> flunk("app must not start for invalid CLI input") end
+    runner = fn _opts -> flunk("remediation must not run for invalid CLI input") end
+
+    for size <- ["0", "10001"] do
+      assert_raise Mix.Error, ~r/--source-batch-size must be between 1 and 10000/, fn ->
+        DireRemediationTask.run_with(
+          ["--step", "source-id-retire", "--source-batch-size", size],
+          runner,
+          app_starter
+        )
+      end
+    end
+
+    assert_raise Mix.Error, ~r/--reviewed-source-id cannot be empty/, fn ->
+      DireRemediationTask.run_with(
+        ["--step", "source-succession", "--reviewed-source-id", " "],
+        runner,
+        app_starter
+      )
+    end
+
+    assert_raise Mix.Error, ~r/--rollback-manifest cannot be empty/, fn ->
+      DireRemediationTask.run_with(
+        ["--step", "source-id-rollback", "--rollback-manifest", ""],
+        runner,
+        app_starter
+      )
+    end
+  end
+
+  test "source id selection refusals name the fix" do
+    cases = [
+      {{:error, {:read_only_steps, ["source-id-verify"]}},
+       ~r/source-id-verify is read-only: run it without --execute/},
+      {{:error, {:rollback_not_alone, ["source-id-retire", "source-id-rollback"]}},
+       ~r/--step source-id-rollback runs alone: drop the other --step values/},
+      {{:error, :rollback_manifest_required},
+       ~r/--step source-id-rollback requires at least one --rollback-manifest/}
+    ]
+
+    for {result, message} <- cases do
+      assert_raise Mix.Error, message, fn ->
+        DireRemediationTask.run_with(["--step", "source-id-retire"], fn _opts -> result end, fn ->
+          :ok
+        end)
+      end
+    end
+  end
+
+  test "source id reports print their checks, samples and times" do
+    runner = fn _opts ->
+      {:ok,
+       %{
+         reports: %{
+           "source-id-verify" => %{
+             checks: [%{check: "V1", result: :pass, details: %{instances: 1}}],
+             verification_failures: 0,
+             run_started_at: ~U[2026-01-02 03:04:05Z]
+           },
+           "source-id-retire" => %{
+             would_retire_ids: 2,
+             retire_sample: [%{device_id: "sr:one", value: "101"}]
+           }
+         },
+         manifest_path: nil
+       }}
+    end
+
+    assert :ok =
+             DireRemediationTask.run_with(["--step", "source-id-retire"], runner, fn -> :ok end)
+
+    output = shell_output()
+    assert output =~ "== source-id-verify =="
+    assert output =~ "check=V1"
+    assert output =~ "run_started_at: 2026-01-02T03:04:05Z"
+    assert output =~ "would_retire_ids: 2"
+    assert output =~ "device_id=sr:one value=101"
+  end
+
   defp shell_output do
     []
     |> receive_shell_messages()
