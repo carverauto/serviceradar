@@ -540,6 +540,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          _metadata
        ), do: []
 
+  # Normalizes OTLP protobuf severity. The protobuf decoder yields SeverityNumber
+  # enum atoms (which would otherwise persist as NULL numbers), and OTel SDKs emit
+  # the raw enum name (e.g. "SEVERITY_NUMBER_WARN") or no text at all -- in those
+  # cases derive the canonical TRACE/DEBUG/INFO/WARN/ERROR/FATAL text from the
+  # 1..24 numeric range. Explicit text from other producers (Go agent lowercase,
+  # syslog) is preserved verbatim.
   defp protobuf_log_severity(%LogRecord{severity_number: severity, severity_text: text}) do
     number = if is_atom(severity), do: SeverityNumber.value(severity), else: severity
     enum_text = if is_atom(severity), do: Atom.to_string(severity)
