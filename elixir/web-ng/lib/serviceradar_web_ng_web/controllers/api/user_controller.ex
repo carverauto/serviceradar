@@ -206,10 +206,20 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
     role_profile_id = normalize_profile_id(params["role_profile_id"])
     both_provided? = role != nil and not is_nil(params["role_profile_id"])
 
-    with {:ok, user} <- maybe_update_role(user, role, scope, role_profile_id, both_provided?),
-         {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope, both_provided?),
-         {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
-      json(conn, user_to_json(user))
+    [User]
+    |> Ash.transaction(fn ->
+      with {:ok, user} <- maybe_update_role(user, role, scope, role_profile_id, both_provided?),
+           {:ok, user} <- maybe_update_role_profile(user, role_profile_id, scope, both_provided?),
+           {:ok, user} <- maybe_update_display_name(user, display_name, scope) do
+        user
+      else
+        {:error, reason} -> Ash.DataLayer.rollback([User], reason)
+      end
+    end)
+    |> case do
+      {:ok, %User{} = updated} -> json(conn, user_to_json(updated))
+      {:ok, %User{} = updated, _notifications} -> json(conn, user_to_json(updated))
+      {:error, reason} -> {:error, reason}
     end
   end
 
