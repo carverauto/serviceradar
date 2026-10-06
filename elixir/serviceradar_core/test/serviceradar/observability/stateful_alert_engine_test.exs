@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Observability.SeasonalDisposition.StateStore, as: SeasonalStateStore
   alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulAlertEngine.ShardRouting
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.ProcessRegistry
@@ -1540,6 +1541,370 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       assert Enum.count(active_alerts, fn alert -> alert.title == title end) == 1,
              "expected exactly one active alert titled #{title}"
     end
+  end
+
+  test "a batch waits only on shards that own a rule for its signal", %{actor: actor} do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
+    reset_engine()
+
+    unique = System.unique_integer([:positive])
+    cleanup_jobs_before = stateful_cleanup_job_ids()
+
+    # Shard 1 owns no event rule and never answers: a stand-in for a shard busy
+    # in slow alert writes for rules of another signal.
+    {:ok, stuck} =
+      Agent.start(fn -> nil end, name: ProcessRegistry.via({:stateful_alert_engine, 1}))
+
+    :sys.suspend(stuck)
+
+    on_exit(fn ->
+      Process.exit(stuck, :kill)
+      restore_env(:stateful_alert_engine_shards, previous_shards)
+      cleanup_shard_fanout(unique, cleanup_jobs_before)
+    end)
+
+    title = "Shard routing #{unique}"
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "shard-fanout-#{unique}-routed",
+          enabled: true,
+          signal: :event,
+          match: %{"attribute_equals" => %{"routing_case" => "#{unique}"}},
+          group_by: ["routing_case"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600,
+          event: %{"log_name" => "alert.test.shard_routing", "message" => "Routed finding"},
+          alert: %{"title" => title, "severity" => "warning"}
+        },
+        actor: actor
+      )
+      |> Ash.Changeset.force_change_attribute(:id, rule_id_for_shard(0))
+      |> Ash.create()
+
+    event = %{
+      id: Ash.UUID.generate(),
+      time: DateTime.utc_now(),
+      severity_id: OCSF.severity_high(),
+      severity: OCSF.severity_name(OCSF.severity_high()),
+      message: "routed event",
+      log_name: "routing",
+      log_provider: "routing",
+      unmapped: %{"log_attributes" => %{"routing_case" => "#{unique}"}}
+    }
+
+    {elapsed_us, result} = :timer.tc(fn -> StatefulAlertEngine.evaluate_events([event]) end)
+
+    assert result == :ok
+    assert elapsed_us < 5_000_000, "the batch waited #{div(elapsed_us, 1000)} ms"
+
+    active_alerts =
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+
+    assert Enum.count(active_alerts, &(&1.title == title)) == 1
+  end
+
+  test "routing evaluates raw-writer rule changes and replay truncates from one snapshot", %{
+    actor: actor
+  } do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
+    reset_engine()
+
+    unique = System.unique_integer([:positive])
+    cleanup_jobs_before = stateful_cleanup_job_ids()
+
+    on_exit(fn ->
+      restore_env(:stateful_alert_engine_shards, previous_shards)
+      cleanup_shard_fanout(unique, cleanup_jobs_before)
+      reset_engine()
+    end)
+
+    shard_for = &StatefulAlertEngine.shard_for_rule_id/1
+
+    {:ok, %{shards: _routed_before, rules_by_shard: event_by_shard}} =
+      ShardRouting.snapshot_for(:event, shard_for)
+
+    # Genuine negative control: pick a shard owning no event rule right now,
+    # forcing one when the database already routes both shards, so the batch
+    # below proves the raw insert (not a pre-existing rule) fires the alert.
+    uncovered =
+      cond do
+        Map.get(event_by_shard, 0, []) == [] ->
+          0
+
+        Map.get(event_by_shard, 1, []) == [] ->
+          1
+
+        true ->
+          for rule <- Map.get(event_by_shard, 1, []) do
+            Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [
+              Ecto.UUID.dump!(rule.id)
+            ])
+          end
+
+          1
+      end
+
+    assert {:ok, %{shards: routed_cleared}} = ShardRouting.snapshot_for(:event, shard_for)
+    refute uncovered in routed_cleared
+
+    # The match discriminator stays fixed per family while every occurrence
+    # carries a fresh grouping value: a stale match after an update or delete
+    # would fire a new group (and a new persisted alert) instead of being
+    # hidden by the rule's cooldown on a reused group.
+    raw_event = fn family, occurrence ->
+      %{
+        id: Ash.UUID.generate(),
+        time: DateTime.utc_now(),
+        severity_id: OCSF.severity_high(),
+        severity: OCSF.severity_name(OCSF.severity_high()),
+        message: "raw writer event",
+        log_name: "raw_writer",
+        log_provider: "raw_writer",
+        unmapped: %{
+          "log_attributes" => %{
+            "routing_family" => family,
+            "routing_occurrence" => occurrence
+          }
+        }
+      }
+    end
+
+    count_alerts = fn title ->
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.count(&(&1.title == title))
+    end
+
+    # Warm both shards so the raw writes below must be visible to the very
+    # next routing read, not just to a cold start.
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               raw_event.("warm-#{unique}", "warm-#{unique}-1")
+             ])
+
+    title = "Shard raw writer #{unique}"
+    raw_id = rule_id_for_shard(uncovered)
+
+    Repo.query!(
+      "INSERT INTO platform.stateful_alert_rules (id, name, signal, match, group_by, threshold, window_seconds, bucket_seconds, cooldown_seconds, renotify_seconds, event, alert) VALUES ($1::uuid, $2, 'event', $3::jsonb, '{routing_occurrence}', 1, 300, 60, 60, 3600, $4::jsonb, $5::jsonb)",
+      [
+        Ecto.UUID.dump!(raw_id),
+        "shard-fanout-#{unique}-raw",
+        %{"attribute_equals" => %{"routing_family" => "#{unique}"}},
+        %{
+          "log_name" => "alert.test.shard_raw_writer",
+          "message" => "Raw writer finding"
+        },
+        %{"title" => title, "severity" => "warning"}
+      ]
+    )
+
+    assert {:ok, %{shards: routed_after}} = ShardRouting.snapshot_for(:event, shard_for)
+    assert uncovered in routed_after
+
+    # The next batch routes from the same snapshot it evaluates: the raw rule
+    # fires a persisted alert, while an unrelated family still fires nothing.
+    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("#{unique}", "#{unique}-1")])
+    assert count_alerts.(title) == 1
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               raw_event.("other-#{unique}", "other-#{unique}-1")
+             ])
+
+    assert count_alerts.(title) == 1
+
+    # A raw update is visible to the next batch: the old family stops matching
+    # and the new family starts matching, each with persisted outcomes. Fresh
+    # occurrences prove the negative: a stale rule would fire a second alert
+    # in a new group instead of being suppressed by cooldown.
+    Repo.query!(
+      "UPDATE platform.stateful_alert_rules SET match = $2::jsonb WHERE id = $1::uuid",
+      [
+        Ecto.UUID.dump!(raw_id),
+        %{"attribute_equals" => %{"routing_family" => "updated-#{unique}"}}
+      ]
+    )
+
+    assert :ok = StatefulAlertEngine.evaluate_events([raw_event.("#{unique}", "#{unique}-2")])
+    assert count_alerts.(title) == 1
+
+    updated_title = "#{title} updated"
+
+    Repo.query!(
+      "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
+      [
+        Ecto.UUID.dump!(raw_id),
+        %{"title" => updated_title, "severity" => "warning"}
+      ]
+    )
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               raw_event.("updated-#{unique}", "updated-#{unique}-1")
+             ])
+
+    assert count_alerts.(updated_title) == 1
+
+    # A raw delete is visible to the next batch: nothing more fires, even with
+    # a fresh occurrence that would escape cooldown under a stale rule.
+    Repo.query!("DELETE FROM platform.stateful_alert_rules WHERE id = $1::uuid", [
+      Ecto.UUID.dump!(raw_id)
+    ])
+
+    assert {:ok, %{shards: routed_deleted}} = ShardRouting.snapshot_for(:event, shard_for)
+    refute uncovered in routed_deleted
+
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               raw_event.("updated-#{unique}", "updated-#{unique}-2")
+             ])
+
+    assert count_alerts.(updated_title) == 1
+
+    ServiceRadar.Observability.ApiEvent.ClearForReplay.clear_records!([])
+
+    assert {:ok, %{shards: []}} = ShardRouting.snapshot_for(:event, shard_for)
+  end
+
+  test "a batch evaluates the snapshot selected at routing time when a rule changes mid-batch", %{
+    actor: actor
+  } do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
+    reset_engine()
+
+    unique = System.unique_integer([:positive])
+    cleanup_jobs_before = stateful_cleanup_job_ids()
+
+    on_exit(fn ->
+      restore_env(:stateful_alert_engine_shards, previous_shards)
+      cleanup_shard_fanout(unique, cleanup_jobs_before)
+      reset_engine()
+    end)
+
+    title_v1 = "Snapshot coherence #{unique} v1"
+    title_v2 = "Snapshot coherence #{unique} v2"
+    family = "#{unique}"
+    occurrence = "#{unique}-coherent-1"
+    rule_name = "shard-fanout-#{unique}-coherent"
+    raw_id = rule_id_for_shard(0)
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: rule_name,
+          enabled: true,
+          signal: :event,
+          match: %{"attribute_equals" => %{"routing_family" => family}},
+          group_by: ["routing_occurrence"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600,
+          event: %{"log_name" => "alert.test.shard_coherent", "message" => "Coherent finding"},
+          alert: %{"title" => title_v1, "severity" => "warning"}
+        },
+        actor: actor
+      )
+      |> Ash.Changeset.force_change_attribute(:id, raw_id)
+      |> Ash.create()
+
+    event = %{
+      id: Ash.UUID.generate(),
+      time: DateTime.utc_now(),
+      severity_id: OCSF.severity_high(),
+      severity: OCSF.severity_name(OCSF.severity_high()),
+      message: "coherent event",
+      log_name: "coherent",
+      log_provider: "coherent",
+      unmapped: %{
+        "log_attributes" => %{"routing_family" => family, "routing_occurrence" => occurrence}
+      }
+    }
+
+    count_alerts = fn title ->
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.count(&(&1.title == title))
+    end
+
+    # Start the owning shard so its pid exists before suspending it.
+    assert :ok =
+             StatefulAlertEngine.evaluate_events([
+               %{
+                 event
+                 | id: Ash.UUID.generate(),
+                   unmapped: %{
+                     "log_attributes" => %{
+                       "routing_family" => "warm-#{unique}",
+                       "routing_occurrence" => "warm-#{unique}-1"
+                     }
+                   }
+               }
+             ])
+
+    [{owner_pid, _}] =
+      eventually(
+        fn -> ProcessRegistry.lookup(:stateful_alert_engine) end,
+        &match?([{_, _}], &1)
+      )
+
+    :ok = :sys.suspend(owner_pid)
+
+    try do
+      task = Task.async(fn -> StatefulAlertEngine.evaluate_events([event]) end)
+
+      # The fan-out takes its rule snapshot before queueing the batch, so a
+      # queued call proves routing/admission already completed against the
+      # original revision.
+      _ =
+        eventually(
+          fn -> Process.info(owner_pid, :message_queue_len) end,
+          &match?({:message_queue_len, len} when len >= 1, &1)
+        )
+
+      Repo.query!(
+        "UPDATE platform.stateful_alert_rules SET alert = $2::jsonb WHERE id = $1::uuid",
+        [Ecto.UUID.dump!(raw_id), %{"title" => title_v2, "severity" => "warning"}]
+      )
+
+      :ok = :sys.resume(owner_pid)
+      assert :ok = Task.await(task, 15_000)
+    rescue
+      error ->
+        if Process.alive?(owner_pid), do: :sys.resume(owner_pid)
+        reraise error, __STACKTRACE__
+    catch
+      kind, reason ->
+        if Process.alive?(owner_pid), do: :sys.resume(owner_pid)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+
+    # The batch evaluates the revision selected at routing time: the original
+    # title fires, and the mid-batch revision leaves no persisted effect. A
+    # double-read owner that reloaded rules in the shard would fire v2 instead.
+    assert count_alerts.(title_v1) == 1
+    assert count_alerts.(title_v2) == 0
   end
 
   # Guards the dispatch path against dropping a batch when a shard is (re)started:
