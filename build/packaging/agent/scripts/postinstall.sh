@@ -60,17 +60,21 @@ if [ -x /usr/local/bin/serviceradar-agent-updater ]; then
     chmod 4750 /usr/local/bin/serviceradar-agent-updater
 fi
 
-# Staged native add-on binaries live under /var/lib and inherit var_lib_t.
-# systemd (init_t) cannot exec that label (status=203/EXEC). Persistent file
-# context is the RPM/deb path for new hosts; add-on units also chcon on start.
+# Privileged add-on binaries live under /usr/lib/serviceradar/addons. Without a
+# persistent bin_t fcontext, a later restorecon resets them to usr_t/lib_t and
+# systemd exec fails with status=203/EXEC. The legacy staging tree keeps its
+# context so already-installed hosts are not left unlabeled.
 # Idempotent: skip add if the fcontext already exists.
 if command -v semanage >/dev/null 2>&1; then
+    if ! semanage fcontext -l 2>/dev/null | grep -F '/usr/lib/serviceradar/addons' >/dev/null 2>&1; then
+        semanage fcontext -a -t bin_t '/usr/lib/serviceradar/addons(/.*)?' || true
+    fi
     if ! semanage fcontext -l 2>/dev/null | grep -F '/var/lib/serviceradar/agent/addons' >/dev/null 2>&1; then
         semanage fcontext -a -t bin_t '/var/lib/serviceradar/agent/addons(/.*)?' || true
     fi
 fi
 if command -v restorecon >/dev/null 2>&1; then
-    restorecon -Rv /var/lib/serviceradar/agent/addons >/dev/null 2>&1 || true
+    restorecon -Rv /usr/lib/serviceradar/addons /var/lib/serviceradar/agent/addons >/dev/null 2>&1 || true
 fi
 
 # netprobe is no longer shipped by the base agent package: its binary and the

@@ -1151,3 +1151,86 @@ func TestRenderSystemdResourceDropIn(t *testing.T) {
 		t.Errorf("MemoryMax should appear:\n%s", partial)
 	}
 }
+
+func TestWriteSystemdResourceDropInRejectsSliceInjection(t *testing.T) {
+	root := t.TempDir()
+	orig := systemdUnitDir
+	systemdUnitDir = root
+	t.Cleanup(func() { systemdUnitDir = orig })
+
+	_, err := writeSystemdResourceDropIn("serviceradar-np.service", agentaddon.Resources{
+		MemoryMaxBytes: 1024,
+		Slice:          "x\nExecStartPre=/tmp/pwn",
+	})
+	if !errors.Is(err, ErrAddonSystemdSliceUnsafe) {
+		t.Fatalf("want ErrAddonSystemdSliceUnsafe, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "serviceradar-np.service.d")); !os.IsNotExist(statErr) {
+		t.Fatalf("injected drop-in was written: %v", statErr)
+	}
+}
+
+func TestInstallAddonSystemdUnitsRestoresDropInDir(t *testing.T) {
+	root := t.TempDir()
+	priv := filepath.Join(root, "privileged")
+	unitDir := filepath.Join(root, "systemd")
+	dropInDir := filepath.Join(unitDir, "serviceradar-np.service.d")
+	if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	operator := []byte("[Service]\nNice=5\n")
+	previous := []byte("[Service]\nMemoryMax=1\n")
+	if err := os.WriteFile(filepath.Join(dropInDir, "99-operator.conf"), operator, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dropInDir, systemdDropInFileName), previous, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = orig })
+
+	mockDir := t.TempDir()
+	script := "#!/bin/sh\nset -eu\ncmd=\"${1:-}\"\nif [ \"$cmd\" = \"enable\" ]; then\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(mockDir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", mockDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := os.WriteFile(filepath.Join(unitDir, "serviceradar-np.service"), []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-np", map[string][]byte{
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: priv,
+		AddonID:        "np",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-np",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-np.service"},
+		Enable:         "serviceradar-np.service",
+		Resources:      agentaddon.Resources{MemoryMaxBytes: 2048, Slice: "serviceradar.slice"},
+	})
+	if err == nil {
+		t.Fatal("expected activation to fail")
+	}
+	gotOp, err := os.ReadFile(filepath.Join(dropInDir, "99-operator.conf"))
+	if err != nil {
+		t.Fatalf("operator drop-in removed: %v", err)
+	}
+	if string(gotOp) != string(operator) {
+		t.Fatalf("operator drop-in = %q", gotOp)
+	}
+	gotPrev, err := os.ReadFile(filepath.Join(dropInDir, systemdDropInFileName))
+	if err != nil {
+		t.Fatalf("previous resource drop-in removed: %v", err)
+	}
+	if string(gotPrev) != string(previous) {
+		t.Fatalf("resource drop-in = %q, want previous bytes", gotPrev)
+	}
+}

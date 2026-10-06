@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,38 +49,118 @@ func TestNetprobeSystemdUnitStagedPathContract(t *testing.T) {
 }
 
 func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
-	unitBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "addons", "netprobe", "serviceradar-netprobe.service"))
+	bundled, err := os.ReadFile(filepath.Join("..", "..", "..", "addons", "netprobe", "serviceradar-netprobe.service"))
 	if err != nil {
 		t.Fatalf("read netprobe unit: %v", err)
 	}
-	unit := string(unitBytes)
+	root := t.TempDir()
+	unitDir := filepath.Join(root, "systemd")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origUnitDir := systemdUnitDir
+	systemdUnitDir = unitDir
+	t.Cleanup(func() { systemdUnitDir = origUnitDir })
+	installMockSystemctl(t, t.TempDir())
 
-	mustContain := []string{
-		"Group=serviceradar",
-		"--drop-user serviceradar",
-		"ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar/netprobe",
-		"ExecStartPre=+/usr/bin/install -d -o root -g root -m 0700 /sys/fs/bpf/serviceradar /sys/fs/bpf/serviceradar/netprobe",
+	artPath, sha, sig := createTestSignedAddonTarball(t, "serviceradar-netprobe", map[string][]byte{
+		"serviceradar-netprobe.service": bundled,
+	})
+	if err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{
+		RuntimeRoot:    root,
+		PrivilegedRoot: filepath.Join(root, "privileged"),
+		AddonID:        "netprobe",
+		Version:        "1.0.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactPath:   artPath,
+		ArtifactSHA256: sha,
+		Signature:      sig,
+		Units:          []string{"serviceradar-netprobe.service"},
+		Enable:         "serviceradar-netprobe.service",
+	}); err != nil {
+		t.Fatalf("install netprobe unit: %v", err)
+	}
+	installed, err := os.ReadFile(filepath.Join(unitDir, "serviceradar-netprobe.service"))
+	if err != nil {
+		t.Fatalf("installed unit missing: %v", err)
+	}
+	directives := systemdDirectiveValues(installed)
+
+	if got := directives["Group"]; len(got) != 1 || got[0] != "serviceradar" {
+		t.Fatalf("Group = %v, want serviceradar", got)
+	}
+	if got := directives["Slice"]; len(got) != 1 || got[0] != "serviceradar.slice" {
+		t.Fatalf("Slice = %v, want serviceradar.slice", got)
+	}
+	if got := directives["AmbientCapabilities"]; len(got) != 1 || got[0] != "CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON" {
+		t.Fatalf("AmbientCapabilities = %v", got)
+	}
+	if got := directives["CapabilityBoundingSet"]; len(got) != 1 || got[0] != "CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID" {
+		t.Fatalf("CapabilityBoundingSet = %v", got)
+	}
+	if got := directives["ReadWritePaths"]; len(got) != 1 {
+		t.Fatalf("ReadWritePaths = %v", got)
+	} else {
+		wantPaths := []string{"/run/serviceradar", "/run/serviceradar/netprobe", "/var/lib/serviceradar", "/var/lib/serviceradar/netprobe", "/sys/fs/bpf"}
+		for _, path := range wantPaths {
+			if !strings.Contains(" "+got[0]+" ", " "+path+" ") {
+				t.Fatalf("ReadWritePaths missing %s: %s", path, got[0])
+			}
+		}
+	}
+	if _, ok := directives["User"]; ok {
+		t.Fatal("installed unit starts as User=; netprobe must load eBPF as root and then --drop-user")
+	}
+	if _, ok := directives["RuntimeDirectory"]; ok {
+		t.Fatal("installed unit sets RuntimeDirectory")
+	}
+	if _, ok := directives["StateDirectory"]; ok {
+		t.Fatal("installed unit sets StateDirectory")
+	}
+
+	execStart, ok := systemdCommandPath(directives["ExecStart"][0])
+	if !ok || execStart != "/usr/lib/serviceradar/addons/netprobe/current/serviceradar-netprobe" {
+		t.Fatalf("ExecStart command = %q", execStart)
+	}
+	if !strings.Contains(directives["ExecStart"][0], "--drop-user serviceradar") {
+		t.Fatalf("ExecStart missing --drop-user serviceradar: %s", directives["ExecStart"][0])
+	}
+
+	joinedPre := strings.Join(directives["ExecStartPre"], "\n")
+	for _, pre := range directives["ExecStartPre"] {
+		command, ok := systemdCommandPath(pre)
+		if !ok || (command != "/usr/bin/install" && command != "/usr/bin/rm") {
+			t.Fatalf("ExecStartPre command = %q, want /usr/bin/install or /usr/bin/rm", command)
+		}
+	}
+	for _, path := range []string{
+		"/run/serviceradar/netprobe",
+		"/var/lib/serviceradar/netprobe",
 		"/sys/fs/bpf/flow_events",
 		"/sys/fs/bpf/socket_to_pid",
 		"/sys/fs/bpf/serviceradar/netprobe/flow_events",
 		"/sys/fs/bpf/serviceradar/netprobe/socket_to_pid",
-		"AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON",
-		"CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID",
-		"ReadWritePaths=/run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar /var/lib/serviceradar/netprobe /sys/fs/bpf",
-		"Slice=serviceradar.slice",
-	}
-	for _, want := range mustContain {
-		if !strings.Contains(unit, want) {
-			t.Fatalf("netprobe unit missing %q", want)
+	} {
+		if !strings.Contains(joinedPre, path) {
+			t.Fatalf("installed ExecStartPre missing %s", path)
 		}
 	}
+}
 
-	if strings.Contains(unit, "\nUser=serviceradar\n") {
-		t.Fatal("netprobe unit must not start directly as User=serviceradar; it must load eBPF as root and then --drop-user")
+func systemdDirectiveValues(unit []byte) map[string][]string {
+	out := map[string][]string{}
+	for _, raw := range strings.Split(joinSystemdContinuations(string(unit)), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "[") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		out[strings.TrimSpace(key)] = append(out[strings.TrimSpace(key)], strings.TrimSpace(value))
 	}
-	if strings.Contains(unit, "\nRuntimeDirectory=") || strings.Contains(unit, "\nStateDirectory=") {
-		t.Fatal("netprobe unit must use explicit root ExecStartPre directory setup; systemd RuntimeDirectory/StateDirectory blocked IPC bind after --drop-user")
-	}
+	return out
 }
 
 func TestAgentSystemdUnitDoesNotOwnSharedRuntimeDirectory(t *testing.T) {

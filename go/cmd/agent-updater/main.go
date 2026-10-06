@@ -77,10 +77,13 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		privileged, err := agent.PrivilegedRootForSetuidInstall(*privilegedRoot, *runtimeRoot)
+		if err != nil {
+			return err
+		}
 
 		return agent.InstallAddonSystemdUnits(ctx, agent.AddonSystemdInstallRequest{
-			RuntimeRoot:    *runtimeRoot,
-			PrivilegedRoot: *privilegedRoot,
+			PrivilegedRoot: privileged,
 			AddonID:        *addonID,
 			Version:        *addonVersion,
 			BinaryName:     *addonBin,

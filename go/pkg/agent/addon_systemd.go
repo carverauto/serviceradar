@@ -90,6 +90,12 @@ var (
 	// ErrAddonUnitExecPathUnsafe is returned when a unit would execute a command from
 	// the agent-writable add-on tree.
 	ErrAddonUnitExecPathUnsafe = errors.New("addon systemd unit executes from the agent-writable tree")
+	// ErrAddonPrivilegedRootUnsafe is returned when the setuid updater would
+	// materialize outside the root-owned privileged add-on tree.
+	ErrAddonPrivilegedRootUnsafe = errors.New("privileged addon root is not root-owned")
+	// ErrAddonSystemdSliceUnsafe is returned when a resource drop-in Slice is not
+	// a single systemd unit-name token.
+	ErrAddonSystemdSliceUnsafe = errors.New("addon systemd slice is not a unit name")
 )
 
 // AddonSystemdInstallRequest describes a privileged install + enable of an add-on's
@@ -310,8 +316,12 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		return err
 	}
 
-	// Materialize into root-owned privileged directory.
-	privRoot := resolvePrivilegedAddonRoot(req.PrivilegedRoot, req.RuntimeRoot)
+	// Materialize into the root-owned privileged directory. A setuid caller cannot
+	// choose that directory.
+	privRoot, err := effectivePrivilegedAddonRoot(req.PrivilegedRoot, req.RuntimeRoot)
+	if err != nil {
+		return err
+	}
 	privAddonDir := filepath.Join(privRoot, req.AddonID)
 	privVersionsDir := filepath.Join(privAddonDir, addonVersionsDir)
 	if err := os.MkdirAll(privVersionsDir, 0o755); err != nil {
@@ -464,10 +474,10 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		}
 	}
 
-	createdDropIn := ""
+	var dropIn *dropInSnapshot
 	cleanup := func() {
-		if createdDropIn != "" {
-			_ = os.RemoveAll(createdDropIn)
+		if dropIn != nil {
+			dropIn.restore()
 		}
 		for _, snap := range snapshots {
 			dest := filepath.Join(systemdUnitDir, snap.name)
@@ -491,12 +501,16 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 
 	// Apply the manifest resource limits to the enabled unit via a systemd drop-in.
 	if enable != "" && !req.Resources.IsZero() {
-		dir, err := writeSystemdResourceDropIn(enable, req.Resources)
+		snap, err := snapshotDropIn(filepath.Join(systemdUnitDir, enable+".d"))
 		if err != nil {
 			cleanup()
 			return err
 		}
-		createdDropIn = dir
+		dropIn = &snap
+		if _, err := writeSystemdResourceDropIn(enable, req.Resources); err != nil {
+			cleanup()
+			return err
+		}
 	}
 
 	if err := runSystemctl(ctx, "daemon-reload"); err != nil {
@@ -616,6 +630,9 @@ const systemdDropInFileName = "50-serviceradar-resources.conf"
 // the drop-in dir as needed. Returns the drop-in dir so a failed install can
 // remove it. The unit name is already validated by the caller.
 func writeSystemdResourceDropIn(unit string, res agentaddon.Resources) (string, error) {
+	if err := validateAddonResourceSlice(res.Slice); err != nil {
+		return "", err
+	}
 	dir := filepath.Join(systemdUnitDir, unit+".d")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create systemd drop-in dir for %s: %w", unit, err)
@@ -729,6 +746,80 @@ func containsString(list []string, s string) bool {
 	}
 
 	return false
+}
+
+type dropInSnapshot struct {
+	dir     string
+	existed bool
+	files   map[string][]byte
+}
+
+func snapshotDropIn(dir string) (dropInSnapshot, error) {
+	snap := dropInSnapshot{dir: dir, files: map[string][]byte{}}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return snap, nil
+	}
+	if err != nil {
+		return snap, fmt.Errorf("read systemd drop-in dir: %w", err)
+	}
+	snap.existed = true
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return snap, fmt.Errorf("read systemd drop-in %s: %w", entry.Name(), err)
+		}
+		snap.files[entry.Name()] = data
+	}
+	return snap, nil
+}
+
+func (s dropInSnapshot) restore() {
+	if !s.existed {
+		_ = os.RemoveAll(s.dir)
+		return
+	}
+	entries, err := os.ReadDir(s.dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	for _, entry := range entries {
+		if _, ok := s.files[entry.Name()]; ok || entry.IsDir() {
+			continue
+		}
+		_ = os.Remove(filepath.Join(s.dir, entry.Name()))
+	}
+	for name, data := range s.files {
+		_ = os.WriteFile(filepath.Join(s.dir, name), data, systemdUnitFileMode)
+	}
+}
+
+func validateAddonResourceSlice(slice string) error {
+	slice = strings.TrimSpace(slice)
+	if slice == "" {
+		return nil
+	}
+	if strings.Contains(slice, ".slice") && strings.HasSuffix(slice, ".slice") && systemdUnitToken(slice) {
+		return nil
+	}
+	return fmt.Errorf("%w: %q", ErrAddonSystemdSliceUnsafe, slice)
+}
+
+func systemdUnitToken(name string) bool {
+	if name == "" || strings.ContainsAny(name, "/\\ \t\r\n=\"'") {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == ':', r == '_', r == '.', r == '@', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func pathIsWithin(path, root string) bool {
