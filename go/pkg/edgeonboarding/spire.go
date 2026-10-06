@@ -30,7 +30,7 @@ import (
 var errBootstrapperPackageNotInitialized = errors.New("bootstrapper package is not initialized")
 
 // configureSPIRE sets up SPIRE credentials for the service.
-// For gateways: Configures nested SPIRE server
+// For gateways: Writes join token and nested SPIRE agent config
 // For agents/checkers: Configures SPIRE agent workload API access
 func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 	b.logger.Info().
@@ -69,8 +69,8 @@ func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 	}
 }
 
-// configureGatewaySPIRE configures nested SPIRE server for edge gateways.
-// Gateways run their own SPIRE server that attests to the upstream (k8s) SPIRE server.
+// configureGatewaySPIRE configures SPIRE attestation for edge gateways.
+// Gateways write the join token and nested SPIRE agent config that attests to the upstream (k8s) SPIRE server.
 func (b *Bootstrapper) configureGatewaySPIRE(ctx context.Context, spireDir string) error {
 	_ = ctx
 
@@ -100,7 +100,7 @@ func (b *Bootstrapper) configureGatewaySPIRE(ctx context.Context, spireDir strin
 }
 
 // configureAgentSPIRE configures SPIRE agent workload API access for agents.
-// Agents connect to their parent gateway's nested SPIRE server.
+// Agents connect to their parent gateway's nested SPIRE agent.
 func (b *Bootstrapper) configureAgentSPIRE(ctx context.Context, spireDir string) error {
 	_ = ctx
 

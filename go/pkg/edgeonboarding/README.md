@@ -11,7 +11,7 @@ The edge onboarding library eliminates the need for manual shell scripts and con
 - **KV (datasvc) is the source of truth** - All dynamic configuration comes from KV, not ConfigMaps
 - **Sticky bootstrap configs** - Only KV/Core addresses are in static config (chicken/egg problem)
 - **Deployment-aware** - Automatically detects Docker, Kubernetes, or bare-metal and uses appropriate addresses
-- **Component-specific** - Gateways get nested SPIRE server, agents/checkers use workload API
+- **Component-specific** - Gateways get nested SPIRE agent config, agents/checkers use workload API
 - **Signed by default** - Services use signed onboarding tokens and verified HTTPS for bootstrap
 
 ## Usage
@@ -48,7 +48,7 @@ func main() {
 
 	// Get generated configs
 	gatewayConfig, _ := b.GetConfig("gateway.json")
-	spireConfig, _ := b.GetConfig("spire-server.conf")
+	spireConfig, _ := b.GetConfig("spire-agent.conf")
 
 	log.Printf("SPIFFE ID: %s", b.GetSPIFFEID())
 	log.Printf("Onboarding complete!")
@@ -80,7 +80,7 @@ docker run \
    - Extracts decrypted SPIRE credentials
 
 3. **SPIRE Configuration**
-   - **Gateways**: Set up nested SPIRE server with upstream attestation
+   - **Gateways**: Write join token and nested SPIRE agent config for upstream attestation
    - **Agents**: Configure workload API access to gateway's SPIRE
    - **Checkers**: Configure workload API access
 
@@ -97,7 +97,7 @@ docker run \
 ### Component Types
 
 #### Gateway
-- Runs **nested SPIRE server** that attests to upstream (k8s) SPIRE
+- Writes join token and **nested SPIRE agent config** that attests to upstream (k8s) SPIRE
 - Provides workload API for co-located agent
 - Connects to Core and reports status
 - Configuration includes: Core address, KV address, agent address, SPIRE config
@@ -119,7 +119,7 @@ docker run \
 #### Docker
 - **Detection**: Checks for `/.dockerenv` or `docker` in cgroups
 - **Addresses**: Uses LoadBalancer IPs (can't resolve k8s DNS)
-- **SPIRE**: Nested server for gateways, shared workload API for agents
+- **SPIRE**: Nested agent config for gateways, shared workload API for agents
 - **Network**: Agent shares network namespace with gateway (`network_mode: "service:agent-gateway"`)
 
 #### Kubernetes
@@ -131,7 +131,7 @@ docker run \
 #### Bare Metal
 - **Detection**: Default when not Docker or k8s
 - **Addresses**: Uses configured addresses from package
-- **SPIRE**: Same as Docker (nested server for gateways)
+- **SPIRE**: Same as Docker (nested agent config for gateways)
 - **Network**: Standard networking
 
 ## Configuration
@@ -192,7 +192,6 @@ The bootstrapper generates these configuration files/data:
 
 ### Gateways
 - `gateway.json` - Gateway service configuration
-- `spire-server.conf` - Nested SPIRE server config
 - `spire-agent.conf` - Nested SPIRE agent config
 - SPIRE trust bundle (`upstream-bundle.pem`)
 - SPIRE join token (`upstream-join-token`)
