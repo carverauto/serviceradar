@@ -646,6 +646,43 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert length(Ash.read!(AlertEvaluationReceipt, actor: actor)) == 2
   end
 
+  test "replayed admission keeps receipt keys while inserting only new work", %{
+    rule: rule,
+    actor: actor
+  } do
+    first = event()
+    second = event()
+    third = event()
+    assert {:ok, keys} = Inbox.admit(:event, [first, second])
+    assert [%{position: 1}, %{position: 2}] = work(rule, actor)
+    assert [%{next_position: 2}] = Ash.read!(AlertEvaluationLane, actor: actor)
+
+    assert {:ok, replay_pending} = Inbox.admit(:event, [first, second])
+    assert Enum.sort(replay_pending) == Enum.sort(keys)
+    assert [%{position: 1}, %{position: 2}] = work(rule, actor)
+    assert [%{next_position: 2}] = Ash.read!(AlertEvaluationLane, actor: actor)
+
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, receipts} = Completion.await(keys, 1_000)
+    assert Enum.all?(receipts, &(&1.disposition == :completed))
+
+    assert {:ok, replay_completed} = Inbox.admit(:event, [first, second])
+    assert Enum.sort(replay_completed) == Enum.sort(keys)
+    assert [] = work(rule, actor)
+    assert {:ok, replay_receipts} = Completion.await(replay_completed, 1_000)
+    assert Enum.all?(replay_receipts, &(&1.disposition == :completed))
+
+    assert {:ok, mixed} = Inbox.admit(:event, [second, third])
+    assert length(mixed) == 2
+    assert Enum.at(keys, 1) in mixed
+    assert [%{position: 3}] = work(rule, actor)
+    assert {:ok, {:processed, :completed}} = Owner.advance(rule.id)
+    assert {:ok, mixed_receipts} = Completion.await(mixed, 1_000)
+    assert Enum.all?(mixed_receipts, &(&1.disposition == :completed))
+    assert [] = work(rule, actor)
+  end
+
   test "fresh owners recover every count and diagnostics within one bucket", %{
     rule: rule,
     actor: actor

@@ -38,9 +38,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   @doc "Commits every eligible rule occurrence or rejects the entire batch."
   def admit(signal, records) when signal in [:log, :event, :metric] and is_list(records) do
     started = System.monotonic_time(:millisecond)
-    result = admit_batch(signal, records)
-    RuntimeMetrics.admission(signal, result, started)
-    result
+
+    case admit_batch(signal, records) do
+      {:ok, {keys, admitted}} ->
+        RuntimeMetrics.admission(signal, {:ok, keys, admitted}, started)
+        {:ok, keys}
+
+      {:error, _} = error ->
+        RuntimeMetrics.admission(signal, error, started)
+        error
+    end
   end
 
   def admit(_signal, _records), do: {:error, :invalid_payload}
@@ -63,8 +70,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
 
   @doc "Appends a stale-resolution ordering barrier behind all previously accepted rule input."
   def admit_maintenance(rule_name, cutoff, now, live_series_keys) do
-    with :ok <- Rollout.admission_ready() do
-      admit_maintenance_ready(rule_name, cutoff, now, live_series_keys)
+    with :ok <- Rollout.admission_ready(),
+         {:ok, {keys, _admitted}} <- admit_maintenance_ready(rule_name, cutoff, now, live_series_keys) do
+      {:ok, keys}
     end
   end
 
@@ -128,7 +136,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
       end
     end)
 
-    Enum.map(candidates, &{&1.rule_id, &1.source_key})
+    {Enum.map(candidates, &{&1.rule_id, &1.source_key}), length(pending)}
   end
 
   @doc "Configured admission bounds; these apply to retries and direct callers alike."

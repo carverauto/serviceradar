@@ -54,7 +54,7 @@ defmodule ServiceRadar.Observability.AlertEvaluationWork do
 
     attribute :signal, :atom do
       allow_nil? false
-      constraints one_of: [:log, :event, :metric, :maintenance, :cleanup]
+      constraints one_of: [:log, :event, :metric, :maintenance]
     end
 
     attribute :rule_revision, :map, allow_nil?: false

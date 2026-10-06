@@ -15,9 +15,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics do
     Publisher.record(lane, :admission, %{acknowledgement_ms: elapsed(started)})
 
     case result do
-      {:ok, keys} when keys != [] -> Publisher.record(lane, :admitted, %{count: length(keys)})
-      {:ok, []} -> :ok
-      {:error, reason} -> Publisher.record(lane, :rejected, %{reason: rejection(reason)})
+      {:ok, _keys, admitted} when is_integer(admitted) and admitted > 0 ->
+        Publisher.record(lane, :admitted, %{count: admitted})
+
+      {:ok, _, _} ->
+        :ok
+
+      {:error, reason} ->
+        Publisher.record(lane, :rejected, %{reason: rejection(reason)})
     end
   end
 
