@@ -101,19 +101,20 @@ var (
 // AddonSystemdInstallRequest describes a privileged install + enable of an add-on's
 // systemd units, materialized and verified by the root-owned updater.
 type AddonSystemdInstallRequest struct {
-	RuntimeRoot    string               // agent release runtime root ("" -> package default)
-	PrivilegedRoot string               // privileged add-on runtime root ("" -> /usr/lib/serviceradar/addons)
-	AddonID        string               // add-on id (a single safe path segment)
-	Version        string               // target version (a single safe path segment)
-	BinaryName     string               // staged binary filename (a single safe path segment)
-	ArtifactPath   string               // path to the staged artifact archive ("" -> default staging location)
-	ArtifactSHA256 string               // expected artifact SHA256 digest
-	Signature      string               // Ed25519 signature of the artifact
-	Units          []string             // unit file names in the bundle (".service"/".timer")
-	Enable         string               // the unit to `enable --now` (must be one of Units)
-	Resources      agentaddon.Resources // manifest CPU/memory/task limits applied to Enable via a drop-in
-	Capabilities   []string             // file capabilities applied to the verified privileged binary
-	RunTimerNow    bool                 // clear prior scan failure and queue the newly installed timer service
+	RuntimeRoot       string               // agent release runtime root ("" -> package default)
+	PrivilegedRoot    string               // privileged add-on runtime root ("" -> /usr/lib/serviceradar/addons)
+	AddonID           string               // add-on id (a single safe path segment)
+	Version           string               // target version (a single safe path segment)
+	BinaryName        string               // staged binary filename (a single safe path segment)
+	ArtifactPath      string               // path to the staged artifact archive ("" -> default staging location)
+	ArtifactSHA256    string               // expected artifact SHA256 digest
+	Signature         string               // Ed25519 signature of the artifact
+	Units             []string             // unit file names in the bundle (".service"/".timer")
+	Enable            string               // the unit to `enable --now` (must be one of Units)
+	Resources         agentaddon.Resources // manifest CPU/memory/task limits applied to Enable via a drop-in
+	Capabilities      []string             // file capabilities applied to the verified privileged binary
+	RunTimerNow       bool                 // clear prior scan failure and queue the newly installed timer service
+	StateSnapshotPath string               // previous state config restored before re-enabling the prior unit
 }
 
 // validateAddonUnitName reports whether name is a safe single path segment naming a
@@ -518,10 +519,16 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		return err
 	}
 
+	restoreState, err := loadAddonStateRestore(req.StateSnapshotPath)
+	if err != nil {
+		cleanup()
+		return err
+	}
 	if enable != "" {
 		if err := activateAddonSystemdUnits(ctx, enable, timerService); err != nil {
 			_ = runSystemctl(ctx, "disable", "--now", enable)
 			cleanup()
+			restoreState()
 			if priorEnabled {
 				_ = runSystemctl(ctx, "enable", "--now", enable)
 			}
@@ -1066,6 +1073,9 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSyst
 	if len(req.Capabilities) > 0 {
 		requiredFlags = append(requiredFlags, "addon-capabilities")
 	}
+	if req.StateSnapshotPath != "" {
+		requiredFlags = append(requiredFlags, "addon-state-snapshot")
+	}
 
 	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath(requiredFlags...)
 	if err != nil {
@@ -1094,6 +1104,9 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSyst
 	}
 	if req.PrivilegedRoot != "" {
 		args = append(args, "--privileged-root", req.PrivilegedRoot)
+	}
+	if req.StateSnapshotPath != "" {
+		args = append(args, "--addon-state-snapshot", req.StateSnapshotPath)
 	}
 
 	// Pass the manifest resource limits as JSON so the root-owned updater can write

@@ -674,8 +674,19 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 
 	stateSnap, snapErr := snapshotAddonStateDir(runtimeRoot, a.GetAddonId())
 	if snapErr != nil {
+		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
+			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on state snapshot failure")
+		}
 		p.logSidecarDeliveryFailure(a, snapErr, addonDeliveryTransientFailure,
-			"Systemd add-on state snapshot failed; leaving current state unchanged")
+			"Systemd add-on state snapshot failed; rolled current back")
+		return addonDeliveryTransientFailure
+	}
+	if _, persistErr := stateSnap.writeRollback(); persistErr != nil {
+		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
+			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on state snapshot failure")
+		}
+		p.logSidecarDeliveryFailure(a, persistErr, addonDeliveryTransientFailure,
+			"Systemd add-on state snapshot failed; rolled current back")
 		return addonDeliveryTransientFailure
 	}
 	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
@@ -696,13 +707,12 @@ func (p *PushLoop) applySystemdAddonAtRoot(
 	}
 
 	if !p.reconcileStagedSystemdUnits(ctx, a, supervision, runtimeRoot, priorTarget, install) {
-		// Unit discovery/install failure: treat as transient (the agent-updater may be
-		// momentarily unavailable) so the ack defers and the install is retried promptly.
-		// The previous unit is re-enabled against the previous state config, not the
-		// candidate's.
-		stateSnap.restore()
+		// Install failure restores state inside the updater before it re-enables the
+		// previous unit. A metadata-write failure leaves the new unit enabled, so this
+		// path must not put the previous state file back under it.
 		return addonDeliveryTransientFailure
 	}
+	_ = os.Remove(addonStateRollbackPath(runtimeRoot, a.GetAddonId()))
 
 	p.clearAddonDeliveryFailure(a.GetAddonId())
 
@@ -894,23 +904,28 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	versionDir := filepath.Join(root, a.GetAddonId(), addonVersionsDir, version)
 	runTimerNow := supervision == addonSupervisionSystemdTimer && filepath.Base(priorTarget) != version
 	req := AddonSystemdInstallRequest{
-		RuntimeRoot:    runtimeRoot,
-		AddonID:        a.GetAddonId(),
-		Version:        version,
-		BinaryName:     addonBinaryName(a),
-		ArtifactPath:   StagedAddonArtifactPath(versionDir),
-		ArtifactSHA256: wantSHA,
-		Signature:      strings.TrimSpace(a.GetArtifactSignature()),
-		Units:          units,
-		Enable:         enable,
-		Resources:      addonResourcesFromProto(a.GetResources()),
-		Capabilities:   a.GetOsCapabilities(),
-		RunTimerNow:    runTimerNow,
+		RuntimeRoot:       runtimeRoot,
+		AddonID:           a.GetAddonId(),
+		Version:           version,
+		BinaryName:        addonBinaryName(a),
+		ArtifactPath:      StagedAddonArtifactPath(versionDir),
+		ArtifactSHA256:    wantSHA,
+		Signature:         strings.TrimSpace(a.GetArtifactSignature()),
+		Units:             units,
+		Enable:            enable,
+		Resources:         addonResourcesFromProto(a.GetResources()),
+		Capabilities:      a.GetOsCapabilities(),
+		RunTimerNow:       runTimerNow,
+		StateSnapshotPath: addonStateRollbackPath(runtimeRoot, a.GetAddonId()),
 	}
 	if err := install(ctx, req); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
+		if snap, loadErr := loadAddonStateRollback(req.StateSnapshotPath); loadErr == nil {
+			snap.restore()
+		}
 		return false
 	}
+	_ = os.Remove(req.StateSnapshotPath)
 
 	if wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256())); wantSHA != "" {
 		version := addonStagedVersion(a, wantSHA)

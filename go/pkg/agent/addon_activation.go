@@ -302,7 +302,11 @@ func stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA,
 	}
 
 	info, err := os.Stat(filepath.Join(versionDir, binName))
-	return err == nil && info.Mode().IsRegular()
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	archive, err := os.Stat(StagedAddonArtifactPath(versionDir))
+	return err == nil && archive.Mode().IsRegular()
 }
 
 func writeAddonStageMetadata(versionDir string, meta addonStageMetadata) error {
@@ -466,13 +470,17 @@ func loadAddonConfigBundle(versionDir, configName, basePath string) ([]byte, boo
 	}
 	saved, err := os.ReadFile(basePath)
 	if errors.Is(err, os.ErrNotExist) {
+		if haveArtifact {
+			return artifact, true, nil
+		}
 		if legacy, ok, legacyErr := readLegacyAddonConfigBase(versionDir, configName); legacyErr != nil || ok {
 			return legacy, true, legacyErr
 		}
-		if !haveArtifact {
-			return nil, false, fmt.Errorf("read staged addon config: %w", os.ErrNotExist)
+		extracted, readErr := os.ReadFile(filepath.Join(versionDir, configName))
+		if readErr != nil {
+			return nil, false, fmt.Errorf("read staged addon config: %w", readErr)
 		}
-		return artifact, true, nil
+		return extracted, true, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("read staged addon config base: %w", err)
@@ -576,6 +584,72 @@ func snapshotAddonStateDir(runtimeRoot, addonID string) (addonStateSnapshot, err
 		snap.files[entry.Name()] = data
 	}
 	return snap, nil
+}
+
+func addonStateRollbackPath(runtimeRoot, addonID string) string {
+	dir := addonStateDir(runtimeRoot, addonID)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, ".serviceradar-state-rollback")
+}
+
+func (s addonStateSnapshot) writeRollback() (string, error) {
+	path := ""
+	if s.dir != "" {
+		path = filepath.Join(s.dir, ".serviceradar-state-rollback")
+	}
+	if path == "" {
+		return "", nil
+	}
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return "", fmt.Errorf("create addon state dir: %w", err)
+	}
+	body, err := json.Marshal(persistedAddonStateRollback{
+		Dir:     s.dir,
+		Existed: s.existed,
+		Files:   s.files,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode addon state rollback: %w", err)
+	}
+	if err := writeAddonFileAtomic(path, append(body, '\n'), addonManifestMode); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func loadAddonStateRollback(path string) (addonStateSnapshot, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return addonStateSnapshot{}, fmt.Errorf("read addon state rollback: %w", err)
+	}
+	var persisted persistedAddonStateRollback
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return addonStateSnapshot{}, fmt.Errorf("decode addon state rollback: %w", err)
+	}
+	if persisted.Files == nil {
+		persisted.Files = map[string][]byte{}
+	}
+	return addonStateSnapshot{dir: persisted.Dir, existed: persisted.Existed, files: persisted.Files}, nil
+}
+
+func loadAddonStateRestore(path string) (func(), error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return func() {}, nil
+	}
+	snap, err := loadAddonStateRollback(path)
+	if err != nil {
+		return nil, err
+	}
+	return snap.restore, nil
+}
+
+type persistedAddonStateRollback struct {
+	Dir     string            `json:"dir"`
+	Existed bool              `json:"existed"`
+	Files   map[string][]byte `json:"files"`
 }
 
 func (s addonStateSnapshot) restore() {

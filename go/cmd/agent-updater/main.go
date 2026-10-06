@@ -59,6 +59,7 @@ func run() error {
 		addonSystemdUninstall   = flag.String("addon-systemd-uninstall", "", "Comma-separated installed unit files to disable + remove")
 		addonSystemdResources   = flag.String("addon-systemd-resources", "", "JSON resource limits applied to the enabled unit via a drop-in (cpu_max_percent, memory_max_bytes, ...)")
 		addonSystemdRunTimerNow = flag.Bool("addon-systemd-run-timer-now", false, "Reset the prior timer service failure and queue a fresh run of the staged candidate")
+		addonStateSnapshot      = flag.String("addon-state-snapshot", "", "Previous add-on state snapshot restored before re-enabling the prior unit")
 
 		// Privileged add-on materialization flags (harden-native-addon-privilege-boundary tasks 1.2, 1.3).
 		addonVersion   = flag.String("addon-version", "", "Target staged add-on version for privileged materialization")
@@ -83,18 +84,19 @@ func run() error {
 		}
 
 		return agent.InstallAddonSystemdUnits(ctx, agent.AddonSystemdInstallRequest{
-			PrivilegedRoot: privileged,
-			AddonID:        *addonID,
-			Version:        *addonVersion,
-			BinaryName:     *addonBin,
-			ArtifactPath:   *addonArtifact,
-			ArtifactSHA256: *addonSHA256,
-			Signature:      *addonSignature,
-			Units:          splitCommaList(*addonSystemdInstall),
-			Enable:         *addonSystemdEnable,
-			Resources:      resources,
-			Capabilities:   splitCommaList(*addonCaps),
-			RunTimerNow:    *addonSystemdRunTimerNow,
+			PrivilegedRoot:    privileged,
+			AddonID:           *addonID,
+			Version:           *addonVersion,
+			BinaryName:        *addonBin,
+			ArtifactPath:      *addonArtifact,
+			ArtifactSHA256:    *addonSHA256,
+			Signature:         *addonSignature,
+			Units:             splitCommaList(*addonSystemdInstall),
+			Enable:            *addonSystemdEnable,
+			Resources:         resources,
+			Capabilities:      splitCommaList(*addonCaps),
+			RunTimerNow:       *addonSystemdRunTimerNow,
+			StateSnapshotPath: *addonStateSnapshot,
 		})
 	case *addonSystemdUninstall != "":
 		return agent.UninstallAddonSystemdUnits(ctx, splitCommaList(*addonSystemdUninstall))
