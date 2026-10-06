@@ -59,10 +59,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @default_events_limit 20
   @max_events_limit 100
   @default_alerts_limit 25
-  @max_alerts_limit 200
+  @max_alerts_limit 100
   @default_netflow_window "last_1h"
   @default_netflow_limit 50
-  @max_netflow_limit 200
+  @max_netflow_limit 100
   @default_netflow_stack_mode "ports"
   @multi_span_filter "span_count:>1"
   @default_traces_query_base "in:otel_trace_summaries time:last_24h"
