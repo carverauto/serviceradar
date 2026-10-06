@@ -1,10 +1,13 @@
 defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   @moduledoc """
-  Publishes bounded ingestion gauges through JetStream for EventWriter persistence.
+  Publishes bounded ingestion lane metrics through JetStream for EventWriter
+  persistence.
 
   Producers update a fixed set of ETS slots; they never enqueue a metric message
-  or wait for NATS. During an outage, gauges coalesce and cumulative event counts
-  remain available. No agent, device, run, or payload identifier becomes a label.
+  or wait for NATS. During an outage, gauges coalesce and event counts
+  accumulate. Each frame reports gauges at their latest values and counters as
+  deltas since the previous acknowledged frame; reporting watermarks advance
+  only on PubAck. No agent, device, run, or payload identifier becomes a label.
   """
   use GenServer
 
@@ -17,7 +20,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
   alias ServiceRadar.NATS.JetStreamPublish
 
   @table __MODULE__
-  @subject "metrics.core.result_ingestion"
+  @subject "metrics.ingestion_lanes"
   @lanes [
     :flow_attribution,
     :retained_plugin_result,
@@ -151,7 +154,8 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
        interval: interval,
        publish_opts: Keyword.get(opts, :publish_opts, []),
        pending: nil,
-       started_at: System.system_time(:nanosecond)
+       reported: %{},
+       interval_start: System.system_time(:nanosecond)
      }}
   end
 
@@ -160,35 +164,38 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     # While the PubAck-bound frame is pending, later cadence snapshots are
     # intentionally coalesced into latest gauges and cumulative counters.
     if state.pending, do: record(:service_state, :coalesced_interval, %{})
-    frame = state.pending || frame(:ets.tab2list(@table), state.started_at)
 
-    pending =
+    now = System.system_time(:nanosecond)
+
+    frame =
+      state.pending ||
+        frame(:ets.tab2list(@table), state.reported, state.interval_start, now)
+
+    {pending, reported, interval_start} =
       case frame do
         nil ->
-          nil
+          {nil, state.reported, state.interval_start}
 
-        {body, id} ->
+        {body, id, counters, frame_start} ->
           opts = Keyword.merge(state.publish_opts, timeout: 1_000, msg_id: id)
 
           case publish(body, opts) do
             :ok ->
-              nil
+              {nil, counters, frame_start}
 
             {:error, _} ->
               record(:service_state, :publish_failure, %{})
-              frame
+              {{body, id, counters, frame_start}, state.reported, state.interval_start}
           end
       end
 
     Process.send_after(self(), :publish, state.interval)
-    {:noreply, %{state | pending: pending}}
+    {:noreply, %{state | pending: pending, reported: reported, interval_start: interval_start}}
   end
 
-  defp frame([], _started_at), do: nil
+  defp frame([], _reported, _interval_start, _now), do: nil
 
-  defp frame(samples, started_at) do
-    now = System.system_time(:nanosecond)
-
+  defp frame(samples, reported, interval_start, now) do
     metrics =
       Enum.map(samples, fn {{kind, lane, name}, value} ->
         prefix =
@@ -199,23 +206,25 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
             :gauge -> "result_ingestion_"
           end
 
+        gauge? = kind == :gauge
+
         %Metric{
           name: prefix <> Atom.to_string(name),
           metric_type: "core.result_ingestion",
-          kind: if(kind == :gauge, do: :METRIC_KIND_GAUGE, else: :METRIC_KIND_SUM),
+          kind: if(gauge?, do: :METRIC_KIND_GAUGE, else: :METRIC_KIND_SUM),
           temporality:
-            if(kind == :gauge,
+            if(gauge?,
               do: :METRIC_TEMPORALITY_UNSPECIFIED,
-              else: :METRIC_TEMPORALITY_CUMULATIVE
+              else: :METRIC_TEMPORALITY_DELTA
             ),
-          is_monotonic: kind != :gauge,
+          is_monotonic: not gauge?,
           unit: unit(kind, name),
           tags: [%StringMapEntry{key: "lane", value: Atom.to_string(lane)}],
           points: [
             %MetricPoint{
-              value: value * 1.0,
+              value: delta(value, kind, lane, name, reported) * 1.0,
               observed_at_unix_nano: now,
-              start_time_unix_nano: if(kind == :gauge, do: 0, else: started_at)
+              start_time_unix_nano: if(gauge?, do: 0, else: interval_start)
             }
           ]
         }
@@ -238,8 +247,16 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
         metrics: metrics
       })
 
-    {body, Ecto.UUID.generate()}
+    counters =
+      samples
+      |> Enum.reject(fn {{kind, _lane, _name}, _value} -> kind == :gauge end)
+      |> Map.new(fn {{kind, lane, name}, value} -> {{kind, lane, name}, value} end)
+
+    {body, Ecto.UUID.generate(), counters, now}
   end
+
+  defp delta(value, :gauge, _lane, _name, _reported), do: value
+  defp delta(value, kind, lane, name, reported), do: value - Map.get(reported, {kind, lane, name}, 0)
 
   defp publish(body, opts) do
     JetStreamPublish.publish(@subject, body, opts)

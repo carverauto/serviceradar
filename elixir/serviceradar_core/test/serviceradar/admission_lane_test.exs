@@ -34,7 +34,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
     RuntimeMetrics.record(:sweep, :state, %{pending_count: 2, pending_bytes: 512})
 
-    assert_receive {:metric_publish, publisher, "metrics.core.result_ingestion", body, opts},
+    assert_receive {:metric_publish, publisher, "metrics.ingestion_lanes", body, opts},
                    1_000
 
     for _ <- 1..1_000 do
@@ -50,7 +50,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     # A plain NATS success without a storage PubAck is insufficient.
     send(publisher, {:puback, {:ok, %{body: "{}"}}})
 
-    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", retry,
+    assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", retry,
                     retry_opts},
                    1_000
 
@@ -59,13 +59,13 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert Enum.any?(opts[:headers], fn {key, id} -> key == "Nats-Msg-Id" and is_binary(id) end)
     send(publisher, {:puback, {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}})
 
-    assert_receive {:metric_publish, ^publisher, "metrics.core.result_ingestion", drained, _opts},
+    assert_receive {:metric_publish, ^publisher, "metrics.ingestion_lanes", drained, _opts},
                    1_000
 
     rows =
       ServiceRadar.EventWriter.Processors.Metrics.parse_message(%{
         data: drained,
-        metadata: %{subject: "metrics.core.result_ingestion"}
+        metadata: %{subject: "metrics.ingestion_lanes"}
       })
 
     depth = Enum.find(rows, &(&1.metric_name == "result_ingestion_pending_count"))

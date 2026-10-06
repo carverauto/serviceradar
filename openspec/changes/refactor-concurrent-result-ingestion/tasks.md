@@ -43,7 +43,7 @@
 ## 5. JetStream telemetry
 
 - [x] 5.1 Emit bounded-cardinality queue depth/bytes, admission/execution latency, completion/rejection/timeout/crash/cancellation metrics as canonical envelopes through a bounded publisher and JetStream PubAck.
-- [ ] 5.2 Verify metrics.core.result_ingestion permissions/routing, gauge/delta semantics, replay identity, outage buffering, drop accounting, and suppression of recursive publication failures.
+- [ ] 5.2 Verify metrics.ingestion_lanes permissions/routing, gauge/delta semantics, replay identity, outage buffering, drop accounting, and suppression of recursive publication failures.
 - [ ] 5.3 Verify actual EventWriter persistence in the configured backend, supplementary local metrics, zero gauges after drain, and that telemetry outage does not delay ingestion acknowledgement.
 
 ## 6. Synthetic evidence, CI, and rollout

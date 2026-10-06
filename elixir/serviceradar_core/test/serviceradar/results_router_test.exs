@@ -212,7 +212,7 @@ defmodule ServiceRadar.ResultsRouterTest do
     RuntimeMetrics.record(:mapper, :state, %{pending_count: 3})
     assert_receive {:ingestion_metric_wire, body}, 1_000
     stop_supervised!(RuntimeMetrics)
-    message = %{data: body, metadata: %{subject: "metrics.core.result_ingestion"}}
+    message = %{data: body, metadata: %{subject: "metrics.ingestion_lanes"}}
     key = ServiceRadar.Analytics.StarRocks
     previous = Application.get_env(:serviceradar_core, key, [])
     on_exit(fn -> Application.put_env(:serviceradar_core, key, previous) end)
