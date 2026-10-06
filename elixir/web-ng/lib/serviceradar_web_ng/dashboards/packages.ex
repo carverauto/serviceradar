@@ -155,7 +155,8 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     scope = Keyword.get(opts, :scope)
 
     with {:ok, package} <- get(id, scope: scope),
-         :ok <- require_verified(package) do
+         :ok <- require_verified(package),
+         :ok <- require_not_revoked(package) do
       package
       |> Ash.Changeset.for_update(:enable, %{})
       |> update_resource(scope)
@@ -478,6 +479,9 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   defp require_verified(%DashboardPackage{verification_status: "verified"}), do: :ok
   defp require_verified(_package), do: {:error, :verification_required}
+
+  defp require_not_revoked(%DashboardPackage{status: :revoked}), do: {:error, :package_revoked}
+  defp require_not_revoked(_package), do: :ok
 
   # Version-overwrite enforcement: same (dashboard_id, version) re-push.
   # Returns {:ok, decision} where decision is one of:

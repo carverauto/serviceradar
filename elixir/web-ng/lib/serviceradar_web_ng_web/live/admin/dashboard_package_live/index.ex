@@ -154,6 +154,22 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     {:noreply, put_flash(socket, :error, "You don't have permission to import dashboard packages.")}
   end
 
+  def handle_event(
+        "import_package",
+        %{"import" => %{"enable" => "true"}},
+        %{assigns: %{can_manage_packages: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to enable dashboard packages.")}
+  end
+
+  def handle_event(
+        "import_package",
+        %{"import" => %{"create_instance" => "true"}},
+        %{assigns: %{can_manage_packages: false}} = socket
+      ) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to create dashboard routes.")}
+  end
+
   def handle_event("import_package", %{"import" => params}, socket) do
     scope = socket.assigns.current_scope
 
@@ -217,11 +233,15 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     end
   end
 
+  def handle_event("create_instance", _params, %{assigns: %{can_manage_packages: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to create dashboard routes.")}
+  end
+
   def handle_event("create_instance", %{"instance" => params}, %{assigns: %{selected_package: package}} = socket)
       when not is_nil(package) do
     scope = socket.assigns.current_scope
 
-    with {:ok, package} <- ensure_package_enabled(package, scope),
+    with {:ok, package} <- require_package_enabled(package),
          {:ok, settings} <- parse_settings(params["settings_json"]),
          {:ok, instance} <-
            Dashboards.create_instance(
@@ -1028,10 +1048,9 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     end
   end
 
-  defp ensure_package_enabled(%DashboardPackage{status: :enabled} = package, _scope), do: {:ok, package}
-
-  defp ensure_package_enabled(%DashboardPackage{} = package, scope),
-    do: Dashboards.enable_package(package.id, scope: scope)
+  defp require_package_enabled(%DashboardPackage{status: :enabled} = package), do: {:ok, package}
+  defp require_package_enabled(%DashboardPackage{status: :revoked}), do: {:error, :package_revoked}
+  defp require_package_enabled(%DashboardPackage{}), do: {:error, :package_not_enabled}
 
   defp consume_package_uploads(socket) do
     with :ok <- validate_upload_ready(socket, :manifest),
