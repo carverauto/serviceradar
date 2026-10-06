@@ -121,6 +121,13 @@
       "modifiers": ["limit", "sort"]
     },
     {
+      "query": "in:timeseries_metrics metric_type:\"sysmon.memory\" metric_name:\"memory.used_percent\" time:180d bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:\"Etc/UTC\" limit:4000",
+      "entity": "timeseries_metrics",
+      "chart": true,
+      "clauses": {"agg": "avg", "bucket": "*", "stats": "profile_hour_of_week(value)"},
+      "modifiers": ["limit"]
+    },
+    {
       "query": "in:logs time:last_24h rollup_stats:severity service_name:(\"svc-alpha\",\"svc-beta\")",
       "entity": "logs",
       "chart": true,
