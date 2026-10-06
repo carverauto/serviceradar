@@ -34,6 +34,24 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGeneratorTest do
     refute config =~ "account_seed"
   end
 
+  describe "client_url/1" do
+    test "a wildcard bind becomes the loopback TLS URL collectors dial" do
+      assert NatsLeafConfigGenerator.client_url("0.0.0.0:4222") == "tls://127.0.0.1:4222"
+      assert NatsLeafConfigGenerator.client_url("*:4222") == "tls://127.0.0.1:4222"
+      assert NatsLeafConfigGenerator.client_url("[::]:4222") == "tls://[::1]:4222"
+    end
+
+    test "a specific listen address keeps its host" do
+      assert NatsLeafConfigGenerator.client_url("192.0.2.10:4222") == "tls://192.0.2.10:4222"
+      assert NatsLeafConfigGenerator.client_url("tls://127.0.0.1:4222") == "tls://127.0.0.1:4222"
+    end
+
+    test "a missing listen address defaults to loopback" do
+      assert NatsLeafConfigGenerator.client_url(nil) == "tls://127.0.0.1:4222"
+      assert NatsLeafConfigGenerator.client_url("  ") == "tls://127.0.0.1:4222"
+    end
+  end
+
   describe "edge-site leaf bundle templates" do
     @site %{name: "NYC Office", slug: "nyc-office", nats_leaf_url: "tls://10.0.1.50:4222"}
     @leaf %{upstream_url: "tls://acme.nats.serviceradar.cloud:7422", local_listen: "0.0.0.0:4222"}

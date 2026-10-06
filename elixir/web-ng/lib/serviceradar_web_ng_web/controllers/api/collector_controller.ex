@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     query =
       CollectorPackage
       |> Ash.Query.for_read(:list)
-      |> Ash.Query.load(:edge_site)
+      |> Ash.Query.load(edge_site: :nats_leaf_server)
       |> Ash.Query.limit(limit)
 
     query =
@@ -133,6 +133,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^id)
+           |> Ash.Query.load(edge_site: :nats_leaf_server)
            |> Ash.read_one(actor: actor) do
         {:ok, nil} -> {:error, :not_found}
         {:ok, package} -> json(conn, package_to_json(package))
@@ -378,7 +379,8 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
-         |> Ash.Query.load([:edge_site, :nats_creds_ciphertext, :tls_key_pem_ciphertext])
+         |> Ash.Query.load(edge_site: :nats_leaf_server)
+         |> Ash.Query.load([:nats_creds_ciphertext, :tls_key_pem_ciphertext])
          |> Ash.read_one(actor: nil, authorize?: false) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
@@ -551,8 +553,13 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
 
     # Add edge site details if loaded
     case package do
-      %{edge_site: %{id: _, name: name, slug: slug, nats_leaf_url: url}} ->
-        Map.put(base, :edge_site, %{name: name, slug: slug, nats_leaf_url: url})
+      %{edge_site: %{id: _, name: name, slug: slug, nats_leaf_url: url} = site} ->
+        Map.put(base, :edge_site, %{
+          name: name,
+          slug: slug,
+          nats_leaf_url: url,
+          nats_url: CollectorBundleGenerator.get_nats_url(%CollectorPackage{edge_site: site})
+        })
 
       _ ->
         base

@@ -539,7 +539,7 @@ test("edge install agent refuses a token issued for another package", async () =
   assert.match(stderr, /--token belongs to edge package pkg-2, not --package pkg-1/)
 })
 
-test("edge install requires --version because the server does not expose one", async () => {
+test("edge install agent requires --version", async () => {
   const {code, stderr} = await runCli(
     ["edge", "install", "agent", "--instance", "https://t.example", "--package", "p", "--token", "t", ...DRY],
   )
@@ -571,6 +571,92 @@ test("edge install collector --dry-run picks the package for the collector's typ
       assert.match(stdout, /run update\.sh from the extracted bundle in \/etc\/serviceradar\/collectors\/col-1/)
       // The dry run only reads: it must not consume the collector bundle.
       assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), ["GET /api/admin/collectors/col-1"])
+    },
+  )
+})
+
+function latestRelease(names) {
+  return {tag_name: "v9.9.9", assets: names.map((name) => ({name}))}
+}
+
+const LATEST_PACKAGES = [
+  "serviceradar-nats-9.9.9-1.x86_64.rpm",
+  "serviceradar-nats-9.9.9-1.aarch64.rpm",
+  "serviceradar-nats_9.9.9_amd64.deb",
+  "serviceradar-flow-collector-9.9.9-1.x86_64.rpm",
+  "serviceradar-log-collector-9.9.9-1.x86_64.rpm",
+  "serviceradar-trapd-9.9.9-1.x86_64.rpm",
+  "serviceradar-agent-9.9.9-1.x86_64.rpm",
+]
+
+test("edge install leaf without --version downloads the latest serviceradar-nats asset", async () => {
+  await withServer(
+    (req, res) => {
+      if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
+      if (req.path === "/github/releases/latest") return json(res, 200, latestRelease(LATEST_PACKAGES))
+      return json(res, 404, {})
+    },
+    async (instance, requests) => {
+      const ok = await runCli(
+        ["edge", "install", "leaf", "--instance", instance, "--site", "site-1", "--release-api-url", `${instance}/github/releases/latest`, ...DRY],
+        {env: TOKEN_ENV},
+      )
+      assert.equal(ok.code, 0, ok.stderr)
+      assert.match(ok.stdout, /download https:\/\/github\.com\/carverauto\/serviceradar\/releases\/download\/v9\.9\.9\/serviceradar-nats-9\.9\.9-1\.x86_64\.rpm/)
+      assert.equal(ok.stdout.includes("serviceradar-agent-9.9.9"), false)
+      assert.equal(ok.stdout.includes("serviceradar-nats_9.9.9_amd64.deb"), false)
+      const setup = ok.stdout.indexOf("setup.sh")
+      const confirm = ok.stdout.indexOf("confirm the local NATS leaf is active")
+      assert.ok(setup !== -1 && confirm > setup, ok.stdout)
+      assert.ok(requests.some((request) => request.path === "/github/releases/latest"))
+
+      const missing = await runCli(
+        ["edge", "install", "leaf", "--instance", instance, "--site", "site-1", "--release-api-url", `${instance}/github/releases/latest`, "--dry-run", "--format", "deb", "--arch", "arm64"],
+        {env: TOKEN_ENV},
+      )
+      assert.notEqual(missing.code, 0)
+      assert.match(missing.stderr, /no serviceradar-nats deb package for arm64/)
+    },
+  )
+})
+
+test("edge install collector without --version uses the latest package and waits for the local leaf", async () => {
+  await withServer(
+    (req, res) => {
+      if (req.path === "/api/admin/collectors/col-1") {
+        return json(res, 200, {
+          id: "col-1",
+          collector_type: "netflow",
+          status: "ready",
+          edge_site_id: "site-1",
+          edge_site: {slug: "branch-1", nats_url: "tls://127.0.0.1:4222"},
+        })
+      }
+      if (req.path === "/api/admin/collectors/col-2") {
+        return json(res, 200, {id: "col-2", collector_type: "flowgger", status: "ready"})
+      }
+      if (req.path === "/github/releases/latest") return json(res, 200, latestRelease(LATEST_PACKAGES))
+      return json(res, 404, {})
+    },
+    async (instance) => {
+      const bound = await runCli(
+        ["edge", "install", "collector", "--instance", instance, "--id", "col-1", "--token", "collectorpkg-v2:x", "--release-api-url", `${instance}/github/releases/latest`, ...DRY],
+        {env: TOKEN_ENV},
+      )
+      assert.equal(bound.code, 0, bound.stderr)
+      assert.match(bound.stdout, /serviceradar-flow-collector-9\.9\.9-1\.x86_64\.rpm/)
+      const confirm = bound.stdout.indexOf("confirm the local NATS leaf is active")
+      const bundle = bound.stdout.indexOf("/api/collectors/col-1/bundle")
+      assert.ok(confirm !== -1 && bundle !== -1 && confirm < bundle, bound.stdout)
+      assert.match(bound.stdout, /writes to tls:\/\/127\.0\.0\.1:4222/)
+
+      const unbound = await runCli(
+        ["edge", "install", "collector", "--instance", instance, "--id", "col-2", "--token", "collectorpkg-v2:x", "--release-api-url", `${instance}/github/releases/latest`, ...DRY],
+        {env: TOKEN_ENV},
+      )
+      assert.equal(unbound.code, 0, unbound.stderr)
+      assert.match(unbound.stdout, /serviceradar-log-collector-9\.9\.9-1\.x86_64\.rpm/)
+      assert.equal(unbound.stdout.includes("confirm the local NATS leaf"), false)
     },
   )
 })

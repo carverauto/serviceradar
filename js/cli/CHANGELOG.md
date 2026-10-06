@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `edge install leaf` and `edge install collector` download the matching package
+  from the latest GitHub release when `--version` is omitted. `--version` still
+  pins a release. `edge install agent` still requires `--version`.
+- Leaf install confirms `serviceradar-nats` is active after `setup.sh`. A
+  collector bound to an edge site is not configured until that service is
+  active, and its bundle writes to the local leaf.
+
 ## 0.2.0
 
 - Edge onboarding from the CLI: `agent list`; `edge package create|list|show|revoke|download`;
