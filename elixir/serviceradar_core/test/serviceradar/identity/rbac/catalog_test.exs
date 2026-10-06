@@ -245,6 +245,16 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     end
   end
 
+  test "field survey ingest is an operator permission viewers do not hold" do
+    keys = Catalog.permission_keys()
+
+    assert "field_survey.ingest" in keys
+    assert MapSet.member?(Catalog.permissions_for_role(:admin), "field_survey.ingest")
+    assert MapSet.member?(Catalog.permissions_for_role(:operator), "field_survey.ingest")
+    refute MapSet.member?(Catalog.permissions_for_role(:helpdesk), "field_survey.ingest")
+    refute MapSet.member?(Catalog.permissions_for_role(:viewer), "field_survey.ingest")
+  end
+
   describe "permission metadata" do
     test "every catalog entry declares section, resource, and action" do
       for section <- Catalog.catalog(), permission <- section.permissions do

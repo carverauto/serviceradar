@@ -32,11 +32,14 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         end
       )
 
-    assert {:ok, state} = FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+    assert {:ok, state} =
+             FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+
     assert state.message_count == 1
     assert state.bytes_received == byte_size(@payload)
     assert state.rows_received == 2
     assert state.frames_archived == 1
+
     assert_receive {:rf_insert, "survey-rf", [%{bssid: "00:11:22:33:44:55"}, %{bssid: "66:77:88:99:aa:bb"}]}
 
     assert_receive {:archive_frame, @payload,
@@ -73,10 +76,13 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         end
       )
 
-    assert {:ok, state} = FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+    assert {:ok, state} =
+             FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+
     assert state.rows_received == 1
     assert state.frames_archived == 1
     assert_receive {:pose_insert, "survey-pose", [%{scanner_device_id: "iphone-1"}]}
+
     assert_receive {:archive_frame, %{stream_type: :pose_samples, row_count: 1, decode_status: :ok}}
   end
 
@@ -101,7 +107,9 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         end
       )
 
-    assert {:ok, state} = FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+    assert {:ok, state} =
+             FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+
     assert state.rows_received == 3
     assert state.frames_archived == 1
 
@@ -127,7 +135,9 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         end
       )
 
-    assert {:ok, state} = FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+    assert {:ok, state} =
+             FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+
     assert state.message_count == 1
     assert state.bytes_received == byte_size(@payload)
     assert state.rows_received == 0
@@ -151,7 +161,8 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
         stream_type: :rf_observations
       )
 
-    assert {:ok, ^state} = FieldSurveyArrowStreamHandler.handle_in({"hello", [opcode: :text]}, state)
+    assert {:ok, ^state} =
+             FieldSurveyArrowStreamHandler.handle_in({"hello", [opcode: :text]}, state)
   end
 
   test "rejects oversized binary frames before decoding" do
@@ -165,7 +176,38 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
     oversized_payload = :binary.copy(<<0>>, 8 * 1024 * 1024 + 1)
 
     assert {:stop, :normal, {1009, "FieldSurvey frame too large"}, ^state} =
-             FieldSurveyArrowStreamHandler.handle_in({oversized_payload, [opcode: :binary]}, state)
+             FieldSurveyArrowStreamHandler.handle_in(
+               {oversized_payload, [opcode: :binary]},
+               state
+             )
+  end
+
+  test "stops the socket once the frame budget is spent" do
+    parent = self()
+
+    {:ok, state} =
+      init_handler(
+        session_id: "survey-budget",
+        user_id: "user-1",
+        stream_type: :rf_observations,
+        max_frames: 1,
+        decode_rf_payload: fn payload ->
+          send(parent, {:decoded, payload})
+          {:ok, []}
+        end,
+        bulk_insert_rf: fn _session_id, _observations -> true end,
+        archive_frame: fn _payload, _metadata -> true end
+      )
+
+    assert {:ok, state} =
+             FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+
+    assert_receive {:decoded, @payload}
+
+    assert {:stop, :normal, {1008, "FieldSurvey frame limit reached"}, ^state} =
+             FieldSurveyArrowStreamHandler.handle_in({@payload, [opcode: :binary]}, state)
+
+    refute_receive {:decoded, _}
   end
 
   test "rejects streams when the limiter denies the session" do

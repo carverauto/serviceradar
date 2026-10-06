@@ -88,12 +88,26 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireConfigurationScope do
   defp scope_allows?(scope, _conn, _opts) when scope in ["write", "admin"], do: true
 
   defp scope_allows?("read", conn, opts) do
-    conn.method in ["GET", "HEAD", "OPTIONS"] or read_only_post?(conn, opts)
+    not field_survey_ingest_upgrade?(conn) and
+      (conn.method in ["GET", "HEAD", "OPTIONS"] or read_only_post?(conn, opts))
   end
 
   defp scope_allows?(scope, conn, _opts) do
     scope not in NarrowScopes.coarse() and
       NarrowScopes.allowed?([scope], conn.method, conn.request_path)
+  end
+
+  # The ingest sockets are GET upgrades. A read grant must not claim a session
+  # or open a stream. The auth-check probe stays a read.
+  defp field_survey_ingest_upgrade?(conn) do
+    case Enum.map(conn.path_info, &URI.decode/1) do
+      ["v1", "field-survey", _session_id, stream]
+      when stream in ["rf-observations", "pose-samples", "spectrum-observations"] ->
+        true
+
+      _ ->
+        false
+    end
   end
 
   defp read_only_post?(%{method: "POST"} = conn, opts) do

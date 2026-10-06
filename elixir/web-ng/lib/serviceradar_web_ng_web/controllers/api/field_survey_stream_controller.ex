@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
   alias ServiceRadarWebNG.FieldSurveyRoomArtifacts
   alias ServiceRadarWebNG.FieldSurveySessionMetadata
   alias ServiceRadarWebNG.FieldSurveySessionOwnership
+  alias ServiceRadarWebNG.RBAC
 
   require Logger
 
@@ -43,7 +44,9 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
         content_type = content_type(conn)
         content_length = conn |> get_req_header("content-length") |> List.first()
 
-        with {:ok, session_id} <- FieldSurveySessionOwnership.claim_or_verify(session_id, to_string(user_id)),
+        with :ok <- authorize_ingest(scope),
+             {:ok, session_id} <-
+               FieldSurveySessionOwnership.claim_or_verify(session_id, to_string(user_id)),
              {:ok, body, conn} <- read_artifact_body(conn),
              {:ok, artifact} <-
                FieldSurveyRoomArtifacts.store(session_id, to_string(user_id), body,
@@ -75,6 +78,11 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
             |> put_status(:bad_request)
             |> json(%{ok: false, error: "invalid_session_id"})
 
+          {:error, :missing_permission} ->
+            conn
+            |> put_status(:forbidden)
+            |> json(%{ok: false, error: "missing_permission"})
+
           {:error, :forbidden} ->
             Logger.warning(
               "Rejecting FieldSurvey room artifact upload: forbidden [session: #{session_id}, user: #{user_id}, artifact_type: #{inspect(artifact_type)}]"
@@ -83,6 +91,11 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
             conn
             |> put_status(:forbidden)
             |> json(%{ok: false, error: "session_owned_by_another_user"})
+
+          {:error, :too_many_sessions} ->
+            conn
+            |> put_status(:too_many_requests)
+            |> json(%{ok: false, error: "too_many_sessions"})
 
           {:error, :artifact_too_large} ->
             Logger.warning(
@@ -121,9 +134,11 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
 
   defp connect(conn, session_id, stream_type) do
     case conn.assigns[:current_scope] do
-      %{user: %{id: user_id}} ->
-        with :ok <- validate_websocket_upgrade(conn),
-             {:ok, session_id} <- FieldSurveySessionOwnership.claim_or_verify(session_id, to_string(user_id)),
+      %{user: %{id: user_id}} = scope ->
+        with :ok <- authorize_ingest(scope),
+             :ok <- validate_websocket_upgrade(conn),
+             {:ok, session_id} <-
+               FieldSurveySessionOwnership.claim_or_verify(session_id, to_string(user_id)),
              :ok <- persist_session_metadata(conn, session_id, user_id) do
           Logger.info("Upgrading FieldSurvey #{stream_type} Arrow stream for user #{user_id}, session: #{session_id}")
 
@@ -136,6 +151,11 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
           )
           |> halt()
         else
+          {:error, :missing_permission} ->
+            conn
+            |> put_status(:forbidden)
+            |> json(%{ok: false, error: "missing_permission"})
+
           {:error, :websocket_required} ->
             conn
             |> put_status(426)
@@ -151,6 +171,11 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
             |> put_status(:forbidden)
             |> json(%{ok: false, error: "session_owned_by_another_user"})
 
+          {:error, :too_many_sessions} ->
+            conn
+            |> put_status(:too_many_requests)
+            |> json(%{ok: false, error: "too_many_sessions"})
+
           {:error, reason} ->
             Logger.error("FieldSurvey stream ownership check failed: #{inspect(reason)}")
 
@@ -163,6 +188,14 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
         conn
         |> put_status(:unauthorized)
         |> json(%{ok: false, error: "unauthorized"})
+    end
+  end
+
+  defp authorize_ingest(scope) do
+    if RBAC.can?(scope, "field_survey.ingest") do
+      :ok
+    else
+      {:error, :missing_permission}
     end
   end
 
@@ -247,6 +280,7 @@ defmodule ServiceRadarWebNGWeb.Api.FieldSurveyStreamController do
 
       {:error, reason} ->
         Logger.warning("FieldSurvey session metadata persist failed [session: #{session_id}]: #{inspect(reason)}")
+
         :ok
     end
   end
