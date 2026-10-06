@@ -85,6 +85,8 @@ async function siteShowCommand(options: Record<string, any>): Promise<void> {
     ["status", site?.status],
     ["leaf status", leafStatus(site)],
     ["leaf upstream", site?.leaf_server?.upstream_url],
+    ["leaf listen", site?.leaf_server?.local_listen],
+    ["collector url", site?.leaf_server?.client_url || site?.nats_leaf_url],
     ["nats leaf url", site?.nats_leaf_url],
     ["created", site?.inserted_at],
   ])

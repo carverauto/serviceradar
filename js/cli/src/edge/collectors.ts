@@ -68,7 +68,7 @@ async function collectorCreateCommand(options: Record<string, any>): Promise<voi
     console.log(`  ${token}`)
     console.log("")
     console.log("On the edge host, as root:")
-    console.log(`  serviceradar-cli edge install collector --instance ${session.instance} --id ${pkg?.id} --token '<enrollment token>' --version <release>`)
+    console.log(`  serviceradar-cli edge install collector --instance ${session.instance} --id ${pkg?.id} --token '<enrollment token>'`)
   } else {
     console.warn(
       "! The server did not return an enrollment token for this collector.\n" +
@@ -146,6 +146,7 @@ function printCollector(title: string, pkg: any): void {
     ["hostname", pkg?.hostname],
     ["edge site", pkg?.edge_site?.slug || pkg?.edge_site_id],
     ["nats leaf url", pkg?.edge_site?.nats_leaf_url],
+    ["writes to", pkg?.edge_site?.nats_url || pkg?.edge_site?.nats_leaf_url],
     ["downloaded", pkg?.downloaded_at],
     ["revoked", pkg?.revoked_at],
     ["error", pkg?.error_message],

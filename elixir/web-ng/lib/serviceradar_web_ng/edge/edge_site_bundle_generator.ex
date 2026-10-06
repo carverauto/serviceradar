@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
     bundle_name = "edge-site-#{edge_site.slug}"
     with_credentials = is_binary(nats_creds)
-    template_opts = [with_credentials: with_credentials]
+    template_opts = [with_credentials: with_credentials, local_listen: leaf_server.local_listen]
 
     files = [
       # NATS configuration

@@ -51,6 +51,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteControllerTest do
     assert site["slug"] == "nyc-office-#{u}"
     assert site["status"] == "pending"
     assert %{"status" => "pending", "upstream_url" => "tls://" <> _} = site["leaf_server"]
+    assert site["leaf_server"]["local_listen"] == "0.0.0.0:4222"
+    assert site["leaf_server"]["client_url"] == "tls://127.0.0.1:4222"
 
     listed = conn |> get(~p"/api/admin/edge-sites") |> json_response(200)
     assert Enum.any?(listed["data"], &(&1["id"] == site["id"]))

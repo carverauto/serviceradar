@@ -148,7 +148,8 @@ Edge onboarding subcommands (run \`serviceradar-cli edge help\` for every flag):
   serviceradar-cli collector create      --instance <url> --type flowgger|trapd|netflow|sflow|otel [--edge-site <id>]
   serviceradar-cli collector list|show|revoke|download
   serviceradar-cli nats account status   --instance <url>
-  serviceradar-cli edge install agent|leaf|collector ... --version <release> [--dry-run]   (as root, on the edge host)
+  serviceradar-cli edge install agent --version <release> [--dry-run]   (as root; version required)
+  serviceradar-cli edge install leaf|collector [--version <release>] [--dry-run]   (latest GitHub package when omitted)
 
 Auth subcommands:
   serviceradar-cli auth login   --instance <url> [--scope "<scopes>"] [--no-browser] [--ca-file <pem>] [--token <existing-token>]

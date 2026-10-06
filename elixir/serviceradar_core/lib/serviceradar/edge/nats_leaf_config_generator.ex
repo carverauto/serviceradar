@@ -313,6 +313,53 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   end
 
   @doc """
+  TLS URL collectors on this host use to reach the leaf.
+
+  A wildcard bind (`0.0.0.0`, `::`, `*`) is not a client address. Collectors
+  installed beside the leaf dial loopback. An operator who places collectors
+  on another machine sets `nats_leaf_url` instead.
+  """
+  @spec client_url(String.t() | nil) :: String.t()
+  def client_url(listen) when is_binary(listen) do
+    trimmed = String.trim(listen)
+
+    cond do
+      trimmed == "" ->
+        "tls://127.0.0.1:4222"
+
+      String.starts_with?(trimmed, "tls://") ->
+        trimmed
+
+      true ->
+        {host, port} = split_listen(trimmed)
+        "tls://#{format_client_host(loopback_host(host))}:#{port}"
+    end
+  end
+
+  def client_url(_listen), do: "tls://127.0.0.1:4222"
+
+  defp split_listen(listen) do
+    case Regex.run(~r/^\[([^\]]+)\]:(\d+)$/, listen) do
+      [_, host, port] ->
+        {host, port}
+
+      _ ->
+        case Regex.run(~r/^([^:]+):(\d+)$/, listen) do
+          [_, host, port] -> {host, port}
+          _ -> {"127.0.0.1", "4222"}
+        end
+    end
+  end
+
+  defp loopback_host(host) when host in ["0.0.0.0", "*", ""], do: "127.0.0.1"
+  defp loopback_host("::"), do: "::1"
+  defp loopback_host(host), do: host
+
+  defp format_client_host(host) do
+    if String.contains?(host, ":"), do: "[#{host}]", else: host
+  end
+
+  @doc """
   Generates the README for the edge site bundle.
   """
   @spec generate_readme(map(), keyword()) :: String.t()
@@ -375,7 +422,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     Collectors deployed at this site should connect to:
 
     ```
-    #{edge_site.nats_leaf_url || "tls://localhost:4222"}
+    #{collector_client_url(edge_site, opts)}
     ```
 
     The local listener requires TLS with a client certificate from the
@@ -394,6 +441,13 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     configuration in the ServiceRadar admin console, download a new bundle and
     run `setup.sh` again.
     """
+  end
+
+  defp collector_client_url(edge_site, opts) do
+    case Map.get(edge_site, :nats_leaf_url) do
+      url when is_binary(url) and url != "" -> url
+      _ -> client_url(Keyword.get(opts, :local_listen))
+    end
   end
 
   defp shell_single_quote(value) do

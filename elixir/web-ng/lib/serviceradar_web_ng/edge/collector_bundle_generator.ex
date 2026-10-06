@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Edge.NatsLeafConfigGenerator
   alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNG.TempArchive
   alias ServiceRadarWebNG.Web.EndpointConfig
@@ -828,40 +829,52 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   Priority order:
   1. Explicit :nats_url in opts
-  2. Edge site's nats_leaf_url (if package is assigned to an edge site)
-  3. Default NATS URL from config
+  2. Edge site's nats_leaf_url, when the operator set one
+  3. The leaf's local TLS client URL, when the package is assigned to an edge site
+  4. Default NATS URL from config
 
-  The edge site relationship must be preloaded on the package for option 2 to work.
+  The edge site relationship must be preloaded on the package for options 2 and 3.
+  A collector on the leaf host dials that local URL. `nats_leaf_url` remains the
+  override for a collector that is not on the leaf host.
   """
   @spec get_nats_url(CollectorPackage.t(), keyword()) :: String.t()
   def get_nats_url(package, opts \\ []) do
     cond do
-      # Explicit override takes precedence
       Keyword.has_key?(opts, :nats_url) ->
         Keyword.get(opts, :nats_url)
 
-      # Edge site with configured NATS leaf URL
       edge_site_nats_url(package) != nil ->
         edge_site_nats_url(package)
 
-      # Fall back to default NATS URL
+      edge_site?(package) ->
+        NatsLeafConfigGenerator.client_url(edge_site_listen(package))
+
       true ->
         default_nats_url()
     end
   end
 
-  # Extract NATS leaf URL from preloaded edge site, if available
   defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}}) when is_binary(url) and url != "" do
     url
   end
 
   defp edge_site_nats_url(_package), do: nil
 
+  defp edge_site?(%{edge_site: %EdgeSite{}}), do: true
+  defp edge_site?(_package), do: false
+
+  defp edge_site_listen(%{edge_site: %EdgeSite{nats_leaf_server: %{local_listen: listen}}})
+       when is_binary(listen) and listen != "" do
+    listen
+  end
+
+  defp edge_site_listen(_package), do: nil
+
   @doc """
   Returns whether the package is configured for edge site deployment.
   """
   @spec edge_site_deployment?(CollectorPackage.t()) :: boolean()
   def edge_site_deployment?(package) do
-    edge_site_nats_url(package) != nil
+    edge_site?(package)
   end
 end

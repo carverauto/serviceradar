@@ -164,12 +164,15 @@ names the `settings.edge.manage` permission your account needs.
 
 The `edge install` helpers run on the edge host as root. Each prints every
 action before taking it, and `--dry-run` prints the plan without root and
-without changing anything. They download packages from the GitHub release
-for `--version`
-(`https://github.com/carverauto/serviceradar/releases/download/v<ver>/`). The
-server does not report its version to the CLI, so `--version` is required:
-use the release shown in the web UI. `--format rpm|deb` and `--arch` override
-host detection.
+without changing anything. `edge install agent` downloads the package for
+`--version` from
+`https://github.com/carverauto/serviceradar/releases/download/v<ver>/`, and
+`--version` is required because the agent must match the tenant. `edge install
+leaf` and `edge install collector` omit `--version` to download the matching
+package from the latest GitHub release; pass `--version` to pin one.
+`--format rpm|deb` and `--arch` override host detection. A collector assigned
+to an edge site is configured only after `serviceradar-nats` is active, and
+the bundle points it at that local leaf.
 
 ### Walkthrough: Oracle Linux 9 edge host
 
@@ -181,8 +184,8 @@ root, they read root's `~/.config/serviceradar` credentials, and RHEL-family
 sudo -i
 dnf module install -y nodejs:20           # or any Node >= 20
 npm install -g @carverauto/serviceradar-cli
-export SERVICERADAR_INSTANCE=https://acme.serviceradar.cloud
-export SR_VERSION=1.4.81                  # the release your tenant runs
+export SERVICERADAR_INSTANCE=https://tenant.example
+export SR_VERSION=1.4.81                  # the release the tenant runs; the agent package must match
 
 # 1. Log in. The default scopes include edge.manage.
 srcloud auth login --no-browser
@@ -192,9 +195,10 @@ srcloud nats account status
 srcloud edge site create --name "Branch office 1"
 #    → prints the site id; `srcloud edge site show <site-id>` reports the leaf status
 
-# 3. Install the local NATS leaf. Waits until the leaf is provisioned, installs
-#    serviceradar-nats, fetches the site bundle and runs its setup.sh.
-srcloud edge install leaf --site <site-id> --version $SR_VERSION
+# 3. Install the local NATS leaf. Downloads the latest serviceradar-nats
+#    release, waits until the leaf is provisioned, runs setup.sh, and confirms
+#    serviceradar-nats is active. Pass --version to pin a release.
+srcloud edge install leaf --site <site-id>
 
 # 4. Create an agent package. This prints the package id and a one-time
 #    edgepkg-v3 onboarding token.
@@ -206,10 +210,14 @@ srcloud edge package create --label branch-office-1 --component-type agent
 srcloud edge install agent --package <package-id> --token '<onboarding-token>' --version $SR_VERSION
 srcloud agent list
 
-# 6. Optional: add a collector that publishes through the local leaf.
-srcloud collector create --type sflow --edge-site <site-id>
-#    → prints the collector id and a one-time enrollment token
-srcloud edge install collector --id <collector-id> --token '<enrollment-token>' --version $SR_VERSION
+# 6. Add collectors that publish through the local leaf. Each install downloads
+#    the latest matching package and refuses to apply the bundle until
+#    serviceradar-nats is active. flowgger and otel are logs; netflow and
+#    sflow are flow; trapd is SNMP traps.
+srcloud collector create --type flowgger --edge-site <site-id>
+srcloud edge install collector --id <collector-id> --token '<enrollment-token>'
+srcloud collector create --type netflow --edge-site <site-id>
+srcloud edge install collector --id <collector-id> --token '<enrollment-token>'
 ```
 
 Packages and sites can be created from a workstation too. Only the

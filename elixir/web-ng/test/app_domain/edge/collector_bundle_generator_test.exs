@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
 
   describe "create_tarball/4 for falcosidekick" do
@@ -97,6 +98,41 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
       assert flowgger_toml =~ ~s(format = "auto")
       assert flowgger_toml =~ ~s(rfc3164_timezone = "local")
+    end
+  end
+
+  describe "get_nats_url/2" do
+    @tag :db_free
+    test "an edge site with no leaf URL writes to the local leaf" do
+      package = %CollectorPackage{
+        collector_type: :flowgger,
+        edge_site: %EdgeSite{nats_leaf_url: nil, nats_leaf_server: %{local_listen: "0.0.0.0:4222"}}
+      }
+
+      assert CollectorBundleGenerator.get_nats_url(package) == "tls://127.0.0.1:4222"
+    end
+
+    @tag :db_free
+    test "an explicit edge site leaf URL overrides the local listen address" do
+      package = %CollectorPackage{
+        collector_type: :netflow,
+        edge_site: %EdgeSite{
+          nats_leaf_url: "tls://192.0.2.10:4222",
+          nats_leaf_server: %{local_listen: "0.0.0.0:4222"}
+        }
+      }
+
+      assert CollectorBundleGenerator.get_nats_url(package) == "tls://192.0.2.10:4222"
+    end
+
+    @tag :db_free
+    test "a collector with no edge site keeps the platform NATS URL" do
+      previous = Application.get_env(:serviceradar_web_ng, :nats_url)
+      Application.put_env(:serviceradar_web_ng, :nats_url, "tls://nats.example:4222")
+      on_exit(fn -> restore_nats_url(previous) end)
+
+      assert CollectorBundleGenerator.get_nats_url(%CollectorPackage{collector_type: :sflow}) ==
+               "tls://nats.example:4222"
     end
   end
 
@@ -205,6 +241,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       config_overrides: %{}
     }
   end
+
+  defp restore_nats_url(nil), do: Application.delete_env(:serviceradar_web_ng, :nats_url)
+  defp restore_nats_url(value), do: Application.put_env(:serviceradar_web_ng, :nats_url, value)
 
   defp sample_nats_creds do
     """

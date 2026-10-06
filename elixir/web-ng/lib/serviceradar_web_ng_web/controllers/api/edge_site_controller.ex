@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Edge.NatsLeafConfigGenerator
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.EdgeSiteBundles
   alias ServiceRadarWebNG.RBAC
@@ -130,8 +131,16 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
     }
   end
 
-  defp leaf_server_to_json(%{status: status, upstream_url: upstream_url}),
-    do: %{status: status, upstream_url: upstream_url}
+  defp leaf_server_to_json(%{status: status, upstream_url: upstream_url} = leaf) do
+    listen = Map.get(leaf, :local_listen)
+
+    %{
+      status: status,
+      upstream_url: upstream_url,
+      local_listen: listen,
+      client_url: NatsLeafConfigGenerator.client_url(listen)
+    }
+  end
 
   defp leaf_server_to_json(_), do: nil
 

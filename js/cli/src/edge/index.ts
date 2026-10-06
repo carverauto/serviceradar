@@ -49,9 +49,9 @@ export function printEdgeHelp(): void {
 
   Edge host install helpers (run as root on the edge host; --dry-run prints the plan):
     serviceradar-cli edge install agent     --instance <url> --package <id> --token <onboarding-token> --version <release>
-    serviceradar-cli edge install leaf      --instance <url> --site <id> --version <release>
-    serviceradar-cli edge install collector --instance <url> --id <id> --token <enrollment-token> --version <release> [--type <t>]
-      common: [--format rpm|deb] [--arch x86_64|aarch64] [--release-base-url <url>] [--bundle-dir <dir>] [--dry-run]
+    serviceradar-cli edge install leaf      --instance <url> --site <id> [--version <release>]
+    serviceradar-cli edge install collector --instance <url> --id <id> --token <enrollment-token> [--version <release>] [--type <t>]
+      common: [--format rpm|deb] [--arch x86_64|aarch64] [--release-base-url <url>] [--release-api-url <url>] [--bundle-dir <dir>] [--dry-run]
 
 Every command except \`package download\`, \`install agent\` and \`collector download\`
 needs a CLI token carrying the edge.manage scope (\`serviceradar-cli auth login\`
@@ -61,7 +61,9 @@ bearer through --api-token, because their --token is the onboarding token.
 \`edge package download\` marks the package delivered: its token cannot then be
 used by \`edge install agent\`. Use one or the other.
 
---instance can also come from SERVICERADAR_INSTANCE. --version is the
-ServiceRadar release the tenant runs (e.g. 1.4.81); packages are fetched from
-https://github.com/carverauto/serviceradar/releases/download/v<version>/.`)
+--instance can also come from SERVICERADAR_INSTANCE. --version pins a GitHub
+release (e.g. 1.4.81). It is required for \`edge install agent\`. Leaf and
+collector installs omit it to download the matching package from the latest
+release. A collector bound to an edge site is configured only after the local
+serviceradar-nats service is active, and it writes to that leaf.`)
 }
