@@ -1,5 +1,6 @@
 load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
 load("//build/packaging:packages.bzl", "PACKAGES")
+load("@rules_python//python:py_test.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -13,4 +14,12 @@ exports_files([
 serviceradar_package_from_config(
     name = "log-collector",
     config = PACKAGES["log-collector"],
+)
+
+py_test(
+    name = "flowgger_config_test",
+    size = "small",
+    srcs = ["flowgger_config_test.py"],
+    args = ["$(rootpath :config/flowgger.toml)"],
+    data = ["config/flowgger.toml"],
 )

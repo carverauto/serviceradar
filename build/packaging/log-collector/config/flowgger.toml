@@ -4,7 +4,7 @@
 type = "udp"
 listen = "0.0.0.0:514"
 format = "auto"
-rfc3164_timezone = "local"
+rfc3164_timezone = "UTC"
 
 [output]
 type = "nats"
