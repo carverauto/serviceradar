@@ -4,9 +4,8 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   `:require_plugin_publish_scope`. These are the regression tests for what that
   pipeline must and must not change:
 
-    * an API key whose user holds `plugins.stage` still authorizes, because
-      `RequireOauthScope` falls back to the RBAC permission when no OAuth scope
-      assign is present;
+    * an API key whose user holds `plugins.stage` is refused because it has no
+      delegated `plugin.publish` scope;
     * a CLI token granted `plugin.publish` authorizes;
     * a CLI token granted only `dashboard.publish` is refused -- the gap this
       change closes.
@@ -18,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import ServiceRadarWebNG.AshTestHelpers,
-    only: [admin_user_fixture: 0, api_token_fixture: 2, user_fixture: 0]
+    only: [admin_user_fixture: 0, api_token_with_raw_fixture: 2, user_fixture: 0]
 
   alias ServiceRadarWebNG.Auth.Guardian
 
@@ -53,19 +52,19 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackagePublishScopeTest do
   end
 
   describe "POST /api/admin/plugin-packages" do
-    test "an API key with plugins.stage still authorizes", %{conn: conn} do
+    test "an API key with plugins.stage is refused", %{conn: conn} do
       admin = admin_user_fixture()
-      token = api_token_fixture(admin, %{})
+      {_token, raw_token} = api_token_with_raw_fixture(admin, %{scope: :admin})
 
       conn =
         conn
-        |> put_req_header("x-api-key", token.token)
+        |> put_req_header("x-api-key", raw_token)
         |> post(~p"/api/admin/plugin-packages", create_params())
 
-      # The assertion is about authorization, not about the package body: any
-      # status other than 401/403 means the pipeline let the caller reach the
-      # controller, which is what this pipeline must not have broken.
-      refute conn.status in [401, 403]
+      assert conn.status == 403
+
+      assert %{"error" => "insufficient_scope", "required" => "plugin.publish"} =
+               json_response(conn, 403)
     end
 
     test "a CLI token scoped plugin.publish authorizes", %{conn: conn} do

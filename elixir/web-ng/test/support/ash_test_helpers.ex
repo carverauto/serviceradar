@@ -201,6 +201,14 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   Creates an API token for the given user.
   """
   def api_token_fixture(user, attrs \\ %{}) do
+    {api_token, _raw_token} = api_token_with_raw_fixture(user, attrs)
+    api_token
+  end
+
+  @doc """
+  Creates an API token and returns both its resource and one-time raw token.
+  """
+  def api_token_with_raw_fixture(user, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
     raw_token = "srk_" <> Base.encode64(:crypto.strong_rand_bytes(32))
 
@@ -213,9 +221,12 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     attrs = Map.merge(defaults, Map.new(attrs))
 
-    ApiToken
-    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
-    |> Ash.create!()
+    api_token =
+      ApiToken
+      |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
+      |> Ash.create!()
+
+    {api_token, raw_token}
   end
 
   # ============================================================================
