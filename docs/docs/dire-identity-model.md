@@ -195,11 +195,13 @@ Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
 `Identity.BatchResolver`), including after the tombstone row has been purged,
 unless an unmerge reversed that merge. Sweep seeding follows the same mapping:
-before creating a batch of seeds, `SweepResultsIngestor` checks the merge rows
-of the uids the addresses derive; a uid that redirects to a survivor takes the
-next free uid from a bounded chain (`Ids.reseeded_device_id/1`) rather than the
-merged-away uid, so a purged seed whose address the sweep revisits never lands
-back under its old id.
+before it creates a batch of seeds, `SweepResultsIngestor` reads the merge rows
+of the uids their addresses derive. A seed whose uid redirects to a survivor
+takes the first uid of a bounded chain (`Ids.reseeded_device_id/1`) that
+resolves to itself, so a merged-away seed that was purged is not re-created
+under its old uid when a sweep finds its address again. A seed whose uid no
+merge names keeps it. A host whose chain has no such uid within the bound is
+not seeded, and is logged.
 
 A strong match in `Identity.Resolver` considers every record that owns one of
 the update's globally-unique MACs, not only the owner of the first MAC found.
