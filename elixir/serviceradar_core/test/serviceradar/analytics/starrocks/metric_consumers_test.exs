@@ -229,7 +229,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     refute sql =~ "target_device_ip IN ()"
   end
 
-  test "latest interface values read the stored sample from the warehouse", %{prev: prev} do
+  test "latest interface rates use the shared counter rule", %{prev: prev} do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
@@ -244,7 +244,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     end
 
     assert {:ok, %{{"sr:host-alpha", 7, "ifInOctets"} => 900.0}} =
-             MetricConsumers.latest_interface_values(
+             MetricConsumers.latest_interface_rates(
                [{"sr:host-alpha", 7, "ifInOctets"}],
                query: query
              )
@@ -262,12 +262,15 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
              "ROW_NUMBER() OVER (PARTITION BY device_id, if_index, metric_name ORDER BY `timestamp` DESC)"
 
     assert sql =~ "sample_rank = 1"
-    refute sql =~ "previous_value"
+    assert sql =~ "previous_value"
+    assert sql =~ "4294967296"
+    assert sql =~ "18446744073709551616"
+    assert sql =~ "rate_value IS NOT NULL"
 
-    assert {:ok, %{}} = MetricConsumers.latest_interface_values([])
+    assert {:ok, %{}} = MetricConsumers.latest_interface_rates([])
 
     assert {:ok, %{}} =
-             MetricConsumers.latest_interface_values(
+             MetricConsumers.latest_interface_rates(
                [{"not a device", 7, "ifInOctets"}],
                query: fn _sql -> flunk("no valid key should reach the warehouse") end
              )

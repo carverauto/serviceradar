@@ -205,30 +205,40 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
   end
 
   @doc """
-  Latest stored sample for each `{device_id, if_index, metric_name}` within
-  five minutes.
+  Per-second rate for each `{device_id, if_index, metric_name}` over the two
+  newest samples in the last five minutes.
 
-  The value is the cumulative counter (or gauge) written by the metric
-  envelope, not a per-second rate. Rate math stays in `counter_rate_sql/1`.
+  The rate is `counter_rate_sql/1`. A missing pair or a reset yields no entry,
+  which callers treat as "skip this sample".
   """
-  @spec latest_interface_values([{String.t(), integer(), String.t()}], keyword()) ::
+  @spec latest_interface_rates([{String.t(), integer(), String.t()}], keyword()) ::
           {:ok, map()} | {:error, term()}
-  def latest_interface_values(keys, opts \\ []) when is_list(keys) do
+  def latest_interface_rates(keys, opts \\ []) when is_list(keys) do
     case latest_predicates(keys) do
       [] ->
         {:ok, %{}}
 
       predicates ->
-        window =
-          "ROW_NUMBER() OVER (PARTITION BY device_id, if_index, metric_name ORDER BY `timestamp` DESC)"
+        series =
+          "(PARTITION BY device_id, if_index, metric_name ORDER BY `timestamp` DESC)"
+
+        elapsed = "TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0"
 
         sql =
-          "SELECT device_id, if_index, metric_name, value FROM (" <>
-            "SELECT device_id, if_index, metric_name, value, #{window} AS sample_rank " <>
+          "SELECT device_id, if_index, metric_name, rate_value FROM (" <>
+            "SELECT device_id, if_index, metric_name, #{counter_rate_sql(elapsed)} AS rate_value " <>
+            "FROM (" <>
+            "SELECT device_id, if_index, metric_name, value, counter_width, " <>
+            "CAST(NULL AS DOUBLE) AS max_rate_per_second, `timestamp`, " <>
+            "LEAD(value) OVER #{series} AS previous_value, " <>
+            "LEAD(`timestamp`) OVER #{series} AS previous_timestamp, " <>
+            "ROW_NUMBER() OVER #{series} AS sample_rank " <>
             "FROM #{Env.table("timeseries_metrics")} " <>
             "WHERE `timestamp` > DATE_ADD(NOW(), INTERVAL -5 MINUTE) " <>
             "AND (#{Enum.join(predicates, " OR ")}) " <>
-            ") latest WHERE sample_rank = 1"
+            ") samples WHERE sample_rank = 1 " <>
+            "AND `timestamp` > previous_timestamp AND previous_value >= 0 AND value >= 0" <>
+            ") rated WHERE rate_value IS NOT NULL"
 
         case query(opts).(sql) do
           {:ok, %{rows: rows}} when is_list(rows) -> {:ok, decode_latest_rows(rows)}
