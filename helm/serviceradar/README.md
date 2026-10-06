@@ -217,7 +217,7 @@ Initial scrape inventory:
 
 | Component | Prometheus coverage | Notes |
 |-----------|---------------------|-------|
-| web-ng | `ServiceMonitor/serviceradar-web-ng` | Scrapes `/metrics` on the existing HTTP service. |
+| web-ng | `ServiceMonitor/serviceradar-web-ng` | Scrapes `/metrics` on the internal metrics port. Auth and the public-port fallback are in [Prometheus Metrics Scraping and Authentication](../../docs/docs/helm-configuration.md#prometheus-metrics-scraping-and-authentication). |
 | core-elx | `ServiceMonitor/serviceradar-core` | Scrapes `/metrics` on the core service port `9090`. |
 | agent-gateway | `ServiceMonitor/serviceradar-agent-gateway` | Scrapes `/metrics` through the internal `serviceradar-agent-gateway-metrics` ClusterIP service. |
 | CNPG | CNPG-managed `PodMonitor` | Enabled through the CNPG cluster monitoring flag. |
