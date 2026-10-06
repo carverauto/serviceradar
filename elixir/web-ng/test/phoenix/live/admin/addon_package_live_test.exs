@@ -905,7 +905,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
              ~s(button[phx-click="delete_assignment"][phx-value-id="#{profile_assignment.id}"])
            )
 
-    assert {:error, %Ash.Error.Query.NotFound{}} = Ash.get(AddonAssignment, manual_assignment.id, actor: actor)
+    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{} | _]}} =
+             Ash.get(AddonAssignment, manual_assignment.id, actor: actor)
 
     assert {:ok, _} = Ash.get(AddonAssignment, profile_assignment.id, actor: actor)
   end

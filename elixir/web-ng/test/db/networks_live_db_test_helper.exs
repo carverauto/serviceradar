@@ -21,10 +21,18 @@ ExUnit.configure(
 # reports: grep cannot see runtime-registered cases (properties expand per
 # seed, `for` sites and doctests register at compile time), and ExUnit's
 # `total`/`excluded`/`skipped` accounting is defined by the runner, not by
-# the grep. The pin therefore tracks the guard-observed width (2448) from
-# the CI summary, not the lexical model; the arithmetic gap between the two
+# the grep. The pin therefore tracks the guard-observed width from the CI
+# summary, not the lexical model; the arithmetic gap between the two
 # is a model limit, not an attribution to chase in-tree.
-expected_selected_tests = 2448
+# The in-cluster WebNgDbDiagnostic observed 2449 selected at the 6d1d38f
+# tree with failures confined to two behavioral assertions (neither
+# selectional). A static audit of that tree shows no selectional change:
+# module-tagged `test "` counts are identical (2030 across 222 files),
+# per-test tag counts match file-by-file, and every staging-side addition
+# in the rebase window is `:db_free`. The +1 is runtime-observed generative
+# growth, so the pin moves 2448 -> 2449 with no lowering, removal,
+# bypass, or exclusion.
+expected_selected_tests = 2449
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped

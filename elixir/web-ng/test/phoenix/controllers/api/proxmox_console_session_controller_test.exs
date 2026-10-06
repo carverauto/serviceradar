@@ -107,13 +107,18 @@ defmodule ServiceRadarWebNGWeb.Api.ProxmoxConsoleSessionControllerTest do
       assert body["error"] == "forbidden"
     end
 
-    test "denies users with console-open but without credential-use permission", %{
-      conn: conn,
-      user: user
-    } do
-      put_test_permissions(user, ["devices.console.open"])
+    test "denies users with console-open but without credential-use permission", %{conn: _conn} do
+      # The create endpoint resolves the caller's authority from persistence
+      # through the per-request scope, so the narrowing has to be a stored
+      # role profile like the stream test below, not a cache entry alone:
+      # a cache-only entry is repopulated from the persisted authority.
+      user = persist_role_profile!(viewer_user_fixture(), ["devices.console.open"])
+      {:ok, token, _claims} = Guardian.create_access_token(user)
 
-      conn = post(conn, ~p"/api/proxmox/console-sessions", %{"device_uid" => "pve-1"})
+      conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+        |> post(~p"/api/proxmox/console-sessions", %{"device_uid" => "pve-1"})
 
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
