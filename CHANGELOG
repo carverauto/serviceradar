@@ -1,3 +1,67 @@
+# ServiceRadar v1.4.84
+
+This release fixes web-ng boot when GeoIP database download is enabled,
+and lands the viewer-reachable security fixes that followed 1.4.83.
+Agent gateways can publish their runtime metrics. Inventory holds a
+device whose source id lives only in metadata.
+
+## Upgrade Notes
+
+- Helm `core.migrations.expectedVersion` is `20261008050000`.
+  The migration since 1.4.83 redefines device hold so a source id that
+  lives only in device metadata is not expired. A sweep can restore an
+  expired device (PR #5370).
+- Web-ng 1.4.83 exits on boot when `GEOLITE_MMDB_DOWNLOAD_ENABLED` is
+  true, because the GeoIP bootstrap and the first-party plugin sync
+  both register a supervisor child named `Task`. 1.4.84 gives those
+  children distinct ids. Clusters that turned the download on against
+  1.4.83 should upgrade before expecting that pod to become ready.
+- The agent-gateway NATS user may publish `metrics.agent_gateway`.
+  Chart 1.4.83 denied that subject, so core-call latency and status
+  buffer depth never reached the warehouse.
+- Web-ng refuses to boot when `SECRET_KEY_BASE` or
+  `TOKEN_SIGNING_SECRET` is shorter than 64 bytes or a known
+  placeholder. The unused web-ng deb and rpm package is removed;
+  web-ng ships as a container image (PR #5368).
+- RFC3164 syslog that omits a zone uses
+  `logCollector.rfc3164Timezone` (Helm default `UTC`). A clock-skew
+  guard keeps a fresh log inside the event-time window (PR #5412).
+
+## Whats New
+
+**1.4.84**
+- Web-ng boots with GeoIP download and first-party plugin sync both
+  enabled (PR #5385).
+- Agent gateway runtime metrics are allowed on NATS (PR #5396).
+- Endpoint inventory queries require an operator permission, and a
+  caller-supplied agent id cannot redirect the query (PR #5402).
+- SRQL rejects unknown entities and decodes backslash escapes inside
+  a quoted `in:` (PR #5405).
+- Field-survey ingest requires `field_survey.ingest`. Read tokens
+  cannot open the ingest streams. Sessions and frames are bounded
+  (PR #5407).
+- The web-ng `/tmp` volume is capped, and multipart bodies on routes
+  that do not publish packages use a lower limit (PR #5408).
+- Promoted `error` and `err` attributes on the log detail are redacted
+  (PR #5409).
+- Remote file-transfer policy is server-owned, and transfers stay bound
+  to the SSH session owner (PR #5410, PR #5382).
+- Dashboard package enablement is bounded to an authorized package
+  (PR #5363).
+- Admin role changes are written to the auth audit trail (PR #5372).
+- Web-ng refuses a weak or placeholder signing secret (PR #5368).
+- A sweep can restore an expired device, and a source id kept only in
+  device metadata holds the device from expiry (PR #5370).
+- Advisory locks are acquired in batches (PR #5375). Profile hourly
+  rollups read less (PR #5349). Result ingestion is bounded (PR #5337).
+- Seasonal state comparisons use UTC (PR #5406). Syslog sender timezone
+  is configurable, with a clock-skew guard (PR #5412). OTLP severity
+  numbers and text normalize (PR #5401). SRQL log stats accept grouped
+  queries and body wildcards (PR #5404).
+- Wasm plugin manifests report schema errors on import (PR #5414).
+- Faker BGP peers use the IPv6 documentation range, and the unused
+  SPIRE upstream default is gone (PR #5369).
+
 # ServiceRadar v1.4.83
 
 This release is mostly a burndown of reliability and scaling defects:
