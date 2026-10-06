@@ -88,7 +88,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
 
       assert updated.role == :operator
 
-      event = UserAuthEvent.latest_of_type!(viewer.id, "role_change")
+      [event] = UserAuthEvent.latest_of_type!(viewer.id, "role_change")
       assert event.user_id == viewer.id
       assert event.actor_user_id == admin.id
       assert event.metadata["old_role"] == "viewer"
