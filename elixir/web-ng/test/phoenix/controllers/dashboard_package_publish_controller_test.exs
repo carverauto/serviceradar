@@ -16,6 +16,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   """
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  import ServiceRadarWebNG.AshTestHelpers, only: [api_token_fixture: 2]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
@@ -111,6 +113,20 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   end
 
   describe "POST /api/v1/dashboard-packages — defense in depth" do
+    test "API key cannot use its owner's RBAC as a publish scope", %{conn: conn} do
+      admin = AccountsFixtures.user_fixture(%{role: :admin})
+      token = api_token_fixture(admin, %{scope: :full_access})
+
+      conn =
+        conn
+        |> put_req_header("x-api-key", token.token)
+        |> publish_multipart(manifest_for("com.test.api-key-scope", @renderer), @renderer, nil)
+
+      body = json_response(conn, 403)
+      assert body["error"] == "insufficient_scope"
+      assert body["required"] == "dashboard.publish"
+    end
+
     test "JWT missing dashboard.publish scope is rejected with 403 insufficient_scope",
          %{conn: conn} do
       # A coarse write grant reaches the publish-specific scope gate.

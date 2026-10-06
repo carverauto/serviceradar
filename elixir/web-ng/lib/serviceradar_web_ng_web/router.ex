@@ -259,21 +259,14 @@ defmodule ServiceRadarWebNGWeb.Router do
   # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
   # `:api_key_auth` so the bearer token is validated first, then this plug
   # rejects any request whose `scopes` claim does not include
-  # `dashboard.publish`. The fallback `cli.dashboard.publish` permission lets
-  # the existing Settings → Dashboard Packages LiveView upload modal continue
-  # to work (session-auth, no JWT, no `oauth_token_scope` assign).
+  # `dashboard.publish`. Browser LiveViews use the dashboard package context
+  # directly and do not call these CLI routes.
   pipeline :require_dashboard_publish_scope do
-    plug(RequireOauthScope,
-      scope: "dashboard.publish",
-      fallback_permission: "cli.dashboard.publish"
-    )
+    plug(RequireOauthScope, scope: "dashboard.publish")
   end
 
   pipeline :require_plugin_publish_scope do
-    plug(RequireOauthScope,
-      scope: "plugin.publish",
-      fallback_permission: "plugins.stage"
-    )
+    plug(RequireOauthScope, scope: "plugin.publish")
   end
 
   # Named rate-limit pipelines backed by ServiceRadar.Security.RateLimiter
@@ -856,8 +849,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   # A sibling of the /api/admin block above so the publish-scope pipeline gates
   # only these two write calls. `GET /plugin-packages/:id` deliberately stays in
   # the general block: it is read-only, a session viewer holds `plugins.view`
-  # rather than `plugins.stage`, and RequireOauthScope's fallback would 403
-  # them. Narrow-scoped CLI tokens still reach it only via `Auth.NarrowScopes`.
+  # rather than `plugins.stage`. Narrow-scoped CLI tokens still reach it only
+  # via `Auth.NarrowScopes`.
   scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through([:api_key_auth, :require_plugin_publish_scope])
 
