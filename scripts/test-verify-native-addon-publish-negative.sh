@@ -77,8 +77,19 @@ fi
 
 if [[ "$1" == "manifest" && "$2" == "fetch" ]]; then
   artifact_title="fixture.linux.amd64.tar.gz"
+  extra_layers=""
   if [[ "${VERIFY_NATIVE_ADDON_FIXTURE_MODE:-}" == "path-traversal" ]]; then
-    artifact_title="../../outside.tar.gz"
+    extra_layers=',
+      {
+        "mediaType": "application/vnd.serviceradar.native-addon.artifact.v1+gzip",
+        "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "annotations": {"org.opencontainers.image.title": "../../outside.tar.gz"}
+      },
+      {
+        "mediaType": "application/vnd.serviceradar.native-addon.artifact-signature.v1+hex",
+        "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "annotations": {"org.opencontainers.image.title": "../../outside.tar.gz.sig"}
+      }'
   fi
   cat <<JSON
 {
@@ -99,7 +110,7 @@ if [[ "$1" == "manifest" && "$2" == "fetch" ]]; then
         "mediaType": "application/vnd.serviceradar.native-addon.artifact-signature.v1+hex",
         "digest": "${signature_digest}",
         "annotations": {"org.opencontainers.image.title": "${artifact_title}.sig"}
-      }
+      }${extra_layers}
     ]
   }
 }

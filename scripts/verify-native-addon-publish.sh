@@ -110,6 +110,8 @@ PY
     # ed25519 signature, pairing layers by title (<tarball> and <tarball>.sig).
     artifact_count=0
     seen_artifact_titles=()
+    artifact_digests=()
+    artifact_signature_digests=()
     while IFS=$'\t' read -r title digest; do
       [[ -n "${title}" ]] || continue
       if [[ ! "${title}" =~ ^[A-Za-z0-9._-]+\.tar\.gz$ ]]; then
@@ -140,11 +142,8 @@ PY
         echo "error: ${ref} artifact ${title} is missing its signature layer" >&2
         exit 1
       fi
-      tarball_path="${TMP_DIR}/artifact-${artifact_count}.tar.gz"
-      sig_path="${TMP_DIR}/artifact-${artifact_count}.tar.gz.sig"
-      "${ORAS_BIN}" blob fetch --output "${tarball_path}" "${repo}@${digest}" >/dev/null
-      "${ORAS_BIN}" blob fetch --output "${sig_path}" "${repo}@${sig_digest}" >/dev/null
-      "${ARTIFACT_SIGNATURE_TOOL}" verify --artifact "${tarball_path}" --signature "@${sig_path}"
+      artifact_digests+=("${digest}")
+      artifact_signature_digests+=("${sig_digest}")
       artifact_count=$((artifact_count + 1))
     done < <(jq -r --arg m "${_ARTIFACT_MEDIA_TYPE}" \
       '.layers[] | select(.mediaType == $m) | [.annotations["org.opencontainers.image.title"], .digest] | @tsv' <<<"${content}")
@@ -156,6 +155,14 @@ PY
       echo "error: ${ref} native add-on artifact count mismatch: expected ${#expected_artifact_titles[@]}, got ${artifact_count}" >&2
       exit 1
     fi
+
+    for ((artifact_index = 0; artifact_index < artifact_count; artifact_index++)); do
+      tarball_path="${TMP_DIR}/artifact-${artifact_index}.tar.gz"
+      sig_path="${TMP_DIR}/artifact-${artifact_index}.tar.gz.sig"
+      "${ORAS_BIN}" blob fetch --output "${tarball_path}" "${repo}@${artifact_digests[artifact_index]}" >/dev/null
+      "${ORAS_BIN}" blob fetch --output "${sig_path}" "${repo}@${artifact_signature_digests[artifact_index]}" >/dev/null
+      "${ARTIFACT_SIGNATURE_TOOL}" verify --artifact "${tarball_path}" --signature "@${sig_path}"
+    done
     echo "  verified ${artifact_count} per-arch artifact signature(s)"
 
     if cosign_init_verify_args; then
