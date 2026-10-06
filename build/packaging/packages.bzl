@@ -25,39 +25,6 @@ RELEASE_PACKAGES = [
 ]
 
 PACKAGES = {
-    "web-ng": {
-        "package_name": "serviceradar-web-ng",
-        "description": "ServiceRadar Phoenix web UI (web-ng)",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "rpm_tags": [],
-        "files": [
-            {
-                "src": "//elixir/web-ng:release_tar",
-                "dest": "/usr/local/share/serviceradar-web-ng/serviceradar-web-ng.tar.gz",
-                "mode": "0644",
-            },
-            {
-                "src": "config/web-ng.env",
-                "dest": "/etc/serviceradar/web-ng.env",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-web-ng.service",
-            "dest": "/lib/systemd/system/serviceradar-web-ng.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/web-ng.env",
-        ],
-    },
     "agent": {
         "package_name": "serviceradar-agent",
         "description": "ServiceRadar Agent Service",
@@ -445,7 +412,7 @@ PACKAGES = {
             {
                 # JetStream stream sizes (small profile). nats-server.conf reads
                 # max_file_store from it, and the NATS, datasvc, log-collector,
-                # flow-collector, bmp-collector, core-elx and web-ng units load
+                # flow-collector, bmp-collector and core-elx units load
                 # it with EnvironmentFile=.
                 "src": "config/jetstream-sizes.env",
                 "dest": "/etc/serviceradar/jetstream-sizes.env",
