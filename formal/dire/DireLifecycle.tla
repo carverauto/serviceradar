@@ -32,13 +32,7 @@ CONSTANTS
     ExpiryEnabled,    \* DeviceCleanupSettings ephemeral_expiry_enabled
     RetirementEnabled \* DeviceCleanupSettings source_retirement_enabled
 
-KnownBugs == {
-    \* SweepResultsIngestor restores a tombstone only when restore_eligible?/1 finds a discovery
-    \* source other than the sweep, so an expired sweep-only device never comes back, and
-    \* update_device_statuses_available/3 has no deleted_at filter, so the sweep writes the
-    \* availability of a tombstone it did not restore (add-source-id-succession D12).
-    "sweep_refreshes_expired_tombstone"
-}
+KnownBugs == {}
 
 ASSUME Bugs \subseteq KnownBugs
 ASSUME NoDev \notin Devices /\ NoIp \notin Ips
@@ -311,17 +305,20 @@ Expire(u) ==
 
 \* SweepResultsIngestor.ingest_results/3 for an address p that answered. DeviceLookup
 \* (include_deleted: true) prefers the live holder of p and otherwise falls back to a tombstone;
-\* which tombstone wins is left nondeterministic. restore_deleted_devices/2 then restores the
+\* which tombstone wins is left nondeterministic. restore_deleted_devices/3 then restores the
 \* match through :restore (which bumps) when the code allows it:
-\*  - a merged-away tombstone never: eligible_restore_uids/1 skips it and records the skip;
+\*  - a merged-away tombstone never: eligible_restore_uids/2 skips it and records the skip;
 \*  - a source_retired or seed_released tombstone never (D5);
-\*  - otherwise only when restore_eligible?/1 finds a discovery source other than "sweep",
-\*    or, once D12 lands, when the tombstone is an expired one, whatever its sources.
-\* update_device_statuses_available/3 then writes the sighting. A live match takes it
-\* (SweepRefresh). Today the UPDATE has no deleted_at filter, so an unrestored tombstone takes it
-\* too; once D12 lands, it is left exactly as it was (SweepSkip). Availability and
-\* last_seen_time are not state here, so neither step changes a modeled variable, and the
-\* appended "sweep" discovery source changes no record's sweep-only flag.
+\*  - an expired tombstone always, whatever its sources (D12);
+\*  - any other tombstone only when restore_eligible?/1 finds a discovery source other than
+\*    "sweep".
+\* update_device_statuses_available/3 then writes the sighting, to a live record only
+\* (deleted_at IS NULL): a live match takes it (SweepRefresh), and an unrestored tombstone is left
+\* exactly as it was (SweepSkip). Availability and last_seen_time are not state here, so neither
+\* step changes a modeled variable, and the appended "sweep" discovery source changes no record's
+\* sweep-only flag. A sweep that finds the address down is not modeled: it restores only a
+\* tombstone an answering sweep restores too, never an expired one, and its hysteresis write
+\* lands on a live record only, so it reaches no state an answering sweep does not.
 \* (The former event_writer/processors/sweep.ex carried a copy of this path but was
 \* unregistered and has been removed, so it never ran; the live sweep path is
 \* sweep_jobs/sweep_results_ingestor.ex.)
@@ -333,7 +330,7 @@ SweepRestorable(d) ==
     /\ status[d] = "tomb"
     /\ reason[d] \notin {"merged"} \cup Retained
     /\ \/ d \notin sweepOnly
-       \/ reason[d] = "expired" /\ ~Bug("sweep_refreshes_expired_tombstone")
+       \/ reason[d] = "expired"
 
 Sweep(p, d) ==
     /\ SweepMatch(p, d)
@@ -342,8 +339,8 @@ Sweep(p, d) ==
             /\ reason' = [reason EXCEPT ![d] = "none"]
             /\ work' = MarkStale(work, {d})
             /\ act' = MkAct("SweepRestore", d, NoDev, 0, FALSE, {d})
-       ELSE /\ act' = MkAct(IF Live(d) \/ Bug("sweep_refreshes_expired_tombstone")
-                            THEN "SweepRefresh" ELSE "SweepSkip", d, NoDev, 0, FALSE, {})
+       ELSE /\ act' = MkAct(IF Live(d) THEN "SweepRefresh" ELSE "SweepSkip",
+                            d, NoDev, 0, FALSE, {})
             /\ UNCHANGED <<status, reason, work>>
     /\ UNCHANGED <<owner, ipOf, audit, marked, arch, sweepOnly>>
 

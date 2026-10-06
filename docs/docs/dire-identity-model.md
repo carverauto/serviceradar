@@ -352,7 +352,11 @@ for dry-run review, execution gates, and device/source allowlists.
   Operator-created devices and devices matching the exclusion SRQL query never expire; a pass
   that would expire more than `ephemeral_expiry_max_fraction` of live devices is refused
   unless the override is set. Telemetry: `[:serviceradar, :inventory, :ephemeral_expiry,
-  :run]`, `:refused` and `:failed` (a raised pass, which never stops the purge). A returning device is restored with a revival audit row.
+  :run]`, `:refused` and `:failed` (a raised pass, which never stops the purge). A returning
+  device is restored with a revival audit row: a sweep that finds its address answering
+  restores it whatever its discovery sources, and so does a sync that reports it again; a
+  sweep that finds the address down leaves it deleted. A sweep never writes its sighting to a
+  tombstone it does not restore.
 - Scheduled duplicate reconciliation (`Identity.DuplicateSweep`) is
   bounded (DB-side duplicate grouping, capped merges per run) and obeys
   the same merge policy as ingest; schedule health is monitored so a

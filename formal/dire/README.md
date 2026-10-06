@@ -83,9 +83,10 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
     archive rows back and bumps the record, live or not. This step, `Reactivate`, is the only
     write that restores a `source_retired` tombstone. Any other sighting of a `source_retired`
     or `seed_released` tombstone is dropped, as the write to a merged-away row is.
-  - `Sweep` matches the live holder of the address, or else a tombstone. It restores the
-    tombstone (`SweepRestore`) by `restore_eligible?/1`'s rule, and otherwise writes the
-    sighting (`SweepRefresh`) or, for a tombstone once D12 lands, leaves it alone (`SweepSkip`).
+  - `Sweep` matches the live holder of the address, or else a tombstone. It restores an expired
+    tombstone whatever its sources, never a merged-away or retained one, and any other by
+    `restore_eligible?/1`'s rule (`SweepRestore`). Otherwise it writes the sighting to a live
+    record (`SweepRefresh`) and leaves a tombstone exactly as it was (`SweepSkip`).
     `SweepCreate` seeds a row that never existed at an address no row holds, and marks it
     sweep-only (`sweepOnly`). Three things clear that flag: a write from any other source, an
     agent check-in, and merging in a record another source found.
@@ -164,9 +165,11 @@ Each switch is a defect today's code has, confirmed against the code before it w
 Each is fixed by a decision in `openspec/changes/add-source-id-succession/design.md`, or
 listed there as an open question until one is made; a new defect gets a row here.
 
+No switch is open today: `ResolutionBugs` and `LifecycleBugs` are both empty, and every switch
+the models had is listed under Fixed defects.
+
 | Switch | Model | Code path | Fix | Witness property |
 |---|---|---|---|---|
-| `sweep_refreshes_expired_tombstone` | lifecycle | `SweepResultsIngestor.restore_eligible?/1` restores a tombstone only for a discovery source other than the sweep, so an expired sweep-only device never returns; `update_device_statuses_available/3` has no `deleted_at` filter, so the sweep writes to a tombstone it did not restore. | D12 | `ExpiredDeviceReturns` |
 
 Each witness configuration is `<model>_witness_<switch>`. Code paths are relative to
 `elixir/serviceradar_core/lib/serviceradar/`.
@@ -179,7 +182,7 @@ Each witness configuration is `<model>_witness_<switch>`. Code paths are relativ
 | `alias_merge_on_unknown_mac` | #4610 (`AliasGuard.maybe_merge_ip_alias_device/3` never merges: an identified alias holder has the alias invalidated, an address-only holder is left alone) | `NoFalseMerge`, `AddressNeverMerges` in every `resolution_goal_*` |
 | `upsert_revives_merged` | #4614 (the `DeviceWrites` upsert's `on_conflict` WHERE skips a merged-away row and `follow_merged_away_uids/2` redirects that write's identifiers to the survivor; any other revival bumps `identity_revision`) | `RevivalBumpsRevision` in `lifecycle_current` (with #4615), `NoZombieRevival` (with #4615 and #4617); the `upsert_zombie` witness needed this switch and went with it |
 | `gateway_sync_no_bump` | #4615 (an agent check-in restores a soft-deleted device through `Device :gateway_restore`, which bumps `identity_revision`, and follows the merge of a merged-away one; `:gateway_sync` no longer clears a tombstone) | `RevivalBumpsRevision` in `lifecycle_current`; `NoZombieRevival` (with #4614 and #4617) |
-| `sweep_restores_merged` | #4617 (`SweepResultsIngestor.eligible_restore_uids/1` never restores a `deleted_reason = "merged"` tombstone, and logs and counts each skip) | `NoZombieRevival` in `lifecycle_current` (with #4614 and #4615) |
+| `sweep_restores_merged` | #4617 (`SweepResultsIngestor.eligible_restore_uids/2` never restores a `deleted_reason = "merged"` tombstone, and logs and counts each skip) | `NoZombieRevival` in `lifecycle_current` (with #4614 and #4615) |
 | `stale_holder_keeps_address` | #4639 (`DeviceWrites.claim_address_from_holder/4`: a strong-identified write observed at the address (`SourcePolicy.observed_address_source?/1`) more recently than the holder's `last_seen_time` takes it, the stale holder releases it in the same transaction, and an `active_ip_conflict` row records it), then #5085 (D7: `claim_address_from_holder/5` compares `identity_observed_at`, which only an identity-bearing observation writes, where it compared a `last_seen_time` a sweep or a census refreshes; a holder with none is older, and a holder whose source ids have all retired yields to a write carrying a current one) | `ObservedAddressHeld`, `NoSilentDecision` in every `resolution_goal_*`; traces `armis_dhcp` step 8, `agent_stale_armis_holder`, `mapper_stale_address` |
 | `follow_stale_audit` | #4616 (`Resolver.do_follow_canonical/3` follows only a `deleted_reason = "merged"` tombstone) | `NoStaleRedirect`, `MergeGraphAcyclic` in `lifecycle_current`; the `merge_cycle` witness needed this switch and went with it |
 | `unmerge_restores_matches` | #4619 (every merge records the source's own identifiers in `merge_audit.details.source_identifiers`; `MergeEngine.reassign_original_identifiers/4` restores exactly those the survivor still holds) | `UnmergeRestoresExactly` in `lifecycle_current` |
@@ -195,6 +198,7 @@ Each witness configuration is `<model>_witness_<switch>`. Code paths are relativ
 | `armis_alias_pass_blind` | #5135 (D16: `Sync.Aliases` looks an address's aliases up under the partition `AliasEvents` records them under, the device's (`AliasEvents.alias_partition/2`), where it looked under the partition the update's identifiers are filed in, which for a sync naming its integration source is the source's own (`Ids.identifier_partition/2`), and never found one) | `AliasFollowsSyncedDevice` in every `resolution_goal_*`; trace `armis_dhcp` |
 | `foreign_sighting_confirms_alias` | #5135 (D16: `AliasEvents.process_alias/5` records a sighting on the sighted device's own row (`DeviceAliasState.lookup_for_device/4`), where it took the first row of the address, whichever device it named. With a row per device, `Sync.Aliases` and `AliasGuard` handle every confirmed holder of the address but the device itself, every reader that picks one holder takes them in `DeviceAliasState.holder_sort/0`'s order, and a merge folds a row both records hold instead of rolling back on the unique key) | `AliasFollowsSyncedDevice` in every `resolution_goal_*`; traces `src_rekey_succession`, `armis_dhcp_two_holders`, `mapper_prior_alias_holder` |
 | `sweep_recreates_purged_seed` | #PR7NUM (task 9.7: `SweepResultsIngestor.seed_uids/3` reads the merge rows naming the uids a batch's new seeds derive from their addresses; a uid that redirects to a merge survivor gives way to the next uid of the chain `Ids.reseeded_device_id/1` derives that does not, within a bound, and a host whose chain has none, or whose uid cannot be resolved, is not seeded and is logged) | `NoPurgedResurrection` in `lifecycle_current` (with #4620); trace `purged_seed_sweep` |
+| `sweep_refreshes_expired_tombstone` | #PR7NUM (D12: `SweepResultsIngestor.eligible_restore_uids/2` restores an expired (`stale_ephemeral`) tombstone whose address answered, whatever its discovery sources, through `Device :restore`, which bumps `identity_revision` and leaves a `device_revival_audit` row; one the sweep finds down stays deleted. The restore runs before the availability and unavailability updates, which, like the appended `sweep` discovery source, write only a live record (`deleted_at IS NULL`)) | `ExpiredDeviceReturns`, `SweepWritesOnlyLiveRecords` in `lifecycle_current`; traces `expired_sweep_only_returns`, `sweep_restores_merged` |
 | `retired_source_id_vetoes` | #5075 (`Identity.SourceRetirement.run/2`, which `SourceRetirementWorker` runs after an exact Armis collection activates, moves an Armis device id absent from N consecutive exact collections and unreported for T into `device_identifier_archive`, with the `integration_id` derived from it, and records a `source_id_retired` decision naming the proving collections; `SourceAuthorityGuard` reads the archive, so the retired id still vetoes another id and blocks automatic merges) | `OneSourceRecordPerDevice` in every `resolution_goal_*`; traces `src_attach_shared_mac`, `src_rekey_succession` (their `Retire` step) |
 
 `stale_holder_keeps_address` was fixed twice. #4639 fixed a holder that never released the
@@ -311,15 +315,8 @@ turned off (a knockout, `Trace_<name>__knockout.cfg`, written by the test's
 `assert_golden!(demonstrates: switch)`), which proves the defect on the real code. A trace that
 reaches a state breaking a property has a witness (`Trace_<name>__witness.cfg`, written by
 `assert_golden!(witness: property)`), whose target expects `violation:<property>`: the
-property fails on the real code. No trace recorded today has one.
-
-| Trace | Knockout |
-|---|---|
-| `expired_sweep_only_returns` (lifecycle) | `sweep_refreshes_expired_tombstone` |
-| `sweep_restores_merged` (lifecycle) | `sweep_refreshes_expired_tombstone` |
-
-Every other trace is a regression trace of a fixed defect, and these are regression traces too
-for the fixed paths they take.
+property fails on the real code. No trace recorded today has either, since no switch is open:
+every trace is a regression trace.
 
 The resolution traces of the alias fixes (D16, #5135):
 
@@ -383,10 +380,11 @@ The lifecycle regression traces:
   own identifiers.
 - `expire_ephemeral` (#4603) records an address-only device expiring while a hardware-MAC device
   stays, then a sweep restoring it with a bump.
+- `expired_sweep_only_returns` (`sweep_refreshes_expired_tombstone`, D12) records a host only a
+  sweep knows: the sweep seeds it, it expires, and the next sweep, finding it answering,
+  restores its tombstone with a bump, although no other source ever found it.
 - `sweep_restores_merged` (#4617) records a sweep of a merged-away device's old address leaving
-  it deleted. The sweep still writes its sighting to that tombstone (`SweepRefresh`), the
-  defect `sweep_refreshes_expired_tombstone` names, so its knockout requires TLC to reject the
-  trace without the switch, where the model leaves the tombstone alone (`SweepSkip`).
+  it deleted and writing nothing to its tombstone (`SweepSkip`, D12).
 - `purge_recreate` (#4620) records a source carrying a purged merged-away uid landing on the
   survivor.
 - `purged_seed_sweep` (`sweep_recreates_purged_seed`, task 9.7) records a sweep seeding a host,
@@ -400,13 +398,6 @@ The lifecycle regression traces:
   the grace pass deletes it and releases the address, and a sweep there then seeds a new
   record. When the source reports the retired id again at another address, the write
   reactivates the tombstone with a bump.
-
-The lifecycle trace of an open defect:
-
-- `expired_sweep_only_returns` (`sweep_refreshes_expired_tombstone`, D12) records a host only a
-  sweep knows: the sweep seeds it, it expires, and the next sweep finds its tombstone, does not
-  restore it and writes the sighting to it, so it stays deleted. Its knockout requires TLC to
-  reject the trace without the switch, where the model restores the device.
 
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with
@@ -520,7 +511,9 @@ still describes the code. The switches today's code has are listed once, in `Cur
   guard, the mark's conditions and the open-review hold only ever withhold a step, so the model
   checks every path they allow.
 - Availability and `last_seen_time`. A sweep's write to a record changes no modeled variable;
-  only the step's name (`SweepRefresh` or `SweepSkip`) tells a write from none.
+  only the step's name (`SweepRefresh` or `SweepSkip`) tells a write from none. A sweep that
+  finds an address down is not modeled: it restores only a tombstone an answering sweep restores
+  too, never an expired one, and writes only to a live record.
 - What a succession merge writes besides the join. The model's `Succession` step gives the
   survivor the merged record's ids, aliases and evidence and the successor's address. In the
   code the merge also writes the source's metadata to the survivor, and a database trigger (D5)

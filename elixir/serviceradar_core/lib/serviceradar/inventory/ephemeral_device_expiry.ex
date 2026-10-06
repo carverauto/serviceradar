@@ -6,9 +6,10 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
   (randomized) MACs, an IP address -- is ephemeral: a phone that rotates its MAC, or a host a
   sweep found once, can never be recognized again with certainty, so its record has a
   lifetime. Once such a device has not been seen for the configured window it is soft-deleted
-  with `deleted_reason: "stale_ephemeral"`. A device seen again later comes back through the
-  ordinary restore paths (a sweep, a sync), which bump its identity revision and leave a
-  `platform.device_revival_audit` row.
+  with `deleted_reason: "stale_ephemeral"`. A device seen again later comes back: a sweep that
+  finds its address answering restores it whatever its discovery sources, and so does a sync
+  that reports it again, while a sweep that finds the address down leaves it deleted. Either
+  restore bumps its identity revision and leaves a `platform.device_revival_audit` row.
 
   Eligibility is by identity strength, never by source. A device is NEVER expired when it
   holds any of:

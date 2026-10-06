@@ -13,7 +13,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
           <h3 class="text-lg font-semibold text-sr-ink">Inventory Cleanup</h3>
           <p class="text-sm text-sr-muted">
             Expire ephemeral devices, then purge soft-deleted devices after a retention window.
-            Expired and deleted devices are restored if they are discovered again.
+            An expired device is restored when a sweep finds it answering or a sync reports it
+            again. A sweep restores another deleted device only if a source other than the sweep
+            also found it, and never a merged or retired one.
           </p>
         </div>
         <div class="flex items-center gap-2">

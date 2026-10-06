@@ -818,7 +818,10 @@ The change:
 - **A sweep restores a `stale_ephemeral` tombstone it matches**, whatever the device's
   discovery sources, through `Device :restore`, which bumps `identity_revision` and leaves a
   `device_revival_audit` row. Expiry is a judgment that the device is gone; an answer on its
-  address disproves it.
+  address disproves it. Only an answer does: a sweep that finds the address down disproves
+  nothing, so the tombstone stays deleted, whatever its sources. (`restore_eligible?/1` read no
+  answer, so before this change a down report restored an expired device another source had
+  also found.)
 - **Other reasons keep their rules.** A `merged` tombstone redirects to its survivor. A
   `source_retired` (D5) or `seed_released` (D8) tombstone is never restored by a sweep, and a
   `seed_released` tombstone holds no address for a sweep to match. A sweep-only device that an

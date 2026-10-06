@@ -1368,7 +1368,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       available_uids = Enum.filter(available_uids, &MapSet.member?(changed_uid_set, &1))
       unavailable_uids = Enum.filter(unavailable_uids, &MapSet.member?(changed_uid_set, &1))
 
-      restore_deleted_devices(changed_uids, actor)
+      # Before the status updates, which write only live records: a restored device takes the
+      # sighting, and an unrestored tombstone is left exactly as it was.
+      restore_deleted_devices(changed_uids, MapSet.new(available_uids), actor)
 
       recovered_rows =
         update_device_statuses_available(
@@ -1597,13 +1599,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp valid_uuid_or_nil(_value), do: nil
 
-  defp restore_deleted_devices([], _actor), do: :ok
+  defp restore_deleted_devices([], _answered, _actor), do: :ok
 
-  defp restore_deleted_devices(device_uids, actor) do
+  defp restore_deleted_devices(device_uids, answered, actor) do
     case load_deleted_devices(device_uids, actor) do
       {:ok, devices} ->
         devices
-        |> eligible_restore_uids()
+        |> eligible_restore_uids(answered)
         |> restore_eligible_devices(actor)
 
       {:error, reason} ->
@@ -1626,16 +1628,25 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     exception -> {:error, exception}
   end
 
-  defp eligible_restore_uids(devices) do
+  defp eligible_restore_uids(devices, answered) do
     {merged, others} = Enum.split_with(devices, &merged_away?/1)
     {retained, others} = Enum.split_with(others, &Device.retained_tombstone?/1)
     record_restore_skips(merged, "merged-away", @merged_restore_skipped_event)
     record_restore_skips(retained, "retained", @retained_restore_skipped_event)
 
     others
-    |> Enum.filter(&restore_eligible?/1)
+    |> Enum.filter(&sweep_restorable?(&1, answered))
     |> Enum.map(& &1.uid)
   end
+
+  # An expired device (EphemeralDeviceExpiry) returns once its address answers, whatever its
+  # discovery sources (add-source-id-succession D12): expiry judged it gone, and the answer
+  # disproves that. A sweep that finds it down disproves nothing, so it stays deleted. Every
+  # other tombstone keeps restore_eligible?/1's rule.
+  defp sweep_restorable?(%{deleted_reason: "stale_ephemeral", uid: uid}, answered),
+    do: MapSet.member?(answered, uid)
+
+  defp sweep_restorable?(device, _answered), do: restore_eligible?(device)
 
   # A device merged into another is never restored by a sweep (#4617). The address lookup
   # falls back to a tombstone when no live device holds the address, so a sweep that
@@ -1780,6 +1791,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       WHERE uid = ANY($1)
     ) old
     WHERE d.uid = old.uid
+      AND d.deleted_at IS NULL
       AND (
         (
           NULLIF(BTRIM(d.availability_source_agent_id), '') IS NOT NULL
@@ -1862,6 +1874,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       WHERE uid = ANY($1)
     ) old
     WHERE d.uid = old.uid
+      AND d.deleted_at IS NULL
       -- "Available wins" - skip devices recently marked available by another sweep
       -- This prevents multi-agent flapping when one agent can reach device and another can't
       AND NOT (
@@ -1980,6 +1993,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       'sweep'
     )
     WHERE uid = ANY($1)
+    AND deleted_at IS NULL
     AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
     """
 
