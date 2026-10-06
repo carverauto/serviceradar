@@ -135,13 +135,13 @@ defmodule ServiceRadar.Plugins.PluginRepository do
 
     update :record_sync_success do
       description "Stamped by the sync worker so a stale source is visible"
-      accept []
+      accept [:last_sync_summary]
       change set_attribute(:last_sync_at, &DateTime.utc_now/0)
       change set_attribute(:last_sync_error, nil)
     end
 
     update :record_sync_error do
-      accept [:last_sync_error]
+      accept [:last_sync_error, :last_sync_summary]
       change set_attribute(:last_sync_at, &DateTime.utc_now/0)
     end
 
@@ -236,6 +236,18 @@ defmodule ServiceRadar.Plugins.PluginRepository do
     attribute :last_sync_error, :string do
       allow_nil? true
       public? true
+    end
+
+    attribute :last_sync_summary, :map do
+      allow_nil? true
+      public? true
+      default %{}
+
+      description """
+      Outcome of the last auto-sync run: counts and the first per-plugin
+      failure, so the plugins page can show why a run failed without log
+      access. Written only by the sync worker.
+      """
     end
 
     timestamps()
