@@ -3462,7 +3462,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       {:ok, _seed} =
         MapperSeed
-        |> Ash.Changeset.for_create(:create, %{seed: "192.168.1.0/24", mapper_job_id: job.id})
+        |> Ash.Changeset.for_create(:create, %{seed: "192.0.2.0/24", mapper_job_id: job.id})
         |> Ash.create(scope: scope)
 
       {:ok, _job} =

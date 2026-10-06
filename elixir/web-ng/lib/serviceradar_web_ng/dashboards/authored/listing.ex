@@ -64,7 +64,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Listing do
       def set_default_dashboard(%{user: %User{} = user} = scope, target_type, target_id)
           when target_type in [:authored, :package] and is_binary(target_id) do
         homepage = %{"kind" => "dashboard", "target_type" => Atom.to_string(target_type), "target_id" => target_id}
-        attrs = preference_attrs(scope, target_type, target_id, %{favorite: true})
+        attrs =
+          preference_attrs(scope, target_type, target_id, %{favorite: true, is_default: true})
 
         with {:ok, user} <- User.update_homepage_preference(user, homepage, scope: scope),
              {:ok, _preference} <-

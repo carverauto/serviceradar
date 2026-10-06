@@ -1,7 +1,13 @@
 defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
   use ServiceRadarWebNG.DataCase, async: false
 
-  import ServiceRadarWebNG.AshTestHelpers, only: [register_control_session!: 2, system_actor: 0]
+  import ServiceRadarWebNG.AshTestHelpers,
+    only: [
+      actor_for_user: 1,
+      admin_user_fixture: 0,
+      register_control_session!: 2,
+      system_actor: 0
+    ]
 
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Plugins.Plugin
@@ -115,8 +121,15 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
       |> create_package("0.3.2", config_schema: target_schema)
       |> approve_package!()
 
+    # The upgrade newly binds a network credential under a schema that
+    # declares it, which requires settings.credentials.manage. The admin
+    # role holds it (catalog default_roles), so the upgrade crosses the
+    # permission branch; the numeric-clamping assertions below are unchanged.
+    credential_admin = admin_user_fixture()
+    credential_actor = actor_for_user(credential_admin)
+
     assert {:ok, upgraded} =
-             Assignments.upgrade(assignment.id, new_package.id, actor: system_actor())
+             Assignments.upgrade(assignment.id, new_package.id, actor: credential_actor)
 
     assert upgraded.params == %{
              "api_key_secret_ref" => secret_ref,

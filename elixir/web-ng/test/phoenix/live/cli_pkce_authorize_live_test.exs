@@ -29,7 +29,13 @@ defmodule ServiceRadarWebNGWeb.CliPkceAuthorizeLiveTest do
   end
 
   describe "authenticated visitor with cli.session.create" do
-    setup :register_and_log_in_user
+    # A freshly registered user defaults to viewer, which does not hold
+    # cli.session.create; operator is the lowest built-in role that does.
+    setup do
+      user = AccountsFixtures.user_fixture(%{role: :operator})
+      conn = log_in_user(Phoenix.ConnTest.build_conn(), user)
+      %{conn: conn, user: user}
+    end
 
     test "a non-loopback redirect shows an error and no Approve button", %{conn: conn} do
       path =
