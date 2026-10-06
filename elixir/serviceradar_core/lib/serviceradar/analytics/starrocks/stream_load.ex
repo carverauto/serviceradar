@@ -21,6 +21,9 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   @success_status "Success"
   @max_attempts 3
   @retry_budget_ms 90_000
+  # Follower → leader redirects on the FE state API; a small bound keeps a
+  # redirect loop from eating the reconcile budget.
+  @max_state_redirects 3
 
   # Stream Load is a synchronous commit, so the default budget is generous.
   # Callers replaying a backlog pass a shorter `:http_timeout` to bound how
@@ -123,7 +126,21 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
 
         if retry? and remaining(deadline) > delay do
           Process.sleep(delay)
-          mode = if match?({:unresolved_label, _, _}, reason), do: :reconcile, else: :load
+
+          {context, mode} =
+            case reason do
+              # The aborted label persisted nothing; retry the same payload
+              # under a disambiguated label instead of re-colliding with it.
+              {:label_aborted, _aborted} ->
+                {context_with_retry_label(context, attempt + 1), :load}
+
+              {:unresolved_label, _, _} ->
+                {context, :reconcile}
+
+              _ ->
+                {context, :load}
+            end
+
           retry_load(%{context | attempt: attempt + 1, mode: mode})
         else
           result
@@ -183,6 +200,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   defp retryable?({:connect_failed, _label}), do: true
   defp retryable?({{:connect_failed, _cause}, _label}), do: true
   defp retryable?({:unresolved_label, _label, _table}), do: true
+
+  # An aborted transaction persisted nothing, so the same content can be
+  # loaded again under a disambiguated label (retry_label/2) instead of
+  # colliding with the aborted one forever.
+  defp retryable?({:label_aborted, _label}), do: true
   defp retryable?({:http_status, status, _label}), do: status in [408, 429, 500, 502, 503, 504]
 
   defp retryable?({reason, _label})
@@ -242,7 +264,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     config = Keyword.get(opts, :config, %{})
     request = state_request(config, label, opts)
 
-    case http.(request) do
+    case state_with_redirects(http, request, config, @max_state_redirects) do
       {:ok, %{status: status, body: body}} when status in 200..299 ->
         case Jason.decode(body) do
           # `get_load_state` answers with the label's transaction state, and
@@ -263,6 +285,68 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
       _ ->
         {:error, {:unresolved_label, label, table}}
     end
+  end
+
+  # `get_load_state` answers from the FE leader; a follower (the ClusterIP
+  # can route anywhere) replies 307 with the leader's Location. The load path
+  # follows the same class of redirect (`load_once/3`), so reconcile must too:
+  # an unfollowed 307 used to surface as {:unresolved_label, _, _} even though
+  # the label's transaction was VISIBLE on the leader, which JetStream then
+  # redelivered forever under the same already-used label (#5387).
+  #
+  # A redirect is followed only onto the cluster's own FE port: the request
+  # carries `config`, and the HTTP layer re-applies Basic auth from it on every
+  # hop, so credentials must never be steered somewhere other than an FE. A
+  # redirect anywhere else is left unanswered and maps to the unresolved path.
+  defp state_with_redirects(http, request, config, redirects) do
+    case http.(request) do
+      {:ok, %{status: status} = resp} when status in [301, 302, 307, 308] and redirects > 0 ->
+        case redirect_on_fe_port?(request, resp, config) do
+          {:ok, target} ->
+            state_with_redirects(http, %{request | url: target}, config, redirects - 1)
+
+          :error ->
+            {:ok, resp}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp redirect_on_fe_port?(request, resp, config) do
+    with location when is_binary(location) <- location_header(resp),
+         target = URI.merge(URI.parse(request.url), location),
+         fe = URI.parse(Map.get(config, :fe_http, "http://127.0.0.1:8030")),
+         true <- target.port == fe.port do
+      {:ok, URI.to_string(target)}
+    else
+      _ -> :error
+    end
+  end
+
+  # Deterministic per attempt: a given aborted label always retries as the
+  # same suffixed label, so the retry itself stays idempotent under redelivery.
+  defp retry_label(label, attempt), do: "#{label}-a#{attempt}"
+
+  defp context_with_retry_label(context, attempt) do
+    new_label = retry_label(context.opts[:label], attempt)
+
+    %{
+      context
+      | opts: Keyword.put(context.opts, :label, new_label),
+        request: replace_label_header(context.request, new_label)
+    }
+  end
+
+  defp replace_label_header(request, label) do
+    headers =
+      Enum.map(request.headers, fn
+        {"label", _} -> {"label", label}
+        other -> other
+      end)
+
+    %{request | headers: headers}
   end
 
   defp maybe_override_url(request, nil), do: request
