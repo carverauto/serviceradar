@@ -65,7 +65,7 @@ fi
 # env var (set by the installer / config-management tool) or a sysconfig-
 # style file at /etc/serviceradar/nats.env. This matches the
 # `EnvironmentFile=-/etc/serviceradar/*.env` convention used by every other
-# ServiceRadar systemd unit (core-elx, web-ng, agent-gateway, etc.). The
+# ServiceRadar systemd unit (core-elx, agent-gateway, etc.). The
 # value defaults to "default" — the same fallback used by
 # elixir/serviceradar_core/config/runtime.exs and go/pkg/cli/nats_bootstrap.go.
 #

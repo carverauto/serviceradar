@@ -412,7 +412,7 @@ PACKAGES = {
             {
                 # JetStream stream sizes (small profile). nats-server.conf reads
                 # max_file_store from it, and the NATS, datasvc, log-collector,
-                # flow-collector, bmp-collector, core-elx and web-ng units load
+                # flow-collector, bmp-collector and core-elx units load
                 # it with EnvironmentFile=.
                 "src": "config/jetstream-sizes.env",
                 "dest": "/etc/serviceradar/jetstream-sizes.env",
