@@ -324,6 +324,44 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
       assert row["attributes"] == ~s({"http.route":"/cart"})
     end
 
+    test "gauge and counter ingestion metrics keep their delta meaning" do
+      [gauge, counter] =
+        Rows.encode(:metrics, [
+          %{
+            timestamp: ~U[2026-09-22 12:00:00Z],
+            gateway_id: "gateway-example-01",
+            series_key: "lanes:mapper:state",
+            agent_id: "agent-example-01",
+            metric_name: "result_ingestion_pending_count",
+            metric_type: "core.result_ingestion",
+            value: 3.0,
+            unit: "count",
+            partition: "default",
+            is_delta: false,
+            tags: %{}
+          },
+          %{
+            timestamp: ~U[2026-09-22 12:00:00Z],
+            gateway_id: "gateway-example-01",
+            series_key: "lanes:mapper:admitted",
+            agent_id: "agent-example-01",
+            metric_name: "result_ingestion_events_admitted",
+            metric_type: "core.result_ingestion",
+            value: 4.0,
+            unit: "count",
+            partition: "default",
+            is_delta: true,
+            tags: %{}
+          }
+        ])
+
+      # `is_delta: false` is a gauge reading, not an unknown.
+      assert gauge["value"] == 3.0
+      assert gauge["is_delta"] == false
+      assert counter["value"] == 4.0
+      assert counter["is_delta"] == true
+    end
+
     # The id stands for the rest of the CNPG primary key, so a redelivered row
     # upserts in place and two rows CNPG keeps apart stay apart.
     test "a span sample id follows span name, service and span id only" do

@@ -921,6 +921,7 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   defp assert_new_agent_registry_proxy(previous, attempts) do
     case Process.whereis(AgentRegistryProxy) do
       current when is_pid(current) and current != previous ->
+        _state = :sys.get_state(current, 1_000)
         :ok
 
       _other ->

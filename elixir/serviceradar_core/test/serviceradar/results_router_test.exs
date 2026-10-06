@@ -603,59 +603,26 @@ defmodule ServiceRadar.ResultsRouterTest do
   end
 
   test "ingests repeated sync result pages independently" do
+    # Legacy pages carry no final-collection metadata, so they route as
+    # independent payloads instead of activating a durable source snapshot
+    # (which fails closed without a sync service id).
     first_status = %{
       source: "results",
       service_type: "sync",
-      service_name: "sync",
-      agent_id: "agent-1",
-      gateway_id: "gateway-1",
-      partition: "default",
-      chunk_index: 0,
-      total_chunks: 1,
-      is_final: true,
       message:
         Jason.encode!([
-          %{
-            "device_id" => "default:10.0.0.1",
-            "ip" => "10.0.0.1",
-            "sync_meta" => %{
-              "sync_run_id" => "run-1",
-              "chunk_index" => 0,
-              "total_chunks" => 1,
-              "total_devices" => 2,
-              "is_final" => true
-            }
-          },
-          %{
-            "device_id" => "default:10.0.0.2",
-            "ip" => "10.0.0.2",
-            "sync_meta" => %{
-              "sync_run_id" => "run-1",
-              "chunk_index" => 0,
-              "total_chunks" => 1,
-              "total_devices" => 2,
-              "is_final" => true
-            }
-          }
+          %{"device_id" => "default:192.0.2.11", "ip" => "192.0.2.11"},
+          %{"device_id" => "default:192.0.2.12", "ip" => "192.0.2.12"}
         ])
     }
 
     second_status = %{
-      first_status
-      | message:
-          Jason.encode!([
-            %{
-              "device_id" => "default:10.0.0.3",
-              "ip" => "10.0.0.3",
-              "sync_meta" => %{
-                "sync_run_id" => "run-1",
-                "chunk_index" => 0,
-                "total_chunks" => 1,
-                "total_devices" => 1,
-                "is_final" => true
-              }
-            }
-          ])
+      source: "results",
+      service_type: "sync",
+      message:
+        Jason.encode!([
+          %{"device_id" => "default:192.0.2.13", "ip" => "192.0.2.13"}
+        ])
     }
 
     assert :ok = ResultIngestor.process_and_publish(first_status)
@@ -664,8 +631,12 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert_receive {:ingest, first_updates, first_opts}
     assert_receive {:ingest, second_updates, second_opts}
 
-    assert Enum.map(first_updates, & &1["device_id"]) == ["default:10.0.0.1", "default:10.0.0.2"]
-    assert Enum.map(second_updates, & &1["device_id"]) == ["default:10.0.0.3"]
+    assert Enum.map(first_updates, & &1["device_id"]) == [
+             "default:192.0.2.11",
+             "default:192.0.2.12"
+           ]
+
+    assert Enum.map(second_updates, & &1["device_id"]) == ["default:192.0.2.13"]
     assert Keyword.keyword?(first_opts)
     assert Keyword.keyword?(second_opts)
   end
